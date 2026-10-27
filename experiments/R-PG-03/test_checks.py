@@ -9,8 +9,10 @@ five paths to K's state, never pushed; the runs are the fixture's.
 from __future__ import annotations
 
 import json
+import os
 import platform
 import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -331,6 +333,31 @@ def test_the_master_ref_holding_no_frozen_criteria_is_refused(r_k: Any) -> None:
     assert found[f"the master ref's {CRITERIA}"] == common.FROZEN_BLOBS[CRITERIA]
 
 
+def test_r_k_more_than_one_commit_above_r_is_refused(r_k: Any) -> None:  # noqa: ANN401
+    r, k, rs, ks = r_k("two-above", k_commits=2)
+    with pytest.raises(ck.RefusedError, match="R_K's parent"):
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
+
+
+def test_a1_s_four_rubric_digests_are_held(r_k: Any, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN401
+    r, k, rs, ks = r_k("a1-pins")
+    monkeypatch.setitem(common.RUBRIC_SHA256["A1"], "firmware", "0" * 64)
+    with pytest.raises(ck.RefusedError, match="A1 firmware rubric"):
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
+
+
+@pytest.mark.parametrize("path", sorted(common.KNOWLEDGE_TREES))
+def test_the_five_knowledge_trees_are_held_in_r_and_r_k(
+    r_k: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,  # noqa: ANN401
+) -> None:
+    r, k, rs, ks = r_k(f"trees-{Path(path).name}")
+    monkeypatch.setitem(common.KNOWLEDGE_TREES, path, "0" * 40)
+    with pytest.raises(ck.RefusedError, match=f"R {re.escape(path)}"):
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
+
+
 def fills_repo(tmp: Path, steps: list[tuple[str, dict[str, Any], dict[str, str] | None]]) -> Path:
     """A repository whose fills record is written by ``steps``: (subject, record, other files)."""
     repo = tmp / "repo"
@@ -623,3 +650,62 @@ def test_a_packet_with_another_arm_s_knowledge_voids_the_attempt(
     packet.write_text(json.dumps({"knowledge_sha256": {"knowledge/cross/standards.md": "0" * 64}}))
     found = end({**ended, "runs": {**ended["runs"], "A2": run}}, tmp_path, monkeypatch)
     assert "a review's knowledge digests are not its arm's" in found["void_causes"]
+
+
+def on_the_run_machine(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "aarch64")
+
+
+def recorded_session(scratch: Path, n: int, pid: int) -> Path:
+    """A session under a review root whose process record names ``pid``, still running."""
+    sid = fx.session_of(n)
+    d = scratch / "lane-0" / sid / "session"
+    (d / "config").mkdir(parents=True)
+    (d / "config" / ".credentials.json").write_text("{}")
+    (d / "process.json").write_text(json.dumps({"pid": pid, "started": "t", "session_id": sid}))
+    return d
+
+
+@pytest.mark.parametrize("leads", [True, False])
+def test_stop_sessions_signals_only_a_session_that_leads_its_own_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leads: bool
+) -> None:
+    on_the_run_machine(monkeypatch)
+    from physgate.orchestrator import dispatch, processes
+
+    signalled: list[tuple[int, int]] = []
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: signalled.append((pid, sig)))
+    monkeypatch.setattr(processes, "is_session", lambda pid, started, sid: not signalled)
+    monkeypatch.setattr(dispatch, "process_group_of", lambda pid: pid if leads else 1)
+    scratch = tmp_path / "rp3-x1-1-a2"
+    recorded_session(scratch, 1, 424242)
+    got = ck.stop_sessions([scratch])
+    assert signalled == ([(424242, signal.SIGTERM)] if leads else [])
+    assert got["stopped"] == int(leads) and got["login_files_left"] == 0
+
+
+def test_stop_sessions_refuses_a_review_root_that_is_a_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    on_the_run_machine(monkeypatch)
+    real = tmp_path / "elsewhere"
+    recorded_session(real, 1, 424242)
+    (tmp_path / "rp3-x1-1-a2").symlink_to(real)
+    with pytest.raises(ck.RefusedError, match="not a review root"):
+        ck.stop_sessions([tmp_path / "rp3-x1-1-a2"])
+
+
+def test_the_host_check_refuses_a_login_file_it_cannot_confirm_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    on_the_run_machine(monkeypatch)
+    monkeypatch.setattr(ck, "own_processes", lambda: [])
+    monkeypatch.setattr(ck, "HOME", tmp_path)
+    root = tmp_path / common.SCRATCH_NAME / "rp3-x1-1-a2"
+    root.mkdir(parents=True)
+    assert ck.host()["login_files_left"] == 0
+    (tmp_path / "elsewhere").mkdir()
+    (root / fx.session_of(1)).symlink_to(tmp_path / "elsewhere")  # a session reached by a link
+    with pytest.raises(ck.RefusedError, match="not confirmed"):
+        ck.host()

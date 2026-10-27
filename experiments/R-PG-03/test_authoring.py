@@ -446,6 +446,22 @@ def test_the_s_batch_is_held_to_the_instrument_s_rule_for_a_corpus_of_the_standa
         assert got == ["the loader or completeness: CorpusError"], name
 
 
+def test_the_second_batch_may_not_repeat_an_edge_of_the_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The test design is held to no size here, so the edge rule alone decides (§2.1: "none of
+    # x1's edges").
+    from physgate.evaluation.inject import corpus as corpus_module
+
+    monkeypatch.setattr(corpus_module, "require_complete", lambda corpus, per_class: None)
+    batch = fx.write_set(tmp_path / "fresh-v2-x2")
+    edges = au.edges_of(batch)
+    assert edges
+    assert au.check_injections(batch, "2", set(), tmp_path / "w1") == []
+    got = au.check_injections(batch, "2", edges, tmp_path / "w2")
+    assert got == ["an edge of the second batch is one of the first batch's"]
+
+
 # ---- the sheet's routes --------------------------------------------------------------------------
 
 

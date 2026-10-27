@@ -86,8 +86,17 @@ echo "dropped: ${RP3_TOKEN:-none}"
         fx.token_line(DUMMY) + "\n" + fx.token_line(DUMMY),
         fx.token_line("sk-ant-" + "api03-" + "DUMMY-not-a-credential-" + "0" * 10),
         "",
+        fx.token_line(DUMMY) + "\n" + fx.token_line("other", before="export "),
     ],
-    ids=["a-space", "trailing-words", "exported-and-quoted", "two-lines", "another-key", "no-line"],
+    ids=[
+        "a-space",
+        "trailing-words",
+        "exported-and-quoted",
+        "two-lines",
+        "another-key",
+        "no-line",
+        "a-second-line-naming-it",
+    ],
 )
 def test_a_malformed_env_file_is_refused_without_echoing_any_of_it(
     tmp_path: Path, line: str

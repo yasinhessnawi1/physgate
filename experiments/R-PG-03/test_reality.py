@@ -419,6 +419,13 @@ def hand_ff(out: Path, after: int, judged: list[str], sessions: Path) -> None:
         }
     (out / "key.json").write_text(json.dumps(key))
     for (pid, _), vo in zip(sorted(key.items()), judged, strict=True):
+        if vo == "none":  # a packet that never completes: three attempts, no valid form
+            sessions.mkdir(parents=True, exist_ok=True)
+            for n in range(1, rl.MAX_ATTEMPTS + 1):
+                (sessions / f"{pid}.attempt{n}.json").write_text(
+                    json.dumps({"type": "result", "structured_output": {"findings": []}})
+                )
+            continue
         write_attempt(sessions, pid, {"F1": tuple(vo.split(":"))})  # type: ignore[dict-item]
 
 
@@ -577,6 +584,7 @@ CHANGED = {(n, q) for n, q in [("control.balance_loop", "loop_gain")]}
         ("injected", "fail", False, [("true_flaw", "introduced", [])], "U"),
         ("injected", "fail", False, [("not_a_flaw", "n/a", [])], "N"),
         ("twin", "fail", None, [("true_flaw", "introduced", [])], "O-introduced"),
+        ("twin", "fail", None, [("true_flaw", "n/a", [])], "O-unsplit"),
         ("twin", "fail", None, [("undecidable", "n/a", []), ("not_a_flaw", "n/a", [])], "U"),
         ("twin", "pass", None, [], None),
     ],
@@ -948,3 +956,145 @@ def test_a_run_ended_by_sigterm_leaves_no_empty_home_behind(tmp_path: Path, sets
     proc.send_signal(signal.SIGTERM)
     proc.wait(timeout=30)
     assert not any(homes.glob("rp3r.*"))
+
+
+# ---- the readings §6.4 item 6 prints, and the controls' cases -----------------------------------
+
+
+def test_no_packet_of_the_four_generic_classes_carries_a_standards_file(
+    tmp_path: Path, sets: Path
+) -> None:
+    lines = [
+        line(1, "fresh-v2-x1", "c1", "injected", "A2"),
+        line(2, "fresh-v2-x1", "c1", "twin", "B"),
+    ]
+    rl.build_packets(make_work(tmp_path, lines), sets, tmp_path / "p")
+    for q in sorted((tmp_path / "p").glob("Q*.md")):
+        text = q.read_text()
+        for role in common.ROLES:
+            assert rl.STANDARDS_HEADING.format(role=role) not in text
+            assert rl.standards(common.REPO, role).decode()[:200] not in text
+
+
+def test_fresh_v1c_s_rejection_controls_are_drawn_by_a_second_stream_of_their_own(
+    tmp_path: Path, sets: Path
+) -> None:
+    # One eligible line on fresh-v2's version, two on fresh-v1c's: a stream shared with fresh-v2's
+    # draw would take the second of fresh-v1c's lines; a second Random(43) takes the first.
+    lines = [
+        line(1, "fresh-v2-x1", "c1", "injected", "A2", 0, CHANGED_PAIR),
+        line(2, "fresh-v1c-a01-a20", "c1", "injected", "A2", 0, CHANGED_PAIR),
+        line(3, "fresh-v1c-a01-a20", "c1", "injected", "A1", 0, CHANGED_PAIR),
+    ]
+    design = {c: {"c1": {"changed": CHANGED_PAIR}} for c in ("fresh-v2-x1", "fresh-v1c-a01-a20")}
+    work = make_work(tmp_path, lines, design=design)
+    rl.build_packets(work, sets, tmp_path / "p")
+    judge(tmp_path / "p", tmp_path / "s", ALL_TRUE)
+    rl.build_controls(work, sets, tmp_path / "p", tmp_path / "s", tmp_path / "c")
+    key = json.loads((tmp_path / "c" / "key.json").read_text())
+    v1c = [k["findings"]["F1"] for _, k in sorted(key.items()) if k["group"] == "fresh-v1c"]
+    assert v1c == [random.Random(43).choice(["L00002", "L00003"])] == ["L00002"]
+
+
+def scored_with(
+    tmp: Path,
+    sets: Path,
+    lines: list[dict[str, Any]],
+    reviews: list[dict[str, Any]],
+    by_line: dict[str, tuple[str, str]],
+) -> dict[str, Any]:
+    """Every step of §7 for these lines and reviews, judged as given (the rest not a flaw)."""
+    design = {"fresh-v2-x1": {"c1": {"role": "control", "changed": CHANGED_PAIR}}}
+    work = make_work(tmp, lines, reviews, design)
+    rl.build_packets(work, sets, tmp / "p")
+    judge(tmp / "p", tmp / "s", by_line)
+    built = controls_and_ff(work, sets, tmp)
+    judge_after = dict.fromkeys(
+        rl.confirm_set(lines, rl.by_line(rl.verdicts(tmp / "p", tmp / "s"))), ("not_a_flaw", "n/a")
+    )
+    rl.build_confirm(work, sets, tmp / "p", tmp / "s", *built, tmp / "k")
+    judge(tmp / "k", tmp / "ks", judge_after)
+    rl.build_third(tmp / "k", tmp / "ks", tmp / "t")
+    dirs = {
+        "reading": (tmp / "p", tmp / "s"),
+        "controls": (built[0], built[1]),
+        "ff": (built[2], built[3]),
+        "confirm": (tmp / "k", tmp / "ks"),
+        "third": (tmp / "t", tmp / "ts"),
+    }
+    return rl.score(work, dirs)
+
+
+def test_calibration_counts_a_credited_review_s_lines_of_its_common_cell_alone(
+    tmp_path: Path, sets: Path
+) -> None:
+    # Two credited reviews; the one true, introduced line of A1's names an item outside its cell.
+    lines = [
+        line(1, "fresh-v2-x1", "c1", "injected", "A2", 0, rubric_item="D25"),
+        line(2, "fresh-v2-x1", "c1", "injected", "A1", 0, rubric_item="D99"),
+    ]
+    reviews = [
+        review("fresh-v2-x1", "c1", "injected", "A2", "fail", True),
+        review("fresh-v2-x1", "c1", "injected", "A1", "fail", True),
+    ]
+    got = scored_with(tmp_path, sets, lines, reviews, ALL_TRUE)
+    assert got["controls"]["fresh-v2"]["calibration"] == {
+        "cases": 2,
+        "hit": 1,
+        "status": "not checked",
+    }
+
+
+def test_other_real_flaws_and_the_planted_error_named_are_counted_per_arm_and_side(
+    tmp_path: Path, sets: Path
+) -> None:
+    # A2's credited review names the planted pair and another real flaw; B's twin review names
+    # a real flaw.
+    lines = [
+        line(1, "fresh-v2-x1", "c1", "injected", "A2", 0, CHANGED_PAIR),
+        line(2, "fresh-v2-x1", "c1", "injected", "A2", 1, [["power.supply", "max_voltage"]]),
+        line(3, "fresh-v2-x1", "c1", "twin", "B", 0, [["power.supply", "max_voltage"]]),
+    ]
+    reviews = [
+        review("fresh-v2-x1", "c1", "injected", "A2", "fail", True),
+        review("fresh-v2-x1", "c1", "twin", "B", "fail"),
+    ]
+    by_line = {
+        "L00001": ("true_flaw", "introduced"),
+        "L00002": ("true_flaw", "already_in_base"),
+        "L00003": ("true_flaw", "both"),
+    }
+    got = scored_with(tmp_path, sets, lines, reviews, by_line)["classes"]["fresh-v2"]
+    assert got["planted_named"] == {"A2": 1}
+    assert got["other_real_flaw"]["A2, injected"] == {
+        "reviews": 1,
+        "distinct_by_locus": 0,
+        "base_flaws_apart": 1,
+    }
+    assert got["other_real_flaw"]["B, twin"] == {
+        "reviews": 1,
+        "distinct_by_locus": 1,
+        "base_flaws_apart": 0,
+    }
+    assert got["classes"]["B, twin"] == {"O-introduced": 1}
+
+
+def test_a_twin_refused_in_class_u_is_undecided(tmp_path: Path, sets: Path) -> None:
+    got = _scored(tmp_path, sets, [("fresh-v2-x1", "A1", "undecidable:n/a")], {}, {}, None)
+    # Every arm's twin reviews fail here; A1's line is undecidable, the rest name nothing: class U.
+    assert got["twins"][0]["status"] == "undecided"
+    assert got["classes"]["fresh-v2"]["classes"]["A1, twin"] == {"U": 2}
+
+
+def test_a_false_finding_packet_that_never_completes_is_a_line_not_passed(
+    tmp_path: Path, sets: Path
+) -> None:
+    never = [
+        ("1", "none"),
+        ("2", "not_a_flaw:n/a"),
+        ("3", "not_a_flaw:n/a"),
+        ("4", "not_a_flaw:n/a"),
+        ("4", "not_a_flaw:n/a"),
+    ]
+    got = _scored(tmp_path, sets, [], {}, {}, never)["controls"]["fresh-v2"]["false_finding"]
+    assert got["status"] == "missed" and got["hit"] == 3

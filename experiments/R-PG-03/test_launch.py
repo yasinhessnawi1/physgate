@@ -237,3 +237,11 @@ def test_before_the_first_block_the_practice_figure_is_checked_as_the_tally_chec
     assert call < smoke.index('streams.py" smoke')
     handling = smoke[call : smoke.index("esac", call)]
     assert "1)" in handling and "NOT COMPUTABLE" in handling and "refuse" in handling
+
+
+def test_a_login_file_left_after_the_block_refuses_it_valid() -> None:
+    text = "\n".join(code())
+    end = text.index('checks.py" "${CK[@]}" after')  # the block's end, not the smoke's
+    credentials = text.index('CREDENTIALS_OK=1; py "$HERE/checks.py" "${CK[@]}" credentials', end)
+    refusal = text.index('[ "$CREDENTIALS_OK" = 1 ] || refuse', credentials)
+    assert refusal < text.index("is valid", refusal)
