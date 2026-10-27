@@ -34,7 +34,8 @@ REPO = Path(__file__).resolve().parents[3]
 V1 = "corpora/injected-errors/v1"
 V1_FULLSHEET = "corpora/injected-errors/v1-fullsheet"
 #: The earlier corpora whose manifests their experiments froze by digest, and each one's size per
-#: class: the instrument's committed corpus, R-PG-02's fresh set, and R-PG-02's practice set.
+#: class: the instrument's committed corpus, R-PG-02's fresh set, R-PG-02's practice set, and v1
+#: with the complete parts sheet, whose manifest R-PG-01b's "sheet filled" records.
 FROZEN = {
     V1: ("41553301d5b036f84df289ee6d8c87ecce4504d5a09969e05291e23c9ebc026a", 10),
     "corpora/injected-errors/fresh-v1": (
@@ -45,12 +46,12 @@ FROZEN = {
         "ddc255ab538f134c2983edfb71d29cbeba3c0dc3dd23cc01df9415120d9ddfb0",
         5,
     ),
+    V1_FULLSHEET: ("8c9ceb11ffe91afd28b79dd1d206507b463bb1bf8bb8bb8f33a0a27b84e3ba57", 10),
 }
-#: v1 with the complete parts sheet, whose manifest digest no experiment has filled yet: v1's base
-#: and artefacts byte for byte (as R-PG-01b writes it), and this sheet.
+#: v1-fullsheet's sheet: v1's base and artefacts byte for byte (as R-PG-01b writes it), and this.
 V1_FULLSHEET_SHEET_SHA256 = "2efbb6a8ab889ceac54d8ebdba15c8530274d8524c9eaf6181d22abf5ccbef90"
 #: Every corpus the repository tracked when the fifth class was added, and its size per class.
-EARLIER = {**{where: size for where, (_, size) in FROZEN.items()}, V1_FULLSHEET: 10}
+EARLIER = {where: size for where, (_, size) in FROZEN.items()}
 
 
 @pytest.fixture(scope="module")
