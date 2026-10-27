@@ -686,7 +686,12 @@ def test_a_block_whose_deviation_is_an_instrument_defect_runs_at_its_corrected_c
 ) -> None:
     r, k, rs, ks, head = corrected_pair(r_k, "corrected")
     path = classified(runs_dir)
-    fills = {"commits": {"R": head, "R_K": "0" * 40}, "corrections": [correction(rs, ks, path)]}
+    fills: dict[str, Any] = {
+        "commits": {"R": head, "R_K": "0" * 40},
+        "corrections": [correction(rs, ks, path)],
+    }
+    # "Commits filled"'s trees describe R: they are not held at the corrected R'.
+    fills["commits"]["trees"] = {"src/physgate/gate": "0" * 40}
     found = ck.commits(r, k, fills, master_ref=rs, block="x1")
     assert found["corrected"] == {"block": "x1", "R": rs, "R_K": ks, "classification": str(path)}
     # Every other block stays at R, the commit "Commits filled" records.
@@ -713,6 +718,14 @@ def test_an_instrument_defect_without_its_corrected_commit_is_refused(
     classified(runs_dir)
     with pytest.raises(ck.RefusedError, match="corrected commit"):
         ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs, block="x1")
+
+
+def test_a_correction_that_names_r_itself_is_refused(r_k: Any, runs_dir: Path) -> None:  # noqa: ANN401
+    r, k, rs, ks = r_k("r-itself")
+    path = classified(runs_dir)
+    fills = {"commits": {"R": rs, "R_K": ks}, "corrections": [correction(rs, ks, path)]}
+    with pytest.raises(ck.RefusedError, match="R itself"):
+        ck.commits(r, k, fills, master_ref=rs, block="x1")
 
 
 def test_a_corrected_commit_that_does_not_descend_from_r_is_refused(

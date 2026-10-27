@@ -282,3 +282,9 @@ def test_every_script_passes_shellcheck_from_the_repository_root() -> None:
         ["shellcheck", *scripts], capture_output=True, text=True, check=False, cwd=REPO
     )
     assert done.returncode == 0, done.stdout[-2000:]
+
+
+def test_l2_holds_the_block_s_own_commits_a_corrected_one_for_an_instrument_defect() -> None:
+    text = "\n".join(code())
+    line = next(ln for ln in text.splitlines() if ln.startswith("check L2-commits"))
+    assert line.endswith('--block "$BLOCK"')
