@@ -163,3 +163,27 @@ def test_section_2_4_s_call_gives_the_probe_s_sheet_at_this_checkout(tmp_path: P
     assert got["fresh-v2"]["counts"]["sha256"] == common.PROBE_SHEET_SHA256
     assert got["fresh_v1c_sheet_is_fresh_v2_s"] and got["fresh_v1c_table_is_fresh_v2_s"]
     assert got["table"]["edited_sha256"] == common.EDITED_TABLE_SHA256
+
+
+def test_a_corpus_s_sheet_is_held_to_sheet_filled_s_digest(tmp_path: Path) -> None:
+    corpus = tmp_path / "c"
+    corpus.mkdir()
+    import fixture as fx
+
+    (corpus / common.TABLE_NAME).write_bytes(fx.edited_table())
+    (corpus / common.SHEET_NAME).write_text("{}")
+    sc.corpus_check(common.REPO, corpus, "0" * 64, tmp_path / "first")
+    (corpus / common.SHEET_NAME).write_bytes((tmp_path / "first" / common.SHEET_NAME).read_bytes())
+    filled = common.sha256_file(corpus / common.SHEET_NAME)
+    assert sc.corpus_check(common.REPO, corpus, filled, tmp_path / "o1")["holds"]
+    assert not sc.corpus_check(common.REPO, corpus, "0" * 64, tmp_path / "o2")["holds"]
+
+
+def test_a_digest_that_differs_is_recorded_only_with_its_byte_level_difference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # §2.4: every count equal, the digest different: the difference is printed and published.
+    monkeypatch.setattr(common, "PROBE_SHEET_SHA256", "0" * 64)
+    got = sc.convert(common.REPO, tmp_path / "s")
+    assert got["fresh-v2"]["outcome"] == "digest differs"
+    assert not got["holds"] and "--reference" in got["refused"]

@@ -5,7 +5,8 @@ Usage (from the checkout at the run commit, or at master for a trial)::
     python -I sheet_check.py table
     python -I sheet_check.py convert --into <new dir> [--reference <sheet>]
     python -I sheet_check.py corpus <corpus dir> --sheet-sha256 <"Sheet filled"'s digest>
-    python -I sheet_check.py assemble-v1c --into <new sets dir>
+    python -I sheet_check.py assemble-v1c --into <new sets dir> --work <new dir>
+        [--reference <sheet>]
 
 - ``table``: R-PG-02's authors' table held to ``29f9568c…``; the one edit (row R6.05's note,
   "answered" read as "responded") made by script and held to ``0573ef04…``; and the word-level
@@ -20,9 +21,9 @@ Usage (from the checkout at the run commit, or at master for a trial)::
   table, which must be the same bytes, and the tuning set's sheet, ``bc1e5ec1…``). Prints the
   counts and the digest of each, and §2.4's outcome against the drafter's probe: ``recorded``
   (every count and the digest equal), ``digest differs`` (every count equal: the byte-level
-  difference is printed against ``--reference``, a sheet at the probe's digest, when given), or
-  ``not used`` (a count differs, or the converter refused: its printed reason is shown). The two
-  sheets must be the same bytes.
+  difference is printed against ``--reference``, a sheet at the probe's digest, which is then
+  required), or ``not used`` (a count differs, or the converter refused: its printed reason is
+  shown). The two sheets must be the same bytes.
 - ``corpus``: §2.5 item 5 on one corpus: the converter re-run on the corpus's own table
   reproduces its ``sources.json``, and both equal "Sheet filled"'s digest.
 - ``assemble-v1c``: ``fresh-v1c``'s two corpora (§6.4 item 10), split by R-PG-02's batches:
@@ -287,6 +288,15 @@ def convert(repo: Path, into: Path, reference: Path | None = None) -> dict[str, 
         and out["fresh_v1c_sheet_is_fresh_v2_s"]
         and out["fresh_v1c_table_is_fresh_v2_s"]
     )
+    if (
+        out["fresh-v2"]["outcome"] == "digest differs"
+        and "byte_difference_from_the_probe" not in out
+    ):
+        out["holds"] = False
+        out["refused"] = (
+            "the digest differs from the probe's: the byte-level difference is printed by script "
+            "and published (§2.4), so name --reference, a sheet at the probe's digest"
+        )
     return out
 
 
@@ -386,6 +396,7 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("assemble-v1c")
     a.add_argument("--into", type=Path, required=True)
     a.add_argument("--work", type=Path, required=True)
+    a.add_argument("--reference", type=Path)
     parser.add_argument("--repo", type=Path, default=common.REPO)
     args = parser.parse_args(argv)
     repo = args.repo.resolve()
@@ -398,7 +409,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "corpus":
             found = corpus_check(repo, args.corpus.resolve(), args.sheet_sha256, args.into)
         else:
-            made = convert(repo, args.work)
+            made = convert(repo, args.work, args.reference)
             if not made["holds"] or made["fresh-v1c"]["outcome"] not in (
                 "recorded",
                 "digest differs",
