@@ -19,6 +19,8 @@ if it holds::
     checks.py after --block <b> --attempt <n> --launch <dir>
     checks.py classify --block <b> --attempt <n> --route defect --test <path> --correction <id>
         | --route impossible
+    checks.py correction-check --entry <file> --r-prime <checkout>   before a correction's commit
+    checks.py touched --block <b> --attempt <n> --r-prime <checkout>   a correction's tests on it
     checks.py stop-sessions --scratch <dir> [--scratch ...]
     checks.py credentials
 
@@ -44,6 +46,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Iterable
 from pathlib import Path
@@ -117,6 +120,11 @@ def write_blocks(record: dict[str, Any]) -> None:
 def attempts_of(record: dict[str, Any], block: str) -> list[dict[str, Any]]:
     """Every attempt of one block, in the order they started."""
     return [a for a in record.get("attempts", []) if a.get("block") == block]
+
+
+def attempt_dir(row: dict[str, Any]) -> Path:
+    """The directory an attempt's records are in."""
+    return Path(row.get("launch") or records_dir() / "blocks" / f"{row['block']}-{row['attempt']}")
 
 
 def current(record: dict[str, Any], block: str) -> list[dict[str, Any]]:
@@ -681,7 +689,7 @@ def classify(
             f"block {block}'s attempt {attempt} records no deviation, and is not a valid attempt "
             "an instrument defect touches"
         )
-    where = Path(row.get("launch") or records_dir() / "blocks" / f"{block}-{attempt}")
+    where = attempt_dir(row)
     deviation = row.get("deviation") or {}
     if (
         deviation.get("classification") is not None
@@ -702,6 +710,151 @@ def classify(
         rec.setdefault("not_taken", {})[block] = {"attempt": attempt, "causes": found["causes"]}
     write_blocks(rec)
     return found
+
+
+#: The variable that points a correction's test at one attempt's own records (its records mode).
+BLOCK_RECORDS = "RP3_BLOCK_RECORDS"
+
+
+def run_test(checkout: Path, test: str, records: Path | None = None) -> bool:
+    """Whether a correction's ``test`` passes, run by pytest from ``checkout`` on its own code.
+
+    On its own fixtures, or with an attempt's directory in ``RP3_BLOCK_RECORDS`` on that block's
+    records, where it fails exactly when the defect shows in them.
+
+    Raises:
+        RefusedError: pytest did not run it to a pass or a fail.
+    """
+    env = {k: v for k, v in os.environ.items() if k != BLOCK_RECORDS}
+    env.update(PYTHONPATH=str(checkout / "src"), PYTHONDONTWRITEBYTECODE="1")
+    if records is not None:
+        env[BLOCK_RECORDS] = str(records)
+    argv = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", test]
+    done = subprocess.run(argv, cwd=checkout, env=env, capture_output=True, text=True, check=False)
+    if done.returncode not in (0, 1):
+        raise RefusedError(
+            f"{test} did not run to a pass or a fail (pytest exit {done.returncode})"
+        )
+    return done.returncode == 0
+
+
+def correction_check(entry_path: Path, r_prime: Path, fills: dict[str, Any]) -> dict[str, Any]:
+    """A correction checked before its commit (§11): the record L2 needs, in the run records.
+
+    Each attempt named exists, has closed, is valid or a deviation, and is not classified; R'
+    descends from R and R_K' is R' plus the five paths; each test is tracked at R', fails at R and
+    passes at R' on its own fixtures, and fails from R' on each named attempt's records.
+    ``code_changes.py``'s list from R to R' and R_K' is written beside the record.
+
+    Raises:
+        RefusedError: any of these does not hold; no record is then written.
+    """
+    import code_changes
+
+    entry = common.correction_entry(json.loads(entry_path.read_text()))
+    cid, rp, rkp = entry["id"], entry["R"], entry["R_K"]
+    r = str(common.need_fill(fills, "commits").get("R"))
+    if any(isinstance(c, dict) and c.get("id") == cid for c in fills.get(common.CORRECTIONS) or []):
+        raise RefusedError(f"correction {cid} is on the master ref already")
+    rec = read_blocks()
+    rows = {}
+    for block, named in entry["blocks"].items():
+        row = next((a for a in attempts_of(rec, block) if a["attempt"] == named["attempt"]), {})
+        dev = row.get("deviation") or {}
+        if (
+            row.get("valid") is None
+            or not (row["valid"] or dev)
+            or row.get("correction")
+            or dev.get("classification")
+        ):
+            raise RefusedError(
+                f"block {block}'s attempt {named['attempt']} is not a closed attempt, valid or a "
+                "deviation, that nothing has classified"
+            )
+        rows[block] = attempt_dir(row)
+    paths = sorted(common.git(r_prime, "diff", "--name-only", rp, rkp).splitlines())
+    if (
+        [rp, common.git(r_prime, "rev-parse", f"{rkp}^"), paths]
+        != [common.git(r_prime, "rev-parse", "HEAD"), rp, sorted(common.R_K_PATHS)]
+        or rp == r
+        or common.git(r_prime, "status", "--porcelain")
+    ):
+        raise RefusedError(
+            "the R' checkout is not clean at the entry's R', R' is R, or R_K' is not R' plus the "
+            "five paths"
+        )
+    try:
+        common.git(r_prime, "merge-base", "--is-ancestor", r, rp)
+    except subprocess.CalledProcessError:
+        raise RefusedError('R\' does not descend from R ("Commits filled")') from None
+    results: dict[str, dict[str, str]] = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        at_r = Path(tmp) / "r"
+        common.git(r_prime, "worktree", "add", "--detach", str(at_r), r)
+        try:
+            for test in sorted({n["test"] for n in entry["blocks"].values()}):
+                try:
+                    blob = common.git_bytes(r_prime, "show", f"{rp}:{test}")
+                except subprocess.CalledProcessError:
+                    raise RefusedError(f"{test} is not tracked at R'") from None
+                (at_r / test).parent.mkdir(parents=True, exist_ok=True)
+                (at_r / test).write_bytes(blob)
+                ran = {"R": run_test(at_r, test), "R'": run_test(r_prime, test)}
+                for b, n in entry["blocks"].items():
+                    if n["test"] == test:
+                        ran[b] = run_test(r_prime, test, rows[b])
+                results[test] = {k: "passes" if v else "fails" for k, v in ran.items()}
+                if ran.pop("R") or not ran.pop("R'") or any(ran.values()):
+                    raise RefusedError(
+                        f"{test} must fail at R and pass at R' on its own fixtures, and fail on "
+                        f"the records of each attempt it is named for: {results[test]}"
+                    )
+        finally:
+            common.git(r_prime, "worktree", "remove", "--force", str(at_r))
+    try:
+        listed = code_changes.changes(r_prime, rp, rkp, {"Commits filled": r})
+    except code_changes.StopError as exc:
+        raise RefusedError(f"code_changes.py stopped on R' or R_K': {exc}") from None
+    out = records_dir() / "corrections" / cid
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "code_changes.json").write_text(json.dumps(listed, indent=1, sort_keys=True) + "\n")
+    found = {"check": "correction-check", "id": cid, "entry": entry, "R": r, "tests": results}
+    found.update(passed=True, checked_utc=common.utc_now())
+    (out / "check.json").write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
+    return found
+
+
+def touched(block: str, attempt: int, r_prime: Path, fills: dict[str, Any]) -> dict[str, Any]:
+    """Each correction's tests on one attempt's own records, from an R' checkout (§11).
+
+    Each distinct test of every correction whose R' is the checkout's HEAD runs on the attempt's
+    records; any failure means touched. Kept in the attempt's ``touched.json``, one entry per
+    correction, which the tally needs of a block that ended after a correction's check.
+
+    Raises:
+        RefusedError: the attempt has not closed; the checkout is not clean at a correction's R';
+            or a test does not run to a pass or a fail.
+    """
+    row = next((a for a in attempts_of(read_blocks(), block) if a["attempt"] == attempt), {})
+    head = common.git(r_prime, "rev-parse", "HEAD")
+    entries = [
+        e
+        for e in map(common.correction_entry, fills.get(common.CORRECTIONS) or [])
+        if e["R"] == head
+    ]
+    if row.get("valid") is None or common.git(r_prime, "status", "--porcelain") or not entries:
+        raise RefusedError(
+            f"block {block}'s attempt {attempt} has not closed, or the checkout is not clean at a "
+            "correction's R'"
+        )
+    where = attempt_dir(row)
+    said = _json_or_none(where / "touched.json") or {}
+    for e in entries:
+        tests = sorted({n["test"] for n in e["blocks"].values()})
+        ran = {t: "passes" if run_test(r_prime, t, where) else "fails" for t in tests}
+        said[e["id"]] = {"touched": "fails" in ran.values(), "tests": ran, "utc": common.utc_now()}
+    (where / "touched.json").write_text(json.dumps(said, indent=1, sort_keys=True) + "\n")
+    return {"check": "touched", "block": block, "attempt": attempt, "corrections": said}
 
 
 def knowledge_digests(
@@ -787,7 +940,7 @@ def run_pins(
     if entry is None:
         return base, None
     touched = mine[since - 1]
-    said = _json_or_none(Path(str(touched.get("launch") or "")) / "classification.json") or {}
+    said = _json_or_none(attempt_dir(touched) / "classification.json") or {}
     named = entry["blocks"][block]
     if [said.get(k) for k in ("route", "block", "correction", "test", "attempt")] != [
         ROUTES["defect"],
@@ -799,6 +952,13 @@ def run_pins(
         raise RefusedError(
             f"the classification next to block {block}'s attempt {touched.get('attempt')} is not "
             f"an instrument defect of correction {entry['id']} with the test it names for the block"
+        )
+    checked = _json_or_none(records_dir() / "corrections" / entry["id"] / "check.json") or {}
+    if checked.get("passed") is not True or checked.get("entry") != entry:
+        raise RefusedError(
+            f"correction {entry['id']} has no passing correction-check record of its entry: "
+            "checks.py correction-check --entry <the entry> --r-prime <an R' checkout> runs before "
+            "a correction is committed, and its record is kept in the run records (§11)"
         )
     if entry["R"] == base["R"]:
         raise RefusedError(f"the correction of block {block} names R itself, not a corrected R'")
@@ -1223,6 +1383,13 @@ def main(argv: list[str] | None = None) -> int:
     cl.add_argument("--route", choices=sorted(ROUTES), required=True)
     cl.add_argument("--test", help="defect: the path of a tracked test that depends on no verdict")
     cl.add_argument("--correction", help="defect: the id of the correction that names the block")
+    cc = sub.add_parser("correction-check")
+    cc.add_argument("--entry", type=Path, required=True)
+    cc.add_argument("--r-prime", type=Path, required=True)
+    tc = sub.add_parser("touched")
+    tc.add_argument("--block", choices=common.BLOCKS, required=True)
+    tc.add_argument("--attempt", type=int, required=True)
+    tc.add_argument("--r-prime", type=Path, required=True)
     nr = sub.add_parser("not-run")
     nr.add_argument("--block", choices=("s", "p1", "p2"), required=True)
     nr.add_argument("--cause", required=True)
@@ -1287,6 +1454,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return 0 if found["valid"] else 1
+        elif args.cmd == "correction-check":
+            found = correction_check(args.entry, args.r_prime.resolve(), fills())
+        elif args.cmd == "touched":
+            found = touched(args.block, args.attempt, args.r_prime.resolve(), fills())
         elif args.cmd == "classify":
             found = classify(
                 args.block,

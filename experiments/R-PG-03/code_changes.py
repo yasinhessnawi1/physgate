@@ -543,20 +543,26 @@ def tree_counts(w: Walk) -> dict[str, Any]:
     }
 
 
-def changes(repo: Path, r: str, r_k: str | None) -> dict[str, Any]:
+def changes(
+    repo: Path, r: str, r_k: str | None, old: dict[str, str] | None = None
+) -> dict[str, Any]:
     """§3.3's whole list: three old trees to R, and R to R_K.
+
+    ``old`` names other trees to list from: a correction (§11) lists from R ("Commits filled") to
+    its R' and R_K' (``checks.py correction-check``).
 
     Raises:
         StopError: a dynamic import in a loaded file at any tree read.
     """
     r = git(repo, "rev-parse", "--verify", f"{r}^{{commit}}").strip()
+    old = OLD_TREES if old is None else old
     walks: dict[str, Walk] = {"R": walk(Tree.at(repo, r))}
-    for name, sha in OLD_TREES.items():
+    for name, sha in old.items():
         walks[name] = walk(Tree.at(repo, sha))
     stops = sorted({s for w in walks.values() for s in w.stops})
     if stops:
         raise StopError("; ".join(stops))
-    ranges = [one_range(repo, sha, r, walks[name], walks["R"]) for name, sha in OLD_TREES.items()]
+    ranges = [one_range(repo, sha, r, walks[name], walks["R"]) for name, sha in old.items()]
     out: dict[str, Any] = {"R": r, "R_K": None, "paths": list(PATHS)}
     if r_k is not None:
         r_k = git(repo, "rev-parse", "--verify", f"{r_k}^{{commit}}").strip()

@@ -293,7 +293,8 @@ def r_k(tmp_path_factory: pytest.TempPathFactory) -> Any:  # noqa: ANN401
         if r_extra:
             for rel, text in r_extra.items():
                 (r / rel).write_text(text)
-            git(r, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qam", "R")
+            git(r, "add", "-A")  # a new file of R' (a correction's test) too
+            git(r, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "R")
             git(k, "checkout", "-q", "--detach", git(r, "rev-parse", "HEAD"))
         for role in common.ROLES:
             blob = subprocess.run(
@@ -821,14 +822,48 @@ def correction(r: str, r_k: str, *touches: str, cid: str = "c1") -> dict[str, An
     return {"id": cid, "R": r, "R_K": r_k, "blocks": {b: ONE for b in touches or ("x1",)}}
 
 
-def corrected_pair(r_k: Any, name: str, k_commits: int = 1) -> tuple[Path, Path, str, str, str]:  # noqa: ANN401
+def corrected_pair(
+    r_k: Any,  # noqa: ANN401
+    name: str,
+    k_commits: int = 1,
+    extra: dict[str, str] | None = None,
+) -> tuple[Path, Path, str, str, str]:
     """R (the head), and R' one commit above it with R_K' above R'."""
     head = git(common.REPO, "rev-parse", "HEAD")
     gitignore = (common.REPO / ".gitignore").read_text()
     r, k, rs, ks = r_k(
-        name, r_extra={".gitignore": gitignore + "# a correction\n"}, k_commits=k_commits
+        name,
+        r_extra={".gitignore": gitignore + "# a correction\n", **(extra or {})},
+        k_commits=k_commits,
     )
     return r, k, rs, ks, head
+
+
+def checked(runs: Path, *entries: Any) -> None:  # noqa: ANN401
+    """Each entry's passing correction-check record, as correction-check keeps it."""
+    for entry in entries:
+        out = runs / "corrections" / entry["id"]
+        out.mkdir(parents=True, exist_ok=True)
+        said = {"passed": True, "entry": entry, "checked_utc": "2026-11-06T00:00:00Z"}
+        (out / "check.json").write_text(json.dumps(said))
+
+
+#: A correction's test, as the owner would write one, in both its modes: on its own fixtures it
+#: fails until the fix (here, a marker R' adds); on a block's records (RP3_BLOCK_RECORDS) it fails
+#: exactly when the defect shows in them (here, a file the fixture's attempt holds).
+PROBE = "experiments/R-PG-03/test_correction_probe.py"
+PROBE_TEXT = """import os
+from pathlib import Path
+
+
+def test_the_defect_does_not_show() -> None:
+    records = os.environ.get("RP3_BLOCK_RECORDS")
+    if records:
+        assert not (Path(records) / "defect.txt").exists()
+    else:
+        assert (Path(__file__).parent / "fixed.txt").exists()
+"""
+FIXED = {PROBE: PROBE_TEXT, "experiments/R-PG-03/fixed.txt": "fixed\n"}
 
 
 def test_a_block_whose_deviation_is_an_instrument_defect_runs_at_its_corrected_commit(
@@ -843,6 +878,7 @@ def test_a_block_whose_deviation_is_an_instrument_defect_runs_at_its_corrected_c
     }
     # "Commits filled"'s trees describe R: they are not held at the corrected R'.
     fills["commits"]["trees"] = {"src/physgate/gate": "0" * 40}
+    checked(runs_dir, *fills["corrections"])
     found = fx.holds(lambda: ck.commits(r, k, fills, master_ref=rs, block="x1"))
     assert found["corrected"] == correction(rs, ks)
     # Every other block stays at R, the commit "Commits filled" records.
@@ -861,6 +897,7 @@ def test_every_block_a_correction_names_runs_at_its_corrected_commit_a_valid_one
         "commits": {"R": head, "R_K": "0" * 40},
         "corrections": [correction(rs, ks, "x1", "y1")],
     }
+    checked(runs_dir, *fills["corrections"])
     for block in ("x1", "y1"):
         assert ck.commits(r, k, fills, master_ref=rs, block=block)["corrected"]["id"] == "c1"
     # No other block: z1, which the correction does not name, stays at R.
@@ -911,6 +948,7 @@ def test_a_correction_that_names_r_itself_is_refused(r_k: Any, runs_dir: Path) -
     r, k, rs, ks = r_k("r-itself")
     classified(runs_dir)
     fills = {"commits": {"R": rs, "R_K": ks}, "corrections": [correction(rs, ks)]}
+    checked(runs_dir, *fills["corrections"])
     with pytest.raises(ck.RefusedError, match="R itself"):
         ck.commits(r, k, fills, master_ref=rs, block="x1")
 
@@ -922,6 +960,7 @@ def test_a_corrected_commit_that_does_not_descend_from_r_is_refused(
     r, k, rs, ks = r_k("not-down")
     classified(runs_dir)
     fills = {"commits": {"R": rs, "R_K": ks}, "corrections": [correction(common.R_FLOOR, ks)]}
+    checked(runs_dir, *fills["corrections"])
     with pytest.raises(ck.RefusedError, match="descend"):
         ck.commits(r, k, fills, master_ref=rs, block="x1")
 
@@ -933,6 +972,7 @@ def test_a_corrected_r_k_more_than_one_commit_above_r_prime_is_refused(
     r, k, rs, ks, head = corrected_pair(r_k, "corr-two", k_commits=2)
     classified(runs_dir)
     fills = {"commits": {"R": head, "R_K": "0" * 40}, "corrections": [correction(rs, ks)]}
+    checked(runs_dir, *fills["corrections"])
     with pytest.raises(ck.RefusedError, match="R_K's parent"):
         ck.commits(r, k, fills, master_ref=rs, block="x1")
 
@@ -1049,6 +1089,153 @@ def test_a_correction_s_id_classifies_the_one_attempt_of_a_block_it_names(runs_d
         ck.classify("x1", 2, "instrument defect", TEST, "c1", {"corrections": [C1, c2]})
     got = ck.classify("x1", 2, "instrument defect", TEST, "c2", {"corrections": [C1, c2]})
     assert got["correction"] == "c2"
+
+
+def test_l2_needs_the_correction_s_passing_check_record_and_names_the_remedy(
+    runs_dir: Path, tmp_path: Path
+) -> None:
+    classified(runs_dir)
+    fills = {"commits": {"R": "a" * 40, "R_K": "b" * 40}, "corrections": [C1]}
+
+    def l2() -> object:
+        return ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
+
+    fx.refuses(ck.RefusedError, "no passing correction-check record.*correction-check --entry", l2)
+    checked(runs_dir, {**C1, "R_K": "d" * 40})  # a record of another entry under that id
+    fx.refuses(ck.RefusedError, "no passing correction-check record", l2)
+
+
+def entry_file(tmp: Path, entry: dict[str, Any]) -> Path:
+    path = tmp / "entry.json"
+    path.write_text(json.dumps(entry))
+    return path
+
+
+def defect_attempts(runs: Path) -> list[dict[str, Any]]:
+    """x1's valid attempt and y1's unclassified deviation, each whose records show the defect."""
+    rows = []
+    for block, valid in (("x1", True), ("y1", False)):
+        launch = runs / "blocks" / f"{block}-1"
+        launch.mkdir(parents=True)
+        (launch / "defect.txt").write_text("shown\n")
+        row = {**att(block, valid), "launch": str(launch), "void_causes": []}
+        if not valid:
+            row["deviation"] = {"causes": ["a run that is not whole"], "classification": None}
+        rows.append(row)
+    blocks(runs, rows)
+    return rows
+
+
+def test_a_correction_is_checked_before_its_commit_and_its_record_kept(
+    r_k: Any,  # noqa: ANN401
+    runs_dir: Path,
+    tmp_path: Path,
+) -> None:
+    r, k, rs, ks, head = corrected_pair(r_k, "checked", extra=FIXED)
+    defect_attempts(runs_dir)
+    test = {"attempt": 1, "test": PROBE}
+    entry = {"id": "c1", "R": rs, "R_K": ks, "blocks": {"x1": test, "y1": test}}
+    fills: dict[str, Any] = {"commits": {"R": head, "R_K": "0" * 40}}
+    got = fx.holds(lambda: ck.correction_check(entry_file(tmp_path, entry), r, fills))
+    # It fails at R and passes at R' on its fixtures, and fails on each named attempt's records.
+    assert got["tests"] == {PROBE: {"R": "fails", "R'": "passes", "x1": "fails", "y1": "fails"}}
+    record = json.loads((runs_dir / "corrections" / "c1" / "check.json").read_text())
+    assert record["passed"] is True and record["entry"] == entry
+    listed = json.loads((runs_dir / "corrections" / "c1" / "code_changes.json").read_text())
+    assert (listed["R"], listed["R_K"]) == (rs, ks)
+    assert [g["from"] for g in listed["ranges"]] == [head, rs]  # R to R', then R' to R_K'
+    # Its tests on a later block's records, from the R' checkout: touched or not.
+    fills["corrections"] = [entry]
+    clean, shown = runs_dir / "blocks" / "z1-1", runs_dir / "blocks" / "z2-1"
+    clean.mkdir()
+    shown.mkdir()
+    (shown / "defect.txt").write_text("shown\n")
+    blocks(
+        runs_dir,
+        [
+            {**att("z1", True), "launch": str(clean)},
+            {**att("z2", True), "launch": str(shown)},
+            {**att("y2", None), "launch": str(clean)},
+        ],
+    )
+    got = fx.holds(lambda: ck.touched("z1", 1, r, fills))
+    assert got["corrections"]["c1"]["touched"] is False
+    assert fx.holds(lambda: ck.touched("z2", 1, r, fills))["corrections"]["c1"]["touched"] is True
+    saved = json.loads((shown / "touched.json").read_text())
+    assert saved["c1"]["tests"] == {PROBE: "fails"}
+    fx.refuses(ck.RefusedError, "has not closed", lambda: ck.touched("y2", 1, r, fills))
+    fx.refuses(ck.RefusedError, "correction's R'", lambda: ck.touched("z1", 1, k, fills))
+
+
+@pytest.mark.parametrize(
+    ("change", "why"),
+    [
+        ("open", "is not a closed attempt"),
+        ("void", "is not a closed attempt"),
+        ("classified", "is not a closed attempt"),
+        ("missing", "is not a closed attempt"),
+        ("on-master", "on the master ref already"),
+    ],
+)
+def test_a_correction_check_refuses_an_attempt_it_cannot_name(
+    runs_dir: Path, tmp_path: Path, change: str, why: str
+) -> None:
+    rows = defect_attempts(runs_dir)
+    test = {"attempt": 1, "test": PROBE}
+    entry = {"id": "c1", "R": "f" * 40, "R_K": "e" * 40, "blocks": {"x1": test}}
+    fills: dict[str, Any] = {"commits": {"R": "a" * 40, "R_K": "b" * 40}}
+    if change == "open":
+        rows[0]["valid"] = None
+    elif change == "void":
+        rows[0].update(valid=False, void_causes=["usage limit"])
+    elif change == "classified":
+        rows[0]["correction"] = "c0"
+    elif change == "missing":
+        entry["blocks"] = {"x1": {**test, "attempt": 2}}
+    else:
+        fills["corrections"] = [{**entry, "blocks": {"y1": test}}]
+    blocks(runs_dir, rows)
+    path = entry_file(tmp_path, entry)
+    fx.refuses(ck.RefusedError, why, lambda: ck.correction_check(path, tmp_path, fills))
+
+
+@pytest.mark.parametrize(
+    ("change", "why"),
+    [
+        ("not-at-r-prime", "not clean at the entry's R'"),
+        ("r-k-two-above", "not R' plus the\\s+five paths"),
+        ("not-descending", "does not descend"),
+        ("untracked", "not tracked at R'"),
+        ("passes-at-r", r"must fail at R .*'R': 'passes'"),
+        ("not-on-the-records", r"must fail at R .*'x1': 'passes'"),
+    ],
+)
+def test_a_correction_check_refuses_commits_or_a_test_that_do_not_show_the_defect(
+    r_k: Any,  # noqa: ANN401
+    runs_dir: Path,
+    tmp_path: Path,
+    change: str,
+    why: str,
+) -> None:
+    extra = dict(FIXED)
+    if change == "passes-at-r":  # a test that passes whatever the tree
+        extra[PROBE] = "def test_nothing() -> None:\n    assert True\n"
+    r, k, rs, ks, head = corrected_pair(
+        r_k, f"cc-{change}", k_commits=2 if change == "r-k-two-above" else 1, extra=extra
+    )
+    defect_attempts(runs_dir)
+    if change == "not-on-the-records":
+        (runs_dir / "blocks" / "x1-1" / "defect.txt").unlink()
+    test = {
+        "attempt": 1,
+        "test": "experiments/R-PG-03/test_none.py" if change == "untracked" else PROBE,
+    }
+    entry = {"id": "c1", "R": rs, "R_K": ks, "blocks": {"x1": test}}
+    fills = {"commits": {"R": ks if change == "not-descending" else head}}
+    where = k if change == "not-at-r-prime" else r
+    path = entry_file(tmp_path, entry)
+    fx.refuses(ck.RefusedError, why, lambda: ck.correction_check(path, where, fills))
+    assert not (runs_dir / "corrections" / "c1" / "check.json").exists()
 
 
 # ---- R3 ------------------------------------------------------------------------------------------
