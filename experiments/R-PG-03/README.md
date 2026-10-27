@@ -176,9 +176,9 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     owner read from the usage page and recorded (`owner/account.json`, reading 20): 5.11's is the
     first at or after Thursday 5.11 begins in Norway (00:00 local, 4.11 23:00 UTC), 12.11's the one
     a week later; without that record the launch refuses. The owner's window confirmation is
-    refused if it is stamped after now or before that earliest start. Rests on: §10 item 4, "no earlier than Thursday
-    5.11.2026. If R-PG-01b runs into a second window (item 1), the first possible start is Thursday
-    12.11.2026"; "The confirmation is recorded in UTC"; §14 row 20.
+    refused if it is stamped after now or before that earliest start. Rests on: §10 item 4, "no
+    earlier than Thursday 5.11.2026. If R-PG-01b runs into a second window (item 1), the first
+    possible start is Thursday 12.11.2026"; "The confirmation is recorded in UTC"; §14 row 20.
 18. **An attempt's number is the block record's;** a refused pre-flight of the same attempt keeps
     its directory beside it, renamed. Rests on: §11, "A void block … is re-attempted whole, never
     resumed, and every attempt is reported."
@@ -186,9 +186,9 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     trailing window with no total, or one whose sessions do not all have a total, cannot be counted,
     so the block waits. **Disclosed:** after a void attempt stopped at a usage limit, the block's
     own line has killed sessions without a total, so its next attempt waits until that line has
-    left the trailing 5 hours (time only, never a figure). Rests on: §10, "It opens with R-PG-01b's lines"; "If R-PG-01b's records give
-    no total for a step, the line says so"; §13, "the 5-hour projection, with R-PG-01b's ledger
-    lines".
+    left the trailing 5 hours (time only, never a figure). Rests on: §10, "It opens with
+    R-PG-01b's lines"; "If R-PG-01b's records give no total for a step, the line says so"; §13,
+    "the 5-hour projection, with R-PG-01b's ledger lines".
 20. **A ledger line per authoring turn** (finer than one per session), with the turn's own start
     and end and **its weekly window computed from one reset of the weekly limit** that the owner
     reads from the usage page and records (`owner/account.json`): the last reset at or before the
@@ -215,34 +215,61 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     anything else impossible as specified (the block is not attempted again and is marked
     `not_taken` in the block record; it stops nothing else: the later blocks run, and the decisions
     it feeds are reported as not taken). The classification is written once, as
-    `classification.json` next to the attempt, and in the block record. Rests on: §11, "An
+    `classification.json` next to the attempt, and in the block record. **The tally under a block
+    not taken** computes the primary's figures over the pairs present, labelled with their count;
+    with a primary block not taken, Q1–Q4, the row and the claim shift are not taken (Q4's J of A2
+    on `fresh-v2` rests on the same pairs); a block `s` not taken leaves the class "not measured",
+    and `p1` or `p2` not taken leaves the sheet-matched Q4 not taken. Rests on: §11, "An
     instrument defect found after a number is seen is a deviation only if a test that depends on no
     verdict shows it"; "Anything else impossible as specified is a deviation. The decisions it feeds
-    are not taken".
+    are not taken"; §8, "Under a deviation that voids a primary contrast (§11), Q1–Q3 and the row
+    are **not taken**. **The claim shift is not applied**".
 24. **The corrected commit of an instrument defect is recorded beside "Commits filled", which never
     changes, and names every block the defect touches.** A correction is a commit of its own to
     `fills.json` alone, only after "Set filled", whose subject names "Commits corrected" and every
     block it touches, and which adds exactly one entry: an id no earlier correction has, the
     corrected `R'` and `R_K'`, and every block it touches, each with its attempt and the path of a
-    tracked test that depends on no verdict and shows the defect in that attempt's own records. `R'` descends from
-    `R`; `R_K'` is one commit above `R'`, with the same five-path difference and the same check of
-    `promotions.jsonl`'s content. The correction is committed first: for each attempt it names,
-    the owner's `checks.py classify` then writes the classification (an instrument defect, with
-    that test and the correction's id) next to the attempt, a valid attempt too, and refuses an id
-    the master ref holds for no such attempt and test, so a mistyped id never locks a block; an id
-    names one attempt of a block, so a further defect is a correction of its own. The launch then runs exactly those blocks once more, at `R'`
-    and `R_K'`, and no other: a touched block is attempted until it has a valid attempt after the
-    touched one (a void attempt is re-attempted whole, as any is, and §11's three void attempts
-    count over the block), and the blocks after it in the fixed order wait for that. Every other
-    block runs at `R`. The trees, blobs and digests "Commits filled" records describe `R`, so they
-    are not held at `R'`; every other pin of §3 is. A correction that names a block without that
-    classification, a classification with a correction that does not name the block, and a
-    classification other than the correction's for it, are refused. Both attempts are kept in the
-    block record and listed in the tally's output; the tally, and the reading's lines, use the
-    corrected attempt of a touched block, and the tally refuses while a block a correction names
-    lacks it. Rests on: §11, "Every block it touches is then re-run at the corrected commit, and
-    both runs are reported"; "The decision uses the corrected runs"; the header, "Facts are filled
-    later, each in its own dated commit".
+    tracked test that depends on no verdict and shows the defect in that attempt's own records.
+    - **Before its commit, `checks.py correction-check`** holds the entry against the block record
+      and the commits, and its passing record, kept in the run records, is what L2 needs: each
+      attempt named exists, has closed, is valid or a deviation, and is classified by nothing yet;
+      `R'` descends from `R`, and `R_K'` is one commit above `R'` with the five paths alone (L2
+      holds `promotions.jsonl`'s content too); and each test is tracked at `R'`. **A correction's
+      test has two modes:** on its own fixtures it must fail at `R` and pass at `R'`; run from `R'`
+      with `RP3_BLOCK_RECORDS` set to an attempt's directory, it fails exactly when the defect shows
+      in that attempt's records, and it must fail on each attempt it is named for. The check writes
+      `code_changes.py`'s list from `R` to `R'` and `R_K'` beside its record.
+    - **The correction is committed, then classified:** for each attempt it names, the owner's
+      `checks.py classify` writes the classification (an instrument defect, with that test and the
+      correction's id) next to the attempt, a valid attempt too, and refuses an id the master ref
+      holds for no such attempt and test, so a mistyped id never locks a block; an id names one
+      attempt of a block, so a further defect is a correction of its own.
+    - **The launch then runs exactly those blocks once more,** at `R'` and `R_K'`, and no other: a
+      touched block is attempted until it has a valid attempt after the touched one (a void attempt
+      is re-attempted whole, as any is, and §11's three void attempts count over the block), and
+      the blocks after it in the fixed order wait for that. The owner switches the checkouts by
+      hand. The trees, blobs and digests "Commits filled" records describe `R`, so they are not
+      held at `R'`; every other pin of §3 is. A correction that names a block without that
+      classification, a classification with a correction that does not name the block, a
+      classification other than the correction's for it, and a correction without its passing
+      check record are refused, each naming the remedy.
+    - **A block not yet run when a correction is made runs at `R`,** as every block no test ties to
+      the defect does. Every block that ends after a correction's check carries that correction's
+      result on its own records: `checks.py touched`, from an `R'` checkout, runs each distinct
+      test the correction names on the attempt's records, any failure meaning touched
+      (`touched.json`). The tally refuses a tallied attempt without it, and a touched one, which
+      needs a correction naming it and its corrected attempt. "Ends after a correction exists" is
+      read from the correction's check record, which comes before its commit, so it errs toward
+      asking more.
+    - Both attempts are kept in the block record and listed in the tally's output; the tally, and
+      the reading's lines, use the corrected attempt of a touched block, and the tally refuses
+      while a block a correction names lacks it.
+
+    Rests on: §11, "Every block it touches is then re-run at the corrected commit, and both runs
+    are reported"; "The decision uses the corrected runs"; "only if a test that depends on no
+    verdict shows it: a fixture test, a byte comparison of packets or records, or a fact of a
+    stream"; §3.3's list of code changes; §5 R1, "Nothing changes after it"; the header, "Facts are
+    filled later, each in its own dated commit".
 
 **The tally.**
 
