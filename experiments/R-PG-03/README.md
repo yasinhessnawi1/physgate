@@ -133,8 +133,15 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     cut never spends … and it is never an audit failure."
 11. **`error_max_turns` ends a turn; it is not an outage,** and a turn that outlasts its six-hour
     wall-clock bound is an outage (the binary is killed; the turn is resumed on the retry ladder,
-    and keeps its outcome and ledger line). Rests on: §2.5, "An infrastructure error is an API,
-    connection or binary error, never a refusal and never something the author did."
+    and keeps its outcome and ledger line). The six hours are **this experiment's own fixed
+    choice**, as reading 5's bound and line are, fixed in its scripts before any session. **A cut
+    session is resumed in the session it began:** its stream's result line names it, or, when the
+    stream was cut before one, its first line (`system/init`). **A cut turn no line of which names
+    a session never began,** so there is nothing to resume: it is run again with its own message,
+    in the retry ladder's place. Rests on: §2.5, "An infrastructure error is an API, connection or
+    binary error, never a refusal and never something the author did"; "In either case the session
+    is resumed with Appendix B's fixed resume message. The resumed turn finishes the task of the
+    turn it resumes".
 12. **The owner stops only where the authoring waits for the owner's word after a turn's second
     retry ladder, and only at the cap of the batch that turn writes.** At `fresh-v2-s`'s cap the
     class is not run and the primary goes on; at the primary's cap the authoring stops for the
@@ -164,10 +171,12 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     checks it: a figure other than 0.775 refuses; records that cannot be read at their digests are
     said plainly (the figure is then not computable). Rests on: §6.3, Q4: "The practice figure is
     the kept round's on the tuning set: J common 0.775."
-17. **The blocks' dates:** no block before 5.11.2026 00:00 UTC; none before 12.11.2026 00:00 UTC if
-    any line of R-PG-01b's ends (or starts) on 5.11 or later, midnight UTC standing for that day's
-    reset, which errs toward the later start. The owner's window confirmation is refused if it is
-    stamped after now or before that earliest start. Rests on: §10 item 4, "no earlier than Thursday
+17. **The blocks' dates:** no block before 5.11's weekly reset, and none before 12.11's if any line
+    of R-PG-01b's ends (or starts) at 5.11's reset or later. Both follow from the one reset the
+    owner read from the usage page and recorded (`owner/account.json`, reading 20): 5.11's is the
+    first at or after Thursday 5.11 begins in Norway (00:00 local, 4.11 23:00 UTC), 12.11's the one
+    a week later; without that record the launch refuses. The owner's window confirmation is
+    refused if it is stamped after now or before that earliest start. Rests on: §10 item 4, "no earlier than Thursday
     5.11.2026. If R-PG-01b runs into a second window (item 1), the first possible start is Thursday
     12.11.2026"; "The confirmation is recorded in UTC"; §14 row 20.
 18. **An attempt's number is the block record's;** a refused pre-flight of the same attempt keeps
@@ -175,7 +184,9 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     resumed, and every attempt is reported."
 19. **The 5-hour projection fails closed:** it needs R-PG-01b's lines first, and a line in the
     trailing window with no total, or one whose sessions do not all have a total, cannot be counted,
-    so the block waits. Rests on: §10, "It opens with R-PG-01b's lines"; "If R-PG-01b's records give
+    so the block waits. **Disclosed:** after a void attempt stopped at a usage limit, the block's
+    own line has killed sessions without a total, so its next attempt waits until that line has
+    left the trailing 5 hours (time only, never a figure). Rests on: §10, "It opens with R-PG-01b's lines"; "If R-PG-01b's records give
     no total for a step, the line says so"; §13, "the 5-hour projection, with R-PG-01b's ledger
     lines".
 20. **A ledger line per authoring turn** (finer than one per session), with the turn's own start
@@ -201,8 +212,9 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     an instrument defect, naming the path of a tracked test that depends on no verdict and shows it
     and the id of the correction that names the block (the test's commit and blob are recorded; the
     block is then re-run at the corrected commit and both runs are reported, reading 24), or
-    anything else impossible as specified (the decisions it feeds are not taken, and the block is
-    not attempted again). The classification is written once, as
+    anything else impossible as specified (the block is not attempted again and is marked
+    `not_taken` in the block record; it stops nothing else: the later blocks run, and the decisions
+    it feeds are reported as not taken). The classification is written once, as
     `classification.json` next to the attempt, and in the block record. Rests on: §11, "An
     instrument defect found after a number is seen is a deviation only if a test that depends on no
     verdict shows it"; "Anything else impossible as specified is a deviation. The decisions it feeds
@@ -211,13 +223,14 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     changes, and names every block the defect touches.** A correction is a commit of its own to
     `fills.json` alone, only after "Set filled", whose subject names "Commits corrected" and every
     block it touches, and which adds exactly one entry: an id no earlier correction has, the
-    corrected `R'` and `R_K'`, and every block it touches, each with the path of a tracked test
-    that depends on no verdict and shows the defect in that block's own records. `R'` descends from
+    corrected `R'` and `R_K'`, and every block it touches, each with its attempt and the path of a
+    tracked test that depends on no verdict and shows the defect in that attempt's own records. `R'` descends from
     `R`; `R_K'` is one commit above `R'`, with the same five-path difference and the same check of
-    `promotions.jsonl`'s content. For each block it names, the owner's `checks.py classify` writes
-    the classification (an instrument defect, with that test and the correction's id) next to the
-    block's attempt, a valid attempt too; an id classifies one attempt of a block, so a further
-    defect is a correction of its own. The launch then runs exactly those blocks once more, at `R'`
+    `promotions.jsonl`'s content. The correction is committed first: for each attempt it names,
+    the owner's `checks.py classify` then writes the classification (an instrument defect, with
+    that test and the correction's id) next to the attempt, a valid attempt too, and refuses an id
+    the master ref holds for no such attempt and test, so a mistyped id never locks a block; an id
+    names one attempt of a block, so a further defect is a correction of its own. The launch then runs exactly those blocks once more, at `R'`
     and `R_K'`, and no other: a touched block is attempted until it has a valid attempt after the
     touched one (a void attempt is re-attempted whole, as any is, and §11's three void attempts
     count over the block), and the blocks after it in the fixed order wait for that. Every other
