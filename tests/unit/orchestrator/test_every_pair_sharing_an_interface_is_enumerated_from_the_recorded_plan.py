@@ -489,3 +489,22 @@ def test_replay_refuses_pairs_the_plan_does_not_give(
         edit(pairs)
     reason = refusal(tmp_path, [*log[:-1], {**log[-1], "pairs": pairs}])
     assert "contract pairs are not its plan's" in reason and why in reason, reason
+
+
+@pytest.mark.parametrize("written", ["modules/Budget", "modules/budget/"])
+def test_replay_refuses_an_opening_whose_module_directories_are_one_with_case_folded(
+    tmp_path: Path, written: str
+) -> None:
+    """Where case is ignored, as on the machine runs are made on, the two are one directory."""
+    log = lines(start(tmp_path, integrated())[0])
+    planned = [one for one in log if one["kind"] == "subtask_planned"]
+    fw = next(one for one in planned if one["module_dir"] == "modules/fw")
+    moved = [{**one, "module_dir": written} if one is fw else one for one in log]
+    reason = refusal(tmp_path, moved)
+    assert "modules/budget" in reason and written in reason and "one directory" in reason, reason
+    # As the plan check refuses the same plan before anything is written.
+    modules = [{**one, "module_dir": written} if one["name"] == "fw" else one for one in MODULES]
+    assert "overlap" in " ".join(plan_problems(integrated(modules=modules), BOTH, BRIEF))
+    # The same directory written the same way twice is one module and its later pass.
+    assert [one["module_dir"] for one in planned].count("modules/budget") == 2
+    assert refusal(tmp_path, log) == ""

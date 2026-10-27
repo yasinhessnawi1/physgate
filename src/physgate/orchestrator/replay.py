@@ -18,7 +18,7 @@ from __future__ import annotations
 import copy
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal, NoReturn
 
 from pydantic import ValidationError
@@ -535,6 +535,13 @@ class RunState:
                 f"nothing is planned after {marked!r}, the subtask of the role that owns "
                 "completion: it is planned last"
             )
+        # Compared as the plan check compares them: where case is ignored, as on the machine runs
+        # are made on, two directories written differently can be one, and two modules share it.
+        folded = PurePosixPath(event.module_dir.casefold())
+        for planned in self.order:
+            other = self.subtasks[planned].plan.module_dir
+            if other != event.module_dir and PurePosixPath(other.casefold()) == folded:
+                _refuse(f"module directories {other} and {event.module_dir} are one directory")
         if event.owns_completion:
             if event.module_dir != INTEGRATION_MODULE_DIR:
                 _refuse(
