@@ -582,3 +582,277 @@ def test_the_cli_writes_a_test_s_tally_labelled_never_a_result(
     done = subprocess.run(args, capture_output=True, text=True, check=False, cwd=common.REPO)
     assert done.returncode == 0, done.stdout
     assert json.loads(out.read_text())["label"] == "A TEST ON FIXTURES: never a result"
+
+
+# ---- the decision's inputs held (the practice figure, the reading, the draws, the frozen tally) -
+
+
+def test_a_practice_figure_other_than_the_criteria_s_is_refused() -> None:
+    t3.check_practice_figure(0.775)
+    t3.check_practice_figure(0.77504)
+    with pytest.raises(t3.RefusedError, match="0.775"):
+        t3.check_practice_figure(0.75)
+
+
+def test_the_practice_figure_on_records_not_at_their_digests_is_not_computable(
+    made: dict[str, Any], capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = t3.main(["practice-figure", "--practice", f"round-1={made['practice']['round-1']}"])
+    assert code == 1 and "not computable" in capsys.readouterr().out
+
+
+def test_a_tally_outside_a_test_needs_the_reading(tmp_path: Path) -> None:
+    with pytest.raises(t3.RefusedError, match="reading"):
+        t3.tally(tmp_path, tmp_path, {}, None, {}, practice_pinned=True)
+
+
+def test_a_tally_outside_a_test_takes_the_criteria_s_draws(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    argv = ["--records", str(tmp_path), "--sets", str(tmp_path), "--out", str(tmp_path / "t.json")]
+    assert t3.main([*argv, "--draws", "100"]) == 2
+    assert "draws" in capsys.readouterr().out
+
+
+def test_the_frozen_tally_is_held_to_its_digest_when_the_tally_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(common, "RPG02_TALLY_SHA256", "0" * 64)
+    with pytest.raises(t3.RefusedError, match="tally.py"):
+        t3.tally(tmp_path, tmp_path, {}, None, {}, practice_pinned=False)
+
+
+def test_the_knowledge_is_checked_from_the_block_record_s_review_roots(
+    made: dict[str, Any], tmp_path: Path
+) -> None:
+    first = made["attempts"][0]
+    scratch = fx.copy_run(Path(first["scratch"]["A2"]), tmp_path / "scratch")
+    line = next(
+        json.loads(x)
+        for x in (Path(first["runs"]["A2"]) / "events.jsonl").read_text().splitlines()
+        if '"review_ran"' in x
+    )
+    packet = common.lane_roots(scratch)[0] / line["result"]["session_id"] / "packet.json"
+    packet.parent.mkdir(parents=True, exist_ok=True)
+    packet.write_text(json.dumps({"knowledge_sha256": {"knowledge/cross/standards.md": "0" * 64}}))
+    records = tmp_path / "records"
+    attempts = [
+        {**first, "scratch": {**first["scratch"], "A2": str(scratch)}},
+        *made["attempts"][1:],
+    ]
+    fx.write_blocks(records, attempts, {"s": "x", "p1": "x", "p2": "x"})
+    with pytest.raises(t3.RefusedError, match="knowledge"):
+        run_tally({**made, "records": records})
+
+
+def test_a_set_not_at_set_filled_s_digest_is_refused_though_its_run_recorded_it(
+    made: dict[str, Any], tmp_path: Path
+) -> None:
+    corpus = tmp_path / "fresh-v2-x1"
+    shutil.copytree(made["sets"] / "fresh-v2-x1", corpus)
+    recorded = common.sha256_file(corpus / "MANIFEST.json")
+    (corpus / "MANIFEST.json").write_text((corpus / "MANIFEST.json").read_text() + "\n")
+    block = _broken_copy(made, tmp_path, lambda d: None)
+    block = t3.Block("x1", corpus, block.runs, block.facts, block.law)
+    fills = {"sets": {"manifests": {"fresh-v2-x1": recorded}}}
+    with pytest.raises(t3.RefusedError, match="Set filled"):
+        t3.check_run(block, "A2", fills, any_count=True)
+
+
+def test_each_block_s_attempts_and_the_chosen_one_s_deviations_are_carried_beside_the_gate(
+    made: dict[str, Any], tmp_path: Path
+) -> None:
+    records = tmp_path / "records"
+    r6 = "the gate's records differ (R6): a deviation for the gate's figures"
+    void = {**made["attempts"][0], "valid": False, "void_causes": ["usage limit"]}
+    chosen = {**made["attempts"][0], "attempt": 2, "deviations": [r6]}
+    fx.write_blocks(
+        records, [void, chosen, *made["attempts"][1:]], {"s": "x", "p1": "x", "p2": "x"}
+    )
+    gate = run_tally({**made, "records": records})["secondary"]["gate"]
+    assert gate["attempts"]["x1"]["chosen"] == 2 and gate["attempts"]["x1"]["deviations"] == [r6]
+    assert gate["attempts"]["x1"]["others"] == [
+        {"attempt": 1, "valid": False, "void_causes": ["usage limit"], "deviation": None}
+    ]
+
+
+# ---- §6.4 item 10: blocks p1 and p2 against R-PG-02's published runs ----------------------------
+
+
+def _p_item(item: str, review: str, r: bool, a: bool) -> dict[str, Any]:
+    return {
+        "item": item,
+        "review": review,
+        "twin_review": "pass" if a else "fail",
+        "R_common": r,
+        "A": a,
+        "rev_open": False,
+        "twin_open": False,
+        "raw_reject": review == "fail",
+        "sheet_flaw_rejection": False,
+    }
+
+
+def test_the_p_blocks_compare_r_and_a_per_item_and_refuse_an_item_with_no_published_row() -> None:
+    def scored(extra: list[str]) -> dict[str, dict[str, list[dict[str, Any]]]]:
+        ids = [f"a{k:02d}" for k in range(1, 41)] + extra
+        items = [_p_item(i, "fail", k % 2 == 0, k % 3 == 0) for k, i in enumerate(ids)]
+        half = len(items) // 2
+        return {
+            "p1": dict.fromkeys(common.ARMS, items[:half]),
+            "p2": dict.fromkeys(common.ARMS, items[half:]),
+        }
+
+    got = t3._p_blocks(scored([]), 50)
+    assert got is not None
+    rows = got["per_item_against_r_pg_02"]
+    assert len(rows) == 120 and {"R_common", "A", "review", "twin_review"} <= set(rows[0])
+    assert all(len(r["R_common"]) == 2 and len(r["A"]) == 2 for r in rows)
+    with pytest.raises(t3.RefusedError, match="published"):
+        t3._p_blocks(scored(["a99"]), 50)
+
+
+# ---- §8's labels and their boundaries ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("interval", "row"),
+    [
+        ([0.0, 0.3], "2"),  # Q2 needs the interval wholly above 0
+        ([0.0001, 0.3], "1"),
+        ([-0.1499, 0.0], "2"),
+        ([-0.15, -0.0001], "3a"),
+        ([-0.15, 0.0], "3b"),  # 3a needs the interval wholly below 0
+    ],
+)
+def test_the_row_at_its_boundaries(interval: list[float], row: str) -> None:
+    assert t3.row_of(interval) == row
+
+
+@pytest.mark.parametrize(
+    ("a2", "a1", "holds"),
+    [
+        ({"A": 9, "R_common": 50, "R_strict": 40}, {"A": 9, "R_common": 56, "R_strict": 46}, True),
+        ({"A": 9, "R_common": 50, "R_strict": 40}, {"A": 9, "R_common": 57, "R_strict": 40}, False),
+        ({"A": 9, "R_common": 50, "R_strict": 40}, {"A": 9, "R_common": 50, "R_strict": 47}, False),
+        ({"A": 8, "R_common": 50, "R_strict": 40}, {"A": 9, "R_common": 50, "R_strict": 40}, False),
+    ],
+    ids=["a-gap-of-six-and-a-equal", "a-common-gap-of-seven", "a-strict-gap-of-seven", "a-below"],
+)
+def test_q1_s_guards_at_their_boundaries(
+    a2: dict[str, int], a1: dict[str, int], holds: bool
+) -> None:
+    assert all(t3.q1_guards(a2, a1).values()) is holds
+
+
+@pytest.mark.parametrize(
+    ("a2_r", "catch"),
+    [([1, 1, 1, 0, 0, 0, 0, 0, 0, 0], True), ([1, 1, 0, 0, 0, 0, 0, 0, 0, 0], False)],
+    ids=["d-of-three", "d-of-two"],
+)
+def test_the_class_rule_s_catch_half_at_d_of_three(a2_r: list[int], catch: bool) -> None:
+    zero = [0] * 10
+    got = t3.standard_class(_cls_items(a2_r, zero, a2_r, zero, (9, 9)), None, 50)
+    assert got["halves"]["common"]["d"] == sum(a2_r) and got["catch_half_holds"] is catch
+
+
+@pytest.mark.parametrize(("accepted", "holds"), [((7, 9), True), ((6, 9), False)])
+def test_the_class_rule_s_acceptance_half_at_a_gap_of_two(
+    accepted: tuple[int, int], holds: bool
+) -> None:
+    r = [1, 1, 1, 0, 0, 0, 0, 0, 0, 0]
+    zero = [0] * 10
+    got = t3.standard_class(_cls_items(r, zero, r, zero, accepted), None, 50)
+    assert got["acceptance_half_holds"] is holds
+
+
+def test_the_class_rule_matches_the_arms_by_item() -> None:
+    r = [1, 1, 1, 1, 0, 0, 0, 0, 0, 0]
+    b = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]  # B credits s10, which A2 misses
+    items = _cls_items(r, b, r, b, (8, 9))
+    shuffled = {**items, "B": list(reversed(items["B"]))}
+    want = t3.standard_class(items, None, 50)
+    got = t3.standard_class(shuffled, None, 50)
+    assert got["halves"] == want["halves"] and got["acceptance"] == want["acceptance"]
+
+
+def test_the_class_clause_gives_each_way_only_where_the_ways_differ() -> None:
+    r = [1, 1, 1, 1, 0, 0, 0, 0, 0, 0]
+    zero = [0] * 10
+    same = {
+        "reliability": "reliable",
+        "standard_twins": [{"item": f"s{k:02d}", "status": "unflawed"} for k in range(1, 11)],
+    }
+    clause = t3.class_clause(t3.standard_class(_cls_items(r, zero, r, zero, (5, 9)), same, 50))
+    assert (
+        "way 1" not in clause and "of its 10 correct twins that the reading does not mark" in clause
+    )
+    statuses = ["flawed", "undecided"] + ["unflawed"] * 8
+    differ = {
+        "reliability": "reliable",
+        "standard_twins": [{"item": f"s{k + 1:02d}", "status": s} for k, s in enumerate(statuses)],
+    }
+    clause = t3.class_clause(t3.standard_class(_cls_items(r, zero, r, zero, (5, 9)), differ, 50))
+    assert "way 1" in clause and "way 2" in clause
+
+
+@pytest.mark.parametrize(
+    ("row", "readings", "fix", "robust"),
+    [
+        ("2a", {"locating": "2"}, {"strict": "met"}, (True, True)),
+        ("2b", {"locating": "3b", "corrected-A way 1": "2"}, {"strict": "met"}, (False, True)),
+        ("3a", {"locating": "3a"}, {"strict": "not shown"}, (True, False)),
+    ],
+)
+def test_the_robustness_labels(
+    row: str, readings: dict[str, str], fix: dict[str, str], robust: tuple[bool, bool]
+) -> None:
+    got = t3.robust_labels({"row": readings, "fix": fix}, row, {"sentence": "met"})
+    assert (got["row_is_robust"], got["fix_is_robust"]) == robust
+    base = "2" if row in ("2a", "2b") else row
+    assert got["row_readings_that_differ"] == [k for k, v in readings.items() if v != base]
+
+
+@pytest.mark.parametrize(
+    ("flags", "interval", "point", "label"),
+    [
+        (True, [-0.1, 0.2], 0.1, "a shift of the set, not shown to be tailoring"),
+        (True, [0.0, 0.2], 0.15, "a shift of the set, not shown to be tailoring"),
+        (True, [0.01, 0.3], 0.1, None),
+        (True, [-0.1, 0.4], 0.16, None),
+        (False, [-0.1, 0.2], 0.1, None),
+    ],
+)
+def test_q4_s_set_adjusted_label(
+    flags: bool, interval: list[float], point: float, label: str | None
+) -> None:
+    q4_main = {"tailoring": flags, "possible_tailoring": False}
+    assert t3.set_adjusted_label(q4_main, {"point": point, "interval": interval}) == label
+
+
+def test_the_author_pairs_differ_only_where_an_interval_excludes_zero() -> None:
+    assert not t3.pairs_differ({"X": [-0.1, 0.1], "Y": [0.0, 0.2], "Z": [-0.3, 0.0]})
+    assert t3.pairs_differ({"X": [-0.1, 0.1], "Y": [0.01, 0.2], "Z": [-0.3, 0.0]})
+    assert t3.pairs_differ({"X": [-0.2, -0.01], "Y": [0.0, 0.2], "Z": [-0.3, 0.0]})
+
+
+@pytest.mark.parametrize(
+    ("row", "interval", "bracket", "test"),
+    [
+        ("2a", [-0.1, -0.01], True, True),
+        ("2b", [-0.1, 0.0], False, True),
+        ("3b", [-0.2, 0.15], False, False),
+        ("3b", [-0.2, 0.149], False, True),
+    ],
+)
+def test_row_two_s_bracket_and_row_3b_s_test_of_the_generalist(
+    row: str, interval: list[float], bracket: bool, test: bool
+) -> None:
+    assert t3.row_clauses(row, interval) == (bracket, test)
+    contrast = {"J": -0.05, "interval": interval}
+    sentence = t3.row_sentence(row, contrast, 2.0, bracket, test)
+    if row.startswith("2"):
+        assert ("shown worse by less than the margin" in sentence) is bracket
+    else:
+        assert ("the generalist is shown worse" in sentence) is test
+        assert ("the generalist is not shown worse" in sentence) is not test

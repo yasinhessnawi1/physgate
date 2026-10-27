@@ -4,7 +4,13 @@ Usage, after the last block has ended and passed its stream check, and never bef
 
     python -I tally3.py --records <~/runs/rpg03> --sets <the corpora's directory>
         --practice round-1=<dir> --practice a-fresh=<dir> --practice repeat-K=<dir>
-        [--reading <reading.json>] [--root <arm>:<block>=<scratch> ...] [--draws N] --out <file>
+        --reading <reading.json> [--root <arm>:<block>=<scratch> ...] --out <file>
+    python -I tally3.py practice-figure --practice round-1=<dir>      before the first block
+
+``practice-figure`` computes Q4's practice figure, the kept round's J under the common rule on the
+tuning set, from its records held to R-LAW-01's recorded digests: exit 0 if it is §6.3's 0.775, 3 if
+not (the common rule or the records differ: a failed precondition), 1 if the records cannot be read
+at their digests (the figure is not computable). The tally itself refuses a figure other than 0.775.
 
 Read-only over the runs and the sets. It writes one JSON document to ``--out`` (never over a file)
 and prints its sha256 and counts only. Every rule is closed and mechanical: no model reads a
@@ -44,12 +50,15 @@ serves all three arms. Q4 and the readings beside it are unstratified (the froze
 ``drop_interval``, and its order for the joint readings: the tuning set's pairs first, then
 fresh-v2's).
 
-**What it checks first, and refuses on.** Every block has a valid attempt that ended and passed
-its stream check, or (``s``, ``p1``, ``p2`` alone) is recorded as not run with its cause (R8). Each
-run's rows are its block's items; its seed, kind, lanes, account digest and corpus manifest are
-its block's and arm's; every review line's rubric digest is its arm's for its role (§3.1), and,
-where the review roots are named, every packet's knowledge digests are the pinned trees' for its
-arm and role. The practice runs are held to R-LAW-01's recorded digests.
+**What it checks first, and refuses on.** R-PG-02's tally is the frozen file (its sha256). Outside
+a test on fixtures, the reading (§7) is given and the draws are 10,000. Every block has a valid
+attempt that ended and passed its stream check, or (``s``, ``p1``, ``p2`` alone) is recorded as not
+run with its cause (R8). Each run's rows are its block's items; its seed, kind, lanes, account
+digest and corpus manifest are its block's and arm's, and the set's manifest is "Set filled"'s;
+every review line's rubric digest is its arm's for its role (§3.1), and every packet's knowledge
+digests are the pinned trees' for its arm and role, under the review roots the block record names
+(or ``--root``). The practice runs are held to R-LAW-01's recorded digests, and the kept round's
+J under the common rule must be §6.3's 0.775.
 """
 
 from __future__ import annotations
@@ -110,6 +119,23 @@ PRACTICE_RUNS = ("round-1", "a-fresh", "repeat-K")
 
 class RefusedError(Exception):
     """The records, runs or sets are not ones this script can read faithfully."""
+
+
+class NotComputableError(RefusedError):
+    """A practice record cannot be read at its recorded digests."""
+
+
+def check_practice_figure(j: float) -> None:
+    """§6.3: the practice figure is the kept round's on the tuning set, J common 0.775.
+
+    Raises:
+        RefusedError: it is not: the common rule or the pinned records differ.
+    """
+    if round(j, 4) != KEPT_ROUND_J:
+        raise RefusedError(
+            f"the kept round's J under the common rule is {round(j, 4)}, not 0.775 (§6.3): the "
+            "common rule or the pinned practice records differ"
+        )
 
 
 # ---------------------------------------------------------------- the cells
@@ -361,6 +387,8 @@ def check_run(
         name = common.BLOCK_CORPUS[block.name]
         if cfg.get("corpus_manifest_sha256") != manifests.get(name):
             raise RefusedError(f'block {block.name}, arm {arm}: the corpus is not "Set filled"\'s')
+        if common.sha256_file(block.corpus / "MANIFEST.json") != manifests.get(name):
+            raise RefusedError(f'block {block.name}: the set read is not "Set filled"\'s')
     bad = seen = 0
     for log in (run.injected, run.controls):
         for line in log.reviews:
@@ -702,7 +730,7 @@ def blocks_record(records: Path) -> dict[str, Any]:
                 "check: nothing is tallied before the last block has ended (R8)"
             )
         chosen[block] = valid[0]
-    return {"chosen": chosen, "not_run": not_run}
+    return {"chosen": chosen, "not_run": not_run, "attempts": rec.get("attempts", [])}
 
 
 def read_block(
@@ -712,6 +740,40 @@ def read_block(
     corpus = sets / common.BLOCK_CORPUS[name]
     runs = {arm: T.Run.read(Path(attempt["runs"][arm]), any_count=True) for arm in common.ARMS}
     return Block(name, corpus, runs, T.set_facts(corpus), set_data(corpus), scratch)
+
+
+def _pin_practice(label: str, path: Path) -> None:
+    """One practice run held to the digests R-LAW-01 recorded for it.
+
+    Raises:
+        NotComputableError: it cannot be read at those digests.
+    """
+    digests = json.loads(LX.INPUTS.read_text())
+    pins = {p.label: p for p in LX.FROZEN.runs}
+    try:
+        LX.load_run(LX.FROZEN, pins[label], path, digests)
+    except (LX.Refused, KeyError, OSError, ValueError) as exc:
+        raise NotComputableError(f"practice run {label}: {exc}") from exc
+
+
+def _practice_run(path: Path, facts: Any, pinned: bool) -> list[dict[str, Any]]:  # noqa: ANN401
+    """One practice run's items under the common rule, by item."""
+    run = T.Run.read(path, any_count=not pinned)
+    items = []
+    for p in T.per_item(run, facts, "paired"):
+        com = T.naming(
+            common_cell("paired", p["role"], p["class"], None),
+            frozenset(p["cited_by_review"]),
+            frozenset(p["cited_by_twin_review"]),
+        )
+        items.append(
+            {
+                "item": p["artefact"],
+                "R_common": p["review"] == "fail" and com["named"] is True,
+                "A": p["A_rev"],
+            }
+        )
+    return sorted(items, key=lambda x: x["item"])
 
 
 def practice_items(
@@ -725,33 +787,21 @@ def practice_items(
     if set(runs) != set(PRACTICE_RUNS):
         raise RefusedError("the practice runs are round-1, a-fresh and repeat-K, each named once")
     if pinned:
-        digests = json.loads(LX.INPUTS.read_text())
-        pins = {p.label: p for p in LX.FROZEN.runs}
         for label, path in runs.items():
-            try:
-                LX.load_run(LX.FROZEN, pins[label], path, digests)
-            except LX.Refused as exc:
-                raise RefusedError(f"practice run {label}: {exc}") from exc
+            _pin_practice(label, path)
     facts = T.set_facts(tuning)
-    out = {}
-    for label, path in runs.items():
-        run = T.Run.read(path, any_count=not pinned)
-        items = []
-        for p in T.per_item(run, facts, "paired"):
-            com = T.naming(
-                common_cell("paired", p["role"], p["class"], None),
-                frozenset(p["cited_by_review"]),
-                frozenset(p["cited_by_twin_review"]),
-            )
-            items.append(
-                {
-                    "item": p["artefact"],
-                    "R_common": p["review"] == "fail" and com["named"] is True,
-                    "A": p["A_rev"],
-                }
-            )
-        out[label] = sorted(items, key=lambda x: x["item"])
-    return out
+    return {label: _practice_run(path, facts, pinned) for label, path in runs.items()}
+
+
+def kept_figure(round1: Path, tuning: Path) -> float:
+    """Q4's practice figure: the kept round's J under the common rule, its records at their digests.
+
+    Raises:
+        NotComputableError: the records cannot be read at their digests.
+    """
+    _pin_practice("round-1", round1)
+    items = _practice_run(round1, T.set_facts(tuning), pinned=True)
+    return float(T.j_of([(float(p["R_common"]), float(p["A"])) for p in items]))
 
 
 # ---------------------------------------------------------------- the whole tally
@@ -860,7 +910,14 @@ def standard_class(
     draws: int,
 ) -> dict[str, Any]:
     """§6.4 item 9 and §8's class rule: A2 against B on the class's 10 pairs."""
-    a2, b = items["A2"], items["B"]
+    ids = [p["item"] for p in items["A2"]]
+    by_item = {arm: {p["item"]: p for p in items[arm]} for arm in common.ARMS}
+    if any(sorted(by_item[arm]) != sorted(ids) for arm in common.ARMS):
+        raise RefusedError("the arms of block s did not review the same items")
+    # Each arm's review of an item, matched by the item's id, never by position.
+    a2 = [by_item["A2"][i] for i in ids]
+    b = [by_item["B"][i] for i in ids]
+    a1 = [by_item["A1"][i] for i in ids]
     out: dict[str, Any] = {
         arm: {
             "common": arm_figures(items[arm], "R_common", draws, None),
@@ -872,8 +929,8 @@ def standard_class(
     for rule, key in (("common", "R_common"), ("locating", "R_locating")):
         n_a2 = sum(1 for x, y in zip(a2, b, strict=True) if x[key] and not y[key])
         n_b = sum(1 for x, y in zip(a2, b, strict=True) if y[key] and not x[key])
-        a1_only = sum(1 for x, y in zip(items["A1"], b, strict=True) if x[key] and not y[key])
-        b_not_a1 = sum(1 for x, y in zip(items["A1"], b, strict=True) if y[key] and not x[key])
+        a1_only = sum(1 for x, y in zip(a1, b, strict=True) if x[key] and not y[key])
+        b_not_a1 = sum(1 for x, y in zip(a1, b, strict=True) if y[key] and not x[key])
         halves[rule] = {
             "n_A2": n_a2,
             "n_B": n_b,
@@ -927,12 +984,17 @@ def class_clause(cls: dict[str, Any] | None) -> str:
         f"and {h['locating']['n_B']}); "
     )
     if acc.get("ways"):
+        told = [(w["k"], w["accepted"]["A2"], w["accepted"]["B"]) for w in acc["ways"].values()]
         parts = []
-        for way, w in acc["ways"].items():
-            parts.append(
-                f"{way}: of its {w['k']} correct twins that the reading does not mark flawed, "
-                f"they accepted {w['accepted']['A2']} against the generalist's {w['accepted']['B']}"
+        for way, (k, a2, b) in zip(acc["ways"], told, strict=True):
+            said = (
+                f"of its {k} correct twins that the reading does not mark flawed, they accepted "
+                f"{a2} against the generalist's {b}"
             )
+            # The ways are given each apart only where they differ (§8).
+            parts.append(said if len(set(told)) == 1 else f"{way}: {said}")
+            if len(set(told)) == 1:
+                break
         body = "; ".join(parts) + f", and of all 10, {raw['A2']} against {raw['B']}. "
     else:
         body = (
@@ -974,6 +1036,44 @@ def row_sentence(
         f"about {times} as much. This does not show the two equal: {j}. Beside it: the generalist "
         f"is {worse}shown worse than the specialists (margin 0.15)."
     )
+
+
+def row_clauses(row: str, interval: list[float]) -> tuple[bool, bool]:
+    """Row 2's bracketed clause, and row 3b's test of the generalist.
+
+    The clause is printed when the interval lies wholly below 0; the generalist is shown worse than
+    the specialists if the interval's upper end lies below +0.15.
+    """
+    return row in ("2a", "2b") and interval[1] < 0, interval[1] < -Q3_MARGIN
+
+
+def set_adjusted_label(q4_main: dict[str, Any], adj: dict[str, Any]) -> str | None:
+    """§6.3: the label beside a flagged Q4.
+
+    Printed when the set-adjusted reading's interval holds 0 and its point is at most 0.15.
+    """
+    flags = q4_main["tailoring"] or q4_main["possible_tailoring"]
+    holds_zero = adj["interval"][0] <= 0 <= adj["interval"][1]
+    if flags and holds_zero and adj["point"] <= POSSIBLE_TAILORING:
+        return "a shift of the set, not shown to be tailoring"
+    return None
+
+
+def pairs_differ(per: dict[str, list[float]]) -> bool:
+    """§6.4 item 1: "the author pairs differ" if any of the three intervals excludes 0."""
+    return any(not (lo <= 0 <= hi) for lo, hi in per.values())
+
+
+def robust_labels(robust: dict[str, Any], row: str, fix_s: dict[str, Any]) -> dict[str, Any]:
+    """§8's robustness labels: each reading's row and fix sentence against the decision's."""
+    base_row = "2" if row in ("2a", "2b") else row
+    robust["row_is_robust"] = all(v == base_row for v in robust["row"].values())
+    robust["row_readings_that_differ"] = [k for k, v in robust["row"].items() if v != base_row]
+    robust["fix_is_robust"] = all(v == fix_s["sentence"] for v in robust["fix"].values())
+    robust["fix_readings_that_differ"] = [
+        k for k, v in robust["fix"].items() if v != fix_s["sentence"]
+    ]
+    return robust
 
 
 def fix_text(s: dict[str, Any], contrast: dict[str, Any]) -> str:
@@ -1064,12 +1164,25 @@ def tally(
     Raises:
         RefusedError: R8, or any check of the runs, sets or records.
     """
+    if common.sha256_file(Path(str(T.__file__))) != common.RPG02_TALLY_SHA256:
+        raise RefusedError("R-PG-02's tally.py is not the frozen file (its sha256)")
+    if reading_path is None and practice_pinned and not any_count:
+        raise RefusedError(
+            "the reading (§7) is an input of the tally: without it the reading would read "
+            "unchecked, which §7 defines by its three controls, never by a reading left out"
+        )
     rec = blocks_record(records)
     cells = Cells.at(repo)
     blocks: dict[str, Block] = {}
     checks: dict[str, Any] = {}
     for name, attempt in rec["chosen"].items():
-        sc = {arm: scratch.get(arm, {}).get(name) for arm in common.ARMS}
+        # Each review root the block record names, unless a test names its own.
+        recorded = attempt.get("scratch") or {}
+        sc = {
+            arm: scratch.get(arm, {}).get(name)
+            or (Path(recorded[arm]) if recorded.get(arm) else None)
+            for arm in common.ARMS
+        }
         blocks[name] = read_block(name, attempt, sets, sc)
         checks[name] = {
             arm: {
@@ -1137,19 +1250,14 @@ def tally(
     a1_pairs = [(float(x), float(y)) for x, y in pairs_of(primary["A1"], "R_common")]
     q4_main = q4(kept, a2_pairs, draws)
     q4_main["practice_figure_is_the_criteria_s"] = round(T.j_of(kept), 4) == KEPT_ROUND_J
+    if practice_pinned:
+        check_practice_figure(T.j_of(kept))
     adj_point = round((T.j_of(kept) - T.j_of(a2_pairs)) - (T.j_of(k_mean) - T.j_of(a1_pairs)), 4)
     adj = {
         "point": adj_point,
         "interval": joint_drop_difference(kept, k_mean, a2_pairs, a1_pairs, draws),
     }
-    flags = q4_main["tailoring"] or q4_main["possible_tailoring"]
-    adj["label"] = (
-        "a shift of the set, not shown to be tailoring"
-        if flags
-        and adj["interval"][0] <= 0 <= adj["interval"][1]
-        and adj_point <= POSSIBLE_TAILORING
-        else None
-    )
+    adj["label"] = set_adjusted_label(q4_main, adj)
     sheet_matched: dict[str, Any] | None = None
     if "p1" in scored and "p2" in scored:
         p_items = {arm: scored["p1"][arm] + scored["p2"][arm] for arm in common.ARMS}
@@ -1184,7 +1292,7 @@ def tally(
         }
         comparisons[label] = {
             "intervals": per,
-            "the_author_pairs_differ": any(not (lo <= 0 <= hi) for lo, hi in per.values()),
+            "the_author_pairs_differ": pairs_differ(per),
             "comparisons": "3 per contrast, 6 in all, uncorrected",
         }
     per_block = {
@@ -1235,6 +1343,23 @@ def tally(
             ),
         },
         "note": "the gate's acceptance of the twins is 100 % by construction, and is not a result",
+        "attempts": {
+            name: {
+                "chosen": chosen.get("attempt"),
+                "deviations": chosen.get("deviations") or [],
+                "others": [
+                    {
+                        "attempt": a.get("attempt"),
+                        "valid": a.get("valid"),
+                        "void_causes": a.get("void_causes") or [],
+                        "deviation": a.get("deviation"),
+                    }
+                    for a in rec["attempts"]
+                    if a.get("block") == name and a is not chosen
+                ],
+            }
+            for name, chosen in rec["chosen"].items()
+        },
     }
     cost = cost_ratio(runs_by_arm)
     standard: dict[str, Any] | None = None
@@ -1245,8 +1370,7 @@ def tally(
     row = row_of(pair["interval"])
     if row == "2":
         row = "2a" if cls_holds else "2b"
-    bracket = row in ("2a", "2b") and pair["interval"][1] < 0
-    specialists_test = pair["interval"][1] < 0.15
+    bracket, specialists_test = row_clauses(row, pair["interval"])
     ratio = cost["A2_to_B"]["tokens"]
     fix_s = fix_sentence(fix["interval"], guards)
     robust: dict[str, Any] = {
@@ -1270,13 +1394,7 @@ def tally(
             robust["fix"][f"corrected-A way {way}"] = fix_sentence(fix_iv, {**guards, **a_corr})[
                 "sentence"
             ]
-    base_row = "2" if row in ("2a", "2b") else row
-    robust["row_is_robust"] = all(v == base_row for v in robust["row"].values())
-    robust["row_readings_that_differ"] = [k for k, v in robust["row"].items() if v != base_row]
-    robust["fix_is_robust"] = all(v == fix_s["sentence"] for v in robust["fix"].values())
-    robust["fix_readings_that_differ"] = [
-        k for k, v in robust["fix"].items() if v != fix_s["sentence"]
-    ]
+    robust_labels(robust, row, fix_s)
     robust["corrected_a_used"] = reliability == "reliable"
     q4_clean = not (q4_main["tailoring"] or q4_main["possible_tailoring"])
     decision = {
@@ -1347,32 +1465,68 @@ def _p_blocks(
     for arm in common.ARMS:
         items = scored["p1"][arm] + scored["p2"][arm]
         out[arm] = arm_figures(items, "R_common", draws, None)
-    published = {}
-    for name in ("a-fresh", "b-fresh"):
-        path = common.REPO / "experiments" / "R-PG-02" / "evidence" / f"rows_{name}.jsonl"
-        rows = {r["artefact"]: r for r in T.read_lines(path)}
-        published[name] = rows
+    # R-PG-02's published tally, its per-item records with each review's cited items, so each
+    # published item is held to the common rule too, as the blocks' own items are.
+    path = common.REPO / common.RPG02_PUBLISHED_TALLY
+    if common.sha256_file(path) != common.RPG02_PUBLISHED_TALLY_SHA256:
+        raise RefusedError("R-PG-02's published tally is not the frozen file (its sha256)")
+    runs = json.loads(path.read_text())["runs"]
+    published = {name: {r["artefact"]: r for r in runs[name]["per_item"]} for name in runs}
+    kind = {"a-fresh": "paired", "b-fresh": "generalist"}
     per_item = []
     for arm, other in (("A1", "a-fresh"), ("B", "b-fresh"), ("A2", "a-fresh")):
         for p in scored["p1"][arm] + scored["p2"][arm]:
             r = published[other].get(p["item"])
             if r is None:
-                continue
+                raise RefusedError(f"item {p['item']} has no published row in R-PG-02's {other}")
+            named = T.naming(
+                common_cell(kind[other], r["role"], r["class"], None),
+                frozenset(r["cited_by_review"]),
+                frozenset(r["cited_by_twin_review"]),
+            )["named"]
             per_item.append(
                 {
                     "arm": arm,
                     "against": other,
                     "item": p["item"],
-                    "review": [r["reviewer_verdict"], p["review"]],
-                    "twin_review": [r["control_reviewer_verdict"], p["twin_review"]],
+                    "review": [r["review"], p["review"]],
+                    "twin_review": [r["twin_review"], p["twin_review"]],
+                    "R_common": [int(r["review"] == "fail" and named is True), int(p["R_common"])],
+                    "A": [int(bool(r["A_rev"])), int(bool(p["A"]))],
                 }
             )
     out["per_item_against_r_pg_02"] = per_item
     return out
 
 
+def practice_figure_main(argv: list[str]) -> int:
+    """``practice-figure``: Q4's practice figure before the first block; counts only."""
+    parser = argparse.ArgumentParser(prog="tally3.py practice-figure")
+    parser.add_argument("--practice", required=True, help="round-1=<the kept round's run dir>")
+    parser.add_argument("--tuning", type=Path, default=common.REPO / common.TUNING_SET)
+    args = parser.parse_args(argv)
+    label, _, path = args.practice.partition("=")
+    if label != "round-1":
+        parser.error("the practice figure is the kept round's: --practice round-1=<dir>")
+    try:
+        j = kept_figure(Path(path).resolve(), args.tuning)
+    except NotComputableError as exc:
+        print(json.dumps({"not computable": str(exc)}))
+        return 1
+    try:
+        check_practice_figure(j)
+    except RefusedError as exc:
+        print(json.dumps({"refused": str(exc)}))
+        return 3
+    print(json.dumps({"J_common": round(j, 4), "holds": True}))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Write the tally; print its sha256 and counts only."""
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["practice-figure"]:
+        return practice_figure_main(argv[1:])
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--records", type=Path, required=True)
     parser.add_argument("--sets", type=Path, required=True)
@@ -1409,6 +1563,8 @@ def main(argv: list[str] | None = None) -> int:
             else common.fills_on(common.REPO, "origin/master")
         )
         test = args.practice_unpinned or args.any_count
+        if not test and args.draws != common.BOOT_DRAWS:
+            raise RefusedError(f"the draws are §6.1's {common.BOOT_DRAWS}, outside a test")
         if not test:
             common.need_fill(fills, "sets")
         found = tally(

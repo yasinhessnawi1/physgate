@@ -209,6 +209,10 @@ STANDARDS_SHA256 = {
     "firmware": "da7594e65d0aedacc57a84ac40849e39ad46454e077b98b84a40c65901fac4b1",
     "mechanical": "2bc64f3d645a43727bd09ada264b6bf3ba2cb9c7cee65ed7f64fe575278227f0",
 }
+#: R-PG-02's frozen tally, imported unedited, and its published tally, read for blocks p1 and p2.
+RPG02_TALLY_SHA256 = "294c9b309eb8d38034781c97bb6ae3bc6e2e885b9b667232bcc7b870bf9352b9"
+RPG02_PUBLISHED_TALLY = "experiments/R-PG-02/evidence/tally_2026_10_20.json"
+RPG02_PUBLISHED_TALLY_SHA256 = "5f3e31ce472f86b9cbaead81a46a2db7b149c3f1e3b056743a197ad69eb095f7"
 #: The pre-freeze probe of the false-finding control's keys, published beside the scripts.
 FF_PROBE_SHA256 = "d1def63279798ee19885647611bf0cd7f16e0617a397bb915e337e0953baf7ad"
 #: R-LAW-01's extractor and its recorded input digests, as the probe read them.

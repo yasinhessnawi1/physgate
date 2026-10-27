@@ -8,6 +8,7 @@ if it holds::
     checks.py owner --block <b> --attempt <n>        the owner's confirmations (§10)
     checks.py smoke-ready --block <b>                the smoke's own step may run (§2.4, §10)
     checks.py smoke-record --code <n> --started <utc> --ended <utc> --ff <status> --dir <dir>
+        [--figure <status>]
     checks.py ff-status --practice round-1=<dir> --practice repeat-K=<dir>   §7's keys, counted
     checks.py commits --r <dir> --r-k <dir>          R and R_K against §3.2 and "Commits filled"
     checks.py generalist --into <file>               at R_K: generalist_of's four digests
@@ -219,8 +220,13 @@ def smoke_ready(block: str) -> dict[str, Any]:
     return {"check": "smoke-ready", "account_label": label, "weekly_reset_utc": reset}
 
 
-def smoke_record(code: int, started: str, ended: str, ff: str, where: Path) -> dict[str, Any]:
-    """One smoke's record: its exit code, its start and end, and the false-finding keys' status."""
+def smoke_record(
+    code: int, started: str, ended: str, ff: str, where: Path, figure: str | None = None
+) -> dict[str, Any]:
+    """One smoke's record.
+
+    Its exit code, its start and end, the false-finding keys' status, and Q4's practice figure's.
+    """
     for utc in (started, ended):
         _seconds(utc)
     row = {
@@ -229,6 +235,7 @@ def smoke_record(code: int, started: str, ended: str, ff: str, where: Path) -> d
         "started_utc": started,
         "ended_utc": ended,
         "false_finding_keys": ff,
+        "practice_figure": figure,
         "dir": str(where),
     }
     rec = {"attempts": [*read_smokes(), row]}
@@ -979,6 +986,7 @@ def main(argv: list[str] | None = None) -> int:
     sd.add_argument("--started", required=True)
     sd.add_argument("--ended", required=True)
     sd.add_argument("--ff", required=True)
+    sd.add_argument("--figure")
     sd.add_argument("--dir", type=Path, required=True)
     fs = sub.add_parser("ff-status")
     fs.add_argument("--practice", action="append", default=[], help="<run label>=<dir>")
@@ -1035,7 +1043,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "smoke-ready":
             found = smoke_ready(args.block)
         elif args.cmd == "smoke-record":
-            found = smoke_record(args.code, args.started, args.ended, args.ff, args.dir)
+            found = smoke_record(
+                args.code, args.started, args.ended, args.ff, args.dir, args.figure
+            )
         elif args.cmd == "ff-status":
             practice = {
                 spec.partition("=")[0]: Path(spec.partition("=")[2]).resolve()

@@ -229,3 +229,11 @@ def test_an_arm_stopped_or_crashed_has_its_sessions_stopped_before_the_end_check
         assert f'--scratch "$(scratch_of {arm})"' in call
     guard = text[text.rindex("\nif ", 0, stop) : stop]
     assert "first_minute.txt" in guard and "ABNORMAL" in guard
+
+
+def test_before_the_first_block_the_practice_figure_is_checked_as_the_tally_checks_it() -> None:
+    smoke = smoke_step()
+    call = smoke.index('tally3.py" practice-figure --practice "round-1=$RP3_PRACTICE_ROUND1"')
+    assert call < smoke.index('streams.py" smoke')
+    handling = smoke[call : smoke.index("esac", call)]
+    assert "1)" in handling and "NOT COMPUTABLE" in handling and "refuse" in handling

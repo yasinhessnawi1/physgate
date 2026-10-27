@@ -26,7 +26,9 @@
 # no block attempt and no window confirmation exist yet; the binary; the block's corpus and sheet;
 # L9, the false-finding control's five keys counted again (reality.py), whose "not checked" (the
 # practice records cannot be read at their digests, so the reading will be unchecked) is printed
-# for the owner before the confirmation, and refused only on a count other than 1; and L10, the
+# for the owner before the confirmation, and refused only on a count other than 1; Q4's practice
+# figure, the kept round's J under the common rule (tally3.py practice-figure), refused unless it is
+# 0.775 and said plainly if its records cannot be read at their digests; and L10, the
 # whole-read smoke on the run account (streams.py smoke), with its ledger line, the prefixes'
 # counts (scan.sh) and the token's scan of what it wrote, and the login files' check at its end.
 # Its pass, its end and L9's status are recorded in ~/runs/rpg03/smoke.json; the first block's L1
@@ -179,6 +181,16 @@ if [ "$STOP_AFTER" = smoke ]; then
   check L3-binary py "$HERE/checks.py" "${CK[@]}" binary
   check L5-sets py "$HERE/checks.py" "${CK[@]}" sets --sets "$SETS" --block "$BLOCK"
   ff_status
+  # Q4's practice figure, as the tally will check it (§6.3: the kept round's J common 0.775).
+  status=0
+  out="$(py "$HERE/tally3.py" practice-figure --practice "round-1=$RP3_PRACTICE_ROUND1")" || status=$?
+  printf '%s\n' "$out" > "$LAUNCH/L9-practice-figure.json"
+  case "$status" in
+    0) FIGURE="0.775"; say "ok  L9-practice-figure $out" ;;
+    1) FIGURE="not computable"
+       say "NOT COMPUTABLE L9-practice-figure: the kept round's records cannot be read at their recorded digests, so Q4's practice figure cannot be computed. The owner reads this before confirming the window." ;;
+    *) say "$out"; refuse "L9-practice-figure: the kept round's J under the common rule is not 0.775 (§6.3): a failed precondition (§11)" ;;
+  esac
   SMOKE_ROOT="$HOME/review-scratch/rp3-smoke-$K"
   rp3_load_token "$ENV_FILE" 2>> "$LOG" || refuse "the run account's token (see the line above)"
   say "ok  token loaded: one line of the token's shape"
@@ -201,7 +213,7 @@ if [ "$STOP_AFTER" = smoke ]; then
   rp3_drop_token
   CREDENTIALS_OK=1; py "$HERE/checks.py" "${CK[@]}" credentials | tee -a "$LOG" || CREDENTIALS_OK=0
   py "$HERE/checks.py" "${CK[@]}" smoke-record --code "$CODE" --started "$SMOKE_STARTED" \
-    --ended "$SMOKE_ENDED" --ff "$FF" --dir "$LAUNCH" | tee -a "$LOG"
+    --ended "$SMOKE_ENDED" --ff "$FF" --figure "$FIGURE" --dir "$LAUNCH" | tee -a "$LOG"
   [ "$SCAN_OK" = 1 ] || refuse "the token's scan found a hit in what the smoke wrote"
   [ "$CREDENTIALS_OK" = 1 ] || refuse "a login file of the smoke's session remains, or its removal is not confirmed"
   [ "$CODE" = 0 ] || refuse "the smoke did not pass (exit $CODE): the first block does not start"
