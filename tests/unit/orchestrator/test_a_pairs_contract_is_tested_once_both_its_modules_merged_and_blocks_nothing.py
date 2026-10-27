@@ -10,11 +10,14 @@ owed it stands and the run goes on; completion alone is withheld, by a precondit
 each pair's latest result. Replay refuses a result the record does not owe, or at another head or
 revision, and any dispatch or completion while one is owed. An interface node the pair cannot be
 held to, or a store whose journal ends before the recorded revision, halts the run, and no result
-is recorded.
+is recorded. Before each completion line the loop takes every recorded result again over the
+journal at its recorded revision: a result the journal does not give, whole, halts the run, and
+no completion is written over it.
 """
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
@@ -701,3 +704,91 @@ def test_no_integration_skip_is_taken_under_off_while_a_result_is_owed(
     skip = next(e for e in events if isinstance(e, IntegrationGateSkipped))
     assert skip.reason == "gate_mode=off"
     refused(owed, skip, "while a pair's contract result is owed")
+
+
+# --- every recorded result is taken again before a completion -----------------------------------
+
+
+def rewritten(log: Path, edit: Callable[[list[dict[str, Any]]], None]) -> None:
+    """The log with lines rewritten in place by ``edit``, as anything on the machine could."""
+    records = [json.loads(raw) for raw in log.read_bytes().splitlines()]
+    edit(records)
+    log.write_bytes(
+        b"".join(json.dumps(r, separators=(",", ":")).encode() + b"\n" for r in records)
+    )
+
+
+def test_a_failed_result_rewritten_as_its_pairs_pass_halts_the_run_before_any_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, passing = finished(tmp_path / "pass", monkeypatch)
+    honest = json.loads(contracts(passing)[0].model_dump_json())["result"]
+    rig = rig_for(tmp_path / "fail", fw_volts=11)
+    loop = rig.open()
+    hooked(monkeypatch, loop, declared=(DRIVE, FW), kill=nth_contract(1))
+    start(loop)
+    with pytest.raises(KilledError):
+        loop.run()
+    loop.close()
+    log = rig.run_dir / "events.jsonl"
+
+    def as_a_pass(records: list[dict[str, Any]]) -> None:
+        failed = records[-1]
+        assert (failed["kind"], failed["result"]["outcome"]) == ("contract_tested", "fail")
+        assert failed["result"]["pair"] == honest["pair"]
+        failed["result"] = honest
+
+    rewritten(log, as_a_pass)
+    # Its pair, interfaces, counts, digest, commit and revision are consistent: replay takes it.
+    assert replay(read_events(log)).contracts[0].result.outcome == "pass"
+    fresh = rig.open()
+    hooked(monkeypatch, fresh, declared=(DRIVE, FW))
+    assert fresh.resume().kind == "halted"
+    fresh.close()
+    events = read_events(log)
+    assert [e for e in events if isinstance(e, ModuleCompleted)] == []
+    before, incident, halted = halt_of(events)
+    # Integration merged with its diff clean, and the first completion step found the result.
+    assert isinstance(before, DiffChecked) and before.subtask_id == INTEG
+    assert (incident.cause, halted.detail) == ("foreign_journal_line", "foreign_journal_line")
+    assert "drive to fw" in incident.detail and "revision 4" in incident.detail
+
+
+def test_a_result_rewritten_in_its_detail_with_its_outcome_kept_halts_the_run_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Uninterrupted, the closing pass breaks sizing's pair and fw alone is completed.
+    rig = rig_for(tmp_path, closing_volts=11)
+    loop = rig.open()
+    hooked(
+        monkeypatch,
+        loop,
+        declared=(BUDGET, DRIVE, FW),
+        kill=lambda e, _: isinstance(e, ModuleCompleted),
+    )
+    start(loop, sizing=True)
+    with pytest.raises(KilledError):
+        loop.run()
+    loop.close()
+    log = rig.run_dir / "events.jsonl"
+
+    def another_failure(records: list[dict[str, Any]]) -> None:
+        retest = [r for r in records if r["kind"] == "contract_tested"][-1]
+        assert (retest["first"], retest["result"]["outcome"]) == (False, "fail")
+        (budget,) = [
+            n
+            for n in retest["result"]["interfaces"][0]["clauses"][0]["nodes"]
+            if n["node"] == "budget.supply"
+        ]
+        assert budget["outcome"] == "value"
+        budget["outcome"] = "missing"  # the clause, the interface and the pair still fail
+
+    rewritten(log, another_failure)
+    fresh = rig.open()
+    assert fresh.run().kind == "halted"
+    fresh.close()
+    events = read_events(log)
+    assert [e for e in events if isinstance(e, ModuleCompleted)] == []
+    _, incident, _ = halt_of(events)
+    assert incident.cause == "foreign_journal_line"
+    assert "drive to budget" in incident.detail and "revision 6" in incident.detail

@@ -1731,6 +1731,7 @@ class Loop:
 
         Integration's attempt merged with its diff clean, its declaration names the module, and
         every precondition holds for it: the run state owes the line only then, in plan order.
+        Before the line, every recorded contract result is taken again (:meth:`_results_hold`).
         """
         integration = self.state.completion_subtask
         if step.subtask_id is None or integration is None:
@@ -1744,12 +1745,39 @@ class Loop:
         if why is not None:
             self._incident(None, "duty_breach", f"subtask {integration}: {why}")
             return
+        if not self._results_hold():
+            return
         attempt = self.state.subtasks[integration].attempts[-1].number
         self._emit(
             ModuleCompleted(
                 **self._env(), subtask_id=step.subtask_id, declared_by=integration, attempt=attempt
             )
         )
+
+    def _results_hold(self) -> bool:
+        """Every contract result on the record is, whole, what the journal gives at its revision.
+
+        A completion reads each pair's latest result as the log holds it, and replay holds a
+        result to its place, never to the graph. So before a completion line each recorded result
+        is taken again over the canonical journal at the revision it records, as the contract step
+        took it. One that differs, or that the journal can no longer give, is not what the store
+        holds: the run halts, and no completion is written over it.
+        """
+        for line in self.state.contracts:
+            pair = line.result.pair
+            try:
+                again = check_pair(pair, nodes_at(self._graph.root, line.revision))
+            except (DesignStateError, ContractError):
+                again = None
+            if again != line.result:
+                detail = (
+                    f"the contract result of {pair.producer.module} to {pair.consumer.module} "
+                    f"recorded at line {line.seq} is not what the canonical journal gives at "
+                    f"revision {line.revision}"
+                )
+                self._incident(None, "foreign_journal_line", detail)
+                return False
+        return True
 
     def _diff(self, subtask_id: str, attempt: int) -> None:
         # A person's approve is carried on from the record, never resumed: its attempt ended
