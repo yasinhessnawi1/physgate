@@ -194,6 +194,7 @@ class Step:
         "integrate",
         "complete",
         "contract",
+        "halt",
         "halted",
         "escalated",
         "done",
@@ -237,6 +238,8 @@ class RunState:
         self.order: list[str] = []
         self.subtasks: dict[str, SubtaskState] = {}
         self.halted: Halted | None = None
+        #: The last halt on the record, kept when a resume takes the run up again.
+        self.last_halt: Halted | None = None
         self.incident: Incident | None = None
         self.ledger: list[TaskLine] = []
         #: The newest canonical journal revision the orchestrator accounts for: the
@@ -311,7 +314,7 @@ class RunState:
             self.escalation_backend = event.escalation_backend
             return
         if isinstance(event, Halted):
-            self.halted = event
+            self.halted = self.last_halt = event
             return
         if isinstance(
             event,
@@ -1028,8 +1031,11 @@ class RunState:
 
         Every planned subtask in order, then the integration call, then integration's own
         subtask where the call lets it run, then each completion its accepted attempt owes. A
-        contract result the record owes comes before all of them.
+        contract result the record owes comes before all of them, and the halt an incident owes
+        before anything.
         """
+        if self.owed_halt() is not None:
+            return Step(kind="halt")
         if self.halted is not None:
             return Step(kind="halted")
         if self.owed_contract() is not None:
@@ -1058,6 +1064,17 @@ class RunState:
             if owed is not None:
                 return Step(kind="complete", subtask_id=owed)
         return Step(kind="done")
+
+    def owed_halt(self) -> Incident | None:
+        """The incident on the record with no halt after it, whose halt comes next, if any.
+
+        The process that finds an incident writes its halt straight after it. One killed between
+        the two leaves the incident alone, and the next step is its halt, whatever else is due.
+        """
+        incident, halt = self.incident, self.last_halt
+        if incident is None or (halt is not None and halt.seq > incident.seq):
+            return None
+        return incident
 
     def _step_of(self, subtask_id: str) -> Step | None:
         """What the loop does next for ``subtask_id``; ``None`` once the subtask is resolved."""

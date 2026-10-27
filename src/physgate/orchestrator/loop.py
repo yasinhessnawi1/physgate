@@ -632,11 +632,20 @@ class Loop:
 
     def _drive(self) -> Step:
         # The environment is recorded for a step that spawns a session; the integration
-        # call, a contract result, a completion line and a finished run spawn none. A process
-        # whose first step is one of those may still spawn one, after a decision it takes or the
-        # call it makes: that session's line is recorded before it, once (:meth:`_session`).
+        # call, a contract result, a completion line, an owed halt and a finished run spawn none.
+        # A process whose first step is one of those may still spawn one, after a decision it
+        # takes or the call it makes: that session's line is recorded before it, once
+        # (:meth:`_session`).
         first = self.state.next_step().kind
-        if first not in ("done", "halted", "escalated", "integrate", "contract", "complete"):
+        if first not in (
+            "done",
+            "halted",
+            "escalated",
+            "integrate",
+            "contract",
+            "complete",
+            "halt",
+        ):
             self._record_environment()
         while True:
             step = self.state.next_step()
@@ -645,6 +654,12 @@ class Loop:
             if step.kind in ("done", "halted", "escalated"):
                 self._clean_up_worktrees()
                 return step
+            if step.kind == "halt":
+                # A process killed between an incident and its halt: the halt, and nothing else.
+                owed = self.state.owed_halt()
+                if owed is not None:
+                    self._halt_for(owed.subtask_id, owed.cause)
+                continue
             if step.kind == "integrate":
                 self._integrate()
                 continue
@@ -1696,13 +1711,8 @@ class Loop:
         The graph is read at the journal revision the log records. The result blocks nothing: the
         merge that owed it stands, and a failed contract withholds completion alone. An interface
         node the pair cannot be held to, or a journal that ends before the recorded revision, halts
-        the run, and no result is recorded; a process killed between that incident and its halt
-        writes the halt alone.
+        the run, and no result is recorded.
         """
-        incident = self.state.incident
-        if incident is not None:
-            self._halt_for(None, incident.cause)
-            return
         pair, head = self.state.owed_contract(), self.state.run_head
         if pair is None or head is None:
             msg = "a contract step with no pair owed a result, or no run head on the record"
@@ -1788,17 +1798,9 @@ class Loop:
             self._stage(subtask_id, attempt, "diff")
         now = self.state.subtasks[subtask_id].attempts[-1]
         # A check on the record here named divergences, since a clean one makes the subtask done:
-        # a process was killed before the incident it owed, or before the halt after it. What
-        # that process would have written next is written now, and nothing twice.
-        checked, written = now.diff, self.state.incident
-        if (
-            checked is not None
-            and written is not None
-            and written.subtask_id == subtask_id
-            and written.seq > checked.seq
-        ):
-            self._halt_for(subtask_id, written.cause)
-            return
+        # a process was killed before the incident it owed, which is written now, and nothing
+        # twice. Killed after the incident, it owed the halt alone, the run's next step.
+        checked = now.diff
         since = min(now.applied.values()) - 1 if now.applied else self.state.journal_head
         role = self.state.subtasks[subtask_id].plan.assigned_role
         found = self._graph.divergences(since, role)

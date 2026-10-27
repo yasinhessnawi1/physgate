@@ -3,11 +3,12 @@
 A step's check of the graph that finds a divergence writes three lines: the check, the incident
 under its cause, and the halt. A kill can split them. The check then stands on the record without
 the incident, or the incident without the halt. Nothing resumes the attempt, since its check is
-made, and a clean check would have made the subtask done. So the next process takes the attempt
-up at its diff point and finds the check already there. It writes what the uninterrupted
-process would have written next, and nothing else: the incident, under the same cause rule and
-with the same detail, then the halt; or the halt alone if the incident is on the record. It
-never makes the check twice.
+made, and a clean check would have made the subtask done. With the check alone on the record,
+the next process takes the attempt up at its diff point and finds the check already there; with
+the incident on it too, the incident's halt is the run's next step. Either way it writes what
+the uninterrupted process would have written next, and nothing else: the incident, under the
+same cause rule and with the same detail, then the halt; or the halt alone. It never makes the
+check twice.
 
 Every line is synced before the loop acts on it, and the fakes give the same answers to any
 process, so a log cut after line k is what a process killed between lines k and k+1 leaves.
@@ -153,20 +154,25 @@ def test_a_kill_after_a_check_that_named_divergences_resumes_to_the_runs_own_end
     run_dir = cut(tmp_path / "full", tmp_path / "cut", k)
     state = replay(read_events(run_dir / "events.jsonl"))
     step = state.next_step()
-    assert (step.kind, step.subtask_id, step.point) == ("attempt", subtask, "diff")
+    if left == "the check":
+        assert (step.kind, step.subtask_id, step.point) == ("attempt", subtask, "diff")
+    else:
+        assert step.kind == "halt"  # the incident's halt is owed, and nothing else
     assert state.interrupted() is None
     rig = _rig(run_dir, case)
     fresh = rig.open()
     assert fresh.run().kind == "halted"
     fresh.close()
     events = read_events(run_dir / "events.jsonl")
-    # What differs from the run without a kill: the process that took over recorded its
-    # environment, once, before its first step of an attempt, as every process does; and each
+    # What differs from the run without a kill: the process that took over at the attempt's
+    # diff point recorded its environment, once, before that first step of an attempt, as every
+    # process does; one whose first step is the owed halt spawns nothing and records none. Each
     # line after it sits one place later and carries this process's time.
     added = events[k:]
     environment = [e for e in added if isinstance(e, EnvironmentRecorded)]
-    assert len(environment) == 1 and added[0] is environment[0]
-    rest = added[1:]
+    assert len(environment) == (1 if left == "the check" else 0)
+    assert added[: len(environment)] == environment
+    rest = added[len(environment) :]
     assert as_written(rest) == as_written(full[k:])
     # So the check stands once, the incident once, under the same cause and detail, and the halt.
     assert [e.seq for e in events if isinstance(e, DiffChecked) and e.divergences] == [check.seq]
