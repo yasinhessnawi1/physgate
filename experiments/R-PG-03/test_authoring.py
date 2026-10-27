@@ -274,6 +274,26 @@ def test_a_passed_copy_changed_at_the_turn_s_end_is_an_audit_failure(tmp_path: P
     assert au.audit(tmp_path, outcome, record, {"launch.txt"})["failed"] == []
 
 
+def test_a_turn_that_outlasts_its_bound_ends_as_an_outage_with_its_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The binary is killed at the turn's wall-clock bound; the turn is then an infrastructure cut,
+    # resumed on the retry ladder, and it keeps its outcome (and so its ledger line).
+    root = tmp_path / "X1-1"
+    au.prepare(root, {"brief.md": b"b"})
+    monkeypatch.setattr(au, "binary", lambda: "/usr/bin/true")
+
+    def hangs(argv: list[str], **kw: Any) -> subprocess.CompletedProcess[bytes]:  # noqa: ANN401
+        kw["stdout"].write(b'{"type": "system", "subtype": "init"}\n')
+        raise subprocess.TimeoutExpired(argv, kw.get("timeout") or 1)
+
+    monkeypatch.setattr(subprocess, "run", hangs)
+    got = au.turn(root, "launch", "launch.txt", None)
+    assert got["ended"] == "infrastructure" and got["timed_out"] is True and got["exit"] is None
+    saved = json.loads((root / "turns" / "01-launch.outcome.json").read_text())
+    assert saved["ended"] == "infrastructure"
+
+
 # ---- the checks and the assembly -----------------------------------------------------------------
 
 

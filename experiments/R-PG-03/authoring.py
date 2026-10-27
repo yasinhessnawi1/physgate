@@ -101,8 +101,11 @@ MAX_RESTARTS = 2
 MAX_REPLACEMENTS = 2
 MAX_USAGE_RESUMES = 2
 INFRA_LADDER = (60.0, 900.0, 2700.0)
-#: R-PG-02's sandbox's turn bound (its resume script's), for every turn.
+#: This experiment's own fixed turn bound for every turn: the bound R-PG-02's authoring sessions
+#: were run with, which its published record does not hold (README, readings).
 MAX_TURNS = 150
+#: A turn's wall-clock bound: past it the binary is killed, and the turn is an infrastructure cut.
+TURN_TIMEOUT_S = 6 * 3600
 ALLOWED_TOOLS = {"Read", "Write", "Edit"}
 REFUSAL = "is outside this session's working directory"
 #: The model name the binary gives the messages it writes itself; excused only on the one kind of
@@ -377,19 +380,27 @@ def turn(root: Path, label: str, message: str, resume: str | None) -> dict[str, 
     (stem.with_suffix(".message.txt")).write_bytes(data)
     stream, err = stem.with_suffix(".stream.jsonl"), stem.with_suffix(".stderr.txt")
     started = common.utc_now()
+    code: int | None = None
+    timed_out = False
     with stream.open("wb") as out, err.open("wb") as e:
-        proc = subprocess.run(
-            argv(binary(), config, data.decode(), resume),
-            cwd=root / "scratch",
-            env=env(config),
-            stdin=subprocess.DEVNULL,
-            stdout=out,
-            stderr=e,
-            check=False,
-            timeout=6 * 3600,
-        )
+        try:
+            code = subprocess.run(
+                argv(binary(), config, data.decode(), resume),
+                cwd=root / "scratch",
+                env=env(config),
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=e,
+                check=False,
+                timeout=TURN_TIMEOUT_S,
+            ).returncode
+        except subprocess.TimeoutExpired:
+            timed_out = True  # the binary is killed at the bound (subprocess.run's own handling)
     text = stream.read_text(errors="replace")
-    end = streams.author_end(text, err.read_text(errors="replace"), proc.returncode)
+    end = streams.author_end(text, err.read_text(errors="replace"), code)
+    if timed_out and end["ended"] != "usage_limit":
+        # The turn did not end within its bound: an infrastructure cut, resumed on the ladder.
+        end = {"ended": "infrastructure", "result_line": end.get("result_line"), "exit": None}
     result: dict[str, Any] = {}
     for line in text.splitlines():
         try:
@@ -405,7 +416,8 @@ def turn(root: Path, label: str, message: str, resume: str | None) -> dict[str, 
         "message_sha256": common.sha256_bytes(data),
         "started_utc": started,
         "ended_utc": common.utc_now(),
-        "exit": proc.returncode,
+        "exit": code,
+        "timed_out": timed_out,
         "ended": end["ended"],
         "stream_sha256": common.sha256_file(stream),
         "session_id": result.get("session_id"),
