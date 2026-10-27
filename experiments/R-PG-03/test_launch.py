@@ -244,9 +244,10 @@ def test_a_deviation_is_refused_as_one_and_never_said_void() -> None:
     assert "DEVIATION" in text and "checks.py classify" in text
 
 
-def test_an_arm_stopped_or_crashed_has_its_sessions_stopped_before_the_end_checks() -> None:
+def test_every_block_has_its_sessions_stopped_before_the_end_checks() -> None:
     # The instrument starts each review session in a session of its own and cannot end them once
-    # killed: the launch stops what the review roots' records prove still running, and removes
+    # killed, and one that dies on an uncaught exception exits 1 as a clean one may: after every
+    # block, the launch stops what the review roots' records prove still running, and removes
     # their login files, as the watcher does at a limit.
     text = "\n".join(code())
     waits = text.index('wait "${PIDS[$i]}"')
@@ -255,8 +256,8 @@ def test_an_arm_stopped_or_crashed_has_its_sessions_stopped_before_the_end_check
     call = text[stop : text.index("\n", stop)]
     for arm in ("A2", "A1", "B"):
         assert f'--scratch "$(scratch_of {arm})"' in call
-    guard = text[text.rindex("\nif ", 0, stop) : stop]
-    assert "first_minute.txt" in guard and "ABNORMAL" in guard
+    line = text[text.rindex("\n", 0, stop) + 1 : stop]
+    assert line == 'out="$(py "$HERE/', "the call is guarded: " + line  # at the top level, always
 
 
 def test_before_the_first_block_the_practice_figure_is_checked_as_the_tally_checks_it() -> None:
@@ -264,13 +265,27 @@ def test_before_the_first_block_the_practice_figure_is_checked_as_the_tally_chec
     call = smoke.index('tally3.py" practice-figure --practice "round-1=$RP3_PRACTICE_ROUND1"')
     assert call < smoke.index('streams.py" smoke')
     handling = smoke[call : smoke.index("esac", call)]
-    assert "1)" in handling and "NOT COMPUTABLE" in handling and "refuse" in handling
+    # Its own exit for "not computable"; a crash's exit 1, as any other, refuses.
+    cases = handling[handling.index('case "$status" in') + len('case "$status" in') :]
+    arms = {a.strip().split(")")[0]: a for a in cases.split(";;")[:-1]}
+    assert sorted(arms) == ["*", "0", "3", "4"], sorted(arms)
+    assert "NOT COMPUTABLE" in arms["4"] and "refuse" not in arms["4"]
+    assert "refuse" in arms["3"] and "refuse" in arms["*"]
+
+
+def test_a_token_hit_in_what_the_smoke_wrote_refuses_it_before_it_passes() -> None:
+    smoke = smoke_step()
+    scan = smoke.index('scan_written rp3_scan_token "$SMOKE_ROOT"')
+    refusal = '[ "$SCAN_OK" = 1 ] || refuse "the token\'s scan found a hit in what the smoke wrote"'
+    assert refusal in smoke[scan:], "a token hit in what the smoke wrote is not refused"
+    assert scan < smoke.index(refusal) < smoke.index("== the smoke passed")
 
 
 def test_a_login_file_left_after_the_block_refuses_it_valid() -> None:
     text = "\n".join(code())
     end = text.index('checks.py" "${CK[@]}" after')  # the block's end, not the smoke's
     credentials = text.index('CREDENTIALS_OK=1; py "$HERE/checks.py" "${CK[@]}" credentials', end)
+    assert '[ "$CREDENTIALS_OK" = 1 ] || refuse' in text[credentials:], "no refusal of a login file"
     refusal = text.index('[ "$CREDENTIALS_OK" = 1 ] || refuse', credentials)
     assert refusal < text.index("is valid", refusal)
 

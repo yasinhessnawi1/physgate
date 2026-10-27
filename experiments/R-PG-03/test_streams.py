@@ -289,6 +289,7 @@ def test_a_limit_an_earlier_step_left_is_never_counted_again(tmp_path: Path, kin
         tmp_path, kind, 'sleep 3; echo ended > "$1/after.txt"', as_the_run_machine(tmp_path)
     )
     assert "ABORT" not in log and "LIMIT" not in log, log
+    assert (tmp_path / "watched" / "after.txt").is_file(), log  # the step was not stopped
     assert (tmp_path / "watched" / "after.txt").read_text() == "ended\n"
     assert "WATCHER" in log and "usage_limit_reached files 0" in log
 
@@ -305,6 +306,7 @@ def test_a_step_whose_session_ends_on_a_limit_is_left_to_finish_its_bookkeeping(
         'sleep 3; echo written > "$1/01-launch.outcome.json"'
     )
     done, log = step_under_watch(tmp_path, kind, step, as_the_run_machine(tmp_path))
+    assert (tmp_path / "watched" / "01-launch.outcome.json").is_file(), log  # not stopped
     assert (tmp_path / "watched" / "01-launch.outcome.json").read_text() == "written\n", log
     assert "LIMIT" in log and "usage_limit_reached files 1" in log and "ABORT" not in log
 

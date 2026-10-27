@@ -9,8 +9,9 @@ Usage, after the last block has ended and passed its stream check, and never bef
 
 ``practice-figure`` computes Q4's practice figure, the kept round's J under the common rule on the
 tuning set, from its records held to R-LAW-01's recorded digests: exit 0 if it is §6.3's 0.775, 3 if
-not (the common rule or the records differ: a failed precondition), 1 if the records cannot be read
-at their digests (the figure is not computable). The tally itself refuses a figure other than 0.775.
+not (the common rule or the records differ: a failed precondition), 4 if the records cannot be read
+at their digests (the figure is not computable); any other exit (an uncaught exception's 1 among
+them) is a check that failed. The tally itself refuses a figure other than 0.775.
 
 Read-only over the runs and the sets. It writes one JSON document to ``--out`` (never over a file)
 and prints its sha256 and counts only. Every rule is closed and mechanical: no model reads a
@@ -121,6 +122,11 @@ PRACTICE_RUNS = ("round-1", "a-fresh", "repeat-K")
 
 class RefusedError(Exception):
     """The records, runs or sets are not ones this script can read faithfully."""
+
+
+#: practice-figure's exit when the kept round's records cannot be read at their digests: a code of
+#: its own, so that a crash (Python's exit 1) is never read as "not computable".
+NOT_COMPUTABLE_EXIT = 4
 
 
 class NotComputableError(RefusedError):
@@ -1543,7 +1549,7 @@ def practice_figure_main(argv: list[str]) -> int:
         j = kept_figure(Path(path).resolve(), args.tuning)
     except NotComputableError as exc:
         print(json.dumps({"not computable": str(exc)}))
-        return 1
+        return NOT_COMPUTABLE_EXIT
     try:
         check_practice_figure(j)
     except RefusedError as exc:

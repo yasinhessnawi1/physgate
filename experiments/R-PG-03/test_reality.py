@@ -828,6 +828,19 @@ def test_the_second_judgments_wait_for_every_reading_and_control_packet(
     with pytest.raises(rl.RefusedError, match="not ended"):  # the control packet is open
         rl.build_confirm(work, sets, tmp_path / "p", tmp_path / "s", *args, tmp_path / "k")
     judge(tmp_path / "cc", tmp_path / "ccs", {})
+    # A false-finding packet still open holds them too.
+    ff, ffs = tmp_path / "ff-open", tmp_path / "ff-open-s"
+    after = rl.number([tmp_path / "p", tmp_path / "cc"])
+    hand_ff(ff, after, ["true_flaw:introduced"] * len(rl.FF_KEYS), ffs)
+    sorted(ffs.glob("*.json"))[0].unlink()
+    open_ff = (tmp_path / "cc", tmp_path / "ccs", ff, ffs)
+    fx.refuses(
+        rl.RefusedError,
+        "false-finding control have not ended",
+        lambda: rl.build_confirm(
+            work, sets, tmp_path / "p", tmp_path / "s", *open_ff, tmp_path / "k"
+        ),
+    )
     rl.build_confirm(work, sets, tmp_path / "p", tmp_path / "s", *args, tmp_path / "k")
     key = json.loads((tmp_path / "k" / "key.json").read_text())
     assert sorted(k["findings"]["F1"] for k in key.values()) == ["L00004", "L00005"]

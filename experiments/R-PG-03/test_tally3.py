@@ -598,7 +598,7 @@ def test_the_practice_figure_on_records_not_at_their_digests_is_not_computable(
     made: dict[str, Any], capsys: pytest.CaptureFixture[str]
 ) -> None:
     code = t3.main(["practice-figure", "--practice", f"round-1={made['practice']['round-1']}"])
-    assert code == 1 and "not computable" in capsys.readouterr().out
+    assert code == 4 and "not computable" in capsys.readouterr().out
 
 
 def test_a_tally_outside_a_test_needs_the_reading(tmp_path: Path) -> None:
@@ -688,7 +688,7 @@ CORRECTS_X1 = {
     "id": "c1",
     "R": "f" * 40,
     "R_K": "e" * 40,
-    "blocks": {"x1": "experiments/R-PG-03/test_checks.py"},
+    "blocks": {"x1": {"attempt": 1, "test": "experiments/R-PG-03/test_checks.py"}},
 }
 
 
@@ -717,8 +717,9 @@ def test_the_tally_refuses_while_a_block_a_correction_names_lacks_its_corrected_
         t3.blocks_record(records, {"corrections": [CORRECTS_X1]})
     # Named and never classified, the tally refuses, as the launch does.
     named = r"named by the corrections \['c1'\], and its attempts are classified with \[\]"
-    with pytest.raises(common.RefusedError, match=named):
-        run_tally(made, fills={"corrections": [CORRECTS_X1]})
+    fx.refuses(
+        common.RefusedError, named, lambda: run_tally(made, fills={"corrections": [CORRECTS_X1]})
+    )
     # Classified with a correction that no fill names.
     second = {**made["attempts"][0], "attempt": 2}
     fx.write_blocks(records, [first, second, *made["attempts"][1:]], NOT_RUN)

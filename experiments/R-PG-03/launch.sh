@@ -41,7 +41,9 @@
 #       the first block the window's, after a passed smoke and with no ledger line after it;
 #   L2  R and R_K: the five paths, R_K's promotions line for line, the rubric and generalist_of
 #       digests, the knowledge trees, every tree, blob and digest "Commits filled" records; for a
-#       block a correction touches, the correction's R' and R_K' (§11);
+#       block a correction touches, the correction's R' and R_K' (§11), with its passed
+#       correction-check record. The owner switches the two checkouts by hand: to R' and R_K' for a
+#       block a correction touches, back to R and R_K for every other; L2 refuses a wrong one;
 #   L3  the pinned binary's digest and version;
 #   L4  the parameters (R-PG-02's but lanes) and the 3/3/2 split; the block's seeded lane plan;
 #   L5  the block's corpus: "Set filled"'s manifest, "Sheet filled"'s sheet, the converter re-run;
@@ -204,9 +206,10 @@ if [ "$STOP_AFTER" = smoke ]; then
   printf '%s\n' "$out" > "$LAUNCH/L9-practice-figure.json"
   case "$status" in
     0) FIGURE="0.775"; say "ok  L9-practice-figure $out" ;;
-    1) FIGURE="not computable"
+    4) FIGURE="not computable"
        say "NOT COMPUTABLE L9-practice-figure: the kept round's records cannot be read at their recorded digests, so Q4's practice figure cannot be computed. The owner reads this before confirming the window." ;;
-    *) say "$out"; refuse "L9-practice-figure: the kept round's J under the common rule is not 0.775 (§6.3): a failed precondition (§11)" ;;
+    3) say "$out"; refuse "L9-practice-figure: the kept round's J under the common rule is not 0.775 (§6.3): a failed precondition (§11)" ;;
+    *) say "$out"; refuse "L9-practice-figure: the check failed (exit $status), so the practice figure is not known" ;;
   esac
   SMOKE_ROOT="$HOME/review-scratch/rp3-smoke-$K"
   rp3_load_token "$ENV_FILE" 2>> "$LOG" || refuse "the run account's token (see the line above)"
@@ -409,18 +412,14 @@ wait "$WATCHER" || true
 python3 -I -c 'import json,sys; a = sys.argv[1:]; print(json.dumps({a[k]: int(a[k + 1]) for k in range(0, len(a), 2)}))' \
   A2 "${EXITS[A2]}" A1 "${EXITS[A1]}" B "${EXITS[B]}" > "$LAUNCH/exits.json"
 BLOCK_ENDED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-# An arm stopped in its first minute, or one that ended other than 0 or 1, leaves the review
-# sessions it started running in sessions of their own, with their login files: stop every session
-# the review roots' process records prove still running, and remove their credential directories,
-# as the watcher does at a limit, before the end checks.
-ABNORMAL=0
-for arm in "${ARMS[@]}"; do case "${EXITS[$arm]}" in 0|1) ;; *) ABNORMAL=1 ;; esac; done
-if [ -f "$LAUNCH/first_minute.txt" ] || [ "$ABNORMAL" = 1 ]; then
-  status=0
-  out="$(py "$HERE/checks.py" "${CK[@]}" stop-sessions --scratch "$(scratch_of A2)" --scratch "$(scratch_of A1)" --scratch "$(scratch_of B)" 2>&1)" || status=$?
-  say "SESSIONS $(printf '%s' "$out" | tail -n 1)"
-  [ "$status" = 0 ] || say "CREDENTIALS NOT CONFIRMED REMOVED (stop-sessions exit $status)"
-fi
+# After every block, its arms' ends whatever they were (an instrument that dies on an uncaught
+# exception exits 1 too): stop every review session the review roots' process records prove still
+# running, in sessions of their own with their login files, and remove their credential
+# directories, as the watcher does at a limit, before the end checks. After a clean end none runs.
+status=0
+out="$(py "$HERE/checks.py" "${CK[@]}" stop-sessions --scratch "$(scratch_of A2)" --scratch "$(scratch_of A1)" --scratch "$(scratch_of B)" 2>&1)" || status=$?
+say "SESSIONS $(printf '%s' "$out" | tail -n 1)"
+[ "$status" = 0 ] || say "CREDENTIALS NOT CONFIRMED REMOVED (stop-sessions exit $status)"
 
 # ---- the attempt's end: its checks, its ledger line, the logins, the token's scan ----
 AFTER_OK=1
