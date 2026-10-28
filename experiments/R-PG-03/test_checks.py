@@ -1432,7 +1432,7 @@ def test_a_block_classified_impossible_is_marked_not_taken_and_the_later_blocks_
     with pytest.raises(ck.RefusedError, match="block y1 comes first"):
         ck.order("z1", now=AFTER)
     ck.classify("y1", 1, "anything else impossible as specified", None)
-    marked = ck.read_blocks()["not_taken"]
+    marked = ck.read_blocks().get("not_taken")
     assert marked == {"y1": {"attempt": 1, "causes": ["a run that is not whole"]}}
     assert fx.holds(lambda: ck.order("z1", now=AFTER))["attempt"] == 1
 
