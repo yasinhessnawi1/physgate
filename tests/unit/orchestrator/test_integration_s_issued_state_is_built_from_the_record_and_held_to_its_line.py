@@ -44,7 +44,7 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.integration_state import issued_state
 from physgate.orchestrator.plan import CriterionWords
-from physgate.orchestrator.replay import replay
+from physgate.orchestrator.replay import Step, replay
 
 INTEG, DRIVE, FW, BUDGET = runner.INTEG, runner.DRIVE, runner.FW, runner.BUDGET
 DECLARED = (DRIVE, FW)
@@ -97,9 +97,21 @@ def resumed(
 ) -> tuple[str, list[Event]]:
     fresh = rig.open()
     runner.hooked(monkeypatch, fresh, declared=(BUDGET, *DECLARED) if sizing else DECLARED)
-    end = fresh.resume().kind
+    end = ended(fresh.resume)
     fresh.close()
     return end, read_events(rig.run_dir / "events.jsonl")
+
+
+def ended(drive: Callable[[], Step]) -> str:
+    """How a process's drive ends: its last step, or the exception it raised instead.
+
+    A run that meets a record it cannot take halts on the record; one that raises has left no
+    record of why, so it is a different end, asserted against like any other.
+    """
+    try:
+        return drive().kind
+    except Exception as exc:  # noqa: BLE001 - what was raised is the answer
+        return f"raised {type(exc).__name__}: {exc}"
 
 
 def text_of(rig: Rig) -> str:
@@ -585,7 +597,13 @@ def test_a_state_built_otherwise_before_the_spawn_halts_and_spawns_nothing(
         return data
 
     monkeypatch.setattr(loop_module, "issued_state", unsteady)
-    rig, events = run(tmp_path, monkeypatch)
+    rig = runner.rig_for(tmp_path)
+    loop = rig.open()
+    runner.hooked(monkeypatch, loop, declared=DECLARED)
+    runner.start(loop, words=WORDS)
+    assert ended(loop.run) == "halted"
+    loop.close()
+    events = read_events(rig.run_dir / "events.jsonl")
     assert not integ_requests(rig)
     incident, halted = the_halt(events)
     assert (incident.subtask_id, incident.cause) == (INTEG, "issued_state_mismatch")
