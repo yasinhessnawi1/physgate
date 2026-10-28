@@ -854,6 +854,25 @@ def test_the_tally_holds_the_check_record_and_the_touched_results_as_l2_does(
     fx.refuses(
         t3.RefusedError, "carries no result of its tests", lambda: t3.blocks_record(records, fills)
     )
+    # A result made before the attempt ended is no result of its records.
+    for a in [second, *made["attempts"][1:]]:
+        where = records / "blocks" / f"{a['block']}-{a['attempt']}"
+        early = {**CLEAN, "utc": "2026-11-05T09:30:00Z"}  # the fixture's end: 5.11 10:00 UTC
+        (where / "touched.json").write_text(json.dumps({"c1": early}))
+    fx.refuses(
+        t3.RefusedError, "carries no result of its tests", lambda: t3.blocks_record(records, fills)
+    )
+
+
+def test_the_reading_s_lines_are_taken_with_the_fills_the_tally_takes(made: dict[str, Any]) -> None:
+    import reality as rl
+
+    named = {"corrections": [CORRECTS_X1]}  # x1 named, never classified: the tally refuses
+    fx.refuses(
+        common.RefusedError,
+        "named by the corrections",
+        lambda: rl.extract(made["records"], made["sets"], named),
+    )
 
 
 def test_a_reading_of_other_attempts_than_the_tally_s_is_refused(

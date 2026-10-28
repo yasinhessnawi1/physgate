@@ -638,6 +638,29 @@ def test_a_correction_after_set_filled_is_read(tmp_path: Path) -> None:
             [
                 *FILLED,
                 (
+                    "docs: Withdrawn c9",
+                    {**ALL, "withdrawn": [{"correction": "c9", "why": "x"}]},
+                    None,
+                ),
+            ],
+            "a withdrawal names a correction on record",
+        ),
+        (
+            [
+                *FILLED,
+                ("docs: Commits corrected, block x1", {**ALL, "corrections": [C1]}, None),
+                (
+                    "docs: c1 out",
+                    {**ALL, "corrections": [C1], "withdrawn": [{"correction": "c1", "why": "x"}]},
+                    None,
+                ),
+            ],
+            "names no 'Withdrawn'",
+        ),
+        (
+            [
+                *FILLED,
+                (
                     "docs: Commits corrected, block x1",
                     {**ALL, "corrections": [{**C1, "R": "not a sha"}]},
                     None,
@@ -672,6 +695,8 @@ def test_a_correction_after_set_filled_is_read(tmp_path: Path) -> None:
         "an-entry-whose-attempt-is-not-one-or-more",
         "an-entry-with-a-key-of-its-own",
         "a-subject-naming-block-s-only-inside-a-word",
+        "a-withdrawal-of-no-correction-on-record",
+        "a-withdrawal-whose-subject-names-no-withdrawn",
         "a-malformed-entry",
         "another-path-touched",
     ],
@@ -1414,6 +1439,16 @@ def test_a_correction_that_names_a_block_wrongly_is_withdrawn_after_its_correcte
     assert holds(lambda: ck.order("x1", now=AFTER, fills=fills))["attempt"] == 3
     got = common.standing(ck.read_blocks()["attempts"], fills, {"c1"})
     assert [a["attempt"] for a in got if a["block"] == "x1"] == [1]
+
+
+def test_an_attempt_at_a_withdrawn_correction_s_r_prime_stands_if_a_standing_one_shares_it() -> (
+    None
+):
+    c2 = {**C1, "id": "c2"}  # the same R' as c1's
+    fills = {"corrections": [C1, c2]}
+    rows = [ok("x1"), ok("x1", 2, commit=C1["R"])]
+    assert common.standing(rows, fills, {"c1"}) == rows
+    assert common.standing(rows, {"corrections": [C1]}, {"c1"}) == rows[:1]
 
 
 def test_a_withdrawal_recorded_after_the_first_tally_is_refused_and_says_why(
