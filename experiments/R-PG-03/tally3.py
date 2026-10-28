@@ -13,9 +13,10 @@ not (the common rule or the records differ: a failed precondition), 4 if the rec
 at their digests (the figure is not computable); any other exit (an uncaught exception's 1 among
 them) is a check that failed. The tally itself refuses a figure other than 0.775.
 
-Read-only over the runs and the sets. It writes one JSON document to ``--out`` (never over a file)
-and prints its sha256 and counts only. Every rule is closed and mechanical: no model reads a
-review.
+Read-only over the runs and the sets. It writes one JSON document to ``--out`` (never over a file),
+prints its sha256 and counts only, and appends one line to the records' ``tallies.jsonl``: from
+the first, no withdrawal recorded later is taken (R8). Every rule is closed and mechanical: no model
+reads a review.
 
 **R-PG-02's frozen tally, unedited.** ``tally.py`` is imported as it stands (``set_facts``,
 ``Run``, ``per_item``, ``naming``, ``names_pair``, ``wilson``, ``j_of``, ``contrast_interval``,
@@ -702,7 +703,9 @@ def corrected_a(status: str, verdict: str, own_confirmed: bool, way: int) -> boo
 # ---------------------------------------------------------------- reading the records
 
 
-def blocks_record(records: Path, fills: dict[str, Any] | None = None) -> dict[str, Any]:
+def blocks_record(
+    records: Path, fills: dict[str, Any] | None = None, repo: Path = common.REPO
+) -> dict[str, Any]:
     """The launch's record of every block attempt, held to R8: nothing tallied before the end.
 
     A block a correction touches (§11) is tallied on its corrected attempt, the valid one after
@@ -725,13 +728,17 @@ def blocks_record(records: Path, fills: dict[str, Any] | None = None) -> dict[st
             "no block record: nothing is tallied before the last block has ended (R8)"
         )
     rec = json.loads(data)
-    not_run, not_taken = rec.get("not_run") or {}, rec.get("not_taken") or {}
+    taken, refused = common.withdrawn(fills, records)
+    attempts = common.standing(rec.get("attempts", []), fills, taken)
+    not_run, not_taken = rec.get("not_run") or {}, common.not_taken(attempts, taken)
     if set(not_run) - {"s", "p1", "p2"}:
         raise RefusedError("a primary block is recorded as not run: the primary is not measured")
     chosen: dict[str, Any] = {}
     for block in common.BLOCKS:
-        mine = [a for a in rec.get("attempts", []) if a.get("block") == block]
-        since, _ = common.corrected_from(mine, block, fills)
+        if block in not_taken:  # its decisions are not taken; no correction is asked of it
+            continue
+        mine = [a for a in attempts if a.get("block") == block]
+        since, _ = common.corrected_from(mine, block, fills, taken)
         valid = [
             a
             for a in mine[since:]
@@ -743,8 +750,6 @@ def blocks_record(records: Path, fills: dict[str, Any] | None = None) -> dict[st
             if valid:
                 raise RefusedError(f"block {block} is recorded both as run and as not run")
             continue
-        if block in not_taken:
-            continue
         if len(valid) != 1:
             at = " at its corrected commit (§11)" if since else ""
             raise RefusedError(
@@ -752,32 +757,34 @@ def blocks_record(records: Path, fills: dict[str, Any] | None = None) -> dict[st
                 "stream check: nothing is tallied before the last block has ended (R8)"
             )
         chosen[block] = valid[0]
-    for entry in (fills or {}).get(common.CORRECTIONS) or []:
-        cid = entry.get("id") if isinstance(entry, dict) else None
-        checked = json.loads(
-            common.read_own(records / "corrections" / str(cid) / "check.json") or "{}"
-        )
-        if checked.get("passed") is not True:
-            raise RefusedError(
-                f"correction {cid} has no passing check record (checks.py correction-check)"
-            )
+    for entry in common.corrections(fills, taken):
+        checked = common.correction_checked(records, entry)
+        clean = {t: "passes" for t in {n["test"] for n in entry["blocks"].values()}}
         for block, a in chosen.items():
-            if str(a.get("ended_utc")) < checked["checked_utc"]:
+            # An attempt that ended before its check, or ran at a commit that carries its fix, is
+            # not asked (§11 re-runs only what it touches, at the corrected commit).
+            ended = str(a.get("ended_utc"))
+            if ended < checked["checked_utc"] or common.descends(repo, entry["R"], a.get("commit")):
                 continue
-            where = Path(a.get("launch") or records / "blocks" / f"{block}-{a.get('attempt')}")
-            said = json.loads(common.read_own(where / "touched.json") or "{}").get(cid)
-            if not said or said.get("touched") is not False:
+            said = (
+                json.loads(
+                    common.read_own(common.attempt_dir(a, records) / "touched.json") or "{}"
+                ).get(entry["id"])
+                or {}
+            )
+            if said.get("tests") != clean or str(said.get("utc")) < ended:
                 raise RefusedError(
-                    f"block {block}'s attempt {a.get('attempt')} ended after correction {cid}'s "
-                    "check: it needs that correction's tests' result on its own records (checks.py "
-                    "touched), and, if touched, its corrected attempt (§11)"
+                    f"block {block}'s attempt {a.get('attempt')} ended after correction "
+                    f"{entry['id']}'s check, and carries no result of its tests on its own records "
+                    "that says not touched. Its exit: checks.py touched, and if touched, a "
+                    "correction naming it and its corrected attempt (§11)"
                 )
-    return {
-        "chosen": chosen,
-        "not_run": not_run,
-        "not_taken": not_taken,
-        "attempts": rec.get("attempts", []),
-    }
+    aside = [[a["block"], a["attempt"]] for a in rec.get("attempts", []) if a not in attempts]
+    why = "recorded after the first tally output (R8)"
+    late = [{**w, "refused": why} for w in refused]
+    keys = ("chosen", "not_run", "not_taken", "aside", "late")
+    found = dict(zip(keys, (chosen, not_run, not_taken, aside, late), strict=True))
+    return {**found, "attempts": rec.get("attempts", [])}
 
 
 def read_block(
@@ -1279,13 +1286,17 @@ def tally(
         name: {arm: score(b, arm, cells) for arm in common.ARMS} for name, b in blocks.items()
     }
     reading = json.loads(reading_path.read_text()) if reading_path is not None else None
+    mine = {b: a.get("attempt") for b, a in rec["chosen"].items()}
+    if reading is not None and reading.get("attempts") != mine:
+        raise RefusedError(
+            "the reading's lines are of other attempts than the ones tallied. Its exit: the "
+            "reading run again on these (reality.py lines, §7)"
+        )
     # ---- the primary: 120 pairs, X, Y and Z; under a block not taken (§11), the pairs present ----
     lost = sorted(set(rec["not_taken"]) & set(common.PRIMARY_BLOCKS))
+    present = [b for b in common.PRIMARY_BLOCKS if b in blocks]
     primary = {
-        arm: by_corpus_order(
-            [p for b in common.PRIMARY_BLOCKS if b in blocks for p in scored[b][arm]]
-        )
-        for arm in common.ARMS
+        arm: by_corpus_order([p for b in present for p in scored[b][arm]]) for arm in common.ARMS
     }
     strata = strata_of(primary["A2"])
     figs = {
@@ -1369,7 +1380,7 @@ def tally(
         comparisons[label] = {
             "intervals": per,
             "the_author_pairs_differ": pairs_differ(per),
-            "comparisons": "3 per contrast, 6 in all, uncorrected",
+            "comparisons": f"{len(per)} per contrast, {2 * len(per)} in all, uncorrected",
         }
     per_block = {
         name: {arm: arm_figures(scored[name][arm], "R_common", draws, None) for arm in common.ARMS}
@@ -1387,7 +1398,6 @@ def tally(
         )
         for arm in common.ARMS
     }
-    present = [b for b in common.PRIMARY_BLOCKS if b in blocks]
     runs_by_arm = {arm: [blocks[b].runs[arm] for b in present] for arm in common.ARMS}
     gate = {
         "layer": T.gate_layer([_gate_view(p) for p in primary["A2"]], draws),
@@ -1430,7 +1440,7 @@ def tally(
                         "valid": a.get("valid"),
                         "void_causes": a.get("void_causes") or [],
                         "deviation": a.get("deviation"),
-                        "correction": a.get("correction"),
+                        "classified": a.get("classified"),
                     }
                     for a in rec["attempts"]
                     if a.get("block") == name and a is not chosen
@@ -1492,11 +1502,14 @@ def tally(
             "Q1-Q4, the row and the claim shift are not taken, and the claim shift is not applied",
             "class_clause": decision["class_clause"],
         }
+        adj = {**adj, "taken": False}  # Q4's readings rest on the same pairs
+        sheet_matched = {"not taken": "a primary block is classified impossible as specified"}
     return {
         "blocks": {
             k: {"attempt": v.get("attempt"), "checks": checks[k]} for k, v in rec["chosen"].items()
         },
         "not_run": rec["not_run"],
+        "withdrawals": {"set_aside": rec["aside"], "refused": rec["late"]},
         "not_taken": rec["not_taken"],
         "primary": {
             "pairs": len(primary["A2"]),
@@ -1675,6 +1688,12 @@ def main(argv: list[str] | None = None) -> int:
         found["label"] = "A TEST ON FIXTURES: never a result"
     text = json.dumps(found, indent=1, sort_keys=True, default=list) + "\n"
     args.out.write_text(text)
+    # A withdrawal is blind to the outcome (R8): from now on none recorded later is taken.
+    with (args.records / common.TALLIES).open("a") as mark:
+        seen = len((fills or {}).get(common.WITHDRAWN) or [])
+        mark.write(
+            json.dumps({"utc": common.utc_now(), "out": str(args.out), "withdrawn": seen}) + "\n"
+        )
     print(
         json.dumps(
             {

@@ -1105,10 +1105,10 @@ def _cut_again(
 ) -> dict[str, Any]:
     """A cut turn, resumed in its session with the resume message (§2.5).
 
-    A turn no line of which named a session never began, so there is nothing to resume: it is run
-    again with its own message.
+    A turn no line of whose stream named a session never began, so there is nothing to resume: it
+    is run again with its own message, in its session if it has one.
     """
-    if p["sessions"][role]["session_id"] is None:
+    if not p["sessions"][role]["last"].get("named"):
         record(state, "a cut turn that began no session, run again", pair=pair, session=role)
         return _turn(state, pair, p, role, f"again-{pend['label']}", pend["message"])
     return _turn(state, pair, p, role, f"resume-{pend['label']}", "resume.txt")
@@ -1206,6 +1206,7 @@ def _turn(
         "ended": outcome["ended"],
         "turn": outcome["turn"],
         "audit_failed": found["failed"],
+        "named": outcome["session_id"] is not None,  # its own stream named a session
     }
     record(
         state,

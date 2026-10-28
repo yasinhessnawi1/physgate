@@ -67,25 +67,22 @@ SECTION1 = "acceptance_criteria"
 def refuses(kind: type[Exception], pattern: str, call: Callable[[], object]) -> None:
     """The call is refused with ``kind`` and a message ``pattern`` finds.
 
-    Anything else fails on an assertion (another exception, another message, or no refusal), never
-    by an exception.
+    Another message, or no refusal, fails on an assertion; any other exception is not caught.
     """
     try:
         call()
-    except Exception as exc:  # noqa: BLE001 - every outcome is judged by the assertion below
-        assert isinstance(exc, kind) and re.search(pattern, str(exc)), (
-            f"{type(exc).__name__}: {exc}"
-        )
+    except kind as exc:
+        assert re.search(pattern, str(exc)), f"{type(exc).__name__}: {exc}"
         return
     raise AssertionError(f"not refused ({kind.__name__}: {pattern})")
 
 
-def holds(call: Callable[[], Any]) -> Any:  # noqa: ANN401
-    """The call returns: a refusal or any other exception fails on an assertion."""
+def holds(call: Callable[[], Any], *refusals: type[Exception]) -> Any:  # noqa: ANN401
+    """The call returns: one of ``refusals`` fails on an assertion; any other is not caught."""
     try:
         return call()
-    except Exception as exc:  # noqa: BLE001 - judged by the assertion
-        raise AssertionError(f"refused or raised: {type(exc).__name__}: {exc}") from exc
+    except refusals as exc:
+        raise AssertionError(f"refused: {type(exc).__name__}: {exc}") from exc
 
 
 def token_line(value: str, before: str = "", between: str = "=") -> str:

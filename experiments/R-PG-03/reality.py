@@ -271,9 +271,11 @@ def lines_of(
     return keyed, reviews
 
 
-def extract(records: Path, sets: Path, repo: Path = common.REPO) -> dict[str, Any]:
-    """Every line and every review of the valid blocks, and each item's design facts."""
-    rec = tally3.blocks_record(records)
+def extract(
+    records: Path, sets: Path, fills: dict[str, Any] | None, repo: Path = common.REPO
+) -> dict[str, Any]:
+    """Every line and every review of the blocks the tally takes, and each item's design facts."""
+    rec = tally3.blocks_record(records, fills, repo)
     cells = tally3.Cells.at(repo)
     keyed: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     reviews: list[dict[str, Any]] = []
@@ -299,7 +301,8 @@ def extract(records: Path, sets: Path, repo: Path = common.REPO) -> dict[str, An
             reviews += r
     keyed.sort(key=lambda x: x[0])
     lines = [{"line_id": f"L{n:05d}", **rec} for n, (_, rec) in enumerate(keyed, 1)]
-    return {"lines": lines, "reviews": reviews, "design": design, "not_run": rec["not_run"]}
+    attempts = {b: a.get("attempt") for b, a in rec["chosen"].items()}
+    return {"lines": lines, "reviews": reviews, "design": design, "attempts": attempts}
 
 
 def hold_sets(sets: Path, fills: dict[str, Any], names: Iterable[str]) -> None:
@@ -1317,7 +1320,9 @@ def score(
         }
         for arm in common.ARMS
     }
+    held = work / "attempts.json"  # the attempts its lines are of, which the tally holds
     return {
+        "attempts": json.loads(held.read_text()) if held.is_file() else None,
         "reliability": label,
         "classes": out,
         "controls": controls,
@@ -1424,16 +1429,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "lines":
             if args.work.exists():
                 raise RefusedError("the work directory exists: nothing is written over")
-            got = extract(args.records.resolve(), args.sets.resolve())
-            hold_sets(
-                args.sets.resolve(), common.fills_on(common.REPO, "origin/master"), got["design"]
-            )
+            fills = common.fills_on(common.REPO, "origin/master")
+            got = extract(args.records.resolve(), args.sets.resolve(), fills)
+            hold_sets(args.sets.resolve(), fills, got["design"])
             args.work.mkdir(parents=True)
             write_jsonl(args.work / "lines.jsonl", got["lines"])
             write_jsonl(args.work / "reviews.jsonl", got["reviews"])
             (args.work / "design.json").write_text(
                 json.dumps(got["design"], indent=1, sort_keys=True)
             )
+            (args.work / "attempts.json").write_text(json.dumps(got["attempts"], sort_keys=True))
             counts = {
                 "lines": len(got["lines"]),
                 "reviews": len(got["reviews"]),

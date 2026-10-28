@@ -18,7 +18,7 @@ import os
 import re
 import stat
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -303,9 +303,15 @@ FILL_KEYS = ("commits", "sheet", "sets")
 FILL_NAMES = {"commits": "Commits filled", "sheet": "Sheet filled", "sets": "Set filled"}
 CORRECTIONS = "corrections"
 CORRECTED = "Commits corrected"
+#: The withdrawals (a reading of the rulings, README 24): a later commit that names a correction
+#: or a fills commit the run cannot take, and why. Kept, reported, and ignored by L2, the order
+#: and the tally; a correction's is refused once a tally output exists (R8).
+WITHDRAWN = "withdrawn"
 _SHA = re.compile(r"[0-9a-f]{40}")
 #: The path of a tracked test, as a correction names one for each block it touches.
 _TEST = re.compile(r"(?:[\w.-]+/)*test_\w+\.py")
+#: The run's tallies, one line each: written by tally3.py, read by every withdrawal (R8).
+TALLIES = "tallies.jsonl"
 
 
 class RefusedError(Exception):
@@ -321,10 +327,10 @@ def fills_from(text: str | None) -> dict[str, Any]:
     if text is None:
         return {}
     data = json.loads(text)
-    if not isinstance(data, dict) or set(data) - {*FILL_KEYS, CORRECTIONS}:
+    if not isinstance(data, dict) or set(data) - {*FILL_KEYS, CORRECTIONS, WITHDRAWN}:
         raise RefusedError("the fills record holds a key no fill commit writes")
-    if not isinstance(data.get(CORRECTIONS, []), list):
-        raise RefusedError("the fills record's corrections are not a list")
+    if not all(isinstance(data.get(k, []), list) for k in (CORRECTIONS, WITHDRAWN)):
+        raise RefusedError("the fills record's corrections or withdrawals are not a list")
     return data
 
 
@@ -364,39 +370,159 @@ def _touch(named: object) -> bool:
     )
 
 
+def withdrawal(entry: object, before: dict[str, Any]) -> str:
+    """What a withdrawal names: a ``correction`` on record, or a ``commit`` (else refused)."""
+    w = entry if isinstance(entry, dict) and len(entry) == 2 else {}
+    kind = next(iter(set(w) - {"why"}), "")
+    ids = [c.get("id") for c in before.get(CORRECTIONS) or [] if isinstance(c, dict)]
+    if str(w.get("why", "")).strip() and (
+        (kind == "correction" and w[kind] in ids)
+        or (kind == "commit" and isinstance(w[kind], str) and _SHA.fullmatch(w[kind]))
+    ):
+        return kind
+    raise RefusedError("a withdrawal names a correction on record, or a commit's sha, and why")
+
+
+def withdrawn(
+    fills: dict[str, Any] | None, records: Path | None
+) -> tuple[set[str], list[dict[str, Any]]]:
+    """The corrections withdrawn; and the withdrawals refused, recorded after a tally (R8)."""
+    entries = (fills or {}).get(WITHDRAWN) or []
+    seen = read_own(records / TALLIES) if records is not None else None
+    cut = json.loads(seen.splitlines()[0])["withdrawn"] if seen else len(entries)
+    ids = {w["correction"] for w in entries[:cut] if "correction" in w}
+    return ids, [w for w in entries[cut:] if "correction" in w]
+
+
+def standing(
+    attempts: list[dict[str, Any]], fills: dict[str, Any] | None, gone: Collection[str]
+) -> list[dict[str, Any]]:
+    """The attempts the run reads: one that ran at a withdrawn correction's R' is set aside."""
+    entries = list(map(correction_entry, (fills or {}).get(CORRECTIONS) or []))
+    aside = {e["R"] for e in entries if e["id"] in gone} - {
+        e["R"] for e in entries if e["id"] not in gone
+    }
+    return [a for a in attempts if a.get("commit") not in aside]
+
+
+def classified(row: dict[str, Any], gone: Collection[str]) -> dict[str, Any] | None:
+    """An attempt's classification as the run takes it: none if its correction is withdrawn."""
+    c = row.get("classified")
+    return None if not c or c.get("correction") in gone else dict(c)
+
+
+#: §11's other route: the decisions the block feeds are not taken.
+IMPOSSIBLE = "anything else impossible as specified"
+
+
+def not_taken(attempts: list[dict[str, Any]], gone: Collection[str]) -> dict[str, int]:
+    """The blocks classified impossible as specified, each with its attempt so classified."""
+    said = [(a, classified(a, gone) or {}) for a in attempts]
+    return {a["block"]: a["attempt"] for a, c in said if c.get("route") == IMPOSSIBLE}
+
+
+def descends(repo: Path, old: str, new: str | None) -> bool:
+    """Whether commit ``new`` is ``old`` or descends from it."""
+    done = subprocess.run(
+        ["git", "-C", str(repo), "merge-base", "--is-ancestor", old, str(new)], capture_output=True
+    )
+    return new is not None and done.returncode == 0
+
+
+def corrections(fills: dict[str, Any] | None, gone: Collection[str]) -> list[dict[str, Any]]:
+    """The corrections on record, but those withdrawn."""
+    found = map(correction_entry, (fills or {}).get(CORRECTIONS) or [])
+    return [e for e in found if e["id"] not in gone]
+
+
 def corrected_from(
-    mine: list[dict[str, Any]], block: str, fills: dict[str, Any] | None
+    mine: list[dict[str, Any]],
+    block: str,
+    fills: dict[str, Any] | None,
+    gone: Collection[str] = frozenset(),
 ) -> tuple[int, dict[str, Any] | None]:
     """Where ``block``'s corrected attempts begin among its own, and the correction they run at.
 
-    A correction names every block it touches (§11), and the owner classifies each one's attempt
-    an instrument defect with the correction's id (``checks.py classify``), a valid attempt too.
-    The attempts after the last one so classified are the block's corrected attempts, at that
-    correction's R' and R_K'. Without the fills, the block record alone places them.
+    The attempts after the last one classified an instrument defect with a correction's id (§11)
+    run at its R' and R_K'. Without the fills, the block record alone places them.
 
     Raises:
         RefusedError: the corrections that name the block are not those its attempts are
             classified with.
     """
-    marked = [i for i, a in enumerate(mine) if a.get("correction")]
-    since = marked[-1] + 1 if marked else 0
+    marks = [(i, (classified(a, gone) or {}).get("correction")) for i, a in enumerate(mine)]
+    marked = [(i, c) for i, c in marks if c]
+    since = marked[-1][0] + 1 if marked else 0
     if fills is None:
         return since, None
-    named = {
-        e["id"]: e
-        for e in map(correction_entry, fills.get(CORRECTIONS) or [])
-        if block in e["blocks"]
-    }
-    have = {mine[i]["correction"] for i in marked}
+    named = {e["id"]: e for e in corrections(fills, gone) if block in e["blocks"]}
+    have = {c for _, c in marked}
     if set(named) != have:
         raise RefusedError(
             f"block {block} is named by the corrections {sorted(named)}, and its attempts are "
             f"classified with {sorted(have)}: each correction that names a block has its "
-            "classification with the correction's id, and no other (§11). A correction is "
-            "committed only after checks.py correction-check passes on it; each attempt it names "
-            "is then classified with its id (checks.py classify --correction <id>)"
+            "classification with the correction's id, and no other (§11). Its exit: checks.py "
+            "classify --correction <id> on each attempt it names, or its withdrawal (README 24)"
         )
-    return since, named[mine[since - 1]["correction"]] if marked else None
+    return since, named[marked[-1][1]] if marked else None
+
+
+def correction_checked(records: Path, entry: dict[str, Any]) -> dict[str, Any]:
+    """A correction's passing check record of its very entry, or a refusal naming its exit."""
+    said: dict[str, Any] = json.loads(
+        read_own(records / "corrections" / entry["id"] / "check.json") or "{}"
+    )
+    if said.get("passed") is not True or said.get("entry") != entry:
+        raise RefusedError(
+            f"correction {entry['id']} has no passing correction-check record of its entry. Its "
+            "exit: checks.py correction-check --entry <the entry> --r-prime <R'> --r-k-prime "
+            "<R_K'> before the commit, or, once committed, its withdrawal (README 24)"
+        )
+    return said
+
+
+def attempt_dir(row: dict[str, Any], records: Path) -> Path:
+    """The directory an attempt's records are in."""
+    return Path(row.get("launch") or records / "blocks" / f"{row['block']}-{row['attempt']}")
+
+
+def _fill_added(before: dict[str, Any], after: dict[str, Any], subject: str) -> str:
+    """The one fill, correction or withdrawal a commit adds to the record, held to its rule.
+
+    Raises:
+        RefusedError: the commit breaks the rule.
+    """
+    for k, v in before.items():
+        new = after.get(k)
+        if new != v and not (isinstance(new, list) and new[: len(v)] == v):
+            raise RefusedError(f"it changes or drops a fill or an entry of {k} added before it")
+    keys = (*FILL_KEYS, CORRECTIONS, WITHDRAWN)
+    grew = [k for k in keys if (after.get(k) or None) != (before.get(k) or None)]
+    if len(grew) != 1 or (
+        grew[0] in (CORRECTIONS, WITHDRAWN)
+        and len(after[grew[0]]) != len(before.get(grew[0], [])) + 1
+    ):
+        raise RefusedError("it adds no entry, or more than one: a commit adds one")
+    key = grew[0]
+    if key == WITHDRAWN:
+        if withdrawal(after[key][-1], before) == "commit" or "Withdrawn" not in subject:
+            raise RefusedError("its subject names no 'Withdrawn', or it withdraws no correction")
+        return key
+    if key == CORRECTIONS:
+        entry = correction_entry(after[key][-1])
+        if "sets" not in before:
+            raise RefusedError('a correction comes only after "Set filled"')
+        if entry["id"] in {c["id"] for c in before.get(key, [])}:
+            raise RefusedError("its correction has an id an earlier correction has")
+        named = [re.search(rf"(?<![\w-]){b}(?![\w-])", subject) for b in entry["blocks"]]
+        if CORRECTED not in subject or not all(named):
+            raise RefusedError(f"its subject names no {CORRECTED!r}, or not every block it touches")
+        return key
+    if key != FILL_KEYS[len([k for k in FILL_KEYS if k in before])]:
+        raise RefusedError("it adds a fill out of order")
+    if FILL_NAMES[key] not in subject:
+        raise RefusedError(f"its subject names no {FILL_NAMES[key]!r}")
+    return key
 
 
 def fills_history(repo: Path, ref: str) -> list[dict[str, Any]]:
@@ -405,63 +531,58 @@ def fills_history(repo: Path, ref: str) -> list[dict[str, Any]]:
     Each fill is "filled later, each in its own dated commit": a commit that changes the record is
     one commit (never a merge), changes that file alone, adds exactly one fill, the next of
     "Commits filled", "Sheet filled" and "Set filled" in that order, names it in its subject, and
-    changes no fill added before it. A correction (§11's instrument defect) comes after "Set
-    filled" alone: a commit of its own that adds exactly one entry to the corrections, with an id
-    no earlier one has, names "Commits corrected" and every block it touches in its subject, and
-    changes no fill and no correction before it.
+    changes no fill added before it. After "Set filled", a correction adds one entry, with a new
+    id, its subject naming "Commits corrected" and every block it touches; a correction's
+    withdrawal adds one, its subject naming "Withdrawn". A commit the rule cannot take is named,
+    and refused until the next commit withdraws it: the last record taken plus, per commit not
+    taken since, its sha and why, its subject naming "Withdrawn" (README 24).
 
     Raises:
-        RefusedError: any commit breaks the rule.
+        RefusedError: a commit is not taken and not withdrawn; the refusal names it and its exit.
     """
     path = f"{EXPERIMENT}/{FILLS_NAME}"
     log = git(repo, "log", "--reverse", "--format=%H%x1f%P%x1f%s", ref, "--", path)
     before: dict[str, Any] = {}
-    found = []
+    found: list[dict[str, Any]] = []
+    untaken: list[tuple[str, str]] = []
     for row in log.splitlines():
         sha, parents, subject = row.split("\x1f")
-        short = sha[:7]
-        if len(parents.split()) != 1:
-            raise RefusedError(f"{short} changes the fills record and is not one commit of its own")
-        files = git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", sha).splitlines()
-        if files != [path]:
-            raise RefusedError(f"{short} touches more than the fills record ({len(files)} paths)")
         try:
-            after = fills_from(git(repo, "show", f"{sha}:{path}"))
-        except subprocess.CalledProcessError:
-            raise RefusedError(f"{short} removes the fills record") from None
-        if set(before) - set(after) or any(
-            after[k] != v for k, v in before.items() if k != CORRECTIONS
-        ):
-            raise RefusedError(f"{short} changes or drops a fill added before it")
-        old, new = before.get(CORRECTIONS, []), after.get(CORRECTIONS, [])
-        if new[: len(old)] != old:
-            raise RefusedError(f"{short} changes or drops a correction added before it")
-        added = sorted(set(after) - set(before) - {CORRECTIONS})
-        if len(new) > len(old):
-            if added or len(new) - len(old) != 1:
-                count = len(added) + len(new) - len(old)
-                raise RefusedError(f"{short} adds {count} entries: a commit adds one")
-            entry = correction_entry(new[-1])
-            if "sets" not in before:
-                raise RefusedError(f'{short}: a correction comes only after "Set filled"')
-            if entry["id"] in {c["id"] for c in old}:
-                raise RefusedError(f"{short}'s correction has an id an earlier correction has")
-            named = [re.search(rf"(?<![\w-]){b}(?![\w-])", subject) for b in entry["blocks"]]
-            if CORRECTED not in subject or not all(named):
-                msg = f"{short}'s subject names no {CORRECTED!r}, or not every block it touches"
-                raise RefusedError(msg)
-            found.append({"commit": sha, "fill": CORRECTIONS, "subject": subject, **entry})
-            before = after
+            files = git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", sha).splitlines()
+            if len(parents.split()) != 1 or files != [path]:
+                raise RefusedError(
+                    "it is not one commit of its own, or touches more than the record"
+                )
+            try:
+                after = fills_from(git(repo, "show", f"{sha}:{path}"))
+            except subprocess.CalledProcessError:
+                raise RefusedError("it removes the fills record") from None
+            if untaken:
+                old = before.get(WITHDRAWN, [])
+                new = after.get(WITHDRAWN, [])[len(old) :]
+                if (
+                    "Withdrawn" not in subject
+                    or after != {**before, WITHDRAWN: [*old, *new]}
+                    or [w.get("commit") for w in new] != [u for u, _ in untaken]
+                    or any(withdrawal(w, before) != "commit" for w in new)
+                ):
+                    raise RefusedError("it does not withdraw the commits not taken before it")
+                added = WITHDRAWN
+            else:
+                added = _fill_added(before, after, subject)
+        except RefusedError as exc:
+            untaken.append((sha, str(exc)))
             continue
-        if len(added) != 1:
-            raise RefusedError(f"{short} adds {len(added)} fills: a fill commit adds one")
-        if added[0] != FILL_KEYS[len(before)]:
-            want = FILL_NAMES[FILL_KEYS[len(before)]]
-            raise RefusedError(f"{short} adds a fill out of order: {want!r} comes next")
-        if FILL_NAMES[added[0]] not in subject:
-            raise RefusedError(f"{short}'s subject names no {FILL_NAMES[added[0]]!r}")
-        found.append({"commit": sha, "fill": added[0], "subject": subject})
-        before = after
+        found.append({"commit": sha, "fill": added, "subject": subject})
+        before, untaken = after, []
+    if untaken:
+        sha, why = untaken[0]
+        raise RefusedError(
+            f"fills commit {sha[:7]} cannot be taken: {why}. Its exit: a commit of {path} alone, "
+            f"its subject naming 'Withdrawn', whose record is the last one taken plus, in "
+            f'withdrawn, {{"commit": <sha>, "why": ...}} for each of: '
+            f"{', '.join(s for s, _ in untaken)}"
+        )
     return found
 
 

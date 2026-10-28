@@ -866,6 +866,9 @@ def test_the_score_holds_every_step_to_the_draw_the_final_verdicts_give(
 ) -> None:
     work, dirs = whole(tmp_path, sets)
     assert rl.score(work, dirs)["reliability"] == "unchecked"
+    # The attempts the lines are of travel with the reading, which the tally holds to its own.
+    (work / "attempts.json").write_text(json.dumps({"x1": 2}))
+    assert rl.score(work, dirs)["attempts"] == {"x1": 2}
     # The rejection control drawn for another eligible line than seed 43's draw from these verdicts.
     ckey = json.loads((dirs["controls"][0] / "key.json").read_text())
     pid = min(k for k, v in ckey.items() if v["item"] == "c1")

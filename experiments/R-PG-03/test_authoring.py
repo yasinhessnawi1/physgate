@@ -288,7 +288,7 @@ def test_a_turn_that_outlasts_its_bound_ends_as_an_outage_with_its_outcome(
         raise subprocess.TimeoutExpired(argv, kw.get("timeout") or 1)
 
     monkeypatch.setattr(subprocess, "run", hangs)
-    got = fx.holds(lambda: au.turn(root, "launch", "launch.txt", None))
+    got = fx.holds(lambda: au.turn(root, "launch", "launch.txt", None), subprocess.TimeoutExpired)
     assert got["ended"] == "infrastructure" and got["timed_out"] is True and got["exit"] is None
     saved = json.loads((root / "turns" / "01-launch.outcome.json").read_text())
     assert saved["ended"] == "infrastructure"
@@ -336,6 +336,34 @@ def test_a_cut_turn_no_line_of_which_names_a_session_is_run_again_with_its_own_m
     assert state["pairs"]["X"]["pending"]["infra"] == 1  # it stands in the ladder's place
     sheet.step(state)
     assert state["pairs"]["X"]["sessions"]["W"]["session_id"] == "S-2"
+
+
+def test_a_continuing_turn_cut_before_any_line_is_run_again_with_its_own_message_in_its_session(
+    sheet: Sheet,
+) -> None:
+    # The launch named S-1; the continuation's binary wrote no line at all.
+    state = au.read_state()
+    sheet.ended, sheet.sessions = ["completed", "infrastructure"], ["S-1", None]
+    for _ in range(30):
+        sheet.step(state)
+        if len(sheet.turns) >= 3:
+            break
+    assert sheet.turns[1][1:] == ("continue", "continue_A.txt")
+    assert sheet.turns[2][1:] == ("again-continue", "continue_A.txt")
+    assert sheet.resumed[2] == "S-1"
+
+
+def test_a_cut_x3_launch_with_no_line_is_run_again_with_x3_s_own_launch_message(
+    sheet: Sheet,
+) -> None:
+    state = au.read_state()
+    sheet.step(state)  # pair X's first turn, to make its state
+    p = state["pairs"]["X"]
+    p["pending"], p["phase"] = None, "X3-launch"
+    sheet.ended, sheet.sessions = ["infrastructure"], [None]
+    sheet.step(state)
+    sheet.step(state)
+    assert sheet.turns[-1][1:] == ("again-launch", "launch_X3.txt")
 
 
 def pilot(tmp: Path) -> tuple[Path, bytes, dict[str, Any]]:
@@ -792,7 +820,7 @@ def test_later_sessions_get_pair_x_s_passed_bytes_after_x1_changed_one_in_its_s_
     p, scratch = writer_batches(tmp_path, monkeypatch)
     (scratch / "clean" / "a07.json").write_text('{"changed": true}')
     (scratch / "base.json").unlink()
-    got = fx.holds(lambda: au.session_files(kind, p, "X"))
+    got = fx.holds(lambda: au.session_files(kind, p, "X"), au.RefusedError)
     assert got["clean/a07.json"] == json.dumps({"id": "a07"}).encode()
     assert got["base.json"] == b'{"base": 1}'
 
