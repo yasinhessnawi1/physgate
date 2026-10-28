@@ -69,6 +69,7 @@ def test_the_reviewer_packet_holds_the_state_to_its_digest(tmp_path: Path) -> No
     state = state_of(TEXT)
     packet, read, repo, base = _build(tmp_path, state)
     path = read / INTEGRATION_STATE_NAME
+    assert path.is_file(), "the packet holds no issued state"
     assert path.read_bytes() == TEXT.encode("utf-8")
     assert packet.integration_state_sha256 == state.sha256
     # Required reading, straight after the issued specification, and named in the listing.
@@ -84,6 +85,7 @@ def test_a_changed_or_removed_state_is_refused_before_the_review(
 ) -> None:
     packet, read, repo, base = _build(tmp_path, state_of(TEXT))
     path = read / INTEGRATION_STATE_NAME
+    assert path.is_file(), "the packet holds no issued state"
     if change == "removed":
         path.unlink()
     else:

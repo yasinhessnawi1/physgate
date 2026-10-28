@@ -78,7 +78,7 @@ def test_the_run_records_the_words_for_each_requirement_given_by_number(tmp_path
         tmp_path, pairs.integrated(system_requirements=requirements("3", "1")), brief=BRIEF
     )
     line = decomposed_line(run_dir)
-    assert line["brief_words"] == [
+    assert line.get("brief_words") == [
         {"criterion": "3", "words": "It sits."},
         {"criterion": "1", "words": "It stands upright, on its feet."},
     ]
@@ -114,8 +114,12 @@ def test_words_past_a_specifications_bound_are_refused_before_anything_is_writte
     tmp_path: Path,
 ) -> None:
     long = "## Acceptance criteria\n\n1. " + "x" * (SPEC_MAX_CHARS + 1) + "\n"
-    with pytest.raises(DecompositionError, match="brief's words"):
+    # Refused by the bound's own check, with its own reason: not by the record's type later.
+    with pytest.raises(Exception) as caught:  # noqa: B017, PT011 - the type is asserted below
         pairs.start(tmp_path, pairs.integrated(), brief=long)
+    assert type(caught.value) is DecompositionError, repr(caught.value)
+    assert "brief's words for a requirement are longer" in str(caught.value)
+    assert caught.value.context["limit"] == str(SPEC_MAX_CHARS)
     assert not (tmp_path / "run" / "events.jsonl").exists()
     assert not (tmp_path / "run" / "run.json").exists()
 
@@ -123,7 +127,7 @@ def test_words_past_a_specifications_bound_are_refused_before_anything_is_writte
 def test_a_criterion_of_exactly_the_bound_is_recorded(tmp_path: Path) -> None:
     exact = "## Acceptance criteria\n\n1. " + "x" * SPEC_MAX_CHARS + "\n"
     run_dir, _ = pairs.start(tmp_path, pairs.integrated(), brief=exact)
-    assert decomposed_line(run_dir)["brief_words"] == [
+    assert decomposed_line(run_dir).get("brief_words") == [
         {"criterion": "1", "words": "x" * SPEC_MAX_CHARS}
     ]
 

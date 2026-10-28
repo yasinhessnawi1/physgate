@@ -163,6 +163,7 @@ def test_integrations_state_carries_each_pairs_contract_result_or_says_none_exis
     early = replay(events[: tested[0].seq + 1])
     results = issued_state(early).decode().split("## Contract results\n")[1].split("\n## ")[0]
     later = results.split("\n### ")[1:]
+    assert len(later) == 3, "a section for every planned pair, with a result or without"
     assert first_line(tested[0]) in later[0]
     assert later[1].splitlines()[-1] == "No contract result exists for this pair."
     assert later[2].splitlines()[-1] == "No contract result exists for this pair."
@@ -661,3 +662,45 @@ def test_the_bytes_depend_on_the_record_alone(
     # Nothing integration's own attempt writes moves it: built at its line and at the run's end.
     (line,) = issued(one)
     assert issued_state(replay(one[: line.seq])) == issued_state(replay(one))
+
+
+def test_replay_refuses_a_line_before_its_windows_resolve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Killed between the line and the spawn, the attempt is resumed at resolve: it has no window
+    # open until its next resolve line, so no state is issued for it in between.
+    rig, _ = run(tmp_path, monkeypatch, kill=CUTS["the line and the spawn"])
+    _, events = resumed(rig, monkeypatch)
+    (resume,) = [e for e in events if isinstance(e, Resumed)]
+    after = events[resume.seq + 1]
+    assert isinstance(after, StageEntered) and (after.subtask_id, after.stage) == (INTEG, "resolve")
+    line = issued(events)[-1]
+    early = [*events[: resume.seq + 1], line, *events[resume.seq + 1 :]]
+    assert "integration's issued state cannot come at this point" in refusal(early)
+
+
+def test_replay_takes_a_fresh_line_in_each_restarted_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # What a process taking over between the line and the spawn writes: a resume, the window's
+    # resolve again, and its own line, the one before forgotten with the window it was in.
+    _, events = run(tmp_path, monkeypatch)
+    (line,) = issued(events)
+    resolve = events[line.seq - 1]
+    resume = Resumed(
+        **{k: getattr(line, k) for k in ("seq", "ts", "run_id", "gate_mode")},
+        subtask_id=INTEG,
+        attempt=1,
+        point="resolve",
+    )
+    taken_over = [*events[: line.seq + 1], resume, resolve, line, *events[line.seq + 1 :]]
+    assert refusal_or_none(taken_over) == ""
+
+
+def refusal_or_none(events: Sequence[Event]) -> str:
+    """Why replay refuses ``events`` (renumbered), or ``""`` if it takes every line."""
+    try:
+        replay(renumbered(events))
+    except CorruptEventLogError as exc:
+        return str(exc.context["reason"])
+    return ""
