@@ -136,12 +136,12 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     and keeps its outcome and ledger line). The six hours are **this experiment's own fixed
     choice**, as reading 5's bound and line are, fixed in its scripts before any session. **A cut
     session is resumed in the session it began:** its stream's result line names it, or, when the
-    stream was cut before one, its first line (`system/init`). **A cut turn no line of which names
-    a session never began,** so there is nothing to resume: it is run again with its own message,
-    in the retry ladder's place. Rests on: §2.5, "An infrastructure error is an API, connection or
-    binary error, never a refusal and never something the author did"; "In either case the session
-    is resumed with Appendix B's fixed resume message. The resumed turn finishes the task of the
-    turn it resumes".
+    stream was cut before one, its first line (`system/init`). **A cut turn no line of whose
+    stream names a session never began,** so there is nothing to resume: it is run again with its
+    own message, in the session it continues if it has one, in the retry ladder's place. Rests
+    on: §2.5, "An infrastructure error is an API, connection or binary error, never a refusal and
+    never something the author did"; "In either case the session is resumed with Appendix B's
+    fixed resume message. The resumed turn finishes the task of the turn it resumes".
 12. **The owner stops only where the authoring waits for the owner's word after a turn's second
     retry ladder, and only at the cap of the batch that turn writes.** At `fresh-v2-s`'s cap the
     class is not run and the primary goes on; at the primary's cap the authoring stops for the
@@ -212,14 +212,16 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     an instrument defect, naming the path of a tracked test that depends on no verdict and shows it
     and the id of the correction that names the block (the test's commit and blob are recorded; the
     block is then re-run at the corrected commit and both runs are reported, reading 24), or
-    anything else impossible as specified (the block is not attempted again and is marked
-    `not_taken` in the block record; it stops nothing else: the later blocks run, and the decisions
-    it feeds are reported as not taken). The classification is written once, as
-    `classification.json` next to the attempt, and in the block record. **The tally under a block
-    not taken** computes the primary's figures over the pairs present, labelled with their count;
-    with a primary block not taken, Q1–Q4, the row and the claim shift are not taken (Q4's J of A2
-    on `fresh-v2` rests on the same pairs); a block `s` not taken leaves the class "not measured",
-    and `p1` or `p2` not taken leaves the sheet-matched Q4 not taken. Rests on: §11, "An
+    anything else impossible as specified, which is also the owner's declaration after a block's
+    three void attempts (`--route impossible` on the last of them), and is refused for an attempt
+    a correction names. A block so classified is not taken: it is not attempted again, and it stops
+    nothing else (the later blocks run, and the decisions it feeds are reported as not taken). The
+    classification is written once, as `classification.json` next to the attempt, and in the block
+    record. **The tally under a block not taken** computes the primary's figures over the pairs
+    present, labelled with their count; with a primary block not taken, Q1–Q4 with Q4's two
+    readings beside it, the row and the claim shift are not taken (Q4's J of A2 on `fresh-v2` rests
+    on the same pairs); a block `s` not taken leaves the class "not measured", and `p1` or `p2` not
+    taken leaves the sheet-matched Q4 not taken. Rests on: §11, "An
     instrument defect found after a number is seen is a deviation only if a test that depends on no
     verdict shows it"; "Anything else impossible as specified is a deviation. The decisions it feeds
     are not taken"; §8, "Under a deviation that voids a primary contrast (§11), Q1–Q3 and the row
@@ -230,14 +232,15 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     block it touches, and which adds exactly one entry: an id no earlier correction has, the
     corrected `R'` and `R_K'`, and every block it touches, each with its attempt and the path of a
     tracked test that depends on no verdict and shows the defect in that attempt's own records.
-    - **Before its commit, `checks.py correction-check`** holds the entry against the block record
-      and the commits, and its passing record, kept in the run records, is what L2 needs: each
-      attempt named exists, has closed, is valid or a deviation, and is classified by nothing yet;
-      `R'` descends from `R`, and `R_K'` is one commit above `R'` with the five paths alone (L2
-      holds `promotions.jsonl`'s content too); and each test is tracked at `R'`. **A correction's
-      test has two modes:** on its own fixtures it must fail at `R` and pass at `R'`; run from `R'`
-      with `RP3_BLOCK_RECORDS` set to an attempt's directory, it fails exactly when the defect shows
-      in that attempt's records, and it must fail on each attempt it is named for. The check writes
+    - **Before its commit, `checks.py correction-check`** holds the entry with the run's own
+      functions, and its passing record of that very entry, kept in the run records, is what L2
+      and the tally need: each attempt named is one `classify` would take as an instrument defect;
+      `R'` and `R_K'` (both checkouts) pass every check L2 makes at launch; and each test is
+      tracked at `R'`. **A correction's test has two modes:** on its own fixtures, run on that
+      tree's own code, it must fail at `R` and pass at `R'`; run from `R'` with `RP3_BLOCK_RECORDS`
+      set to an attempt's directory, it fails exactly when the defect shows in those records, and
+      it must fail on each attempt it is named for. It **fails only on an assertion**, read from
+      its junit record; any other end is no answer, and refused. The check writes
       `code_changes.py`'s list from `R` to `R'` and `R_K'` beside its record.
     - **The correction is committed, then classified:** for each attempt it names, the owner's
       `checks.py classify` writes the classification (an instrument defect, with that test and the
@@ -257,19 +260,32 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
       the defect does. Every block that ends after a correction's check carries that correction's
       result on its own records: `checks.py touched`, from an `R'` checkout, runs each distinct
       test the correction names on the attempt's records, any failure meaning touched
-      (`touched.json`). The tally refuses a tallied attempt without it, and a touched one, which
-      needs a correction naming it and its corrected attempt. "Ends after a correction exists" is
-      read from the correction's check record, which comes before its commit, so it errs toward
-      asking more.
+      (`touched.json`). The tally refuses a tallied attempt without a result of every test, made
+      after it ended, and a touched one, which needs a correction naming it and its corrected
+      attempt. "Ends after a correction exists" is read from the correction's check record, which
+      comes before its commit, so it errs toward asking more. An attempt that ran at a commit
+      descending from the correction's `R'` already carries its fix, and is not asked.
     - Both attempts are kept in the block record and listed in the tally's output; the tally, and
       the reading's lines, use the corrected attempt of a touched block, and the tally refuses
-      while a block a correction names lacks it.
+      while a block a correction names lacks it, and a reading made on other attempts than its own.
+    - **Withdrawal** (a reading of the rulings: `CRITERIA.md` defines none). No single owner act or
+      commit stops the run with no way out, and each refusal names its exit. A correction the run
+      cannot take is withdrawn by a commit of `fills.json` alone, its subject naming "Withdrawn",
+      that adds `{"correction": <id>, "why": ...}` to `withdrawn`. It is kept and reported, and L2,
+      the order and the tally ignore it and every classification made with it; every attempt that
+      ran at its `R'` (and at no standing correction's) is set aside: kept, reported, never read or
+      tallied, and not counted among the void attempts. The block is then owed its attempt under
+      the record that stands. A withdrawal recorded after the first tally output (the tally appends
+      a line to the run records' `tallies.jsonl`) is refused: not taken, and reported so. A fills
+      commit the history's rule cannot take is named by every read of the fills, with its exit: the
+      next commit restores the last record taken and adds `{"commit": <sha>, "why": ...}` for each
+      commit not taken since. Nothing ran on what that withdraws, so it is taken at any time.
 
     Rests on: §11, "Every block it touches is then re-run at the corrected commit, and both runs
     are reported"; "The decision uses the corrected runs"; "only if a test that depends on no
     verdict shows it: a fixture test, a byte comparison of packets or records, or a fact of a
-    stream"; §3.3's list of code changes; §5 R1, "Nothing changes after it"; the header, "Facts are
-    filled later, each in its own dated commit".
+    stream"; §3.3's list of code changes; §5 R1, "Nothing changes after it"; §5 R8; the header,
+    "Facts are filled later, each in its own dated commit".
 
 **The tally.**
 
