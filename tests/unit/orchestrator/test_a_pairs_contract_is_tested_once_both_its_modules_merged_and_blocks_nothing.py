@@ -758,8 +758,10 @@ def test_a_failed_result_rewritten_as_its_pairs_pass_halts_the_run_before_any_co
     events = read_events(log)
     assert [e for e in events if isinstance(e, ModuleCompleted)] == []
     before, incident, halted = halt_of(events)
-    # Integration merged with its diff clean, and the first completion step found the result.
-    assert isinstance(before, DiffChecked) and before.subtask_id == INTEG
+    # The system gate ran, and the results were taken again before integration's state was built,
+    # which quotes them: integration's window never opened.
+    assert isinstance(before, IntegrationGateRan)
+    assert not [e for e in events if isinstance(e, StageEntered) and e.subtask_id == INTEG]
     assert (incident.cause, halted.detail) == ("foreign_journal_line", "foreign_journal_line")
     assert "drive to fw" in incident.detail and "revision 4" in incident.detail
 

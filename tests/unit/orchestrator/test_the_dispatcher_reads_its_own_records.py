@@ -45,9 +45,10 @@ def test_integrations_prompt_names_its_issued_state_and_every_other_prompt_keeps
     told = role_prompt(REQUEST, path)
     assert role_prompt(REQUEST, None) == plain
     sentence = (
-        f"\nYour issued state is {path}; read it in full first too. It is the run's record of "
-        "the system-scope result, each module pair's contract results and the system "
-        "requirements, written by the harness and by no session.\n"
+        f"\nYour issued state is {path}; read it in full first too. The harness built it from "
+        "the run's record: the system-scope result, each module pair's contract results and the "
+        "system requirements. The node ids in it were chosen by sessions and are held to the "
+        "store's id pattern.\n"
     )
     # The one sentence, after the template and before any repair instruction.
     assert told == plain.replace("\nAttempt 1 of 3", sentence + "\nAttempt 1 of 3", 1)

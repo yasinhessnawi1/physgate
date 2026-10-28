@@ -1053,6 +1053,10 @@ class Loop:
     def _session(self, subtask_id: str, attempt: int) -> bool:
         if not self._mark_borne_out(subtask_id):
             return False
+        # Integration's state quotes the contract results on the record: each is taken again
+        # first, so one the journal does not give halts the run before its window opens.
+        if subtask_id == self.state.completion_subtask and not self._results_hold():
+            return False
         self._environment_before_a_spawn()
         sub = self.state.subtasks[subtask_id]
         self._stage(subtask_id, attempt, "resolve")
@@ -1063,21 +1067,21 @@ class Loop:
             return False
         held: IssuedState | None = None
         if subtask_id == self.state.completion_subtask:
-            # Integration's session reads the record's state: built from the log, recorded by its
-            # digest before the spawn, and held to that line before it is handed over.
+            # Integration's session reads the record's state: built from the log and recorded by
+            # its digest before the spawn. The dispatcher holds the file it writes to that digest.
             data = issued_state(self.state)
+            held = IssuedState(
+                text=data.decode("utf-8"), sha256=hashlib.sha256(data).hexdigest(), length=len(data)
+            )
             self._emit(
                 IntegrationStateIssued(
                     **self._env(),
                     subtask_id=subtask_id,
                     attempt=attempt,
-                    sha256=hashlib.sha256(data).hexdigest(),
-                    length=len(data),
+                    sha256=held.sha256,
+                    length=held.length,
                 )
             )
-            held = self._state_holds(subtask_id)
-            if held is None:
-                return False
         # The decisions file's length now and when the session ends: the window a
         # decision written meanwhile falls in, which the queue listing marks.
         self._emit(
@@ -1269,10 +1273,13 @@ class Loop:
         """Integration's issued state, built again from the record and held to its window's line.
 
         Replay holds the line to its place and form, never to the bytes, so a recorded log stays
-        readable whatever the document's wording becomes. The bytes are held here instead, each
-        time they are handed over: before the spawn and before the review. A record that no
-        longer gives what was issued (a line it was built from rewritten since, or the line's own
-        digest) halts the run, and nothing is handed over.
+        readable whatever the document's wording becomes. Before the review the bytes are held
+        here: a record that no longer gives what was issued halts the run, and nothing is handed
+        to the reviewer. Within one process this compares the record as this process read it, so
+        it catches a rewrite of the log (a line the state was built from, or the state's own line)
+        only across a takeover: a process that replayed the file after the state was issued. The
+        file the session reads is held by the dispatcher, which reads it back before the session
+        is installed and holds it to the line's digest and length.
         """
         line = self.state.subtasks[subtask_id].attempts[-1].issued
         data = issued_state(self.state)
@@ -1822,7 +1829,8 @@ class Loop:
         result to its place, never to the graph. So before a completion line each recorded result
         is taken again over the canonical journal at the revision it records, as the contract step
         took it. One that differs, or that the journal can no longer give, is not what the store
-        holds: the run halts, and no completion is written over it.
+        holds: the run halts, and no completion is written over it. Integration's issued state
+        quotes the same results, so they are taken again before it is built, too.
         """
         for line in self.state.contracts:
             pair = line.result.pair

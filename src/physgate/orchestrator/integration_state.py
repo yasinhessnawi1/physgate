@@ -17,9 +17,15 @@ the run's event log alone, before integration's session is spawned (ARCH-051):
 from carrying an instruction, so the document renders nothing but:
 
 - text the harness words itself, and enum values, numbers, digests and commits;
-- identifiers a check holds to a strict pattern and bound wherever they are written: node and
-  interface ids (the store's id pattern, at every write and every journal read), module names (the
-  plan's name pattern), roles (the register's names), subtask ids (minted from those names);
+- node and interface ids, each only where it holds to the store's id pattern and bound here, where
+  it is rendered: the store holds an id to them where it is written, but the event log it is read
+  back from holds it to nothing but its type, so an id the store would refuse is shown as a phrase
+  of the harness's, never as written;
+- identifiers the log's own reading holds to a strict pattern: module names (the plan's name
+  pattern), the subtask ids of each pair's sides (minted from those names);
+- roles and integration's subtask id (minted from its role's name), which the plan's lines are
+  held to the register's names for where they are written, and the log reads back held to
+  nothing but their type;
 - a unit only as pint's own name for it, after the gate's parser has held it to the shared
   spelling guard; a unit the parser refuses is said to be refused, and never shown;
 - a quantity's name only where it is a name of the gate's catalogue: a graph quantity's name is
@@ -33,7 +39,8 @@ as a session wrote it), no session's stream, no reviewer's words and no node's f
 failing node's outcome is worded here.
 
 **Its bytes.** UTF-8 with LF line endings and one final newline; every value is quoted as JSON on
-one line, so none can begin a heading or a numbered line; nothing from a clock, a session, an
+one line, so no value, as written before a long line is cut, begins a heading or a numbered line
+(a piece of a cut line may: the brief's words are a person's); nothing from a clock, a session, an
 attempt or a line's place in the log (a process that takes a run over adds lines of its own), so
 what the run recorded fixes the bytes. No line is longer than the transcript's width: a longer one
 is cut into pieces, each but the last ending in the transcript's continuation mark, so the Read
@@ -50,6 +57,7 @@ from physgate.gate.units import UnitRefusedError, parse
 from physgate.orchestrator.decompose import GATE_MODE_SENTENCES
 from physgate.orchestrator.events import IntegrationGateRan
 from physgate.reviewers.transcript import cut_line
+from physgate.state.schema import NODE_ID_MAX_LENGTH, NODE_ID_PATTERN
 
 if TYPE_CHECKING:
     from physgate.contracts.clause import InterfaceCheck, NodeCheck
@@ -62,14 +70,17 @@ if TYPE_CHECKING:
 STATE_NAME = "integration_state.md"
 
 HEAD = (
-    "The harness wrote this file from the run's event log before integration's session was "
-    "spawned. It holds the record's state, not a message: the run's gate mode, the system-scope "
-    "result, the contract results of each module pair the plan names, and the system requirements "
-    "with the brief's own words for each one the plan gives by number. No session wrote any of "
-    "it: it names a node by its id, a unit by the unit registry's name for it, and a quantity by "
-    "the gate catalogue's name, or else by its place. Every value is quoted as JSON, and a line "
-    'that ends in " ⏎" goes on in the next.'
+    "The harness built this file from the run's record, its event log, before integration's "
+    "session was spawned. It holds the record's state, not a message: the run's gate mode, the "
+    "system-scope result, the contract results of each module pair the plan names, and the system "
+    "requirements with the brief's own words for each one the plan gives by number. The node ids "
+    "in it were chosen by sessions, and each is shown only where it holds to the store's id "
+    "pattern; a unit is named by the unit registry's name for it, and a quantity by the gate "
+    "catalogue's name, or else by its place. Every value is quoted as JSON, and a line that ends "
+    'in " ⏎" goes on in the next.'
 )
+#: What stands where a node id the store's id pattern or bound would refuse is on the record.
+REFUSED_ID = "(a node id the store's id pattern refuses)"
 SCOPE_HEAD = (
     "The gate's own words are on its record and are not copied here: they quote units and "
     "quantity names as sessions wrote them."
@@ -103,8 +114,19 @@ def _clauses(n: int) -> str:
     return f"{n} clause{'' if n == 1 else 's'} checked"
 
 
+def _id(node_id: str) -> str:
+    """A node id from the log, quoted only where the store's id pattern and bound hold it.
+
+    The store holds every id to them where it is written; the log holds what it reads back to
+    nothing, so a log rewritten on disk could put any text here. An honest run's ids all hold.
+    """
+    if len(node_id) <= NODE_ID_MAX_LENGTH and NODE_ID_PATTERN.fullmatch(node_id):
+        return _q(node_id)
+    return REFUSED_ID
+
+
 def _nodes(names: tuple[str, ...]) -> str:
-    return ", ".join(_q(name) for name in names) if names else "none"
+    return ", ".join(_id(name) for name in names) if names else "none"
 
 
 def _quantity(name: str) -> str:
@@ -134,11 +156,11 @@ def _output(output: NumericOutput | None) -> str:
 
 
 def _ref(ref: QuantityRef) -> str:
-    return f"node {_q(ref.node_id)}, {_quantity(ref.name)}, {_measure(ref.value, ref.unit)}"
+    return f"node {_id(ref.node_id)}, {_quantity(ref.name)}, {_measure(ref.value, ref.unit)}"
 
 
 def _record(record: CheckRecord) -> str:
-    where = f"node {_q(record.node)}" if record.node is not None else "no one node"
+    where = f"node {_id(record.node)}" if record.node is not None else "no one node"
     value = f"; value {_output(record.value)}" if record.value is not None else ""
     return f"  - Check {_q(record.name)} at {_q(record.scope)} scope, on {where}{value}."
 
@@ -179,7 +201,7 @@ def _side(name: str, side: Side) -> str:
 
 
 def _node(check: NodeCheck) -> str:
-    said = f"node {_q(check.node)} ({check.side}) {_q(check.outcome)}"
+    said = f"node {_id(check.node)} ({check.side}) {_q(check.outcome)}"
     return said if check.outcome == "pass" else f"{said}: {WHY[check.outcome]}"
 
 
@@ -190,7 +212,7 @@ def _interface(check: InterfaceCheck) -> list[str]:
         else ""
     )
     lines = [
-        f"- Interface {_q(check.interface)}: {_q(check.outcome)}, "
+        f"- Interface {_id(check.interface)}: {_q(check.outcome)}, "
         f"{_clauses(check.clauses_checked)}; producer nodes {_nodes(check.producer_nodes)}; "
         f"consumer nodes {_nodes(check.consumer_nodes)}{unjoined}."
     ]
@@ -225,7 +247,7 @@ def _pair(number: int, pair: ContractPair, state: RunState) -> list[str]:
         "",
         _side("Producer", pair.producer),
         _side("Consumer", pair.consumer),
-        f"- Interfaces: {', '.join(_q(i) for i in pair.interfaces)}.",
+        f"- Interfaces: {', '.join(_id(i) for i in pair.interfaces)}.",
         "",
     ]
     results = [line for line in state.contracts if line.result.pair == pair]

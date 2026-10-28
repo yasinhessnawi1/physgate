@@ -450,9 +450,10 @@ def role_prompt(request: SessionRequest, state: Path | None = None) -> str:
     )
     if state is not None:
         text += (
-            f"\nYour issued state is {state}; read it in full first too. It is the run's record of "
-            "the system-scope result, each module pair's contract results and the system "
-            "requirements, written by the harness and by no session.\n"
+            f"\nYour issued state is {state}; read it in full first too. The harness built it "
+            "from the run's record: the system-scope result, each module pair's contract results "
+            "and the system requirements. The node ids in it were chosen by sessions and are held "
+            "to the store's id pattern.\n"
         )
     if request.kind == "fix":
         # The one fix a person ordered: told so, then its instruction. Nothing else differs.
@@ -1215,7 +1216,9 @@ class ClaudeDispatcher:
         """Write the request's issued state where its session reads it, held to its line.
 
         Read back and held to the digest and length the run recorded before anything of the
-        session is installed; a file that does not hold those bytes installs no session.
+        session is installed; a file that does not hold those bytes installs no session. This is
+        the hold on the file the session reads: it catches a write cut short and a file changed
+        on disk between the write and the read-back, a changed byte as much as a missing one.
 
         Raises:
             InvocationError: the file does not hold the bytes the run recorded.
