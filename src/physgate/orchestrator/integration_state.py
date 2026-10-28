@@ -23,9 +23,9 @@ from carrying an instruction, so the document renders nothing but:
   of the harness's, never as written;
 - identifiers the log's own reading holds to a strict pattern: module names (the plan's name
   pattern), the subtask ids of each pair's sides (minted from those names);
-- roles and integration's subtask id (minted from its role's name), which the plan's lines are
-  held to the register's names for where they are written, and the log reads back held to
-  nothing but their type;
+- roles and integration's subtask id, held to the register's name pattern and the minted id's
+  pattern, each to 64 characters, here, where they are rendered: the plan's lines hold them to the
+  register where they are written, and the log reads them back held to nothing but their type;
 - a unit only as pint's own name for it, after the gate's parser has held it to the shared
   spelling guard; a unit the parser refuses is said to be refused, and never shown;
 - a quantity's name only where it is a name of the gate's catalogue: a graph quantity's name is
@@ -50,6 +50,7 @@ tool shows every line whole and the reading check, which counts lines, proves a 
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING
 
 from physgate.gate.catalogue import QUANTITIES
@@ -81,6 +82,13 @@ HEAD = (
 )
 #: What stands where a node id the store's id pattern or bound would refuse is on the record.
 REFUSED_ID = "(a node id the store's id pattern refuses)"
+#: A role as the register names one, and integration's subtask id as minted from its role's name;
+#: each held to its pattern and to :data:`PLANNED_ID_MAX_LENGTH` where it is rendered.
+ROLE_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
+SUBTASK_PATTERN = re.compile(r"[a-z][a-z0-9_-]*")
+PLANNED_ID_MAX_LENGTH = 64
+REFUSED_ROLE = "(a role the register's name pattern refuses)"
+REFUSED_SUBTASK = "(a subtask id the harness's id pattern refuses)"
 SCOPE_HEAD = (
     "The gate's own words are on its record and are not copied here: they quote units and "
     "quantity names as sessions wrote them."
@@ -114,19 +122,25 @@ def _clauses(n: int) -> str:
     return f"{n} clause{'' if n == 1 else 's'} checked"
 
 
-def _id(node_id: str) -> str:
-    """A node id from the log, quoted only where the store's id pattern and bound hold it.
+def _held(
+    value: str,
+    pattern: re.Pattern[str] = NODE_ID_PATTERN,
+    cap: int = NODE_ID_MAX_LENGTH,
+    refused: str = REFUSED_ID,
+) -> str:
+    """An identifier from the log, quoted only where ``pattern`` and ``cap`` hold it.
 
-    The store holds every id to them where it is written; the log holds what it reads back to
-    nothing, so a log rewritten on disk could put any text here. An honest run's ids all hold.
+    By default a node id, which the store holds to its pattern and bound where it is written; the
+    log holds what it reads back to nothing but its type, so a log rewritten on disk could put any
+    text here, and ``refused`` stands in its place instead. An honest run's identifiers all hold.
     """
-    if len(node_id) <= NODE_ID_MAX_LENGTH and NODE_ID_PATTERN.fullmatch(node_id):
-        return _q(node_id)
-    return REFUSED_ID
+    if len(value) <= cap and pattern.fullmatch(value):
+        return _q(value)
+    return refused
 
 
 def _nodes(names: tuple[str, ...]) -> str:
-    return ", ".join(_id(name) for name in names) if names else "none"
+    return ", ".join(_held(name) for name in names) if names else "none"
 
 
 def _quantity(name: str) -> str:
@@ -156,11 +170,11 @@ def _output(output: NumericOutput | None) -> str:
 
 
 def _ref(ref: QuantityRef) -> str:
-    return f"node {_id(ref.node_id)}, {_quantity(ref.name)}, {_measure(ref.value, ref.unit)}"
+    return f"node {_held(ref.node_id)}, {_quantity(ref.name)}, {_measure(ref.value, ref.unit)}"
 
 
 def _record(record: CheckRecord) -> str:
-    where = f"node {_id(record.node)}" if record.node is not None else "no one node"
+    where = f"node {_held(record.node)}" if record.node is not None else "no one node"
     value = f"; value {_output(record.value)}" if record.value is not None else ""
     return f"  - Check {_q(record.name)} at {_q(record.scope)} scope, on {where}{value}."
 
@@ -196,12 +210,14 @@ def _system_scope(state: RunState) -> list[str]:
 
 def _side(name: str, side: Side) -> str:
     return (
-        f"- {name}: module {_q(side.module)}, role {_q(side.role)}, subtask {_q(side.subtask_id)}."
+        f"- {name}: module {_q(side.module)}, role "
+        f"{_held(side.role, ROLE_PATTERN, PLANNED_ID_MAX_LENGTH, REFUSED_ROLE)}, subtask "
+        f"{_q(side.subtask_id)}."
     )
 
 
 def _node(check: NodeCheck) -> str:
-    said = f"node {_id(check.node)} ({check.side}) {_q(check.outcome)}"
+    said = f"node {_held(check.node)} ({check.side}) {_q(check.outcome)}"
     return said if check.outcome == "pass" else f"{said}: {WHY[check.outcome]}"
 
 
@@ -212,7 +228,7 @@ def _interface(check: InterfaceCheck) -> list[str]:
         else ""
     )
     lines = [
-        f"- Interface {_id(check.interface)}: {_q(check.outcome)}, "
+        f"- Interface {_held(check.interface)}: {_q(check.outcome)}, "
         f"{_clauses(check.clauses_checked)}; producer nodes {_nodes(check.producer_nodes)}; "
         f"consumer nodes {_nodes(check.consumer_nodes)}{unjoined}."
     ]
@@ -247,7 +263,7 @@ def _pair(number: int, pair: ContractPair, state: RunState) -> list[str]:
         "",
         _side("Producer", pair.producer),
         _side("Consumer", pair.consumer),
-        f"- Interfaces: {', '.join(_id(i) for i in pair.interfaces)}.",
+        f"- Interfaces: {', '.join(_held(i) for i in pair.interfaces)}.",
         "",
     ]
     results = [line for line in state.contracts if line.result.pair == pair]
@@ -307,7 +323,7 @@ def _requirements(state: RunState) -> list[str]:
 
 def issued_state(state: RunState) -> bytes:
     """Integration's issued state, built from the run's record alone, as the session reads it."""
-    mode = state.gate_mode
+    mode, subtask = state.gate_mode, state.completion_subtask
     gate = (
         f"The run's gate mode is {_q(mode)}. {GATE_MODE_SENTENCES[mode]}"
         if mode is not None
@@ -318,7 +334,13 @@ def issued_state(state: RunState) -> bytes:
         "",
         HEAD,
         "",
-        f"Integration's subtask: {_q(state.completion_subtask)}.",
+        "Integration's subtask: "
+        + (
+            _q(subtask)
+            if subtask is None
+            else _held(subtask, SUBTASK_PATTERN, PLANNED_ID_MAX_LENGTH, REFUSED_SUBTASK)
+        )
+        + ".",
         "",
         "## Gate mode",
         "",
