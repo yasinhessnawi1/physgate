@@ -101,19 +101,27 @@ def test_the_integration_session_cannot_act_before_reading_its_state(tmp_path: P
     assert str(path) in role_prompt(request, path)
 
 
+def torn(path: Path, data: bytes) -> None:
+    """A write cut short: the file is one byte short of the bytes the run recorded."""
+    path.parent.mkdir(parents=True)
+    path.write_bytes(data[:-1])
+
+
+def changed(path: Path, data: bytes) -> None:
+    """A write changed on disk: one byte differs, and the length is the recorded one."""
+    path.parent.mkdir(parents=True)
+    path.write_bytes(data[:-2] + bytes([data[-2] ^ 1]) + data[-1:])
+
+
+@pytest.mark.parametrize("writer", [torn, changed], ids=["a byte short", "a byte changed"])
 def test_a_state_whose_bytes_on_disk_are_not_the_requests_is_refused_before_install(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer: Any
 ) -> None:
     run, cfg, subtask_id, issued = _setup(tmp_path)
     request = with_state(contracts._request(cfg, subtask_id, issued), state_of(DOCUMENT))  # noqa: SLF001
     worktree = run.open_subtask(subtask_id)
     sdir = run.run_dir / "sessions" / "probe"
-
-    def torn(path: Path, data: bytes) -> None:
-        path.parent.mkdir(parents=True)
-        path.write_bytes(data[:-1])
-
-    monkeypatch.setattr(dispatch_module, "write_issued_state", torn)
+    monkeypatch.setattr(dispatch_module, "write_issued_state", writer)
     with pytest.raises(InvocationError, match="issued state"):
         contracts._dispatcher(cfg, run, contracts._dev_physgate_binary())._install(  # noqa: SLF001
             request, worktree, sdir, None

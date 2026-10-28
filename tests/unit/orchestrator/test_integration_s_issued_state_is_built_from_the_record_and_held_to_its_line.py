@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as runner
-from loop_fakes import FakeGate, FakeReviewer, KilledError, Rig, plan
+from loop_fakes import FakeDispatcher, FakeGate, FakeReviewer, KilledError, Rig, plan
 
 from physgate import roles
 from physgate.orchestrator import integration_state
@@ -35,6 +35,7 @@ from physgate.orchestrator.events import (
     Event,
     Halted,
     Incident,
+    InfraRetryScheduled,
     IntegrationGateRan,
     IntegrationStateIssued,
     ModuleCompleted,
@@ -410,6 +411,36 @@ def test_each_attempt_after_a_rejection_gets_a_line_of_its_own_with_the_same_byt
     assert [r.issued_state for r in integ_requests(rig)] == [
         integ_requests(rig)[0].issued_state
     ] * 2
+    # Each window needs its own: without attempt 2's line, attempt 2's spawn is refused.
+    reason = refusal([e for e in events if e is not lines[1]])
+    assert "integration's session is spawned only after its issued state is recorded" in reason
+
+
+def test_an_infrastructure_retry_of_integrations_session_gets_a_line_of_its_own_with_the_same_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Integration's session, the run's third, ends in an API error and is retried at once.
+    rig = runner.rig_for(tmp_path, dispatcher=FakeDispatcher(infra={3: "api_error"}), delays=(0.0,))
+    loop = rig.open()
+    runner.hooked(monkeypatch, loop, declared=DECLARED)
+    runner.start(loop, words=WORDS)
+    assert ended(loop.run) == "done"
+    loop.close()
+    events = read_events(rig.run_dir / "events.jsonl")
+    (retry,) = [e for e in events if isinstance(e, InfraRetryScheduled)]
+    assert retry.subtask_id == INTEG
+    # The retry opens a window of its own, in the same attempt, and records the same bytes.
+    lines = issued(events)
+    assert [(e.attempt, e.sha256, e.length) for e in lines] == [
+        (1, lines[0].sha256, lines[0].length)
+    ] * 2
+    assert lines[0].seq < retry.seq < lines[1].seq
+    assert [r.issued_state for r in integ_requests(rig)] == [
+        integ_requests(rig)[0].issued_state
+    ] * 2
+    # And without the retry's own line, the retried spawn is refused.
+    reason = refusal([e for e in events if e is not lines[1]])
+    assert "integration's session is spawned only after its issued state is recorded" in reason
 
 
 def test_a_run_without_integration_records_no_state_and_gives_none(tmp_path: Path) -> None:

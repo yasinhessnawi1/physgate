@@ -23,6 +23,7 @@ from loop_fakes import FakeDispatcher, FakeGate, FakeReviewer, usage
 
 from physgate import roles
 from physgate.gate.runner import PhysicsGate
+from physgate.gate.units import UnitRefusedError, parse
 from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.events import (
     AttemptRejected,
@@ -130,13 +131,19 @@ class RealSystemGate(FakeGate):
 
 
 def walk(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gate: FakeGate, *, identifiers: bool = False
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    gate: FakeGate,
+    *,
+    identifiers: bool = False,
+    short: bool = False,
 ) -> dict[str, Any]:
     """A run with sizing's two passes and integration, a canary in every session's own words.
 
     With ``identifiers``, firmware's node also carries a canary in a unit and in a quantity's
-    name, each far longer than any identifier, and firmware writes a node whose id carries one,
-    as long as the store's id pattern allows.
+    name, each far longer than any identifier (or, with ``short``, each the canary alone, as
+    short as an identifier), and firmware writes a node whose id carries one, as long as the
+    store's id pattern allows.
     """
     words = {field: canary() for field in ("source", "requirements", "model", "justified")}
     said = {field: canary() for field in ("unit", "name", "node_id")}
@@ -177,9 +184,12 @@ def walk(
     long_id = f"c{said['node_id']}." + "z" * (NODE_ID_MAX_LENGTH - 2 - len(said["node_id"]))
     if identifiers:
         fw = graph.writes[FW][0]
-        unit = said["unit"] + "_" * 967  # read by the clause and the gate, refused by both
+        # Read by the clause and the gate, and refused by both.
+        unit = said["unit"] + ("" if short else "_" * 967)
+        with pytest.raises(UnitRefusedError):
+            parse(1, unit)
         fw["quantities"]["v"]["unit"] = unit
-        name = said["name"] + "_" + "q" * 967
+        name = said["name"] + ("" if short else "_" + "q" * 967)
         fw["quantities"][name] = {
             "value": 1,
             "unit": "V",
@@ -255,12 +265,13 @@ def test_the_real_gates_finding_carries_no_nodes_free_text_into_the_state(
     assert [e for e in seen["events"] if isinstance(e, IntegrationStateIssued)]
 
 
+@pytest.mark.parametrize("size", ["long", "short"], ids=["far longer", "as short as an id"])
 @pytest.mark.parametrize("which", ["fake", "real"], ids=["the fake gate", "the real gate"])
 def test_a_unit_or_a_quantity_name_reaches_the_state_in_no_form_and_a_node_id_only_whole(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, which: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, which: str, size: str
 ) -> None:
     gate = FakeGate() if which == "fake" else RealSystemGate()
-    seen = walk(tmp_path, monkeypatch, gate, identifiers=True)
+    seen = walk(tmp_path, monkeypatch, gate, identifiers=True, short=size == "short")
     said, long_id = seen["said"], seen["long_id"]
     # Each is on the record: in the graph, and, held to nothing at write, a unit and a quantity's
     # name are what a clause's reason and a gate's message quote.

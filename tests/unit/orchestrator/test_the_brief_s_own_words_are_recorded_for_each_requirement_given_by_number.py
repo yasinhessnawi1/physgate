@@ -126,7 +126,17 @@ def test_words_past_a_specifications_bound_are_refused_before_anything_is_writte
 
 def test_a_criterion_of_exactly_the_bound_is_recorded(tmp_path: Path) -> None:
     exact = "## Acceptance criteria\n\n1. " + "x" * SPEC_MAX_CHARS + "\n"
-    run_dir, _ = pairs.start(tmp_path, pairs.integrated(), brief=exact)
+
+    def started() -> str:
+        """Whether the run starts, or what was raised instead: asserted, never let through."""
+        try:
+            pairs.start(tmp_path, pairs.integrated(), brief=exact)
+        except Exception as exc:  # noqa: BLE001 - what was raised is the answer
+            return f"raised {type(exc).__name__}: {exc}"
+        return "started"
+
+    assert started() == "started"
+    run_dir = tmp_path / "run"
     assert decomposed_line(run_dir).get("brief_words") == [
         {"criterion": "1", "words": "x" * SPEC_MAX_CHARS}
     ]
