@@ -34,9 +34,13 @@ ACCOUNT = {"account_label": "the run account", "weekly_reset_utc": "2026-10-29T0
 FIRST, SECOND = "2026-11-05T07:00:00Z", "2026-11-12T07:00:00Z"
 
 
+#: The run's own refusals, which a test may pin; any other exception is not caught.
+REFUSALS = (ck.RefusedError, common.RefusedError, t3.RefusedError)
+
+
 def holds(call: Any) -> Any:  # noqa: ANN401
     """The call returns; one of this module's refusals fails on an assertion."""
-    return fx.holds(call, ck.RefusedError, common.RefusedError)
+    return fx.holds(call, *REFUSALS)
 
 
 @pytest.fixture
@@ -977,6 +981,11 @@ def test_an_instrument_defect_whose_correction_does_not_name_the_block_is_refuse
     def l2() -> object:
         return ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
 
+    # Where the block record is read: a classification no correction names is refused.
+    mine = ck.read_blocks()["attempts"]
+    fx.refuses(
+        common.RefusedError, CLASSIFIED_NOT_NAMED, lambda: common.corrected_from(mine, "x1", fills)
+    )
     fx.refuses(common.RefusedError, CLASSIFIED_NOT_NAMED, l2)
     fills["corrections"] = [{**C1, "blocks": {"y1": ONE}}]
     fx.refuses(common.RefusedError, CLASSIFIED_NOT_NAMED, l2)
@@ -1144,11 +1153,9 @@ def test_l2_needs_the_correction_s_passing_check_record_and_names_the_remedy(
     def l2() -> object:
         return ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
 
-    fx.refuses(
-        common.RefusedError, "no passing correction-check record.*correction-check --entry", l2
-    )
+    fx.refuses(REFUSALS, "no passing correction-check record.*correction-check --entry", l2)
     checked(runs_dir, {**C1, "R_K": "d" * 40})  # a record of another entry under that id
-    fx.refuses(common.RefusedError, "no passing correction-check record", l2)
+    fx.refuses(REFUSALS, "no passing correction-check record", l2)
 
 
 def entry_file(tmp: Path, entry: dict[str, Any]) -> Path:
@@ -1344,7 +1351,7 @@ def test_after_three_void_attempts_the_block_is_declared_impossible_and_the_run_
         "records no deviation",
         lambda: ck.classify(block, 2, "anything else impossible as specified", None, None, {}),
     )
-    ck.classify(block, 3, "anything else impossible as specified", None, None, {})
+    holds(lambda: ck.classify(block, 3, "anything else impossible as specified", None, None, {}))
     assert common.not_taken(ck.read_blocks()["attempts"], set()) == {block: 3}
     assert holds(lambda: ck.order(later, now=AFTER))["attempt"] == 1
     fx.refuses(ck.RefusedError, "not attempted again", lambda: ck.order(block, now=AFTER))

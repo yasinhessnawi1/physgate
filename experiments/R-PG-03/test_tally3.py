@@ -589,6 +589,7 @@ def test_the_cli_writes_a_test_s_tally_labelled_never_a_result(
     assert json.loads(out.read_text())["label"] == "A TEST ON FIXTURES: never a result"
     # It marks that a tally ran: no withdrawal recorded later is taken (R8).
     mark = made["records"] / common.TALLIES
+    assert mark.is_file(), "the tally left no mark"
     assert json.loads(mark.read_text().splitlines()[0])["withdrawn"] == 0
     mark.unlink()
 
@@ -757,7 +758,7 @@ def test_a_block_not_taken_is_not_tallied_and_the_decisions_it_feeds_are_not_tak
     assert "not taken" in got["decision"] and "row" not in got["decision"]
     assert got["decision"]["class_clause"] == whole["decision"]["class_clause"]
     # Q4's readings beside it rest on the same pairs.
-    assert got["q4_set_adjusted"]["taken"] is False and "not taken" in got["q4_sheet_matched"]
+    assert got["q4_set_adjusted"].get("taken") is False and "not taken" in got["q4_sheet_matched"]
     # Any primary block, not x1 alone.
     rec["attempts"] = [*(a for a in made["attempts"] if a["block"] != "z2"), impossible("z2")]
     (records / "blocks.json").write_text(json.dumps(rec))
@@ -797,7 +798,7 @@ def test_a_block_ended_after_a_correction_s_check_needs_its_result_and_not_touch
     second = {**made["attempts"][0], "attempt": 2}
     fx.write_blocks(records, [first, second, *made["attempts"][1:]], NOT_RUN)
     fx.refuses(
-        common.RefusedError,
+        (common.RefusedError, t3.RefusedError),
         "no passing correction-check record",
         lambda: t3.blocks_record(records, fills),
     )
@@ -840,7 +841,7 @@ def test_the_tally_holds_the_check_record_and_the_touched_results_as_l2_does(
         json.dumps({"passed": True, "entry": other, "checked_utc": "2026-11-05T09:00Z"})
     )
     fx.refuses(
-        common.RefusedError,
+        (common.RefusedError, t3.RefusedError),
         "no passing correction-check record",
         lambda: t3.blocks_record(records, fills),
     )

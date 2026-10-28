@@ -64,7 +64,9 @@ SECTION2 = "domain_standards"
 SECTION1 = "acceptance_criteria"
 
 
-def refuses(kind: type[Exception], pattern: str, call: Callable[[], object]) -> None:
+def refuses(
+    kind: type[Exception] | tuple[type[Exception], ...], pattern: str, call: Callable[[], object]
+) -> None:
     """The call is refused with ``kind`` and a message ``pattern`` finds.
 
     Another message, or no refusal, fails on an assertion; any other exception is not caught.
@@ -74,7 +76,7 @@ def refuses(kind: type[Exception], pattern: str, call: Callable[[], object]) -> 
     except kind as exc:
         assert re.search(pattern, str(exc)), f"{type(exc).__name__}: {exc}"
         return
-    raise AssertionError(f"not refused ({kind.__name__}: {pattern})")
+    raise AssertionError(f"not refused ({kind}: {pattern})")
 
 
 def holds(call: Callable[[], Any], *refusals: type[Exception]) -> Any:  # noqa: ANN401
