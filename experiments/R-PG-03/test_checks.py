@@ -258,7 +258,8 @@ def test_the_false_finding_keys_on_records_not_at_their_digests_are_not_checked_
 ) -> None:
     for label in ("round-1", "repeat-K"):
         (tmp_path / label).mkdir()
-    got = ck.ff_status({"round-1": tmp_path / "round-1", "repeat-K": tmp_path / "repeat-K"})
+    practice = {"round-1": tmp_path / "round-1", "repeat-K": tmp_path / "repeat-K"}
+    got = fx.holds(lambda: ck.ff_status(practice))
     assert got["status"] == "not checked" and "digest" in got["why"]
 
 
@@ -984,6 +985,7 @@ def test_a_corrected_r_k_more_than_one_commit_above_r_prime_is_refused(
         ("route", "something else"),
         ("block", "y1"),
         ("attempt", 2),
+        ("entry", 2),
         (None, None),
     ],
     ids=[
@@ -992,6 +994,7 @@ def test_a_corrected_r_k_more_than_one_commit_above_r_prime_is_refused(
         "not-a-defect",
         "another-block",
         "another-attempt",
+        "the-entry-s-another-attempt",
         "none-written",
     ],
 )
@@ -1002,6 +1005,8 @@ def test_a_classification_other_than_the_correction_s_for_the_block_is_refused(
     fills = {"commits": {"R": "a" * 40, "R_K": "b" * 40}, "corrections": [C1]}
     if key is None:
         path.unlink()
+    elif key == "entry":  # the classification and the attempt agree; the entry names another
+        fills["corrections"] = [{**C1, "blocks": {"x1": {**ONE, "attempt": value}}}]
     else:
         path.write_text(json.dumps({**json.loads(path.read_text()), key: value}))
     with pytest.raises(ck.RefusedError, match="classification next to block x1's attempt 1"):
@@ -1220,8 +1225,8 @@ def test_a_correction_check_refuses_commits_or_a_test_that_do_not_show_the_defec
     why: str,
 ) -> None:
     extra = dict(FIXED)
-    if change == "passes-at-r":  # a test that passes whatever the tree
-        extra[PROBE] = "def test_nothing() -> None:\n    assert True\n"
+    if change == "passes-at-r":  # on its own fixtures it passes whatever the tree
+        extra[PROBE] = PROBE_TEXT.replace('(Path(__file__).parent / "fixed.txt").exists()', "True")
     if change == "does-not-run":  # pytest cannot collect it: neither a pass nor a fail
         extra[PROBE] = "def test_nothing( -> None:\n"
     if change == "r-itself":  # R' is R: R_K' sits right above R
@@ -1429,7 +1434,7 @@ def test_a_block_classified_impossible_is_marked_not_taken_and_the_later_blocks_
     ck.classify("y1", 1, "anything else impossible as specified", None)
     marked = ck.read_blocks()["not_taken"]
     assert marked == {"y1": {"attempt": 1, "causes": ["a run that is not whole"]}}
-    assert ck.order("z1", now=AFTER)["attempt"] == 1
+    assert fx.holds(lambda: ck.order("z1", now=AFTER))["attempt"] == 1
 
 
 def test_an_incomplete_run_is_a_crashed_process(tmp_path: Path) -> None:

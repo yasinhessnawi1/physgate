@@ -738,7 +738,8 @@ def test_a_block_not_taken_is_not_tallied_and_the_decisions_it_feeds_are_not_tak
     (records / "blocks.json").write_text(json.dumps(rec))
     got = fx.holds(lambda: run_tally({**made, "records": records}))
     assert "not measured" in got["decision"]["class_clause"]
-    assert "not taken" in got["q4_sheet_matched"] and got["decision"]["row"]
+    assert isinstance(got["q4_sheet_matched"], dict) and "not taken" in got["q4_sheet_matched"]
+    assert got["decision"]["row"]
     # Both blocks of author pair X not taken: its figures and its comparison are left out.
     rec["not_taken"] = {b: {"attempt": 1, "causes": ["x"]} for b in ("x1", "x2")}
     rec["not_run"] = NOT_RUN

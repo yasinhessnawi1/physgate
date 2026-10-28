@@ -174,6 +174,7 @@ def test_the_smoke_counts_the_prefixes_with_scan_sh_and_ends_with_the_credential
     assert "prefix_counts" in smoke and "scan_written rp3_scan_token" in smoke
     assert "scan_written rp3_scan " not in smoke + " "
     record = smoke.index('checks.py" "${CK[@]}" smoke-record')
+    assert 'checks.py" "${CK[@]}" credentials' in smoke, "no credentials check after the smoke"
     assert smoke.index('checks.py" "${CK[@]}" credentials') < record
     assert smoke.index("rp3_drop_token") < smoke.index('checks.py" "${CK[@]}" credentials')
 
