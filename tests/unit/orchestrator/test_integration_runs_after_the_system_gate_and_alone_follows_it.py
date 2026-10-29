@@ -170,6 +170,11 @@ def started_log(tmp_path: Path, gate_mode: str = "on") -> EventLog:
 # --- when the loop dispatches integration's subtask -------------------------------------------
 
 
+def asked(gate: FakeGate) -> int:
+    """How many questions the system gate was asked: the call's, and every re-run asks it again."""
+    return len({a.model_dump_json() for a in gate.integrations})
+
+
 @pytest.mark.parametrize(
     ("mode", "verdict"),
     [("on", "pass"), ("observe", "pass"), ("observe", "fail")],
@@ -193,7 +198,9 @@ def test_the_integration_subtask_is_dispatched_only_after_the_system_gate(
     assert about(events, INTEG) and all(e.seq > call.seq for e in about(events, INTEG))
     assert all(e.seq < call.seq for sid in ("s1", "s2") for e in about(events, sid))
     assert dispatched(rig) == ["s1", "s2", INTEG]
-    (judged,) = gate.integrations
+    # One question, the call's: integration's window takes the result again with the same one.
+    judged = gate.integrations[0]
+    assert gate.integrations == [judged] * len(gate.integrations)
     merged = {e.subtask_id: e.merge_commit for e in events if isinstance(e, Merged)}
     assert judged.run_head == merged["s2"]
     assert set(merged) == {"s1", "s2", INTEG}
@@ -571,7 +578,7 @@ def test_a_kill_between_the_system_gate_and_integrations_dispatch_resumes_to_one
     again.close()
     events = events_of(tmp_path)
     # One call, never made again, and integration's subtask dispatched once, after it.
-    assert len(gate.integrations) == (0 if mode == "off" else 1)
+    assert asked(gate) == (0 if mode == "off" else 1)
     call = the_call(events)
     assert isinstance(call, IntegrationGateSkipped if mode == "off" else IntegrationGateRan)
     assert resolves(events, INTEG) == [1]
@@ -638,7 +645,7 @@ def test_a_kill_inside_integrations_session_resumes_it_after_the_gate_without_a_
     events = events_of(tmp_path)
     call = the_call(events)
     assert isinstance(call, IntegrationGateRan)
-    assert len(gate.integrations) == 1
+    assert asked(gate) == 1
     (resumed,) = [e for e in events if isinstance(e, Resumed)]
     assert (resumed.subtask_id, resumed.attempt, resumed.point) == (INTEG, 1, "resolve")
     assert resumed.seq > call.seq
@@ -853,7 +860,7 @@ def test_an_approve_that_completes_an_incomplete_design_dispatches_integration_a
     assert (skipped.reason, skipped.subtasks) == ("not_all_merged", ("s2",))
     (taken,) = [e for e in events if isinstance(e, DecisionTaken)]
     assert (taken.subtask_id, taken.effect) == ("s2", "merge")
-    assert len(gate.integrations) == 1
+    assert asked(gate) == 1
     assert dispatched(rig) == ["s1", "s2", INTEG]
     assert resolves(events, INTEG) == [1]
     assert all(e.seq > calls[1].seq for e in about(events, INTEG))

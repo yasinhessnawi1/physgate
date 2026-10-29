@@ -772,19 +772,38 @@ def test_integrations_subtask_id_rewritten_before_its_window_reaches_its_session
     assert f"Integration's subtask: {REFUSED_SUBTASK}.\n" in text
 
 
-def test_a_gate_line_rewritten_before_integrations_window_reaches_its_session_in_no_form(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("cut", [False, True], ids=["uninterrupted", "killed before its halt"])
+def test_a_gate_line_rewritten_before_integrations_window_halts_before_any_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cut: bool
 ) -> None:
+    # The system-scope result is taken again before the state is built, as the contract results
+    # are: a gate line the gate does not give again halts the run before the window opens. (A
+    # quantity's node rewritten in the line is held where it is rendered: the table above.)
     rig, _ = run(tmp_path, monkeypatch, kill=at_integrations_resolve)
     log = rig.run_dir / "events.jsonl"
     runner.rewritten(log, a_quantitys_node)
-    resumed(rig, monkeypatch)
-    # The session is handed the document, and the sentence is in no form in it.
-    text = text_of(rig)
-    assert canary_seen(text.encode(), frozenset({SENTENCE})) is None
-    assert (
-        f'- Quantity: node {REFUSED}, a quantity the catalogue does not name, 1 "volt".\n'
-    ) in text
+    replay(read_events(log))  # the log still reads
+    if cut:
+        fresh = rig.open()
+        runner.hooked(
+            monkeypatch, fresh, declared=DECLARED, kill=lambda e, _: isinstance(e, Halted)
+        )
+        with pytest.raises(KilledError):
+            fresh.resume()
+        fresh.close()
+    end, events = resumed(rig, monkeypatch)
+    assert end == "halted"
+    before, incident, halted = runner.halt_of(events)
+    assert isinstance(before, IntegrationGateRan)
+    assert (incident.cause, halted.detail) == ("foreign_journal_line", "foreign_journal_line")
+    assert "system-scope result" in incident.detail
+    assert not issued(events)
+    assert not integ_requests(rig)
+    assert not [
+        e
+        for e in events
+        if getattr(e, "subtask_id", None) == INTEG and not isinstance(e, SubtaskPlanned)
+    ]
 
 
 @pytest.mark.parametrize("cut", [False, True], ids=["uninterrupted", "killed before its halt"])
@@ -854,6 +873,34 @@ def test_a_contract_result_rewritten_before_integrations_retry_halts_before_its_
     assert (incident.cause, halted.detail) == ("foreign_journal_line", "foreign_journal_line")
     assert "drive to fw" in incident.detail
     # Attempt 1's state is the only one recorded or handed over, and attempt 2 has no line.
+    assert [e.attempt for e in issued(events)] == [1]
+    assert [r.attempt for r in integ_requests(rig)] == [1]
+    assert not [
+        e
+        for e in events
+        if getattr(e, "subtask_id", None) == INTEG and getattr(e, "attempt", None) == 2
+    ]
+
+
+def test_a_gate_line_rewritten_before_integrations_retry_halts_before_its_second_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig, killed = run(
+        tmp_path,
+        monkeypatch,
+        kill=at_integrations_second_resolve,
+        reviewer=FakeReviewer(verdicts=["pass", "pass", "fail"]),
+    )
+    assert [e.attempt for e in issued(killed)] == [1]
+    log = rig.run_dir / "events.jsonl"
+    runner.rewritten(log, rewrite_gate)
+    replay(read_events(log))  # the log still reads
+    end, events = resumed(rig, monkeypatch)
+    assert end == "halted"
+    # The system-scope result is taken again before every window's state, the retry's too.
+    _, incident, halted = runner.halt_of(events)
+    assert (incident.cause, halted.detail) == ("foreign_journal_line", "foreign_journal_line")
+    assert "system-scope result" in incident.detail
     assert [e.attempt for e in issued(events)] == [1]
     assert [r.attempt for r in integ_requests(rig)] == [1]
     assert not [

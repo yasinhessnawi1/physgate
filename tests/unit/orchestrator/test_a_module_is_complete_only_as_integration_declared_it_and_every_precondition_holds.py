@@ -9,8 +9,8 @@ module with a precondition open is withheld, and the run ends without its line. 
 completion line no such attempt explains and a declaration anywhere but its one place, and the
 writer holds both lines to the role register as they are written.
 
-Until the loop reads the declaration file, these tests write the declaration line where the loop
-will, through the loop's own writer.
+The loop reads the declaration from the commit its change check held: these tests have the fake
+checker read one.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from physgate import roles
 from physgate.orchestrator import completion
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.completion import Precondition, open_preconditions
+from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.events import (
     CompletionDeclared,
     DiffChecked,
@@ -101,11 +102,17 @@ def declaring(
     *,
     kill_at_completion: int | None = None,
 ) -> None:
-    """Write integration's declaration where the loop will, straight after its accepted check.
+    """Have integration's attempts declare ``modules``, as the change check reads them.
+
+    The loop writes the declaration line straight after an accepted check.
 
     ``None`` declares nothing, and writes no line. With ``kill_at_completion``, the process dies
     as it is about to write that many-th completion line, counted from 0.
     """
+    changes = loop._changes  # noqa: SLF001 - the rig's checker
+    assert isinstance(changes, FakeChanges)
+    if modules is not None:
+        changes.declares[INTEG] = Declaration(modules=tuple(modules), sha256=DIGEST)
     emit = loop._emit  # noqa: SLF001 - the loop's own writer
     written = [0]
 
@@ -115,20 +122,6 @@ def declaring(
                 raise KilledError
             written[0] += 1
         emit(event)
-        if (
-            isinstance(event, ProposalsChecked)
-            and event.refused_by is None
-            and event.subtask_id == INTEG
-            and modules is not None
-        ):
-            line = CompletionDeclared(
-                **loop._env(),  # noqa: SLF001
-                subtask_id=INTEG,
-                attempt=event.attempt,
-                modules=tuple(modules),
-                declaration_sha256=DIGEST,
-            )
-            emit(line)
 
     monkeypatch.setattr(loop, "_emit", with_declaration)
 

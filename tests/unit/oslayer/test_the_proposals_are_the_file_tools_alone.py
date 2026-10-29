@@ -17,7 +17,7 @@ import pytest
 from test_the_deny_list_is_the_registry import _config, _fs, _layout
 
 from physgate.hooks import graph
-from physgate.hooks.settings import _make_proposals_dir
+from physgate.hooks.settings import _make_file_tool_dirs
 from physgate.oslayer.policy import FIELD_RULES, proposals_dir, sandbox_policy
 
 
@@ -55,14 +55,14 @@ def test_the_worktree_s_rule_says_so() -> None:
 
 
 def test_the_installer_makes_the_directory(tmp_path: Path) -> None:
-    _make_proposals_dir(str(tmp_path))
+    _make_file_tool_dirs(str(tmp_path))
     assert (tmp_path / graph.PROPOSALS_DIR).is_dir()
-    _make_proposals_dir(str(tmp_path))  # and again, as a resumed session's installer does
+    _make_file_tool_dirs(str(tmp_path))  # and again, as a resumed session's installer does
     assert (tmp_path / graph.PROPOSALS_DIR).is_dir()
 
 
 def test_the_installer_makes_nothing_for_a_worktree_that_is_not_there(tmp_path: Path) -> None:
-    _make_proposals_dir(str(tmp_path / "missing"))
+    _make_file_tool_dirs(str(tmp_path / "missing"))
     assert not (tmp_path / "missing").exists()
 
 
@@ -74,7 +74,7 @@ def test_the_installer_never_follows_a_link_a_session_left(tmp_path: Path, step:
     (worktree / step).parent.mkdir(parents=True, exist_ok=True)
     os.symlink(elsewhere, worktree / step)
     with pytest.raises(ValueError, match="not a directory"):
-        _make_proposals_dir(str(worktree))
+        _make_file_tool_dirs(str(worktree))
     assert list(elsewhere.iterdir()) == []
 
 
@@ -82,4 +82,23 @@ def test_the_installer_refuses_a_file_where_the_directory_goes(tmp_path: Path) -
     (tmp_path / ".physgate").mkdir()
     (tmp_path / graph.PROPOSALS_DIR).write_text("x")
     with pytest.raises(ValueError, match="not a directory"):
-        _make_proposals_dir(str(tmp_path))
+        _make_file_tool_dirs(str(tmp_path))
+
+
+# --- the completion declaration's directory, held as the proposals' is -------------------------
+
+
+def test_the_completion_directory_is_write_denied_as_the_proposals_are(tmp_path: Path) -> None:
+    paths = _layout(tmp_path)
+    completion = paths["worktree"] / graph.COMPLETION_DIR
+    completion.mkdir(parents=True)
+    deny, absent = _deny(paths)
+    assert str(completion) in deny and str(completion) not in absent
+    assert "declaration" in FIELD_RULES["worktree"]
+
+
+def test_the_installer_makes_the_completion_directory_too(tmp_path: Path) -> None:
+    _make_file_tool_dirs(str(tmp_path))
+    assert (tmp_path / graph.COMPLETION_DIR).is_dir()
+    _make_file_tool_dirs(str(tmp_path))
+    assert (tmp_path / graph.COMPLETION_DIR).is_dir()

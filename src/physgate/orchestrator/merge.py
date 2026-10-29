@@ -36,6 +36,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from physgate.orchestrator.declaration import DECLARATION_PATH
 from physgate.orchestrator.exceptions import GitError, MergeConflictError, MergeRefusedError
 from physgate.orchestrator.git import (
     GitDir,
@@ -122,14 +123,22 @@ def commit_attempt(
 
 
 def write_scope_violations(
-    repo: Path, base: str, commit: str, module_dir: str, *, git_dir: GitDir | None = None
+    repo: Path,
+    base: str,
+    commit: str,
+    module_dir: str,
+    *,
+    declares: bool = False,
+    git_dir: GitDir | None = None,
 ) -> list[str]:
     """Every change from ``base`` to ``commit`` outside the attempt's own scope.
 
-    In scope: regular files and executables under ``module_dir``, and regular
-    files that are node proposals. Out of scope: any other path, and a symbolic
-    link or a submodule anywhere, since either can point outside the module.
-    ``git_dir`` is the repository's verified git directory, if the caller has one.
+    In scope: regular files and executables under ``module_dir``, regular files that
+    are node proposals, and, for an attempt of the role that owns completion
+    (``declares``), the completion declaration as a regular file. Out of scope: any
+    other path, and a symbolic link or a submodule anywhere, since either can point
+    outside the module. ``git_dir`` is the repository's verified git directory, if the
+    caller has one.
     """
     module = PurePosixPath(module_dir)
     if module.is_absolute() or ".." in module.parts or not module.parts:
@@ -145,6 +154,8 @@ def write_scope_violations(
         if path.is_relative_to(module):
             continue
         if _PROPOSAL.fullmatch(change.path) and change.new_mode in (_REGULAR, _ABSENT):
+            continue
+        if declares and change.path == DECLARATION_PATH and change.new_mode == _REGULAR:
             continue
         found.append(f"{change.path} (outside {module_dir})")
     return found

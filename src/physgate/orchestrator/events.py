@@ -96,7 +96,8 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 #: plan's contract pairs say: missing, not an interface, or owned by another role than the pair's
 #: producer, so no contract can be tested against it. ``issued_state_mismatch`` is integration's
 #: issued state that the run's record, read again, no longer gives: a line it was built from was
-#: rewritten after the state was issued.
+#: rewritten after the state was issued. ``declaration_mismatch`` is integration's declaration line
+#: that its merged commit, read again with the change check's parser, no longer gives.
 IncidentCause = Literal[
     "cross_role_write",
     "merge_conflict",
@@ -120,6 +121,7 @@ IncidentCause = Literal[
     "duty_breach",
     "interface_mismatch",
     "issued_state_mismatch",
+    "declaration_mismatch",
 ]
 
 #: Why a run stopped short of the end of its plan.
@@ -483,7 +485,7 @@ class ProposalsChecked(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     checked_commit: Sha
-    refused_by: Literal["proposal", "write_scope", "series"] | None
+    refused_by: Literal["proposal", "write_scope", "series", "declaration"] | None
     reason: NonEmptyStr | None
     subject: NonEmptyStr | None
     graph_root: NonEmptyStr

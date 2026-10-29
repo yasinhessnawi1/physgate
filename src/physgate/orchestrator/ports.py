@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from physgate.orchestrator.budget import ATTEMPT_LIMIT, SessionEnd
 from physgate.orchestrator.common import NonEmptyStr
+from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.protocols import IssuedState, MessageUsage
 from physgate.orchestrator.run_config import RunBounds
@@ -161,7 +162,7 @@ class Leftover(_Frozen):
 class ChangeCheck(_Frozen):
     """The verdict on an attempt's changes before the gate sees them."""
 
-    refused_by: Literal["proposal", "write_scope", "series"] | None
+    refused_by: Literal["proposal", "write_scope", "series", "declaration"] | None
     reason: NonEmptyStr | None
     #: The offending paths or node id, for the finding's key.
     subject: NonEmptyStr | None = None
@@ -172,6 +173,10 @@ class ChangeCheck(_Frozen):
     proposed: tuple[NonEmptyStr, ...] = ()
     #: Every proposed quantity that names a simulation record, held to it: passes included.
     series_checks: tuple[SeriesCheck, ...] = ()
+    #: What the attempt declares complete, read from the commit checked: an attempt of the role
+    #: that owns completion alone, and ``None`` when it holds no declaration. Never on the change
+    #: check's own line: the loop records it on a line of its own, after an accepted check.
+    declaration: Declaration | None = None
 
 
 class WorktreeRemoval(_Frozen):
@@ -227,6 +232,17 @@ class ChangeChecker(Protocol):
         """Check the attempt commit's changes and the session's series records.
 
         Never writes the canonical store.
+        """
+        ...
+
+    def declaration_at(self, commit: str, declaring: str) -> Declaration | None:
+        """The completion declaration ``commit`` holds, read and parsed as :meth:`check` reads one.
+
+        ``declaring`` is the subtask whose attempt made the declaration; ``None`` when the commit
+        holds none.
+
+        Raises:
+            DeclarationError: what the commit holds there is not a declaration.
         """
         ...
 

@@ -12,6 +12,7 @@ from orch_helpers import gate_records, make_config, ticking_clock
 
 from physgate.orchestrator.budget import InfraCause, SessionEnd
 from physgate.orchestrator.common import GateMode
+from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.escalation import EscalationInterface, bind
 from physgate.orchestrator.exceptions import ReviewUnavailableError, WorktreeMisplacedError
 from physgate.orchestrator.loop import Loop
@@ -173,6 +174,18 @@ class FakeChanges:
     seen: list[SessionSeries | None] = field(default_factory=list)
     #: Per call: the quantities' checks against their records the check reports.
     series_checks: dict[int, tuple[SeriesCheck, ...]] = field(default_factory=dict)
+    #: What each subtask's checks read as its declaration, unless ``declared`` names the call.
+    #: Read on a refused check too, as a checker that refuses after reading it would: the loop
+    #: records a declaration only after an accepted check.
+    declares: dict[str, Declaration] = field(default_factory=dict)
+    #: Per call: the declaration that check reads, in place of the subtask's.
+    declared: dict[int, Declaration | None] = field(default_factory=dict)
+    #: Per commit: what ``declaration_at`` reads there; otherwise what the declaring subtask's
+    #: last check read, as its merged commit holds that.
+    held: dict[str, Declaration | None] = field(default_factory=dict)
+    read: dict[str, Declaration | None] = field(default_factory=dict)
+    #: Every ``declaration_at`` call: the commit and the declaring subtask.
+    read_at: list[tuple[str, str]] = field(default_factory=list)
 
     def check(
         self,
@@ -185,13 +198,20 @@ class FakeChanges:
         self.calls += 1
         self.seen.append(series)
         refused = self.refuse.get(self.calls)
+        declaration = self.declared.get(self.calls, self.declares.get(subtask_id))
+        self.read[subtask_id] = declaration
         return ChangeCheck(
             refused_by=refused[0] if refused else None,  # type: ignore[arg-type]
             reason=refused[1] if refused else None,
             graph_root="scratch/graph",
             proposed=self.proposed.get(self.calls, ()),
             series_checks=self.series_checks.get(self.calls, ()),
+            declaration=declaration,
         )
+
+    def declaration_at(self, commit: str, declaring: str) -> Declaration | None:
+        self.read_at.append((commit, declaring))
+        return self.held[commit] if commit in self.held else self.read.get(declaring)
 
 
 def failing_gate_result(mode: RunningGateMode) -> GateResult:

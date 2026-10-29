@@ -25,6 +25,7 @@ from typing import Literal
 from physgate.contracts.clause import check_pair
 from physgate.contracts.graph import nodes_at
 from physgate.contracts.pairs import ContractError
+from physgate.gate.exceptions import GateError
 from physgate.orchestrator.apply import ProposalRefusedError
 from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.change_sets import change_history
@@ -38,11 +39,13 @@ from physgate.orchestrator.decisions import (
     scan_hits_of,
     source_of,
 )
+from physgate.orchestrator.declaration import DeclarationError
 from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
 from physgate.orchestrator.escalation_state import escalation_state
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
+    CompletionDeclared,
     ContractTested,
     DecisionsSealed,
     DecisionTaken,
@@ -116,6 +119,7 @@ from physgate.orchestrator.protocols import (
     Artefact,
     AttemptScope,
     Gate,
+    GateResult,
     IntegrationArtefact,
     IssuedSpec,
     IssuedState,
@@ -1053,9 +1057,10 @@ class Loop:
     def _session(self, subtask_id: str, attempt: int) -> bool:
         if not self._mark_borne_out(subtask_id):
             return False
-        # Integration's state quotes the contract results on the record: each is taken again
-        # first, so one the journal does not give halts the run before its window opens.
-        if subtask_id == self.state.completion_subtask and not self._results_hold():
+        # Integration's state quotes the contract results and the system-scope result on the
+        # record: each is taken again first, so one the stores do not give halts the run before
+        # its window opens.
+        if subtask_id == self.state.completion_subtask and not self._record_holds():
             return False
         self._environment_before_a_spawn()
         sub = self.state.subtasks[subtask_id]
@@ -1461,13 +1466,30 @@ class Loop:
                 subtask_id=subtask_id,
                 attempt=attempt,
                 checked_commit=session.attempt_commit,
-                **check.model_dump(),
+                **check.model_dump(exclude={"declaration"}),
             )
         )
         if check.refused_by is not None and check.reason is not None:
             finding = Finding(source=check.refused_by, text=check.reason, subject=check.subject)
             self._reject(subtask_id, attempt, finding)
             return False
+        if check.declaration is not None:
+            # The writer refuses the line unless the register names this role as the one owner of
+            # completion, and a refusal there records nothing: the register is asked first, as
+            # before a completion line, and the run halts with the cause on the record.
+            why = completion_owner_problem(role)
+            if why is not None:
+                self._incident(subtask_id, "duty_breach", f"subtask {subtask_id}: {why}")
+                return False
+            self._emit(
+                CompletionDeclared(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    attempt=attempt,
+                    modules=check.declaration.modules,
+                    declaration_sha256=check.declaration.sha256,
+                )
+            )
         artefact = Artefact(
             subtask_id=subtask_id,
             attempt=attempt,
@@ -1799,7 +1821,8 @@ class Loop:
 
         Integration's attempt merged with its diff clean, its declaration names the module, and
         every precondition holds for it: the run state owes the line only then, in plan order.
-        Before the line, every recorded contract result is taken again (:meth:`_results_hold`).
+        Before the line, the declaration, every recorded contract result and the system-scope result
+        are taken again (:meth:`_record_holds`).
         """
         integration = self.state.completion_subtask
         if step.subtask_id is None or integration is None:
@@ -1813,7 +1836,7 @@ class Loop:
         if why is not None:
             self._incident(None, "duty_breach", f"subtask {integration}: {why}")
             return
-        if not self._results_hold():
+        if not self._record_holds(integration):
             return
         attempt = self.state.subtasks[integration].attempts[-1].number
         self._emit(
@@ -1821,6 +1844,83 @@ class Loop:
                 **self._env(), subtask_id=step.subtask_id, declared_by=integration, attempt=attempt
             )
         )
+
+    def _record_holds(self, declaring: str | None = None) -> bool:
+        """What a completion line, or integration's issued state, rests on is what the stores give.
+
+        Taken again in this order, and the first that differs halts the run with nothing written:
+        the merged attempt's declaration (before a completion line, ``declaring`` naming
+        integration's subtask), every recorded contract result, and the system-scope result.
+        """
+        if declaring is not None and not self._declaration_holds(declaring):
+            return False
+        return self._results_hold() and self._scope_holds()
+
+    def _declaration_holds(self, declaring: str) -> bool:
+        """The merged attempt's declaration line is what its merged commit holds, read again.
+
+        Replay holds the line to its place and its form, and its modules and its digest are fields
+        of their own: a module list rewritten in place with the digest kept still replays. So the
+        declaration is read again from the commit the attempt merged, with the change check's
+        parser, and both are compared with the line. A difference, or a commit that no longer
+        gives a declaration, halts the run, and no completion is written over it.
+        """
+        now = self.state.subtasks[declaring].attempts[-1]
+        line, merged = now.declaration, now.merged
+        try:
+            again = (
+                None
+                if merged is None
+                else self._changes.declaration_at(merged.merge_commit, declaring)
+            )
+        except DeclarationError:
+            again = None
+        held = None if again is None else (again.modules, again.sha256)
+        if line is not None and held == (line.modules, line.declaration_sha256):
+            return True
+        detail = (
+            f"integration's declaration recorded at line {line.seq if line else 'none'} is not "
+            "what the commit its attempt merged holds"
+        )
+        self._incident(None, "declaration_mismatch", detail)
+        return False
+
+    def _scope_holds(self) -> bool:
+        """The system-scope result on the record is, whole, what the gate gives again at its place.
+
+        The question is the call's own, read from the log up to the gate's line: the run head, and
+        the change history over the canonical store, which the gate refuses unless the journal
+        still ends where that history says. In this harness nothing writes the store after the
+        call, so an honest run is asked the same question and gives the same answer; a rewritten
+        line, a journal moved past the line's revision, or a gate that cannot answer halts the run.
+        """
+        ran = self.state.integration
+        if not isinstance(ran, IntegrationGateRan):
+            return True
+        prefix = self.log.events[: ran.seq]
+        head, mode = run_head_of(prefix), self.config.gate_mode
+        again: GateResult | None = None
+        if head is not None and mode != "off" and self._gate is not None:
+            baseline, change_sets = change_history(prefix)
+            artefact = IntegrationArtefact(
+                run_id=self.config.run_id,
+                graph_root=str(self._graph.root),
+                run_head=head,
+                baseline_revision=baseline,
+                change_sets=change_sets,
+            )
+            try:
+                again = self._gate.check_integration(artefact, mode=mode)
+            except (GateError, DesignStateError):
+                again = None
+        if again == ran.result:
+            return True
+        detail = (
+            f"the system-scope result recorded at line {ran.seq} is not what the gate gives again "
+            "over the canonical store at its place"
+        )
+        self._incident(None, "foreign_journal_line", detail)
+        return False
 
     def _results_hold(self) -> bool:
         """Every contract result on the record is, whole, what the journal gives at its revision.

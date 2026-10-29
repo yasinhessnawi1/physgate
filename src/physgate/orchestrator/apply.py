@@ -45,6 +45,7 @@ the loop can look for a line it never intended before a single byte is written.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -63,8 +64,18 @@ from physgate.hooks.graph import (
     OWNER_CHANGE,
     SHADOWED_QUANTITY,
 )
+from physgate.orchestrator.declaration import (
+    DECLARATION_PATH,
+    LINE_ENDS,
+    MAX_BYTES,
+    NOT_UTF8,
+    TOO_LONG,
+    Declaration,
+    DeclarationError,
+    parse,
+)
 from physgate.orchestrator.events import SessionEnded, read_events
-from physgate.orchestrator.exceptions import StoreRefusalError
+from physgate.orchestrator.exceptions import DutyUnownedError, RoleRegisterError, StoreRefusalError
 from physgate.orchestrator.git import (
     GitDir,
     changes_between,
@@ -482,6 +493,17 @@ def _held(
     return held[(path, blob)]
 
 
+def declares_completion(role: str) -> bool:
+    """Whether ``role`` is the one role the register names as owning completion, asked now.
+
+    Never while the register names none, or two: no attempt's declaration is then admitted.
+    """
+    try:
+        return roles.owner_of("completion") == role
+    except (DutyUnownedError, RoleRegisterError):
+        return False
+
+
 class GitChangeChecker:
     """The change check before the gate: write scope, then every proposal pre-checked."""
 
@@ -501,7 +523,8 @@ class GitChangeChecker:
     ) -> ChangeCheck:
         """Refuse an attempt out of scope, with a refused series record, or a refused proposal.
 
-        The order: what the attempt committed outside its scope; then its series records (one
+        The order: what the attempt committed outside its scope; then, for an attempt of the role
+        that owns completion, its declaration, read from the commit; then its series records (one
         the collector refused, or one, from any session of the attempt, whose script or loaded
         code is not what was committed); then its node proposals, against the store's own
         guards; last, every quantity that names a record, against that record.
@@ -510,8 +533,10 @@ class GitChangeChecker:
         # Verified once; the base, the scope check and the proposals all read through it.
         pinned = verified_git_dir(repo, linked=False)
         base = merge_base(repo, self._run.run_branch, attempt_commit, git_dir=pinned)
+        declares = declares_completion(role)
+        module_dir = self._module_dirs[subtask_id]
         outside = write_scope_violations(
-            repo, base, attempt_commit, self._module_dirs[subtask_id], git_dir=pinned
+            repo, base, attempt_commit, module_dir, declares=declares, git_dir=pinned
         )
         scratch = self._run.run_dir / "scratch" / f"{subtask_id}-{attempt_commit[:12]}"
         if outside:
@@ -519,6 +544,15 @@ class GitChangeChecker:
             subject = ",".join(sorted(v.split(" (", 1)[0] for v in outside))
             return ChangeCheck(
                 refused_by="write_scope", reason=reason, subject=subject, graph_root=str(scratch)
+            )
+        try:
+            declared = self._declaration(attempt_commit, subtask_id, pinned) if declares else None
+        except DeclarationError as exc:
+            return ChangeCheck(
+                refused_by="declaration",
+                reason=f"{DECLARATION_PATH}: {exc}",
+                subject=DECLARATION_PATH,
+                graph_root=str(scratch),
             )
         committed = _committed_records(repo, base, attempt_commit, pinned)
         if committed:
@@ -579,7 +613,53 @@ class GitChangeChecker:
             graph_root=str(scratch),
             proposed=proposed,
             series_checks=checks,
+            declaration=declared,
         )
+
+    def declaration_at(self, commit: str, declaring: str) -> Declaration | None:
+        """The completion declaration ``commit`` holds, read and parsed as :meth:`check` reads one.
+
+        Raises:
+            DeclarationError: what the commit holds there is not a declaration.
+        """
+        return self._declaration(commit, declaring, verified_git_dir(self._run.repo, linked=False))
+
+    def _declaration(self, commit: str, declaring: str, pinned: GitDir) -> Declaration | None:
+        """The declaration ``commit`` holds, read through the clean object store; ``None`` if none.
+
+        Its bytes are held to the blob the commit names, so the digest is of the committed bytes.
+        """
+        repo = self._run.repo
+        listing = git(
+            repo,
+            "ls-tree",
+            "-l",
+            "-z",
+            commit,
+            "--",
+            DECLARATION_PATH,
+            objects_only=True,
+            git_dir=pinned,
+        )
+        if not listing:
+            return None
+        meta, _, path = listing.split("\0", 1)[0].partition("\t")
+        found = meta.split()
+        if len(found) != 4 or found[:2] != ["100644", "blob"] or path != DECLARATION_PATH:
+            raise DeclarationError("the completion declaration is not a regular file")
+        if int(found[3]) > MAX_BYTES:
+            raise DeclarationError(TOO_LONG.format(cap=MAX_BYTES, size=found[3]))
+        try:
+            text = git(repo, "cat-file", "blob", found[2], objects_only=True, git_dir=pinned)
+        except UnicodeDecodeError:
+            raise DeclarationError(NOT_UTF8) from None
+        data = text.encode()
+        blob = (hashlib.sha1 if len(found[2]) == 40 else hashlib.sha256)(  # noqa: S324 - git's id
+            b"blob %d\0" % len(data) + data
+        )
+        if blob.hexdigest() != found[2]:
+            raise DeclarationError(LINE_ENDS)
+        return parse(data, self._module_dirs, declaring)
 
     def _attempt_records(self, subtask_id: str, attempt_commit: str) -> tuple[SealedEntry, ...]:
         """The records the attempt that made ``attempt_commit`` sealed, read from the run's log.

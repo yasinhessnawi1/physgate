@@ -22,7 +22,9 @@ from physgate.orchestrator.exceptions import RepairBudgetExhaustedError
 from physgate.orchestrator.protocols import GateResult, NumericOutput, QuantityRef, ReviewResult
 
 #: What rejected an attempt.
-FindingSource = Literal["gate", "review", "write_scope", "proposal", "reading", "series", "person"]
+FindingSource = Literal[
+    "gate", "review", "write_scope", "proposal", "reading", "series", "person", "declaration"
+]
 
 _WHO = {
     "gate": "the physics gate",
@@ -32,6 +34,7 @@ _WHO = {
     "reading": "the reading check (the required reading was not completed)",
     "series": "the series check (a simulation record was refused, or names other code)",
     "person": "a person deciding the approval queue",
+    "declaration": "the completion declaration check (the declaration is not one the plan reads)",
 }
 
 #: The fixed line every instruction that quotes a person's words ends with: what a person

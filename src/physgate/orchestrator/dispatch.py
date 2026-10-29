@@ -62,6 +62,7 @@ from physgate.orchestrator.credentials import (
     write_key_helper,
     write_login,
 )
+from physgate.orchestrator.declaration import DECLARATION_PATH
 from physgate.orchestrator.decompose import binary_version, interface_contracts, read_stream
 from physgate.orchestrator.events import Decomposed, SessionSpawned, read_events
 from physgate.orchestrator.exceptions import (
@@ -435,8 +436,8 @@ def write_issued_state(path: Path, data: bytes) -> None:
 def role_prompt(request: SessionRequest, state: Path | None = None) -> str:
     """What a role session is told: a template, with the repair instruction if any.
 
-    A session handed an issued state (integration's) is told where it is, in one sentence;
-    every other session's prompt is what it always was.
+    A session handed an issued state (integration's) is told where it is, and where and how it
+    declares modules complete; every other session's prompt is what it always was.
     """
     text = (
         f"You implement subtask {request.subtask_id} in the {request.assigned_role} role.\n\n"
@@ -453,7 +454,9 @@ def role_prompt(request: SessionRequest, state: Path | None = None) -> str:
             f"\nYour issued state is {state}; read it in full first too. The harness built it "
             "from the run's record: the system-scope result, each module pair's contract results "
             "and the system requirements. The node ids in it were chosen by sessions and are held "
-            "to the store's id pattern.\n"
+            f"to the store's id pattern. To declare modules complete, write {DECLARATION_PATH} "
+            'whole with the Write tool as {"complete": [...]}, naming each module complete by the '
+            "subtask id that planned it; a module it leaves out is not declared complete.\n"
         )
     if request.kind == "fix":
         # The one fix a person ordered: told so, then its instruction. Nothing else differs.

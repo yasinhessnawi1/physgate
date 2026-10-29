@@ -45,7 +45,7 @@ from physgate.hooks.config import (
     Watch,
     digest,
 )
-from physgate.hooks.graph import PROPOSALS_DIR
+from physgate.hooks.graph import COMPLETION_DIR, PROPOSALS_DIR
 from physgate.hooks.reasons import ANSWER_KEY_REASON as ANSWER_KEY_REASON
 from physgate.hooks.reasons import GATE_REASON as GATE_REASON
 from physgate.hooks.reasons import GIT_USER_CONFIG_REASON as GIT_USER_CONFIG_REASON
@@ -609,27 +609,29 @@ def _dump(value: object) -> bytes:
     return (json.dumps(value, sort_keys=True, indent=2) + "\n").encode()
 
 
-def _make_proposals_dir(worktree: str) -> None:
-    """Make the worktree's node proposals directory before its session starts, if missing.
+def _make_file_tool_dirs(worktree: str) -> None:
+    """Make the worktree's node proposals and completion directories before its session starts.
 
-    The OS layer write-denies it to every shell command. A denied path that does not exist
-    is named only where its parent does, and a command could otherwise make it, or move a
-    directory of its own into its place, before any proposal was written. Each step is made
-    as a directory here and never followed through a link a role session left.
+    The OS layer write-denies both to every shell command, so that only the file tools, which the
+    hooks check, write there. A denied path that does not exist is named only where its parent
+    does, and a command could otherwise make it, or move a directory of its own into its place,
+    before any file was written. Each step is made as a directory here, if missing, and never
+    followed through a link a role session left.
 
     Raises:
-        ValueError: a step of the path is there and is not a plain directory.
+        ValueError: a step of a path is there and is not a plain directory.
     """
     if not os.path.isdir(worktree):
         return
-    step = worktree
-    for part in Path(PROPOSALS_DIR).parts:
-        step = os.path.join(step, part)
-        if os.path.islink(step) or (os.path.lexists(step) and not os.path.isdir(step)):
-            msg = f"{step} is not a directory, so the node proposals have no place to be held"
-            raise ValueError(msg)
-        if not os.path.lexists(step):
-            os.mkdir(step)
+    for held in (PROPOSALS_DIR, COMPLETION_DIR):
+        step = worktree
+        for part in Path(held).parts:
+            step = os.path.join(step, part)
+            if os.path.islink(step) or (os.path.lexists(step) and not os.path.isdir(step)):
+                msg = f"{step} is not a directory, so the file tools' writes have no place held"
+                raise ValueError(msg)
+            if not os.path.lexists(step):
+                os.mkdir(step)
 
 
 def install(
@@ -694,7 +696,7 @@ def install(
             )
             readable = (*readable, str(reaper_dir))
             spawn_env.update(reaper_install.spawn_env(reaper_dir))
-        _make_proposals_dir(request.worktree)
+        _make_file_tool_dirs(request.worktree)
         policy = sandbox_policy(
             config,
             home=request.user_home,

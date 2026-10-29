@@ -180,6 +180,10 @@ class ScopeChecker:
             return ChangeCheck(refused_by="write_scope", reason=reason, graph_root="graph")
         return ChangeCheck(refused_by=None, reason=None, graph_root="graph")
 
+    def declaration_at(self, commit: str, declaring: str) -> None:
+        """No declaration: these runs plan no subtask of the role that owns completion."""
+        return None
+
 
 @dataclass
 class Gate:

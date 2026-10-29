@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loop_fakes import FakeDispatcher, FakeGraph, KilledError, Rig
+from loop_fakes import FakeChanges, FakeDispatcher, FakeGraph, KilledError, Rig
 
 from physgate import roles
 from physgate.contracts.clause import check_pair
@@ -34,8 +34,8 @@ from physgate.contracts.graph import nodes_at
 from physgate.contracts.pairs import ContractPair, Side
 from physgate.orchestrator import completion
 from physgate.orchestrator.completion import open_preconditions
+from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.events import (
-    CompletionDeclared,
     ContractTested,
     DiffChecked,
     EnvironmentRecorded,
@@ -46,7 +46,6 @@ from physgate.orchestrator.events import (
     IntegrationGateSkipped,
     Merged,
     ModuleCompleted,
-    ProposalsChecked,
     Resumed,
     StageEntered,
     read_events,
@@ -248,7 +247,11 @@ def hooked(
     declared: Sequence[str] | None = None,
     kill: Callable[[Event, list[Event]], bool] | None = None,
 ) -> None:
-    """Write integration's declaration where the loop will; die before the line ``kill`` picks."""
+    """Have integration's checker read ``declared``; die before the line ``kill`` picks."""
+    changes = loop._changes  # noqa: SLF001 - the rig's checker
+    assert isinstance(changes, FakeChanges)
+    if declared:
+        changes.declares[INTEG] = Declaration(modules=tuple(declared), sha256="d" * 64)
     emit = loop._emit  # noqa: SLF001 - the loop's own writer
     written: list[Event] = []
 
@@ -257,16 +260,6 @@ def hooked(
             raise KilledError
         written.append(event)
         emit(event)
-        if isinstance(event, ProposalsChecked) and event.subtask_id == INTEG and declared:
-            emit(
-                CompletionDeclared(
-                    **loop._env(),  # noqa: SLF001
-                    subtask_id=INTEG,
-                    attempt=event.attempt,
-                    modules=tuple(declared),
-                    declaration_sha256="d" * 64,
-                )
-            )
 
     monkeypatch.setattr(loop, "_emit", emitting)
 

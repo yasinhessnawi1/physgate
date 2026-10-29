@@ -57,6 +57,13 @@ copying or moving a directory of its own into place. This hook cannot see those,
 and the OS layer is what refuses them: it write-denies the proposals directory to
 every shell command (``physgate.oslayer.policy``). Where the OS layer does not
 run, they are the residual of this text check, as every path built at run time is.
+
+The completion declaration is held the same way. The role the register names as owning completion
+declares which modules are complete in one file, ``.physgate/completion/declaration.json``, written
+with the Write or Edit tool: this hook checks its shape before it exists (the plan is not the
+hook's to read; the change check holds the entries to it), refuses it from every other role, and
+refuses any other file there. A command that names the directory is refused unless it only reads,
+and the OS layer write-denies the directory to every shell command, as it does the proposals.
 """
 
 from __future__ import annotations
@@ -86,6 +93,10 @@ if TYPE_CHECKING:
 
 #: Where proposals live, relative to the worktree. The orchestrator reads them from here.
 PROPOSALS_DIR = os.path.join(".physgate", "proposals")
+#: Where the role that owns completion declares it, relative to the worktree, and the one file
+#: held there. The orchestrator reads it from the commit an attempt made.
+COMPLETION_DIR = os.path.join(".physgate", "completion")
+DECLARATION_NAME = "declaration.json"
 
 REFUSED = "This node proposal is refused ({reason}): {detail}"
 NOT_JSON = "a proposal is one whole node as a JSON object"
@@ -96,6 +107,12 @@ SHELL_WRITE = (
     "before the file exists. A shell command may read a proposal only with a recognised "
     "read-only program (cat, head, grep, ls and the like, or git diff/log/show); any other "
     "command that names a proposal path is refused, whether or not it would in fact only read."
+)
+DECLARATION_REFUSED = "This completion declaration is refused: {detail}"
+DECLARATION_SHELL = (
+    "The completion declaration is written with the Write or Edit tool, so that it can be "
+    "checked before the file exists. A shell command may read it only with a recognised "
+    "read-only program; any other command that names the completion directory is refused."
 )
 UNLOCATED = (
     "This edit to a node proposal is refused: its old text occurs {found} times in the file "
@@ -398,23 +415,69 @@ def _first_problem(exc: Exception) -> str:
     return str(exc)
 
 
+def _declarer_problem(role: str) -> str | None:
+    """Why a session of ``role`` may not write the completion declaration, or ``None``.
+
+    The writer is the role the register names as owning completion, found by that and never by
+    its name; while the register names none, or two, no session writes it.
+    """
+    from physgate.orchestrator.exceptions import DutyUnownedError, RoleRegisterError
+    from physgate.roles import owner_of
+
+    try:
+        owner = owner_of("completion")
+    except DutyUnownedError:
+        return "no registered role owns completion, so no session declares it"
+    except RoleRegisterError as exc:
+        return (
+            f"the role register names more than one owner of completion "
+            f"({exc.context.get('owners')}), so whose the declaration is cannot be told"
+        )
+    if role == owner:
+        return None
+    return (
+        f"the completion declaration is the {owner} role's to write, and this session is the "
+        f"{role} role"
+    )
+
+
+def _declaration(hook_input: InputView, target: str, config: ConfigView) -> Decision:
+    """Check a write of the completion declaration before it exists: whose, which, its shape."""
+    from physgate.orchestrator.declaration import DeclarationError, read_shape
+
+    why = _declarer_problem(str(config.role))
+    if why is None and (
+        hook_input.tool_name == "NotebookEdit" or os.path.basename(target) != DECLARATION_NAME
+    ):
+        why = f"the one file in {COMPLETION_DIR} is {DECLARATION_NAME}, a JSON file"
+    if why is None:
+        after = _content_after(hook_input, target)
+        if isinstance(after, int):
+            return refuse(UNLOCATED.format(found=after))
+        try:
+            read_shape(after.encode("utf-8", "surrogatepass"))
+        except DeclarationError as exc:
+            why = str(exc)
+    return ALLOW if why is None else refuse(DECLARATION_REFUSED.format(detail=why))
+
+
 def _spellings(path: str, cwd: str) -> set[str]:
     target = os.path.normpath(path if os.path.isabs(path) else os.path.join(cwd, path))
     return {target, os.path.realpath(target)}
 
 
-def _proposal_target(path: str, cwd: str, config: ConfigView) -> str | None:
-    """The proposal file ``path`` names, if it is inside the proposals directory."""
-    root = os.path.join(config.worktree, PROPOSALS_DIR).casefold()
+def _target(path: str, cwd: str, config: ConfigView, held: str) -> str | None:
+    """The file ``path`` names, if it is inside the worktree's directory ``held``."""
+    root = os.path.join(config.worktree, held).casefold()
     for spelling in _spellings(path, cwd):
         if spelling.casefold().startswith(root + "/"):
             return spelling
     return None
 
 
-def _reaches_proposals(path: str, cwd: str, config: ConfigView) -> bool:
-    """True if ``path`` is the proposals directory, anything in it, or a parent of it."""
-    root = os.path.join(config.worktree, PROPOSALS_DIR).casefold()
+def _reaches(path: str, cwd: str, config: ConfigView, held: str) -> bool:
+    """True if ``path`` is the worktree's directory ``held``, anything in it, or a parent of it."""
+    root = os.path.join(config.worktree, held).casefold()
     for spelling in _spellings(path, cwd):
         folded = spelling.casefold().rstrip("/")
         if folded == root or folded.startswith(root + "/") or root.startswith(folded + "/"):
@@ -451,7 +514,11 @@ def _content_after(hook_input: InputView, target: str) -> str | int:
 def _file_tool(hook_input: InputView, config: ConfigView) -> Decision:
     tool_input = hook_input.tool_input or {}
     key = "notebook_path" if hook_input.tool_name == "NotebookEdit" else "file_path"
-    target = _proposal_target(str(tool_input.get(key, "")), hook_input.cwd, config)
+    path = str(tool_input.get(key, ""))
+    declared = _target(path, hook_input.cwd, config, COMPLETION_DIR)
+    if declared is not None:
+        return _declaration(hook_input, declared, config)
+    target = _target(path, hook_input.cwd, config, PROPOSALS_DIR)
     if target is None:
         return ALLOW
     if hook_input.tool_name == "NotebookEdit":
@@ -492,10 +559,12 @@ def _shell(hook_input: InputView, config: ConfigView) -> Decision:
             if expanded is None:
                 continue
             for candidate in _candidates(expanded, cwd):
-                if _reaches_proposals(candidate, cwd, config) and not _is_the_worktree(
-                    candidate, cwd, config
-                ):
+                if _is_the_worktree(candidate, cwd, config):
+                    continue
+                if _reaches(candidate, cwd, config, PROPOSALS_DIR):
                     return refuse(SHELL_WRITE)
+                if _reaches(candidate, cwd, config, COMPLETION_DIR):
+                    return refuse(DECLARATION_SHELL)
     return ALLOW
 
 
@@ -511,7 +580,7 @@ def _is_the_worktree(path: str, cwd: str, config: ConfigView) -> bool:
 
 
 def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
-    """Check a proposal before it is written; refuse one written by any other route."""
+    """Check a proposal or the declaration before it is written; refuse any other route."""
     if hook_input.tool_name in ("Write", "Edit", "NotebookEdit"):
         return _file_tool(hook_input, config)
     if hook_input.tool_name == "Bash":

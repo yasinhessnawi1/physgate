@@ -48,7 +48,10 @@ def test_integrations_prompt_names_its_issued_state_and_every_other_prompt_keeps
         f"\nYour issued state is {path}; read it in full first too. The harness built it from "
         "the run's record: the system-scope result, each module pair's contract results and the "
         "system requirements. The node ids in it were chosen by sessions and are held to the "
-        "store's id pattern.\n"
+        "store's id pattern. To declare modules complete, write .physgate/completion/"
+        'declaration.json whole with the Write tool as {"complete": [...]}, naming each module '
+        "complete by the subtask id that planned it; a module it leaves out is not declared "
+        "complete.\n"
     )
     # The one sentence, after the template and before any repair instruction.
     assert told == plain.replace("\nAttempt 1 of 3", sentence + "\nAttempt 1 of 3", 1)
