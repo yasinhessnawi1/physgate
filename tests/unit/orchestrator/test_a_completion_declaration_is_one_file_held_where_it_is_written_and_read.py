@@ -84,6 +84,7 @@ REFUSED: dict[str, tuple[bytes, str]] = {
     "the closing pass": (body("s1c"), "a later pass over"),
     "the declaring subtask": (body("integ"), "the declaring subtask"),
     "past the size cap": (body("s1") + b" " * (MAX_BYTES - len(body("s1")) + 1), "at most 4096"),
+    "a carriage return": (body("s1").replace(b" ", b"\r\n"), "line feed alone"),
 }
 
 
@@ -170,10 +171,9 @@ def test_integrations_declaration_is_checked_at_the_hook_before_it_exists(tmp_pa
         assert said.startswith(refusal), data
     assert declaration.SHAPE in through_hook(config, "Write", '{"complete": "s1"}')
     # Another file in the directory, and a notebook, are no declaration.
-    assert through_hook(config, "Write", WELL_FORMED, "other.json").startswith(refusal)
-    assert through_hook(config, "NotebookEdit", WELL_FORMED, "declaration.ipynb").startswith(
-        refusal
-    )
+    one_file = f"the one file in {graph.COMPLETION_DIR} is {graph.DECLARATION_NAME}"
+    assert one_file in through_hook(config, "Write", WELL_FORMED, "other.json")
+    assert one_file in through_hook(config, "NotebookEdit", WELL_FORMED)
     # A file elsewhere is not this rule's business.
     outside = HookInput.model_validate(
         event(
