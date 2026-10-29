@@ -478,7 +478,7 @@ def corrected_from(
             "classification with the correction's id, and no other (§11). Its exit: checks.py "
             "classify --correction <id> on each attempt it names, or its withdrawal (README 24)"
         )
-    return since, named.get(marked[-1][1]) if marked else None
+    return since, named[marked[-1][1]] if marked else None
 
 
 def correction_checked(records: Path, entry: dict[str, Any]) -> dict[str, Any]:
