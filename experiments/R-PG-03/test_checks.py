@@ -806,6 +806,22 @@ def test_the_fills_record_is_read_when_each_fill_came_in_its_own_named_commit(
             ],
             "changes",
         ),
+        (
+            [
+                ("docs(r-pg-03): Commits filled", {"commits": {**COMMITS, "R": "9" * 40}}, None),
+                (
+                    "docs(r-pg-03): Sheet filled",
+                    {"commits": {**COMMITS, "R": "9" * 40}, "sheet": SHEET},
+                    None,
+                ),
+                (
+                    "docs(r-pg-03): Withdrawn, Sheet filled again",
+                    {**AGAIN, "sheet": SHEET, "withdrawn": [{"fill": "sheet", "why": "x"}]},
+                    None,
+                ),
+            ],
+            "changes",
+        ),
     ],
     ids=[
         "two-fills-at-once",
@@ -815,6 +831,7 @@ def test_the_fills_record_is_read_when_each_fill_came_in_its_own_named_commit(
         "an-earlier-fill-changed",
         "a-fill-made-again-whose-subject-names-no-withdrawn",
         "a-fill-made-again-whose-withdrawal-names-another",
+        "a-fill-made-again-and-another-changed",
     ],
 )
 def test_the_fills_record_s_history_is_held(
@@ -1712,7 +1729,7 @@ def test_a_wrong_fill_is_withdrawn_and_made_again_before_the_first_block_attempt
 def test_an_attempt_records_the_fills_it_starts_under(runs_dir: Path) -> None:
     runs = {"runs": dict.fromkeys(common.ARMS, "r"), "scratch": dict.fromkeys(common.ARMS, "s")}
     ck.start("x1", 1, runs, {**ALL, "corrections": [C1]})
-    assert ck.read_blocks()["attempts"][0]["fills"] == ALL
+    assert ck.read_blocks()["attempts"][0].get("fills") == ALL
 
 
 def test_an_attempt_left_open_names_the_end_check_that_closes_it(runs_dir: Path) -> None:
