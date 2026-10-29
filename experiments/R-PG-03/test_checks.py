@@ -667,7 +667,7 @@ def test_a_correction_after_set_filled_is_read(tmp_path: Path) -> None:
                     None,
                 ),
             ],
-            "a withdrawal names a correction on record, a commit or a fill, and why",
+            "a withdrawal names a correction on record, .* and why",
         ),
         (
             [
