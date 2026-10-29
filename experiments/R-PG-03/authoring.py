@@ -198,12 +198,7 @@ def message_bytes(name: str) -> bytes:
 # ---------------------------------------------------------------- places and the state
 
 
-def records_dir() -> Path:
-    """The experiment's records: ``~/runs/rpg03``, or the directory a trial names."""
-    named = os.environ.get("RP3_RUNS")
-    return (
-        Path(named) if named else Path(os.environ.get("HOME", "~")).expanduser() / common.RUNS_NAME
-    )
+records_dir = common.records_dir
 
 
 def state_path() -> Path:
@@ -221,12 +216,8 @@ def read_state() -> dict[str, Any]:
 
 
 def write_state(state: dict[str, Any]) -> None:
-    """The state, written whole: to a new name, then renamed over."""
-    path = state_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=1, sort_keys=True) + "\n")
-    os.replace(tmp, path)
+    """The state, written whole."""
+    common.write_json(state_path(), state)
 
 
 def record(state: dict[str, Any], event: str, **facts: Any) -> None:  # noqa: ANN401

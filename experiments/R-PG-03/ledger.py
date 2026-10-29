@@ -43,7 +43,6 @@ from __future__ import annotations
 import argparse
 import calendar
 import json
-import os
 import stat
 import sys
 import time
@@ -65,12 +64,7 @@ KINDS = (
 LEDGER_NAME = "ledger.jsonl"
 
 
-def records_dir() -> Path:
-    """The experiment's records: ``~/runs/rpg03``, or the directory a trial names."""
-    named = os.environ.get("RP3_RUNS")
-    if named:
-        return Path(named)
-    return Path(os.environ.get("HOME", "~")).expanduser() / common.RUNS_NAME
+records_dir = common.records_dir
 
 
 def seconds(utc: str) -> float:

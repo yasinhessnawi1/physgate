@@ -281,6 +281,20 @@ def utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def records_dir() -> Path:
+    """The experiment's records: ``~/runs/rpg03``, or the directory a trial names."""
+    named = os.environ.get("RP3_RUNS")
+    return Path(named) if named else Path(os.environ.get("HOME", "~")).expanduser() / RUNS_NAME
+
+
+def write_json(path: Path, data: object) -> None:
+    """A record written whole: to a new name, then renamed over."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
+    os.replace(tmp, path)
+
+
 # ---- the fills (CRITERIA.md's status block) ----
 
 #: The record the three fill commits write, one key each; never written by a script here. Its form,
@@ -526,16 +540,7 @@ def _fill_added(before: dict[str, Any], after: dict[str, Any], subject: str) -> 
 
 
 def fills_history(repo: Path, ref: str) -> list[dict[str, Any]]:
-    """Every commit that changed the fills record on ``ref``, oldest first, each held to its rule.
-
-    Each fill is "filled later, each in its own dated commit": a commit that changes the record is
-    one commit (never a merge), changes that file alone, adds exactly one fill, the next of
-    "Commits filled", "Sheet filled" and "Set filled" in that order, names it in its subject, and
-    changes no fill added before it. After "Set filled", a correction adds one entry, with a new
-    id, its subject naming "Commits corrected" and every block it touches; a correction's
-    withdrawal adds one, its subject naming "Withdrawn". A commit the rule cannot take is named,
-    and refused until the next commit withdraws it: the last record taken plus, per commit not
-    taken since, its sha and why, its subject naming "Withdrawn" (README 24).
+    """Every commit that changed the fills record on ``ref``, oldest first, held to README 1 and 24.
 
     Raises:
         RefusedError: a commit is not taken and not withdrawn; the refusal names it and its exit.
@@ -610,8 +615,7 @@ def need_fill(fills: dict[str, Any], key: str) -> dict[str, Any]:
     """
     found = fills.get(key)
     if not isinstance(found, dict) or not found:
-        names = {"commits": "Commits filled", "sheet": "Sheet filled", "sets": "Set filled"}
-        raise RefusedError(f'"{names[key]}" is not on record: the fact it fills is not known yet')
+        raise RefusedError(f'"{FILL_NAMES[key]}" is not on record: its fact is not known yet')
     return found
 
 

@@ -706,21 +706,13 @@ def corrected_a(status: str, verdict: str, own_confirmed: bool, way: int) -> boo
 def blocks_record(
     records: Path, fills: dict[str, Any] | None = None, repo: Path = common.REPO
 ) -> dict[str, Any]:
-    """The launch's record of every block attempt, held to R8: nothing tallied before the end.
-
-    A block a correction touches (§11) is tallied on its corrected attempt, the valid one after
-    its attempt classified with the correction's id; that earlier attempt is kept and listed. A
-    block classified impossible as specified (``not_taken``) is not tallied; the decisions it feeds
-    are not taken. A tallied attempt that ended after a correction's check carries that
-    correction's tests' result on its own records (``touched.json``) and is not touched.
+    """The launch's record of every block attempt, held to R8 and README 23, 24.
 
     Raises:
-        RefusedError: a block has no valid attempt that ended and passed its stream check (a
-            block a correction touches, none after the touched one), and is not recorded as not
-            run or not taken; one of the primary blocks is recorded as not run; a correction has no
-            passing check record; or a tallied attempt lacks a correction's result, or is touched.
-        common.RefusedError: the corrections that name a block (``fills``) are not those its
-            attempts are classified with.
+        RefusedError: a block not run or not taken has no one valid attempt that ended and passed
+            its stream check (its corrected one, if a correction names it); a primary block is not
+            run; or a tallied attempt lacks a correction's result, or is touched.
+        common.RefusedError: the corrections that name a block are not its classifications.
     """
     data = common.read_own(records / "blocks.json")
     if data is None:
@@ -782,9 +774,8 @@ def blocks_record(
     aside = [[a["block"], a["attempt"]] for a in rec.get("attempts", []) if a not in attempts]
     why = "recorded after the first tally output (R8)"
     late = [{**w, "refused": why} for w in refused]
-    keys = ("chosen", "not_run", "not_taken", "aside", "late")
-    found = dict(zip(keys, (chosen, not_run, not_taken, aside, late), strict=True))
-    return {**found, "attempts": rec.get("attempts", [])}
+    found = {"chosen": chosen, "not_run": not_run, "not_taken": not_taken, "aside": aside}
+    return {**found, "late": late, "attempts": rec.get("attempts", [])}
 
 
 def read_block(

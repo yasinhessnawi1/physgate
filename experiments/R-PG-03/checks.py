@@ -76,10 +76,7 @@ class RefusedError(Exception):
     """A launch check does not hold."""
 
 
-def records_dir() -> Path:
-    """The experiment's records: ``~/runs/rpg03``, or the directory a trial names."""
-    named = os.environ.get("RP3_RUNS")
-    return Path(named) if named else HOME / common.RUNS_NAME
+records_dir = common.records_dir
 
 
 def _equal(found: dict[str, Any], name: str, have: object, want: object) -> None:
@@ -109,12 +106,8 @@ def read_blocks(path: Path | None = None) -> dict[str, Any]:
 
 
 def write_blocks(record: dict[str, Any]) -> None:
-    """The block record, written whole: to a new name, then renamed over."""
-    path = records_dir() / "blocks.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(record, indent=1, sort_keys=True) + "\n")
-    os.replace(tmp, path)
+    """The block record, written whole."""
+    common.write_json(records_dir() / "blocks.json", record)
 
 
 def attempts_of(record: dict[str, Any], block: str) -> list[dict[str, Any]]:
@@ -308,12 +301,7 @@ def smoke_record(
         "practice_figure": figure,
         "dir": str(where),
     }
-    rec = {"attempts": [*read_smokes(), row]}
-    path = records_dir() / SMOKE_RECORD
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(rec, indent=1, sort_keys=True) + "\n")
-    os.replace(tmp, path)
+    common.write_json(records_dir() / SMOKE_RECORD, {"attempts": [*read_smokes(), row]})
     return {"check": "smoke-record", **row}
 
 
@@ -363,11 +351,7 @@ def owner(
             ended before that confirmation.
     """
     where = records_dir() / "owner"
-    said = (
-        json.loads((where / f"block-{block}-{attempt}.json").read_text())
-        if (where / f"block-{block}-{attempt}.json").is_file()
-        else None
-    )
+    said = _json_or_none(where / f"block-{block}-{attempt}.json")
     if said is None:
         raise RefusedError(f"no owner confirmation for block {block}, attempt {attempt}")
     if not str(said.get("account_label", "")).strip():
@@ -379,10 +363,9 @@ def owner(
     found: dict[str, Any] = {"check": "owner", "account_label": said["account_label"]}
     first = not any(a.get("valid") is not None for a in read_blocks().get("attempts", []))
     if first:
-        win = where / "window.json"
-        if not win.is_file():
+        w = _json_or_none(where / "window.json")
+        if w is None:
             raise RefusedError("the first block needs the owner's UTC-stamped window confirmation")
-        w = json.loads(win.read_text())
         utc = w.get("weekly_limit_reset_confirmed_utc", "")
         if not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", str(utc)):
             raise RefusedError("the window's confirmation is not stamped in UTC")
@@ -681,13 +664,6 @@ def classify(
 ) -> dict[str, Any]:
     """The owner's classification of an attempt (§11), on the logs and the ledger only (R8).
 
-    ``route`` is ``instrument defect``, with ``test`` (a tracked test that depends on no verdict)
-    and ``correction`` (on the master ref, ``fills``, naming this attempt with that test): the
-    block is re-run at its corrected commit. Or ``anything else impossible as specified``: the
-    decisions it feeds are not taken, and later blocks run. Which attempts is
-    :func:`classifiable`'s. Written next to the attempt and in the block record; one whose
-    correction is withdrawn is kept beside, under its time, when the attempt is classified again.
-
     Raises:
         RefusedError: the route is neither; a defect names no tracked test file or no correction,
             or a correction the master ref does not hold for this attempt and test, or the other
@@ -956,18 +932,11 @@ def corrected_pins(r_dir: Path, r: str, entry: dict[str, Any]) -> dict[str, str]
 def run_pins(
     r_dir: Path, fills: dict[str, Any], block: str | None
 ) -> tuple[dict[str, str], dict[str, Any] | None]:
-    """The commits an attempt of ``block`` runs at, and the correction that names them, if any.
-
-    Every block runs at R and R_K, as "Commits filled" records them, except a block a correction
-    touches (§11): its attempts after the one the owner classified an instrument defect with the
-    correction's id run at the corrected commit, R' and R_K' (:func:`corrected_pins`), once the
-    correction's check is on record (:func:`common.correction_checked`).
+    """The commits an attempt of ``block`` runs at, R and R_K or a correction's (README 24).
 
     Raises:
         RefusedError: the corrections that name the block are not those its attempts are
-            classified with; the classification beside the attempt is not that correction's for
-            the block; the correction has no passing check record; or R' is R, or does not
-            descend from R. Each names its exit.
+            classified with, or its correction has no passing check record, or R' is not one.
     """
     filled = common.need_fill(fills, "commits")
     base = {"R": str(filled.get("R")), "R_K": str(filled.get("R_K"))}
@@ -975,24 +944,9 @@ def run_pins(
         return base, None
     _, rec, taken = standing(fills)
     mine = attempts_of(rec, block)
-    since, entry = common.corrected_from(mine, block, fills, taken)
+    _, entry = common.corrected_from(mine, block, fills, taken)
     if entry is None:
         return base, None
-    touched = mine[since - 1]
-    said = _json_or_none(attempt_dir(touched) / "classification.json") or {}
-    named = entry["blocks"][block]
-    if [said.get(k) for k in ("route", "block", "correction", "test", "attempt")] != [
-        ROUTES["defect"],
-        block,
-        entry["id"],
-        named["test"],
-        named["attempt"],
-    ] or touched.get("attempt") != named["attempt"]:
-        raise RefusedError(
-            f"the classification next to block {block}'s attempt {touched.get('attempt')} is not "
-            f"an instrument defect of correction {entry['id']} with the test it names for the "
-            "block. Its exit: that classification's withdrawal, and the attempt classified again"
-        )
     common.correction_checked(records_dir(), entry)
     return corrected_pins(r_dir, base["R"], entry), entry
 
@@ -1017,15 +971,7 @@ def hold(
     corrected: dict[str, Any] | None,
     master_ref: str,
 ) -> dict[str, Any]:
-    """R and R_K against §3.2 and "Commits filled"; the frozen files at R, R_K and master.
-
-    ``CRITERIA.md`` is the freeze's blob at all three for good: the fills are a record of their own
-    (``fills.json``), never written into it. The README is the freeze's bytes followed by exactly
-    one appended section, its readings, and is the same bytes at all three, so the readings are
-    final at "Commits filled" and nothing in it moves during the run. For an attempt of a
-    block a correction touches, after its attempt classified an instrument defect, R and R_K are
-    the corrected commit's (:func:`run_pins`), held by the same checks but for the trees, blobs and
-    digests "Commits filled" records for R, which the correction replaces.
+    """R and R_K against §3.2 and ``pins``; the frozen files at R, R_K and master (README 1, 24).
 
     Raises:
         RefusedError: anything differs.

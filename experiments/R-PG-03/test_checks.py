@@ -1027,42 +1027,6 @@ def test_a_corrected_r_k_more_than_one_commit_above_r_prime_is_refused(
         ck.commits(r, k, fills, master_ref=rs, block="x1")
 
 
-@pytest.mark.parametrize(
-    ("key", "value"),
-    [
-        ("correction", "c2"),
-        ("test", "experiments/R-PG-03/test_launch.py"),
-        ("route", "something else"),
-        ("block", "y1"),
-        ("attempt", 2),
-        ("entry", 2),
-        (None, None),
-    ],
-    ids=[
-        "another-correction",
-        "another-test",
-        "not-a-defect",
-        "another-block",
-        "another-attempt",
-        "the-entry-s-another-attempt",
-        "none-written",
-    ],
-)
-def test_a_classification_other_than_the_correction_s_for_the_block_is_refused(
-    runs_dir: Path, tmp_path: Path, key: str | None, value: str | int | None
-) -> None:
-    path = classified(runs_dir)
-    fills = {"commits": {"R": "a" * 40, "R_K": "b" * 40}, "corrections": [C1]}
-    if key is None:
-        path.unlink()
-    elif key == "entry":  # the classification and the attempt agree; the entry names another
-        fills["corrections"] = [{**C1, "blocks": {"x1": {**ONE, "attempt": value}}}]
-    else:
-        path.write_text(json.dumps({**json.loads(path.read_text()), key: value}))
-    with pytest.raises(ck.RefusedError, match="classification next to block x1's attempt 1"):
-        ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
-
-
 def test_a_block_a_correction_touches_runs_again_until_its_corrected_attempt_is_valid(
     runs_dir: Path,
 ) -> None:

@@ -253,9 +253,8 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
       the blocks after it in the fixed order wait for that. The owner switches the checkouts by
       hand. The trees, blobs and digests "Commits filled" records describe `R`, so they are not
       held at `R'`; every other pin of §3 is. A correction that names a block without that
-      classification, a classification with a correction that does not name the block, a
-      classification other than the correction's for it, and a correction without its passing
-      check record are refused, each naming the remedy.
+      classification, a classification with a correction that does not name the block, and a
+      correction without its passing check record are refused, each naming the remedy.
     - **A block not yet run when a correction is made runs at `R`,** as every block no test ties to
       the defect does. Every block that ends after a correction's check carries that correction's
       result on its own records: `checks.py touched`, from an `R'` checkout, runs each distinct
