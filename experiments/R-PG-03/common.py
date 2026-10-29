@@ -385,37 +385,74 @@ def _touch(named: object) -> bool:
 
 
 def withdrawal(entry: object, before: dict[str, Any]) -> str:
-    """What a withdrawal names: a ``correction`` on record, or a ``commit`` (else refused)."""
+    """What a withdrawal names: a correction on record, a commit, or a fill made again."""
     w = entry if isinstance(entry, dict) and len(entry) == 2 else {}
     kind = next(iter(set(w) - {"why"}), "")
     ids = [c.get("id") for c in before.get(CORRECTIONS) or [] if isinstance(c, dict)]
     if str(w.get("why", "")).strip() and (
         (kind == "correction" and w[kind] in ids)
         or (kind == "commit" and isinstance(w[kind], str) and _SHA.fullmatch(w[kind]))
+        or (kind == "fill" and w[kind] in FILL_KEYS)
     ):
         return kind
-    raise RefusedError("a withdrawal names a correction on record, or a commit's sha, and why")
+    raise RefusedError("a withdrawal names a correction on record, a commit or a fill, and why")
 
 
 def withdrawn(
     fills: dict[str, Any] | None, records: Path | None
 ) -> tuple[set[str], list[dict[str, Any]]]:
-    """The corrections withdrawn; and the withdrawals refused, recorded after a tally (R8)."""
+    """The corrections withdrawn; and the withdrawals refused, recorded after a tally (R8).
+
+    Raises:
+        RefusedError: the mark is there and is not one whole mark, naming its exit.
+    """
     entries = (fills or {}).get(WITHDRAWN) or []
-    seen = read_own(records / TALLIES) if records is not None else None
-    cut = json.loads(seen.splitlines()[0])["withdrawn"] if seen else len(entries)
+    n = len(entries)
+    said = {WITHDRAWN: n} if records is None else record(records / TALLIES, {WITHDRAWN: n})
+    cut = said.get(WITHDRAWN) if isinstance(said, dict) else None
+    if type(cut) is not int:
+        raise RefusedError(
+            f"{TALLIES} is not the first tally output's whole mark. Its exit: the mark restored "
+            "as that output's tally wrote it (README 24)"
+        )
     ids = {w["correction"] for w in entries[:cut] if "correction" in w}
     return ids, [w for w in entries[cut:] if "correction" in w]
+
+
+def mark(records: Path, count: int) -> None:
+    """The first tally output's mark (R8), written whole before that output; later ones keep it.
+
+    ``count`` is the master's withdrawals: :func:`withdrawn` refuses every one recorded after.
+    """
+    path = records / TALLIES
+    tmp = path.with_name(f".{TALLIES}.{os.getpid()}")
+    tmp.write_text(json.dumps({"utc": utc_now(), WITHDRAWN: count}) + "\n")
+    with contextlib.suppress(FileExistsError):
+        os.link(tmp, path)  # only if there is none: the first output's mark stands
+    tmp.unlink()
 
 
 def standing(
     attempts: list[dict[str, Any]], fills: dict[str, Any] | None, gone: Collection[str]
 ) -> list[dict[str, Any]]:
-    """The attempts the run reads: one that ran at a withdrawn correction's R' is set aside."""
+    """The attempts the run reads: one that ran at a withdrawn correction's R' is set aside.
+
+    One at R never is; and none is read under fills other than the first attempt's (§5 R1).
+
+    Raises:
+        RefusedError: the fills are not as they stood at the first attempt, naming its exit.
+    """
+    first = attempts[0].get("fills") if attempts else None
+    if first is not None and fills and first != {k: fills.get(k) for k in FILL_KEYS}:
+        raise RefusedError(
+            "the fills are not as they stood at the first block attempt (§5 R1). Its exit: each "
+            "fill made again as it stood then (README 24)"
+        )
     entries = list(map(correction_entry, (fills or {}).get(CORRECTIONS) or []))
     aside = {e["R"] for e in entries if e["id"] in gone} - {
         e["R"] for e in entries if e["id"] not in gone
     }
+    aside.discard(((fills or {}).get("commits") or {}).get("R"))  # R: every block ran at it
     return [a for a in attempts if a.get("commit") not in aside]
 
 
@@ -483,14 +520,12 @@ def corrected_from(
 
 def correction_checked(records: Path, entry: dict[str, Any]) -> dict[str, Any]:
     """A correction's passing check record of its very entry, or a refusal naming its exit."""
-    said: dict[str, Any] = json.loads(
-        read_own(records / "corrections" / entry["id"] / "check.json") or "{}"
-    )
+    said: dict[str, Any] = record(records / "corrections" / entry["id"] / "check.json", {})
     if said.get("passed") is not True or said.get("entry") != entry:
         raise RefusedError(
             f"correction {entry['id']} has no passing correction-check record of its entry. Its "
             "exit: checks.py correction-check --entry <the entry> --r-prime <R'> --r-k-prime "
-            "<R_K'> before the commit, or, once committed, its withdrawal (README 24)"
+            "<R_K'> before its first attempt, or its withdrawal (README 24)"
         )
     return said
 
@@ -506,6 +541,11 @@ def _fill_added(before: dict[str, Any], after: dict[str, Any], subject: str) -> 
     Raises:
         RefusedError: the commit breaks the rule.
     """
+    added = (after.get(WITHDRAWN) or [])[len(before.get(WITHDRAWN) or []) :]
+    fill = added[0].get("fill") if len(added) == 1 and isinstance(added[0], dict) else None
+    again = fill in FILL_KEYS and "Withdrawn" in subject and FILL_NAMES[fill] in subject
+    if again and fill in before and isinstance(after.get(fill), dict) and after[fill]:
+        before = {**before, fill: after[fill]}  # a fill made again (README 24)
     for k, v in before.items():
         new = after.get(k)
         if new != v and not (isinstance(new, list) and new[: len(v)] == v):
@@ -528,6 +568,8 @@ def _fill_added(before: dict[str, Any], after: dict[str, Any], subject: str) -> 
             raise RefusedError('a correction comes only after "Set filled"')
         if entry["id"] in {c["id"] for c in before.get(key, [])}:
             raise RefusedError("its correction has an id an earlier correction has")
+        if isinstance(before["commits"], dict) and entry["R"] == before["commits"].get("R"):
+            raise RefusedError("its R' is R, \"Commits filled\"'s: it corrects no commit")
         named = [re.search(rf"(?<![\w-]){b}(?![\w-])", subject) for b in entry["blocks"]]
         if CORRECTED not in subject or not all(named):
             raise RefusedError(f"its subject names no {CORRECTED!r}, or not every block it touches")
@@ -934,6 +976,24 @@ def read_own(path: Path) -> bytes | None:
     except OSError:
         return None
     return _read_fd(fd, Path(path).name)
+
+
+def record(path: Path, absent: Any) -> Any:  # noqa: ANN401
+    """A JSON record the run wrote; ``absent`` if there is none, and never if it is there.
+
+    Raises:
+        RefusedError: it is there and empty, or does not parse, naming its exit.
+    """
+    data = read_own(path)
+    if data is None and not os.path.lexists(path):
+        return absent
+    try:
+        return json.loads(data or b"")
+    except ValueError:
+        raise RefusedError(
+            f"{path} is empty or does not parse. Its exit: the record restored whole, as the step "
+            "that wrote it left it, or that step run again where it can be (README 24)"
+        ) from None
 
 
 def read_log(path: Path) -> tuple[list[dict[str, Any]], int]:

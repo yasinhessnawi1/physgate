@@ -101,8 +101,8 @@ def _load(name: str, path: Path) -> ModuleType:
 def read_blocks(path: Path | None = None) -> dict[str, Any]:
     """The block record, or an empty one."""
     path = records_dir() / "blocks.json" if path is None else path
-    data = common.read_own(path)
-    return json.loads(data) if data else {"attempts": [], "not_run": {}}
+    found: dict[str, Any] = common.record(path, {"attempts": [], "not_run": {}})
+    return found
 
 
 def write_blocks(record: dict[str, Any]) -> None:
@@ -178,8 +178,14 @@ def order(
     if any(a.get("valid") is True for a in fresh):
         at = " at its corrected commit (§11)" if len(fresh) < len(mine) else ""
         raise RefusedError(f"block {block} already has a valid attempt{at}")
-    if any(a.get("valid") is None for a in mine):
-        raise RefusedError(f"an attempt of block {block} has not been closed by its end check")
+    left = next((a for a in mine if a.get("valid") is None), None)
+    if left is not None:
+        raise RefusedError(
+            f"an attempt of block {block} has not been closed by its end check. Its exit: "
+            f"checks.py after --block {block} --attempt {left.get('attempt')} --launch <its "
+            "directory> --sheet <the sheet> --sets <the sets>, which closes it (a deviation if not "
+            "whole)"
+        )
     for a in mine:
         dev, said = a.get("deviation") or {}, common.classified(a, taken) or {}
         if dev and not said:
@@ -252,8 +258,8 @@ SMOKE_RECORD = "smoke.json"
 
 def read_smokes() -> list[dict[str, Any]]:
     """Every smoke's record, in the order they ran."""
-    data = common.read_own(records_dir() / SMOKE_RECORD)
-    found: list[dict[str, Any]] = json.loads(data).get("attempts", []) if data else []
+    said: dict[str, Any] = common.record(records_dir() / SMOKE_RECORD, {})
+    found: list[dict[str, Any]] = said.get("attempts", [])
     return found
 
 
@@ -329,10 +335,7 @@ def ff_status(practice: dict[str, Path]) -> dict[str, Any]:
 
 
 def _json_or_none(path: Path) -> dict[str, Any] | None:
-    data = common.read_own(path)
-    if data is None:
-        return None
-    found = json.loads(data)
+    found = common.record(path, None)
     return found if isinstance(found, dict) else None
 
 
@@ -406,8 +409,10 @@ def owner(
     return found
 
 
-def start(block: str, attempt: int, runs: dict[str, Any]) -> dict[str, Any]:
-    """Record that a block's attempt starts now, with its run directories and review roots."""
+def start(
+    block: str, attempt: int, runs: dict[str, Any], fills: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Record that a block's attempt starts now: its run directories, review roots and fills."""
     rec = read_blocks()
     if any(a.get("valid") is None for a in attempts_of(rec, block)):
         raise RefusedError(f"an attempt of block {block} is still open")
@@ -420,6 +425,8 @@ def start(block: str, attempt: int, runs: dict[str, Any]) -> dict[str, Any]:
         "commit": common.git(common.REPO, "rev-parse", "HEAD"),  # what it runs at (§11)
         "valid": None,
     }
+    if fills is not None:  # what it runs under: no later attempt runs under others (§5 R1)
+        row["fills"] = {k: fills.get(k) for k in common.FILL_KEYS}
     rec.setdefault("attempts", []).append(row)
     write_blocks(rec)
     return {"check": "start", **row}
@@ -777,16 +784,20 @@ def correction_check(
 
     entry = common.correction_entry(json.loads(entry_path.read_text()))
     cid, rp, rkp = entry["id"], entry["R"], entry["R_K"]
-    if any(isinstance(c, dict) and c.get("id") == cid for c in fills.get(common.CORRECTIONS) or []):
+    full, rec, taken = standing(fills)
+    on = [c for c in fills.get(common.CORRECTIONS) or [] if isinstance(c, dict) and c["id"] == cid]
+    if on and (on[0] != entry or any(a.get("commit") == rp for a in full["attempts"])):
         raise RefusedError(
-            f"correction {cid} is on the master ref already. Its exit, if it has no passing record "
-            "of this check: its withdrawal, and a correction of another id (README 24)"
+            f"correction {cid} is on the master ref already, as another entry, or an attempt has "
+            "started at its R'. Its exit: its withdrawal, and a correction of another id "
+            "(README 24)"
         )
-    _, rec, taken = standing(fills)
-    rows = {
-        b: attempt_dir(classifiable(rec, b, n["attempt"], ROUTES["defect"], fills, taken))
-        for b, n in entry["blocks"].items()
-    }
+    rows = {}
+    for b, n in entry["blocks"].items():  # committed first, its attempts are classified with it
+        row = next((a for a in attempts_of(rec, b) if a.get("attempt") == n["attempt"]), {})
+        if not on or (common.classified(row, taken) or {}).get("correction") != cid:
+            row = classifiable(rec, b, n["attempt"], ROUTES["defect"], fills, taken)
+        rows[b] = attempt_dir(row)
     filled = common.need_fill(fills, "commits")
     r = str(filled.get("R"))
     hold(r_prime, r_k_prime, filled, corrected_pins(r_prime, r, entry), entry, master_ref)
@@ -822,7 +833,7 @@ def correction_check(
     out.mkdir(parents=True, exist_ok=True)
     (out / "code_changes.json").write_text(json.dumps(listed, indent=1, sort_keys=True) + "\n")
     found = {"check": "correction-check", "id": cid, "entry": entry, "R": r, "tests": results}
-    found.update(passed=True, checked_utc=common.utc_now())
+    found.update(passed=True, checked_utc=common.utc_now(), committed_first=bool(on))
     (out / "check.json").write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
     return found
 
@@ -1429,7 +1440,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.r_k,
             )
         elif args.cmd == "start":
-            found = start(args.block, args.attempt, json.loads(args.runs.read_text()))
+            found = start(args.block, args.attempt, json.loads(args.runs.read_text()), fills())
         elif args.cmd == "after":
             found = after(args.block, args.attempt, args.launch, args.sheet.read_bytes(), args.sets)
             print(

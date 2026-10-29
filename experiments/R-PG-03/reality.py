@@ -1432,6 +1432,8 @@ def main(argv: list[str] | None = None) -> int:
             fills = common.fills_on(common.REPO, "origin/master")
             got = extract(args.records.resolve(), args.sets.resolve(), fills)
             hold_sets(args.sets.resolve(), fills, got["design"])
+            # Its counts are the first a person sees of the outcome: the tally's mark (R8) first.
+            common.mark(args.records.resolve(), len(fills.get(common.WITHDRAWN) or []))
             args.work.mkdir(parents=True)
             write_jsonl(args.work / "lines.jsonl", got["lines"])
             write_jsonl(args.work / "reviews.jsonl", got["reviews"])

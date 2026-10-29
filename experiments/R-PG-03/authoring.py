@@ -208,10 +208,7 @@ def state_path() -> Path:
 
 def read_state() -> dict[str, Any]:
     """The authoring's state, or a new one."""
-    path = state_path()
-    if not path.is_file():
-        return {"pairs": {}, "log": [], "stopped": None}
-    data: dict[str, Any] = json.loads(path.read_text())
+    data: dict[str, Any] = common.record(state_path(), {"pairs": {}, "log": [], "stopped": None})
     return data
 
 
@@ -959,8 +956,8 @@ def runs_allowed(now: float | None = None) -> None:
     now = time.time() if now is None else now
     if now < last + AFTER_RPG01B_S:
         raise RefusedError("R-PG-01b's last session ended less than 5 hours ago (§10 item 3)")
-    blocks = common.read_own(records_dir() / "blocks.json")
-    if blocks and any(a.get("valid") is None for a in json.loads(blocks).get("attempts", [])):
+    blocks = common.record(records_dir() / "blocks.json", {})
+    if any(a.get("valid") is None for a in blocks.get("attempts", [])):
         raise RefusedError("a block attempt is open: the authoring never overlaps a block")
 
 

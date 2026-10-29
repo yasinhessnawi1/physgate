@@ -80,7 +80,10 @@ def read(path: Path) -> list[dict[str, Any]]:
     """
     lines, broken = common.read_log(path)
     if broken:
-        raise common.RefusedError(f"the ledger has {broken} line(s) that do not parse")
+        raise common.RefusedError(
+            f"the ledger has {broken} line(s) that do not parse. Its exit: the torn line removed, "
+            "and its line written again by the step that was writing it (ledger.py, README 20)"
+        )
     for line in lines:
         if line.get("kind") not in KINDS:
             raise common.RefusedError("a ledger line has no kind of the ledger's")
@@ -374,6 +377,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.cmd == "trailing":
                 print(json.dumps(trailing(lines, now), sort_keys=True))
                 return 0
+            ran = {(x.get("block"), x.get("attempt")) for x in lines if x["kind"] == "block"}
+            for a in common.record(records_dir() / "blocks.json", {}).get("attempts", []):
+                if a.get("valid") is not None and (a.get("block"), a.get("attempt")) not in ran:
+                    raise common.RefusedError(
+                        f"block {a.get('block')}'s attempt {a.get('attempt')} has closed with no "
+                        "ledger line. Its exit: ledger.py block for it, as launch.sh writes it"
+                    )
             found = project(lines, args.block, now, args.w5)
             print(json.dumps(found, sort_keys=True))
             return 0 if found["may_start"] else 1

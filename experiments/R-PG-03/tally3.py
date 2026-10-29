@@ -714,12 +714,11 @@ def blocks_record(
             run; or a tallied attempt lacks a correction's result, or is touched.
         common.RefusedError: the corrections that name a block are not its classifications.
     """
-    data = common.read_own(records / "blocks.json")
-    if data is None:
+    rec = common.record(records / "blocks.json", None)
+    if rec is None:
         raise RefusedError(
             "no block record: nothing is tallied before the last block has ended (R8)"
         )
-    rec = json.loads(data)
     taken, refused = common.withdrawn(fills, records)
     attempts = common.standing(rec.get("attempts", []), fills, taken)
     not_run, not_taken = rec.get("not_run") or {}, common.not_taken(attempts, taken)
@@ -753,23 +752,21 @@ def blocks_record(
         checked = common.correction_checked(records, entry)
         clean = {t: "passes" for t in {n["test"] for n in entry["blocks"].values()}}
         for block, a in chosen.items():
-            # An attempt that ended before its check, or ran at a commit that carries its fix, is
-            # not asked (§11 re-runs only what it touches, at the corrected commit).
+            # An attempt that ended before its check (made before its commit), or ran at a commit
+            # that carries its fix, is not asked (§11 re-runs only what it touches, corrected).
             ended = str(a.get("ended_utc"))
-            if ended < checked["checked_utc"] or common.descends(repo, entry["R"], a.get("commit")):
+            early = ended < checked["checked_utc"] and not checked.get("committed_first")
+            if early or common.descends(repo, entry["R"], a.get("commit")):
                 continue
-            said = (
-                json.loads(
-                    common.read_own(common.attempt_dir(a, records) / "touched.json") or "{}"
-                ).get(entry["id"])
-                or {}
-            )
+            touched = common.record(common.attempt_dir(a, records) / "touched.json", {})
+            said = touched.get(entry["id"]) or {}
             if said.get("tests") != clean or str(said.get("utc")) < ended:
                 raise RefusedError(
                     f"block {block}'s attempt {a.get('attempt')} ended after correction "
-                    f"{entry['id']}'s check, and carries no result of its tests on its own records "
-                    "that says not touched. Its exit: checks.py touched, and if touched, a "
-                    "correction naming it and its corrected attempt (§11)"
+                    f"{entry['id']}'s check (or its commit, checked after it), and carries no "
+                    "result of its tests on its own records that says not touched. Its exit: "
+                    "checks.py touched, and if touched, a correction naming it and its corrected "
+                    "attempt (§11)"
                 )
     aside = [[a["block"], a["attempt"]] for a in rec.get("attempts", []) if a not in attempts]
     why = "recorded after the first tally output (R8)"
@@ -1649,13 +1646,14 @@ def main(argv: list[str] | None = None) -> int:
         if arm not in common.ARMS or block not in common.BLOCKS:
             parser.error(f"--root takes <arm>:<block>=<dir>, not {spec!r}")
         scratch.setdefault(arm, {})[block] = Path(path).resolve()
+    test = args.practice_unpinned or args.any_count
     try:
-        fills = (
-            common.fills_from(args.fills.read_text())
-            if args.fills is not None
-            else common.fills_on(common.REPO, "origin/master")
-        )
-        test = args.practice_unpinned or args.any_count
+        if test and args.records.resolve() == common.records_dir().resolve():
+            raise RefusedError("test flags are never used on the run's records: they are no test")
+        if args.fills is not None and not test:
+            raise RefusedError("--fills names a test's fills record, with a test flag alone")
+        master = common.fills_on(common.REPO, "origin/master")
+        fills = common.fills_from(args.fills.read_text()) if args.fills is not None else master
         if not test and args.draws != common.BOOT_DRAWS:
             raise RefusedError(f"the draws are §6.1's {common.BOOT_DRAWS}, outside a test")
         if not test:
@@ -1675,23 +1673,19 @@ def main(argv: list[str] | None = None) -> int:
     except (RefusedError, TallyError, common.RefusedError, subprocess.CalledProcessError) as exc:
         print(json.dumps({"refused": str(exc)}))
         return 2
-    if args.practice_unpinned or args.any_count:
+    if test:
         found["label"] = "A TEST ON FIXTURES: never a result"
     text = json.dumps(found, indent=1, sort_keys=True, default=list) + "\n"
+    # A withdrawal is blind to the outcome (R8): the first output's mark comes before it, whole.
+    common.mark(args.records, len(master.get(common.WITHDRAWN) or []))
     args.out.write_text(text)
-    # A withdrawal is blind to the outcome (R8): from now on none recorded later is taken.
-    with (args.records / common.TALLIES).open("a") as mark:
-        seen = len((fills or {}).get(common.WITHDRAWN) or [])
-        mark.write(
-            json.dumps({"utc": common.utc_now(), "out": str(args.out), "withdrawn": seen}) + "\n"
-        )
     print(
         json.dumps(
             {
                 "out": str(args.out),
                 "sha256": common.sha256_bytes(text.encode()),
                 "blocks": sorted(found["blocks"]),
-                "not_run": sorted(found["not_run"]),
+                "not_run": found["not_run"],
             },
             sort_keys=True,
         )
