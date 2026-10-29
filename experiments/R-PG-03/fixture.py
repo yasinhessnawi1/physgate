@@ -79,6 +79,24 @@ def refuses(
     raise AssertionError(f"not refused ({kind}: {pattern})")
 
 
+def names_its_exit(
+    kinds: tuple[type[Exception], ...], pattern: str, call: Callable[[], object]
+) -> None:
+    """The one call refuses with exactly one of ``kinds``, the run's refusals, naming its exit.
+
+    For a test whose claim is mechanism 3 itself (a refusal that names its exit, never a traceback
+    and never a silent read): whatever the one call raises is caught, and anything but such a
+    refusal fails on an assertion that says "not a refusal" (a kill pinned by type).
+    """
+    try:
+        call()
+    except Exception as exc:  # noqa: BLE001 - the claim is the refusal's type and its exit
+        assert type(exc) in kinds, f"not a refusal: {type(exc).__name__}: {exc}"
+        assert re.search(pattern, str(exc)), f"{type(exc).__name__}: {exc}"
+        return
+    raise AssertionError(f"not refused ({pattern})")
+
+
 def holds(call: Callable[[], Any], *refusals: type[Exception]) -> Any:  # noqa: ANN401
     """The call returns: one of ``refusals`` fails on an assertion; any other is not caught."""
     try:

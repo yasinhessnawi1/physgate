@@ -556,39 +556,27 @@ def test_the_practice_runs_are_held_to_r_law_01_s_digests(made: dict[str, Any]) 
         t3.practice_items({"round-1": made["practice"]["round-1"]}, made["tuning"], pinned=False)
 
 
-def tally_cli(made: dict[str, Any], records: Path, tmp: Path) -> dict[str, Any]:
-    """The tally as the owner runs it, on test fixtures: it ends with its output written."""
-    out = tmp / "t.json"
-    sets = tmp / "sets"
-    shutil.copytree(made["sets"], sets)
-    # -I drops PYTHONPYCACHEPREFIX; a run that sets one keeps it.
-    pyc = ["-X", f"pycache_prefix={sys.pycache_prefix}"] if sys.pycache_prefix else []
-    args = [
-        sys.executable,
-        "-I",
-        *pyc,
-        str(HERE / "tally3.py"),
-        "--records",
-        str(records),
-        "--sets",
-        str(sets),
-        "--out",
-        str(out),
-        "--practice-unpinned",
-        "--any-count",
-        "--draws",
-        "100",
-        "--fills",
-        str(tmp / "fills.json"),
-        "--tuning",
-        str(made["tuning"]),
-    ]
+def cli_args(made: dict[str, Any], records: Path, tmp: Path) -> list[str]:
+    """The tally's command line on test fixtures, with its output ``tmp/t.json``; fills of {}."""
+    if not (tmp / "sets").exists():
+        shutil.copytree(made["sets"], tmp / "sets")
     (tmp / "fills.json").write_text("{}")
+    args = ["--records", str(records), "--sets", str(tmp / "sets"), "--out", str(tmp / "t.json")]
+    args += ["--practice-unpinned", "--any-count", "--draws", "100"]
+    args += ["--fills", str(tmp / "fills.json"), "--tuning", str(made["tuning"])]
     for label, path in made["practice"].items():
         args += ["--practice", f"{label}={path}"]
+    return args
+
+
+def tally_cli(made: dict[str, Any], records: Path, tmp: Path) -> dict[str, Any]:
+    """The tally as the owner runs it, on test fixtures: it ends with its output written."""
+    # -I drops PYTHONPYCACHEPREFIX; a run that sets one keeps it.
+    pyc = ["-X", f"pycache_prefix={sys.pycache_prefix}"] if sys.pycache_prefix else []
+    args = [sys.executable, "-I", *pyc, str(HERE / "tally3.py"), *cli_args(made, records, tmp)]
     done = subprocess.run(args, capture_output=True, text=True, check=False, cwd=common.REPO)
     assert done.returncode == 0, done.stdout + done.stderr[-400:]
-    found: dict[str, Any] = json.loads(out.read_text())
+    found: dict[str, Any] = json.loads((tmp / "t.json").read_text())
     return found
 
 
@@ -602,6 +590,83 @@ def test_the_cli_writes_a_test_s_tally_labelled_never_a_result(
     assert mark.is_file(), "the tally left no mark"
     assert json.loads(mark.read_text().splitlines()[0])["withdrawn"] == 0
     mark.unlink()
+    # Each block not run is listed with its cause, beside the withdrawals.
+    assert found["not_run"] == {"s": "the class's cap", "p1": "fresh-v1c failed", "p2": "same"}
+    assert found["withdrawals"] == {"set_aside": [], "refused": []}
+
+
+def test_the_mark_is_written_whole_before_the_output_with_the_master_s_count(
+    made: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,  # noqa: ANN401
+) -> None:
+    records = tmp_path / "records"
+    shutil.copytree(made["records"], records)
+    master = {"withdrawn": [{"commit": "1" * 40, "why": "a fills commit not taken"}]}
+    monkeypatch.setattr(common, "fills_on", lambda repo, ref: master)
+    args = cli_args(made, records, tmp_path)  # its --fills record holds no withdrawal
+    records.chmod(0o555)  # no mark can be written there: then no output is written either
+    try:
+        with pytest.raises(OSError):
+            t3.main(args)
+    finally:
+        records.chmod(0o755)
+    assert not (tmp_path / "t.json").exists(), "an output with no mark: later withdrawals taken"
+    assert t3.main(args) == 0
+    mark = records / common.TALLIES
+    assert mark.is_file(), "the tally left no mark"
+    assert json.loads(mark.read_text())["withdrawn"] == 1  # master's, never the --fills record's
+    printed = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert printed["not_run"] == {"s": "the class's cap", "p1": "fresh-v1c failed", "p2": "same"}
+
+
+def test_the_first_output_s_mark_stands_and_a_later_one_keeps_it(tmp_path: Path) -> None:
+    common.mark(tmp_path, 1)
+    common.mark(tmp_path, 3)  # a later tally, or the reading's lines after one
+    assert json.loads((tmp_path / common.TALLIES).read_text())["withdrawn"] == 1
+    assert [p.name for p in tmp_path.iterdir()] == [common.TALLIES]  # nothing left beside it
+
+
+def test_test_flags_and_a_fills_record_are_never_used_on_the_run_s_records(
+    made: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,  # noqa: ANN401
+) -> None:
+    records = tmp_path / "records"
+    shutil.copytree(made["records"], records)
+    args = cli_args(made, records, tmp_path)
+    monkeypatch.setenv("RP3_RUNS", str(records))  # these are the run's records now
+    assert t3.main(args) == 2
+    assert "the run's records" in json.loads(capsys.readouterr().out)["refused"]
+    assert not (records / common.TALLIES).exists() and not (tmp_path / "t.json").exists()
+    monkeypatch.delenv("RP3_RUNS")
+    plain = [*args[: args.index("--practice-unpinned")], "--fills", str(tmp_path / "fills.json")]
+    assert t3.main(plain) == 2
+    assert "--fills" in json.loads(capsys.readouterr().out)["refused"]
+
+
+def test_the_reading_s_lines_write_the_first_output_s_mark_before_their_own(
+    made: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import reality as rl
+
+    records = tmp_path / "records"
+    shutil.copytree(made["records"], records)
+    names = [common.BLOCK_CORPUS[b] for b in common.PRIMARY_BLOCKS]
+    manifests = {n: common.sha256_file(made["sets"] / n / "MANIFEST.json") for n in names}
+    master = {"sets": {"manifests": manifests}, "withdrawn": [{"commit": "1" * 40, "why": "x"}]}
+    monkeypatch.setattr(common, "fills_on", lambda repo, ref: master)
+    argv = ["lines", "--records", str(records), "--sets", str(made["sets"]), "--work"]
+    assert rl.main([*argv, str(tmp_path / "work")]) == 0
+    mark = records / common.TALLIES
+    assert mark.is_file(), "the reading's lines left no mark"
+    assert json.loads(mark.read_text())["withdrawn"] == 1
+    # The counts they show are outcome: a withdrawal recorded from then on is refused (R8).
+    late = {"correction": "c1", "why": "recorded after the reading's lines"}
+    later = {**master, "corrections": [CORRECTS_X1], "withdrawn": [*master["withdrawn"], late]}
+    assert common.withdrawn(later, records) == (set(), [late])
 
 
 # ---- the decision's inputs held (the practice figure, the reading, the draws, the frozen tally) -
@@ -825,16 +890,22 @@ def test_a_block_ended_after_a_correction_s_check_needs_its_result_and_not_touch
         (where / "touched.json").write_text(json.dumps({"c1": CLEAN}))
     assert holds(lambda: t3.blocks_record(records, fills))["chosen"]["x1"] == second
     touched = records / "blocks" / "y1-1" / "touched.json"
-    failing = {**CLEAN, "tests": {"experiments/R-PG-03/test_checks.py": "fails"}}
-    touched.write_text(json.dumps({"c1": failing}))
-    fx.refuses(
-        t3.RefusedError,
-        "y1's attempt 1 ended after correction c1",
+    touched.write_text('{"c1": {"tests"')  # cut inside its one write: refused, never a traceback
+    fx.names_its_exit(
+        (common.RefusedError, t3.RefusedError),
+        "touched.json.*Its exit",
         lambda: t3.blocks_record(records, fills),
     )
-    # A check made after they all ended asks nothing of them.
-    check_record(records, "2026-11-05T11:00:00Z")
+    failing = {**CLEAN, "tests": {"experiments/R-PG-03/test_checks.py": "fails"}}
+    touched.write_text(json.dumps({"c1": failing}))
+    touched_exit = "y1's attempt 1 ended after correction c1.*Its exit: checks.py touched"
+    fx.refuses(t3.RefusedError, touched_exit, lambda: t3.blocks_record(records, fills))
+    # A check made after they all ended asks nothing of them ...
+    check = check_record(records, "2026-11-05T11:00:00Z")
     assert holds(lambda: t3.blocks_record(records, fills))["chosen"]["y1"]
+    # ... but one made after its correction's commit asks every one (README 24).
+    check.write_text(json.dumps({**json.loads(check.read_text()), "committed_first": True}))
+    fx.refuses(t3.RefusedError, touched_exit, lambda: t3.blocks_record(records, fills))
 
 
 def test_the_tally_holds_the_check_record_and_the_touched_results_as_l2_does(
@@ -893,7 +964,7 @@ def test_a_reading_of_other_attempts_than_the_tally_s_is_refused(
     reading.write_text(json.dumps({"attempts": {"x1": 2}, "reliability": "unchecked"}))
     fx.refuses(
         t3.RefusedError,
-        "other attempts than the ones tallied",
+        "other attempts than the ones tallied. Its exit: the reading run again",
         lambda: t3.tally(
             made["records"],
             made["sets"],

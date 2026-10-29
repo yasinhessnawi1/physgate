@@ -87,6 +87,24 @@ def test_the_block_waits_past_w5_and_the_owner_may_raise_it() -> None:
     assert lg.project([RPB], "x1", NOW, common.W5)["may_start"]
 
 
+def test_l11_refuses_while_a_closed_block_attempt_has_no_ledger_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("RP3_RUNS", str(tmp_path))
+    fx.write_blocks(tmp_path, [{"block": "x1", "attempt": 1, "valid": False}])
+    lg.append(tmp_path / lg.LEDGER_NAME, RPB)
+    argv = ["project", "--block", "x1", "--now", "2026-11-05T12:00:00Z"]
+    assert lg.main(argv) == 1
+    said = json.loads(capsys.readouterr().out)
+    assert "x1's attempt 1" in said["refused"] and "Its exit: ledger.py block" in said["refused"]
+    block = line("2026-11-05T08:00:00Z", "2026-11-05T09:00:00Z", 0)
+    lg.append(tmp_path / lg.LEDGER_NAME, {**block, "block": "x1"})
+    lg.append(tmp_path / lg.LEDGER_NAME, {**block, "attempt": 1})
+    assert lg.main(argv) == 1 and "refused" in capsys.readouterr().out  # neither line is its
+    lg.append(tmp_path / lg.LEDGER_NAME, {**block, "block": "x1", "attempt": 1})
+    assert lg.main(argv) == 0 and json.loads(capsys.readouterr().out)["may_start"]
+
+
 def test_the_projection_refuses_a_ledger_that_does_not_open_with_r_pg_01b_s_lines() -> None:
     got = lg.project([], "x1", NOW, common.W5)
     assert not got["may_start"] and not got["opens_with_r_pg_01b_s_lines"]

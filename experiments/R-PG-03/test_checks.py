@@ -492,6 +492,11 @@ ONE: dict[str, Any] = {"attempt": 1, "test": TEST}
 C1: dict[str, Any] = {"id": "c1", "R": "f" * 40, "R_K": "e" * 40, "blocks": {"x1": ONE}}
 C2: dict[str, Any] = {**C1, "id": "c2", "blocks": {"y1": ONE, "z1": ONE}}
 ALL = {"commits": COMMITS, "sheet": SHEET, "sets": SETS}
+#: "Commits filled" made again, its mistyped R corrected, as the reading of ORANGE-5 takes it.
+AGAIN: dict[str, Any] = {
+    "commits": COMMITS,
+    "withdrawn": [{"fill": "commits", "why": "R mistyped"}],
+}
 FILLED: list[tuple[str, dict[str, Any], dict[str, str] | None]] = [
     ("docs(r-pg-03): Commits filled", {"commits": COMMITS}, None),
     ("docs(r-pg-03): Sheet filled", {"commits": COMMITS, "sheet": SHEET}, None),
@@ -657,6 +662,36 @@ def test_a_correction_after_set_filled_is_read(tmp_path: Path) -> None:
                 *FILLED,
                 ("docs: Commits corrected, block x1", {**ALL, "corrections": [C1]}, None),
                 (
+                    "docs: Withdrawn c1",
+                    {**ALL, "corrections": [C1], "withdrawn": [{"correction": "c1", "why": " "}]},
+                    None,
+                ),
+            ],
+            "a withdrawal names a correction on record, a commit or a fill, and why",
+        ),
+        (
+            [
+                *FILLED,
+                ("docs: Withdrawn", {**ALL, "withdrawn": [{"fill": "set", "why": "x"}]}, None),
+            ],
+            "a withdrawal names a correction on record, a commit or a fill",
+        ),
+        (
+            [
+                *FILLED,
+                (
+                    "docs: Commits corrected, block x1",
+                    {**ALL, "corrections": [{**C1, "R": COMMITS["R"]}]},
+                    None,
+                ),
+            ],
+            "its R' is R",
+        ),
+        (
+            [
+                *FILLED,
+                ("docs: Commits corrected, block x1", {**ALL, "corrections": [C1]}, None),
+                (
                     "docs: c1 out",
                     {**ALL, "corrections": [C1], "withdrawn": [{"correction": "c1", "why": "x"}]},
                     None,
@@ -703,6 +738,9 @@ def test_a_correction_after_set_filled_is_read(tmp_path: Path) -> None:
         "an-entry-with-a-key-of-its-own",
         "a-subject-naming-block-s-only-inside-a-word",
         "a-withdrawal-of-no-correction-on-record",
+        "a-withdrawal-that-says-no-why",
+        "a-withdrawal-of-no-fill",
+        "a-correction-whose-r-prime-is-r",
         "a-withdrawal-whose-subject-names-no-withdrawn",
         "a-malformed-entry",
         "another-path-touched",
@@ -750,6 +788,24 @@ def test_the_fills_record_is_read_when_each_fill_came_in_its_own_named_commit(
             ],
             "changes",
         ),
+        (
+            [
+                ("docs(r-pg-03): Commits filled", {"commits": {**COMMITS, "R": "9" * 40}}, None),
+                ("docs(r-pg-03): Commits filled again", AGAIN, None),
+            ],
+            "changes",
+        ),
+        (
+            [
+                ("docs(r-pg-03): Commits filled", {"commits": {**COMMITS, "R": "9" * 40}}, None),
+                (
+                    "docs(r-pg-03): Withdrawn, Commits filled again",
+                    {**AGAIN, "withdrawn": [{"fill": "sheet", "why": "x"}]},
+                    None,
+                ),
+            ],
+            "changes",
+        ),
     ],
     ids=[
         "two-fills-at-once",
@@ -757,6 +813,8 @@ def test_the_fills_record_is_read_when_each_fill_came_in_its_own_named_commit(
         "a-subject-naming-no-fill",
         "out-of-order",
         "an-earlier-fill-changed",
+        "a-fill-made-again-whose-subject-names-no-withdrawn",
+        "a-fill-made-again-whose-withdrawal-names-another",
     ],
 )
 def test_the_fills_record_s_history_is_held(
@@ -984,10 +1042,13 @@ def test_an_instrument_defect_whose_correction_does_not_name_the_block_is_refuse
     def l2() -> object:
         return ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
 
-    # Where the block record is read: a classification no correction names is refused.
+    # Where the block record is read: a classification no correction names is refused, as the
+    # run's refusal naming its exit (mechanism 3), whatever else the one call might raise.
     mine = ck.read_blocks()["attempts"]
-    fx.refuses(
-        common.RefusedError, CLASSIFIED_NOT_NAMED, lambda: common.corrected_from(mine, "x1", fills)
+    fx.names_its_exit(
+        (common.RefusedError,),
+        CLASSIFIED_NOT_NAMED + r".*Its exit: checks.py classify --correction <id>.*withdrawal",
+        lambda: common.corrected_from(mine, "x1", fills),
     )
     fx.refuses(common.RefusedError, CLASSIFIED_NOT_NAMED, l2)
     fills["corrections"] = [{**C1, "blocks": {"y1": ONE}}]
@@ -1196,7 +1257,7 @@ def test_a_correction_is_checked_before_its_commit_and_its_record_kept(
     [
         ("open", "records no deviation"),
         ("void", "records no deviation"),
-        ("classified", "is classified already"),
+        ("classified", "is classified already. Its exit.*its withdrawal"),
         ("missing", "records no deviation"),
         ("on-master", "on the master ref already"),
     ],
@@ -1233,8 +1294,8 @@ def test_a_correction_check_refuses_an_attempt_it_cannot_name(
         ("not-at-r-prime", "^R is [0-9a-f]+, not"),
         ("dirty", "the R checkout is not clean"),
         ("r-itself", "names R itself"),
-        ("does-not-run", "neither passed nor failed on an assertion"),
-        ("fails-at-r-by-an-error", "neither passed nor failed on an assertion"),
+        ("does-not-run", "neither passed nor failed on an assertion.*Its exit: a test that"),
+        ("fails-at-r-by-an-error", "neither passed nor failed on an assertion.*Its exit"),
         ("r-k-two-above", "R_K's parent"),
         ("not-descending", "does not descend"),
         ("untracked", "not tracked at R'"),
@@ -1309,7 +1370,15 @@ def test_after_three_void_attempts_the_block_is_declared_impossible_and_the_run_
         for n in (1, 2, 3)
     ]
     later = common.BLOCKS[common.BLOCKS.index(block) + 1]
-    blocks(runs_dir, [*(ok(b) for b in common.BLOCKS if b not in (block, later)), *voids])
+    rest = [ok(b) for b in common.BLOCKS if b not in (block, later)]
+    blocks(runs_dir, [*rest, *voids[:2]])  # the last of two voids is no declaration's
+    impossible = "anything else impossible as specified"
+    fx.refuses(
+        ck.RefusedError,
+        "records no deviation",
+        lambda: ck.classify(block, 2, impossible, None, None, {}),
+    )
+    blocks(runs_dir, [*rest, *voids])
     exit_ = f"checks.py classify --block {block} --attempt <its last void attempt>"
     fx.refuses(ck.RefusedError, exit_, lambda: ck.order(block, now=AFTER))
     fx.refuses(ck.RefusedError, f"block {block} comes first", lambda: ck.order(later, now=AFTER))
@@ -1581,6 +1650,119 @@ def test_touched_keeps_each_correction_s_result_beside_the_others(
     entry = {"id": "c1", "R": rs, "R_K": ks, "blocks": {"x1": {"attempt": 1, "test": PROBE}}}
     holds(lambda: ck.touched("z1", 1, r, {"corrections": [entry]}))
     assert sorted(json.loads((clean / "touched.json").read_text())) == ["c0", "c1"]
+
+
+# ---- r4: a check after the commit, R' = R, a fill made again, records not whole ---------------
+
+
+def test_a_correction_committed_before_its_check_is_checked_before_its_first_attempt(
+    r_k: Any,  # noqa: ANN401
+    runs_dir: Path,
+    tmp_path: Path,
+) -> None:
+    r, k, rs, ks, head = corrected_pair(r_k, "r4-late", extra=FIXED)
+    defect_attempts(runs_dir)
+    test = {"attempt": 1, "test": PROBE}
+    entry = {"id": "c1", "R": rs, "R_K": ks, "blocks": {"x1": test}}
+    # Committed without its check after a number is seen (§11), and classified as it names.
+    fills: dict[str, Any] = {"commits": {"R": head, "R_K": "0" * 40}, "corrections": [entry]}
+    (runs_dir / common.TALLIES).write_text(json.dumps({"withdrawn": 0}) + "\n")
+    holds(lambda: ck.classify("x1", 1, "instrument defect", PROBE, "c1", fills, repo=r))
+    got = holds(lambda: ck.correction_check(entry_file(tmp_path, entry), r, k, fills, rs))
+    assert got["passed"] is True and got["committed_first"] is True
+    assert holds(lambda: ck.run_pins(r, fills, "x1"))[1] == entry
+    # Another entry under its id, or one an attempt has started at, is refused naming its exit.
+    (tmp_path / "other").mkdir()
+    other = entry_file(tmp_path / "other", {**entry, "blocks": {"x1": test, "y1": test}})
+    late = "on the master ref already.*Its exit.*its withdrawal"
+    fx.refuses(ck.RefusedError, late, lambda: ck.correction_check(other, r, k, fills, rs))
+    rec = ck.read_blocks()
+    rec["attempts"].append({"block": "x1", "attempt": 2, "valid": None, "commit": rs})
+    ck.write_blocks(rec)
+    path = entry_file(tmp_path, entry)
+    fx.refuses(ck.RefusedError, late, lambda: ck.correction_check(path, r, k, fills, rs))
+
+
+def test_withdrawing_a_correction_whose_r_prime_is_r_sets_no_attempt_aside() -> None:
+    rows = [ok(b, commit=COMMITS["R"]) for b in common.BLOCKS]  # every block ran at R
+    fills = withdraw({**ALL, "corrections": [{**C1, "R": COMMITS["R"]}]}, {"correction": "c1"})
+    assert common.standing(rows, fills, {"c1"}) == rows
+
+
+def test_a_wrong_fill_is_withdrawn_and_made_again_before_the_first_block_attempt(
+    runs_dir: Path, tmp_path: Path
+) -> None:
+    wrong: dict[str, Any] = {"commits": {**COMMITS, "R": "9" * 40}}  # L2 refuses every block
+    steps: list[tuple[str, dict[str, Any], dict[str, str] | None]] = [
+        ("docs(r-pg-03): Commits filled", wrong, None),
+        ("docs(r-pg-03): Withdrawn, Commits filled again", AGAIN, None),
+    ]
+    assert holds(lambda: common.fills_on(fills_repo(tmp_path, steps), "HEAD")) == AGAIN
+    # No attempt runs under fills other than the ones the first attempt started under (§5 R1);
+    # made again as they stood then, the run goes on.
+    first = {k: AGAIN.get(k) for k in common.FILL_KEYS}
+    blocks(runs_dir, [{**ok("x1"), "fills": first}])
+    later = withdraw({**AGAIN, **wrong}, {"fill": "commits"})
+    then = "not as they stood at the first block attempt.*Its exit"
+    fx.refuses(REFUSALS, then, lambda: ck.order("y1", now=AFTER, fills=later))
+    back = withdraw({**later, "commits": COMMITS}, {"fill": "commits"})
+    assert holds(lambda: ck.order("y1", now=AFTER, fills=back))["attempt"] == 1
+
+
+def test_an_attempt_records_the_fills_it_starts_under(runs_dir: Path) -> None:
+    runs = {"runs": dict.fromkeys(common.ARMS, "r"), "scratch": dict.fromkeys(common.ARMS, "s")}
+    ck.start("x1", 1, runs, {**ALL, "corrections": [C1]})
+    assert ck.read_blocks()["attempts"][0]["fills"] == ALL
+
+
+def test_an_attempt_left_open_names_the_end_check_that_closes_it(runs_dir: Path) -> None:
+    blocks(runs_dir, [att("x1", None)])
+    fx.refuses(
+        ck.RefusedError,
+        "has not been closed.*Its exit: checks.py after --block x1 --attempt 1 --launch",
+        lambda: ck.order("x1", now=AFTER),
+    )
+
+
+#: A record cut inside its one write, emptied, or a line that ends nowhere.
+TORN = ['{"utc": "2026-11-20T00:00:00Z", "with', "", "\n"]
+
+
+@pytest.mark.parametrize("text", [*TORN, "[]\n", "{}\n", '{"withdrawn": true}\n'])
+def test_a_mark_that_is_not_whole_is_refused_naming_its_exit_never_read_as_no_mark(
+    runs_dir: Path, text: str
+) -> None:
+    (runs_dir / common.TALLIES).write_text(text)
+    fills = withdraw({**ALL, "corrections": [C1]}, {"correction": "c1"})
+    exit_ = f"{common.TALLIES}.*Its exit"
+    fx.names_its_exit(REFUSALS, exit_, lambda: common.withdrawn(fills, runs_dir))
+    fx.names_its_exit(REFUSALS, exit_, lambda: ck.order("x1", now=AFTER, fills=fills))
+
+
+@pytest.mark.parametrize("text", TORN)
+def test_a_record_that_is_not_whole_is_refused_naming_its_exit_never_read_as_absent(
+    runs_dir: Path, text: str
+) -> None:
+    import ledger
+
+    (runs_dir / "blocks.json").write_text(text)
+    for call in (lambda: ck.order("x1", now=AFTER), lambda: t3.blocks_record(runs_dir)):
+        fx.names_its_exit(REFUSALS, "blocks.json.*Its exit", call)
+    check = runs_dir / "corrections" / "c1" / "check.json"
+    check.parent.mkdir(parents=True)
+    check.write_text(text)
+    fx.names_its_exit(
+        REFUSALS, "check.json.*Its exit", lambda: common.correction_checked(runs_dir, C1)
+    )
+    (runs_dir / ck.SMOKE_RECORD).write_text(text)
+    fx.names_its_exit(REFUSALS, "smoke.json.*Its exit", ck.read_smokes)
+    (runs_dir / "owner" / "account.json").write_text(text)
+    fx.names_its_exit(REFUSALS, "account.json.*Its exit", lambda: ck.earliest_start([]))
+    if text.strip():  # a torn line of the ledger, an appended log
+        (runs_dir / ledger.LEDGER_NAME).write_text(text)
+        fx.names_its_exit(
+            REFUSALS, "ledger.*Its exit", lambda: ledger.read(runs_dir / ledger.LEDGER_NAME)
+        )
 
 
 # ---- R3 ------------------------------------------------------------------------------------------
