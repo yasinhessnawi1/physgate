@@ -106,6 +106,9 @@ def test_the_blocks_earliest_start_is_5_11_s_reset_from_the_owner_s_recorded_one
     # A reset that falls on 5.11 local time: Thursday 00:30 in Norway is Wednesday 23:30 UTC.
     owner_file(runs_dir, "account.json", {**ACCOUNT, "weekly_reset_utc": "2026-10-28T23:30:00Z"})
     assert ck.earliest_start([]) == "2026-11-04T23:30:00Z"
+    # A reset not written in full is no reset, though strptime would read it.
+    owner_file(runs_dir, "account.json", {**ACCOUNT, "weekly_reset_utc": "2026-10-28T7:00:00Z"})
+    fx.refuses(ck.RefusedError, "records no weekly reset", lambda: ck.earliest_start([]))
     (runs_dir / "owner" / "account.json").unlink()
     fx.refuses(ck.RefusedError, "records no weekly reset", lambda: ck.earliest_start([]))
 

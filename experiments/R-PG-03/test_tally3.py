@@ -556,18 +556,20 @@ def test_the_practice_runs_are_held_to_r_law_01_s_digests(made: dict[str, Any]) 
         t3.practice_items({"round-1": made["practice"]["round-1"]}, made["tuning"], pinned=False)
 
 
-def test_the_cli_writes_a_test_s_tally_labelled_never_a_result(
-    made: dict[str, Any], tmp_path: Path
-) -> None:
-    out = tmp_path / "t.json"
-    sets = tmp_path / "sets"
+def tally_cli(made: dict[str, Any], records: Path, tmp: Path) -> dict[str, Any]:
+    """The tally as the owner runs it, on test fixtures: it ends with its output written."""
+    out = tmp / "t.json"
+    sets = tmp / "sets"
     shutil.copytree(made["sets"], sets)
+    # -I drops PYTHONPYCACHEPREFIX; a run that sets one keeps it.
+    pyc = ["-X", f"pycache_prefix={sys.pycache_prefix}"] if sys.pycache_prefix else []
     args = [
         sys.executable,
         "-I",
+        *pyc,
         str(HERE / "tally3.py"),
         "--records",
-        str(made["records"]),
+        str(records),
         "--sets",
         str(sets),
         "--out",
@@ -577,16 +579,24 @@ def test_the_cli_writes_a_test_s_tally_labelled_never_a_result(
         "--draws",
         "100",
         "--fills",
-        str(tmp_path / "fills.json"),
+        str(tmp / "fills.json"),
         "--tuning",
         str(made["tuning"]),
     ]
-    (tmp_path / "fills.json").write_text("{}")
+    (tmp / "fills.json").write_text("{}")
     for label, path in made["practice"].items():
         args += ["--practice", f"{label}={path}"]
     done = subprocess.run(args, capture_output=True, text=True, check=False, cwd=common.REPO)
-    assert done.returncode == 0, done.stdout
-    assert json.loads(out.read_text())["label"] == "A TEST ON FIXTURES: never a result"
+    assert done.returncode == 0, done.stdout + done.stderr[-400:]
+    found: dict[str, Any] = json.loads(out.read_text())
+    return found
+
+
+def test_the_cli_writes_a_test_s_tally_labelled_never_a_result(
+    made: dict[str, Any], tmp_path: Path
+) -> None:
+    found = tally_cli(made, made["records"], tmp_path)
+    assert found["label"] == "A TEST ON FIXTURES: never a result"
     # It marks that a tally ran: no withdrawal recorded later is taken (R8).
     mark = made["records"] / common.TALLIES
     assert mark.is_file(), "the tally left no mark"
@@ -781,7 +791,7 @@ def test_a_block_not_taken_is_not_tallied_and_the_decisions_it_feeds_are_not_tak
     rest = [a for a in made["attempts"] if a["block"] not in ("x1", "x2")]
     rec["attempts"] = [*rest, impossible("x1"), impossible("x2")]
     (records / "blocks.json").write_text(json.dumps(rec))
-    got = holds(lambda: run_tally({**made, "records": records}))
+    got = tally_cli(made, records, tmp_path)  # it is written, not stopped
     assert sorted(got["secondary"]["per_author_pair"]) == ["Y", "Z"]
     compared = got["secondary"]["author_pairs_compared"]["A2_minus_B"]
     assert sorted(compared["intervals"]) == ["Y", "Z"]
@@ -837,14 +847,14 @@ def test_the_tally_holds_the_check_record_and_the_touched_results_as_l2_does(
     fills = {"corrections": [CORRECTS_X1]}
     other = {**CORRECTS_X1, "R_K": "d" * 40}  # a record of another entry under that id
     check = check_record(records, "2026-11-05T09:00:00Z")
-    check.write_text(
-        json.dumps({"passed": True, "entry": other, "checked_utc": "2026-11-05T09:00Z"})
-    )
-    fx.refuses(
-        (common.RefusedError, t3.RefusedError),
-        "no passing correction-check record",
-        lambda: t3.blocks_record(records, fills),
-    )
+    # ... and one of the very entry that did not pass.
+    for said in ({"passed": True, "entry": other}, {"passed": False, "entry": CORRECTS_X1}):
+        check.write_text(json.dumps({**said, "checked_utc": "2026-11-05T09:00Z"}))
+        fx.refuses(
+            (common.RefusedError, t3.RefusedError),
+            "no passing correction-check record",
+            lambda: t3.blocks_record(records, fills),
+        )
     check_record(records, "2026-11-05T09:00:00Z")
     for a in [second, *made["attempts"][1:]]:  # a result with no tests is no result
         where = records / "blocks" / f"{a['block']}-{a['attempt']}"
