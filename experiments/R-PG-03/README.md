@@ -184,9 +184,10 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     resumed, and every attempt is reported."
 19. **The 5-hour projection fails closed:** it needs R-PG-01b's lines first, and a line in the
     trailing window with no total, or one whose sessions do not all have a total, cannot be counted,
-    so the block waits. **Disclosed:** after a void attempt stopped at a usage limit, the block's
-    own line has killed sessions without a total, so its next attempt waits until that line has
-    left the trailing 5 hours (time only, never a figure). Rests on: §10, "It opens with
+    so the block waits; and it refuses while a block attempt that has closed has no ledger line
+    (its exit: that line written). **Disclosed:** after a void attempt stopped at a usage limit,
+    the block's own line has killed sessions without a total, so its next attempt waits until that
+    line has left the trailing 5 hours (time only, never a figure). Rests on: §10, "It opens with
     R-PG-01b's lines"; "If R-PG-01b's records give no total for a step, the line says so"; §13,
     "the 5-hour projection, with R-PG-01b's ledger lines".
 20. **A ledger line per authoring turn** (finer than one per session), with the turn's own start
@@ -232,7 +233,7 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     block it touches, and which adds exactly one entry: an id no earlier correction has, the
     corrected `R'` and `R_K'`, and every block it touches, each with its attempt and the path of a
     tracked test that depends on no verdict and shows the defect in that attempt's own records.
-    - **Before its commit, `checks.py correction-check`** holds the entry with the run's own
+    - **Before its first attempt, `checks.py correction-check`** holds the entry with the run's own
       functions, and its passing record of that very entry, kept in the run records, is what L2
       and the tally need: each attempt named is one `classify` would take as an instrument defect;
       `R'` and `R_K'` (both checkouts) pass every check L2 makes at launch; and each test is
@@ -241,7 +242,9 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
       set to an attempt's directory, it fails exactly when the defect shows in those records, and
       it must fail on each attempt it is named for. It **fails only on an assertion**, read from
       its junit record; any other end is no answer, and refused. The check writes
-      `code_changes.py`'s list from `R` to `R'` and `R_K'` beside its record.
+      `code_changes.py`'s list from `R` to `R'` and `R_K'` beside its record. It comes before the
+      commit, or after it, the master's entry being the one checked, while no attempt has started at
+      its `R'` (its attempts already classified with it are taken as named); the record says so.
     - **The correction is committed, then classified:** for each attempt it names, the owner's
       `checks.py classify` writes the classification (an instrument defect, with that test and the
       correction's id) next to the attempt, a valid attempt too, and refuses an id the master ref
@@ -262,8 +265,9 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
       (`touched.json`). The tally refuses a tallied attempt without a result of every test, made
       after it ended, and a touched one, which needs a correction naming it and its corrected
       attempt. "Ends after a correction exists" is read from the correction's check record, which
-      comes before its commit, so it errs toward asking more. An attempt that ran at a commit
-      descending from the correction's `R'` already carries its fix, and is not asked.
+      comes before its commit; a correction checked after its commit asks every tallied attempt
+      not at its `R'`, whenever it ended. Both err toward asking more. An attempt that ran at a
+      commit descending from the correction's `R'` already carries its fix, and is not asked.
     - Both attempts are kept in the block record and listed in the tally's output; the tally, and
       the reading's lines, use the corrected attempt of a touched block, and the tally refuses
       while a block a correction names lacks it, and a reading made on other attempts than its own.
@@ -274,11 +278,33 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
       the order and the tally ignore it and every classification made with it; every attempt that
       ran at its `R'` (and at no standing correction's) is set aside: kept, reported, never read or
       tallied, and not counted among the void attempts. The block is then owed its attempt under
-      the record that stands. A withdrawal recorded after the first tally output (the tally appends
-      a line to the run records' `tallies.jsonl`) is refused: not taken, and reported so. A fills
-      commit the history's rule cannot take is named by every read of the fills, with its exit: the
-      next commit restores the last record taken and adds `{"commit": <sha>, "why": ...}` for each
-      commit not taken since. Nothing ran on what that withdraws, so it is taken at any time.
+      the record that stands. A correction whose `R'` is `R` is not taken by the history (it
+      corrects no commit), and no attempt at `R` is ever set aside. A withdrawal recorded after the
+      first tally output is refused: not taken, and reported so. That output is the tally's or the
+      reading's lines' (`reality.py lines`, whose counts are the first a person sees of the
+      outcome), whichever comes first; it is marked in the run records' `tallies.jsonl`, written
+      whole before the output and kept for good, with the count of withdrawals on master (never a
+      `--fills` record's). A mark that is there but empty or not whole is refused, naming its exit,
+      never read as no mark. A fills commit the history's rule cannot take is named by every read
+      of the fills, with its exit: the next commit restores the last record taken and adds
+      `{"commit": <sha>, "why": ...}` for each commit not taken since. Nothing ran on what that
+      withdraws, so it is taken at any time.
+    - **A fill made again** (a reading of §5 R1 and §11, "A fix is allowed only if it changes
+      neither this file nor a pinned digest"). A well-formed fill with a wrong value (a mistyped `R`
+      in "Commits filled", a wrong digest in "Sheet filled" or "Set filled") is withdrawn and made
+      again by one commit of `fills.json` alone, its subject naming "Withdrawn" and the fill, that
+      changes that fill and adds `{"fill": <commits, sheet or sets>, "why": ...}` to `withdrawn`. It
+      corrects a record, not the pinned commit or digest, when its new value is what the checks
+      already ran on (the `R` the authoring ran at, the sheet the converter wrote, the manifests the
+      acceptance checks passed), and only before the first block attempt: nothing is reviewed then,
+      so it is blind. Each attempt records the fills it starts under; no attempt starts, and nothing
+      is read or tallied, under fills other than those the first attempt started under, until each
+      is made again as it stood then. After the first attempt, a wrong fill is §11's "Otherwise the
+      experiment stops".
+    - **A record of the run that is there but empty, or does not parse** (the block record, a check
+      or touched record, the smoke's, the owner's files, the mark, a torn ledger line) is refused
+      naming its exit, never read as absent and never a traceback. Only the mark is written whole by
+      a link that never replaces it; torn writes are not owner acts.
 
     Rests on: §11, "Every block it touches is then re-run at the corrected commit, and both runs
     are reported"; "The decision uses the corrected runs"; "only if a test that depends on no
@@ -302,8 +328,11 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     record refuses. Rests on: §6.4 item 10, "their R, A and J, and per item against R-PG-02's
     published `a-fresh` and `b-fresh`".
 29. **The tally needs the reading,** outside a test on fixtures: without it the reading would read
-    "unchecked", which §7 defines by its three controls. Rests on: §7, "The reading is reliable if
-    all three bars are met, unreliable if any is missed, and unchecked if any is not checked."
+    "unchecked", which §7 defines by its three controls. The test flags (`--practice-unpinned`,
+    `--any-count`) are refused on the run's records, and `--fills` (a test's fills record) is taken
+    with a test flag alone, so no output labelled a test is made of the real reviews and the run's
+    fills are master's. Rests on: §7, "The reading is reliable if all three bars are met,
+    unreliable if any is missed, and unchecked if any is not checked."
 30. **The knowledge digests are checked under the review roots the block record names.** Rests on:
     §3.1, "The tally checks both against the review's arm and role."
 31. **The class clause gives each of §7's two ways apart only where they differ.** Rests on: §8,
