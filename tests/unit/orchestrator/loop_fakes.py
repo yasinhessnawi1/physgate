@@ -13,6 +13,7 @@ from orch_helpers import gate_records, make_config, ticking_clock
 from physgate.orchestrator.budget import InfraCause, SessionEnd
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.declaration import Declaration
+from physgate.orchestrator.dispute import Dispute
 from physgate.orchestrator.escalation import EscalationInterface, bind
 from physgate.orchestrator.exceptions import ReviewUnavailableError, WorktreeMisplacedError
 from physgate.orchestrator.loop import Loop
@@ -186,6 +187,10 @@ class FakeChanges:
     read: dict[str, Declaration | None] = field(default_factory=dict)
     #: Every ``declaration_at`` call: the commit and the declaring subtask.
     read_at: list[tuple[str, str]] = field(default_factory=list)
+    #: What each subtask's checks read as its disputes; read on a refused check too, as a
+    #: checker that refuses after reading them would: the loop records them only after an
+    #: accepted check.
+    disputes: dict[str, tuple[Dispute, ...]] = field(default_factory=dict)
 
     def check(
         self,
@@ -207,6 +212,7 @@ class FakeChanges:
             proposed=self.proposed.get(self.calls, ()),
             series_checks=self.series_checks.get(self.calls, ()),
             declaration=declaration,
+            disputes=self.disputes.get(subtask_id, ()),
         )
 
     def declaration_at(self, commit: str, declaring: str) -> Declaration | None:

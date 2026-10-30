@@ -102,3 +102,20 @@ def test_the_installer_makes_the_completion_directory_too(tmp_path: Path) -> Non
     assert (tmp_path / graph.COMPLETION_DIR).is_dir()
     _make_file_tool_dirs(str(tmp_path))
     assert (tmp_path / graph.COMPLETION_DIR).is_dir()
+
+
+# --- the disputes' directory, held as the proposals' is -----------------------------------------
+
+
+def test_the_disputes_directory_is_write_denied_as_the_proposals_are(tmp_path: Path) -> None:
+    paths = _layout(tmp_path)
+    disputes = paths["worktree"] / graph.DISPUTES_DIR
+    disputes.mkdir(parents=True)
+    deny, absent = _deny(paths)
+    assert str(disputes) in deny and str(disputes) not in absent
+    assert "disputes" in FIELD_RULES["worktree"]
+
+
+def test_the_installer_makes_the_disputes_directory_too(tmp_path: Path) -> None:
+    _make_file_tool_dirs(str(tmp_path))
+    assert (tmp_path / graph.DISPUTES_DIR).is_dir()
