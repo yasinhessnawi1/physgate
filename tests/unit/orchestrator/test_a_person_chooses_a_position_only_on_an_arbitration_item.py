@@ -326,17 +326,18 @@ def test_an_item_whose_positions_are_not_its_kind_s_set_does_not_read(tmp_path: 
     rig = arbitrated(tmp_path)
     items = rig.run_dir / QUEUE_NAME
     data = items.read_bytes()
-    assert b'"on_choose":{"sizing":"record_only","domain":"record_only"}' in data
-    for forged in (
-        b'"on_choose":{"domain":"record_only","sizing":"record_only"}',
-        b'"on_choose":{"sizing":"record_only"}',
-        b'"on_choose":null',
+    stated = b',"on_choose":{"sizing":"record_only","domain":"record_only"}'
+    assert stated in data
+    order = "an item states the positions its kind offers, in their order, and no others"
+    for forged, says in (
+        (b',"on_choose":{"domain":"record_only","sizing":"record_only"}', order),
+        (b',"on_choose":{"sizing":"record_only"}', order),
+        # Left out whole, as a line of another kind leaves it out: the form is the writer's.
+        (b"", "an item whose kind offers positions states what choosing each does"),
     ):
-        items.write_bytes(
-            data.replace(b'"on_choose":{"sizing":"record_only","domain":"record_only"}', forged)
-        )
+        items.write_bytes(data.replace(stated, forged))
         said = refused(lambda: read_queue(rig.run_dir))
-        assert "positions" in said, forged
+        assert says in said, (forged, said)
 
 
 # --- taking it ---------------------------------------------------------------------------------
