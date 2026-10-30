@@ -40,9 +40,19 @@ export function runSource(config: RunConfig): Source {
   return { id: `run ${config.runId}`, commit: config.harnessCommit };
 }
 
-/** Whether the run is still going: its next step is neither done nor a halt. */
+/** A run whose log ends at an incident owes its halt: said so, with the incident's cause. */
+export function haltOwedWords(status: RunStatus): string | null {
+  return status.owedHalt === null ? null : `Halt owed · ${status.owedHalt.cause}`;
+}
+
+/** Whether the run is still going: its next step is neither done, nor a halt taken or owed. */
 export function inProgress(status: RunStatus): boolean {
-  return status.kind !== "done" && status.halted === null && status.kind !== "halted";
+  return (
+    status.kind !== "done" &&
+    status.halted === null &&
+    status.kind !== "halted" &&
+    status.owedHalt === null
+  );
 }
 
 // Each run's start, read once per page: its log's run_started line, or nothing when the log

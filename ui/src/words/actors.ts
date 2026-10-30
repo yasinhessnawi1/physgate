@@ -71,6 +71,10 @@ export function eventActor(
     case "merged":
     case "stage_entered":
     case "integration_gate_skipped":
+    case "module_completed":
+    case "contract_pairs_planned":
+    case "contract_tested":
+    case "integration_state_issued":
       return ORCHESTRATOR;
     case "decomposed":
       return {
@@ -79,7 +83,8 @@ export function eventActor(
         role: "decomposition",
         model: event.model,
       };
-    case "session_ended": {
+    case "session_ended":
+    case "completion_declared": {
       const role = roles[event.subtask];
       return role === undefined
         ? { kind: "unmapped", name: "a session" }

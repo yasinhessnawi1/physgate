@@ -155,16 +155,52 @@ export function decisions(value: unknown): readonly Decision[] {
   });
 }
 
+/** One plan module's completion as the server reads it from the record and the registry. */
+export interface ModuleCompletion {
+  readonly subtask: string;
+  /** Sizing's module, as the server tells it by the register's name for sizing. */
+  readonly sizing: boolean;
+  readonly state: "complete" | "withheld" | "owed" | "not_declared";
+  /** The precondition registry's open entries, each with its own reason. */
+  readonly open: readonly { readonly name: string; readonly reason: string }[];
+}
+
 export interface RunStatus {
   readonly kind: string;
   readonly subtask: string | null;
   readonly halted: { readonly reason: string; readonly detail: string } | null;
+  /** The incident on the record whose halt is owed, if any. */
+  readonly owedHalt: { readonly cause: string; readonly subtask: string | null } | null;
+  readonly completion: {
+    /** Whether the run plans a subtask that declares completion. */
+    readonly owner: boolean;
+    readonly modules: readonly ModuleCompletion[];
+  };
+}
+
+function moduleCompletion(value: unknown): ModuleCompletion {
+  const m = object(value, "a module's completion");
+  return {
+    subtask: text(m.subtask_id, "a subtask id"),
+    sizing: flag(m.sizing, "whether it is sizing's"),
+    state: oneOf(
+      m.state,
+      ["complete", "withheld", "owed", "not_declared"] as const,
+      "a completion state",
+    ),
+    open: list(m.open, "open preconditions").map((raw) => {
+      const o = object(raw, "an open precondition");
+      return { name: text(o.name, "a precondition"), reason: text(o.reason, "a reason") };
+    }),
+  };
 }
 
 export function runStatus(value: unknown): RunStatus {
   const s = object(value, "a run status");
   const next = object(s.next_step, "a next step");
   const halted = s.halted === null ? null : object(s.halted, "a halt");
+  const owed = s.owed_halt === null ? null : object(s.owed_halt, "a halt owed");
+  const completion = object(s.completion, "a run's completion");
   return {
     kind: text(next.kind, "a step kind"),
     subtask: optionalText(next.subtask_id, "a subtask id"),
@@ -172,6 +208,17 @@ export function runStatus(value: unknown): RunStatus {
       halted === null
         ? null
         : { reason: text(halted.reason, "a halt reason"), detail: text(halted.detail, "a detail") },
+    owedHalt:
+      owed === null
+        ? null
+        : {
+            cause: text(owed.cause, "a cause"),
+            subtask: optionalText(owed.subtask_id, "a subtask"),
+          },
+    completion: {
+      owner: flag(completion.owner, "whether a subtask declares completion"),
+      modules: list(completion.modules, "modules").map(moduleCompletion),
+    },
   };
 }
 

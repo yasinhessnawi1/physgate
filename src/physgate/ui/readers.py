@@ -16,7 +16,9 @@ the allowlist, then handed to the package's own reader for that format:
   as ``physgate cost`` reads it (``run_calls``);
 - the trace: ``read_traces``, exactly what ``physgate trace`` prints;
 - the run's decisions: ``decisions``, the sequence a rerun is compared by;
-- where the run stands: ``replay(...).next_step()``, the loop's own answer;
+- where the run stands: ``replay(...).next_step()``, the loop's own answer, with the halt an
+  incident owes, and each module's completion or the precondition registry's open entries
+  (``open_preconditions``) with their own reasons;
 - the tokens: ``TokenAccount``, per attribution, per kind and in total;
 - the gate checks with what each said: ``recorded_gate_checks``, the same events
   ``physgate gate-events`` prints, each beside its record's bound, message and details;
@@ -45,6 +47,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
+from physgate import roles
 from physgate.evaluation.observe.calls import run_calls, stream_seals
 from physgate.evaluation.observe.cost import KNOWN_SHEETS, load_price_sheet, price_events
 from physgate.evaluation.observe.manifest import manifest_id_of
@@ -55,10 +58,11 @@ from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import render_jsonl
+from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.gate_events import recorded_gate_checks, recorded_gate_events
 from physgate.orchestrator.queue import item_view, queue_files, queue_listing, read_stream
-from physgate.orchestrator.replay import recorded_ledger, replay
+from physgate.orchestrator.replay import RunState, recorded_ledger, replay
 from physgate.orchestrator.run_config import load_run_config
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.state.schema import validate_node
@@ -239,12 +243,40 @@ def decisions(context: Context, params: Mapping[str, str]) -> Response:
     return json_response({"decisions": decision_sequence([_line(e) for e in log])})
 
 
+def _completion(state: RunState) -> dict[str, object]:
+    """Each plan module's completion, and whether the run has a subtask that declares it.
+
+    A module is ``complete`` once its line is on the record; else ``withheld`` while the merged
+    declaration names it and a registered precondition is open, ``owed`` while none is, and
+    ``not_declared`` otherwise. Every module not complete carries the registry's open entries with
+    their own reasons. Sizing's module is told by the role name the register gives sizing.
+    """
+    integration = state.completion_subtask
+    declared: tuple[str, ...] = ()
+    if integration is not None and state.subtasks[integration].status == "done":
+        line = state.subtasks[integration].attempts[-1].declaration
+        declared = () if line is None else line.modules
+    modules: list[dict[str, object]] = []
+    for module in state.modules():
+        still = () if module in state.completed else open_preconditions(state, module)
+        word = "not_declared" if module not in declared else "withheld" if still else "owed"
+        modules.append(
+            {
+                "subtask_id": module,
+                "sizing": state.subtasks[module].plan.assigned_role == roles.SIZING.name,
+                "state": "complete" if module in state.completed else word,
+                "open": [{"name": name, "reason": why} for name, why in still],
+            }
+        )
+    return {"owner": integration is not None, "modules": modules}
+
+
 def status(context: Context, params: Mapping[str, str]) -> Response:
-    """Where the run stands: what the loop would do next, and why it halted, if it did."""
+    """Where the run stands: the loop's next step, a halt owed or taken, and each completion."""
     run_dir = run_dir_of(context, params)
     state = replay(read_events(_file(context, run_dir, EVENTS)))
     step = state.next_step()
-    halted = state.halted
+    halted, owed = state.halted, state.owed_halt()
     return json_response(
         {
             "next_step": {
@@ -256,6 +288,10 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             "halted": None
             if halted is None
             else {"seq": halted.seq, "reason": halted.reason, "detail": halted.detail},
+            "owed_halt": None
+            if owed is None
+            else {"cause": owed.cause, "subtask_id": owed.subtask_id, "detail": owed.detail},
+            "completion": _completion(state),
         }
     )
 

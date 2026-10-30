@@ -276,6 +276,49 @@ export function rowOf(
         sentence: `The whole design was not gated: ${SKIPPED_REASONS[event.reason] ?? event.reason}`,
         meta: "integration",
       };
+    case "completion_declared":
+      return {
+        ...base,
+        depth: 2,
+        sentence:
+          event.modules.length === 0
+            ? `Attempt ${String(event.attempt)} declared no module complete`
+            : `Attempt ${String(event.attempt)} declared complete: ${event.modules.map(subtaskName).join(", ")}`,
+        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)}`,
+        subtask: event.subtask,
+        attempt: event.attempt,
+      };
+    case "module_completed":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.subtask)} recorded complete`,
+        meta: `${event.subtask} · declared by attempt ${String(event.attempt)} of ${subtaskName(event.declaredBy)}`,
+        subtask: event.subtask,
+      };
+    case "contract_pairs_planned":
+      return {
+        ...base,
+        depth: 0,
+        sentence: `Planned ${String(event.pairs.length)} contract ${event.pairs.length === 1 ? "pair" : "pairs"}`,
+        meta: event.pairs.map((p) => `${p.producer} to ${p.consumer}`).join(", "),
+      };
+    case "contract_tested":
+      return {
+        ...base,
+        depth: 0,
+        sentence: `The contract of ${event.pair.producer} to ${event.pair.consumer} ${event.outcome === "pass" ? "held" : event.outcome === "fail" ? "failed" : `recorded ${event.outcome}`}`,
+        meta: `${event.first ? "first test" : "retest"} · ${event.pair.interfaces.join(", ")}`,
+      };
+    case "integration_state_issued":
+      return {
+        ...base,
+        depth: 2,
+        sentence: `Issued the design's state to attempt ${String(event.attempt)}`,
+        meta: `${subtaskName(event.subtask)} · ${String(event.length)} bytes`,
+        subtask: event.subtask,
+        attempt: event.attempt,
+      };
     default:
       return null;
   }

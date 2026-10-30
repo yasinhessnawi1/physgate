@@ -5,7 +5,7 @@
  */
 import type { GateMode } from "../design/components/verdict/GateMode";
 import { type Quantity, requireQuantity } from "../design/quantity";
-import { count, list, object, oneOf, optionalText, text } from "./check";
+import { count, flag, list, object, oneOf, optionalText, text } from "./check";
 
 interface Line {
   readonly seq: number;
@@ -82,8 +82,50 @@ export type RunEvent = Line &
         readonly attempt: number;
         readonly stage: string;
       }
+    /** Integration's declaration, read from its checked commit: the modules it names complete. */
+    | {
+        readonly kind: "completion_declared";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly modules: readonly string[];
+      }
+    | {
+        readonly kind: "module_completed";
+        readonly subtask: string;
+        readonly declaredBy: string;
+        readonly attempt: number;
+      }
+    | { readonly kind: "contract_pairs_planned"; readonly pairs: readonly ContractPair[] }
+    | {
+        readonly kind: "contract_tested";
+        readonly pair: ContractPair;
+        readonly outcome: string;
+        readonly first: boolean;
+      }
+    | {
+        readonly kind: "integration_state_issued";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly length: number;
+      }
     | { readonly kind: "other"; readonly recorded: string }
   );
+
+/** Two modules whose shared interfaces a contract holds, each by its name in the plan. */
+export interface ContractPair {
+  readonly producer: string;
+  readonly consumer: string;
+  readonly interfaces: readonly string[];
+}
+
+function contractPair(value: unknown): ContractPair {
+  const p = object(value, "a contract pair");
+  return {
+    producer: text(object(p.producer, "a producer").module, "a module"),
+    consumer: text(object(p.consumer, "a consumer").module, "a module"),
+    interfaces: list(p.interfaces, "interfaces").map((i) => text(i, "an interface")),
+  };
+}
 
 /** One event line as the screens read it; a line of another shape is refused whole. */
 export function runEvent(value: unknown): RunEvent {
@@ -211,6 +253,46 @@ export function runEvent(value: unknown): RunEvent {
         subtask: subtask(),
         attempt: attempt(),
         stage: text(e.stage, "a stage"),
+      };
+    case "completion_declared":
+      return {
+        ...line,
+        kind: "completion_declared",
+        subtask: subtask(),
+        attempt: attempt(),
+        modules: list(e.modules, "modules").map((m) => text(m, "a module")),
+      };
+    case "module_completed":
+      return {
+        ...line,
+        kind: "module_completed",
+        subtask: subtask(),
+        declaredBy: text(e.declared_by, "a subtask id"),
+        attempt: attempt(),
+      };
+    case "contract_pairs_planned":
+      return {
+        ...line,
+        kind: "contract_pairs_planned",
+        pairs: list(e.pairs, "contract pairs").map(contractPair),
+      };
+    case "contract_tested": {
+      const r = object(e.result, "a contract result");
+      return {
+        ...line,
+        kind: "contract_tested",
+        pair: contractPair(r.pair),
+        outcome: text(r.outcome, "an outcome"),
+        first: flag(e.first, "whether it is the pair's first"),
+      };
+    }
+    case "integration_state_issued":
+      return {
+        ...line,
+        kind: "integration_state_issued",
+        subtask: subtask(),
+        attempt: attempt(),
+        length: count(e.length, "a length"),
       };
     default:
       return { ...line, kind: "other", recorded: text(e.kind, "an event kind") };

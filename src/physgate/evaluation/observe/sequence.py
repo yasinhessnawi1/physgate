@@ -424,6 +424,19 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             step = {"step": "integration_escalated"}
         elif kind == "halted":
             step = {"step": "halted", "reason": e["reason"]}
+        elif kind == "completion_declared":
+            # The modules declared, never the digest of the file's bytes: the decision is the list.
+            step = {"step": "declared", **at, "modules": e["modules"]}
+        elif kind == "module_completed":
+            step = {"step": "completed", **at, "declared_by": e["declared_by"]}
+        elif kind == "contract_pairs_planned":
+            step = {"step": "contract_pairs", "pairs": e["pairs"]}
+        elif kind == "contract_tested":
+            # The pair, its verdict and whether it is the pair's first; never the commit, the
+            # revision or the definition's digest, which no two reruns share.
+            result = e["result"]
+            step = {"step": "contract", "pair": result["pair"], "verdict": result["outcome"]}
+            step["first"] = e["first"]
         if step is not None:
             out.append({**step, "seq": e["seq"]})
     return out
