@@ -116,6 +116,14 @@ def first(found: Any) -> Any:  # noqa: ANN401 - whatever the row lists
     return found[0]
 
 
+def driven(rig: Any) -> None:  # noqa: ANN401 - the rig
+    """Drive the run to its end; a line the replay refuses to the loop's own face is a finding."""
+    try:
+        run(rig)
+    except Exception as exc:  # noqa: BLE001 - any escape is the finding
+        raise AssertionError(f"the loop's own run escaped: {exc!r}") from None
+
+
 def levels(events: list[Event]) -> list[tuple[int, str]]:
     return [(e.attempt, e.level) for e in of(events, ArbitrationDecided)]
 
@@ -151,7 +159,7 @@ def test_level_two_sizing_s_value_stands_and_the_attempt_is_rejected_before_revi
     tmp_path: Path, mode: str, gate: tuple[str, ...]
 ) -> None:
     rig = rig_of(tmp_path / "run", mode=mode, gate=gate)
-    run(rig)
+    driven(rig)
     events = events_of(rig)
     assert levels(events)[:2] == [(1, "sizing"), (1, "sizing")]
     rejected = first(of(events, AttemptRejected))
@@ -176,7 +184,7 @@ def test_level_three_a_repeat_goes_to_a_person_through_the_escalation_interface(
     tmp_path: Path, mode: str
 ) -> None:
     rig = rig_of(tmp_path / "run", mode=mode)
-    run(rig)
+    driven(rig)
     events = events_of(rig)
     assert levels(events) == [(1, "sizing"), (1, "sizing"), (2, "queue"), (2, "queue")]
     decided = one(e for e in of(events, EscalationDecided) if e.attempt == 2)
@@ -221,7 +229,7 @@ def test_a_disputed_attempt_spends_no_review_tokens(tmp_path: Path) -> None:
 def test_mixed_levels_in_one_attempt_go_to_a_person_as_one_item(tmp_path: Path) -> None:
     # Attempt 1 disputes the current alone; attempt 2 disputes it again, and the voltage first.
     rig = rig_of(tmp_path / "run", script=[(RAIL,), (RAIL, BUS)])
-    run(rig)
+    driven(rig)
     events = events_of(rig)
     assert levels(events) == [(1, "sizing"), (2, "queue"), (2, "sizing")]
     assert len(of(events, Escalated)) == 1
@@ -410,6 +418,29 @@ def test_a_held_value_the_journal_no_longer_holds_halts_the_run_before_the_next_
     incident = one(e for e in events if isinstance(e, Incident))
     assert incident.cause == "foreign_journal_line"
     assert not [r for r in rig.dispatcher.requests if r.subtask_id == "s1" and r.attempt == 2]
+
+
+def test_a_held_value_the_journal_no_longer_holds_halts_the_run_before_a_decision_is_taken(
+    tmp_path: Path,
+) -> None:
+    from physgate.orchestrator.events import DecisionTaken
+
+    rig = rig_of(tmp_path / "run")
+    driven(rig)
+    graph = rig.diff
+    assert isinstance(graph, JournalGraph)
+    rewritten = dict(graph.journal[1].payload)
+    rewritten["quantities"] = dict(rewritten["quantities"])
+    rewritten["quantities"]["supply_voltage"] = {
+        "value": 48, "unit": "V", "source": "datasheet", "written_by": "sizing",
+    }  # fmt: skip
+    graph.journal[1] = JournalLine(rev=2, op="write", node_id=NODE, version=2, payload=rewritten)
+    decide(rig.run_dir, "approve")
+    resume(rig)
+    events = events_of(rig)
+    incident = one(e for e in events if isinstance(e, Incident))
+    assert incident.cause == "foreign_journal_line"
+    assert not of(events, DecisionTaken)
 
 
 # --- the item -------------------------------------------------------------------------------------
