@@ -40,6 +40,7 @@ from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decisions import (
     SCANNED_SOURCES,
+    closing_order,
     decision_effect,
     item_consequence,
     person_order,
@@ -54,6 +55,7 @@ from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     ArbitrationDecided,
     AttemptRejected,
+    AttemptReturned,
     CompletionDeclared,
     ContractTested,
     DecisionsSealed,
@@ -166,6 +168,7 @@ from physgate.orchestrator.queue import (
 from physgate.orchestrator.record import PlanEntry, RunRecord
 from physgate.orchestrator.repair import (
     Finding,
+    arbitration_value_instruction,
     repair_instruction,
 )
 from physgate.orchestrator.replay import (
@@ -668,13 +671,14 @@ class Loop:
             "contract",
             "complete",
             "halt",
+            "wait",
         ):
             self._record_environment()
         while True:
             step = self.state.next_step()
             if self._at_a_boundary(step) and self._take_decisions():
                 continue  # what a decision did changes what comes next
-            if step.kind in ("done", "halted", "escalated"):
+            if step.kind in ("done", "halted", "escalated", "wait"):
                 self._clean_up_worktrees()
                 return step
             if step.kind == "halt":
@@ -707,6 +711,17 @@ class Loop:
                     self._escalate(step.subtask_id)
             elif step.kind == "infra_failed":
                 self._infra_failed(step.subtask_id, step.attempt)
+            elif step.kind == "return":
+                resized = self.state.subtasks[step.subtask_id].attempts[-1].resized
+                item_id = resized.item_id if resized is not None else ""
+                self._emit(
+                    AttemptReturned(
+                        **self._env(),
+                        subtask_id=step.subtask_id,
+                        attempt=step.attempt,
+                        item_id=item_id,
+                    )
+                )
             else:
                 self._attempt(step.subtask_id, step.attempt, step.point or "resolve")
 
@@ -848,6 +863,14 @@ class Loop:
             sessions = [s for a in self.state.subtasks[subtask_id].attempts for s in a.ended]
             if not self._sealed_hold(sessions):
                 return False
+        # A choice of the domain's value carries a session's typed value into the graph: it binds
+        # only where every stream its item links still holds its seal.
+        if (
+            taken.effect == "resize"
+            and subtask_id is not None
+            and not self._sealed_hold(self._arbitration_sessions(subtask_id))
+        ):
+            return False
         self._emit(
             DecisionTaken(
                 **self._env(),
@@ -915,18 +938,19 @@ class Loop:
     def _end_subtask(self, subtask_id: str, attempt: int) -> None:
         """The subtask ends rejected: a person's reject with no attempt left, or a failed fix."""
         sub = self.state.subtasks[subtask_id]
-        by = sub.ending
+        now = sub.attempts[-1]
+        by = "closing_pass" if sub.status == "waiting" else sub.ending
         if by is None:
             msg = "a subtask ended with no reason to"
             raise RunStateError(msg, subtask=subtask_id)
-        spent = sub.attempts[-1].person_rejected
+        spent = now.resized if by == "closing_pass" else now.person_rejected
         self._emit(
             SubtaskRejected(
                 **self._env(),
                 subtask_id=subtask_id,
                 attempt=attempt,
                 by=by,
-                item_id=spent.item_id if by == "person" and spent is not None else None,
+                item_id=spent.item_id if by != "fix_not_accepted" and spent is not None else None,
             )
         )
 
@@ -984,11 +1008,22 @@ class Loop:
         """What ``attempt`` starts from, and the person's order behind it if a person gave one.
 
         Rebuilt from the log on every call, by code: a session restarted after a kill, and the
-        attempt's reviewer, are told exactly what the first session was.
+        attempt's reviewer, are told exactly what the first session was. Sizing's closing pass,
+        while a person's choice of the domain's value waits, is told each value chosen, wrapping
+        what it would otherwise be told.
 
         Raises:
             RunStateError: a fix ordered after a review that did not block, or with no note.
         """
+        told, order = self._told(subtask_id, attempt)
+        if subtask_id == self.state.closing_pass():
+            values = closing_order(self.state, told)
+            if values is not None:
+                return values.instruction, values
+        return told, order
+
+    def _told(self, subtask_id: str, attempt: int) -> tuple[str | None, PersonOrder | None]:
+        """What ``attempt`` would start from with no chosen value waiting, and the order behind."""
         sub = self.state.subtasks[subtask_id]
         previous = sub.attempts[-2] if attempt > 1 and len(sub.attempts) > 1 else None
         if previous is None:
@@ -1027,6 +1062,8 @@ class Loop:
         what every automated repair quotes, and is held to nothing more here than there. An order
         given by choosing sizing's value is held whole: the graph's values it quotes and the note.
         """
+        if order.kind == "arbitration_value":
+            return arbitration_value_instruction(order.chosen, None)
         if order.kind in ("fix_after_block", "retry_after_arbitration", "fix_after_arbitration"):
             return order.instruction
         attempts = self.state.subtasks[subtask_id].attempts
@@ -1105,10 +1142,10 @@ class Loop:
             # So are the rulings a person's choice of sizing's value quotes to this session.
             return False
         instruction, order = self._instruction(subtask_id, attempt)
-        if order is not None and not self._material_clean(
-            subtask_id, self._screened(subtask_id, order)
-        ):
-            return False
+        inner = self._told(subtask_id, attempt)[1]
+        for screened in dict.fromkeys(o for o in (order, inner) if o is not None):
+            if not self._material_clean(subtask_id, self._screened(subtask_id, screened)):
+                return False
         held: IssuedState | None = None
         if subtask_id == self.state.completion_subtask:
             # Integration's session reads the record's state: built from the log and recorded by
@@ -1162,7 +1199,7 @@ class Loop:
             bounds=self.config.bounds,
             spec_commit=self._spec_commit(),
             kind="fix"
-            if order is not None and order.kind in ("fix_after_block", "fix_after_arbitration")
+            if inner is not None and inner.kind in ("fix_after_block", "fix_after_arbitration")
             else "attempt",
             issued_state=held,
             disputes=disputer_problem(sub.plan.assigned_role) is None
@@ -1676,7 +1713,12 @@ class Loop:
                 return False
             conflict = DisputeConflict(node_id=node, quantity=name)
             standing = dispute_standing(
-                conflict, gate=gate, earlier=earlier, attempt=attempt, fix=now.fix
+                conflict,
+                gate=gate,
+                earlier=earlier,
+                attempt=attempt,
+                fix=now.fix,
+                chosen=self.state.chosen_holds(subtask_id, dispute.position, held),
             )
             self._emit(
                 ArbitrationDecided(

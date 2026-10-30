@@ -183,6 +183,16 @@ class RunStarted(_Event):
     #: The escalation backend the run is bound to, as its configuration names it; ``None``
     #: on a log written before the escalation interface existed, whose loop asked none.
     escalation_backend: BackendName | None = None
+    #: ``act`` in a run that acts on a person's decisions, which replay reads to hold the closing
+    #: pass's wait; left out of a run that records only, so its line keeps its bytes.
+    queue_decisions: Literal["act"] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.queue_decisions is None:
+            data.pop("queue_decisions", None)
+        return data
 
 
 class SubtaskPlanned(_Event):
@@ -572,8 +582,9 @@ class Escalated(_Event):
 #: A position a person may choose on an item whose kind offers two (``choose``): an arbitration's
 #: sizing (the graph's value stands) or domain (the disputing subtask's).
 Position = Literal["sizing", "domain"]
-#: What a person's decision did when the loop took it (ARCH-133).
-DecisionEffect = Literal["merge", "retry", "fix", "end_subtask", "none"]
+#: What a person's decision did when the loop took it (ARCH-133). ``resize``: the subtask waits
+#: for sizing's closing pass, ordered to write the domain's value, then returns to the gate.
+DecisionEffect = Literal["merge", "retry", "fix", "end_subtask", "resize", "none"]
 #: Why a decision taken did not act. ``record_only_source``: approve or reject on an item whose
 #: source neither verb acts on. ``last_rejection_automated``: approve where an automated check,
 #: not the reviewer, refused the attempt. ``indicator_in_history``: approve where a review of
@@ -665,14 +676,29 @@ class SubtaskRejected(_Event):
     """The subtask ends without a merge, and no attempt of it runs again.
 
     A person rejected it with no attempt left, or the one fix a person ordered after a blocked
-    review was not accepted.
+    review was not accepted, or sizing's closing pass a person's choice waited on ended without a
+    merge (``closing_pass``, naming the item the choice was made on).
     """
 
     kind: Literal["subtask_rejected"] = "subtask_rejected"
     subtask_id: NonEmptyStr
     attempt: Annotated[int, Field(ge=1)]
-    by: Literal["person", "fix_not_accepted"]
+    by: Literal["person", "fix_not_accepted", "closing_pass"]
     item_id: NonEmptyStr | None
+
+
+class AttemptReturned(_Event):
+    """A waiting subtask's disputed attempt returns to the gate once sizing's closing pass merged.
+
+    Its reading, change check, rulings and review run again from its completed session: no new
+    session, and no attempt spent, as the attempt was never reviewed. ``item_id`` is the item on
+    which a person chose the domain's value.
+    """
+
+    kind: Literal["attempt_returned"] = "attempt_returned"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    item_id: NonEmptyStr
 
 
 class Incident(_Event):
@@ -1079,6 +1105,7 @@ Event = Annotated[
     | Escalated
     | DecisionTaken
     | SubtaskRejected
+    | AttemptReturned
     | Incident
     | Resumed
     | Decomposed

@@ -24,8 +24,10 @@ subtask); with repair attempts left, the next attempt from the note; otherwise t
 ends rejected. An integration failure is recorded and never acted on; so are approve and reject on
 an arbitration, where a person picks a position instead. **What choosing sizing's value does:**
 the next attempt while the budget lasts, else the one fix while it is unused, else the end of the
-subtask; the order each gives quotes the graph's value as the rulings held it. Choosing the
-domain's value records only.
+subtask; the order each gives quotes the graph's value as the rulings held it. **What choosing
+the domain's value does:** while sizing's closing pass has not started and every value it would
+carry is in a unit the gate's parser takes, the subtask waits, the closing pass is ordered to
+write each value, and the disputed attempt then returns to the gate; otherwise it records only.
 """
 
 from __future__ import annotations
@@ -44,7 +46,7 @@ from physgate.orchestrator.events import (
     WhyNot,
 )
 from physgate.orchestrator.exceptions import QueueItemMismatchError
-from physgate.orchestrator.protocols import PersonOrder, PersonOrderKind
+from physgate.orchestrator.protocols import ChosenValue, PersonOrder, PersonOrderKind, QuantityRef
 from physgate.orchestrator.queue import (
     INTEGRATION,
     POSITIONS,
@@ -57,8 +59,10 @@ from physgate.orchestrator.queue import (
     QueueSource,
     Verb,
     WhyRecordOnly,
+    parses,
 )
 from physgate.orchestrator.repair import (
+    arbitration_value_instruction,
     chose_sizing_fix_instruction,
     chose_sizing_retry_instruction,
     fix_instruction,
@@ -194,11 +198,14 @@ def _arbitration_effect() -> tuple[WhyRecordOnly, OnReject]:
     return "source", "record_only"
 
 
-def _on_choose(sub: SubtaskState) -> dict[Position, OnChoose]:
+def _on_choose(state: RunState, sub: SubtaskState) -> dict[Position, OnChoose]:
     """What choosing each position of the subtask's arbitration item does, from its record.
 
     Sizing's value: the next attempt while the budget lasts; once none is left, the one fix while
-    no attempt of the subtask was it; otherwise the end of the subtask. The domain's records only.
+    no attempt of the subtask was it; otherwise the end of the subtask. The domain's: a resize
+    while the plan's closing pass has not started and every value it would carry is in a unit the
+    gate's parser takes; otherwise it records only. Both facts hold from the listing to the take,
+    as the closing pass waits for the item.
     """
     now = sub.attempts[-1]
     sizing: OnChoose
@@ -208,7 +215,50 @@ def _on_choose(sub: SubtaskState) -> dict[Position, OnChoose]:
         sizing = "fix"
     else:
         sizing = "end_subtask"
-    return {"sizing": sizing, "domain": "record_only"}
+    closing = state.closing_pass()
+    resizes = (
+        closing is not None
+        and state.subtasks[closing].status == "planned"
+        and all(parses(position) for position in chosen_positions(now))
+    )
+    return {"sizing": sizing, "domain": "resize" if resizes else "record_only"}
+
+
+def chosen_positions(now: AttemptState) -> list[QuantityRef]:
+    """The domain's typed value of each quantity the attempt's rulings sent above sizing."""
+    return [
+        dispute.position
+        for dispute, ruling in zip(now.disputes, now.arbitrations, strict=True)
+        if ruling.level in ("sizing", "queue")
+    ]
+
+
+def values_chosen(sub: SubtaskState, item_id: str) -> tuple[ChosenValue, ...]:
+    """What choosing the domain's value on ``item_id`` carries to sizing's closing pass."""
+    now = sub.attempts[-1]
+    return tuple(
+        ChosenValue(item_id=item_id, subtask_id=sub.plan.subtask_id, attempt=now.number, position=p)
+        for p in chosen_positions(now)
+    )
+
+
+def closing_order(
+    state: RunState, wrapped: str | None, extra: tuple[ChosenValue, ...] = ()
+) -> PersonOrder | None:
+    """The closing pass's order while a resize waits: each chosen value, wrapping ``wrapped``.
+
+    ``extra`` are values a resize being taken would add. Nothing while none waits.
+    """
+    chosen = (*state.waiting_values(), *extra)
+    if not chosen:
+        return None
+    return PersonOrder(
+        kind="arbitration_value",
+        item_id=chosen[0].item_id,
+        of_attempt=chosen[0].attempt,
+        instruction=arbitration_value_instruction(chosen, wrapped),
+        chosen=chosen,
+    )
 
 
 def _on_reject(sub: SubtaskState, source: QueueSource) -> OnReject:
@@ -265,7 +315,7 @@ def item_consequence(
             why_record_only=why,
             confirmed_indicators=indicators,
             scan_hits=(),
-            on_choose=_on_choose(sub),
+            on_choose=_on_choose(state, sub),
         )
     why_not: WhyRecordOnly | None = _automated_block(now)
     if why_not is None and indicators:
@@ -365,12 +415,19 @@ def _order_fits(
     """Whether the reviewer of the session a decision orders could read what it is told whole.
 
     A reject's order is the note and what it quotes, so one with no note orders nothing. A
-    choice's quotes the graph's values, which can be long without any note.
+    choice's quotes the graph's values, which can be long without any note. A resize's is the
+    closing pass's, with every value waiting and its own; and an order to the closing pass while
+    values wait is the values order wrapping it.
     """
     now = sub.attempts[-1]
-    if note is None and not now.queued:
+    if effect == "resize":
+        order = closing_order(state, None, values_chosen(sub, item_id))
+    elif note is None and not now.queued:
         return True
-    order = person_order(state, now, effect=effect, item_id=item_id, note=note)
+    else:
+        order = person_order(state, now, effect=effect, item_id=item_id, note=note)
+        if sub.plan.subtask_id == state.closing_pass():
+            order = closing_order(state, order.instruction if order else None) or order
     return order is None or fits_one_read(person_order_text(order))
 
 
@@ -450,7 +507,7 @@ def decision_effect(
     if why is not None:
         return Taken(effect=effect, acts=False, why_not=why)
     too_long = False
-    if effect in ("fix", "retry") and item.subtask_id != INTEGRATION:
+    if effect in ("fix", "retry", "resize") and item.subtask_id != INTEGRATION:
         sub = state.subtasks[item.subtask_id]
         if not _order_fits(state, sub, effect, item.item_id, resolution.note):
             # Refused before any session: a review that could not read what its session was
@@ -539,7 +596,7 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
     effect, why = _effect_of(expected, event.verb, event.position)
     too_long = (
         why is None
-        and effect in ("fix", "retry")
+        and effect in ("fix", "retry", "resize")
         and not _order_fits(state, sub, effect, event.item_id, event.note)
     )
     if too_long:

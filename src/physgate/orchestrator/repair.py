@@ -12,6 +12,7 @@ from the process that built this harness.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
 from typing import Annotated, Literal
 
@@ -22,7 +23,13 @@ from physgate.orchestrator.budget import REPAIR_BUDGET, require_within_budget
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.dispute import DISPUTES_DIR, QUANTITY_MAX, QUANTITY_PATTERN
 from physgate.orchestrator.exceptions import RepairBudgetExhaustedError
-from physgate.orchestrator.protocols import GateResult, NumericOutput, QuantityRef, ReviewResult
+from physgate.orchestrator.protocols import (
+    ChosenValue,
+    GateResult,
+    NumericOutput,
+    QuantityRef,
+    ReviewResult,
+)
 
 #: What rejected an attempt.
 FindingSource = Literal[
@@ -384,4 +391,55 @@ def chose_sizing_fix_instruction(
         f"{STILL_GOVERNS} {NO_INPUT_SUPPLIED}",
         LAST_ATTEMPT,
     ]
+    return "\n".join(lines)
+
+
+#: Where an item id the queue's id pattern refuses would be quoted.
+REFUSED_ITEM = "(an item id the queue's id pattern refuses)"
+#: An item id as the queue mints one: plain identifiers, joined (``queue.item_id_for``).
+ITEM_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def arbitration_value_instruction(chosen: Sequence[ChosenValue], wrapped: str | None) -> str:
+    """Sizing's closing pass's instruction while a person's choice of the domain's value waits.
+
+    A fixed template: each chosen ``{value, unit}`` as the dispute typed it, by node and quantity,
+    with the item and the subtask it was chosen for, each part held to its form; then what the
+    attempt would otherwise be told, quoted as data. Never the dispute's reason.
+    """
+    from physgate.orchestrator import integration_state as render
+
+    def line(value: ChosenValue) -> str:
+        position = value.position
+        name = (
+            render.q(position.name)
+            if _quantity_name(position.name)
+            else "a quantity name the dispute path refuses"
+        )
+        item = render.held(value.item_id, ITEM_PATTERN, 2 * 128 + 8, REFUSED_ITEM)
+        subtask = render.held(
+            value.subtask_id,
+            render.SUBTASK_PATTERN,
+            render.PLANNED_ID_MAX_LENGTH,
+            render.REFUSED_SUBTASK,
+        )
+        return (
+            f"Node {render.held(position.node_id)}, quantity {name}: "
+            f"{render.measure(position.value, position.unit)}, chosen on queue item {item} for "
+            f"subtask {subtask}."
+        )
+
+    k = len(chosen)
+    lines = [
+        f"A person chose a domain's value over sizing's for {k} "
+        f"{'quantity' if k == 1 else 'quantities'} of cross nodes. Each is a fixed input of this "
+        "pass: write it into its node as given, value and unit. The domain's work waits for this "
+        "pass to merge, and is judged again against the graph it leaves.",
+        "",
+        "The values chosen:",
+        *quoted("\n".join(line(value) for value in chosen)),
+    ]
+    if wrapped is not None:
+        lines += ["This attempt also starts from:", *quoted(wrapped)]
+    lines.append("The specification as issued otherwise still governs.")
     return "\n".join(lines)

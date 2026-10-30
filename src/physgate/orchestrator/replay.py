@@ -28,7 +28,7 @@ from physgate.orchestrator.arbitration import Held, arbitrate, dispute_standing
 from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.completion import open_preconditions
-from physgate.orchestrator.decisions import require_taken
+from physgate.orchestrator.decisions import require_taken, values_chosen
 from physgate.orchestrator.escalation import (
     REGISTER,
     TO_THE_QUEUE,
@@ -42,6 +42,7 @@ from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     ArbitrationDecided,
     AttemptRejected,
+    AttemptReturned,
     CompletionDeclared,
     ContractPairsPlanned,
     ContractTested,
@@ -97,6 +98,7 @@ from physgate.orchestrator.exceptions import (
     RunStateError,
 )
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR, CriterionWords, SystemRequirement
+from physgate.orchestrator.protocols import ChosenValue, QuantityRef
 from physgate.orchestrator.queue import item_id_for
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
@@ -147,6 +149,9 @@ class AttemptState:
     person_rejected: DecisionTaken | None = None
     #: Integration's issued state, recorded in this window before its session was spawned.
     issued: IntegrationStateIssued | None = None
+    #: A person's choice of the domain's value that resized this attempt; never forgotten by a
+    #: restart.
+    resized: DecisionTaken | None = None
 
     def restart(self, cursor: Stage | None) -> None:
         """Forget everything the attempt did after ``cursor``."""
@@ -186,7 +191,9 @@ class SubtaskState:
     """One planned subtask and every attempt made at it."""
 
     plan: SubtaskPlanned
-    status: Literal["planned", "removed", "active", "done", "escalated", "rejected"] = "planned"
+    status: Literal["planned", "removed", "active", "waiting", "done", "escalated", "rejected"] = (
+        "planned"
+    )
     attempts: list[AttemptState] = field(default_factory=list)
     #: The attempt number a ``resolve`` may start or restart now, if any.
     next_resolve: int | None = 1
@@ -201,6 +208,9 @@ class SubtaskState:
     reviews: list[ReviewRan] = field(default_factory=list)
     #: Why the subtask is ending without a merge, until its ``subtask_rejected`` line is written.
     ending: Literal["person", "fix_not_accepted"] | None = None
+    #: The domain's values a person chose on the subtask's items, for sizing's closing pass to
+    #: write: what the attempt's rulings are held to when it returns.
+    chosen: list[ChosenValue] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -219,6 +229,8 @@ class Step:
         "halt",
         "halted",
         "escalated",
+        "wait",
+        "return",
         "done",
     ]
     subtask_id: str | None = None
@@ -232,13 +244,23 @@ def at_a_boundary(step: Step) -> bool:
     Between subtasks, at the integration call, or at the end of the run (ARCH-133). The loop
     takes decisions only where this holds, and the replay refuses one taken anywhere else.
     """
-    if step.kind in ("integrate", "done", "escalated"):
+    if step.kind in ("integrate", "done", "escalated", "wait"):
         return True
     return step.kind == "attempt" and step.point == "resolve"
 
 
 def _refuse(message: str) -> NoReturn:
     raise ValueError(message)
+
+
+def _same(a: QuantityRef, b: QuantityRef) -> bool:
+    """The same value exactly, in a unit the gate's parser reads as the same items."""
+    from physgate.gate.units import UnitRefusedError, parse
+
+    try:
+        return a.value == b.value and parse(1, a.unit).unit_items() == parse(1, b.unit).unit_items()
+    except UnitRefusedError:
+        return False
 
 
 def _item_id(run_id: str, subtask_id: str, round_: int) -> str:
@@ -257,6 +279,8 @@ class RunState:
         #: The escalation backend the run's first line names; ``None`` on a log written
         #: before the escalation interface existed.
         self.escalation_backend: str | None = None
+        #: Whether the run acts on a person's decisions, as its first line says.
+        self.acts = False
         self.order: list[str] = []
         self.subtasks: dict[str, SubtaskState] = {}
         self.halted: Halted | None = None
@@ -343,6 +367,7 @@ class RunState:
         if isinstance(event, RunStarted):
             self.gate_mode = event.gate_mode
             self.escalation_backend = event.escalation_backend
+            self.acts = event.queue_decisions == "act"
             return
         if isinstance(event, Halted):
             self.halted = self.last_halt = event
@@ -437,6 +462,12 @@ class RunState:
             return
         if isinstance(event, StageEntered) and event.stage == "resolve":
             self._resolve(sub, event.attempt)
+            return
+        if isinstance(event, AttemptReturned) or (
+            isinstance(event, SubtaskRejected)
+            and (sub.status == "waiting" or event.by == "closing_pass")
+        ):
+            self._back(sub, event)
             return
         if sub.status != "active" or not sub.attempts:
             _refuse(f"subtask {event.subtask_id!r} has no attempt in progress")
@@ -724,8 +755,9 @@ class RunState:
             (line.conflict, line.level) for a in sub.attempts[:-1] for line in a.arbitrations
         ]
         gate = now.gate.result if isinstance(now.gate, GateRan) else None
+        chosen = self.chosen_holds(sub.plan.subtask_id, disputed, event.held)
         standing = dispute_standing(
-            conflict, gate=gate, earlier=earlier, attempt=now.number, fix=now.fix
+            conflict, gate=gate, earlier=earlier, attempt=now.number, fix=now.fix, chosen=chosen
         )
         if event.standing != standing:
             _refuse("an arbitration about a standing the lines before it do not give")
@@ -1000,6 +1032,11 @@ class RunState:
             now.approved = event
             now.cursor = "decide"
             return
+        if event.effect == "resize":
+            sub.status = "waiting"
+            now.resized = event
+            sub.chosen += values_chosen(sub, event.item_id)
+            return
         now.person_rejected = event
         if event.effect == "retry":
             sub.next_resolve = after_rejection(now.number)
@@ -1024,6 +1061,84 @@ class RunState:
             return True
         return skipped.reason == "gate_mode=off" and any(
             self.subtasks[s].status != "done" for s in self.integrated()
+        )
+
+    def _back(self, sub: SubtaskState, event: AttemptReturned | SubtaskRejected) -> None:
+        """A waiting subtask's attempt returns once the closing pass merged, or ends once it ended.
+
+        Once, for the attempt that waits and the item its resize was chosen on. The return takes
+        the attempt back to its completed session: what it did after that is judged again.
+        """
+        if sub.status != "waiting":
+            _refuse("only a waiting subtask returns to the gate, or ends with the closing pass")
+        now = sub.attempts[-1]
+        closing = self.subtasks[self.closing_pass() or sub.plan.subtask_id].status
+        item = now.resized.item_id if now.resized is not None else None
+        if isinstance(event, SubtaskRejected):
+            ended = event.by == "closing_pass" and closing in ("rejected", "removed")
+            if not ended or (event.attempt, event.item_id) != (now.number, item):
+                _refuse("a waiting subtask ends only with the closing pass, naming its item")
+            sub.status = "rejected"
+            return
+        if closing != "done" or (event.attempt, event.item_id) != (now.number, item):
+            _refuse("an attempt returns once the closing pass merged, for the item that resized it")
+        sub.status = "active"
+        now.restart("spawn")
+        now.routed = now.decided = None
+        sub.next_resolve = None
+        self._ledger(sub.plan.subtask_id, gate_result=None, review_result=None)
+
+    def closing_pass(self) -> str | None:
+        """Sizing's closing pass: the subtask planned in a module directory an earlier one holds.
+
+        ``None`` with none planned, or with more than one, where no one of them carries a choice.
+        """
+        seen: set[str] = set()
+        found: list[str] = []
+        for subtask_id in self.integrated():
+            directory = self.subtasks[subtask_id].plan.module_dir
+            if directory in seen:
+                found.append(subtask_id)
+            seen.add(directory)
+        return found[0] if len(found) == 1 else None
+
+    def _waits(self, subtask_id: str) -> bool:
+        """The closing pass waits, in a run that acts, before its first attempt, for every item.
+
+        Every arbitration item without a decision taken, or with one held for the operator's
+        confirmation and not yet confirmed.
+        """
+        if not self.acts or subtask_id != self.closing_pass():
+            return False
+        for sub in self.subtasks.values():
+            if sub.status != "escalated" or not sub.attempts or not sub.attempts[-1].queued:
+                continue
+            taken = self.taken.get(sub.queue_item or "")
+            if taken is None or (
+                taken.why_not == "held_os_layer_off" and taken.item_id not in self.confirmed
+            ):
+                return True
+        return False
+
+    def waiting_values(self) -> list[ChosenValue]:
+        """The values every waiting subtask's resize carries to the closing pass, in plan order."""
+        return [
+            value
+            for s in self.order
+            if self.subtasks[s].status == "waiting"
+            for value in self.subtasks[s].chosen
+        ]
+
+    def chosen_holds(self, subtask_id: str, disputed: QuantityRef, held: Held) -> bool:
+        """A person's resize chose ``disputed``'s value, and the dispute and the graph hold it.
+
+        The value exactly, the unit by the gate parser's items.
+        """
+        return any(
+            (value.position.node_id, value.position.name) == (disputed.node_id, disputed.name)
+            and _same(value.position, disputed)
+            and _same(value.position, held.position)
+            for value in self.subtasks[subtask_id].chosen
         )
 
     def _integrate(
@@ -1071,6 +1186,8 @@ class RunState:
             )
         if sub.status not in ("planned", "active") or sub.next_resolve != attempt:
             _refuse(f"attempt {attempt} of {sub.plan.subtask_id!r} cannot start now")
+        if sub.status == "planned" and self._waits(sub.plan.subtask_id):
+            _refuse("sizing's closing pass waits while a dispute's item is undecided")
         if not sub.attempts or sub.attempts[-1].number != attempt:
             if any(a.fix for a in sub.attempts):
                 _refuse("the fix a person ordered is a subtask's last attempt")
@@ -1098,7 +1215,7 @@ class RunState:
             and now.changes.refused_by is None,
             "review": now.cursor == "gate"
             and self._gate_allows_review(now)
-            and not any(line.level != "gate" for line in now.arbitrations)
+            and not any(line.level not in ("gate", "person") for line in now.arbitrations)
             and ruled,
             "decide": now.cursor != "decide"
             and (self.rejection_basis(now) is not None or self.mergeable(now))
@@ -1260,8 +1377,17 @@ class RunState:
         if sub.status in ("removed", "done", "escalated", "rejected"):
             return None
         if sub.status == "planned":
+            if self._waits(subtask_id):
+                return Step("wait", subtask_id)
             return Step("attempt", subtask_id, 1, "resolve")
         now = sub.attempts[-1]
+        if sub.status == "waiting":
+            closing = self.subtasks[self.closing_pass() or subtask_id].status
+            if closing == "done":
+                return Step("return", subtask_id, now.number)
+            if closing in ("rejected", "removed"):
+                return Step("end_subtask", subtask_id, now.number)
+            return None
         if sub.ending is not None:
             return Step("end_subtask", subtask_id, now.number)
         if now.approved is not None:

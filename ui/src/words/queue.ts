@@ -174,6 +174,9 @@ export const CHOOSE_WORDS: Readonly<Record<OnChoose, string>> = {
     "value as the graph holds it and your note if you write one. It is the subtask's last " +
     "attempt; if it is not accepted, the subtask ends rejected.",
   end_subtask: "Choose: the subtask ends rejected, and nothing of it is merged.",
+  resize:
+    "Choose: the subtask waits while sizing's closing pass is ordered to write the domain's value " +
+    "into the graph; once that pass is merged, this attempt is judged again, with no new session.",
   record_only: "Choose: the decision is recorded, and nothing in the run acts on it.",
 };
 
@@ -250,6 +253,9 @@ export function takenWords(t: Taken): string {
     retry: "The run took it: the next attempt was ordered, told what the decision said.",
     fix: "The run took it: one fix was ordered.",
     end_subtask: "The run took it: the subtask ended rejected.",
+    resize:
+      "The run took it: the subtask waits while sizing's closing pass is ordered to write the " +
+      "domain's value.",
     none: "The run took it; it changed nothing.",
   };
   const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;

@@ -117,8 +117,9 @@ WhyRecordOnly = Literal[
 ]
 Sha1 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 #: What choosing a position does: order the next attempt to the graph's value, order the one fix
-#: to it, end the subtask, or record the decision only.
-OnChoose = Literal["retry", "fix", "end_subtask", "record_only"]
+#: to it, end the subtask, resize (the subtask waits for sizing's closing pass, ordered to write
+#: the domain's value, then returns to the gate), or record the decision only.
+OnChoose = Literal["retry", "fix", "end_subtask", "resize", "record_only"]
 #: The positions each kind of item offers, in the order the item states them: an arbitration's
 #: sizing (the graph's value stands) and domain (the disputing subtask's). No other kind offers any.
 POSITIONS: Mapping[QueueSource, tuple[Position, ...]] = {"arbitration": ("sizing", "domain")}
@@ -606,13 +607,13 @@ def arbitration_item(
             f"{measure(position.value, position.unit)}."
             for position, held, writer, _, _ in rulings
         ),
-        quantities=tuple(h.position for h, _ in queued if _parses(h.position))[:3],
+        quantities=tuple(h.position for h, _ in queued if parses(h.position))[:3],
         trajectories=trajectories,
         consequence=consequence,
     )
 
 
-def _parses(position: QuantityRef) -> bool:
+def parses(position: QuantityRef) -> bool:
     """Whether the gate's parser takes ``position``'s unit: no other is shown on an item."""
     from physgate.gate.units import UnitRefusedError, parse
 

@@ -139,10 +139,24 @@ class SessionTrajectory(_Frozen):
 
 #: What a person ordered an attempt to be: the one fix after a review that blocked, or a retry
 #: after a person's reject; or, on an arbitration item, the next attempt or the one fix a person
-#: ordered by choosing sizing's value.
+#: ordered by choosing sizing's value; or sizing's closing pass, ordered to write the values a
+#: person chose by choosing the domain's.
 PersonOrderKind = Literal[
-    "fix_after_block", "retry_after_reject", "retry_after_arbitration", "fix_after_arbitration"
+    "fix_after_block",
+    "retry_after_reject",
+    "retry_after_arbitration",
+    "fix_after_arbitration",
+    "arbitration_value",
 ]
+
+
+class ChosenValue(_Frozen):
+    """A domain's value a person chose on an arbitration item: the dispute's typed position."""
+
+    item_id: NonEmptyStr
+    subtask_id: NonEmptyStr
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
+    position: QuantityRef
 
 
 class PersonOrder(_Frozen):
@@ -155,9 +169,29 @@ class PersonOrder(_Frozen):
 
     kind: PersonOrderKind
     item_id: NonEmptyStr
-    #: The attempt the person decided on; this attempt is the next.
+    #: The attempt the person decided on; this attempt is the next. For the closing pass's
+    #: values, the first chosen value's item and attempt.
     of_attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
     instruction: NonEmptyStr
+    #: The closing pass's values, in order; left out of every other order, which keeps its bytes.
+    chosen: tuple[ChosenValue, ...] = ()
+
+    @model_validator(mode="after")
+    def _values_with_their_kind(self) -> PersonOrder:
+        first = self.chosen[0] if self.chosen else None
+        if (self.kind == "arbitration_value") != (first is not None) or (
+            first is not None and (first.item_id, first.attempt) != (self.item_id, self.of_attempt)
+        ):
+            msg = "the closing pass's order carries its values, led by its own item, and no other"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_no_values(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.chosen:
+            data.pop("chosen", None)
+        return data
 
 
 class Artefact(_Frozen):

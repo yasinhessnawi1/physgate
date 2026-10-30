@@ -667,6 +667,12 @@ def person_order_text(order: PersonOrder) -> bytes:
             "This attempt is the retry a person ordered by choosing sizing's value on the dispute "
             f"of attempt {order.of_attempt} (queue item {order.item_id})."
         )
+    elif order.kind == "arbitration_value":
+        ids = list(dict.fromkeys(value.item_id for value in order.chosen))
+        head = (
+            "This attempt is sizing's closing pass, ordered to write the values a person chose on "
+            f"queue item{'' if len(ids) == 1 else 's'} {', '.join(ids)}."
+        )
     elif order.kind == "fix_after_arbitration":
         head = (
             "This attempt is the single fix a person ordered by choosing sizing's value on the "

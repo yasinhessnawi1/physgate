@@ -176,6 +176,7 @@ class RunRecord:
             **envelope(),
             config_sha256=self.config.sha256(),
             escalation_backend=self.config.escalation_backend,
+            queue_decisions="act" if self.config.queue_decisions == "act" else None,
         )
         if call is not None:
             for message in call.usage:

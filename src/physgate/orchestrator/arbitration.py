@@ -6,9 +6,11 @@ it is read in, and the first row of the precedence table that applies decides it
 
 1. ``gate``: the physics gate refused the attempt where it blocks. The gate's rejection stands;
    the dispute is recorded and is not counted.
-2. ``sizing``: the first counted dispute of the quantity, with an attempt of the subtask left.
+2. ``person``: a person chose the domain's value of the quantity, and both the dispute and the
+   graph hold it as chosen. The dispute stands decided, and the attempt goes on to review.
+3. ``sizing``: the first counted dispute of the quantity, with an attempt of the subtask left.
    Sizing's value stands, and the attempt is rejected before any review.
-3. ``queue``: what survives both, a repeat of a quantity counted before or a dispute on the
+4. ``queue``: what survives the rest, a repeat of a quantity counted before or a dispute on the
    subtask's last attempt, goes to a person as one item.
 
 The table is data, and :func:`require_table` holds its shape: each level named once, and the
@@ -23,9 +25,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from physgate.orchestrator.budget import after_rejection
 from physgate.orchestrator.common import NonEmptyStr
@@ -34,10 +42,10 @@ from physgate.orchestrator.protocols import GateResult, QuantityRef
 
 #: The levels a ruling is recorded at, by name, in the table's order: the name is what a line
 #: holds, so a row inserted later does not renumber the lines written before it.
-Level = Literal["gate", "sizing", "queue"]
-#: What each level does to the attempt: the gate's rejection stands; the attempt is rejected
-#: with sizing's value; or the subtask goes to a person.
-Effect = Literal["gate_stands", "reject_attempt", "queue_item"]
+Level = Literal["gate", "person", "sizing", "queue"]
+#: What each level does to the attempt: the gate's rejection stands; the person's choice stands;
+#: the attempt is rejected with sizing's value; or the subtask goes to a person.
+Effect = Literal["gate_stands", "person_stands", "reject_attempt", "queue_item"]
 
 
 class _Frozen(BaseModel):
@@ -66,6 +74,16 @@ class Standing(_Frozen):
     counted_before: Annotated[int, Field(ge=0)]
     #: Whether the subtask has an attempt after this one.
     attempt_left: bool
+    #: A person chose the domain's value of the quantity, and the dispute and the graph both hold
+    #: it as chosen. Left out of a line where it does not hold, so older lines keep their bytes.
+    chosen: bool = False
+
+    @model_serializer(mode="wrap")
+    def _omit_unchosen(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.chosen:
+            data.pop("chosen", None)
+        return data
 
 
 class Held(_Frozen):
@@ -89,6 +107,10 @@ def _gate_refused(_: Conflict, standing: Standing) -> bool:
     return standing.gate_refused
 
 
+def _person_stands(_: Conflict, standing: Standing) -> bool:
+    return standing.chosen
+
+
 def _sizing_stands(conflict: Conflict, standing: Standing) -> bool:
     return conflict.kind == "dispute" and standing.counted_before == 0 and standing.attempt_left
 
@@ -107,9 +129,10 @@ class Rank:
     applies: Callable[[Conflict, Standing], bool]
 
 
-#: The precedence, highest first (ARCH-040): physics, then sizing, then a person.
+#: The precedence, highest first (ARCH-040): physics, a person's choice, sizing, then a person.
 TABLE: tuple[Rank, ...] = (
     Rank(level="gate", effect="gate_stands", applies=_gate_refused),
+    Rank(level="person", effect="person_stands", applies=_person_stands),
     Rank(level="sizing", effect="reject_attempt", applies=_sizing_stands),
     Rank(level="queue", effect="queue_item", applies=always),
 )
@@ -160,14 +183,16 @@ def dispute_standing(
     earlier: Iterable[tuple[Conflict, str]],
     attempt: int,
     fix: bool,
+    chosen: bool = False,
 ) -> Standing:
     """The standing of a dispute in ``attempt``, from the record's lines about the subtask.
 
     ``gate`` is the attempt's gate result, ``None`` where the gate was skipped; ``earlier`` the
     conflicts and levels ruled in the subtask's earlier attempts; ``fix`` whether this attempt is
-    the one fix a person ordered, which is always the last.
+    the one fix a person ordered, which is always the last; ``chosen`` whether a person's choice
+    of the domain's value holds for it (``RunState.chosen_holds``).
     """
     refused = gate is not None and gate.mode == "on" and gate.verdict == "fail"
     counted = sum(1 for seen, level in earlier if seen == conflict and level != NOT_COUNTED)
     left = not fix and after_rejection(attempt) is not None
-    return Standing(gate_refused=refused, counted_before=counted, attempt_left=left)
+    return Standing(gate_refused=refused, counted_before=counted, attempt_left=left, chosen=chosen)
