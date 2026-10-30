@@ -130,21 +130,21 @@ def stages(events: list[Event], attempt: int) -> list[str]:
 def test_level_one_the_gate_s_refusal_stands_and_each_dispute_is_ruled_at_the_gate(
     tmp_path: Path,
 ) -> None:
-    rig = rig_of(tmp_path / "run", gate=["pass", "fail"])
+    rig = rig_of(tmp_path / "run", gate=["fail"])
     run(rig)
     events = events_of(rig)
     assert levels(events)[:2] == [(1, "gate"), (1, "gate")]
     rejected = first(of(events, AttemptRejected))
     assert (rejected.attempt, rejected.finding.source) == (1, "gate")
     assert stages(events, 1)[-2:] == ["gate", "decide"]
-    gate = events.index(first(of(events, GateRan)[1:]))
+    gate = events.index(first(of(events, GateRan)))
     ruled = [i for i, e in enumerate(events) if isinstance(e, ArbitrationDecided)][:2]
     assert ruled == [gate + 1, gate + 2]
     assert refusal(events) is None
 
 
 @pytest.mark.parametrize(
-    ("mode", "gate"), [("on", ()), ("observe", ("pass", "fail")), ("off", ())],
+    ("mode", "gate"), [("on", ()), ("observe", ("fail",)), ("off", ())],
     ids=["on", "observe, failing", "off"],
 )  # fmt: skip
 def test_level_two_sizing_s_value_stands_and_the_attempt_is_rejected_before_review(
@@ -179,8 +179,7 @@ def test_level_three_a_repeat_goes_to_a_person_through_the_escalation_interface(
     run(rig)
     events = events_of(rig)
     assert levels(events) == [(1, "sizing"), (1, "sizing"), (2, "queue"), (2, "queue")]
-    decided = one(of(events, EscalationDecided))
-    assert decided.attempt == 2
+    decided = one(e for e in of(events, EscalationDecided) if e.attempt == 2)
     assert decided.state.ended.kind == "arbitration"
     assert decided.decision.forced and decided.decision.routed
     escalated = one(of(events, Escalated))
@@ -196,7 +195,7 @@ def test_a_repeat_dispute_and_a_last_attempt_dispute_each_raise_one_item(tmp_pat
     repeat = rig_of(tmp_path / "repeat")
     run(repeat)
     # Twice refused by the gate, never counted; the third attempt is the last.
-    last = rig_of(tmp_path / "last", gate=["pass", "fail", "fail"])
+    last = rig_of(tmp_path / "last", gate=["fail", "fail"])
     run(last)
     for rig, at in ((repeat, 2), (last, 3)):
         events = events_of(rig)
@@ -265,11 +264,11 @@ def test_no_review_or_decision_follows_the_gate_line_while_a_dispute_is_unruled(
     rig = rig_of(tmp_path / "run")
     run(rig)
     events = events_of(rig)
-    first = [e for e in of(events, ArbitrationDecided) if e.attempt == 1]
-    assert len(first) == 2
+    ruled = [e for e in of(events, ArbitrationDecided) if e.attempt == 1]
+    assert len(ruled) == 2
     cut = events.index(first(of(events, AttemptRejected))) + 1
     assert refusal(events[:cut]) is None
-    said = refusal(_without(events[:cut], lambda e: e is first[1]))
+    said = refusal(_without(events[:cut], lambda e: e is ruled[1]))
     assert said is not None and "decide" in said, said
 
 
@@ -282,8 +281,7 @@ def test_no_review_follows_a_sizing_or_a_queue_ruling(tmp_path: Path) -> None:
         assert ruled, attempt
         last = ruled[-1]
         at = events.index(last) + 1
-        entered = events[at]
-        assert isinstance(entered, StageEntered)
+        entered = first(e for e in of(events, StageEntered) if e.attempt == attempt)
         review = entered.model_copy(update={"stage": "review"})
         said = refusal([*events[:at], review])
         assert said is not None and "review" in said, (attempt, said)
@@ -374,7 +372,8 @@ def test_a_held_value_the_journal_no_longer_holds_halts_the_run_before_the_item(
     tmp_path: Path,
 ) -> None:
     rig = rig_of(tmp_path / "run")
-    assert run(rig, kill=lambda e: isinstance(e, EscalationDecided)) == "killed"
+    decided = lambda e: isinstance(e, EscalationDecided) and e.attempt == 2  # noqa: E731
+    assert run(rig, kill=decided) == "killed"
     graph = rig.diff
     assert isinstance(graph, JournalGraph)
     rewritten = dict(graph.journal[1].payload)

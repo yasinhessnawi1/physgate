@@ -2,7 +2,8 @@
 
 The canonical journal is a list the fake graph serves: revision 1 is the bus node as it stood
 before the run, and a sizing subtask planned first writes it again at revision 2. ``s1`` is the
-domain subtask, whose change checks read the disputes ``script`` gives, one entry per check.
+domain subtask, which the gate judges by attempt (``gate`` lists its verdicts), and whose change
+checks read the disputes ``script`` gives, one entry per check.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from loop_fakes import (
     FakeGraph,
     FakeReviewer,
     Rig,
+    failing_gate_result,
+    passing_gate_result,
 )
 from test_a_queue_decision_acts_at_a_boundary import _layer
 
@@ -27,7 +30,7 @@ from physgate.orchestrator.events import Event, parse_events, read_events
 from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.ports import ChangeCheck
-from physgate.orchestrator.protocols import QuantityRef
+from physgate.orchestrator.protocols import Artefact, GateResult, QuantityRef, RunningGateMode
 from physgate.orchestrator.record import DecompositionSummary, PlanEntry
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import ModelStrings
@@ -104,6 +107,19 @@ class JournalGraph(FakeGraph):
             JournalLine(rev=rev, op=op, node_id=node, version=version, payload=payload)  # type: ignore[arg-type]
         )
         return rev
+
+
+@dataclass
+class PerAttempt(FakeGate):
+    """The gate's verdict on ``s1`` by attempt, the same however often an attempt is judged."""
+
+    def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
+        self.seen.append(artefact)
+        at = artefact.attempt - 1
+        failing = artefact.subtask_id == "s1" and at < len(self.verdicts)
+        if failing and self.verdicts[at] == "fail":
+            return failing_gate_result(mode)
+        return passing_gate_result(mode)
 
 
 @dataclass
@@ -184,7 +200,7 @@ def rig_of(
     return Rig(
         run_dir,
         gate_mode=mode,  # type: ignore[arg-type]
-        gate=FakeGate(verdicts=list(gate)),
+        gate=PerAttempt(verdicts=list(gate)),
         reviewer=reviewer or FakeReviewer(verdicts=list(review)),
         dispatcher=Streaming(trajectories=run_dir / "sessions"),
         changes=Scripted(script=list(script)),
@@ -222,7 +238,7 @@ def run(rig: Rig, *, sizing: bool = True, kill: Callable[[Event], bool] | None =
                 raise KilledByRowError
             emit(line)
 
-        loop._emit = dies  # type: ignore[method-assign]
+        setattr(loop, "_emit", dies)  # noqa: B010 - a process that dies at a line
         try:
             loop.run()
         except KilledByRowError:

@@ -72,14 +72,14 @@ def _fixed(rig: Any) -> Any:  # noqa: ANN401 - the rig
 #: Each branch: how its rig is made and driven, and the levels its attempts are ruled at.
 BRANCHES: dict[str, tuple[dict[str, Any], Callable[[Any], Any] | None, list[tuple[int, str]]]] = {
     "L1 on, then L2, then L3 on the last attempt": (
-        {"gate": ["pass", "fail"]}, None,
+        {"gate": ["fail"]}, None,
         [(1, "gate"), (1, "gate"), (2, "sizing"), (2, "sizing"), (3, "queue"), (3, "queue")],
     ),
     "L2 on, then L3 on a repeat": (
         {}, None, [(1, "sizing"), (1, "sizing"), (2, "queue"), (2, "queue")],
     ),
     "L2 observe, failing, then L3": (
-        {"mode": "observe", "gate": ["pass", "fail"]}, None,
+        {"mode": "observe", "gate": ["fail"]}, None,
         [(1, "sizing"), (1, "sizing"), (2, "queue"), (2, "queue")],
     ),
     "L2 off, then L3": (
@@ -177,10 +177,10 @@ KILLS: dict[str, tuple[dict[str, Any], Callable[[], Callable[[Event], bool]] | s
         {}, lambda: _nth(StageEntered, stage="decide", subtask_id="s1"),
     ),
     "K4 decide, rejection": ({}, lambda: _nth(AttemptRejected, 1)),
-    "K5 last queue ruling, decision": ({}, lambda: _nth(EscalationDecided, 1)),
+    "K5 last queue ruling, decision": ({}, lambda: _nth(EscalationDecided, 2)),
     "K6 decision, item": ({}, "item"),
     "K7 item, escalated": ({}, lambda: _nth(Escalated, 1)),
-    "L1 gate ruling, rejection": ({"gate": ["pass", "fail"]}, lambda: _nth(AttemptRejected, 1)),
+    "L1 gate ruling, rejection": ({"gate": ["fail"]}, lambda: _nth(AttemptRejected, 1)),
 }  # fmt: skip
 
 
