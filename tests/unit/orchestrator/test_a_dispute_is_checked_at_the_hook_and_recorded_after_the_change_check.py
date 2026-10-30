@@ -42,6 +42,7 @@ from physgate.orchestrator.events import (  # noqa: E402
     Event,
     ProposalsChecked,
     StageEntered,
+    parse_events,
     read_events,
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError  # noqa: E402
@@ -49,6 +50,7 @@ from physgate.orchestrator.git import merge_base  # noqa: E402
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt  # noqa: E402
 from physgate.orchestrator.ports import ChangeCheck  # noqa: E402
 from physgate.orchestrator.protocols import QuantityRef  # noqa: E402
+from physgate.orchestrator.queue import QueueItem, unavailable_item  # noqa: E402
 from physgate.orchestrator.record import PlanEntry  # noqa: E402
 from physgate.orchestrator.replay import replay  # noqa: E402
 from physgate.orchestrator.run_config import ModelStrings  # noqa: E402
@@ -56,7 +58,10 @@ from physgate.reviewers import packet  # noqa: E402
 
 PATH = ".physgate/disputes/sizing.bus.supply_voltage.json"
 OTHER = ".physgate/disputes/sizing.bus.peak_current.json"
+DISPUTES = ".physgate/disputes"
 REASON = "the driver needs 24 V at the stall current"
+#: A value no float holds: 400 digits, kept exact from the file to the record and back.
+BIG = 10**399 + 7
 PLANNED = {"s1": "modules/s1", "s2": "modules/s2", "siz": "modules/siz", "integ": "modules/integ"}
 
 _ENV = {
@@ -196,7 +201,53 @@ REFUSED: dict[str, tuple[str, bytes, str, str]] = {
         "control",
         dispute.UNIT,
     ),
+    # Characters that change how the text around them reads, or read as a line's end: a format
+    # character (a direction override, a zero-width one, a byte-order mark), a line or paragraph
+    # separator, a private-use character, and a noncharacter, in the plane-0 block and the last
+    # code point. A person reads the reason on an item; none of these is a word to them.
+    "a reason with a direction override": (
+        PATH,
+        body(reason="a\u202eb"),
+        "control",
+        dispute.REASON,
+    ),
+    "a reason with a zero-width space": (PATH, body(reason="a\u200bb"), "control", dispute.REASON),
+    "a reason with a byte-order mark": (PATH, body(reason="\ufeffab"), "control", dispute.REASON),
+    "a reason with a line separator": (PATH, body(reason="a\u2028b"), "control", dispute.REASON),
+    "a reason with a paragraph separator": (
+        PATH,
+        body(reason="a\u2029b"),
+        "control",
+        dispute.REASON,
+    ),
+    "a reason with a private-use character": (
+        PATH,
+        body(reason="a\ue000b"),
+        "control",
+        dispute.REASON,
+    ),
+    "a reason with a noncharacter": (PATH, body(reason="a\ufffeb"), "control", dispute.REASON),
+    "a reason with a noncharacter of the block": (
+        PATH,
+        body(reason="a\ufdd0b"),
+        "control",
+        dispute.REASON,
+    ),
+    "a reason with the last code point": (
+        PATH,
+        body(reason="a\U0010ffffb"),
+        "control",
+        dispute.REASON,
+    ),
+    "a unit with a zero-width joiner": (PATH, body(unit="V\u200d"), "control", dispute.UNIT),
+    "a unit with a line separator": (PATH, body(unit="V\u2028"), "control", dispute.UNIT),
+    "a unit with a private-use character": (PATH, body(unit="\ue000"), "control", dispute.UNIT),
+    "a unit with a noncharacter": (PATH, body(unit="V\uffff"), "control", dispute.UNIT),
 }
+
+#: Cases the change check refuses before it reads a dispute: a path one directory further in is
+#: a write outside the module, as any other path under the directory but its own files.
+OUT_OF_SCOPE = ("one directory further in",)
 
 
 @pytest.mark.parametrize("case", REFUSED)
@@ -237,8 +288,20 @@ def test_what_the_models_refuse_past_the_parser_s_own_rules_is_a_refusal_naming_
         (body(), 24, REASON),
         (body(value=23.5), 23.5, REASON),
         (body(value=-1, reason="r" * 500), -1, "r" * 500),
+        (
+            body(reason="24\u00a0V, \u00e9t\u00e9, \u03a9, \U0001f642"),
+            24,
+            "24\u00a0V, \u00e9t\u00e9, \u03a9, \U0001f642",
+        ),
+        (body(value=BIG), BIG, REASON),
     ],
-    ids=["an integer", "a float", "a negative value, the reason at its bound"],
+    ids=[
+        "an integer",
+        "a float",
+        "a negative value, the reason at its bound",
+        "letters, symbols and a no-break space",
+        "a 400-digit integer",
+    ],
 )
 def test_a_well_formed_dispute_is_its_position_and_its_reason(
     data: bytes, value: float, reason: str
@@ -246,6 +309,7 @@ def test_a_well_formed_dispute_is_its_position_and_its_reason(
     read = parse(PATH, data, "control", nodes())
     position = QuantityRef(node_id="sizing.bus", name="supply_voltage", value=value, unit="V")
     assert read == Dispute(position=position, reason=reason)
+    assert type(read.position.value) is type(value)
 
 
 def test_with_no_owner_of_the_cross_nodes_registered_every_other_role_disputes(
@@ -452,7 +516,7 @@ def test_an_attempt_without_a_dispute_disputes_nothing(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "case",
-    [c for c in REFUSED if REFUSED[c][2] == "control"],
+    [c for c in REFUSED if REFUSED[c][2] == "control" and c not in OUT_OF_SCOPE],
 )
 def test_a_malformed_dispute_is_refused_at_the_change_check_as_the_dispute_s(
     tmp_path: Path, case: str
@@ -574,6 +638,7 @@ def test_the_merge_leaves_the_disputes_out_and_a_later_worktree_starts_without_t
 ) -> None:
     run, commit = attempt(tmp_path, "s1", {PATH: body(reason="the merge's canary")})
     merged = _merged(run, "s1", commit)
+    assert not merged.startswith("raised"), merged
     assert _git(run.repo, "rev-parse", f"{merged}^2") == commit
     files = _git(run.repo, "ls-tree", "-r", "--name-only", merged).splitlines()
     assert "modules/s1/notes.md" in files
@@ -591,7 +656,8 @@ def test_two_subtasks_disputing_one_quantity_on_open_branches_both_merge(tmp_pat
     _, second = attempt(tmp_path, "s2", {PATH: body(value=30, reason="another")}, number=2)
     check = checker(tmp_path, run)
     assert check.check("s1", first, "control").disputes == (disputed(24),)
-    _merged(run, "s1", first)
+    merged_first = _merged(run, "s1", first)
+    assert not merged_first.startswith("raised"), merged_first
     # The second subtask's dispute is read from its own commit, whatever the first merged.
     assert [d.position.value for d in check.check("s2", second, "control").disputes] == [30]
     merged = _merged(run, "s2", second)
@@ -610,6 +676,295 @@ def test_the_reviewer_s_diff_and_export_leave_the_disputes_out(tmp_path: Path) -
     assert (exported / "modules" / "s1" / "notes.md").exists()
     assert not (exported / ".physgate" / "disputes").exists()
     assert count == len([p for p in exported.rglob("*") if p.is_file()])
+
+
+# --- a name or a text that is not UTF-8 ---------------------------------------------------------
+
+
+def with_raw_name(repo: Path, commit: str, name: bytes, data: bytes) -> str:
+    """A commit on top of ``commit`` that adds ``data`` at ``name``, bytes git takes as they are.
+
+    Built with git's plumbing and an index of its own: a macOS file system refuses such a name
+    in a working tree, where Linux, on which runs are made, takes it.
+    """
+    env = {**_ENV, "GIT_INDEX_FILE": str(repo.parent / "raw-index")}
+
+    def run(*args: str | bytes, stdin: bytes | None = None) -> str:
+        done = subprocess.run(
+            ["git", *args], cwd=repo, env=env, input=stdin, capture_output=True, check=True
+        )
+        return done.stdout.decode().strip()
+
+    blob = run("hash-object", "-w", "--stdin", stdin=data)
+    run("read-tree", commit)
+    run("update-index", "--add", "--cacheinfo", b"100644," + blob.encode() + b"," + name)
+    tree = run("write-tree")
+    return run("commit-tree", tree, "-p", commit, "-m", "a name that is not UTF-8")
+
+
+#: Names that are not UTF-8, in the disputes directory and in the module's own directory.
+RAW_NAMES = {
+    "a dispute": (b".physgate/disputes/sizing.bus.supply_voltage\xff.json", body()),
+    "a module file": (b"modules/s1/n\xff.md", b"notes\n"),
+}
+
+
+def checked_line(check: ChangeCheck) -> str:
+    """The line the loop writes for ``check``, serialised as the log holds it."""
+    line = ProposalsChecked(
+        seq=1,
+        ts="2026-10-30T00:00:00Z",
+        run_id="r1",
+        gate_mode="on",
+        subtask_id="s1",
+        attempt=1,
+        checked_commit="0" * 40,
+        **check.model_dump(exclude={"declaration", "disputes", "series_checks", "proposed"}),
+    )
+    return line.model_dump_json()
+
+
+@pytest.mark.parametrize("case", RAW_NAMES)
+def test_a_name_that_is_not_utf8_is_a_write_outside_the_module_never_a_crash(
+    tmp_path: Path, case: str
+) -> None:
+    name, data = RAW_NAMES[case]
+    run, commit = attempt(tmp_path, "s1", {})
+    raw = with_raw_name(run.repo, commit, name, data)
+    check: ChangeCheck | str
+    try:
+        check = checker(tmp_path, run).check("s1", raw, "control")
+    except Exception as exc:  # noqa: BLE001 - any escape is the finding: a refusal is the contract
+        check = f"raised {type(exc).__name__}: {exc}"
+    assert isinstance(check, ChangeCheck), check
+    shown = name.decode("ascii", "backslashreplace")
+    assert (check.refused_by, check.subject, check.disputes) == ("write_scope", shown, ())
+    assert f"{shown} (not a UTF-8 name)" in str(check.reason)
+    # The line the record would hold is text any reader decodes: the name is shown escaped.
+    assert shown in json.loads(checked_line(check))["subject"]
+
+
+class _RealChecks(FakeChanges):
+    """The loop's change check as the real checker answers it, for one committed attempt."""
+
+    def __init__(self, real: GitChangeChecker, commit: str) -> None:
+        super().__init__()
+        self._real, self._commit = real, commit
+
+    def check(
+        self,
+        subtask_id: str,
+        attempt_commit: str,
+        role: str,
+        *,
+        series: Any = None,
+    ) -> ChangeCheck:
+        self.calls += 1
+        return self._real.check(subtask_id, self._commit, role, series=series)
+
+
+def test_a_run_killed_at_a_name_that_is_not_utf8_resumes_past_it_as_a_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    name, data = RAW_NAMES["a module file"]
+    run, commit = attempt(tmp_path / "git", "s1", {})
+    raw = with_raw_name(run.repo, commit, name, data)
+    changes = _RealChecks(checker(tmp_path / "git", run), raw)
+    models = ModelStrings(
+        decomposition="claude-sonnet-5",
+        roles={"electrical": "claude-sonnet-5"},
+        reviewers={"electrical": "claude-opus-5-5"},
+    )
+    rig = Rig(tmp_path / "loop", changes=changes, config_overrides={"models": models})
+    (tmp_path / "loop").mkdir()
+    loop = rig.open()
+    emit = loop._emit  # noqa: SLF001 - the loop's own writer
+
+    def dies_at_the_check_s_line(line: Event) -> None:
+        if isinstance(line, ProposalsChecked):
+            raise KilledError
+        emit(line)
+
+    monkeypatch.setattr(loop, "_emit", dies_at_the_check_s_line)
+    loop.start(plan("s1"))
+    escaped: Exception | None = None
+    try:
+        loop.run()
+    except KilledError:
+        pass
+    except Exception as exc:  # noqa: BLE001 - a crash before the line is the finding
+        escaped = exc
+    if escaped is None:
+        try:
+            rig.open().resume()
+        except Exception as exc:  # noqa: BLE001 - a resume that cannot go on is the finding
+            escaped = exc
+    assert escaped is None, repr(escaped)
+    events = read_events(tmp_path / "loop" / "events.jsonl")
+    resumed = next(i for i, e in enumerate(events) if e.kind == "resumed")
+    checks = [e for e in events[resumed:] if isinstance(e, ProposalsChecked)]
+    assert checks
+    assert {(c.refused_by, c.subject) for c in checks} == {("write_scope", "modules/s1/n\\xff.md")}
+    replay(events)
+
+
+def test_the_queue_item_s_diff_of_a_text_that_is_not_utf8_is_shown_and_rebuilt_equal(
+    tmp_path: Path,
+) -> None:
+    # git takes a file with no NUL byte as text, so its patch carries the bytes as they are.
+    run, commit = attempt(tmp_path, "s1", {"modules/s1/latin.txt": b"caf\xe9\n"})
+    merger = GitMerger(run, removal_timeout_s=30)
+    try:
+        shown: str = merger.artefact_diff(commit)
+    except Exception as exc:  # noqa: BLE001 - any escape is the finding: the item is the contract
+        shown = f"raised {type(exc).__name__}: {exc}"
+    assert not shown.startswith("raised"), shown
+    assert "+caf�" in shown
+
+    def item(diff: str) -> QueueItem:
+        return unavailable_item(
+            item_id="r1-s1-1",
+            run_id="r1",
+            subtask_id="s1",
+            attempt=1,
+            source="review_unavailable",
+            cause="timeout",
+            detail="no verdict",
+            spec_defects=(),
+            artefact_diff=diff,
+            trajectory="t",
+            ts="2026-10-30T00:00:00Z",
+        )
+
+    # The item rebuilt at take reads the diff again, and is held equal to the line it wrote.
+    written = item(shown)
+    assert QueueItem.model_validate_json(written.model_dump_json()) == item(
+        merger.artefact_diff(commit)
+    )
+
+
+def test_a_dispute_one_directory_further_in_is_a_write_outside_the_module(
+    tmp_path: Path,
+) -> None:
+    path, data, _, _ = REFUSED["one directory further in"]
+    run, commit = attempt(tmp_path, "s1", {path: data})
+    check = checker(tmp_path, run).check("s1", commit, "control")
+    assert (check.refused_by, check.subject, check.disputes) == ("write_scope", path, ())
+
+
+def test_a_file_at_the_disputes_directory_s_own_path_is_a_write_outside_the_module_and_unread(
+    tmp_path: Path,
+) -> None:
+    run, commit = attempt(tmp_path, "s1", {DISPUTES: b"free text the reviewer sees\n"})
+    check = checker(tmp_path, run).check("s1", commit, "control")
+    assert (check.refused_by, check.subject, check.disputes) == ("write_scope", DISPUTES, ())
+    # Diff and export leave out the same paths: the directory's own path and all under it.
+    diff = packet._diff(run.repo, merge_base(run.repo, run.run_branch, commit), commit)  # noqa: SLF001
+    assert b"free text" not in diff
+    exported = tmp_path / "export"
+    packet._export(run.repo, commit, exported)  # noqa: SLF001
+    assert not (exported / DISPUTES).exists()
+    assert (exported / "modules" / "s1" / "notes.md").exists()
+
+
+# --- the unit's kind, checked where the graph's unit is known -----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("unit", "said"),
+    [
+        ("kg", "not the same kind of unit as V"),
+        ("A", "not the same kind of unit as V"),
+        ("rad", "not the same kind of unit as V"),
+        ("blorp", "blorp"),
+    ],
+    ids=["a mass", "a current", "an angle", "no unit"],
+)
+def test_a_dispute_in_a_unit_of_another_kind_is_refused_at_the_change_check(
+    tmp_path: Path, unit: str, said: str
+) -> None:
+    run, commit = attempt(tmp_path, "s1", {PATH: body(unit=unit)})
+    check: ChangeCheck | str
+    try:
+        check = checker(tmp_path, run).check("s1", commit, "control")
+    except Exception as exc:  # noqa: BLE001 - any escape is the finding: a refusal is the contract
+        check = f"raised {type(exc).__name__}: {exc}"
+    assert isinstance(check, ChangeCheck), check
+    assert (check.refused_by, check.subject, check.disputes) == ("dispute", PATH, ())
+    reason = str(check.reason)
+    assert reason.startswith(f"{PATH}: {dispute.KIND.format(unit='V')}"), reason
+    assert said in reason
+
+
+@pytest.mark.parametrize("unit", ["V", "mV", "kV"])
+def test_a_dispute_in_a_unit_of_the_node_s_own_kind_is_read_as_written(
+    tmp_path: Path, unit: str
+) -> None:
+    run, commit = attempt(tmp_path, "s1", {PATH: body(value=BIG, unit=unit)})
+    check = checker(tmp_path, run).check("s1", commit, "control")
+    assert (check.refused_by, check.disputes) == (None, (disputed(BIG, unit=unit),))
+    assert type(check.disputes[0].position.value) is int
+
+
+def test_the_hook_takes_a_unit_of_another_kind_and_never_loads_pint(tmp_path: Path) -> None:
+    # The kind needs the unit registry, which costs more to load than a hook may take: the hook
+    # holds the dispute's form, and the change check, which has the graph's unit, its kind.
+    assert through_hook(session(tmp_path, "control"), "Write", body(unit="kg")) == "allow"
+    probe = (
+        "import json, sys\n"
+        "from physgate.hooks import graph\n"
+        "from physgate.orchestrator.dispute import parse\n"
+        "node = {'id': 'sizing.bus', 'domain': 'cross', 'kind': 'component', 'quantities': "
+        "{'supply_voltage': {'value': 12, 'unit': 'V'}}}\n"
+        f"parse({PATH!r}, {body(unit='kg')!r}, 'control', {{'sizing.bus': node}})\n"
+        "print('pint' in sys.modules)\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=60
+    )
+    assert done.stdout.strip() == "False", done.stderr
+
+
+# --- the record holds a dispute as the parser does ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("field", "text"),
+    [
+        ("reason", "a‮b"),
+        ("reason", "a b"),
+        ("reason", "ab"),
+        ("reason", "a﷐b"),
+        ("unit", "V​"),
+    ],
+    ids=["a direction override", "a line separator", "private use", "a noncharacter", "unit"],
+)
+def test_a_dispute_line_holding_what_the_parser_refuses_does_not_open(
+    tmp_path: Path, field: str, text: str
+) -> None:
+    events = driven(tmp_path, {"s1": TWO})
+    lines = [e.model_dump(mode="json") for e in events]
+    honest = b"".join(json.dumps(line).encode() + b"\n" for line in lines)
+    assert len(parse_events(honest, log="events.jsonl")) == len(events)
+    first = at(events, DisputeRecorded)
+    if field == "reason":
+        lines[first]["reason"] = text
+    else:
+        lines[first]["position"]["unit"] = text
+    data = b"".join(json.dumps(line).encode() + b"\n" for line in lines)
+    try:
+        parse_events(data, log="events.jsonl")
+        opened = True
+    except CorruptEventLogError:
+        opened = False
+    assert not opened
+
+
+def test_a_400_digit_value_is_recorded_and_read_back_exact(tmp_path: Path) -> None:
+    events = driven(tmp_path, {"s1": (disputed(BIG),)})
+    read = [e for e in events if isinstance(e, DisputeRecorded)]
+    assert [e.position.value for e in read] == [BIG]
+    assert type(read[0].position.value) is int
 
 
 # --- the line, after the change check -----------------------------------------------------------
