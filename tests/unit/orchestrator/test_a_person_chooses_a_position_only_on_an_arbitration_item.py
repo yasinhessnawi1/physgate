@@ -333,22 +333,22 @@ def test_an_arbitration_item_carries_the_five_fields_and_both_positions(tmp_path
     consequence = item.consequence
     assert consequence is not None
     on_choose = getattr(consequence, "on_choose", None)
-    assert on_choose == {"sizing": "record_only", "domain": "record_only"}
+    assert on_choose == {"sizing": "retry", "domain": "record_only"}
     assert list(on_choose) == ["sizing", "domain"]
     raw = (rig.run_dir / QUEUE_NAME).read_bytes()
-    assert b'"on_choose":{"sizing":"record_only","domain":"record_only"}' in raw
+    assert b'"on_choose":{"sizing":"retry","domain":"record_only"}' in raw
 
 
 def test_an_item_whose_positions_are_not_its_kind_s_set_does_not_read(tmp_path: Path) -> None:
     rig = arbitrated(tmp_path)
     items = rig.run_dir / QUEUE_NAME
     data = items.read_bytes()
-    stated = b',"on_choose":{"sizing":"record_only","domain":"record_only"}'
+    stated = b',"on_choose":{"sizing":"retry","domain":"record_only"}'
     assert stated in data
     order = "an item states the positions its kind offers, in their order, and no others"
     for forged, says in (
-        (b',"on_choose":{"domain":"record_only","sizing":"record_only"}', order),
-        (b',"on_choose":{"sizing":"record_only"}', order),
+        (b',"on_choose":{"domain":"record_only","sizing":"retry"}', order),
+        (b',"on_choose":{"sizing":"retry"}', order),
         # Left out whole, as a line of another kind leaves it out: the form is the writer's.
         (b"", "an item whose kind offers positions states what choosing each does"),
     ):
@@ -360,10 +360,12 @@ def test_an_item_whose_positions_are_not_its_kind_s_set_does_not_read(tmp_path: 
 # --- taking it ---------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("position", ["sizing", "domain"])
+@pytest.mark.parametrize("position", ["domain"])
 def test_a_choice_is_taken_with_its_position_and_records_only(
     tmp_path: Path, position: str
 ) -> None:
+    # Choosing the domain's value records only in this build; choosing sizing's acts, and has
+    # rows of its own (``test_choosing_sizing_orders_the_next_attempt_to_the_graph_s_value``).
     rig = arbitrated(tmp_path)
     item = one(read_queue(rig.run_dir).open_items())
     chose(rig.run_dir, position, "the reason a person gives")
@@ -463,7 +465,7 @@ def _refusal_of(lines: list[dict[str, Any]]) -> str | None:
 
 def _as_choice(line: dict[str, Any], **change: Any) -> dict[str, Any]:  # noqa: ANN401
     return line | {
-        "verb": "choose", "position": "sizing", "effect": "none", "acts": False,
+        "verb": "choose", "position": "domain", "effect": "none", "acts": False,
         "why_not": "record_only_source",
     } | change  # fmt: skip
 
@@ -484,7 +486,11 @@ def _with(lines: list[dict[str, Any]], **change: Any) -> list[dict[str, Any]]:  
 def test_replay_reads_a_choice_on_an_arbitration_item(tmp_path: Path) -> None:
     lines = _approved_on_arbitration(tmp_path)
     assert _refusal_of(_with(lines)) is None
-    assert _refusal_of(_with(lines, position="domain")) is None
+    # Sizing's acts: the next attempt is ordered, so the lines the record-only run wrote after
+    # it are not this run's.
+    at = next(i for i, ln in enumerate(lines) if ln["kind"] == "decision_taken")
+    acting = {"position": "sizing", "effect": "retry", "acts": True, "why_not": None}
+    assert _refusal_of(_with(lines[: at + 1], **acting)) is None
 
 
 @pytest.mark.parametrize(

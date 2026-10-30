@@ -196,6 +196,34 @@ describe("the choice is offered on an arbitration item alone", () => {
     expect(dialog?.textContent).toContain(`This records: yasin ${says}`);
   });
 
+  it.each([
+    ["retry", "the next one is told sizing's value as the graph holds it"],
+    ["fix", "one fix is made by a fresh session in the subtask's working copy"],
+    ["end_subtask", "the subtask ends rejected, and nothing of it is merged"],
+  ] as const)(
+    "an item whose choice of sizing does %s is read, and the dialog says so",
+    (does, says) => {
+      const stated = raw("arbitration", { sizing: does, domain: "record_only" });
+      const view = ((): ItemView | null => {
+        try {
+          return itemView(stated);
+        } catch {
+          return null;
+        }
+      })();
+      expect(view, "the item is read").not.toBeNull();
+      if (view === null) return;
+      const { host } = panel(view);
+      const [button] = buttons(host, "Choose sizing's value");
+      act(() => {
+        button?.click();
+      });
+      const dialog = [...host.querySelectorAll("dialog")].find((d) => d.open);
+      expect(dialog?.textContent).toContain(says);
+      expect(bannedIn(dialog?.textContent ?? "")).toEqual([]);
+    },
+  );
+
   it("confirming sends the choice once, with its position, and says it is recorded", async () => {
     const send = vi.fn().mockResolvedValue({
       ok: true,
