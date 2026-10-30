@@ -8,7 +8,14 @@ import { useEffect, useState } from "react";
 
 import { actToken, getJson, pageOperator, postAction, type Result } from "../../api/client";
 import { runEvent } from "../../api/events";
-import { decisionRequest, type ItemView, queueListing, resolved, type Verb } from "../../api/queue";
+import {
+  decisionRequest,
+  type ItemView,
+  type Position,
+  queueListing,
+  resolved,
+  type Verb,
+} from "../../api/queue";
 import { Segmented } from "../../design/components/actions/Segmented";
 import { Id } from "../../design/components/data/Id";
 import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
@@ -189,13 +196,17 @@ export default function Queue({ setHeader, query }: ViewProps) {
     item === undefined
       ? undefined
       : listing.value.decided.find((d) => d.itemId === item.item.itemId);
-  const send = (verb: Verb, note: string) =>
+  const send = (verb: Verb, note: string, position?: Position) =>
     item === undefined
       ? Promise.resolve<Result<never>>({
           ok: false,
           refusal: { status: 0, error: "no item is chosen", context: {} },
         })
-      : postAction(`${base}/queue/decisions`, decisionRequest(item, verb, note), resolved);
+      : postAction(
+          `${base}/queue/decisions`,
+          decisionRequest(item, verb, note, position),
+          resolved,
+        );
   return (
     <div className="pg-screen">
       {switcher}

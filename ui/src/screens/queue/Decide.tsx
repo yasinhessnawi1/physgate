@@ -1,5 +1,5 @@
 /**
- * Approve or reject an open item. Each button opens a confirmation that says first, in one
+ * Approve or reject an open item, or, on an arbitration item, choose one of its two positions. Each button opens a confirmation that says first, in one
  * sentence, what is recorded and by whom; then the exact line the queue writes, echoing the note
  * as it is typed; what the server checks first and does not write; and what follows: what the
  * item says the verb will do where the run acts on decisions, and otherwise nothing else in it. Only a rejection needs a reason. What the page showed of the item goes
@@ -8,15 +8,17 @@
 import { useMemo, useState } from "react";
 
 import type { Result } from "../../api/client";
-import type { ItemView, Resolved, Verb } from "../../api/queue";
+import { type ItemView, POSITIONS, type Position, type Resolved, type Verb } from "../../api/queue";
 import { Button, type Confirmation } from "../../design/components/actions/Button";
 import { ErrorState } from "../../design/components/status/States";
 import { usePaletteEntries } from "../../shell/palette";
 import {
   APPROVE_RECORDS_ONLY,
+  CHOOSE_WORDS,
   consequenceWords,
   DECISION_COPY,
   decisionSummary,
+  POSITION_WORDS,
 } from "../../words/queue";
 import { lineToWrite, whyNot } from "./model";
 
@@ -33,12 +35,12 @@ export function Decide({
   readonly operator: string | null;
   /** Whether this page holds the action token; without it, it can only read. */
   readonly holdsToken: boolean;
-  readonly send: (verb: Verb, note: string) => Promise<Result<Resolved>>;
+  readonly send: (verb: Verb, note: string, position?: Position) => Promise<Result<Resolved>>;
   readonly onDecided: () => void;
 }) {
   const [answer, setAnswer] = useState<Result<Resolved> | null>(null);
   // The buttons and the command palette open the same confirmation, under the same rules.
-  const [opened, setOpened] = useState<Verb | null>(null);
+  const [opened, setOpened] = useState<Verb | Position | null>(null);
   const why = whyNot(operator, holdsToken);
   // A primitive, so the palette's entries are recomputed exactly when the label changes.
   const recordsOnly = view.item.consequence?.onApprove === "record_only";
@@ -69,24 +71,35 @@ export function Decide({
 
   const choices = view.item.consequence === null ? null : consequenceWords(view.item.consequence);
   const approveLabel = choices?.approveLabel ?? "Approve…";
-  const confirmation = (verb: Verb): Confirmation => {
+  const confirmation = (verb: Verb, position?: Position): Confirmation => {
     const who = operator ?? "no one";
+    const chosen = position === undefined ? undefined : view.item.consequence?.onChoose?.[position];
     return {
-      title: verb === "approve" ? "Approve this item?" : "Reject this item?",
-      summary: (note) => decisionSummary(who, verb, view.item.decisionRequired, note),
-      writes: (note) => lineToWrite(view, verb, note, who) ?? "nothing until the reason is written",
+      title:
+        position !== undefined
+          ? `Choose ${POSITION_WORDS[position].toLowerCase()}?`
+          : verb === "approve"
+            ? "Approve this item?"
+            : "Reject this item?",
+      summary: (note) => decisionSummary(who, verb, view.item.decisionRequired, note, position),
+      writes: (note) =>
+        lineToWrite(view, verb, note, who, position) ?? "nothing until the reason is written",
       check:
         `that the item is still the one shown (its digest ${view.itemSha256}) and that each of ` +
         `its ${String(view.trajectories.length)} transcripts is still as sealed`,
       // What follows: the item's own consequence where the run acts on decisions, else nothing.
       outcome:
-        choices === null
-          ? DECISION_COPY.then
-          : verb === "approve"
-            ? choices.approve
-            : choices.reject,
+        position !== undefined
+          ? chosen === undefined
+            ? DECISION_COPY.then
+            : CHOOSE_WORDS[chosen]
+          : choices === null
+            ? DECISION_COPY.then
+            : verb === "approve"
+              ? choices.approve
+              : choices.reject,
       recordedAs: operator === null ? "no operator: this page names none" : `${operator} (human)`,
-      confirmLabel: verb === "approve" ? "Approve" : "Reject",
+      confirmLabel: verb === "approve" ? "Approve" : verb === "reject" ? "Reject" : "Choose",
       ...(verb === "reject" ? { needsReason: true } : { takesNote: true }),
       children: (
         <p className="pg-dialog-note">
@@ -96,7 +109,9 @@ export function Decide({
       ),
       onConfirm: (note) => {
         setAnswer(null);
-        void send(verb, note).then((result) => {
+        // A position goes with a choice alone: approve and reject are sent as they always were.
+        const sent = position === undefined ? send(verb, note) : send(verb, note, position);
+        void sent.then((result) => {
           setAnswer(result);
           if (result.ok) onDecided();
         });
@@ -127,6 +142,20 @@ export function Decide({
             setOpened(open ? "reject" : null);
           }}
         />
+        {view.item.source === "arbitration" &&
+          POSITIONS.map((position) => (
+            <Button
+              key={position}
+              variant="act"
+              label={`Choose ${POSITION_WORDS[position].toLowerCase()}…`}
+              confirm={confirmation("choose", position)}
+              disabledBecause={why}
+              open={opened === position}
+              onOpenChange={(open) => {
+                setOpened(open ? position : null);
+              }}
+            />
+          ))}
       </div>
       {why !== null && <p className="pg-queue-why-not">{why}</p>}
       <p className="pg-panel-note">

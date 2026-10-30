@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from physgate.orchestrator.budget import after_rejection
 from physgate.orchestrator.events import (
@@ -36,18 +36,21 @@ from physgate.orchestrator.events import (
     DecisionTaken,
     GateRan,
     GateSkipped,
+    Position,
     WhyNot,
 )
 from physgate.orchestrator.exceptions import QueueItemMismatchError
 from physgate.orchestrator.protocols import PersonOrder
 from physgate.orchestrator.queue import (
     INTEGRATION,
+    POSITIONS,
     ConfirmedIndicator,
     ItemConsequence,
     OnReject,
     QueueItem,
     QueueResolution,
     QueueSource,
+    Verb,
     WhyRecordOnly,
 )
 from physgate.orchestrator.repair import fix_instruction, person_repair_instruction
@@ -173,10 +176,11 @@ def _automated_block(now: AttemptState) -> WhyRecordOnly | None:
 
 
 def _arbitration_effect() -> tuple[WhyRecordOnly, OnReject]:
-    """What the verbs do on an arbitration item: nothing yet.
+    """What approve and reject do on an arbitration item: nothing.
 
-    The one place an arbitration's effect is defined. Until what approve picks between two
-    arbitrated outcomes is defined, both verbs record only.
+    The one place an arbitration's effect is defined. Neither verb picks between the two
+    positions, so both record only; a person picks one with ``choose``, and each position records
+    only until what it acts on is built.
     """
     return "source", "record_only"
 
@@ -235,6 +239,7 @@ def item_consequence(
             why_record_only=why,
             confirmed_indicators=indicators,
             scan_hits=(),
+            on_choose=dict.fromkeys(POSITIONS[source], "record_only"),
         )
     why_not: WhyRecordOnly | None = _automated_block(now)
     if why_not is None and indicators:
@@ -299,8 +304,14 @@ def _order_fits(sub: SubtaskState, effect: DecisionEffect, item_id: str, note: s
 
 
 def _effect_of(
-    consequence: ItemConsequence, verb: Literal["approve", "reject"]
+    consequence: ItemConsequence, verb: Verb, position: Position | None = None
 ) -> tuple[DecisionEffect, WhyNot | None]:
+    if verb == "choose":
+        chosen = (consequence.on_choose or {}).get(position) if position is not None else None
+        if chosen is None:
+            msg = "a choice of a position the item does not state"
+            raise ValueError(msg)
+        return "none", "record_only_source"
     if verb == "approve":
         if consequence.on_approve == "merge_attempt":
             return "merge", None
@@ -359,7 +370,10 @@ def decision_effect(
         # The writer refuses this line; one that reaches the file anyway is refused here.
         msg = "approving a blocked review says how the blocked check is decided, and this did not"
         raise QueueItemMismatchError(msg, item=item.item_id)
-    effect, why = _effect_of(expected, resolution.verb)
+    try:
+        effect, why = _effect_of(expected, resolution.verb, resolution.position)
+    except ValueError as exc:  # the writer refuses this line; one that reaches the file anyway
+        raise QueueItemMismatchError(str(exc), item=item.item_id) from None
     if why is not None:
         return Taken(effect=effect, acts=False, why_not=why)
     too_long = False
@@ -410,6 +424,9 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
         if event.acts or event.effect != "none":
             msg = "a decision on the integration item records only"
             raise ValueError(msg)
+        if event.verb == "choose":
+            msg = "a decision on the integration item records only, and no position is chosen on it"
+            raise ValueError(msg)
         if state.integration_escalated is None or state.integration_escalated.item_id != (
             event.item_id
         ):
@@ -434,14 +451,18 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
     if event.shown_sha256 is None:
         msg = "a decision with a verb names the digest of the item line it was taken on"
         raise ValueError(msg)
-    expected = item_consequence(state, event.subtask_id, source=source_of(sub), scan_hits=())
+    source = source_of(sub)
+    if event.verb == "choose" and event.position not in POSITIONS.get(source, ()):
+        msg = "a choice is taken only on an arbitration item, of a position it offers"
+        raise ValueError(msg)
+    expected = item_consequence(state, event.subtask_id, source=source, scan_hits=())
     if (event.attempt, event.attempt_commit) != (now.number, expected.attempt_commit):
         msg = "a decision that names another attempt or commit than the record's"
         raise ValueError(msg)
     # What the log alone gives the verb. The scan's hits and the item's own line are not in the
     # log; the loop checked those when it took the decision, so a scan hit may only turn an
     # effect the log allows into recording, and nothing turns one it does not allow into an act.
-    effect, why = _effect_of(expected, event.verb)
+    effect, why = _effect_of(expected, event.verb, event.position)
     too_long = (
         why is None
         and effect in ("fix", "retry")

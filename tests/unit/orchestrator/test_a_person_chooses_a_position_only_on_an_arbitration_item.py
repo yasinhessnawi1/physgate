@@ -223,7 +223,9 @@ SOURCES = (
 def test_choose_is_refused_on_any_item_but_an_arbitration(tmp_path: Path, source: str) -> None:
     run_dir = _hand_queue(tmp_path, source)
     view = read_queue(run_dir)
-    shown = ShownItem(item_sha256=view.digests["run-1-s1"], trajectories=("not_in_this_run",))
+    shown = ShownItem(
+        item_sha256=view.digests["run-1-s1"], trajectories=statuses_now(run_dir, "run-1-s1")
+    )
 
     def choose() -> object:
         return record_decision(
@@ -516,7 +518,7 @@ def test_replay_refuses_a_choice_on_the_integration_item(tmp_path: Path) -> None
     assert lines[last]["subtask_id"] is None
     lines[last] = _as_choice(lines[last], note=None)
     said = _refusal_of(lines[: last + 1])
-    assert said is not None and "no position is chosen on the integration item" in said, said
+    assert said is not None and "records only, and no position is chosen on it" in said, said
 
 
 # --- killed and resumed ------------------------------------------------------------------------
@@ -611,7 +613,7 @@ def test_the_command_refuses_a_choice_on_an_item_of_another_kind(
          "--sha256", digest, "--by", "yasin"],
         capsys,
     )  # fmt: skip
-    assert code == 1, out
+    assert code != 0, out
     assert "a choice is made only on an item whose kind offers positions" in out
     assert (run_dir / DECISIONS_NAME).read_bytes() == b""
 

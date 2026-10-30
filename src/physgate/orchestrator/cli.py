@@ -78,6 +78,7 @@ from physgate.orchestrator.loop import Loop, escalation_for, refuse_unregistered
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, Reviewer
 from physgate.orchestrator.queue import (
+    POSITIONS,
     PersonDecision,
     ShownItem,
     queue_listing,
@@ -242,9 +243,9 @@ def add_parsers(
         "resolve",
         help="record a decision on one item",
         description=(
-            "Record a decision on one item. --approve or --reject binds it to the item line whose "
-            "digest `queue list` printed (--sha256), and a run that acts on decisions acts on it; "
-            "--decision records free text, which binds to nothing and never acts."
+            "Record a decision on one item. --approve, --reject or --choose binds it to the item "
+            "line whose digest `queue list` printed (--sha256), and a run that acts on decisions "
+            "acts on it; --decision records free text, which binds to nothing and never acts."
         ),
     )
     resolve.add_argument("item")
@@ -253,6 +254,9 @@ def add_parsers(
     form.add_argument("--decision", help="free text, recorded only")
     form.add_argument("--approve", action="store_true", help="approve the item as shown")
     form.add_argument("--reject", action="store_true", help="reject the item as shown")
+    form.add_argument(
+        "--choose", choices=POSITIONS["arbitration"], help="choose an arbitration item's position"
+    )
     resolve.add_argument("--note", help="why; required to reject")
     resolve.add_argument(
         "--sha256", help="the item line's digest as `queue list` printed it; required with a verb"
@@ -802,7 +806,9 @@ def _queue_resolve(args: argparse.Namespace) -> int:
                 raise QueueError(msg, item=args.item)
             try:
                 person = PersonDecision(
-                    verb="approve" if args.approve else "reject", note=args.note
+                    verb="choose" if args.choose else "approve" if args.approve else "reject",
+                    note=args.note,
+                    position=args.choose,
                 )
                 shown = ShownItem(
                     item_sha256=args.sha256, trajectories=statuses_now(run_dir, args.item)

@@ -69,6 +69,7 @@ from physgate.orchestrator.events import (
     Event,
     LeftoverRead,
     OsLayerChecked,
+    Position,
     SessionEnded,
     StageEntered,
     parse_events,
@@ -115,6 +116,11 @@ WhyRecordOnly = Literal[
     "gate", "change_check", "reading", "indicator_in_history", "scan_hit", "source", "legacy"
 ]
 Sha1 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+#: What choosing a position does. Each records only until what the choice acts on is built.
+OnChoose = Literal["record_only"]
+#: The positions each kind of item offers, in the order the item states them: an arbitration's
+#: sizing (the graph's value stands) and domain (the disputing subtask's). No other kind offers any.
+POSITIONS: Mapping[QueueSource, tuple[Position, ...]] = {"arbitration": ("sizing", "domain")}
 
 
 class ConfirmedIndicator(BaseModel):
@@ -149,6 +155,16 @@ class ItemConsequence(BaseModel):
     #: review never judged them; empty otherwise. Every field is written out: a line that
     #: leaves one out is not one the orchestrator wrote, and is refused rather than read as none.
     scan_hits: tuple[ScanHit, ...]
+    #: What choosing each position does, for an item whose kind offers positions; left out of
+    #: every other item's line, so it is written exactly as before positions existed.
+    on_choose: dict[Position, OnChoose] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_choice(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.on_choose is None:
+            data.pop("on_choose", None)
+        return data
 
     @model_validator(mode="after")
     def _approve_says_what_it_merges_or_why_it_does_not(self) -> ItemConsequence:
@@ -178,6 +194,19 @@ class QueueItem(_Record):
     #: that only records decisions; either is taken as recording only.
     consequence: ItemConsequence | None = None
 
+    @model_validator(mode="after")
+    def _the_positions_are_its_kind_s(self) -> QueueItem:
+        # Held in the set's own order: a dict keeps the order it was read in, so a line with the
+        # positions reordered would otherwise read, and write back, in a form no writer wrote.
+        stated = None if self.consequence is None else self.consequence.on_choose
+        if stated is not None and tuple(stated) != POSITIONS.get(self.source):
+            msg = "an item states the positions its kind offers, in their order, and no others"
+            raise ValueError(msg)
+        if stated is None and self.consequence is not None and self.source in POSITIONS:
+            msg = "an item whose kind offers positions states what choosing each does"
+            raise ValueError(msg)
+        return self
+
     @model_serializer(mode="wrap")
     def _omit_absent_consequence(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         # Left out when absent, so an item with none is written exactly as before it existed.
@@ -188,7 +217,15 @@ class QueueItem(_Record):
 
 
 #: The words a person decides with, mapped onto the free-text decision.
-Verb = Literal["approve", "reject"]
+Verb = Literal["approve", "reject", "choose"]
+
+
+def position_problem(verb: Verb | None, position: Position | None) -> str | None:
+    """Why ``position`` cannot go with ``verb``, or ``None``: a position goes with choose alone."""
+    if (verb == "choose") != (position is not None):
+        return "a position is chosen with choose, and only with it"
+    return None
+
 
 #: The longest note a person's decision carries, in characters: a bound on what reaches a
 #: session's prompt, and so a size, not a threshold on anything measured.
@@ -245,6 +282,7 @@ class QueueResolution(_Record):
     decision: NonEmptyStr
     resolved_by: NonEmptyStr
     verb: Verb | None = None
+    position: Position | None = None
     note: NonEmptyStr | None = None
     shown_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
 
@@ -253,6 +291,8 @@ class QueueResolution(_Record):
         # The free text is what every reader of the file reads, and the verb is what the run
         # acts on: one line may not say two things. A verb comes with the digest of the view it
         # was taken on and its text is exactly the verb's; with no verb, nothing binds.
+        if (problem := position_problem(self.verb, self.position)) is not None:
+            raise ValueError(problem)
         if self.verb is None:
             if self.note is not None or self.shown_sha256 is not None:
                 msg = "a note or a view's digest belongs to a decision with a verb"
@@ -266,15 +306,16 @@ class QueueResolution(_Record):
             raise ValueError(msg)
         if self.note is not None and (problem := note_problem(self.note)) is not None:
             raise ValueError(problem)
-        if self.decision != (self.verb if self.note is None else f"{self.verb}: {self.note}"):
-            msg = "a decision's text is exactly its verb and note"
+        said = self.verb if self.position is None else f"{self.verb} {self.position}"
+        if self.decision != (said if self.note is None else f"{said}: {self.note}"):
+            msg = "a decision's text is exactly its verb, position and note"
             raise ValueError(msg)
         return self
 
     @model_serializer(mode="wrap")
     def _omit_unbound_fields(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for name in ("verb", "note", "shown_sha256"):
+        for name in ("verb", "position", "note", "shown_sha256"):
             if data.get(name) is None:
                 data.pop(name, None)
         return data
@@ -287,9 +328,12 @@ class PersonDecision(BaseModel):
 
     verb: Verb
     note: Annotated[str, StringConstraints(max_length=MAX_NOTE)] | None
+    position: Position | None = None
 
     @model_validator(mode="after")
     def _a_note_is_clean_and_a_rejection_has_one(self) -> PersonDecision:
+        if (problem := position_problem(self.verb, self.position)) is not None:
+            raise ValueError(problem)
         if self.note is not None:
             if (problem := note_problem(self.note)) is not None:
                 raise ValueError(problem)
@@ -300,7 +344,7 @@ class PersonDecision(BaseModel):
 
     def text(self) -> str:
         """The free-text decision every reader of the decisions file already reads."""
-        return decision_text(self.verb, self.note or "")
+        return decision_text(self.verb, self.note or "", self.position)
 
 
 #: The items file, in the run directory.
@@ -732,6 +776,14 @@ class _Records:
         elif record.item_id not in self.items or record.item_id in self.resolved:
             msg = f"a decision on {record.item_id!r}, which is not an open item"
             raise ValueError(msg)
+        elif record.verb == "choose":
+            offered = POSITIONS.get(self.items[record.item_id].source, ())
+            if not offered:
+                msg = "a choice is made only on an item whose kind offers positions: an arbitration"
+                raise ValueError(msg)
+            if record.position not in offered:
+                msg = f"a position the item's kind does not offer: it offers {', '.join(offered)}"
+                raise ValueError(msg)
 
     def record(self, record: QueueItem | QueueResolution) -> None:
         """Take ``record`` as read; :meth:`check` has passed it."""
@@ -1255,25 +1307,29 @@ def statuses_now(run_dir: Path, item_id: str) -> tuple[TrajectoryStatus, ...]:
 # -- the one decision function ------------------------------------------------------------
 
 
-def decision_text(verb: Verb, note: str) -> str:
-    """The decision as recorded: the verb, and the note after a colon when there is one.
+def decision_text(verb: Verb, note: str, position: Position | None = None) -> str:
+    """The decision as recorded: the verb, its position, and the note after a colon if any.
 
-    A rejection must say why.
+    A rejection must say why; a choice names its position.
 
     Raises:
-        QueueError: a rejection without a note, or a verb that is not one of the two.
+        QueueError: a rejection without a note, a verb that is not one of the three, or a
+            position without choose or choose without one.
     """
-    if verb not in ("approve", "reject"):
-        msg = "a decision is to approve or to reject"
+    if verb not in ("approve", "reject", "choose"):
+        msg = "a decision is to approve or to reject, or to choose a position"
         raise QueueError(msg, verb=str(verb))
+    if (problem := position_problem(verb, position)) is not None:
+        raise QueueError(problem, verb=verb)
+    said = verb if position is None else f"{verb} {position}"
     # Blank means nothing but what ``str.strip`` removes; the operator UI's page mirrors this
     # set exactly, so its confirmation shows the decision this function makes.
     if not note.strip():
         if verb == "reject":
             msg = "a rejection says why: its note is required"
             raise QueueError(msg)
-        return verb
-    return f"{verb}: {note}"
+        return said
+    return f"{said}: {note}"
 
 
 #: How the decision function opens what it reads and writes: relative to the run directory's
@@ -1385,6 +1441,7 @@ def record_decision(
             decision=person.text() if person is not None else str(decision),
             resolved_by=resolved_by,
             verb=person.verb if person is not None else None,
+            position=person.position if person is not None else None,
             note=person.note if person is not None else None,
             shown_sha256=shown.item_sha256 if person is not None and shown is not None else None,
         )
@@ -1507,11 +1564,21 @@ def _checked(item_id: str) -> None:
 
 
 def _require_bindable(item: QueueItem, record: QueueResolution, shown: ShownItem) -> None:
-    """Refuse a bound approve its view cannot carry.
+    """Refuse a bound approve, or a choice of the domain, its view cannot carry.
 
     A trajectory shown that did not hold its seal, or a blocked review approved without saying
-    how the check it could not decide is decided.
+    how the check it could not decide is decided. Choosing the domain's position carries a
+    session's typed value forward, so it is held to the seals as an approve is; choosing sizing
+    keeps the graph's value, as a reject keeps the record, and binds to any view.
     """
+    if record.verb == "choose" and record.position == "domain":
+        if not shown.trajectories or any(status != "holds" for status in shown.trajectories):
+            msg = (
+                "choosing the domain binds to an item every trajectory of which held its seal "
+                "when shown, and this one's did not, so the decision is refused"
+            )
+            raise QueueError(msg, item=item.item_id, shown=",".join(shown.trajectories))
+        return
     if record.verb != "approve":
         return
     if not shown.trajectories or any(status != "holds" for status in shown.trajectories):

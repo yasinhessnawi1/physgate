@@ -569,6 +569,9 @@ class Escalated(_Event):
     item_id: NonEmptyStr
 
 
+#: A position a person may choose on an item whose kind offers two (``choose``): an arbitration's
+#: sizing (the graph's value stands) or domain (the disputing subtask's).
+Position = Literal["sizing", "domain"]
 #: What a person's decision did when the loop took it (ARCH-133).
 DecisionEffect = Literal["merge", "retry", "fix", "end_subtask", "none"]
 #: Why a decision taken did not act. ``record_only_source``: approve or reject on an item whose
@@ -605,7 +608,9 @@ class DecisionTaken(_Event):
     #: ``None`` for the integration item, which no subtask owns.
     subtask_id: NonEmptyStr | None
     item_id: NonEmptyStr
-    verb: Literal["approve", "reject"] | None
+    verb: Literal["approve", "reject", "choose"] | None
+    #: The position a choice names; left out of every other decision's line, so it keeps its bytes.
+    position: Position | None = None
     #: The person's note, verbatim, as the decisions file holds it.
     note: NonEmptyStr | None
     resolved_by: NonEmptyStr
@@ -638,7 +643,17 @@ class DecisionTaken(_Event):
         if self.order_too_long and (self.verb != "reject" or self.effect != "end_subtask"):
             msg = "only a reject ends a subtask for an order its reviewer could not read whole"
             raise ValueError(msg)
+        if (self.verb == "choose") != (self.position is not None):
+            msg = "a position is chosen with choose, and only with it"
+            raise ValueError(msg)
         return self
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_position(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.position is None:
+            data.pop("position", None)
+        return data
 
 
 class SubtaskRejected(_Event):

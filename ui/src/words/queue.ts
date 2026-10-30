@@ -11,7 +11,14 @@
  * and why, computed from its record; the copy for such an item is made from those fields alone.
  * A sentence that promised more than the record says would be a claim born in the interface.
  */
-import type { Consequence, QueueSource, Taken, WhyRecordOnly } from "../api/queue";
+import type {
+  Consequence,
+  OnChoose,
+  Position,
+  QueueSource,
+  Taken,
+  WhyRecordOnly,
+} from "../api/queue";
 import { causeWords, triesWords } from "./review";
 
 export interface SourceWords {
@@ -72,11 +79,17 @@ export function setAsideWith(itemId: string): string {
 /** The dialog's opening sentence: who records what, about which item. */
 export function decisionSummary(
   operator: string,
-  verb: "approve" | "reject",
+  verb: "approve" | "reject" | "choose",
   decisionRequired: string,
   note: string,
+  position?: Position,
 ): string {
-  const did = verb === "approve" ? "approved" : "rejected";
+  const did =
+    verb === "approve"
+      ? "approved"
+      : verb === "reject"
+        ? "rejected"
+        : `chose ${POSITION_WORDS[position ?? "sizing"].toLowerCase()} on`;
   const quoted = `'${decisionRequired}'`;
   return note.trim() === ""
     ? `This records: ${operator} ${did} ${quoted}.`
@@ -140,6 +153,17 @@ const WHY_RECORD_ONLY_WORDS: Readonly<Record<WhyRecordOnly, string>> = {
   scan_hit: "the scan before review found a reward-hacking indicator that no review judged",
   source: "for an item of this kind a decision is recorded and changes nothing in the run",
   legacy: "the item was listed before items said what a decision does",
+};
+
+/** Each position a person may choose, as its button names it. */
+export const POSITION_WORDS: Readonly<Record<Position, string>> = {
+  sizing: "Sizing's value",
+  domain: "The domain's value",
+};
+
+/** What choosing a position does, from what the item says it does. */
+export const CHOOSE_WORDS: Readonly<Record<OnChoose, string>> = {
+  record_only: "Choose: the decision is recorded, and nothing in the run acts on it.",
 };
 
 /** The approve button's label on an item whose approve records only. */

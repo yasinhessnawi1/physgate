@@ -5,12 +5,12 @@ The route is a thin call into the approval queue's own decision function, the sa
 written under the same lock and the same checks. Nothing else is written, and the guard's
 ``act`` kind refuses any other write this handler might attempt.
 
-What the request carries, and nothing more: the item, approve or reject, a note (required to
-reject), and what the page showed of the item (its line's digest and each trajectory's seal
-status), which the decision function checks again under its lock. Who decided is the operator
-the server was started with, never a field of the request. The run directory is reached by the
-walk from its root that no swap can redirect, and the decision function opens every file
-beneath it.
+What the request carries, and nothing more: the item, approve, reject or choose with the
+position chosen, a note (required to reject), and what the page showed of the item (its line's
+digest and each trajectory's seal status), which the decision function checks again under its
+lock. Who decided is the operator the server was started with, never a field of the request. The
+run directory is reached by the walk from its root that no swap can redirect, and the decision
+function opens every file beneath it.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from physgate.orchestrator.common import NonEmptyStr, first_problem
+from physgate.orchestrator.events import Position
 from physgate.orchestrator.exceptions import QueueError
 from physgate.orchestrator.queue import MAX_NOTE, PersonDecision, ShownItem, Verb, record_decision
 from physgate.ui import readers
@@ -35,6 +36,7 @@ class DecisionRequest(BaseModel):
 
     item_id: NonEmptyStr
     verb: Verb
+    position: Position | None = None
     note: Annotated[str, Field(max_length=MAX_NOTE)]
     shown: ShownItem
 
@@ -59,7 +61,9 @@ def decide(context: Context, params: Mapping[str, str]) -> Response:
         # A blank note is no note, as the page judges it; what remains is held to the queue's
         # own rules for a note (bounded, no control character, required to reject).
         person = PersonDecision(
-            verb=request.verb, note=request.note if request.note.strip() else None
+            verb=request.verb,
+            note=request.note if request.note.strip() else None,
+            position=request.position,
         )
     except ValidationError as exc:  # not a decision the queue records: the request is refused
         return error_response(

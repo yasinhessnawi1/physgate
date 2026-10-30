@@ -854,6 +854,7 @@ class Loop:
                 subtask_id=subtask_id,
                 item_id=item.item_id,
                 verb=resolution.verb,
+                position=resolution.position,
                 note=resolution.note,
                 resolved_by=resolution.resolved_by,
                 decided_ts=resolution.ts,

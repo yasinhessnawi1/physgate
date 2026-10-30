@@ -3,7 +3,7 @@
  * is chosen, the seal status in words, and the exact line a decision writes, which the
  * confirmation shows before anything is sent.
  */
-import type { ItemView, TrajectoryStatus, Verb } from "../../api/queue";
+import type { ItemView, Position, TrajectoryStatus, Verb } from "../../api/queue";
 import { decisionText, isBlank } from "../../api/queue";
 import type { StatusKind } from "../../design/components/status/StatusTag";
 
@@ -50,8 +50,9 @@ export function lineToWrite(
   verb: Verb,
   note: string,
   operator: string,
+  position?: Position,
 ): string | null {
-  const decision = decisionText(verb, note);
+  const decision = decisionText(verb, note, position);
   if (decision === null) return null;
   // The decision is bound to this view, so its line also names the verb, the note when there is
   // one, and the digest of the item as shown: exactly the fields the queue writes, in its order.
@@ -62,6 +63,7 @@ export function lineToWrite(
     decision,
     resolved_by: operator,
     verb,
+    ...(position === undefined ? {} : { position }),
     ...(isBlank(note) ? {} : { note }),
     shown_sha256: view.itemSha256,
   });

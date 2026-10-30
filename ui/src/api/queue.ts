@@ -32,6 +32,12 @@ export const WHY_RECORD_ONLY = [
   "source",
   "legacy",
 ] as const;
+/** The positions an arbitration item offers, in the order it states them; no other kind offers any. */
+export const POSITIONS = ["sizing", "domain"] as const;
+/** What choosing a position does: each records only, until what a choice acts on is built. */
+export const ON_CHOOSE = ["record_only"] as const;
+export type Position = (typeof POSITIONS)[number];
+export type OnChoose = (typeof ON_CHOOSE)[number];
 export type OnApprove = (typeof ON_APPROVE)[number];
 export type OnReject = (typeof ON_REJECT)[number];
 export type WhyRecordOnly = (typeof WHY_RECORD_ONLY)[number];
@@ -51,6 +57,19 @@ export interface Consequence {
   readonly confirmedIndicators: readonly { readonly attempt: number; readonly kind: string }[];
   /** How many hits the scan before review found, for an item whose review never judged them. */
   readonly scanHits: number;
+  /** What choosing each position does, on an item that offers positions; ``null`` otherwise. */
+  readonly onChoose: Readonly<Record<Position, OnChoose>> | null;
+}
+
+/** The positions an item states, held to the set in its order: any other shape is refused. */
+function onChoose(value: unknown): Readonly<Record<Position, OnChoose>> | null {
+  if (value === undefined || value === null) return null;
+  const stated = object(value, "what choosing each position does");
+  if (Object.keys(stated).join() !== POSITIONS.join()) throw new ShapeError("an item's positions");
+  return {
+    sizing: oneOf(stated.sizing, ON_CHOOSE, "what choosing sizing does"),
+    domain: oneOf(stated.domain, ON_CHOOSE, "what choosing the domain does"),
+  };
 }
 
 function consequence(value: unknown): Consequence | null {
@@ -76,6 +95,7 @@ function consequence(value: unknown): Consequence | null {
       };
     }),
     scanHits: list(c.scan_hits, "the scan's hits").length,
+    onChoose: onChoose(c.on_choose),
   };
 }
 
@@ -235,7 +255,7 @@ export function itemView(value: unknown): ItemView {
   };
 }
 
-export type Verb = "approve" | "reject";
+export type Verb = "approve" | "reject" | "choose";
 
 /**
  * The characters Python's ``str.strip()`` removes (those for which ``str.isspace()`` is true),
@@ -259,13 +279,15 @@ export function isBlank(note: string): boolean {
 }
 
 /**
- * The decision as recorded, exactly as the queue's own ``decision_text`` makes it: the verb, and
- * the note after a colon when there is one. ``null`` for a rejection without a note, which the
- * server refuses too.
+ * The decision as recorded, exactly as the queue's own ``decision_text`` makes it: the verb, the
+ * position a choice names, and the note after a colon when there is one. ``null`` for a rejection
+ * without a note or a choice without a position, which the server refuses too.
  */
-export function decisionText(verb: Verb, note: string): string | null {
-  if (isBlank(note)) return verb === "reject" ? null : verb;
-  return `${verb}: ${note}`;
+export function decisionText(verb: Verb, note: string, position?: Position): string | null {
+  if ((verb === "choose") !== (position !== undefined)) return null;
+  const said = position === undefined ? verb : `${verb} ${position}`;
+  if (isBlank(note)) return verb === "reject" ? null : said;
+  return `${said}: ${note}`;
 }
 
 export interface Resolved {
@@ -285,11 +307,17 @@ export function resolved(value: unknown): Resolved {
   };
 }
 
-/** The body of a decision request: the item, the verb and note, and what the page showed. */
-export function decisionRequest(view: ItemView, verb: Verb, note: string): string {
+/** The body of a decision request: the item, the verb, its position and note, and what was shown. */
+export function decisionRequest(
+  view: ItemView,
+  verb: Verb,
+  note: string,
+  position?: Position,
+): string {
   return JSON.stringify({
     item_id: view.item.itemId,
     verb,
+    ...(position === undefined ? {} : { position }),
     note,
     shown: {
       item_sha256: view.itemSha256,

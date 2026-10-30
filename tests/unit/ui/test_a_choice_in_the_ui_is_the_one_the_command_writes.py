@@ -184,10 +184,12 @@ def test_choosing_the_domain_on_a_view_with_a_broken_seal_is_refused_with_409(
     served: dict[str, tuple[Page, Path]],
 ) -> None:
     page, run_dir = served["arb"]
-    item = read_queue(run_dir).items[0]
-    stream = run_dir / item.trajectories[0]
+    trajectories = page.view()["trajectories"]
+    assert isinstance(trajectories, list)
+    stream = run_dir / "sessions" / str(trajectories[0]["session_id"]) / "stdout.jsonl"
     stream.write_bytes(stream.read_bytes() + b"{}\n")
     view = page.view()
+    assert [t["status"] for t in view["trajectories"]].count("tampered") == 1  # type: ignore[union-attr]
     status, body = page.decide(_decision(view))
     assert status == 409, body
     assert b"held its seal" in body
