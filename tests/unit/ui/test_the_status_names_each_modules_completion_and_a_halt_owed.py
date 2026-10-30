@@ -79,7 +79,8 @@ def served(live: Live, run: str) -> Any:  # noqa: ANN401 - a JSON answer of any 
 
 
 def module(found: dict[str, Any], subtask: str) -> dict[str, Any]:
-    (one,) = [m for m in found["completion"]["modules"] if m["subtask_id"] == subtask]
+    modules: list[dict[str, Any]] = found["completion"]["modules"]
+    (one,) = [m for m in modules if m["subtask_id"] == subtask]
     return one
 
 
