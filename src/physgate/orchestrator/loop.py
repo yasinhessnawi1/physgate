@@ -1019,7 +1019,11 @@ class Loop:
         if subtask_id == self.state.closing_pass():
             values = closing_order(self.state, told)
             if values is not None:
-                return values.instruction, values
+                # The person's part is the values, and a person's own order it wraps. An automated
+                # repair is no person's order: its reviewer is told the values alone, never the
+                # previous finding, which no bound holds to one read.
+                ordered = values if order is not None else closing_order(self.state, None)
+                return values.instruction, ordered
         return told, order
 
     def _told(self, subtask_id: str, attempt: int) -> tuple[str | None, PersonOrder | None]:
