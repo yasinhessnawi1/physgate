@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Annotated, Literal, get_args
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -138,8 +138,6 @@ def require_table(table: Sequence[Rank]) -> None:
 
 
 require_table(TABLE)
-if tuple(rank.level for rank in TABLE) != get_args(Level):
-    raise ArbitrationError("the recorded levels are the table's names, in its order")
 
 
 def arbitrate(conflict: Conflict, standing: Standing, table: Sequence[Rank] = TABLE) -> Arbitration:
