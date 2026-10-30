@@ -186,6 +186,14 @@ REFUSED: dict[str, tuple[str, bytes, str, str]] = {
     # line of the run's record can hold it.
     "a reason with a lone surrogate": (PATH, body(reason="a\ud800b"), "control", dispute.REASON),
     "a unit with a lone surrogate": (PATH, body(unit="V\udfff"), "control", dispute.UNIT),
+    # With a second fault after it: the parser's own rule refuses the unit before the reason is
+    # read, where the model behind it would have refused the unit only after the reason.
+    "a unit with a lone surrogate, the reason empty": (
+        PATH,
+        body(unit="V\udfff", reason=""),
+        "control",
+        dispute.UNIT,
+    ),
 }
 
 
@@ -292,7 +300,10 @@ def test_a_dispute_is_schema_checked_at_the_hook(tmp_path: Path) -> None:
 )
 def test_a_malformed_dispute_is_refused_at_the_hook(tmp_path: Path, case: str) -> None:
     path, data, role, said = REFUSED[case]
-    told = through_hook(session(tmp_path, role), "Write", data, path)
+    try:
+        told = through_hook(session(tmp_path, role), "Write", data, path)
+    except Exception as exc:  # noqa: BLE001 - an escape is the finding: a refusal is the contract
+        told = f"raised {type(exc).__name__}: {exc}"
     assert told.startswith(graph.DISPUTE_REFUSED.format(detail="")), told
     assert said in told
 
