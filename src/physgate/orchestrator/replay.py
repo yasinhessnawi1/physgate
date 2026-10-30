@@ -266,9 +266,10 @@ class RunState:
         #: pending intent names is a foreign write.
         self.journal_head = 0
         #: The decomposition's journal head, and each node's latest recorded write: what a ruling's
-        #: held revision is held to.
+        #: held revision is held to; and each recorded write by the revision it put.
         self.base_revision = 0
         self.written: dict[str, WriteDone] = {}
+        self.by_revision: dict[int, WriteDone] = {}
         #: Subtasks whose worktree removal was tried, whatever came of it: a refused
         #: removal is left, not retried or forced.
         self.worktrees_handled: set[str] = set()
@@ -511,7 +512,7 @@ class RunState:
             )
             self._expect(landed, "a write")
             now.applied[event.node_id] = event.revision
-            self.written[event.node_id] = event
+            self.written[event.node_id] = self.by_revision[event.revision] = event
             self.journal_head = event.revision
             now.pending = None
         elif isinstance(event, NodeFilesRepaired):
@@ -751,10 +752,18 @@ class RunState:
         if unit_kind_problem(held.position.unit, disputed_unit) is not None:
             _refuse("an arbitration's held value in a unit of another kind than the dispute's")
 
+    def write_of(self, held: Held) -> WriteDone | None:
+        """The recorded write that put ``held``'s revision; ``None`` for one before the run.
+
+        It is that write however often the node was written since.
+        """
+        done = self.by_revision.get(held.revision)
+        return done if done is not None and done.node_id == held.position.node_id else None
+
     def writer_of(self, held: Held) -> tuple[str, str] | None:
         """Who wrote ``held``'s revision, by subtask and role; ``None`` before the run."""
-        done = self.written.get(held.position.node_id)
-        if done is None or done.revision != held.revision:
+        done = self.write_of(held)
+        if done is None:
             return None
         return done.subtask_id, self.subtasks[done.subtask_id].plan.assigned_role
 

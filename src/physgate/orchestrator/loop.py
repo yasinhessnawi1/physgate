@@ -1754,8 +1754,8 @@ class Loop:
         sub = self.state.subtasks[subtask_id]
         sessions = [a.session for a in sub.attempts if a.session is not None]
         for ruling in sub.attempts[-1].arbitrations:
-            done = self.state.written.get(ruling.held.position.node_id)
-            if done is None or done.revision != ruling.held.revision:
+            done = self.state.write_of(ruling.held)
+            if done is None:
                 continue
             wrote = self.state.subtasks[done.subtask_id].attempts
             session = next((a.session for a in wrote if a.number == done.attempt), None)
