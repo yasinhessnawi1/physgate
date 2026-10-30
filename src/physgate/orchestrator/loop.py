@@ -1088,6 +1088,12 @@ class Loop:
         self._environment_before_a_spawn()
         sub = self.state.subtasks[subtask_id]
         self._stage(subtask_id, attempt, "resolve")
+        before = sub.attempts[-2] if attempt > 1 and len(sub.attempts) > 1 else None
+        if before is not None and before.rejected is not None:
+            # A ruling is used again here, in the finding the session is told: held first.
+            sized = before.rejected.finding.source == "arbitration"
+            if sized and not self._held_holds(subtask_id, before):
+                return False
         instruction, order = self._instruction(subtask_id, attempt)
         if order is not None and not self._material_clean(
             subtask_id, self._screened(subtask_id, order)
@@ -1709,13 +1715,17 @@ class Loop:
         except (KeyError, ValueError):
             return None
 
-    def _held_holds(self, subtask_id: str) -> bool:
-        """Each ruling's held value is still the journal's line at its revision; False if halted."""
+    def _held_holds(self, subtask_id: str, now: AttemptState | None = None) -> bool:
+        """Each ruling's held value is still the journal's line at its revision; False if halted.
+
+        The rulings are ``now``'s, by default the subtask's last attempt's.
+        """
         lines = self._journal_lines(None)
         if lines is None:
             return False
         at = {ln.rev: ln for ln in lines}
-        for ruling in self.state.subtasks[subtask_id].attempts[-1].arbitrations:
+        now = now or self.state.subtasks[subtask_id].attempts[-1]
+        for ruling in now.arbitrations:
             held, line = ruling.held, at.get(ruling.held.revision)
             if (
                 line is None
