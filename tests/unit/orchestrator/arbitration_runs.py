@@ -57,6 +57,11 @@ def dispute(name: str, value: float, unit: str) -> Dispute:
 RAIL = dispute("peak_current", 5, "A")
 BUS = dispute("supply_voltage", 24, "V")
 TWO = (RAIL, BUS)
+#: The same two disputes in a unit only the spelling guard holds: a word the gate's parser refuses.
+WORDED_DISPUTES = (
+    dispute("peak_current", 5, "UNITCANARY"),
+    dispute("supply_voltage", 24, "UNITCANARY"),
+)
 
 
 def bus(
@@ -83,9 +88,11 @@ def bus(
     }
 
 
-#: The node before the run, and as the sizing subtask writes it.
+#: The node before the run, as the sizing subtask writes it, and as sizing's closing pass writes it
+#: with the domain's two values (``RAIL`` and ``BUS``).
 BEFORE = bus(12, 2)
 SIZED = bus(BIG, 3, source=SOURCE, by=WRITER)
+CHOSEN = bus(24, 5, source=SOURCE, by=WRITER)
 
 
 @dataclass
@@ -167,11 +174,17 @@ PRESENT = Present(mechanism="seatbelt", claude_version="2.1.301")
 ACT = {"queue_decisions": "act", "os_layer": PRESENT}
 
 
-def entry(subtask_id: str, role: str) -> PlanEntry:
+def entry(subtask_id: str, role: str, module_dir: str | None = None) -> PlanEntry:
     return PlanEntry(
         subtask_id=subtask_id, spec_path=f"specs/{subtask_id}.md", assigned_role=role,
-        module_dir=f"modules/{subtask_id}",
+        module_dir=module_dir or f"modules/{subtask_id}",
     )  # fmt: skip
+
+
+#: Sizing's closing pass, ``zc``: a second sizing subtask in ``z0``'s module directory, planned
+#: after the domain's, as the decomposition plans one.
+CLOSING_PASS = entry("zc", "sizing", "modules/z0")
+CLOSING = [entry("z0", "sizing"), entry("s1", "electrical"), CLOSING_PASS]
 
 
 def entries(sizing: bool) -> list[PlanEntry]:
@@ -197,6 +210,7 @@ def rig_of(
     )
     graph = JournalGraph()
     graph.writes["z0"] = [SIZED]
+    graph.writes["zc"] = [CHOSEN]
     return Rig(
         run_dir,
         gate_mode=mode,  # type: ignore[arg-type]

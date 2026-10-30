@@ -29,7 +29,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from arbitration_runs import (  # noqa: E402
     BUS,
     CANARIES,
+    CLOSING,
     RAIL,
+    TWO,
     KilledByRowError,
     bus,
     dispute,
@@ -41,6 +43,7 @@ from arbitration_runs import (  # noqa: E402
     run,
 )
 from test_a_blocked_review_is_a_review_that_goes_to_a_person import blocked_review  # noqa: E402
+from test_a_person_chooses_a_position_only_on_an_arbitration_item import chose  # noqa: E402
 from test_a_queue_decision_acts_at_a_boundary import decide  # noqa: E402
 from ui_rig import context_over, fake_ui, serving  # noqa: E402
 
@@ -58,6 +61,7 @@ from physgate.orchestrator.events import (  # noqa: E402
 from physgate.orchestrator.integration_state import issued_state  # noqa: E402
 from physgate.orchestrator.queue import ApprovalQueue, read_queue  # noqa: E402
 from physgate.orchestrator.replay import replay  # noqa: E402
+from physgate.reviewers.packet import person_order_text  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -71,10 +75,27 @@ WORDED = (dispute("peak_current", 5, UNIT), dispute("supply_voltage", 24, UNIT))
 
 
 def _worded(rig: Any) -> Any:  # noqa: ANN401 - the rig
-    """Sizing writes the bus in a unit word, with the gate off; the domain disputes in that word."""
+    """Sizing writes the bus in a unit word, with the gate off; the domain disputes in that word.
+
+    The plan has sizing's closing pass, which waits for the item: a value in a unit word is never
+    carried to it, so choosing the domain's records only.
+    """
     rig.diff.writes["z0"] = [bus(24, 3, unit=UNIT)]
-    run(rig)
+    run(rig, plan=CLOSING)
     return rig
+
+
+def _choosing(position: str, *, times: int = 1, plan: Any = None) -> Callable[[Any], Any]:  # noqa: ANN401
+    """The run to its item, then a person's choice of ``position`` on each of ``times`` items."""
+
+    def drive(rig: Any) -> Any:  # noqa: ANN401 - the rig
+        run(rig, plan=plan)
+        for _ in range(times):
+            chose(rig.run_dir, position, "keep it")
+            resume(rig)
+        return rig
+
+    return drive
 
 
 def _fixed(rig: Any) -> Any:  # noqa: ANN401 - the rig
@@ -107,6 +128,23 @@ BRANCHES: dict[str, tuple[dict[str, Any], Callable[[Any], Any] | None, list[tupl
         {"mode": "off", "script": [WORDED]}, _worded,
         [(1, "sizing"), (1, "sizing"), (2, "queue"), (2, "queue")],
     ),
+    "L3, sizing chosen: the next attempt": (
+        {"script": [TWO, TWO, ()]}, _choosing("sizing"),
+        [(1, "sizing"), (1, "sizing"), (2, "queue"), (2, "queue")],
+    ),
+    "L3 on the last attempt, sizing chosen: the fix": (
+        {"gate": ["fail"], "script": [TWO, TWO, TWO, ()]}, _choosing("sizing"),
+        [(1, "gate"), (1, "gate"), (2, "sizing"), (2, "sizing"), (3, "queue"), (3, "queue")],
+    ),
+    "L3 on the fix, sizing chosen: the end": (
+        {"gate": ["fail"]}, _choosing("sizing", times=2),
+        [(1, "gate"), (1, "gate"), (2, "sizing"), (2, "sizing"), (3, "queue"), (3, "queue"),
+         (4, "queue"), (4, "queue")],
+    ),
+    "L3, the domain chosen: the closing pass, the return, the merge": (
+        {}, _choosing("domain", plan=CLOSING),
+        [(1, "sizing"), (1, "sizing"), (2, "queue"), (2, "queue"), (2, "person"), (2, "person")],
+    ),
 }  # fmt: skip
 #: The sessions each branch's plan needs: sizing's one, and one per attempt of the domain's.
 DISPATCHED = {
@@ -116,6 +154,10 @@ DISPATCHED = {
     "L2 off, then L3": 3,
     "L3 on the fix": 3,
     "L2 off, then L3, in a unit word": 3,
+    "L3, sizing chosen: the next attempt": 4,
+    "L3 on the last attempt, sizing chosen: the fix": 5,
+    "L3 on the fix, sizing chosen: the end": 5,
+    "L3, the domain chosen: the closing pass, the return, the merge": 4,
 }
 
 
@@ -150,16 +192,23 @@ def test_no_arbitration_branch_puts_another_sessions_output_into_any_prompt(
         _clean(f"prompt of {request.subtask_id}/{request.attempt}", role_prompt(request))
     for artefact in rig.reviewer.seen:
         _clean(f"artefact of {artefact.subtask_id}", artefact.model_dump_json())
+        if artefact.ordered_by_person is not None:
+            told = person_order_text(artefact.ordered_by_person).decode()
+            _clean(f"person_order.md of {artefact.subtask_id}", told)
     _clean("integration_state.md", issued_state(replay(events)).decode())
     for event in events:
         if isinstance(event, EscalationDecided):
             _clean("escalation state", event.state.model_dump_json())
         if isinstance(event, AttemptRejected):
             _clean("rejection", event.finding.model_dump_json())
-    items = read_queue(rig.run_dir).open_items()
+    # Every item the run listed, decided or open.
+    items = read_queue(rig.run_dir).items
     assert [i.source for i in items][-1:] == ["arbitration"]
     for item in items:
         _clean(f"item {item.item_id}", item.model_dump_json())
+    if "unit word" in branch:
+        assert items[-1].consequence is not None
+        assert items[-1].consequence.on_choose == {"sizing": "retry", "domain": "record_only"}
     # The operator's routes: the reason only inside its own line.
     served = _routes(rig.run_dir, tmp_path)
     for route in ("queue", "status", "decisions", "queue/items/0"):

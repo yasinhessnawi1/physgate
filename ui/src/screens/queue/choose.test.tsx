@@ -224,6 +224,28 @@ describe("the choice is offered on an arbitration item alone", () => {
     },
   );
 
+  it("an item whose choice of the domain resizes is read, and the dialog says so", () => {
+    const view = ((): ItemView | null => {
+      try {
+        return itemView(raw("arbitration", { sizing: "retry", domain: "resize" }));
+      } catch {
+        return null;
+      }
+    })();
+    expect(view, "the item is read").not.toBeNull();
+    if (view === null) return;
+    const { host } = panel(view);
+    const [button] = buttons(host, "Choose the domain's value");
+    act(() => {
+      button?.click();
+    });
+    const dialog = [...host.querySelectorAll("dialog")].find((d) => d.open);
+    expect(dialog?.textContent).toContain(
+      "sizing's closing pass is ordered to write the domain's value",
+    );
+    expect(bannedIn(dialog?.textContent ?? "")).toEqual([]);
+  });
+
   it("confirming sends the choice once, with its position, and says it is recorded", async () => {
     const send = vi.fn().mockResolvedValue({
       ok: true,

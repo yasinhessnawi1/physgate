@@ -286,6 +286,40 @@ describe("what the run did with a decision", () => {
     ).toThrow();
   });
 
+  it("reads a choice that resized, and says the subtask waits for sizing's closing pass", () => {
+    const read = (): string | null => {
+      try {
+        const listing = queueListing({
+          open: [],
+          decided: [
+            {
+              item_id: "run-1-s1",
+              ts: "t",
+              decision: "choose domain",
+              resolved_by: "yasin",
+              flag: null,
+              taken: {
+                effect: "resize",
+                acts: true,
+                why_not: null,
+                confirmed_by: null,
+                order_too_long: false,
+              },
+            },
+          ],
+        });
+        const taken = listing.decided[0]?.taken;
+        return taken === null || taken === undefined ? null : takenWords(taken);
+      } catch {
+        return null;
+      }
+    };
+    const words = read();
+    expect(words, "the taken choice is read").not.toBeNull();
+    expect(words).toContain("sizing's closing pass is ordered to write the domain's value");
+    expect(bannedIn(words ?? "")).toEqual([]);
+  });
+
   it("a decision the run has not taken carries nothing", () => {
     const listing = queueListing({
       open: [],
