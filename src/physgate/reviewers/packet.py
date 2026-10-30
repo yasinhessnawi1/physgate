@@ -563,7 +563,9 @@ def _export(repo: Path | GitDir, commit: str, into: Path) -> int:
         if entry:
             meta, _, raw_path = entry.partition(b"\t")
             mode, kind, oid = meta.decode().split()
-            if not raw_path.startswith(DISPUTES_DIR.encode() + b"/"):
+            # The diff's pathspec excludes the directory's own path and everything under it.
+            held = DISPUTES_DIR.encode()
+            if raw_path != held and not raw_path.startswith(held + b"/"):
                 entries.append((mode, kind, oid, raw_path.decode("utf-8")))
     _refuse_merging_paths([relative for _, _, _, relative in entries])
     into.mkdir()

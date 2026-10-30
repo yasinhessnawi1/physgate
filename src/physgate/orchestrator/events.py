@@ -38,6 +38,7 @@ from pydantic import (
 
 from physgate.contracts.clause import ContractResult
 from physgate.contracts.pairs import ContractPair
+from physgate.orchestrator.arbitration import DisputeConflict, Held, Level, Standing
 from physgate.orchestrator.budget import ATTEMPT_LIMIT, InfraCause
 from physgate.orchestrator.common import (
     GateMode,
@@ -47,6 +48,7 @@ from physgate.orchestrator.common import (
     utc_now,
     utc_stamp,
 )
+from physgate.orchestrator.dispute import plain
 from physgate.orchestrator.escalation import BackendName, Decision
 from physgate.orchestrator.escalation_state import EscalationState
 from physgate.orchestrator.exceptions import (
@@ -814,6 +816,34 @@ class DisputeRecorded(_Event):
     position: QuantityRef
     reason: NonEmptyStr
 
+    @model_validator(mode="after")
+    def _as_the_parser_reads_one(self) -> DisputeRecorded:
+        # The parser refuses these characters in a dispute's unit and reason, so no line the
+        # loop writes holds one, and a line that does was written by something else.
+        if not (plain(self.position.unit) and plain(self.reason)):
+            msg = "a dispute's unit and reason hold only characters the dispute parser takes"
+            raise ValueError(msg)
+        return self
+
+
+class ArbitrationDecided(_Event):
+    """A dispute ruled by the precedence table, after the attempt's gate line (ARCH-040).
+
+    One line per dispute of the attempt, in the order the disputes were recorded. ``standing`` is
+    what the record gave when it was ruled, and ``level`` the row of the table that decided; the
+    replay builds the standing again from the lines before this one and rules it again. ``held``
+    is sizing's position, the quantity as the graph held it, so the record alone states both
+    positions; the dispute's reason is on its own line and never on this one.
+    """
+
+    kind: Literal["arbitration_decided"] = "arbitration_decided"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    conflict: DisputeConflict
+    standing: Standing
+    level: Level
+    held: Held
+
 
 class ModuleCompleted(_Event):
     """A module of the plan recorded complete, which merged alone never says (ARCH-051).
@@ -1037,6 +1067,7 @@ Event = Annotated[
     | IntegrationStateIssued
     | CompletionDeclared
     | DisputeRecorded
+    | ArbitrationDecided
     | ModuleCompleted
     | EnvironmentRecorded
     | InstallChecked

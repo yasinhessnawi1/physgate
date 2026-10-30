@@ -55,6 +55,7 @@ from physgate.orchestrator.git import (
     head_of,
     merge_base,
     merges_of,
+    utf8_name,
     verified_git_dir,
 )
 from physgate.orchestrator.ports import WorktreeRemoval
@@ -143,7 +144,8 @@ def write_scope_violations(
     are node proposals, for an attempt of the role that owns completion
     (``declares``) the completion declaration as a regular file, and for an attempt of
     a role that may dispute (``disputes``) a regular file in the disputes directory,
-    which the change check reads as a dispute. Out of scope: any
+    which the change check reads as a dispute, directly in it. Out of scope: a name that is not
+    UTF-8, any
     other path, and a symbolic link or a submodule anywhere, since either can point
     outside the module. ``git_dir`` is the repository's verified git directory, if the
     caller has one.
@@ -154,6 +156,11 @@ def write_scope_violations(
         raise GitError(msg, module_dir=module_dir)
     found: list[str] = []
     for change in changes_between(repo, base, commit, git_dir=git_dir):
+        escaped = utf8_name(change.path)
+        if escaped is not None:
+            # First, so no later rule and no line ever holds a name no reader can decode.
+            found.append(f"{escaped} (not a UTF-8 name)")
+            continue
         mode = change.new_mode if change.new_mode != _ABSENT else change.old_mode
         if mode not in (_REGULAR, "100755"):
             found.append(f"{change.path} (not a regular file)")
@@ -165,7 +172,7 @@ def write_scope_violations(
             continue
         if declares and change.path == DECLARATION_PATH and change.new_mode == _REGULAR:
             continue
-        if disputes and path.is_relative_to(DISPUTES) and change.new_mode in (_REGULAR, _ABSENT):
+        if disputes and path.parent == DISPUTES and change.new_mode in (_REGULAR, _ABSENT):
             continue
         found.append(f"{change.path} (outside {module_dir})")
     return found

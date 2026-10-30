@@ -23,6 +23,10 @@ class OrchestratorError(Exception):
         self.context: dict[str, str] = dict(context)
 
 
+class ArbitrationError(OrchestratorError):
+    """A precedence table that could leave a conflict without exactly one outcome."""
+
+
 class CorruptEventLogError(OrchestratorError):
     """The run-event log holds a complete line this package could not have written.
 

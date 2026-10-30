@@ -677,7 +677,11 @@ class GitChangeChecker:
                 data = text.encode()
                 if _blob_id(data, len(blob)) != blob:
                     raise DisputeError(rules.LINE_ENDS)
-                found.append(rules.parse(change.path, data, role, graph))
+                read = rules.parse(change.path, data, role, graph)
+                problem = rules.kind_problem(read, graph)
+                if problem is not None:
+                    raise DisputeError(problem)
+                found.append(read)
             except DisputeError as exc:
                 raise DisputeError(str(exc), change.path) from None
         return tuple(sorted(found, key=lambda d: (d.position.node_id, d.position.name)))

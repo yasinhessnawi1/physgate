@@ -713,7 +713,7 @@ def checked_line(check: ChangeCheck) -> str:
     """The line the loop writes for ``check``, serialised as the log holds it."""
     line = ProposalsChecked(
         seq=1,
-        ts="2026-10-30T00:00:00Z",
+        ts="2026-10-30T00:00:00.000000Z",
         run_id="r1",
         gate_mode="on",
         subtask_id="s1",
@@ -833,7 +833,7 @@ def test_the_queue_item_s_diff_of_a_text_that_is_not_utf8_is_shown_and_rebuilt_e
             spec_defects=(),
             artefact_diff=diff,
             trajectory="t",
-            ts="2026-10-30T00:00:00Z",
+            ts="2026-10-30T00:00:00.000000Z",
         )
 
     # The item rebuilt at take reads the diff again, and is held equal to the line it wrote.

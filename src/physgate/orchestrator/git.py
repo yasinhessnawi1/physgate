@@ -495,8 +495,12 @@ def git(
     stdin: str | None = None,
     objects_only: bool = False,
     git_dir: GitDir | None = None,
+    errors: str = "strict",
 ) -> str:
     """Run one git command in ``cwd`` and return its standard output.
+
+    The output is decoded as UTF-8 with ``errors`` as :meth:`bytes.decode` takes it: strict by
+    default, so bytes that are not UTF-8 raise where the caller did not say how to read them.
 
     With ``objects_only`` the command runs against a clean object store that reaches ``cwd``'s
     objects but holds none of its config, attributes or submodules: used for content reads (a
@@ -535,6 +539,8 @@ def git(
         input=stdin,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors=errors,
         check=False,
     )
     if check and done.returncode != 0:
@@ -865,11 +871,14 @@ def changes_between(
 ) -> list[Change]:
     """Every path changed from ``base`` to ``commit``, renames split in two.
 
-    Read in the clean store, built from ``git_dir`` when the caller verified one.
+    Read in the clean store, built from ``git_dir`` when the caller verified one. A path is
+    whatever bytes the commit names, which a session can choose: one that is not UTF-8 is
+    decoded with its bytes kept as lone surrogates (:func:`utf8_name` tells), so reading the
+    list never raises and the write-scope check refuses the path before anything records it.
     """
     raw = git(
         repo, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", base, commit,
-        objects_only=True, git_dir=git_dir,
+        objects_only=True, git_dir=git_dir, errors="surrogateescape",
     )  # fmt: skip
     fields = raw.split("\0")
     out: list[Change] = []
@@ -881,6 +890,15 @@ def changes_between(
         )
         i += 2
     return out
+
+
+def utf8_name(path: str) -> str | None:
+    """``None`` for a path that is UTF-8 as committed; otherwise the path, escaped as ASCII."""
+    try:
+        path.encode("utf-8")
+    except UnicodeEncodeError:
+        return path.encode("utf-8", "surrogateescape").decode("ascii", "backslashreplace")
+    return None
 
 
 def merge_base(repo: Path, one: str, other: str, *, git_dir: GitDir | None = None) -> str:
@@ -896,8 +914,15 @@ def merge_base(repo: Path, one: str, other: str, *, git_dir: GitDir | None = Non
 
 
 def diff_text(repo: Path, base: str, commit: str, *, git_dir: GitDir | None = None) -> str:
-    """The patch from ``base`` to ``commit``, for a person to read."""
-    return git(repo, "diff", *_DIFF_FLAGS, base, commit, objects_only=True, git_dir=git_dir)
+    """The patch from ``base`` to ``commit``, for a person to read.
+
+    A file git takes as text may hold bytes that are not UTF-8: each such byte reads as the
+    replacement character, the same on every read, so an item rebuilt from it compares equal.
+    """
+    return git(
+        repo, "diff", *_DIFF_FLAGS, base, commit,
+        objects_only=True, git_dir=git_dir, errors="replace",
+    )  # fmt: skip
 
 
 def merges_of(

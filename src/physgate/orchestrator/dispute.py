@@ -11,7 +11,8 @@ leave the directory out, so no later worktree and no reviewer holds another role
 
 It is held as node proposals are: written with the Write or Edit tool only, and read by two
 readers with :func:`parse`, the hook before the file exists and the change check from the commit
-it checks. Both ask the role register and the graph's journal, now:
+it checks. The change check alone also holds the unit to its quantity's kind
+(:func:`kind_problem`). Both ask the role register and the graph's journal, now:
 
 - who: every role but the owners of the cross nodes and of completion, found by what they own;
   the first wrote the value, and the second writes no design;
@@ -24,6 +25,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import unicodedata
 from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -43,6 +45,12 @@ UNIT_MAX = 32
 REASON_MAX = 500
 #: A control character, or half a surrogate pair: JSON escapes one as ASCII, and no line holds it.
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]")
+#: Characters that are no word to the person who reads a reason on an item: a format character
+#: (a direction override, a zero-width one, a byte-order mark) changes how the text around it
+#: reads, a line or paragraph separator ends a line where none is, and a private-use character
+#: means what a font says. Unassigned code points are not named: which are assigned depends on
+#: the Unicode version, so the hook and a replay on another version could disagree.
+_UNREADABLE = frozenset({"Cf", "Zl", "Zp", "Co"})
 KEYS = ("reason", "unit", "value")
 
 NAMED = (
@@ -58,10 +66,14 @@ SHAPE = (
     'and "reason" (text)'
 )
 VALUE = "a dispute's value is a finite number, neither quoted nor true or false"
-_PLAIN = "with no control character and no half of a surrogate pair"
+_PLAIN = (
+    "with no control, format, separator or private-use character, no noncharacter and no half "
+    "of a surrogate pair"
+)
 UNIT = f"a dispute's unit is text of 1 to {UNIT_MAX} characters {_PLAIN}"
 REASON = f"a dispute's reason is text of 1 to {REASON_MAX} characters {_PLAIN}"
 UNRECORDABLE = "the run's record cannot hold this dispute as written"
+KIND = "a dispute is in a unit of the kind of the quantity it disputes, {unit}"
 
 
 class DisputeError(Exception):
@@ -75,6 +87,36 @@ class Dispute(BaseModel):
 
     position: QuantityRef
     reason: NonEmptyStr
+
+
+def plain(text: str) -> bool:
+    """Whether ``text`` holds only characters a dispute's unit and reason may hold."""
+    return _CONTROL.search(text) is None and not any(_unreadable(char) for char in text)
+
+
+def _unreadable(char: str) -> bool:
+    point = ord(char)
+    noncharacter = 0xFDD0 <= point <= 0xFDEF or point & 0xFFFE == 0xFFFE
+    return noncharacter or unicodedata.category(char) in _UNREADABLE
+
+
+def kind_problem(found: Dispute, nodes: Mapping[str, Mapping[str, object]]) -> str | None:
+    """Why ``found``'s unit is not of the kind its quantity has in the graph, or ``None``.
+
+    Read as the series check reads a value against a record: one dimension and one power of the
+    radian and of the bit, from a unit spelt with a bounded parse. The change check asks this,
+    where the unit registry is loaded already; the hook does not, as loading it costs more than
+    a hook may take, so the hook never imports it.
+    """
+    from physgate.series.consistency import unit_kind_problem
+
+    quantities = nodes[found.position.node_id]["quantities"]
+    held = quantities.get(found.position.name) if isinstance(quantities, dict) else None
+    target = held.get("unit") if isinstance(held, dict) else None
+    if not isinstance(target, str):
+        return KIND.format(unit="none, as the graph holds it")
+    problem = unit_kind_problem(found.position.unit, target)
+    return None if problem is None else f"{KIND.format(unit=target)}: {problem}"
 
 
 def disputer_problem(role: str) -> str | None:
@@ -148,9 +190,9 @@ def _body(data: bytes) -> tuple[float | int, str, str]:
         or (isinstance(value, float) and not math.isfinite(value))
     ):
         raise DisputeError(VALUE)
-    if not isinstance(unit, str) or not 0 < len(unit) <= UNIT_MAX or _CONTROL.search(unit):
+    if not isinstance(unit, str) or not 0 < len(unit) <= UNIT_MAX or not plain(unit):
         raise DisputeError(UNIT)
-    if not isinstance(reason, str) or not 0 < len(reason) <= REASON_MAX or _CONTROL.search(reason):
+    if not isinstance(reason, str) or not 0 < len(reason) <= REASON_MAX or not plain(reason):
         raise DisputeError(REASON)
     return value, unit, reason
 

@@ -24,6 +24,7 @@ from typing import Literal, NoReturn
 from pydantic import ValidationError
 
 from physgate.contracts.pairs import ContractPair, recorded_pairs_problem
+from physgate.orchestrator.arbitration import arbitrate, dispute_standing
 from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.completion import open_preconditions
@@ -39,6 +40,7 @@ from physgate.orchestrator.escalation import (
 from physgate.orchestrator.escalation_state import EscalationState, escalation_state
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
+    ArbitrationDecided,
     AttemptRejected,
     CompletionDeclared,
     ContractPairsPlanned,
@@ -118,6 +120,8 @@ class AttemptState:
     #: The disputes the attempt holds, in the order recorded: read after its change check.
     disputes: list[DisputeRecorded] = field(default_factory=list)
     gate: GateRan | GateSkipped | None = None
+    #: Each dispute's ruling, in the disputes' order: written after the gate line.
+    arbitrations: list[ArbitrationDecided] = field(default_factory=list)
     review: ReviewRan | None = None
     #: A review that was not a verdict: retried once for infrastructure, otherwise final.
     unavailable: list[ReviewUnavailable] = field(default_factory=list)
@@ -151,6 +155,7 @@ class AttemptState:
         self.changes = self.gate = self.review = None
         self.declaration = None
         self.disputes = []
+        self.arbitrations = []
         self.unavailable = []
         self.cursor = cursor
 
@@ -446,6 +451,8 @@ class RunState:
             self._declared(sub, now, event)
         elif isinstance(event, DisputeRecorded):
             self._disputed(sub, now, event)
+        elif isinstance(event, ArbitrationDecided):
+            self._arbitrated(sub, now, event)
         elif isinstance(event, GateRan | GateSkipped):
             self._expect(now.cursor == "gate" and now.gate is None, "a gate line")
             now.gate = event
@@ -676,6 +683,37 @@ class RunState:
         if last is not None and (here.node_id, here.name) <= (last.node_id, last.name):
             _refuse("an attempt disputes each quantity once, in order")
         now.disputes.append(event)
+
+    def _arbitrated(self, sub: SubtaskState, now: AttemptState, event: ArbitrationDecided) -> None:
+        """Take a ruling: after the gate line, the next dispute's, ruled again from the record.
+
+        The standing is built from the lines before it (the attempt's gate line, the rulings of
+        the subtask's earlier attempts, the attempt's place in the budget) and must be the one
+        recorded, and the table must give the level recorded. ``held`` names the disputed
+        quantity; its value and revision are the loop's to hold against the journal, which no
+        line carries.
+        """
+        due = now.cursor == "gate" and now.gate is not None
+        self._expect(due and len(now.arbitrations) < len(now.disputes), "an arbitration")
+        disputed = now.disputes[len(now.arbitrations)].position
+        conflict = event.conflict
+        if (conflict.node_id, conflict.quantity) != (disputed.node_id, disputed.name):
+            _refuse("an arbitration answers the next dispute of its attempt, in order")
+        held = event.held.position
+        if (held.node_id, held.name) != (disputed.node_id, disputed.name):
+            _refuse("an arbitration's held value is of the quantity disputed")
+        earlier = [
+            (line.conflict, line.level) for a in sub.attempts[:-1] for line in a.arbitrations
+        ]
+        gate = now.gate.result if isinstance(now.gate, GateRan) else None
+        standing = dispute_standing(
+            conflict, gate=gate, earlier=earlier, attempt=now.number, fix=now.fix
+        )
+        if event.standing != standing:
+            _refuse("an arbitration about a standing the lines before it do not give")
+        if event.level != arbitrate(conflict, standing).level:
+            _refuse("an arbitration whose level is not the one the precedence table gives")
+        now.arbitrations.append(event)
 
     def _issued(self, sub: SubtaskState, now: AttemptState, event: IntegrationStateIssued) -> None:
         """Take integration's issued state: in its window, after ``resolve``, once.

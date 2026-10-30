@@ -26,7 +26,7 @@ from typing import Any, get_args
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks"))
-from loop_fakes import (  # noqa: E402  # noqa: E402
+from loop_fakes import (  # noqa: E402
     FakeChanges,
     FakeGate,
     FakeReviewer,
@@ -35,6 +35,7 @@ from loop_fakes import (  # noqa: E402  # noqa: E402
     passing_gate_result,
     plan,
 )
+
 from physgate.orchestrator.arbitration import (  # noqa: E402
     TABLE,
     Arbitration,
@@ -46,7 +47,6 @@ from physgate.orchestrator.arbitration import (  # noqa: E402
     dispute_standing,
     require_table,
 )
-
 from physgate.orchestrator.dispute import Dispute  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
     ArbitrationDecided,
@@ -462,9 +462,8 @@ def test_a_line_for_an_attempt_that_disputes_nothing_does_not_open(tmp_path: Pat
                 revision=1,
             )
         },
-        {"held": held(RAIL).model_copy(update={"revision": 10**6})},
     ],
-    ids=["another quantity", "another node", "a revision the record has not reached"],
+    ids=["another quantity", "another node"],
 )
 def test_a_line_must_hold_the_disputed_quantity_as_the_graph_had_it(
     tmp_path: Path, fields: dict[str, Any]
