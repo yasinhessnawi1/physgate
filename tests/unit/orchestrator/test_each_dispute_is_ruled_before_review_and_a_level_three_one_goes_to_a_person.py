@@ -116,10 +116,10 @@ def first(found: Any) -> Any:  # noqa: ANN401 - whatever the row lists
     return found[0]
 
 
-def driven(rig: Any) -> None:  # noqa: ANN401 - the rig
+def driven(rig: Any, how: Any = run) -> None:  # noqa: ANN401 - the rig, and run or resume
     """Drive the run to its end; a line the replay refuses to the loop's own face is a finding."""
     try:
-        run(rig)
+        how(rig)
     except Exception as exc:  # noqa: BLE001 - any escape is the finding
         raise AssertionError(f"the loop's own run escaped: {exc!r}") from None
 
@@ -247,9 +247,9 @@ def test_a_dispute_on_the_fix_a_person_ordered_goes_to_the_queue(tmp_path: Path)
     # Attempt 1 disputes nothing and its review blocks; a person orders the fix, which disputes.
     rig = rig_of(tmp_path / "run", script=[(), (RAIL, BUS)])
     rig.reviewer.results[2] = blocked_review()
-    run(rig)
+    driven(rig)
     decide(rig.run_dir, "reject", "the bus needs a margin the specification gives")
-    resume(rig)
+    driven(rig, resume)
     events = events_of(rig)
     assert of(events, DecisionTaken)
     assert levels(events) == [(2, "queue"), (2, "queue")]
