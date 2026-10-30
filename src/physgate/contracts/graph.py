@@ -8,12 +8,11 @@ take the same result again.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from pathlib import Path
 
 from physgate.state.exceptions import StoreStaleError
 from physgate.state.schema import Node, validate_node
-from physgate.state.store import JournalLine, journal_records_after
+from physgate.state.store import journal_records_after
 
 
 def nodes_at(root: Path, revision: int) -> dict[str, Node]:
@@ -24,19 +23,10 @@ def nodes_at(root: Path, revision: int) -> dict[str, Node]:
             run recorded.
         DesignStateError: a journal line, or the node it holds, is not one the store could write.
     """
-    latest = lines_at(journal_records_after(Path(root), 0), revision)
-    return {node_id: validate_node(latest[node_id].payload) for node_id in sorted(latest)}
-
-
-def lines_at(journal: Iterable[JournalLine], revision: int) -> dict[str, JournalLine]:
-    """Each node's last line of ``journal`` at or before ``revision``: what ``nodes_at`` reads.
-
-    Raises:
-        StoreStaleError: the journal ends before ``revision``.
-    """
-    lines = [line for line in journal if line.rev <= revision]
+    lines = [line for line in journal_records_after(Path(root), 0) if line.rev <= revision]
     if not lines or lines[-1].rev != revision:
         msg = "the canonical journal ends before the revision the run records"
         ends = str(lines[-1].rev) if lines else "0"
         raise StoreStaleError(msg, revision=str(revision), journal_ends_at=ends)
-    return {line.node_id: line for line in lines}
+    latest = {line.node_id: line for line in lines}
+    return {node_id: validate_node(latest[node_id].payload) for node_id in sorted(latest)}

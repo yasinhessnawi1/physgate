@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from physgate.contracts.clause import check_pair
-from physgate.contracts.graph import lines_at, nodes_at
+from physgate.contracts.graph import nodes_at
 from physgate.contracts.pairs import ContractError
 from physgate.gate.exceptions import GateError
 from physgate.orchestrator.apply import ProposalRefusedError
@@ -1683,11 +1683,17 @@ class Loop:
     def _held_at(self, subtask_id: str | None, node: str, name: str, head: int) -> Held | None:
         """Quantity ``name`` of ``node`` as journal revision ``head`` left it; ``None`` if halted.
 
-        The journal is read as ``nodes_at`` reads it, and the revision is that of the node's line.
-        A journal that cannot be read, that ends before ``head``, or that lacks the quantity halts.
+        The journal is read as ``nodes_at`` reads it, through the graph port and with the revision
+        of the node's line. A journal that cannot be read, that ends before ``head``, or that lacks
+        the quantity halts. (``nodes_at`` itself is left as it is: its bytes are part of the
+        contract definition every contract result carries.)
         """
         try:
-            line = lines_at(self._graph.records_after(0), head).get(node)
+            lines = [ln for ln in self._graph.records_after(0) if ln.rev <= head]
+            if not lines or lines[-1].rev != head:
+                msg = "the canonical journal ends before the revision the run records"
+                raise StoreStaleError(msg, revision=str(head))
+            line = {ln.node_id: ln for ln in lines}.get(node)
             found = validate_node(line.payload).quantities.get(name) if line is not None else None
             if line is not None and found is not None:
                 position = QuantityRef(node_id=node, name=name, value=found.value, unit=found.unit)
