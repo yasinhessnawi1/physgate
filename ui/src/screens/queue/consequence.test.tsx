@@ -323,6 +323,47 @@ describe("what the run did with a decision", () => {
     expect(bannedIn(words ?? "")).toEqual([]);
   });
 
+  it("reads a choice that reopened a module, and one whose order was too long to review", () => {
+    const read = (taken: Record<string, unknown>): string | null => {
+      try {
+        const listing = queueListing({
+          open: [],
+          decided: [
+            {
+              item_id: "run-1-contract-1",
+              ts: "t",
+              decision: "choose producer",
+              resolved_by: "yasin",
+              flag: null,
+              taken: { confirmed_by: null, ...taken },
+            },
+          ],
+        });
+        const got = listing.decided[0]?.taken;
+        return got === null || got === undefined ? null : takenWords(got);
+      } catch {
+        return null;
+      }
+    };
+    const reopened = read({ effect: "reopen", acts: true, why_not: null, order_too_long: false });
+    expect(reopened, "the taken reopen is read").not.toBeNull();
+    expect(reopened).toBe(
+      "The run took it: the other module was reopened for one more attempt, told the " +
+        "interface's values.",
+    );
+    const long = read({
+      effect: "none",
+      acts: false,
+      why_not: "order_too_long",
+      order_too_long: true,
+    });
+    expect(long).toBe(
+      "Recorded only: what the reopened attempt would be told is longer than its reviewer can " +
+        "read whole, so nothing was reopened.",
+    );
+    expect(bannedIn(`${reopened ?? ""} ${long ?? ""}`)).toEqual([]);
+  });
+
   it("a decision the run has not taken carries nothing", () => {
     const listing = queueListing({
       open: [],

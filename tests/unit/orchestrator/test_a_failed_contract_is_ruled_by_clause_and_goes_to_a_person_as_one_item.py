@@ -7,9 +7,10 @@ The ruling states both positions as the journal held them: the interface's value
 node's, with their revisions, never a node's free-text provenance. An interface with no quantity
 that a side is not joined to is one conflict with no quantity. If a clause went to a person, one
 item follows, listed in the queue with the positions ``producer`` and ``consumer``, unless the pair
-already has an item no decision was taken on. In this build every verb on it records only, the item
-says so, and the item is rebuilt from the log and compared whole when a decision is taken. A module
-is not recorded complete while an item about one of its pairs is undecided.
+already has an item no decision was taken on. Approve and reject on it record only, and so does a
+choice in a run that records only; the item says what each does, and is rebuilt from the log and
+compared whole when a decision is taken. A module is not recorded complete while an item about one
+of its pairs is undecided.
 """
 
 from __future__ import annotations
@@ -225,8 +226,8 @@ def test_the_contract_item_says_what_failed_from_the_record_alone(
         '"fw" (consumer, subtask "fw-3d4e5f") failed after both merged. The interfaces are fixed '
         "at decomposition, and no run changes them. The consumer's nodes deviate from the "
         "interface. "
-        "Decide whose merged work stands: choose producer or choose consumer. In this build a "
-        "choice is recorded, and no merged module is reopened."
+        "Decide whose merged work stands: choose producer or choose consumer. In this run a choice "
+        "is recorded, and nothing in the run acts on it."
     )
     assert item.triggering_finding == (
         'Interface "iface.drive", quantity "v": the interface holds 12 "volt" (revision 1); node '
@@ -416,7 +417,7 @@ def acted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verb: str, position: 
 
 @pytest.mark.parametrize(
     ("verb", "position"),
-    [("approve", None), ("reject", None), ("choose", "producer"), ("choose", "consumer")],
+    [("approve", None), ("reject", None), ("choose", "consumer")],
 )
 def test_approve_and_reject_on_a_contract_item_still_record_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verb: str, position: str | None
@@ -431,7 +432,8 @@ def test_approve_and_reject_on_a_contract_item_still_record_only(
         "source",
     )
     assert (consequence.attempt, consequence.attempt_commit) == (None, None)
-    assert consequence.on_choose == {"producer": "record_only", "consumer": "record_only"}
+    # The consumer deviates: choosing it keeps the work that breaks the contract.
+    assert consequence.on_choose == {"producer": "reopen", "consumer": "record_only"}
     rows = lines(rig)
     taken = [row for row in rows if row["kind"] == "decision_taken"]
     assert len(taken) == 1
@@ -511,20 +513,29 @@ def test_a_module_is_not_complete_while_an_item_about_its_pair_is_undecided(
         tmp_path, monkeypatch, acts=acts, sizing=True, declared=declared, writes={BUDGET: [low]}
     )
     rows = lines(rig)
-    assert [r["result"]["outcome"] for r in rows if r["kind"] == "contract_tested"][-1] == "pass"
     completed = [r["subtask_id"] for r in rows if r["kind"] == "module_completed"]
-    assert completed == [FW]
     state = replay(read_events(rig.run_dir / "events.jsonl"))
     for module in (BUDGET, DRIVE):
         assert dict(open_preconditions(state, module))["open_item"] == (
             f"queue item {ITEM} about drive to budget has no decision taken"
         )
-    assert "contract" not in dict(open_preconditions(state, DRIVE))
+    if acts:
+        # A run that acts waits for the item before the closing pass: nothing is completed.
+        assert completed == []
+        assert state.next_step().kind == "wait"
+    else:
+        assert [r["result"]["outcome"] for r in rows if r["kind"] == "contract_tested"][-1] == (
+            "pass"
+        )
+        assert completed == [FW]
+        assert "contract" not in dict(open_preconditions(state, DRIVE))
     # A person's decision, recorded even where it acts on nothing, closes it.
     decide(rig.run_dir, "approve")
     assert resumed(rig, monkeypatch, declared=declared) == "done"
     rows = lines(rig)
-    assert [r["subtask_id"] for r in rows if r["kind"] == "module_completed"] == [FW, BUDGET, DRIVE]
+    assert [r["subtask_id"] for r in rows if r["kind"] == "module_completed"] == (
+        [BUDGET, DRIVE, FW] if acts else [FW, BUDGET, DRIVE]
+    )
     assert refusal(rows) is None
 
 
@@ -631,7 +642,10 @@ def test_a_held_decision_on_a_contract_item_leaves_it_open_until_it_is_confirmed
     assert [(t["item_id"], t["acts"], t["why_not"]) for t in taken] == [
         (ITEM, False, "held_os_layer_off")
     ]
-    assert [r["subtask_id"] for r in rows if r["kind"] == "module_completed"] == [FW]
+    # A run that acts waits for the item, held as it is, before the closing pass.
+    assert [r["subtask_id"] for r in rows if r["kind"] == "module_completed"] == (
+        [] if acts else [FW]
+    )
     state = replay(read_events(rig.run_dir / "events.jsonl"))
     assert state.undecided(ITEM)
     assert "open_item" in dict(open_preconditions(state, DRIVE))
@@ -652,7 +666,9 @@ def test_a_held_decision_on_a_contract_item_leaves_it_open_until_it_is_confirmed
     rows = lines(rig)
     confirmed = [row for row in rows if row["kind"] == "decision_taken"][-1]
     assert (confirmed["confirmed_by"], confirmed["acts"]) == ("operator", False)
-    assert [r["subtask_id"] for r in rows if r["kind"] == "module_completed"] == [FW, BUDGET, DRIVE]
+    assert [r["subtask_id"] for r in rows if r["kind"] == "module_completed"] == (
+        [BUDGET, DRIVE, FW] if acts else [FW, BUDGET, DRIVE]
+    )
     assert refusal(rows) is None
 
 
