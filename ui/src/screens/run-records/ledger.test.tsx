@@ -12,6 +12,9 @@ import { bannedIn } from "../../words/queue";
 import { LedgerTable } from "./Ledger";
 import { attemptsWords, foldLedger, stateWords, subtaskLabel } from "./ledgerRows";
 
+/** A status with no halt owed, in a run that plans no subtask declaring completion. */
+const NOT_DECLARING = { owedHalt: null, completion: { owner: false, modules: [] } } as const;
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const line = (
@@ -93,7 +96,7 @@ const OPEN: QueueListing = {
   ],
   decided: [],
 };
-const DONE: RunStatus = { kind: "escalated", subtask: null, halted: null };
+const DONE: RunStatus = { kind: "escalated", subtask: null, halted: null, ...NOT_DECLARING };
 
 const fold = (
   over: Partial<Parameters<typeof foldLedger>[1]> = {},
@@ -146,7 +149,7 @@ describe("the ledger folds to one row per subtask, read from its latest record",
       line("control-1", 2),
     ];
     const events = EVENTS.filter((e) => e.kind !== "escalated" && e.kind !== "review_unavailable");
-    const on: RunStatus = { kind: "attempt", subtask: "control-1", halted: null };
+    const on: RunStatus = { kind: "attempt", subtask: "control-1", halted: null, ...NOT_DECLARING };
     const [running] = foldLedger(lines, { events, status: on, queue: null, budget: 3 });
     expect(running?.state).toEqual({ kind: "repairing", rejected: 1, attempt: 2 });
     expect(running?.gate).toEqual({ kind: "not-yet" });
@@ -155,6 +158,7 @@ describe("the ledger folds to one row per subtask, read from its latest record",
       kind: "halted",
       subtask: null,
       halted: { reason: "r", detail: "d" },
+      ...NOT_DECLARING,
     };
     const [stopped] = foldLedger(lines, { events, status: halted, queue: null, budget: 3 });
     expect(stopped?.state).toEqual({ kind: "attempted", attempt: 2 });
@@ -167,7 +171,7 @@ describe("the ledger folds to one row per subtask, read from its latest record",
     const events = EVENTS.filter((e) => e.kind !== "escalated" && e.kind !== "review_unavailable");
     const [rejected] = foldLedger(lines, { events, status: DONE, queue: null, budget: 3 });
     expect(rejected?.state).toEqual({ kind: "rejected", attempt: 1 });
-    const on: RunStatus = { kind: "attempt", subtask: "control-1", halted: null };
+    const on: RunStatus = { kind: "attempt", subtask: "control-1", halted: null, ...NOT_DECLARING };
     const [next] = foldLedger(lines, { events, status: on, queue: null, budget: 3 });
     expect(next?.state).toEqual({ kind: "repairing", rejected: 1, attempt: 2 });
     // The rejected attempt's own results stay: they are the latest attempt's.

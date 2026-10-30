@@ -3,13 +3,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { RunEvent } from "../../api/events";
+import type { ModuleCompletion, RunStatus } from "../../api/run";
 import { costRecord, type LedgerLine } from "../../api/records";
 import { namesACommand } from "../../rules/commands";
 import { EngineWords } from "../common/engine";
+import { haltOwedWords, inProgress } from "../common/runs";
 import { CostSoFar, StripLegend } from "./Home";
 import { runEnd, runEndWords } from "./runEnd";
 import { NoRunsYet } from "./NoRunsYet";
 import { STRIP_STATES, STRIP_WORDS, strip, stripCounts } from "./strip";
+
+/** A status with no halt owed, in a run that plans no subtask declaring completion. */
+const NOT_DECLARING = { owedHalt: null, completion: { owner: false, modules: [] } } as const;
 
 const line = (id: string, attempts: number, mergeCommit: string | null = null): LedgerLine => ({
   id,
@@ -46,7 +51,12 @@ describe("the active run's subtask strip reads each subtask's state from the rec
     line("s4", 0),
     line("s5", 2),
   ];
-  const cells = strip(lines, events, { kind: "attempt", subtask: "s3", halted: null });
+  const cells = strip(lines, events, {
+    kind: "attempt",
+    subtask: "s3",
+    halted: null,
+    ...NOT_DECLARING,
+  });
 
   it("one cell per subtask, in the order they first appear, each in one state", () => {
     expect(cells.map((c) => [c.subtask, c.state])).toEqual([
@@ -154,11 +164,14 @@ describe("a run that ended is Complete only when everything merged, the whole de
   };
   const escalated: RunEvent = { seq: 15, ts: "t", kind: "escalated", subtask: "c", itemId: "q" };
   const all = [decomposed(2), planned(1, "c"), planned(2, "f"), merged(3, "c"), merged(4, "f")];
-  const words = (events: RunEvent[], open: number | null) => runEndWords(runEnd(events, open));
+  const words = (events: RunEvent[], open: number | null) =>
+    runEndWords(runEnd(events, open, NOT_DECLARING.completion));
 
-  it("every subtask merged, the whole design passed, nothing open, queue read: Complete", () => {
-    expect(runEnd([...all, gate("pass")], 0)).toEqual({ kind: "complete" });
-    expect(words([...all, gate("pass")], 0)).toBe("Complete");
+  it("without a subtask declaring completion, everything merged and passed is never Complete", () => {
+    expect(runEnd([...all, gate("pass")], 0, NOT_DECLARING.completion)).toEqual({
+      kind: "all-merged",
+    });
+    expect(words([...all, gate("pass")], 0)).toBe("All merged · gate passed");
   });
 
   it("one subtask escalated and the design not gated: Ended, with what waits for the person", () => {
@@ -230,5 +243,68 @@ describe("a run that ended is Complete only when everything merged, the whole de
 
   it("a log with nothing planned is never Complete", () => {
     expect(words([], 0)).toBe("Ended · nothing was planned");
+  });
+});
+
+describe("a run that declares completion reads Complete only as its record says", () => {
+  const module = (
+    subtask: string,
+    state: ModuleCompletion["state"],
+    open: ModuleCompletion["open"] = [],
+    sizing = false,
+  ): ModuleCompletion => ({ subtask, sizing, state, open });
+  const declaring = (...modules: ModuleCompletion[]) => ({ owner: true, modules });
+  const words = (completion: RunStatus["completion"], open: number | null = 0) =>
+    runEndWords(runEnd([], open, completion));
+  const pair = { name: "contract", reason: "drive to fw: its latest contract result failed" };
+  const scope = { name: "system_scope", reason: "the system-scope result failed at power" };
+
+  it("every module but sizing's completed and nothing open: Complete", () => {
+    const sizing = module("budget", "not_declared", [], true);
+    expect(words(declaring(sizing, module("drive", "complete"), module("fw", "complete")))).toBe(
+      "Complete",
+    );
+  });
+
+  it("a module merged but not completed is not Complete, and says why", () => {
+    expect(words(declaring(module("drive", "complete"), module("fw", "not_declared")))).toBe(
+      "Ended · fw not complete: integration did not declare it complete",
+    );
+  });
+
+  it("a failed pair withholds completion, named by the registry's own reason", () => {
+    const end = declaring(module("drive", "withheld", [pair]), module("fw", "withheld", [pair]));
+    expect(words(end)).toBe(`Ended · drive not complete: ${pair.reason}`);
+  });
+
+  it("under observe a failed system-scope result withholds completion, and says so", () => {
+    expect(words(declaring(module("drive", "withheld", [scope])))).toBe(
+      `Ended · drive not complete: ${scope.reason}`,
+    );
+  });
+
+  it("under off completion has no system-scope precondition: Complete with no gate line", () => {
+    expect(words(declaring(module("drive", "complete")))).toBe("Complete");
+  });
+
+  it("an open item, or a queue not read, keeps a completed run from Complete", () => {
+    expect(words(declaring(module("drive", "complete")), 1)).toBe("Ended · 1 waiting for you");
+    expect(words(declaring(module("drive", "complete")), null)).not.toBe("Complete");
+  });
+});
+
+describe("a run that owes a halt", () => {
+  const owing: RunStatus = {
+    kind: "halt",
+    subtask: null,
+    halted: null,
+    owedHalt: { cause: "declaration_mismatch", subtask: null },
+    completion: NOT_DECLARING.completion,
+  };
+
+  it("is not in progress, and says a halt is owed with its cause", () => {
+    expect(inProgress(owing)).toBe(false);
+    expect(haltOwedWords(owing)).toBe("Halt owed · declaration_mismatch");
+    expect(haltOwedWords({ ...owing, owedHalt: null })).toBeNull();
   });
 });
