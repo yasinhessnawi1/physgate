@@ -391,6 +391,27 @@ def test_a_held_value_the_journal_no_longer_holds_halts_the_run_before_the_item(
     assert not read_queue(rig.run_dir).open_items()
 
 
+def test_a_held_value_the_journal_no_longer_holds_halts_the_run_before_the_next_attempt_is_told(
+    tmp_path: Path,
+) -> None:
+    rig = rig_of(tmp_path / "run")
+    second = lambda e: isinstance(e, StageEntered) and e.subtask_id == "s1" and e.attempt == 2  # noqa: E731
+    assert run(rig, kill=second) == "killed"
+    graph = rig.diff
+    assert isinstance(graph, JournalGraph)
+    rewritten = dict(graph.journal[1].payload)
+    rewritten["quantities"] = dict(rewritten["quantities"])
+    rewritten["quantities"]["peak_current"] = {
+        "value": 9, "unit": "A", "source": "datasheet", "written_by": "sizing",
+    }  # fmt: skip
+    graph.journal[1] = JournalLine(rev=2, op="write", node_id=NODE, version=2, payload=rewritten)
+    resume(rig)
+    events = events_of(rig)
+    incident = one(e for e in events if isinstance(e, Incident))
+    assert incident.cause == "foreign_journal_line"
+    assert not [r for r in rig.dispatcher.requests if r.subtask_id == "s1" and r.attempt == 2]
+
+
 # --- the item -------------------------------------------------------------------------------------
 
 
