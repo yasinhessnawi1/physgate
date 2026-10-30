@@ -603,7 +603,10 @@ def test_the_mark_is_written_whole_before_the_output_with_the_master_s_count(
 ) -> None:
     records = tmp_path / "records"
     shutil.copytree(made["records"], records)
-    master = {"withdrawn": [{"commit": "1" * 40, "why": "a fills commit not taken"}]}
+    master = {
+        "corrections": [CORRECTS_X1],
+        "withdrawn": [{"commit": "1" * 40, "why": "a fills commit not taken"}],
+    }
     monkeypatch.setattr(common, "fills_on", lambda repo, ref: master)
     args = cli_args(made, records, tmp_path)  # its --fills record holds no withdrawal
     records.chmod(0o555)  # no mark can be written there: then no output is written either
@@ -616,15 +619,17 @@ def test_the_mark_is_written_whole_before_the_output_with_the_master_s_count(
     assert t3.main(args) == 0
     mark = records / common.TALLIES
     assert mark.is_file(), "the tally left no mark"
-    assert json.loads(mark.read_text())["withdrawn"] == 1  # master's, never the --fills record's
+    said = json.loads(mark.read_text())  # master's counts, never the --fills record's
+    assert (said["withdrawn"], said["corrections"]) == (1, 1)
     printed = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert printed["not_run"] == {"s": "the class's cap", "p1": "fresh-v1c failed", "p2": "same"}
 
 
 def test_the_first_output_s_mark_stands_and_a_later_one_keeps_it(tmp_path: Path) -> None:
-    common.mark(tmp_path, 1)
-    common.mark(tmp_path, 3)  # a later tally, or the reading's lines after one
-    assert json.loads((tmp_path / common.TALLIES).read_text())["withdrawn"] == 1
+    common.mark(tmp_path, {"withdrawn": [1], "corrections": [1, 2]})
+    common.mark(tmp_path, {"withdrawn": [1, 2, 3]})  # a later tally, or the reading's lines after
+    said = json.loads((tmp_path / common.TALLIES).read_text())
+    assert (said["withdrawn"], said["corrections"]) == (1, 2)
     assert [p.name for p in tmp_path.iterdir()] == [common.TALLIES]  # nothing left beside it
 
 
@@ -641,6 +646,10 @@ def test_test_flags_and_a_fills_record_are_never_used_on_the_run_s_records(
     assert t3.main(args) == 2
     assert "the run's records" in json.loads(capsys.readouterr().out)["refused"]
     assert not (records / common.TALLIES).exists() and not (tmp_path / "t.json").exists()
+    (tmp_path / "link").symlink_to(records)  # the run's records, named through a link
+    monkeypatch.setenv("RP3_RUNS", str(tmp_path / "link"))
+    assert t3.main(args) == 2
+    assert "the run's records" in json.loads(capsys.readouterr().out)["refused"]
     monkeypatch.delenv("RP3_RUNS")
     plain = [*args[: args.index("--practice-unpinned")], "--fills", str(tmp_path / "fills.json")]
     assert t3.main(plain) == 2
@@ -662,11 +671,13 @@ def test_the_reading_s_lines_write_the_first_output_s_mark_before_their_own(
     assert rl.main([*argv, str(tmp_path / "work")]) == 0
     mark = records / common.TALLIES
     assert mark.is_file(), "the reading's lines left no mark"
-    assert json.loads(mark.read_text())["withdrawn"] == 1
-    # The counts they show are outcome: a withdrawal recorded from then on is refused (R8).
+    said = json.loads(mark.read_text())
+    assert (said["withdrawn"], said["corrections"]) == (1, 0)
+    # The counts they show are outcome: a withdrawal recorded from then on is refused (R8), but
+    # one of a correction recorded after them too, while no attempt has run at its R'.
     late = {"correction": "c1", "why": "recorded after the reading's lines"}
     later = {**master, "corrections": [CORRECTS_X1], "withdrawn": [*master["withdrawn"], late]}
-    assert common.withdrawn(later, records) == (set(), [late])
+    assert common.withdrawn(later, records) == ({"c1"}, [])
 
 
 # ---- the decision's inputs held (the practice figure, the reading, the draws, the frozen tally) -
@@ -864,7 +875,7 @@ def test_a_block_not_taken_is_not_tallied_and_the_decisions_it_feeds_are_not_tak
 
 
 def test_a_block_ended_after_a_correction_s_check_needs_its_result_and_not_touched(
-    made: dict[str, Any], tmp_path: Path
+    made: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     records = tmp_path / "records"
     fx.write_blocks(records, made["attempts"], NOT_RUN)
@@ -906,6 +917,24 @@ def test_a_block_ended_after_a_correction_s_check_needs_its_result_and_not_touch
     # ... but one made after its correction's commit asks every one (README 24).
     check.write_text(json.dumps({**json.loads(check.read_text()), "committed_first": True}))
     fx.refuses(t3.RefusedError, touched_exit, lambda: t3.blocks_record(records, fills))
+    # So does one whose commit came before they ended, though its check read a master ref that
+    # did not hold it yet (r5's YELLOW-1): the commit's time is read on master.
+    from test_checks import ALL, FILLED, fills_repo
+
+    check_record(records, "2026-11-05T11:00:00Z")
+    corrected = (
+        "docs(r-pg-03): Commits corrected, block x1",
+        {**ALL, "corrections": [CORRECTS_X1]},
+    )
+    repos: dict[str, Path] = {}
+    for when in ("09:30", "10:30"):  # the fixture's end: 5.11 10:00 UTC
+        monkeypatch.setenv("GIT_COMMITTER_DATE", f"2026-11-05T{when}:00+0000")
+        (tmp_path / when).mkdir()
+        repos[when] = fills_repo(tmp_path / when, [*FILLED, (*corrected, None)])
+        common.git(repos[when], "update-ref", "refs/remotes/origin/master", "HEAD")
+    early = repos["09:30"]
+    fx.refuses(t3.RefusedError, touched_exit, lambda: t3.blocks_record(records, fills, early))
+    assert holds(lambda: t3.blocks_record(records, fills, repos["10:30"]))["chosen"]["y1"]
 
 
 def test_the_tally_holds_the_check_record_and_the_touched_results_as_l2_does(

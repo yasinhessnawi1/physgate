@@ -822,6 +822,17 @@ def test_the_fills_record_is_read_when_each_fill_came_in_its_own_named_commit(
             ],
             "changes",
         ),
+        (
+            [
+                FILLED[0],
+                (
+                    "docs(r-pg-03): Withdrawn, Set filled",
+                    {"commits": COMMITS, "sets": SETS, "withdrawn": [{"fill": "sets", "why": "x"}]},
+                    None,
+                ),
+            ],
+            "more than one",
+        ),
     ],
     ids=[
         "two-fills-at-once",
@@ -832,6 +843,7 @@ def test_the_fills_record_is_read_when_each_fill_came_in_its_own_named_commit(
         "a-fill-made-again-whose-subject-names-no-withdrawn",
         "a-fill-made-again-whose-withdrawal-names-another",
         "a-fill-made-again-and-another-changed",
+        "a-fill-not-filled-yet-made-again",
     ],
 )
 def test_the_fills_record_s_history_is_held(
@@ -1517,8 +1529,9 @@ def test_a_withdrawal_recorded_after_the_first_tally_is_refused_and_says_why(
     fills = withdraw({"corrections": [C1]}, {"correction": "c1"})
     assert common.withdrawn(fills, runs_dir) == ({"c1"}, [])
     (runs_dir / common.TALLIES).write_text(json.dumps({"withdrawn": 0}) + "\n")
+    why = "recorded after the first tally output, and its correction was recorded before it (R8)"
     gone, refused = common.withdrawn(fills, runs_dir)
-    assert gone == set() and refused == [fills["withdrawn"][0]]
+    assert gone == set() and refused == [{**fills["withdrawn"][0], "refused": why}]
     rows = [ok(b) for b in common.BLOCKS]
     blocks(
         runs_dir,
@@ -1537,9 +1550,40 @@ def test_a_withdrawal_recorded_after_the_first_tally_is_refused_and_says_why(
     )
     checked(runs_dir, C1)
     got = holds(lambda: t3.blocks_record(runs_dir, fills))
-    assert got["late"] == [
-        {**fills["withdrawn"][0], "refused": "recorded after the first tally output (R8)"}
-    ]
+    assert got["late"] == [{**fills["withdrawn"][0], "refused": why}]
+
+
+def test_a_correction_after_the_mark_is_withdrawn_while_no_attempt_has_run_at_its_r_prime(
+    runs_dir: Path,
+) -> None:
+    # r5's ORANGE-1, cure (a): nothing is drawn at R' before an attempt runs there, so blind.
+    rows = [ok(b) for b in common.BLOCKS]
+    blocks(runs_dir, rows)
+    common.mark(runs_dir, {"withdrawn": [{"commit": "1" * 40, "why": "x"}]})
+    fills = withdraw({**ALL, "corrections": [C1]}, {"commit": "1" * 40})
+    fills = withdraw(fills, {"correction": "c1"})
+    assert common.withdrawn(fills, runs_dir) == ({"c1"}, [])
+    # Then corrected again, under another id: the first one stays withdrawn.
+    again = {**fills, "corrections": [C1, {**C1, "id": "c2"}]}
+    assert common.withdrawn(again, runs_dir) == ({"c1"}, [])
+    assert [e["id"] for e in common.corrections(again, {"c1"})] == ["c2"]
+    # Once an attempt has run at its R', set aside or not, it is refused, and says why.
+    ran = (
+        "recorded after the first tally output, and an attempt has run at its correction's R' (R8)"
+    )
+    for valid in (True, False):
+        blocks(runs_dir, [*rows, ok("x1", 2, commit=C1["R"], valid=valid)])
+        assert common.withdrawn(fills, runs_dir) == (
+            set(),
+            [{**fills["withdrawn"][1], "refused": ran}],
+        )
+    # One of a correction the mark counts is refused, and says why.
+    blocks(runs_dir, rows)
+    (runs_dir / common.TALLIES).unlink()
+    common.mark(runs_dir, {"corrections": [C1]})
+    before = "recorded after the first tally output, and its correction was recorded before it (R8)"
+    got = common.withdrawn(fills, runs_dir)
+    assert got == (set(), [{**fills["withdrawn"][1], "refused": before}])
 
 
 def test_a_fills_commit_that_cannot_be_taken_is_named_and_released_by_its_withdrawal(
@@ -1698,6 +1742,10 @@ def test_a_correction_committed_before_its_check_is_checked_before_its_first_att
     ck.write_blocks(rec)
     path = entry_file(tmp_path, entry)
     fx.refuses(ck.RefusedError, late, lambda: ck.correction_check(path, r, k, fills, rs))
+    # Set aside, its correction withdrawn, it has still started there.
+    (runs_dir / common.TALLIES).unlink()
+    gone = withdraw(fills, {"correction": "c1"})
+    fx.refuses(REFUSALS, late, lambda: ck.correction_check(path, r, k, gone, rs))
 
 
 def test_withdrawing_a_correction_whose_r_prime_is_r_sets_no_attempt_aside() -> None:
@@ -1724,6 +1772,10 @@ def test_a_wrong_fill_is_withdrawn_and_made_again_before_the_first_block_attempt
     fx.refuses(REFUSALS, then, lambda: ck.order("y1", now=AFTER, fills=later))
     back = withdraw({**later, "commits": COMMITS}, {"fill": "commits"})
     assert holds(lambda: ck.order("y1", now=AFTER, fills=back))["attempt"] == 1
+    # The first attempt's, never a later one's.
+    rows = [{**ok("x1"), "fills": first}, {**ok("y1"), "fills": {**first, **wrong}}]
+    fx.refuses(common.RefusedError, then, lambda: common.standing(rows, later, set()))
+    assert holds(lambda: common.standing(rows, back, set())) == rows
 
 
 def test_an_attempt_records_the_fills_it_starts_under(runs_dir: Path) -> None:

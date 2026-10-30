@@ -87,16 +87,20 @@ def test_the_block_waits_past_w5_and_the_owner_may_raise_it() -> None:
     assert lg.project([RPB], "x1", NOW, common.W5)["may_start"]
 
 
+@pytest.mark.parametrize("valid", [False, True])  # void or valid: closed either way
 def test_l11_refuses_while_a_closed_block_attempt_has_no_ledger_line(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    valid: bool,  # noqa: FBT001
 ) -> None:
     monkeypatch.setenv("RP3_RUNS", str(tmp_path))
-    fx.write_blocks(tmp_path, [{"block": "x1", "attempt": 1, "valid": False}])
+    fx.write_blocks(tmp_path, [{"block": "x1", "attempt": 1, "valid": valid}])
     lg.append(tmp_path / lg.LEDGER_NAME, RPB)
     argv = ["project", "--block", "x1", "--now", "2026-11-05T12:00:00Z"]
     assert lg.main(argv) == 1
-    said = json.loads(capsys.readouterr().out)
-    assert "x1's attempt 1" in said["refused"] and "Its exit: ledger.py block" in said["refused"]
+    said = json.loads(capsys.readouterr().out).get("refused", "")
+    assert "x1's attempt 1" in said and "Its exit: ledger.py block" in said
     block = line("2026-11-05T08:00:00Z", "2026-11-05T09:00:00Z", 0)
     lg.append(tmp_path / lg.LEDGER_NAME, {**block, "block": "x1"})
     lg.append(tmp_path / lg.LEDGER_NAME, {**block, "attempt": 1})

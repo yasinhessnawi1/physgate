@@ -15,6 +15,7 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -1027,7 +1028,8 @@ def authoring_steps(tmp: Path, spec: list[dict[str, Any]]) -> list[dict[str, Any
     (bin_dir / "uname").write_text(
         '#!/bin/sh\n[ "${1:-}" = -s ] && { echo Linux; exit 0; }\nexec /usr/bin/uname "$@"\n'
     )
-    for name in ("uv", "setsid", "uname"):
+    (bin_dir / "python3").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    for name in ("uv", "setsid", "uname", "python3"):
         (bin_dir / name).chmod(0o755)
     (tmp / "home" / ".config").mkdir(parents=True)
     (tmp / "home" / ".config" / "physgate-run.env").write_text(fx.token_line(fx.DUMMY_TOKEN) + "\n")
@@ -1054,6 +1056,31 @@ def authoring_steps(tmp: Path, spec: list[dict[str, Any]]) -> list[dict[str, Any
         )
     ledger = tmp / "runs" / "ledger.jsonl"
     return [json.loads(x) for x in ledger.read_text().splitlines()] if ledger.exists() else []
+
+
+def test_next_with_no_python3_on_the_path_names_that_cause(tmp_path: Path) -> None:
+    # r5's YELLOW-2: never read as an account file that names no label.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for tool in ("dirname", "mkdir", "tee", "grep", "sed"):
+        (bin_dir / tool).symlink_to(str(shutil.which(tool)))
+    (tmp_path / "home" / ".config").mkdir(parents=True)
+    (tmp_path / "home" / ".config" / "physgate-run.env").write_text(fx.token_line(fx.DUMMY_TOKEN))
+    (tmp_path / "runs" / "owner").mkdir(parents=True)
+    account = {"account_label": "the run account", "weekly_reset_utc": "2026-10-29T07:00:00Z"}
+    (tmp_path / "runs" / "owner" / "account.json").write_text(json.dumps(account))
+    env = {"PATH": str(bin_dir), "HOME": str(tmp_path / "home"), "RP3_RUNS": str(tmp_path / "runs")}
+    done = subprocess.run(
+        [str(shutil.which("bash")), str(HERE / "authoring.sh"), "next"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=60,
+    )
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "REFUSED: python3 is not on PATH" in done.stdout, done.stdout + done.stderr
+    assert "names no account label" not in done.stdout
 
 
 #: A turn whose stream ends on the usage limit, then its resume after the reset.
