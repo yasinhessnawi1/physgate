@@ -66,6 +66,7 @@ source "$HERE/token.sh"
 export DISABLE_AUTOUPDATER=1
 rp3_load_token "$ENV_FILE" 2>> "$LOG" || { say "REFUSED: the run account's token (see the line above)"; exit 1; }
 ACCOUNT="$RUNS/owner/account.json"
+command -v python3 > /dev/null || { rp3_drop_token; say "REFUSED: python3 is not on PATH: the account file is read with it"; exit 1; }
 owner_says() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$ACCOUNT" "$1" 2>/dev/null; }
 if ! LABEL="$(owner_says account_label)" || ! RESET="$(owner_says weekly_reset_utc)"; then
   rp3_drop_token; say "REFUSED: the owner's account file ($ACCOUNT) names no account label or weekly reset"; exit 1

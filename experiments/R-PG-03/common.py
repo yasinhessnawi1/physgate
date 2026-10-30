@@ -274,11 +274,11 @@ def git_bytes(repo: Path, *args: str) -> bytes:
     return done.stdout
 
 
-def utc_now() -> str:
-    """The time now, UTC, to the second."""
+def utc_now(at: float | None = None) -> str:
+    """The time now (or ``at``, seconds since the epoch), UTC, to the second."""
     import time
 
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at))
 
 
 def records_dir() -> Path:
@@ -401,32 +401,42 @@ def withdrawal(entry: object, before: dict[str, Any]) -> str:
 def withdrawn(
     fills: dict[str, Any] | None, records: Path | None
 ) -> tuple[set[str], list[dict[str, Any]]]:
-    """The corrections withdrawn; and the withdrawals refused, recorded after a tally (R8).
+    """The corrections withdrawn; and the withdrawals refused, recorded after a tally (R8), and why.
 
     Raises:
         RefusedError: the mark is there and is not one whole mark, naming its exit.
     """
-    entries = (fills or {}).get(WITHDRAWN) or []
-    n = len(entries)
-    said = {WITHDRAWN: n} if records is None else record(records / TALLIES, {WITHDRAWN: n})
-    cut = said.get(WITHDRAWN) if isinstance(said, dict) else None
-    if type(cut) is not int:
+    entries, fixes = (fills or {}).get(WITHDRAWN) or [], (fills or {}).get(CORRECTIONS) or []
+    n = {WITHDRAWN: len(entries), CORRECTIONS: len(fixes)}
+    said = n if records is None else record(records / TALLIES, n)
+    said = said if isinstance(said, dict) else {}
+    cut, fixed = said.get(WITHDRAWN), said.get(CORRECTIONS, n[CORRECTIONS])
+    if type(cut) is not int or type(fixed) is not int:
         raise RefusedError(
             f"{TALLIES} is not the first tally output's whole mark. Its exit: the mark restored "
             "as that output's tally wrote it (README 24)"
         )
-    ids = {w["correction"] for w in entries[:cut] if "correction" in w}
-    return ids, [w for w in entries[cut:] if "correction" in w]
+    late = [w for w in entries[cut:] if "correction" in w]
+    rows = record(records / "blocks.json", {}) if late and records else {}
+    new = {c.get("id"): c.get("R") for c in fixes[fixed:]}  # corrections after the mark
+    ran = {a.get("commit") for a in rows.get("attempts") or []}
+    blind = [w for w in late if w["correction"] in new and new[w["correction"]] not in ran]
+    ids = {w["correction"] for w in [*entries[:cut], *blind] if "correction" in w}
+    why = ("its correction was recorded before it", "an attempt has run at its correction's R'")
+    say = "recorded after the first tally output, and {} (R8)".format
+    return ids, [{**w, "refused": say(why[w["correction"] in new])} for w in late if w not in blind]
 
 
-def mark(records: Path, count: int) -> None:
+def mark(records: Path, master: dict[str, Any]) -> None:
     """The first tally output's mark (R8), written whole before that output; later ones keep it.
 
-    ``count`` is the master's withdrawals: :func:`withdrawn` refuses every one recorded after.
+    It counts ``master``'s withdrawals and corrections: :func:`withdrawn` refuses each withdrawal
+    recorded after, but one of a correction also recorded after while none ran at its R' (blind).
     """
     path = records / TALLIES
     tmp = path.with_name(f".{TALLIES}.{os.getpid()}")
-    tmp.write_text(json.dumps({"utc": utc_now(), WITHDRAWN: count}) + "\n")
+    counts = {k: len(master.get(k) or []) for k in (WITHDRAWN, CORRECTIONS)}
+    tmp.write_text(json.dumps({"utc": utc_now(), **counts}) + "\n")
     with contextlib.suppress(FileExistsError):
         os.link(tmp, path)  # only if there is none: the first output's mark stands
     tmp.unlink()
@@ -588,12 +598,12 @@ def fills_history(repo: Path, ref: str) -> list[dict[str, Any]]:
         RefusedError: a commit is not taken and not withdrawn; the refusal names it and its exit.
     """
     path = f"{EXPERIMENT}/{FILLS_NAME}"
-    log = git(repo, "log", "--reverse", "--format=%H%x1f%P%x1f%s", ref, "--", path)
+    log = git(repo, "log", "--reverse", "--format=%H%x1f%P%x1f%ct%x1f%s", ref, "--", path)
     before: dict[str, Any] = {}
     found: list[dict[str, Any]] = []
     untaken: list[tuple[str, str]] = []
     for row in log.splitlines():
-        sha, parents, subject = row.split("\x1f")
+        sha, parents, when, subject = row.split("\x1f", 3)
         try:
             files = git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", sha).splitlines()
             if len(parents.split()) != 1 or files != [path]:
@@ -620,7 +630,7 @@ def fills_history(repo: Path, ref: str) -> list[dict[str, Any]]:
         except RefusedError as exc:
             untaken.append((sha, str(exc)))
             continue
-        found.append({"commit": sha, "fill": added, "subject": subject})
+        found.append({"commit": sha, "fill": added, "subject": subject, "utc": utc_now(int(when))})
         before, untaken = after, []
     if untaken:
         sha, why = untaken[0]

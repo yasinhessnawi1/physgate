@@ -720,6 +720,9 @@ def blocks_record(
             "no block record: nothing is tallied before the last block has ended (R8)"
         )
     taken, refused = common.withdrawn(fills, records)
+    fixes = [c.get("id") for c in (fills or {}).get(common.CORRECTIONS) or []]
+    on = common.fills_history(repo, "origin/master") if fixes else []  # when each was committed
+    made = dict(zip(fixes, [h["utc"] for h in on if h["fill"] == common.CORRECTIONS], strict=False))
     attempts = common.standing(rec.get("attempts", []), fills, taken)
     not_run, not_taken = rec.get("not_run") or {}, common.not_taken(attempts, taken)
     if set(not_run) - {"s", "p1", "p2"}:
@@ -754,8 +757,8 @@ def blocks_record(
         for block, a in chosen.items():
             # An attempt that ended before its check (made before its commit), or ran at a commit
             # that carries its fix, is not asked (§11 re-runs only what it touches, corrected).
-            ended = str(a.get("ended_utc"))
-            early = ended < checked["checked_utc"] and not checked.get("committed_first")
+            ended, at = str(a.get("ended_utc")), made.get(entry["id"], checked["checked_utc"])
+            early = ended < min(at, checked["checked_utc"]) and not checked.get("committed_first")
             if early or common.descends(repo, entry["R"], a.get("commit")):
                 continue
             touched = common.record(common.attempt_dir(a, records) / "touched.json", {})
@@ -769,10 +772,8 @@ def blocks_record(
                     "attempt (§11)"
                 )
     aside = [[a["block"], a["attempt"]] for a in rec.get("attempts", []) if a not in attempts]
-    why = "recorded after the first tally output (R8)"
-    late = [{**w, "refused": why} for w in refused]
     found = {"chosen": chosen, "not_run": not_run, "not_taken": not_taken, "aside": aside}
-    return {**found, "late": late, "attempts": rec.get("attempts", [])}
+    return {**found, "late": refused, "attempts": rec.get("attempts", [])}
 
 
 def read_block(
@@ -1677,7 +1678,7 @@ def main(argv: list[str] | None = None) -> int:
         found["label"] = "A TEST ON FIXTURES: never a result"
     text = json.dumps(found, indent=1, sort_keys=True, default=list) + "\n"
     # A withdrawal is blind to the outcome (R8): the first output's mark comes before it, whole.
-    common.mark(args.records, len(master.get(common.WITHDRAWN) or []))
+    common.mark(args.records, master)
     args.out.write_text(text)
     print(
         json.dumps(
