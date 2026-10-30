@@ -285,3 +285,30 @@ describe("the choice is offered on an arbitration item alone", () => {
     expect(send).toHaveBeenCalledWith("choose", "", "domain");
   });
 });
+
+describe("a failed contract's item is read with its own positions", () => {
+  const PAIR = { producer: "record_only", consumer: "record_only" };
+
+  it("reads the producer and the consumer, in the set's order, and a reopen", () => {
+    expect(() => itemView(raw("contract", PAIR))).not.toThrow();
+    expect(itemView(raw("contract", PAIR)).item.consequence?.onChoose).toEqual(PAIR);
+    const reopens = { producer: "reopen", consumer: "record_only" };
+    expect(itemView(raw("contract", reopens)).item.consequence?.onChoose).toEqual(reopens);
+  });
+
+  it("refuses the other kind's set on either kind, and a contract consequence without one", () => {
+    expect(() => itemView(raw("contract", BOTH))).toThrow(ShapeError);
+    expect(() => itemView(raw("arbitration", PAIR))).toThrow(ShapeError);
+    expect(() => itemView(raw("contract", undefined))).toThrow(ShapeError);
+    expect(() =>
+      itemView(raw("contract", { consumer: "record_only", producer: "record_only" })),
+    ).toThrow(ShapeError);
+  });
+
+  it("offers no arbitration choice on a contract item", () => {
+    expect(() => itemView(raw("contract", PAIR))).not.toThrow();
+    const { host } = panel(itemView(raw("contract", PAIR)));
+    expect(buttons(host, "Choose sizing's value")).toHaveLength(0);
+    expect(buttons(host, "Choose the domain's value")).toHaveLength(0);
+  });
+});
