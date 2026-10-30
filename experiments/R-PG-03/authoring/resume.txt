@@ -1,0 +1,1 @@
+Your session was stopped before you finished. Continue the task of the last message from where you stopped. Change nothing already written unless that task says so. Then stop.
