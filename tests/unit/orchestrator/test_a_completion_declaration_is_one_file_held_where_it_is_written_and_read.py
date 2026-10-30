@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -42,7 +43,7 @@ from physgate.orchestrator.declaration import (  # noqa: E402
 )
 from physgate.orchestrator.dispatch import role_prompt  # noqa: E402
 from physgate.orchestrator.merge import RunGit, commit_attempt  # noqa: E402
-from physgate.orchestrator.ports import SessionRequest  # noqa: E402
+from physgate.orchestrator.ports import ChangeCheck, SessionRequest  # noqa: E402
 from physgate.roles import CrossCuttingRole  # noqa: E402
 
 #: A second owner of completion, which only a register patched in a process can hold.
@@ -85,6 +86,8 @@ REFUSED: dict[str, tuple[bytes, str]] = {
     "the declaring subtask": (body("integ"), "the declaring subtask"),
     "past the size cap": (body("s1") + b" " * (MAX_BYTES - len(body("s1")) + 1), "at most 4096"),
     "a carriage return": (body("s1").replace(b" ", b"\r\n"), "line feed alone"),
+    "a lone carriage return": (body("s1").replace(b" ", b"\r", 1), "line feed alone"),
+    "the key twice": (b'{"complete": ["s1"], "complete": ["s2"]}', "one JSON object with one key"),
 }
 
 
@@ -174,6 +177,11 @@ def test_integrations_declaration_is_checked_at_the_hook_before_it_exists(tmp_pa
     one_file = f"the one file in {graph.COMPLETION_DIR} is {graph.DECLARATION_NAME}"
     assert one_file in through_hook(config, "Write", WELL_FORMED, "other.json")
     assert one_file in through_hook(config, "NotebookEdit", WELL_FORMED)
+    # Nor is the same name one directory further in.
+    assert one_file in through_hook(config, "Write", WELL_FORMED, "sub/declaration.json")
+    # A key named twice says two things: refused, though JSON would keep the last.
+    twice = '{"complete": ["s1"], "complete": ["s2"]}'
+    assert declaration.SHAPE in through_hook(config, "Write", twice)
     # A file elsewhere is not this rule's business.
     outside = HookInput.model_validate(
         event(
@@ -275,20 +283,67 @@ def test_an_attempt_of_integration_without_a_declaration_declares_nothing(tmp_pa
         (body("s1c"), "a later pass over"),
         (b"not json", "is JSON, and this one is not"),
         (body("s1").replace(b" ", b"\r\n"), "line feed alone"),
+        (b'{"complete": ["s1"], "complete": ["s2"]}', "one JSON object with one key"),
+        (body("s1") + b"\xff", declaration.NOT_UTF8),
+        (b'{"complete": ["s\xe91"]}', declaration.NOT_UTF8),
     ],
-    ids=["the closing pass", "not JSON", "carriage returns"],
+    ids=[
+        "the closing pass",
+        "not JSON",
+        "carriage returns",
+        "the key twice",
+        "a byte after",
+        "a byte in a name",
+    ],
 )
 def test_a_malformed_declaration_is_refused_at_the_change_check_as_the_declaration_s(
     tmp_path: Path, data: bytes, said: str
 ) -> None:
     run, commit = attempt(tmp_path, "integ", {DECLARATION_PATH: data})
-    check = checker(tmp_path, run).check("integ", commit, "integration")
+    check = refused_or_raised(lambda: checker(tmp_path, run).check("integ", commit, "integration"))
+    assert isinstance(check, ChangeCheck), check
     assert (check.refused_by, check.subject, check.declaration) == (
         "declaration",
         DECLARATION_PATH,
         None,
     )
     assert said in str(check.reason)
+
+
+def refused_or_raised[T](read: Callable[[], T]) -> T | str:
+    """What ``read`` gives, or the name of what it raised: a refusal is the contract."""
+    try:
+        return read()
+    except Exception as exc:  # noqa: BLE001 - any escape is the finding
+        return f"raised {type(exc).__name__}"
+
+
+def test_a_declaration_that_is_not_utf8_is_refused_where_it_is_read_again(tmp_path: Path) -> None:
+    run, commit = attempt(tmp_path, "integ", {DECLARATION_PATH: body("s1") + b"\xff"})
+    again = checker(tmp_path, run)
+
+    def read() -> str:
+        try:
+            again.declaration_at(commit, "integ")
+        except DeclarationError as exc:
+            return str(exc)
+        return "read"
+
+    assert refused_or_raised(read) == declaration.NOT_UTF8
+
+
+@pytest.mark.parametrize(
+    "path",
+    [".physgate/completion/Declaration.json", ".physgate/Completion/declaration.json"],
+    ids=["the name", "the directory"],
+)
+def test_a_case_variant_of_the_declaration_is_a_write_outside_the_module(
+    tmp_path: Path, path: str
+) -> None:
+    # Write scope admits the one path exactly: a variant would merge as a file nothing reads.
+    run, commit = attempt(tmp_path, "integ", {path: body("s1")})
+    check = checker(tmp_path, run).check("integ", commit, "integration")
+    assert (check.refused_by, check.subject, check.declaration) == ("write_scope", path, None)
 
 
 def test_a_completion_declaration_from_another_role_is_refused_at_hook_and_apply(
@@ -330,6 +385,28 @@ def test_the_completion_owner_lookup_refuses_two_owners(
         said = through_hook(session(tmp_path, "integration"), "Write", WELL_FORMED)
         assert said.startswith(graph.DECLARATION_REFUSED.format(detail=""))
         assert "more than one owner of completion" in said
+        return
+    run, commit = attempt(tmp_path, "integ", {DECLARATION_PATH: body("s1")})
+    check = checker(tmp_path, run).check("integ", commit, "integration")
+    assert (check.refused_by, check.subject, check.declaration) == (
+        "write_scope",
+        DECLARATION_PATH,
+        None,
+    )
+
+
+@pytest.mark.parametrize("layer", ["hook", "change check"])
+def test_a_register_that_names_no_owner_of_completion_admits_no_declaration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, layer: str
+) -> None:
+    # Past the register's own check, as a patched register is: with no owner, no role declares.
+    config = session(tmp_path, "integration")
+    real = roles.owners_of
+    monkeypatch.setattr(roles, "owners_of", lambda duty: () if duty == "completion" else real(duty))
+    if layer == "hook":
+        said = through_hook(config, "Write", WELL_FORMED)
+        assert said.startswith(graph.DECLARATION_REFUSED.format(detail=""))
+        assert "no registered role owns completion" in said
         return
     run, commit = attempt(tmp_path, "integ", {DECLARATION_PATH: body("s1")})
     check = checker(tmp_path, run).check("integ", commit, "integration")

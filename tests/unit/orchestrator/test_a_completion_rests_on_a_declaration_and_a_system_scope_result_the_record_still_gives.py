@@ -26,10 +26,12 @@ from loop_fakes import FakeChanges, FakeGate, FakeReviewer, KilledError, Rig, pa
 from test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line import (
     at_integrations_resolve,
     ended,
+    rewrite_contract,
     rewrite_gate,
 )
 
 from physgate import roles
+from physgate.gate.exceptions import GateError
 from physgate.gate.runner import PhysicsGate
 from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.events import (
@@ -48,6 +50,7 @@ from physgate.orchestrator.events import (
     WorktreeRemoved,
     read_events,
 )
+from physgate.orchestrator.exceptions import GitError
 from physgate.orchestrator.ports import ChangeCheck
 from physgate.orchestrator.protocols import (
     Artefact,
@@ -59,6 +62,7 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.replay import replay
 from physgate.roles import CrossCuttingRole
 from physgate.series.seal import SessionSeries
+from physgate.state.exceptions import DesignStateError
 from physgate.state.store import Store
 
 INTEG, DRIVE, FW = runner.INTEG, runner.DRIVE, runner.FW
@@ -300,6 +304,17 @@ def test_a_merged_commit_that_holds_no_declaration_now_halts_before_any_completi
     assert rig.changes.read_at[-1] == (merged.merge_commit, INTEG)
 
 
+def test_a_merged_commit_git_cannot_read_halts_before_any_completion(tmp_path: Path) -> None:
+    rig = rig_for(tmp_path)
+    events = killed(rig, at_a_completion())
+    (merged,) = [e for e in events if isinstance(e, Merged) and e.subtask_id == INTEG]
+    rig.changes.held[merged.merge_commit] = GitError("git ls-tree failed")
+    assert take_over(rig) == "halted"
+    events = log_of(rig)
+    assert completions(events) == []
+    assert the_halt(events)[0].cause == "declaration_mismatch"
+
+
 def test_a_declaration_rewritten_between_two_completions_halts_before_the_second(
     tmp_path: Path,
 ) -> None:
@@ -378,6 +393,57 @@ def test_a_rewritten_declaration_and_a_rewritten_gate_line_halt_on_the_declarati
     assert take_over(rig) == "halted"
     incident, _ = the_halt(log_of(rig))
     assert incident.cause == cause
+
+
+def test_a_rewritten_contract_result_and_a_rewritten_gate_line_halt_on_the_contract_first(
+    tmp_path: Path,
+) -> None:
+    # Both cause the same incident; its words say which was taken first.
+    rig = rig_for(tmp_path)
+    killed(rig, at_a_completion())
+    for edit in (rewrite_contract, rewrite_gate):
+        runner.rewritten(rig.run_dir / "events.jsonl", edit)
+    assert take_over(rig) == "halted"
+    incident, _ = the_halt(log_of(rig))
+    assert incident.cause == "foreign_journal_line"
+    assert "contract result" in incident.detail and "system-scope" not in incident.detail
+
+
+class RaisingAgain(FakeGate):
+    """A gate that answers the call, and raises ``error`` on every later run at system scope."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self.error = error
+
+    def check_integration(
+        self, artefact: IntegrationArtefact, *, mode: RunningGateMode
+    ) -> GateResult:
+        if self.integrations:
+            self.integrations.append(artefact)
+            raise self.error
+        return super().check_integration(artefact, mode=mode)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [DesignStateError("the store cannot be read"), GateError("the gate cannot run")],
+    ids=["the store", "the gate"],
+)
+def test_a_system_scope_that_cannot_be_run_again_halts_before_any_state(
+    tmp_path: Path, error: Exception
+) -> None:
+    rig = rig_for(tmp_path, gate=RaisingAgain(error))
+    loop = rig.open()
+    runner.start(loop)
+    assert ended(loop.run) == "halted"
+    loop.close()
+    events = log_of(rig)
+    assert completions(events) == []
+    assert not [e for e in events if isinstance(e, IntegrationStateIssued)]
+    incident, _ = the_halt(events)
+    assert (incident.subtask_id, incident.cause) == (None, "foreign_journal_line")
+    assert "system-scope result" in incident.detail
 
 
 class RealSystemGate(FakeGate):
@@ -460,6 +526,28 @@ def test_a_journal_past_the_gate_lines_revision_halts_at_completion(tmp_path: Pa
     incident, _ = the_halt(events)
     assert (incident.subtask_id, incident.cause) == (None, "foreign_journal_line")
     assert "system-scope result" in incident.detail
+
+
+def test_a_kill_between_the_journal_holds_incident_and_its_halt_resumes_to_a_halt(
+    tmp_path: Path,
+) -> None:
+    # The journal has moved past the gate line's revision, and the process dies as it is about to
+    # halt. The process that takes over halts too, and nothing completes. (Its own journal check
+    # at resume may record the foreign line as an incident of its own first, so the log is not
+    # held to the uninterrupted one's bytes here.)
+    rig = rig_for(tmp_path, gate=RealSystemGate(), reviewer=Appending(tmp_path / "store"))
+    killed(rig, lambda e, _: isinstance(e, Halted))
+    cut = log_of(rig)
+    assert isinstance(cut[-1], Incident) and cut[-1].cause == "foreign_journal_line"
+    assert "system-scope result" in cut[-1].detail
+    assert replay(cut).next_step().kind == "halt"
+    assert take_over(rig) == "halted"
+    events = log_of(rig)
+    assert completions(events) == []
+    later = [e for e in events[len(cut) :] if not isinstance(e, Resumed | WorktreeRemoved)]
+    assert later and isinstance(later[-1], Halted) and later[-1].detail == "foreign_journal_line"
+    assert all(isinstance(e, Incident | Halted) for e in later)
+    assert replay(events).next_step().kind == "halted"
 
 
 # --- kill points --------------------------------------------------------------------------------

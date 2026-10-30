@@ -181,8 +181,8 @@ class FakeChanges:
     #: Per call: the declaration that check reads, in place of the subtask's.
     declared: dict[int, Declaration | None] = field(default_factory=dict)
     #: Per commit: what ``declaration_at`` reads there; otherwise what the declaring subtask's
-    #: last check read, as its merged commit holds that.
-    held: dict[str, Declaration | None] = field(default_factory=dict)
+    #: last check read, as its merged commit holds that. An exception there is raised.
+    held: dict[str, Declaration | Exception | None] = field(default_factory=dict)
     read: dict[str, Declaration | None] = field(default_factory=dict)
     #: Every ``declaration_at`` call: the commit and the declaring subtask.
     read_at: list[tuple[str, str]] = field(default_factory=list)
@@ -211,7 +211,10 @@ class FakeChanges:
 
     def declaration_at(self, commit: str, declaring: str) -> Declaration | None:
         self.read_at.append((commit, declaring))
-        return self.held[commit] if commit in self.held else self.read.get(declaring)
+        found = self.held[commit] if commit in self.held else self.read.get(declaring)
+        if isinstance(found, Exception):
+            raise found
+        return found
 
 
 def failing_gate_result(mode: RunningGateMode) -> GateResult:
