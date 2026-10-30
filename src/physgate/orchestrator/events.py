@@ -38,7 +38,13 @@ from pydantic import (
 
 from physgate.contracts.clause import ContractResult
 from physgate.contracts.pairs import ContractPair
-from physgate.orchestrator.arbitration import DisputeConflict, Held, Level, Standing
+from physgate.orchestrator.arbitration import (
+    ContractConflict,
+    DisputeConflict,
+    Held,
+    Level,
+    Standing,
+)
 from physgate.orchestrator.budget import ATTEMPT_LIMIT, InfraCause
 from physgate.orchestrator.common import (
     GateMode,
@@ -580,8 +586,9 @@ class Escalated(_Event):
 
 
 #: A position a person may choose on an item whose kind offers two (``choose``): an arbitration's
-#: sizing (the graph's value stands) or domain (the disputing subtask's).
-Position = Literal["sizing", "domain"]
+#: sizing (the graph's value stands) or domain (the disputing subtask's); a failed contract's
+#: producer or consumer (whose merged work stands).
+Position = Literal["sizing", "domain", "producer", "consumer"]
 #: What a person's decision did when the loop took it (ARCH-133). ``resize``: the subtask waits
 #: for sizing's closing pass, ordered to write the domain's value, then returns to the gate.
 DecisionEffect = Literal["merge", "retry", "fix", "end_subtask", "resize", "none"]
@@ -891,6 +898,60 @@ class ArbitrationDecided(_Event):
     held: Held
 
 
+class ContractValue(BaseModel):
+    """A quantity of a node as the canonical journal held it, and the revision of its line."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    position: QuantityRef
+    revision: Annotated[int, Field(ge=1)]
+
+
+class ContractRuled(_Event):
+    """A failed clause of a pair's contract, ruled by the precedence table (ARCH-040).
+
+    One line per failed clause of the latest contract result, which failed, in the result's
+    order, straight after it. ``wanted`` is the interface's quantity and ``found`` each joined node
+    that fails the clause and carries the quantity, as the journal held them at the result's
+    revision: the record alone states both positions, and never a node's free-text provenance. A
+    clause the gate refused is the gate's; any other goes to a person. Sizing's level never rules
+    an interface quantity, which is no sizing quantity.
+    """
+
+    kind: Literal["contract_ruled"] = "contract_ruled"
+    conflict: ContractConflict
+    standing: Standing
+    level: Level
+    wanted: ContractValue | None
+    found: tuple[ContractValue, ...]
+
+    @model_validator(mode="after")
+    def _the_values_are_the_clause_s(self) -> ContractRuled:
+        quantity = self.conflict.quantity
+        if (self.wanted is None) != (quantity is None) or (
+            self.wanted is not None
+            and (self.wanted.position.node_id, self.wanted.position.name)
+            != (self.conflict.interface, quantity)
+        ):
+            msg = "a ruled clause holds the interface's own quantity, and only a clause holds one"
+            raise ValueError(msg)
+        if any(value.position.name != quantity for value in self.found):
+            msg = "a ruled clause holds its nodes' values of its own quantity"
+            raise ValueError(msg)
+        return self
+
+
+class ContractItemRaised(_Event):
+    """A failed contract sent to a person: the item listed for the latest result, which failed.
+
+    Written once the result's clauses are ruled and one of them went to a person, after the item
+    is in the queue, while the pair has no item a decision has not yet been taken on.
+    """
+
+    kind: Literal["contract_item_raised"] = "contract_item_raised"
+    item_id: NonEmptyStr
+
+
 class ModuleCompleted(_Event):
     """A module of the plan recorded complete, which merged alone never says (ARCH-051).
 
@@ -1115,6 +1176,8 @@ Event = Annotated[
     | CompletionDeclared
     | DisputeRecorded
     | ArbitrationDecided
+    | ContractRuled
+    | ContractItemRaised
     | ModuleCompleted
     | EnvironmentRecorded
     | InstallChecked

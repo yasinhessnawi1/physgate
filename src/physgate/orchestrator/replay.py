@@ -24,7 +24,15 @@ from typing import Literal, NoReturn
 from pydantic import ValidationError
 
 from physgate.contracts.pairs import ContractPair, recorded_pairs_problem
-from physgate.orchestrator.arbitration import Held, arbitrate, dispute_standing
+from physgate.orchestrator.arbitration import (
+    ClauseConflict,
+    Held,
+    Standing,
+    arbitrate,
+    clause_conflicts,
+    contract_standing,
+    dispute_standing,
+)
 from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.completion import open_preconditions
@@ -44,8 +52,11 @@ from physgate.orchestrator.events import (
     AttemptRejected,
     AttemptReturned,
     CompletionDeclared,
+    ContractItemRaised,
     ContractPairsPlanned,
+    ContractRuled,
     ContractTested,
+    ContractValue,
     DecisionsSealed,
     DecisionTaken,
     Decomposed,
@@ -99,7 +110,7 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR, CriterionWords, SystemRequirement
 from physgate.orchestrator.protocols import ChosenValue, QuantityRef
-from physgate.orchestrator.queue import item_id_for
+from physgate.orchestrator.queue import contract_item_id, item_id_for
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
 from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
@@ -325,8 +336,14 @@ class RunState:
         self.contracts: list[ContractTested] = []
         #: The run branch's head as the log records it: the decomposition's commit, then each merge.
         self.run_head: str | None = None
-        #: Where each module directory's last merge with a clean diff is on the record, by line.
+        #: Where each module directory's last merge with a clean diff is on the record, by line, and
+        #: the subtask whose merge it was.
         self.merged_at: dict[str, int] = {}
+        self.merged_by: dict[str, str] = {}
+        #: Each failed contract result's rulings, in order, by the result's line; and the result
+        #: each contract item was raised for, by item id.
+        self.contract_rulings: dict[int, list[ContractRuled]] = {}
+        self.contract_items: dict[str, ContractTested] = {}
         #: The system requirements the plan allocates to integration, and the brief's own words for
         #: each one given by number, as the decomposition's line records them.
         self.system_requirements: tuple[SystemRequirement, ...] | None = None
@@ -399,6 +416,16 @@ class RunState:
             return
         if self.halted is not None and not isinstance(event, Resumed | Incident):
             _refuse("the run is halted; only a resume, or an incident found at one, may follow")
+        if isinstance(event, ContractRuled):
+            self._ruled(event)
+            return
+        if isinstance(event, ContractItemRaised):
+            self._raised(event)
+            return
+        if (self.owed_ruling() is not None or self.owed_item() is not None) and not isinstance(
+            event, Resumed | Incident
+        ):
+            _refuse("nothing follows a failed contract result but its rulings and its item")
         if isinstance(event, SubtaskPlanned):
             if self.contract_pairs is not None:
                 _refuse("nothing is planned after the run's contract pairs")
@@ -568,6 +595,7 @@ class RunState:
             if not event.divergences:
                 sub.status = "done"
                 self.merged_at[sub.plan.module_dir] = event.seq
+                self.merged_by[sub.plan.module_dir] = sub.plan.subtask_id
         elif isinstance(event, EscalationDecided):
             self._decided(sub, now, event)
         elif isinstance(event, Escalated):
@@ -878,6 +906,128 @@ class RunState:
         if (event.commit, event.revision) != (self.run_head, self.journal_head):
             _refuse("a contract result is taken at the run's recorded head and journal revision")
         self.contracts.append(event)
+
+    def failed_result(self) -> ContractTested | None:
+        """The latest contract result on the record, if it failed."""
+        last = self.contracts[-1] if self.contracts else None
+        return last if last is not None and last.result.outcome == "fail" else None
+
+    def rulings_of(self, tested: ContractTested) -> list[ContractRuled]:
+        """The rulings of the failed result ``tested``, in order."""
+        return self.contract_rulings.get(tested.seq, [])
+
+    def owed_ruling(self) -> ClauseConflict | None:
+        """The failed clause of the latest result whose ruling the record owes next, if any."""
+        tested = self.failed_result()
+        if tested is None:
+            return None
+        owed, done = clause_conflicts(tested.result), len(self.rulings_of(tested))
+        return owed[done] if done < len(owed) else None
+
+    def owed_item(self) -> ContractTested | None:
+        """The failed result whose item the record owes, if any.
+
+        Once every clause of the latest failed result is ruled and one went to a person, while
+        its pair has no item a decision has not been taken on.
+        """
+        tested = self.failed_result()
+        if tested is None or self.owed_ruling() is not None:
+            return None
+        if not any(line.level == "queue" for line in self.rulings_of(tested)):
+            return None
+        if any(result.seq == tested.seq for result in self.contract_items.values()):
+            return None
+        if any(self.undecided(item) for item in self.items_of(tested.result.pair)):
+            return None
+        return tested
+
+    def pair_of(self, item_id: str) -> ContractPair:
+        """The pair a contract item is about: its failed result's."""
+        return self.contract_items[item_id].result.pair
+
+    def items_of(self, pair: ContractPair) -> list[str]:
+        """The contract items raised about ``pair``, oldest first."""
+        return [i for i in self.contract_items if self.pair_of(i) == pair]
+
+    def undecided(self, item_id: str) -> bool:
+        """No decision was taken on the item, or the one taken is held and not yet confirmed."""
+        taken = self.taken.get(item_id)
+        held = taken is not None and taken.why_not == "held_os_layer_off"
+        return taken is None or (held and item_id not in self.confirmed)
+
+    def next_contract_item(self, tested: ContractTested, run_id: str) -> str:
+        """The id the item for ``tested`` takes: the pair's number, and its next round."""
+        pair = tested.result.pair
+        number = (self.contract_pairs or ()).index(pair) + 1
+        try:
+            return contract_item_id(run_id, number, len(self.items_of(pair)) + 1)
+        except QueueError as exc:
+            _refuse(str(exc))
+
+    def contract_standing_of(self, tested: ContractTested, clause: ClauseConflict) -> Standing:
+        """A failed clause's standing, from the lines before its ruling (the loop asks this too).
+
+        The gate line is the one of the attempt whose clean merge owed the result: the later of
+        the two modules' last merges. A choice could reopen a module only when it alone deviates,
+        and it has an attempt or its fix left: a subtask that ran its fix has neither.
+        """
+        pair = tested.result.pair
+        dirs = [self.subtasks[s.subtask_id].plan.module_dir for s in (pair.producer, pair.consumer)]
+        merging = self.subtasks[self.merged_by[max(dirs, key=self.merged_at.__getitem__)]]
+        gate = merging.attempts[-1].gate
+        sides = {"producer": pair.producer, "consumer": pair.consumer}
+        alone = sides[clause.sides[0]] if len(clause.sides) == 1 else None
+        left = alone is not None and not any(
+            a.fix for a in self.subtasks[alone.subtask_id].attempts
+        )
+        earlier = [
+            (line.conflict, line.level)
+            for result in self.contracts
+            if result.result.pair == pair
+            for line in self.rulings_of(result)
+        ]
+        return contract_standing(
+            clause.conflict,
+            gate=gate.result if isinstance(gate, GateRan) else None,
+            nodes=clause.failing,
+            earlier=earlier,
+            attempt_left=left,
+        )
+
+    def _ruled(self, event: ContractRuled) -> None:
+        """Take a failed clause's ruling: the one the record owes next, ruled by the table."""
+        owed, tested = self.owed_ruling(), self.failed_result()
+        if owed is None or tested is None:
+            _refuse("a contract ruling where none is owed")
+        if event.conflict != owed.conflict:
+            _refuse("a contract ruling of another clause than the one ruled next")
+        standing = self.contract_standing_of(tested, owed)
+        if event.standing != standing:
+            _refuse("a contract ruling whose standing the lines before it do not give")
+        if event.level != arbitrate(owed.conflict, standing).level:
+            _refuse("a contract ruling at another level than the table gives")
+        if tuple(value.position.node_id for value in event.found) != owed.carrying:
+            _refuse("a contract ruling that holds other nodes than the clause's failing ones")
+        values = (*([event.wanted] if event.wanted is not None else []), *event.found)
+        if any(not self._revision_of(value) for value in values):
+            _refuse("a contract ruling that holds a value at a revision the log does not give")
+        self.contract_rulings.setdefault(tested.seq, []).append(event)
+
+    def _revision_of(self, value: ContractValue) -> bool:
+        """The node's line at the result is the log's: its last recorded write, or the opening's."""
+        written = self.written.get(value.position.node_id)
+        if written is not None:
+            return value.revision == written.revision
+        return 1 <= value.revision <= self.base_revision
+
+    def _raised(self, event: ContractItemRaised) -> None:
+        """Take a contract item: the one the record owes, with the pair's next id."""
+        owed = self.owed_item()
+        if owed is None:
+            _refuse("a contract item where none is owed")
+        if event.item_id != self.next_contract_item(owed, event.run_id):
+            _refuse("a contract item with another id than its pair's next")
+        self.contract_items[event.item_id] = owed
 
     def owed_completion(self) -> str | None:
         """The module whose completion line the record owes next, if any.
@@ -1333,7 +1483,7 @@ class RunState:
             return Step(kind="halt")
         if self.halted is not None:
             return Step(kind="halted")
-        if self.owed_contract() is not None:
+        if any(o is not None for o in (self.owed_ruling(), self.owed_item(), self.owed_contract())):
             return Step(kind="contract")
         for subtask_id in self.integrated():
             step = self._step_of(subtask_id)

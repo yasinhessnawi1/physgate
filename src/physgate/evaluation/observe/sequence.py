@@ -448,6 +448,13 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             result = e["result"]
             step = {"step": "contract", "pair": result["pair"], "verdict": result["outcome"]}
             step["first"] = e["first"]
+        elif kind == "contract_ruled":
+            # The clause and its level; never the values or revisions, which no two reruns share.
+            conflict = e["conflict"]
+            step = {"step": "contract_ruled", "interface": conflict["interface"]}
+            step |= {"quantity": conflict["quantity"], "level": e["level"]}
+        elif kind == "contract_item_raised":
+            step = {"step": "contract_item", "item_id": e["item_id"]}
         if step is not None:
             out.append({**step, "seq": e["seq"]})
     return out

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -39,6 +39,9 @@ from physgate.orchestrator.budget import after_rejection
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.exceptions import ArbitrationError
 from physgate.orchestrator.protocols import GateResult, QuantityRef
+
+if TYPE_CHECKING:
+    from physgate.contracts.clause import ContractResult, SideName
 
 #: The levels a ruling is recorded at, by name, in the table's order: the name is what a line
 #: holds, so a row inserted later does not renumber the lines written before it.
@@ -60,8 +63,20 @@ class DisputeConflict(_Frozen):
     quantity: NonEmptyStr
 
 
-#: Every conflict the table rules. A failed contract clause joins it with its place in the run.
-Conflict = DisputeConflict
+class ContractConflict(_Frozen):
+    """A failed clause of a pair's contract: one quantity of one interface node, by name alone.
+
+    ``quantity`` is ``None`` for an interface with no quantity that a side is not joined to: it
+    has no clause, and the side that is not joined deviates from it all the same.
+    """
+
+    kind: Literal["contract"] = "contract"
+    interface: NonEmptyStr
+    quantity: NonEmptyStr | None
+
+
+#: Every conflict the table rules: a domain's dispute, and a failed clause of a pair's contract.
+Conflict = DisputeConflict | ContractConflict
 
 
 class Standing(_Frozen):
@@ -196,3 +211,79 @@ def dispute_standing(
     counted = sum(1 for seen, level in earlier if seen == conflict and level != NOT_COUNTED)
     left = not fix and after_rejection(attempt) is not None
     return Standing(gate_refused=refused, counted_before=counted, attempt_left=left, chosen=chosen)
+
+
+@dataclass(frozen=True)
+class ClauseConflict:
+    """A failed clause of a contract result, and who deviates from it.
+
+    ``sides`` are the sides whose joined nodes fail the clause, or that are not joined to its
+    interface, in the order producer, consumer; ``failing`` the joined nodes that fail it, in the
+    result's order, and ``carrying`` those of them that carry the quantity at all.
+    """
+
+    conflict: ContractConflict
+    sides: tuple[SideName, ...]
+    failing: tuple[str, ...]
+    carrying: tuple[str, ...]
+
+
+def _in_order(sides: set[SideName]) -> tuple[SideName, ...]:
+    both: tuple[SideName, SideName] = ("producer", "consumer")
+    return tuple(side for side in both if side in sides)
+
+
+def clause_conflicts(result: ContractResult) -> tuple[ClauseConflict, ...]:
+    """Every failed clause of ``result``, one conflict each, in the result's order.
+
+    An interface with no quantity that a side is not joined to is one conflict with no quantity:
+    it has no clause, and a person must still see that a module never joined it.
+    """
+    found: list[ClauseConflict] = []
+    for check in result.interfaces:
+        unjoined: set[SideName] = set(check.not_joined)
+        if not check.clauses and unjoined:
+            conflict = ContractConflict(interface=check.interface, quantity=None)
+            found.append(ClauseConflict(conflict, _in_order(unjoined), (), ()))
+        for clause in check.clauses:
+            if clause.outcome == "pass":
+                continue
+            failing = [n for n in clause.nodes if n.outcome != "pass"]
+            deviating: set[SideName] = unjoined | {n.side for n in failing}
+            found.append(
+                ClauseConflict(
+                    ContractConflict(interface=check.interface, quantity=clause.quantity),
+                    _in_order(deviating),
+                    tuple(n.node for n in failing),
+                    tuple(n.node for n in failing if n.outcome != "missing"),
+                )
+            )
+    return tuple(found)
+
+
+def contract_standing(
+    conflict: ContractConflict,
+    *,
+    gate: GateResult | None,
+    nodes: Iterable[str],
+    earlier: Iterable[tuple[Conflict, str]],
+    attempt_left: bool,
+) -> Standing:
+    """The standing of a failed clause, from the record's lines about its pair.
+
+    ``gate`` is the gate line of the attempt whose merge owed the result. It refused the clause
+    when it failed (in any mode: under ``on`` a merged attempt passed, so only ``observe`` reaches
+    this) naming the clause's quantity on the interface or on one of the clause's ``nodes``. The
+    system-scope result is never read: replay owes no contract result after the integration call,
+    so no clause is ever ruled with one on the record. ``earlier`` are the pair's earlier rulings;
+    ``attempt_left`` whether the one module a choice would reopen has an attempt or its fix left.
+    """
+    named = {conflict.interface, *nodes}
+    refused = (
+        gate is not None
+        and gate.verdict == "fail"
+        and conflict.quantity is not None
+        and any(q.name == conflict.quantity and q.node_id in named for q in gate.quantities)
+    )
+    counted = sum(1 for seen, level in earlier if seen == conflict and level != NOT_COUNTED)
+    return Standing(gate_refused=refused, counted_before=counted, attempt_left=attempt_left)

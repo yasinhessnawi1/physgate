@@ -86,12 +86,31 @@ def _contract(state: RunState, module: str) -> str | None:
     return "; ".join(found) or None
 
 
+def _open_item(state: RunState, module: str) -> str | None:
+    """No item about a failed contract of a pair the module takes part in is undecided.
+
+    In either mode: a decision recorded in a run that acts on none still closes the item, and a
+    held one not yet confirmed does not. A run that raised no contract item, as every run recorded
+    before they existed, has none open.
+    """
+    found: list[str] = []
+    for item_id in state.contract_items:
+        pair = state.pair_of(item_id)
+        if module in (pair.producer.subtask_id, pair.consumer.subtask_id) and state.undecided(
+            item_id
+        ):
+            about = f"{pair.producer.module} to {pair.consumer.module}"
+            found.append(f"queue item {item_id} about {about} has no decision taken")
+    return "; ".join(found) or None
+
+
 #: Asked in this order, and every open entry is named. A later precondition is one more entry
 #: here, and holds on every run recorded before it.
 PRECONDITIONS: tuple[Precondition, ...] = (
     Precondition("merged", _merged),
     Precondition("system_scope", _system_scope),
     Precondition("contract", _contract),
+    Precondition("open_item", _open_item),
 )
 
 

@@ -65,6 +65,9 @@ from physgate.orchestrator.common import (
 )
 from physgate.orchestrator.escalation import CONFIDENCE_FLOOR, Decision
 from physgate.orchestrator.events import (
+    ContractRuled,
+    ContractTested,
+    ContractValue,
     DecisionTaken,
     Event,
     LeftoverRead,
@@ -91,6 +94,7 @@ QueueSource = Literal[
     "review_blocked",
     "arbitration",
     "escalation_decision",
+    "contract",
 ]
 
 
@@ -121,8 +125,12 @@ Sha1 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 #: the domain's value, then returns to the gate), or record the decision only.
 OnChoose = Literal["retry", "fix", "end_subtask", "resize", "record_only"]
 #: The positions each kind of item offers, in the order the item states them: an arbitration's
-#: sizing (the graph's value stands) and domain (the disputing subtask's). No other kind offers any.
-POSITIONS: Mapping[QueueSource, tuple[Position, ...]] = {"arbitration": ("sizing", "domain")}
+#: sizing (the graph's value stands) and domain (the disputing subtask's); a failed contract's
+#: producer and consumer (whose merged work stands). No other kind offers any.
+POSITIONS: Mapping[QueueSource, tuple[Position, ...]] = {
+    "arbitration": ("sizing", "domain"),
+    "contract": ("producer", "consumer"),
+}
 
 
 class ConfirmedIndicator(BaseModel):
@@ -756,6 +764,136 @@ def integration_item(
     )
 
 
+#: The subtask field of a failed contract's item: it is about a pair of modules, not one subtask.
+CONTRACT = "contract"
+
+
+def contract_item_id(run_id: str, pair_number: int, round_: int) -> str:
+    """A failed contract's item id: the run, the pair's number, and from its second item, the round.
+
+    The pair's number is its place in the run's recorded pairs, from one.
+
+    Raises:
+        QueueError: the pair's number or the round is not a positive number, or the run id is
+            not a plain identifier.
+    """
+    if isinstance(pair_number, bool) or pair_number < 1:
+        msg = "a pair's number counts from one"
+        raise QueueError(msg, pair=str(pair_number))
+    return item_id_for(run_id, f"{CONTRACT}-{pair_number}", round_)
+
+
+def contract_item(
+    *,
+    item_id: str,
+    run_id: str,
+    tested: ContractTested,
+    rulings: tuple[ContractRuled, ...],
+    round_: int,
+    run_span: tuple[str, str],
+    trajectories: tuple[str, ...],
+    ts: str,
+    consequence: ItemConsequence | None = None,
+) -> QueueItem:
+    """The item for a failed contract, a clause of which the precedence rule sends to a person.
+
+    Both modules merged, so neither waits on it. Built from the result and its rulings alone: the
+    pair by its modules and the subtasks that planned them, which side deviates, and per ruled
+    clause the interface's value and each failing node's, with their revisions, each part held to
+    its form. Never a node's free-text provenance, nor the clause's own words for a refused unit.
+
+    Raises:
+        QueueError: no ruling sends a clause to a person, or no merged attempt left a trajectory.
+    """
+    from physgate.orchestrator import integration_state as render
+    from physgate.orchestrator.arbitration import clause_conflicts
+
+    queued = [r for r in rulings if r.level == "queue"]
+    if not queued or not trajectories:
+        msg = "a contract item follows a clause ruled for a person, and links the merged work"
+        raise QueueError(msg, item=item_id)
+    pair = tested.result.pair
+    held = {c.conflict: c for c in clause_conflicts(tested.result)}
+    unjoined = {c.interface: c.not_joined for c in tested.result.interfaces}
+
+    def side(name: str, subtask: str, module: str) -> str:
+        sub = render.held(
+            subtask, render.SUBTASK_PATTERN, render.PLANNED_ID_MAX_LENGTH, render.REFUSED_SUBTASK
+        )
+        return f"module {render.q(module)} ({name}, subtask {sub})"
+
+    deviating = {s for r in queued for s in held[r.conflict].sides}
+    who = (
+        "Both modules' nodes deviate"
+        if len(deviating) == 2
+        else f"The {next(iter(deviating))}'s nodes deviate"
+    )
+    again = f" again (round {round_})" if round_ > 1 else ""
+    producer = side("producer", pair.producer.subtask_id, pair.producer.module)
+    consumer = side("consumer", pair.consumer.subtask_id, pair.consumer.module)
+    start, head = run_span
+    return QueueItem(
+        item_id=item_id,
+        ts=ts,
+        run_id=run_id,
+        subtask_id=CONTRACT,
+        source="contract",
+        decision_required=(
+            f"The interface contract of {producer} to {consumer} failed{again} "
+            "after both merged. The interfaces are fixed at decomposition, and no run changes "
+            f"them. {who} from the interface. Decide whose merged work stands: choose producer or "
+            "choose consumer. In this build a choice is recorded, and no merged module is reopened."
+        ),
+        artefact_diff=(
+            f"The run branch from {start} to {head}: see `git diff {start} {head}` in the "
+            "target repository."
+        ),
+        triggering_finding="\n".join(
+            _clause_line(r, held[r.conflict].failing, unjoined[r.conflict.interface])
+            for r in rulings
+        ),
+        quantities=tuple(
+            r.wanted.position for r in queued if r.wanted is not None and parses(r.wanted.position)
+        )[:3],
+        trajectories=trajectories,
+        consequence=consequence,
+    )
+
+
+def _clause_line(ruling: ContractRuled, failing: tuple[str, ...], unjoined: tuple[str, ...]) -> str:
+    """One ruled clause, as the item states it: each value by the registry's names and revision."""
+    from physgate.orchestrator import integration_state as render
+    from physgate.orchestrator.dispute import QUANTITY_MAX, QUANTITY_PATTERN
+
+    conflict = ruling.conflict
+    where = f"Interface {render.held(conflict.interface)}"
+    whose = " and the ".join(unjoined)
+    joined = f"the {whose} {'is' if len(unjoined) == 1 else 'are'} not joined to it"
+    level = "the gate" if ruling.level == "gate" else "a person"
+    if conflict.quantity is None or ruling.wanted is None:
+        return f"{where} has no quantity, and {joined}. Ruled for {level}."
+    name = conflict.quantity
+    named = (
+        render.q(name)
+        if len(name) <= QUANTITY_MAX and QUANTITY_PATTERN.fullmatch(name)
+        else "a quantity name the dispute path refuses"
+    )
+
+    def holds(value: ContractValue) -> str:
+        position = value.position
+        return f"{render.measure(position.value, position.unit)} (revision {value.revision})"
+
+    parts = [f"{where}, quantity {named}: the interface holds {holds(ruling.wanted)}"]
+    carried = {v.position.node_id: v for v in ruling.found}
+    for node in failing:
+        found = carried.get(node)
+        said = f"holds {holds(found)}" if found is not None else "does not carry it"
+        parts.append(f"node {render.held(node)} {said}")
+    if unjoined:
+        parts.append(joined)
+    return "; ".join(parts) + f". Ruled for {level}."
+
+
 class _Records:
     """The queue's lines read so far, and what they make legal next.
 
@@ -781,7 +919,10 @@ class _Records:
         elif record.verb == "choose":
             offered = POSITIONS.get(self.items[record.item_id].source, ())
             if not offered:
-                msg = "a choice is made only on an item whose kind offers positions: an arbitration"
+                msg = (
+                    "a choice is made only on an item whose kind offers positions: an arbitration "
+                    "or a failed contract"
+                )
                 raise ValueError(msg)
             if record.position not in offered:
                 msg = f"a position the item's kind does not offer: it offers {', '.join(offered)}"

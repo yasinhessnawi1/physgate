@@ -198,6 +198,24 @@ def _arbitration_effect() -> tuple[WhyRecordOnly, OnReject]:
     return "source", "record_only"
 
 
+def contract_consequence() -> ItemConsequence:
+    """What each verb does to a failed contract's item: in this build, every one records only.
+
+    Both modules merged and neither waits on the item, so approve and reject pick nothing, and a
+    choice of the producer's or the consumer's work is recorded and reopens no merged module.
+    """
+    return ItemConsequence(
+        attempt=None,
+        attempt_commit=None,
+        on_approve="record_only",
+        on_reject="record_only",
+        why_record_only="source",
+        confirmed_indicators=(),
+        scan_hits=(),
+        on_choose=dict.fromkeys(POSITIONS["contract"], "record_only"),
+    )
+
+
 def _on_choose(state: RunState, sub: SubtaskState) -> dict[Position, OnChoose]:
     """What choosing each position of the subtask's arbitration item does, from its record.
 
@@ -284,6 +302,8 @@ def item_consequence(
     ``scan_hits`` is what the scan before review found in the streams of the attempts no review
     judged; it counts for the sources in :data:`SCANNED_SOURCES`.
     """
+    if source == "contract":
+        return contract_consequence()
     if subtask_id == INTEGRATION or source == "gate_escalation":
         return ItemConsequence(
             attempt=None,
@@ -481,7 +501,12 @@ def decision_effect(
     if resolution.shown_sha256 != line_sha256:
         msg = "the item's line is not the one the decision was taken on"
         raise QueueItemMismatchError(msg, item=item.item_id)
-    if item.subtask_id == INTEGRATION:
+    if item.source == "contract":
+        if item.item_id not in state.contract_items:
+            msg = "the run raised no such contract item"
+            raise QueueItemMismatchError(msg, item=item.item_id)
+        expected = contract_consequence()
+    elif item.subtask_id == INTEGRATION:
         escalated = state.integration_escalated
         if escalated is None or escalated.item_id != item.item_id:
             msg = "the run escalated no such integration item"
@@ -551,6 +576,9 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
     elif earlier is not None:
         msg = "a decision on an item is taken once"
         raise ValueError(msg)
+    if event.item_id in state.contract_items:
+        _require_contract_taken(state, event)
+        return
     if event.subtask_id is None:
         if event.acts or event.effect != "none":
             msg = "a decision on the integration item records only"
@@ -617,4 +645,34 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
         raise ValueError(msg)
     if event.acts and event.verb == "reject" and event.note is None:
         msg = "a reject that acts carries its note"
+        raise ValueError(msg)
+
+
+def _require_contract_taken(state: RunState, event: DecisionTaken) -> None:
+    """Refuse a decision on a failed contract's item that this build could not have taken.
+
+    It names no subtask and no attempt, and records only: what it records only for is the item's
+    own reason in a run that acts, and that the item says nothing of a verb's effect in one that
+    records only.
+    """
+    if event.subtask_id is not None or (event.attempt, event.attempt_commit) != (None, None):
+        msg = "a decision on a contract item names no subtask and no attempt"
+        raise ValueError(msg)
+    if event.acts or event.effect != "none":
+        msg = "a decision on a contract item records only"
+        raise ValueError(msg)
+    if event.verb == "choose" and event.position not in POSITIONS["contract"]:
+        msg = "a choice on a contract item is taken of a position it offers"
+        raise ValueError(msg)
+    if event.verb is None:
+        allowed = event.why_not in ("not_bound", "legacy_item")
+    elif not state.acts:
+        allowed = event.why_not == "legacy_item"
+    else:
+        if event.shown_sha256 is None:
+            msg = "a decision with a verb names the digest of the item line it was taken on"
+            raise ValueError(msg)
+        allowed = event.why_not == _effect_of(contract_consequence(), event.verb, event.position)[1]
+    if not allowed:
+        msg = "a decision on a contract item that does other than the record allows"
         raise ValueError(msg)

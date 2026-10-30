@@ -140,8 +140,11 @@ def arbitrated(tmp_path: Path) -> Rig:
 # --- the field and the set ---------------------------------------------------------------------
 
 
-def test_only_an_arbitration_item_offers_positions_and_they_are_sizing_and_domain() -> None:
-    assert getattr(queue_module, "POSITIONS", None) == {"arbitration": ("sizing", "domain")}
+def test_arbitration_and_contract_items_offer_their_own_positions() -> None:
+    assert getattr(queue_module, "POSITIONS", None) == {
+        "arbitration": ("sizing", "domain"),
+        "contract": ("producer", "consumer"),
+    }
     assert "choose" in getattr(queue_module.Verb, "__args__", ())
 
 
@@ -168,7 +171,7 @@ def test_a_choice_s_text_is_the_verb_the_position_and_the_note() -> None:
     [
         ({"position": None}, "a position is chosen with choose, and only with it"),
         ({"verb": "approve", "decision": "approve"}, "a position is chosen with choose, and only"),
-        ({"position": "producer"}, "domain"),
+        ({"position": "builder"}, "domain"),
         ({"decision": "choose sizing"}, "a decision's text is exactly its verb, position and note"),
         ({"decision": "choose domain: why"}, "exactly its verb, position and note"),
     ],
@@ -498,7 +501,7 @@ def test_replay_reads_a_choice_on_an_arbitration_item(tmp_path: Path) -> None:
     [
         ({"position": None}, "a position is chosen with choose, and only with it"),
         ({"verb": "approve"}, "a position is chosen with choose, and only with it"),
-        ({"position": "producer"}, "domain"),
+        ({"position": "producer"}, "of a position it offers"),
         ({"effect": "retry", "acts": True, "why_not": None, "note": "go"},
          "a decision that does other than the record allows"),
         ({"why_not": "scan_hit"}, "a decision that does other than the record allows"),

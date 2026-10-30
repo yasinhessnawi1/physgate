@@ -394,7 +394,7 @@ def test_contract_results_are_rebuilt_from_the_event_log_by_a_fresh_process(
 def test_completion_waits_on_every_pair_of_the_module_and_holds_in_a_run_without_pairs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert [p.name for p in completion.PRECONDITIONS][-1] == "contract"
+    assert [p.name for p in completion.PRECONDITIONS][2] == "contract"
     _, events = finished(tmp_path / "pairs", monkeypatch)
     owed = replay(events[: at(events, DiffChecked, FW) + 1])
     assert owed.next_step().kind == "contract"
@@ -728,7 +728,8 @@ def test_a_failed_result_rewritten_as_its_pairs_pass_halts_the_run_before_any_co
     honest = json.loads(contracts(passing)[0].model_dump_json())["result"]
     rig = rig_for(tmp_path / "fail", fw_volts=11)
     loop = rig.open()
-    hooked(monkeypatch, loop, declared=(DRIVE, FW), kill=nth_contract(1))
+    # Killed before the failed result's ruling, so the result is the log's last line.
+    hooked(monkeypatch, loop, declared=(DRIVE, FW), kill=lambda e, _: e.kind == "contract_ruled")
     start(loop)
     with pytest.raises(KilledError):
         loop.run()
@@ -786,7 +787,9 @@ def test_a_result_rewritten_in_its_detail_with_its_outcome_kept_halts_the_run_to
             if n["node"] == "budget.supply"
         ]
         assert budget["outcome"] == "value"
-        budget["outcome"] = "missing"  # the clause, the interface and the pair still fail
+        # The clause, the interface and the pair still fail, and the node still carries the
+        # quantity, as the clause's ruling holds it.
+        budget["outcome"] = "unit"
 
     rewritten(log, another_failure)
     fresh = rig.open()

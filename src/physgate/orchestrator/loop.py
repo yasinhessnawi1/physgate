@@ -28,6 +28,7 @@ from physgate.contracts.pairs import ContractError
 from physgate.gate.exceptions import GateError
 from physgate.orchestrator.apply import ProposalRefusedError
 from physgate.orchestrator.arbitration import (
+    ContractConflict,
     DisputeConflict,
     Held,
     Level,
@@ -57,7 +58,10 @@ from physgate.orchestrator.events import (
     AttemptRejected,
     AttemptReturned,
     CompletionDeclared,
+    ContractItemRaised,
+    ContractRuled,
     ContractTested,
+    ContractValue,
     DecisionsSealed,
     DecisionTaken,
     Decomposed,
@@ -147,6 +151,7 @@ from physgate.orchestrator.protocols import (
     require_separate_models,
 )
 from physgate.orchestrator.queue import (
+    CONTRACT,
     INTEGRATION,
     ItemConsequence,
     QueueItem,
@@ -154,6 +159,7 @@ from physgate.orchestrator.queue import (
     QueueSource,
     QueueView,
     arbitration_item,
+    contract_item,
     decided_item,
     decisions_file_bytes,
     escalation_item,
@@ -731,8 +737,13 @@ class Loop:
         return self.config.queue_decisions == "act"
 
     def _at_a_boundary(self, step: Step) -> bool:
-        """Where a decision may be taken, in a run that acts on them (ARCH-133)."""
-        return self._acts() and at_a_boundary(step)
+        """Where a decision may be taken (ARCH-133), in a run that acts on them.
+
+        In a run that records only, too, while a failed contract's item is undecided: a completion
+        waits for a decision on it in either mode, and the decision is taken, recording only.
+        """
+        open_ = any(self.state.undecided(i) for i in self.state.contract_items)
+        return (self._acts() or open_) and at_a_boundary(step)
 
     def _held_windows(self) -> list[tuple[int, int | None]]:
         """The decisions file's ranges written while a session ran without the OS layer."""
@@ -757,6 +768,8 @@ class Loop:
         took = False
         for offset, resolution in view.decisions:
             item = items[resolution.item_id]
+            if not self._acts() and item.source != "contract":
+                continue  # a run that records only takes no other decision into its log
             if resolution.item_id not in self.state.taken:
                 if not self._take(item, resolution, offset, view, held=within(offset, held)):
                     return True
@@ -810,7 +823,8 @@ class Loop:
 
         No attempt is in progress here, so an incident names no subtask; its detail does.
         """
-        subtask_id = None if item.subtask_id == INTEGRATION else item.subtask_id
+        contract = item.source == "contract"
+        subtask_id = None if item.subtask_id == INTEGRATION or contract else item.subtask_id
         digest = view.digests.get(item.item_id)
         if digest is None:
             self._incident(None, "queue_item_mismatch", f"item {item.item_id} has no line")
@@ -841,6 +855,8 @@ class Loop:
             )
         except QueueItemMismatchError as exc:
             self._incident(None, "queue_item_mismatch", f"{exc}: {exc.context}")
+            return False
+        if contract and resolution.verb is not None and not self._contract_item_holds(item):
             return False
         # Held to the record whole, not field by field: the item as listed must be the item the
         # loop builds from the log now, its links, finding, diff and consequence alike. Otherwise
@@ -2030,6 +2046,12 @@ class Loop:
         node the pair cannot be held to, or a journal that ends before the recorded revision, halts
         the run, and no result is recorded.
         """
+        if self.state.owed_ruling() is not None:
+            self._rule_contract()
+            return
+        if self.state.owed_item() is not None:
+            self._raise_contract_item()
+            return
         pair, head = self.state.owed_contract(), self.state.run_head
         if pair is None or head is None:
             msg = "a contract step with no pair owed a result, or no run head on the record"
@@ -2052,6 +2074,131 @@ class Loop:
                 **self._env(), result=result, first=first, commit=head, revision=revision
             )
         )
+
+    def _rule_contract(self) -> None:
+        """Rule the failed clause the record owes next by the precedence table (ARCH-040).
+
+        Both positions are read from the canonical journal at the result's revision: the
+        interface's value and each failing node's that carries the quantity, with the revision of
+        its line. A journal that does not give them halts the run, and nothing is ruled.
+        """
+        clause, tested = self.state.owed_ruling(), self.state.failed_result()
+        if clause is None or tested is None:
+            msg = "a contract ruling with none owed"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        values = self._clause_values(tested, clause.conflict, clause.carrying)
+        if values is None:
+            return
+        wanted, found = values
+        standing = self.state.contract_standing_of(tested, clause)
+        self._emit(
+            ContractRuled(
+                **self._env(),
+                conflict=clause.conflict,
+                standing=standing,
+                level=cast("Level", arbitrate(clause.conflict, standing).level),
+                wanted=wanted,
+                found=found,
+            )
+        )
+
+    def _clause_values(
+        self, tested: ContractTested, conflict: ContractConflict, nodes: tuple[str, ...]
+    ) -> tuple[ContractValue | None, tuple[ContractValue, ...]] | None:
+        """The clause's quantity on the interface and on ``nodes`` at the result; None if halted."""
+        name = conflict.quantity
+        if name is None:
+            return None, ()
+        read: list[ContractValue] = []
+        for node in (conflict.interface, *nodes):
+            held = self._held_at(None, node, name, tested.revision)
+            if held is None:
+                return None
+            read.append(ContractValue(position=held.position, revision=held.revision))
+        return read[0], tuple(read[1:])
+
+    def _rulings_hold(self, tested: ContractTested) -> bool:
+        """Each ruling of ``tested`` holds what the journal gives at its revision; else halted.
+
+        Replay holds a ruling's values to the revisions the log gives and to nothing more, so a
+        value rewritten on the line would reach the item; it is read again here first.
+        """
+        for line in self.state.rulings_of(tested):
+            nodes = tuple(value.position.node_id for value in line.found)
+            again = self._clause_values(tested, line.conflict, nodes)
+            if again is None:
+                return False
+            if again != (line.wanted, line.found):
+                detail = (
+                    f"the contract ruling recorded at line {line.seq} does not hold what the "
+                    f"canonical journal gives at revision {tested.revision}"
+                )
+                self._incident(None, "foreign_journal_line", detail)
+                return False
+        return True
+
+    def _raise_contract_item(self) -> None:
+        """List the item a failed contract owes a person, once, then record it."""
+        tested = self.state.owed_item()
+        if tested is None:
+            msg = "a contract item with none owed"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        if not self._rulings_hold(tested):
+            return
+        item_id = self.state.next_contract_item(tested, self.config.run_id)
+        if item_id not in {item.item_id for item in self.queue.items()}:
+            self.queue.add(self._contract_item_for(tested, item_id, ts=self.log.events[-1].ts))
+        self._emit(ContractItemRaised(**self._env(), item_id=item_id))
+
+    def _contract_item_for(self, tested: ContractTested, item_id: str, *, ts: str) -> QueueItem:
+        """The item a failed contract lists, from the record as it stood at the result.
+
+        The one builder, so the item a decision is taken on is held to it whole. Its links are the
+        sessions of every attempt merged in either module's directory before the result.
+        """
+        pair = tested.result.pair
+        dirs = {
+            self.state.subtasks[s.subtask_id].plan.module_dir
+            for s in (pair.producer, pair.consumer)
+        }
+        trajectories = tuple(
+            attempt.session.trajectory
+            for subtask_id in self.state.order
+            if self.state.subtasks[subtask_id].plan.module_dir in dirs
+            for attempt in self.state.subtasks[subtask_id].attempts
+            if attempt.merged is not None
+            and attempt.merged.seq < tested.seq
+            and attempt.session is not None
+            and attempt.session.trajectory is not None
+        )
+        start = next((e.spec_commit for e in self.log.events if isinstance(e, Decomposed)), "")
+        raised = len(self.state.items_of(pair))
+        own = item_id in self.state.contract_items
+        return contract_item(
+            item_id=item_id,
+            run_id=self.config.run_id,
+            tested=tested,
+            rulings=tuple(self.state.rulings_of(tested)),
+            round_=raised if own else raised + 1,
+            run_span=(start or tested.commit, tested.commit),
+            trajectories=trajectories,
+            ts=ts,
+            consequence=self._consequence(CONTRACT, "contract"),
+        )
+
+    def _contract_item_holds(self, item: QueueItem) -> bool:
+        """The contract item as listed is the one the record builds, its rulings the journal's."""
+        tested = self.state.contract_items.get(item.item_id)
+        if tested is None:
+            self._incident(None, "queue_item_mismatch", f"the run raised no item {item.item_id}")
+            return False
+        if not self._rulings_hold(tested):
+            return False
+        if self._contract_item_for(tested, item.item_id, ts=item.ts) != item:
+            detail = f"item {item.item_id} is not the item the run's record builds"
+            self._incident(None, "queue_item_mismatch", detail)
+            return False
+        return True
 
     def _complete(self, step: Step) -> None:
         """Record the completion the record owes next (ARCH-051).

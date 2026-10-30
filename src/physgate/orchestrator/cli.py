@@ -257,7 +257,9 @@ def add_parsers(
     form.add_argument("--approve", action="store_true", help="approve the item as shown")
     form.add_argument("--reject", action="store_true", help="reject the item as shown")
     form.add_argument(
-        "--choose", choices=POSITIONS["arbitration"], help="choose an arbitration item's position"
+        "--choose",
+        choices=[p for kind in POSITIONS.values() for p in kind],
+        help="choose a position an arbitration or a failed contract's item offers",
     )
     resolve.add_argument("--note", help="why; required to reject")
     resolve.add_argument(

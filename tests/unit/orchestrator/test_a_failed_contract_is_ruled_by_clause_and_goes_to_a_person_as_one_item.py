@@ -182,7 +182,7 @@ def test_a_failed_contract_is_ruled_one_line_per_failed_clause_and_goes_to_a_per
         "contract_tested",
     ]
     ruled, raised = rows[at + 1], rows[at + 2]
-    assert ruled["tested"] == rows[at]["seq"]
+    assert "tested" not in ruled  # it rules the latest result, which the line follows
     assert ruled["conflict"] == {"kind": "contract", "interface": "iface.drive", "quantity": "v"}
     assert ruled["standing"] == {"gate_refused": False, "counted_before": 0, "attempt_left": True}
     assert ruled["level"] == "queue"
@@ -190,7 +190,8 @@ def test_a_failed_contract_is_ruled_one_line_per_failed_clause_and_goes_to_a_per
     assert ruled["found"] == [value("fw.main", "v", 11, "V", 4)]
     # A node's free-text provenance is never on the line.
     assert "brief" not in json.dumps(ruled) and "written_by" not in json.dumps(ruled)
-    assert (raised["item_id"], raised["tested"]) == (ITEM, rows[at]["seq"])
+    assert set(raised) - {"seq", "ts", "run_id", "gate_mode"} == {"kind", "item_id"}
+    assert raised["item_id"] == ITEM
     item = next(i for i in read_queue(rig.run_dir).items if i.item_id == ITEM)
     assert (item.source, item.subtask_id, item.run_id) == ("contract", "contract", "run-1")
     assert refusal(rows) is None
@@ -284,13 +285,13 @@ def test_a_pair_has_one_undecided_item_at_a_time(
         r for r in rows if r["kind"] == "contract_tested" and r["result"]["outcome"] == "fail"
     ]
     assert [r["result"]["pair"] for r in failed] == [json.loads(P_BUDGET.model_dump_json())] * 2
-    ruled = [r["tested"] for r in rows if r["kind"] == "contract_ruled"]
-    assert ruled == [r["seq"] for r in failed]
+    # Each failed result is followed by its ruling.
+    assert [rows[r["seq"] + 1]["kind"] for r in failed] == ["contract_ruled"] * 2
     assert [
         r["counted_before"] for r in (x["standing"] for x in rows if x["kind"] == "contract_ruled")
     ] == [0, 1]
     raised = [r for r in rows if r["kind"] == "contract_item_raised"]
-    assert [(r["item_id"], r["tested"]) for r in raised] == [(ITEM, failed[0]["seq"])]
+    assert [(r["item_id"], r["seq"]) for r in raised] == [(ITEM, failed[0]["seq"] + 2)]
     assert refusal(rows) is None
 
 
@@ -322,7 +323,6 @@ def test_replay_refuses_a_ruling_or_an_item_the_record_does_not_give(
     moved = [value("fw.main", "v", 11, "V", 3)]
     assert "revision" in said(ruled | {"found": moved})
     assert "revision" in said(ruled | {"wanted": value("iface.drive", "v", 12, "V", 9)})
-    assert "tested" in said(ruled | {"tested": ruled["tested"] - 1})
     # Nothing else follows a failed result before its rulings and its item.
     assert "rulings and its item" in said(rows[at + 3])
     assert "rulings and its item" in said(ruled, rows[at + 3])
@@ -547,3 +547,34 @@ def test_a_choice_on_an_arbitration_item_is_held_to_its_positions_now_another_se
     for other in ("producer", "consumer"):
         why = refusal([*rows[:at], rows[at] | {"position": other}])
         assert why is not None and "of a position it offers" in why, why
+
+
+def test_no_session_s_words_reach_the_contract_item(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # fw's node carries its provenance as free text, and its value in a unit word no registry
+    # defines, which the clause's own reason quotes on the result's line.
+    worded = node("fw.main", "firmware", "iface.drive", "iface.tilt", v=12, period=10)
+    worded["quantities"]["v"] |= {
+        "unit": "UNITCANARY",
+        "source": "SOURCE-CANARY datasheet",
+        "written_by": "WRITER-CANARY firmware pass",
+    }
+    rig = ran(tmp_path, monkeypatch, acts=True, writes={FW: [worded]})
+    rows = lines(rig)
+    at = failed_at(rows)
+    ruled = rows[at + 1]
+    assert (ruled["kind"], ruled["found"][0]["position"]["unit"]) == (
+        "contract_ruled",
+        "UNITCANARY",
+    )
+    queue = (rig.run_dir / "queue.jsonl").read_text()
+    assert ITEM in queue
+    for canary in ("UNITCANARY", "SOURCE-CANARY", "WRITER-CANARY"):
+        assert canary not in queue, canary
+        assert canary not in json.dumps(ruled) or canary == "UNITCANARY", canary
+    item = next(i for i in read_queue(rig.run_dir).items if i.item_id == ITEM)
+    assert 'node "fw.main" holds 12, in a unit the gate\'s parser refuses (revision 4)' in (
+        item.triggering_finding
+    )
+    assert item.quantities == (QuantityRef(node_id="iface.drive", name="v", value=12, unit="V"),)
