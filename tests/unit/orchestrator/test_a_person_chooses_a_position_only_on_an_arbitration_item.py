@@ -204,7 +204,8 @@ def _hand_queue(tmp_path: Path, source: str) -> Path:
     run_dir.mkdir()
     item = QueueItem(
         item_id="run-1-s1", ts=TS, run_id="run-1",
-        subtask_id="integration" if source == "gate_escalation" else "s1", source=source,
+        subtask_id="integration" if source == "gate_escalation" else "s1",
+        source=source,  # type: ignore[arg-type]  # each of the queue's sources, by name
         decision_required="Decide.", artefact_diff="", triggering_finding="a finding",
         quantities=(), trajectories=("sessions/a/stdout.jsonl",),
     )  # fmt: skip
@@ -701,8 +702,9 @@ def test_an_o3_item_keeps_its_bytes_with_no_on_choose() -> None:
     ]  # fmt: skip
     assert built == list(O3_LINES[:2])
     assert getattr(consequence, "on_choose", "absent") in (None, "absent")
-    for line, model in zip(O3_LINES[1:3], (QueueItem, QueueResolution), strict=True):
-        assert model.model_validate_json(line).model_dump_json().encode() == line
+    assert QueueItem.model_validate_json(O3_LINES[1]).model_dump_json().encode() == O3_LINES[1]
+    resolution = QueueResolution.model_validate_json(O3_LINES[2])
+    assert resolution.model_dump_json().encode() == O3_LINES[2]
     decision = _EVENT.validate_json(O3_LINES[3])
     assert decision.model_dump_json().encode() == O3_LINES[3]
     assert b"on_choose" not in b"".join(O3_LINES) and b"position" not in b"".join(O3_LINES)
