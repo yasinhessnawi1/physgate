@@ -23,7 +23,15 @@ from physgate.orchestrator.protocols import GateResult, NumericOutput, QuantityR
 
 #: What rejected an attempt.
 FindingSource = Literal[
-    "gate", "review", "write_scope", "proposal", "reading", "series", "person", "declaration"
+    "gate",
+    "review",
+    "write_scope",
+    "proposal",
+    "reading",
+    "series",
+    "person",
+    "declaration",
+    "dispute",
 ]
 
 _WHO = {
@@ -35,6 +43,7 @@ _WHO = {
     "series": "the series check (a simulation record was refused, or names other code)",
     "person": "a person deciding the approval queue",
     "declaration": "the completion declaration check (the declaration is not one the plan reads)",
+    "dispute": "the dispute check (a dispute is not one the harness reads)",
 }
 
 #: The fixed line every instruction that quotes a person's words ends with: what a person

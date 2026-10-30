@@ -64,6 +64,8 @@ from physgate.hooks.graph import (
     OWNER_CHANGE,
     SHADOWED_QUANTITY,
 )
+from physgate.hooks.journal_view import heads
+from physgate.orchestrator import dispute as rules
 from physgate.orchestrator.declaration import (
     DECLARATION_PATH,
     LINE_ENDS,
@@ -74,6 +76,7 @@ from physgate.orchestrator.declaration import (
     DeclarationError,
     parse,
 )
+from physgate.orchestrator.dispute import DISPUTES_DIR, Dispute, DisputeError, disputer_problem
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.exceptions import DutyUnownedError, RoleRegisterError, StoreRefusalError
 from physgate.orchestrator.git import (
@@ -493,6 +496,12 @@ def _held(
     return held[(path, blob)]
 
 
+def _blob_id(data: bytes, length: int) -> str:
+    """The id git gives ``data`` as a blob, in the object format whose ids are ``length`` long."""
+    digest = hashlib.sha1 if length == 40 else hashlib.sha256  # noqa: S324 - git's own id
+    return digest(b"blob %d\0" % len(data) + data).hexdigest()
+
+
 def declares_completion(role: str) -> bool:
     """Whether ``role`` is the one role the register names as owning completion, asked now.
 
@@ -535,8 +544,15 @@ class GitChangeChecker:
         base = merge_base(repo, self._run.run_branch, attempt_commit, git_dir=pinned)
         declares = declares_completion(role)
         module_dir = self._module_dirs[subtask_id]
+        disputes = disputer_problem(role) is None
         outside = write_scope_violations(
-            repo, base, attempt_commit, module_dir, declares=declares, git_dir=pinned
+            repo,
+            base,
+            attempt_commit,
+            module_dir,
+            declares=declares,
+            disputes=disputes,
+            git_dir=pinned,
         )
         scratch = self._run.run_dir / "scratch" / f"{subtask_id}-{attempt_commit[:12]}"
         if outside:
@@ -552,6 +568,16 @@ class GitChangeChecker:
                 refused_by="declaration",
                 reason=f"{DECLARATION_PATH}: {exc}",
                 subject=DECLARATION_PATH,
+                graph_root=str(scratch),
+            )
+        try:
+            disputed = self._disputes(base, attempt_commit, role, pinned) if disputes else ()
+        except DisputeError as exc:
+            path = str(exc.args[1])
+            return ChangeCheck(
+                refused_by="dispute",
+                reason=f"{path}: {exc.args[0]}",
+                subject=path,
                 graph_root=str(scratch),
             )
         committed = _committed_records(repo, base, attempt_commit, pinned)
@@ -614,7 +640,47 @@ class GitChangeChecker:
             proposed=proposed,
             series_checks=checks,
             declaration=declared,
+            disputes=disputed,
         )
+
+    def _disputes(self, base: str, commit: str, role: str, pinned: GitDir) -> tuple[Dispute, ...]:
+        """Every dispute ``commit`` added or changed since ``base``, read and parsed, sorted.
+
+        Raises:
+            DisputeError: one is not a dispute; its message, then its path.
+        """
+        repo = self._run.repo
+        graph = {node_id: head[2] for node_id, head in heads(str(self._store_root)).items()}
+        found: list[Dispute] = []
+        for change in changes_between(repo, base, commit, git_dir=pinned):
+            if change.status == "D" or not change.path.startswith(DISPUTES_DIR + "/"):
+                continue
+            listing = git(
+                repo,
+                "ls-tree",
+                "-l",
+                "-z",
+                commit,
+                "--",
+                change.path,
+                objects_only=True,
+                git_dir=pinned,
+            )
+            _, _, blob, size = listing.partition("\t")[0].split()
+            try:
+                if int(size) > rules.MAX_BYTES:
+                    raise DisputeError(rules.TOO_LONG.format(cap=rules.MAX_BYTES, size=size))
+                try:
+                    text = git(repo, "cat-file", "blob", blob, objects_only=True, git_dir=pinned)
+                except UnicodeDecodeError:
+                    raise DisputeError(rules.NOT_UTF8) from None
+                data = text.encode()
+                if _blob_id(data, len(blob)) != blob:
+                    raise DisputeError(rules.LINE_ENDS)
+                found.append(rules.parse(change.path, data, role, graph))
+            except DisputeError as exc:
+                raise DisputeError(str(exc), change.path) from None
+        return tuple(sorted(found, key=lambda d: (d.position.node_id, d.position.name)))
 
     def declaration_at(self, commit: str, declaring: str) -> Declaration | None:
         """The completion declaration ``commit`` holds, read and parsed as :meth:`check` reads one.

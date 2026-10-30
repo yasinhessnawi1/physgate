@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from physgate.orchestrator.declaration import DECLARATION_PATH
+from physgate.orchestrator.dispute import DISPUTES_DIR
 from physgate.orchestrator.exceptions import GitError, MergeConflictError, MergeRefusedError
 from physgate.orchestrator.git import (
     GitDir,
@@ -57,6 +58,7 @@ from physgate.orchestrator.ports import WorktreeRemoval
 
 #: Where an agent proposes graph nodes, one whole node per file (the hook layer's route).
 PROPOSALS = PurePosixPath(".physgate/proposals")
+DISPUTES = PurePosixPath(DISPUTES_DIR)
 _PROPOSAL = re.compile(r"^\.physgate/proposals/[a-z][a-z0-9_]*(\.[a-z0-9_]+)+\.json$")
 _REGULAR = "100644"
 _ABSENT = "000000"
@@ -129,13 +131,16 @@ def write_scope_violations(
     module_dir: str,
     *,
     declares: bool = False,
+    disputes: bool = False,
     git_dir: GitDir | None = None,
 ) -> list[str]:
     """Every change from ``base`` to ``commit`` outside the attempt's own scope.
 
     In scope: regular files and executables under ``module_dir``, regular files that
-    are node proposals, and, for an attempt of the role that owns completion
-    (``declares``), the completion declaration as a regular file. Out of scope: any
+    are node proposals, for an attempt of the role that owns completion
+    (``declares``) the completion declaration as a regular file, and for an attempt of
+    a role that may dispute (``disputes``) a regular file in the disputes directory,
+    which the change check reads as a dispute. Out of scope: any
     other path, and a symbolic link or a submodule anywhere, since either can point
     outside the module. ``git_dir`` is the repository's verified git directory, if the
     caller has one.
@@ -156,6 +161,8 @@ def write_scope_violations(
         if _PROPOSAL.fullmatch(change.path) and change.new_mode in (_REGULAR, _ABSENT):
             continue
         if declares and change.path == DECLARATION_PATH and change.new_mode == _REGULAR:
+            continue
+        if disputes and path.is_relative_to(DISPUTES) and change.new_mode in (_REGULAR, _ABSENT):
             continue
         found.append(f"{change.path} (outside {module_dir})")
     return found

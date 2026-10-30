@@ -64,6 +64,11 @@ with the Write or Edit tool: this hook checks its shape before it exists (the pl
 hook's to read; the change check holds the entries to it), refuses it from every other role, and
 refuses any other file there. A command that names the directory is refused unless it only reads,
 and the OS layer write-denies the directory to every shell command, as it does the proposals.
+
+So is a dispute, a role's own value for a quantity of a cross node, written as
+``.physgate/disputes/<node id>.<quantity>.json`` (``physgate.orchestrator.dispute``): this hook
+holds it to the one parser the change check uses, against the register and the journal as they
+are now.
 """
 
 from __future__ import annotations
@@ -97,6 +102,8 @@ PROPOSALS_DIR = os.path.join(".physgate", "proposals")
 #: held there. The orchestrator reads it from the commit an attempt made.
 COMPLETION_DIR = os.path.join(".physgate", "completion")
 DECLARATION_NAME = "declaration.json"
+#: Where a role writes its disputes of the cross nodes' values, relative to the worktree.
+DISPUTES_DIR = os.path.join(".physgate", "disputes")
 
 REFUSED = "This node proposal is refused ({reason}): {detail}"
 NOT_JSON = "a proposal is one whole node as a JSON object"
@@ -113,6 +120,12 @@ DECLARATION_SHELL = (
     "The completion declaration is written with the Write or Edit tool, so that it can be "
     "checked before the file exists. A shell command may read it only with a recognised "
     "read-only program; any other command that names the completion directory is refused."
+)
+DISPUTE_REFUSED = "This dispute is refused: {detail}"
+DISPUTE_SHELL = (
+    "A dispute is written with the Write or Edit tool, so that it can be checked before the "
+    "file exists. A shell command may read it only with a recognised read-only program; any "
+    "other command that names the disputes directory is refused."
 )
 UNLOCATED = (
     "This edit to a node proposal is refused: its old text occurs {found} times in the file "
@@ -464,6 +477,28 @@ def _declaration(hook_input: InputView, target: str, config: ConfigView) -> Deci
     return ALLOW if why is None else refuse(DECLARATION_REFUSED.format(detail=why))
 
 
+def _dispute(hook_input: InputView, target: str, config: ConfigView) -> Decision:
+    """Check a write of a dispute before it exists: whose, of what, its name and its body."""
+    from physgate.orchestrator.dispute import NAMED, DisputeError, parse
+
+    if hook_input.tool_name == "NotebookEdit":
+        return refuse(DISPUTE_REFUSED.format(detail=NAMED))
+    after = _content_after(hook_input, target)
+    if isinstance(after, int):
+        return refuse(UNLOCATED.format(found=after))
+    graph = heads(config.store_root) if config.store_root else {}
+    try:
+        parse(
+            os.path.relpath(target, config.worktree),
+            after.encode("utf-8", "surrogatepass"),
+            str(config.role),
+            {node_id: head[2] for node_id, head in graph.items()},
+        )
+    except DisputeError as exc:
+        return refuse(DISPUTE_REFUSED.format(detail=exc))
+    return ALLOW
+
+
 def _spellings(path: str, cwd: str) -> set[str]:
     target = os.path.normpath(path if os.path.isabs(path) else os.path.join(cwd, path))
     return {target, os.path.realpath(target)}
@@ -521,6 +556,9 @@ def _file_tool(hook_input: InputView, config: ConfigView) -> Decision:
     declared = _target(path, hook_input.cwd, config, COMPLETION_DIR)
     if declared is not None:
         return _declaration(hook_input, declared, config)
+    disputed = _target(path, hook_input.cwd, config, DISPUTES_DIR)
+    if disputed is not None:
+        return _dispute(hook_input, disputed, config)
     target = _target(path, hook_input.cwd, config, PROPOSALS_DIR)
     if target is None:
         return ALLOW
@@ -568,6 +606,8 @@ def _shell(hook_input: InputView, config: ConfigView) -> Decision:
                     return refuse(SHELL_WRITE)
                 if _reaches(candidate, cwd, config, COMPLETION_DIR):
                     return refuse(DECLARATION_SHELL)
+                if _reaches(candidate, cwd, config, DISPUTES_DIR):
+                    return refuse(DISPUTE_SHELL)
     return ALLOW
 
 
@@ -583,7 +623,7 @@ def _is_the_worktree(path: str, cwd: str, config: ConfigView) -> bool:
 
 
 def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
-    """Check a proposal or the declaration before it is written; refuse any other route."""
+    """Check a proposal, the declaration or a dispute before it is written; refuse other routes."""
     if hook_input.tool_name in ("Write", "Edit", "NotebookEdit"):
         return _file_tool(hook_input, config)
     if hook_input.tool_name == "Bash":

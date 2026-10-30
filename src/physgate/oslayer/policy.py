@@ -36,7 +36,8 @@ before it exists. The hooks refuse a command that names the directory, but a com
 reaches it by a path it builds as it runs, or by copying or moving a directory into place,
 names nothing they can see. So the proposals directory is write-denied to every shell
 command; the file tools, which the sandbox does not wrap, still write there. The completion
-declaration's directory, ``.physgate/completion``, is held the same way and for the same reason.
+declaration's directory, ``.physgate/completion``, and the disputes', ``.physgate/disputes``, are
+held the same way and for the same reason.
 
 **Reads.** Denied for what no session reads (the held-out tier, answer keys,
 review material, the harness checkout, the series outbox)
@@ -88,13 +89,13 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 from physgate.hooks.config import ExperimentRule, SessionConfig
-from physgate.hooks.graph import COMPLETION_DIR, PROPOSALS_DIR
+from physgate.hooks.graph import COMPLETION_DIR, DISPUTES_DIR, PROPOSALS_DIR
 
 #: What the OS layer does with each path field of the session configuration.
 FIELD_RULES: dict[str, str] = {
     "worktree": (
-        "writable: the session's working directory, but for its node proposals and the "
-        "completion declaration, which only the file tools write"
+        "writable: the session's working directory, but for its node proposals, the "
+        "completion declaration and its disputes, which only the file tools write"
     ),
     "store_root": "write-denied (named whole)",
     "state_dir": "write- and read-denied to shell commands: the hooks' records",
@@ -290,6 +291,7 @@ def _write_denied(
         roots.append((config.store_root, ()))
     roots.append((proposals_dir(config.worktree), ()))
     roots.append((os.path.join(config.worktree, COMPLETION_DIR), ()))
+    roots.append((os.path.join(config.worktree, DISPUTES_DIR), ()))
     for rule in config.experiments:
         roots += [(path, ()) for path in _frozen(rule, exists, children)]
     named: set[str] = set()

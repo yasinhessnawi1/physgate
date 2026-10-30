@@ -47,6 +47,7 @@ from physgate.orchestrator.events import (
     DecisionTaken,
     Decomposed,
     DiffChecked,
+    DisputeRecorded,
     EnvironmentRecorded,
     Escalated,
     EscalationDecided,
@@ -114,6 +115,8 @@ class AttemptState:
     changes: ProposalsChecked | None = None
     #: What the attempt declared complete, for integration's subtask: read after its change check.
     declaration: CompletionDeclared | None = None
+    #: The disputes the attempt holds, in the order recorded: read after its change check.
+    disputes: list[DisputeRecorded] = field(default_factory=list)
     gate: GateRan | GateSkipped | None = None
     review: ReviewRan | None = None
     #: A review that was not a verdict: retried once for infrastructure, otherwise final.
@@ -147,6 +150,7 @@ class AttemptState:
             self.issued = None
         self.changes = self.gate = self.review = None
         self.declaration = None
+        self.disputes = []
         self.unavailable = []
         self.cursor = cursor
 
@@ -440,6 +444,8 @@ class RunState:
             now.changes = event
         elif isinstance(event, CompletionDeclared):
             self._declared(sub, now, event)
+        elif isinstance(event, DisputeRecorded):
+            self._disputed(sub, now, event)
         elif isinstance(event, GateRan | GateSkipped):
             self._expect(now.cursor == "gate" and now.gate is None, "a gate line")
             now.gate = event
@@ -658,6 +664,18 @@ class RunState:
         if places != sorted(set(places)):
             _refuse("a completion declaration names each module once, in plan order")
         now.declaration = event
+
+    def _disputed(self, sub: SubtaskState, now: AttemptState, event: DisputeRecorded) -> None:
+        """Take a dispute: after the attempt's accepted change check, each quantity once, sorted."""
+        if sub.plan.subtask_id == self.completion_subtask:
+            _refuse("a dispute never comes from the subtask marked as the completion owner's")
+        accepted = now.changes is not None and now.changes.refused_by is None
+        self._expect(now.cursor == "implement" and accepted, "a dispute")
+        last = now.disputes[-1].position if now.disputes else None
+        here = event.position
+        if last is not None and (here.node_id, here.name) <= (last.node_id, last.name):
+            _refuse("an attempt disputes each quantity once, in order")
+        now.disputes.append(event)
 
     def _issued(self, sub: SubtaskState, now: AttemptState, event: IntegrationStateIssued) -> None:
         """Take integration's issued state: in its window, after ``resolve``, once.

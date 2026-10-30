@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 from physgate.orchestrator.budget import ATTEMPT_LIMIT, SessionEnd
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.declaration import Declaration
+from physgate.orchestrator.dispute import Dispute
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.protocols import IssuedState, MessageUsage
 from physgate.orchestrator.run_config import RunBounds
@@ -162,7 +163,7 @@ class Leftover(_Frozen):
 class ChangeCheck(_Frozen):
     """The verdict on an attempt's changes before the gate sees them."""
 
-    refused_by: Literal["proposal", "write_scope", "series", "declaration"] | None
+    refused_by: Literal["proposal", "write_scope", "series", "declaration", "dispute"] | None
     reason: NonEmptyStr | None
     #: The offending paths or node id, for the finding's key.
     subject: NonEmptyStr | None = None
@@ -177,6 +178,9 @@ class ChangeCheck(_Frozen):
     #: that owns completion alone, and ``None`` when it holds no declaration. Never on the change
     #: check's own line: the loop records it on a line of its own, after an accepted check.
     declaration: Declaration | None = None
+    #: Every dispute the attempt holds, read from the commit checked, sorted by node and quantity.
+    #: Never on the change check's own line: the loop records each on a line of its own.
+    disputes: tuple[Dispute, ...] = ()
 
 
 class WorktreeRemoval(_Frozen):

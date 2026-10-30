@@ -45,7 +45,7 @@ from physgate.hooks.config import (
     Watch,
     digest,
 )
-from physgate.hooks.graph import COMPLETION_DIR, PROPOSALS_DIR
+from physgate.hooks.graph import COMPLETION_DIR, DISPUTES_DIR, PROPOSALS_DIR
 from physgate.hooks.reasons import ANSWER_KEY_REASON as ANSWER_KEY_REASON
 from physgate.hooks.reasons import GATE_REASON as GATE_REASON
 from physgate.hooks.reasons import GIT_USER_CONFIG_REASON as GIT_USER_CONFIG_REASON
@@ -610,9 +610,9 @@ def _dump(value: object) -> bytes:
 
 
 def _make_file_tool_dirs(worktree: str) -> None:
-    """Make the worktree's node proposals and completion directories before its session starts.
+    """Make the worktree's proposals, completion and disputes directories before its session starts.
 
-    The OS layer write-denies both to every shell command, so that only the file tools, which the
+    The OS layer write-denies each to every shell command, so that only the file tools, which the
     hooks check, write there. A denied path that does not exist is named only where its parent
     does, and a command could otherwise make it, or move a directory of its own into its place,
     before any file was written. Each step is made as a directory here, if missing, and never
@@ -623,7 +623,7 @@ def _make_file_tool_dirs(worktree: str) -> None:
     """
     if not os.path.isdir(worktree):
         return
-    for held in (PROPOSALS_DIR, COMPLETION_DIR):
+    for held in (PROPOSALS_DIR, COMPLETION_DIR, DISPUTES_DIR):
         step = worktree
         for part in Path(held).parts:
             step = os.path.join(step, part)

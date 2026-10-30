@@ -66,6 +66,7 @@ from physgate.orchestrator.plan import (
 )
 from physgate.orchestrator.protocols import (
     GateResult,
+    QuantityRef,
     RecordedUnavailableCause,
     ReviewResult,
     SpecDefect,
@@ -485,7 +486,7 @@ class ProposalsChecked(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     checked_commit: Sha
-    refused_by: Literal["proposal", "write_scope", "series", "declaration"] | None
+    refused_by: Literal["proposal", "write_scope", "series", "declaration", "dispute"] | None
     reason: NonEmptyStr | None
     subject: NonEmptyStr | None
     graph_root: NonEmptyStr
@@ -797,6 +798,22 @@ class CompletionDeclared(_Event):
     declaration_sha256: Sha256
 
 
+class DisputeRecorded(_Event):
+    """A dispute an attempt holds, read from its checked commit: a position, and its reason.
+
+    One line per dispute, straight after the attempt's accepted change check and before its
+    gate, sorted by node and quantity. The position is a quantity of a cross node, in the
+    disputing role's own value and unit. The reason is the session's text, kept for a person:
+    data that no session is handed.
+    """
+
+    kind: Literal["dispute_recorded"] = "dispute_recorded"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    position: QuantityRef
+    reason: NonEmptyStr
+
+
 class ModuleCompleted(_Event):
     """A module of the plan recorded complete, which merged alone never says (ARCH-051).
 
@@ -1018,6 +1035,7 @@ Event = Annotated[
     | ContractTested
     | IntegrationStateIssued
     | CompletionDeclared
+    | DisputeRecorded
     | ModuleCompleted
     | EnvironmentRecorded
     | InstallChecked

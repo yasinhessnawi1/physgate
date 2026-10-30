@@ -51,6 +51,7 @@ from physgate.orchestrator.events import (
     DecisionTaken,
     Decomposed,
     DiffChecked,
+    DisputeRecorded,
     Envelope,
     EnvironmentRecorded,
     Escalated,
@@ -1467,7 +1468,7 @@ class Loop:
                 subtask_id=subtask_id,
                 attempt=attempt,
                 checked_commit=session.attempt_commit,
-                **check.model_dump(exclude={"declaration"}),
+                **check.model_dump(exclude={"declaration", "disputes"}),
             )
         )
         if check.refused_by is not None and check.reason is not None:
@@ -1489,6 +1490,16 @@ class Loop:
                     attempt=attempt,
                     modules=check.declaration.modules,
                     declaration_sha256=check.declaration.sha256,
+                )
+            )
+        for dispute in check.disputes:
+            self._emit(
+                DisputeRecorded(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    attempt=attempt,
+                    position=dispute.position,
+                    reason=dispute.reason,
                 )
             )
         artefact = Artefact(
