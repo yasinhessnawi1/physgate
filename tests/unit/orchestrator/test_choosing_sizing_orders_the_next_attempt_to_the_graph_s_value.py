@@ -27,6 +27,7 @@ from arbitration_runs import (  # noqa: E402
     BIG,
     CANARIES,
     TWO,
+    JournalGraph,
     KilledByRowError,
     driven,
     entry,
@@ -50,6 +51,7 @@ from physgate.orchestrator.dispatch import role_prompt  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
     DecisionTaken,
     Event,
+    Incident,
     Merged,
     StageEntered,
     SubtaskRejected,
@@ -398,3 +400,43 @@ def test_a_run_killed_after_the_choice_dispatches_the_ordered_attempt_once(tmp_p
     assert [type(e).__name__ for e in events if not isinstance(e, DecisionTaken)][-6:] == [
         type(e).__name__ for e in events_of(whole) if not isinstance(e, DecisionTaken)
     ][-6:]
+
+
+def test_a_value_the_journal_no_longer_holds_halts_before_the_ordered_session(
+    tmp_path: Path,
+) -> None:
+    rig = repeat(tmp_path)
+    chose(rig.run_dir, "sizing", NOTE)
+    loop = rig.open()
+    _layer(loop)
+    emit = loop._emit
+    died: list[Event] = []
+
+    def dies(line: Event) -> None:
+        if isinstance(line, StageEntered) and (line.subtask_id, line.attempt) == ("s1", 3):
+            died.append(line)
+            raise KilledByRowError
+        emit(line)
+
+    setattr(loop, "_emit", dies)  # noqa: B010 - a process that dies at a line
+    try:
+        loop.resume()
+    except KilledByRowError:
+        pass
+    finally:
+        loop.close()
+    assert died and [(t.effect, t.acts) for t in taken(events_of(rig))] == [("retry", True)]
+    # The journal line the rulings were held to is rewritten in place after the choice was taken:
+    # the order would quote a value the graph no longer holds, so the run halts first.
+    graph = rig.diff
+    assert isinstance(graph, JournalGraph)
+    sized = graph.journal[1]
+    quantities = dict(sized.payload["quantities"])
+    quantities["peak_current"] = {**quantities["peak_current"], "value": 4}
+    graph.journal[1] = sized.model_copy(
+        update={"payload": {**sized.payload, "quantities": quantities}}
+    )
+    driven(rig, resume)
+    events = events_of(rig)
+    assert [e.cause for e in events if isinstance(e, Incident)] == ["foreign_journal_line"]
+    assert len(rig.dispatcher.requests) == 3
