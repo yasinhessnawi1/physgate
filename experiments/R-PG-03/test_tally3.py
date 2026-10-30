@@ -927,11 +927,15 @@ def test_a_block_ended_after_a_correction_s_check_needs_its_result_and_not_touch
         {**ALL, "corrections": [CORRECTS_X1]},
     )
     repos: dict[str, Path] = {}
-    for when in ("09:30", "10:30"):  # the fixture's end: 5.11 10:00 UTC
-        monkeypatch.setenv("GIT_COMMITTER_DATE", f"2026-11-05T{when}:00+0000")
+    ident = ("-c", "user.email=t@example.invalid", "-c", "user.name=t")
+    for when in ("09:30", "10:30"):  # the fixture's end: 5.11 10:00 UTC; the fills before, 09:00
+        monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-11-05T09:00:00+0000")
         (tmp_path / when).mkdir()
-        repos[when] = fills_repo(tmp_path / when, [*FILLED, (*corrected, None)])
-        common.git(repos[when], "update-ref", "refs/remotes/origin/master", "HEAD")
+        repos[when] = repo = fills_repo(tmp_path / when, FILLED)
+        monkeypatch.setenv("GIT_COMMITTER_DATE", f"2026-11-05T{when}:00+0000")
+        (repo / common.EXPERIMENT / common.FILLS_NAME).write_text(json.dumps(corrected[1]))
+        common.git(repo, *ident, "commit", "-qam", corrected[0])
+        common.git(repo, "update-ref", "refs/remotes/origin/master", "HEAD")
     early = repos["09:30"]
     fx.refuses(t3.RefusedError, touched_exit, lambda: t3.blocks_record(records, fills, early))
     assert holds(lambda: t3.blocks_record(records, fills, repos["10:30"]))["chosen"]["y1"]

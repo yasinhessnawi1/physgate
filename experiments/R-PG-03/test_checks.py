@@ -1797,7 +1797,10 @@ def test_an_attempt_left_open_names_the_end_check_that_closes_it(runs_dir: Path)
 TORN = ['{"utc": "2026-11-20T00:00:00Z", "with', "", "\n"]
 
 
-@pytest.mark.parametrize("text", [*TORN, "[]\n", "{}\n", '{"withdrawn": true}\n'])
+@pytest.mark.parametrize(
+    "text",
+    [*TORN, "[]\n", "{}\n", '{"withdrawn": true}\n', '{"withdrawn": 0, "corrections": "1"}\n'],
+)
 def test_a_mark_that_is_not_whole_is_refused_naming_its_exit_never_read_as_no_mark(
     runs_dir: Path, text: str
 ) -> None:
