@@ -43,6 +43,7 @@ from physgate.orchestrator.arbitration import (  # noqa: E402
     Held,
     Rank,
     Standing,
+    always,
     arbitrate,
     dispute_standing,
     require_table,
@@ -151,11 +152,21 @@ def test_a_precedence_level_inserted_into_the_table_changes_the_outcome_only_whe
     [
         (),
         TABLE[:-1],
-        (TABLE[1], TABLE[0], TABLE[2], TABLE[0]),
+        (TABLE[0], TABLE[0], TABLE[1], TABLE[2]),
         (*TABLE[:-1], Rank(level="queue", effect="queue_item", applies=lambda c, s: False)),
         (TABLE[2], TABLE[0], TABLE[1]),
+        (Rank(level="early", effect="queue_item", applies=always), *TABLE),
     ],
-    ids=["empty", "no queue", "a level twice", "a queue that can decline", "the queue first"],
+    # Each table breaks one rule alone, so each refusal is that rule's: a level twice in a table
+    # that otherwise ends in the queue, and the queue's rule above a table that otherwise is whole.
+    ids=[
+        "empty",
+        "no queue",
+        "a level twice",
+        "a queue that can decline",
+        "the queue first",
+        "the queue's rule above the last row",
+    ],
 )
 def test_a_table_that_could_leave_a_conflict_without_one_outcome_is_refused(
     table: tuple[Rank, ...],
@@ -320,7 +331,7 @@ def with_rulings(events: Sequence[Event], levels: Sequence[Sequence[str]]) -> li
 def opened(events: Sequence[Event]) -> list[Event]:
     """The lines as a fresh process reads them from disk: serialised, parsed, replayed."""
     data = b"".join(e.model_dump_json().encode() + b"\n" for e in resequenced(events))
-    read = parse_events(data, log="events.jsonl")
+    read: list[Event] = parse_events(data, log="events.jsonl")
     replay(read)
     return read
 
@@ -329,18 +340,19 @@ def refusal(events: Sequence[Event]) -> str | None:
     try:
         opened(events)
     except CorruptEventLogError as exc:
-        return exc.context.get("reason", str(exc))
+        reason: str = exc.context.get("reason", str(exc))
+        return reason
     return None
 
 
 #: Attempt 1 refused by the gate, attempt 2 rejected by its review, attempt 3 merged.
-GATE_THEN_REVIEW = {"gate": ["fail"], "review": ["fail"]}
+GATE, REVIEW = ["fail"], ["fail"]
 #: The levels that run's three attempts are ruled at.
 HONEST = [("gate", "gate"), ("sizing", "sizing"), ("queue", "queue")]
 
 
 def test_every_arbitration_line_is_recomputed_on_replay(tmp_path: Path) -> None:
-    events = with_rulings(driven(tmp_path, **GATE_THEN_REVIEW), HONEST)
+    events = with_rulings(driven(tmp_path, gate=GATE, review=REVIEW), HONEST)
     lines = [e for e in opened(events) if isinstance(e, ArbitrationDecided)]
     assert [(e.attempt, e.level) for e in lines] == [
         (1, "gate"),
@@ -363,7 +375,7 @@ def test_a_line_whose_level_is_not_the_table_s_does_not_open(
 ) -> None:
     levels = [list(pair) for pair in HONEST]
     levels[attempt - 1][1] = level
-    events = with_rulings(driven(tmp_path, **GATE_THEN_REVIEW), levels)
+    events = with_rulings(driven(tmp_path, gate=GATE, review=REVIEW), levels)
     said = refusal(events)
     assert said is not None and "level" in said, said
 
@@ -380,7 +392,7 @@ def test_a_line_whose_level_is_not_the_table_s_does_not_open(
 def test_a_line_about_a_standing_the_lines_before_it_do_not_give_does_not_open(
     tmp_path: Path, change: dict[str, Any]
 ) -> None:
-    events = with_rulings(driven(tmp_path, **GATE_THEN_REVIEW), HONEST)
+    events = with_rulings(driven(tmp_path, gate=GATE, review=REVIEW), HONEST)
     place = next(
         i for i, e in enumerate(events) if isinstance(e, ArbitrationDecided) and e.attempt == 2
     )
@@ -415,8 +427,10 @@ def test_a_line_answers_the_disputes_in_order_each_once(tmp_path: Path) -> None:
     gate = _first_gate(events)
     head = list(events[: gate + 1])
     first = Standing(gate_refused=False, counted_before=0, attempt_left=True)
-    wrong_order = [*head, ruled(events[gate], BUS, first, "sizing")]
-    assert refusal(resequenced(wrong_order)) is not None
+    # The held value is the first dispute's, so only the order is wrong.
+    wrong_order = [*head, ruled(events[gate], BUS, first, "sizing", held=held(RAIL))]
+    said = refusal(resequenced(wrong_order))
+    assert said is not None and "next dispute" in said, said
     three = [*head, *(ruled(events[gate], c, first, "sizing") for c in (RAIL, BUS, BUS))]
     assert refusal(resequenced(three[:-1])) is None
     assert refusal(resequenced(three)) is not None
@@ -489,7 +503,7 @@ def test_without_a_blocking_gate_the_first_dispute_is_sizing_s(tmp_path: Path, m
 
 
 def test_the_line_keeps_a_400_digit_value_exact_and_never_holds_the_reason(tmp_path: Path) -> None:
-    events = with_rulings(driven(tmp_path, **GATE_THEN_REVIEW), HONEST)
+    events = with_rulings(driven(tmp_path, gate=GATE, review=REVIEW), HONEST)
     data = b"".join(e.model_dump_json().encode() + b"\n" for e in events)
     assert b"canary" in data  # the dispute's own line holds its reason, for a person
     rulings = [json.loads(raw) for raw in data.splitlines() if b'"arbitration_decided"' in raw]
@@ -503,7 +517,7 @@ def test_the_line_keeps_a_400_digit_value_exact_and_never_holds_the_reason(tmp_p
 def test_a_restarted_window_forgets_its_own_lines(tmp_path: Path) -> None:
     # Two lines of the same attempt in two windows count as the attempt's, never as a repeat:
     # the replay keeps only the lines of an attempt's last window.
-    events = with_rulings(driven(tmp_path, **GATE_THEN_REVIEW), HONEST)
+    events = with_rulings(driven(tmp_path, gate=GATE, review=REVIEW), HONEST)
     state = replay(opened(events))
     sub = state.subtasks["s1"]
     assert [len(a.arbitrations) for a in sub.attempts] == [2, 2, 2]
