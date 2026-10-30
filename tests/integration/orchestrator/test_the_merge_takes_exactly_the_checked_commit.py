@@ -24,7 +24,7 @@ from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.events import GateRan, Incident, Merged, Resumed, read_events
 from physgate.orchestrator.exceptions import GitError, MergeConflictError, MergeRefusedError
-from physgate.orchestrator.git import GitDir, head_of
+from physgate.orchestrator.git import GitDir, head_of, merge_base
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.merge import (
     GitMerger,
@@ -481,3 +481,28 @@ def test_the_run_branch_ref_protected_is_where_git_keeps_it(tmp_path: Path, layo
     ref = [p for p in reverted if p.name == "run" and "refs" in p.parts]
     assert ref == [main.resolve() / ".git" / "refs" / "heads" / "physgate" / "run-1" / "run"]
     assert ref[0].read_text().strip() == head_of(repo, run.run_branch)
+
+
+def test_a_domain_attempt_based_before_the_closing_pass_merged_merges_after_its_return(
+    tmp_path: Path,
+) -> None:
+    # A person's choice of the domain's value: the domain's attempt was committed on the run head
+    # as it stood, then sizing's closing pass merged; the attempt returns to the gate and merges.
+    run = run_layout(tmp_path)
+    _, domain = attempt_with(run, "s1", {"modules/power/a.py": "a\n"})
+    worktree = run.open_subtask("zc")
+    (worktree / "modules" / "control" / "bus.py").write_text("v = 24\n")
+    closing = commit_attempt(worktree, "zc", 1, "sess-zc", repo=run.repo)
+    merger = GitMerger(run, removal_timeout_s=60.0)
+    after_closing = merger.merge("zc", 1, closing, merge_message("zc", 1, closing, "pass", "pass"))
+    # The change check reads the domain's attempt against where it left the run branch: its own
+    # change alone, never the closing pass's.
+    base = merge_base(run.repo, run.run_branch, domain)
+    assert base != after_closing
+    assert write_scope_violations(run.repo, base, domain, "modules/power") == []
+    merged = merger.merge("s1", 1, domain, merge_message("s1", 1, domain, "pass", "pass"))
+    assert merged == head_of(run.repo, run.run_branch)
+    parents = sh(run.repo, "rev-list", "--parents", "-n", "1", merged).split()[1:]
+    assert parents == [after_closing, domain]
+    files = sh(run.repo, "ls-tree", "-r", "--name-only", run.run_branch).split()
+    assert {"modules/power/a.py", "modules/control/bus.py"} <= set(files)
