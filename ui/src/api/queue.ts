@@ -34,8 +34,11 @@ export const WHY_RECORD_ONLY = [
 ] as const;
 /** The positions an arbitration item offers, in the order it states them; no other kind offers any. */
 export const POSITIONS = ["sizing", "domain"] as const;
-/** What choosing a position does: each records only, until what a choice acts on is built. */
-export const ON_CHOOSE = ["record_only"] as const;
+/**
+ * What choosing a position does: order the next attempt to the graph's value, order the one fix to
+ * it, end the subtask, or record the decision only.
+ */
+export const ON_CHOOSE = ["retry", "fix", "end_subtask", "record_only"] as const;
 export type Position = (typeof POSITIONS)[number];
 export type OnChoose = (typeof ON_CHOOSE)[number];
 export type OnApprove = (typeof ON_APPROVE)[number];

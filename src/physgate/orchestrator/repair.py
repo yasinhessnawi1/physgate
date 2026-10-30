@@ -12,7 +12,7 @@ from the process that built this harness.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -119,17 +119,7 @@ class Finding(BaseModel):
         stays empty, as a value held exact can be too large to format as a number.
         """
         lines = [ARBITRATION_HEAD, *(held_line(held, writer) for held, writer in sized)]
-        paths = [
-            f"{DISPUTES_DIR}/{held.position.node_id}.{held.position.name}.json"
-            for held, _ in sized
-            if _id(held.position.node_id) and _quantity_name(held.position.name)
-        ]
-        withdraw = (
-            f"delete {' and '.join(paths)} to withdraw {'it' if len(paths) == 1 else 'them'}"
-            if paths
-            else "delete its file to withdraw it"
-        )
-        lines.append(f"{ARBITRATION_TAIL}; {withdraw}.")
+        lines.append(f"{ARBITRATION_TAIL}; {_withdraw(held for held, _ in sized)}.")
         nodes = sorted({held.position.node_id for held, _ in sized})
         return cls(source="arbitration", text="\n".join(lines), subject=",".join(nodes))
 
@@ -153,6 +143,18 @@ ARBITRATION_TAIL = (
     "Work to the value the graph holds. A dispute file left in place disputes its quantity again "
     "on the next attempt, and a quantity disputed again goes to a person"
 )
+
+
+def _withdraw(helds: Iterable[Held]) -> str:
+    """How each disputed quantity's file is deleted to withdraw it, by path where it is held."""
+    paths = [
+        f"{DISPUTES_DIR}/{held.position.node_id}.{held.position.name}.json"
+        for held in helds
+        if _id(held.position.node_id) and _quantity_name(held.position.name)
+    ]
+    if not paths:
+        return "delete its file to withdraw it"
+    return f"delete {' and '.join(paths)} to withdraw {'it' if len(paths) == 1 else 'them'}"
 
 
 def _id(node_id: str) -> bool:
@@ -300,6 +302,85 @@ def fix_instruction(attempt: int, finding: str, lacking: tuple[str, ...], note: 
         "A person asked for one attempt to fix it and wrote:",
         *quoted(note),
         "",
+        f"{STILL_GOVERNS} {NO_INPUT_SUPPLIED}",
+        LAST_ATTEMPT,
+    ]
+    return "\n".join(lines)
+
+
+#: The fixed opening of an order a person gave by choosing sizing's value on an arbitration item.
+CHOSE_SIZING = (
+    "disputed a value of a cross node, and a person chose sizing's value. Sizing alone writes the "
+    "quantities of a cross node."
+)
+
+
+def _standing(sized: Sequence[tuple[Held, Writer | None]]) -> list[str]:
+    """The values that stand, each as the graph holds it and who wrote it, quoted as data."""
+    one = len(sized) == 1
+    head = (
+        "The value that stands, as the design graph holds it:"
+        if one
+        else "The values that stand, as the design graph holds them:"
+    )
+    return [head, *quoted("\n".join(held_line(held, writer) for held, writer in sized)), ""]
+
+
+def chose_sizing_retry_instruction(
+    attempt: int, sized: Sequence[tuple[Held, Writer | None]], note: str | None
+) -> str:
+    """The next attempt's instruction after a person chose sizing's value on ``attempt``'s dispute.
+
+    A fixed template: the graph's value of each quantity the item ruled above the gate and who
+    wrote it, never the dispute's reason or the words sizing typed beside its value, then the
+    person's note when there is one, each quoted as data. No model phrases any of it.
+
+    Raises:
+        RepairBudgetExhaustedError: ``attempt`` was the last one; the choice orders the fix then.
+    """
+    require_within_budget(attempt)
+    if attempt == REPAIR_BUDGET:
+        msg = "the last attempt is not retried; choosing sizing orders the fix"
+        raise RepairBudgetExhaustedError(msg, attempt=str(attempt))
+    lines = [f"Attempt {attempt} of {REPAIR_BUDGET} {CHOSE_SIZING}", "", *_standing(sized)]
+    if note is not None:
+        lines += ["A person wrote:", *quoted(note), ""]
+    remaining = REPAIR_BUDGET - attempt
+    value = "value" if len(sized) == 1 else "values"
+    lines += [
+        f"Work to the {value} the graph holds; {_withdraw(h for h, _ in sized)}. A dispute file "
+        "left in place disputes its quantity again on the next attempt, and a quantity disputed "
+        "again goes to a person.",
+        STILL_GOVERNS,
+        "",
+        f"{remaining} {'attempts remain' if remaining != 1 else 'attempt remains'} before this "
+        "goes to a person for a decision.",
+    ]
+    return "\n".join(lines)
+
+
+def chose_sizing_fix_instruction(
+    attempt: int, sized: Sequence[tuple[Held, Writer | None]], note: str | None
+) -> str:
+    """The one fix's instruction after a person chose sizing's value on the last attempt's dispute.
+
+    The same quotation as the retry's, then that the fix may not supply an input it lacks and is
+    the subtask's last attempt.
+    """
+    it = "it" if len(sized) == 1 else "them"
+    lines = [
+        f"Attempt {attempt} of {REPAIR_BUDGET}, the subtask's last, {CHOSE_SIZING}",
+        "",
+        *_standing(sized),
+    ]
+    if note is not None:
+        lines += [f"A person ordered one attempt to work to {it}, and wrote:", *quoted(note), ""]
+    else:
+        lines += [f"A person ordered one attempt to work to {it}.", ""]
+    value = "value" if len(sized) == 1 else "values"
+    lines += [
+        f"Work to the {value} the graph holds; {_withdraw(h for h, _ in sized)}. A dispute left "
+        "in place goes to a person again, and choosing sizing's value then ends the subtask.",
         f"{STILL_GOVERNS} {NO_INPUT_SUPPLIED}",
         LAST_ATTEMPT,
     ]

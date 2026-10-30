@@ -21,7 +21,11 @@ found one that no review judged.
 
 **What a reject does:** after a blocked review, one fix by a fresh session (once per
 subtask); with repair attempts left, the next attempt from the note; otherwise the subtask
-ends rejected. An integration failure and an arbitration are recorded and never acted on.
+ends rejected. An integration failure is recorded and never acted on; so are approve and reject on
+an arbitration, where a person picks a position instead. **What choosing sizing's value does:**
+the next attempt while the budget lasts, else the one fix while it is unused, else the end of the
+subtask; the order each gives quotes the graph's value as the rulings held it. Choosing the
+domain's value records only.
 """
 
 from __future__ import annotations
@@ -40,12 +44,13 @@ from physgate.orchestrator.events import (
     WhyNot,
 )
 from physgate.orchestrator.exceptions import QueueItemMismatchError
-from physgate.orchestrator.protocols import PersonOrder
+from physgate.orchestrator.protocols import PersonOrder, PersonOrderKind
 from physgate.orchestrator.queue import (
     INTEGRATION,
     POSITIONS,
     ConfirmedIndicator,
     ItemConsequence,
+    OnChoose,
     OnReject,
     QueueItem,
     QueueResolution,
@@ -53,7 +58,12 @@ from physgate.orchestrator.queue import (
     Verb,
     WhyRecordOnly,
 )
-from physgate.orchestrator.repair import fix_instruction, person_repair_instruction
+from physgate.orchestrator.repair import (
+    chose_sizing_fix_instruction,
+    chose_sizing_retry_instruction,
+    fix_instruction,
+    person_repair_instruction,
+)
 from physgate.reviewers.packet import fits_one_read, person_order_text
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError, scan
 
@@ -178,11 +188,27 @@ def _automated_block(now: AttemptState) -> WhyRecordOnly | None:
 def _arbitration_effect() -> tuple[WhyRecordOnly, OnReject]:
     """What approve and reject do on an arbitration item: nothing.
 
-    The one place an arbitration's effect is defined. Neither verb picks between the two
-    positions, so both record only; a person picks one with ``choose``, and each position records
-    only until what it acts on is built.
+    Neither verb picks between the two positions, so both record only; a person picks one with
+    ``choose`` (:func:`_on_choose`).
     """
     return "source", "record_only"
+
+
+def _on_choose(sub: SubtaskState) -> dict[Position, OnChoose]:
+    """What choosing each position of the subtask's arbitration item does, from its record.
+
+    Sizing's value: the next attempt while the budget lasts; once none is left, the one fix while
+    no attempt of the subtask was it; otherwise the end of the subtask. The domain's records only.
+    """
+    now = sub.attempts[-1]
+    sizing: OnChoose
+    if not now.fix and after_rejection(now.number) is not None:
+        sizing = "retry"
+    elif not any(attempt.fix for attempt in sub.attempts):
+        sizing = "fix"
+    else:
+        sizing = "end_subtask"
+    return {"sizing": sizing, "domain": "record_only"}
 
 
 def _on_reject(sub: SubtaskState, source: QueueSource) -> OnReject:
@@ -239,7 +265,7 @@ def item_consequence(
             why_record_only=why,
             confirmed_indicators=indicators,
             scan_hits=(),
-            on_choose=dict.fromkeys(POSITIONS[source], "record_only"),
+            on_choose=_on_choose(sub),
         )
     why_not: WhyRecordOnly | None = _automated_block(now)
     if why_not is None and indicators:
@@ -258,18 +284,31 @@ def item_consequence(
 
 
 def person_order(
-    rejected: AttemptState, *, effect: DecisionEffect, item_id: str, note: str
+    state: RunState,
+    rejected: AttemptState,
+    *,
+    effect: DecisionEffect,
+    item_id: str,
+    note: str | None,
 ) -> PersonOrder | None:
-    """The order a person's reject of ``rejected`` gives the next session, built by code alone.
+    """The order a person's decision on ``rejected`` gives the next session, built by code alone.
 
     For the one fix: the review's finding and each blocking defect it named, and the note, in
     the fix template. For a retry: the note, with the reviewer's finding when a review rejected
-    the attempt. Nothing for any other effect. The same function builds the order when the loop
-    takes the decision and when it starts the session, so both read the same text.
+    the attempt. For a choice of sizing's value on an attempt sent to a person by its rulings:
+    the graph's value of each quantity ruled above the gate, and the note if there is one.
+    Nothing for any other effect. The same function builds the order when the loop takes the
+    decision and when it starts the session, so both read the same text.
 
     Raises:
-        ValueError: a fix of an attempt whose review did not block.
+        ValueError: a fix of an attempt whose review did not block, or a reject's order with no
+            note.
     """
+    if rejected.queued:
+        return _chose_sizing_order(state, rejected, effect=effect, item_id=item_id, note=note)
+    if effect in ("fix", "retry") and note is None:
+        msg = "a session a person ordered by a reject is ordered with the person's note"
+        raise ValueError(msg)
     if effect == "fix":
         blocked = rejected.blocked
         if blocked is None:
@@ -279,7 +318,7 @@ def person_order(
             rejected.number,
             blocked.result.finding,
             tuple(d.finding for d in blocked.result.spec_defects if d.blocking),
-            note,
+            note or "",
         )
         return PersonOrder(
             kind="fix_after_block", item_id=item_id, of_attempt=rejected.number, instruction=text
@@ -287,7 +326,7 @@ def person_order(
     if effect == "retry":
         before = rejected.rejected
         text = person_repair_instruction(
-            rejected.number, note, before.finding if before is not None else None
+            rejected.number, note or "", before.finding if before is not None else None
         )
         return PersonOrder(
             kind="retry_after_reject", item_id=item_id, of_attempt=rejected.number, instruction=text
@@ -295,11 +334,43 @@ def person_order(
     return None
 
 
-def _order_fits(sub: SubtaskState, effect: DecisionEffect, item_id: str, note: str | None) -> bool:
-    """Whether the reviewer of the session a reject orders could read what it is told whole."""
-    if note is None:
+def _chose_sizing_order(
+    state: RunState,
+    rejected: AttemptState,
+    *,
+    effect: DecisionEffect,
+    item_id: str,
+    note: str | None,
+) -> PersonOrder | None:
+    """The order choosing sizing's value gives: the graph's value as each ruling held it."""
+    sized = tuple(
+        (line.held, state.writer_of(line.held))
+        for line in rejected.arbitrations
+        if line.level != "gate"
+    )
+    if effect == "retry":
+        text = chose_sizing_retry_instruction(rejected.number, sized, note)
+        kind: PersonOrderKind = "retry_after_arbitration"
+    elif effect == "fix":
+        text = chose_sizing_fix_instruction(rejected.number, sized, note)
+        kind = "fix_after_arbitration"
+    else:
+        return None
+    return PersonOrder(kind=kind, item_id=item_id, of_attempt=rejected.number, instruction=text)
+
+
+def _order_fits(
+    state: RunState, sub: SubtaskState, effect: DecisionEffect, item_id: str, note: str | None
+) -> bool:
+    """Whether the reviewer of the session a decision orders could read what it is told whole.
+
+    A reject's order is the note and what it quotes, so one with no note orders nothing. A
+    choice's quotes the graph's values, which can be long without any note.
+    """
+    now = sub.attempts[-1]
+    if note is None and not now.queued:
         return True
-    order = person_order(sub.attempts[-1], effect=effect, item_id=item_id, note=note)
+    order = person_order(state, now, effect=effect, item_id=item_id, note=note)
     return order is None or fits_one_read(person_order_text(order))
 
 
@@ -311,7 +382,9 @@ def _effect_of(
         if chosen is None:
             msg = "a choice of a position the item does not state"
             raise ValueError(msg)
-        return "none", "record_only_source"
+        if chosen == "record_only":
+            return "none", "record_only_source"
+        return chosen, None
     if verb == "approve":
         if consequence.on_approve == "merge_attempt":
             return "merge", None
@@ -379,7 +452,7 @@ def decision_effect(
     too_long = False
     if effect in ("fix", "retry") and item.subtask_id != INTEGRATION:
         sub = state.subtasks[item.subtask_id]
-        if not _order_fits(sub, effect, item.item_id, resolution.note):
+        if not _order_fits(state, sub, effect, item.item_id, resolution.note):
             # Refused before any session: a review that could not read what its session was
             # told whole could not be prepared, and would be no review.
             effect, too_long = "end_subtask", True
@@ -410,8 +483,9 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
         ):
             msg = "a confirmation follows a held decision, once"
             raise ValueError(msg)
-        if (event.verb, event.effect, event.decision_offset) != (
+        if (event.verb, event.position, event.effect, event.decision_offset) != (
             earlier.verb,
+            earlier.position,
             earlier.effect,
             earlier.decision_offset,
         ):
@@ -466,7 +540,7 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
     too_long = (
         why is None
         and effect in ("fix", "retry")
-        and not _order_fits(sub, effect, event.item_id, event.note)
+        and not _order_fits(state, sub, effect, event.item_id, event.note)
     )
     if too_long:
         effect = "end_subtask"

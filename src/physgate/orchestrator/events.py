@@ -624,9 +624,9 @@ class DecisionTaken(_Event):
     why_not: WhyNot | None
     #: The operator who confirmed a held decision on the command line, by OS user name.
     confirmed_by: NonEmptyStr | None = None
-    #: A reject that would have ordered the one fix, or the next attempt, ends the subtask
-    #: instead: what that session's reviewer would be told of the order is longer than one read
-    #: shows whole, so its review could not be prepared. Nothing is spawned.
+    #: A reject or a choice that would have ordered the one fix, or the next attempt, ends the
+    #: subtask instead: what that session's reviewer would be told of the order is longer than one
+    #: read shows whole, so its review could not be prepared. Nothing is spawned.
     order_too_long: bool = False
 
     @model_validator(mode="after")
@@ -640,8 +640,13 @@ class DecisionTaken(_Event):
         if self.confirmed_by is not None and not self.acts:
             msg = "a confirmed decision is the one that acts"
             raise ValueError(msg)
-        if self.order_too_long and (self.verb != "reject" or self.effect != "end_subtask"):
-            msg = "only a reject ends a subtask for an order its reviewer could not read whole"
+        if self.order_too_long and (
+            self.verb not in ("reject", "choose") or self.effect != "end_subtask"
+        ):
+            msg = (
+                "only a reject or a choice ends a subtask for an order its reviewer could not "
+                "read whole"
+            )
             raise ValueError(msg)
         if (self.verb == "choose") != (self.position is not None):
             msg = "a position is chosen with choose, and only with it"

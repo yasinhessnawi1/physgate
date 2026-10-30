@@ -137,6 +137,14 @@ class SessionTrajectory(_Frozen):
     trajectory_length: Annotated[int, Field(ge=0)]
 
 
+#: What a person ordered an attempt to be: the one fix after a review that blocked, or a retry
+#: after a person's reject; or, on an arbitration item, the next attempt or the one fix a person
+#: ordered by choosing sizing's value.
+PersonOrderKind = Literal[
+    "fix_after_block", "retry_after_reject", "retry_after_arbitration", "fix_after_arbitration"
+]
+
+
 class PersonOrder(_Frozen):
     """What a person ordered an attempt to be, and the exact instruction its session was given.
 
@@ -145,8 +153,7 @@ class PersonOrder(_Frozen):
     against the issued specification alone.
     """
 
-    #: The one fix after a review that blocked, or a retry after a person's reject.
-    kind: Literal["fix_after_block", "retry_after_reject"]
+    kind: PersonOrderKind
     item_id: NonEmptyStr
     #: The attempt the person decided on; this attempt is the next.
     of_attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]

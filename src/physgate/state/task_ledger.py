@@ -116,7 +116,7 @@ class TaskLine(BaseModel):
     #: A person's decision on the subtask's queue item that acted on this attempt, and the
     #: item's id (ARCH-133). Left out of the line when absent, so a line without them is
     #: written exactly as before they existed.
-    person_decision: Literal["approve", "reject"] | None = None
+    person_decision: Literal["approve", "reject", "choose"] | None = None
     queue_item: NonEmptyStr | None = None
 
     @model_serializer(mode="wrap")

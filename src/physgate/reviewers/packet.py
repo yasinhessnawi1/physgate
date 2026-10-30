@@ -662,6 +662,17 @@ def person_order_text(order: PersonOrder) -> bytes:
             "This attempt is the single fix a person ordered after the review of attempt "
             f"{order.of_attempt} blocked (queue item {order.item_id})."
         )
+    elif order.kind == "retry_after_arbitration":
+        head = (
+            "This attempt is the retry a person ordered by choosing sizing's value on the dispute "
+            f"of attempt {order.of_attempt} (queue item {order.item_id})."
+        )
+    elif order.kind == "fix_after_arbitration":
+        head = (
+            "This attempt is the single fix a person ordered by choosing sizing's value on the "
+            f"dispute of attempt {order.of_attempt}, the subtask's last (queue item "
+            f"{order.item_id})."
+        )
     else:
         head = (
             f"This attempt is the retry a person ordered after rejecting attempt "

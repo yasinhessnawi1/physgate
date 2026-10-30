@@ -166,6 +166,14 @@ export const POSITION_WORDS: Readonly<Record<Position, string>> = {
 
 /** What choosing a position does, from what the item says it does. */
 export const CHOOSE_WORDS: Readonly<Record<OnChoose, string>> = {
+  retry:
+    "Choose: this attempt is spent, and the next one is told sizing's value as the graph holds " +
+    "it, and your note if you write one. Its reviewer is told what it was told.",
+  fix:
+    "Choose: one fix is made by a fresh session in the subtask's working copy, told sizing's " +
+    "value as the graph holds it and your note if you write one. It is the subtask's last " +
+    "attempt; if it is not accepted, the subtask ends rejected.",
+  end_subtask: "Choose: the subtask ends rejected, and nothing of it is merged.",
   record_only: "Choose: the decision is recorded, and nothing in the run acts on it.",
 };
 
@@ -239,7 +247,7 @@ export function takenWords(t: Taken): string {
   }
   const done: Readonly<Record<Taken["effect"], string>> = {
     merge: "The run took it: the attempt it names was merged.",
-    retry: "The run took it: the next attempt started from the note.",
+    retry: "The run took it: the next attempt was ordered, told what the decision said.",
     fix: "The run took it: one fix was ordered.",
     end_subtask: "The run took it: the subtask ended rejected.",
     none: "The run took it; it changed nothing.",

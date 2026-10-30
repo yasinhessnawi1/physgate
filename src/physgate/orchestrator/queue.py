@@ -116,8 +116,9 @@ WhyRecordOnly = Literal[
     "gate", "change_check", "reading", "indicator_in_history", "scan_hit", "source", "legacy"
 ]
 Sha1 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
-#: What choosing a position does. Each records only until what the choice acts on is built.
-OnChoose = Literal["record_only"]
+#: What choosing a position does: order the next attempt to the graph's value, order the one fix
+#: to it, end the subtask, or record the decision only.
+OnChoose = Literal["retry", "fix", "end_subtask", "record_only"]
 #: The positions each kind of item offers, in the order the item states them: an arbitration's
 #: sizing (the graph's value stands) and domain (the disputing subtask's). No other kind offers any.
 POSITIONS: Mapping[QueueSource, tuple[Position, ...]] = {"arbitration": ("sizing", "domain")}

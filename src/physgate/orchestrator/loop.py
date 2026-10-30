@@ -996,12 +996,16 @@ class Loop:
         before = previous.rejected
         ordered = previous.person_rejected
         if ordered is not None and ordered.effect in ("fix", "retry"):
-            if ordered.note is None:
+            if ordered.note is None and ordered.verb != "choose":
                 msg = "a session a person ordered is ordered with the person's note"
                 raise RunStateError(msg, subtask=subtask_id, attempt=str(attempt))
             try:
                 order = person_order(
-                    previous, effect=ordered.effect, item_id=ordered.item_id, note=ordered.note
+                    self.state,
+                    previous,
+                    effect=ordered.effect,
+                    item_id=ordered.item_id,
+                    note=ordered.note,
                 )
             except ValueError as exc:
                 raise RunStateError(str(exc), subtask=subtask_id, attempt=str(attempt)) from None
@@ -1020,9 +1024,10 @@ class Loop:
 
         A fix's whole instruction, the quoted verdict with the note; a retry's note, the one text
         in it no check before it saw (ARCH-133). The reviewer's finding a retry also quotes is
-        what every automated repair quotes, and is held to nothing more here than there.
+        what every automated repair quotes, and is held to nothing more here than there. An order
+        given by choosing sizing's value is held whole: the graph's values it quotes and the note.
         """
-        if order.kind == "fix_after_block":
+        if order.kind in ("fix_after_block", "retry_after_arbitration", "fix_after_arbitration"):
             return order.instruction
         attempts = self.state.subtasks[subtask_id].attempts
         spent = next((a.person_rejected for a in attempts if a.number == order.of_attempt), None)
@@ -1096,6 +1101,9 @@ class Loop:
             sized = before.rejected.finding.source == "arbitration"
             if sized and not self._held_holds(subtask_id, before):
                 return False
+        if before is not None and before.queued and not self._held_holds(subtask_id, before):
+            # So are the rulings a person's choice of sizing's value quotes to this session.
+            return False
         instruction, order = self._instruction(subtask_id, attempt)
         if order is not None and not self._material_clean(
             subtask_id, self._screened(subtask_id, order)
@@ -1153,7 +1161,9 @@ class Loop:
             repair_instruction=instruction,
             bounds=self.config.bounds,
             spec_commit=self._spec_commit(),
-            kind="fix" if order is not None and order.kind == "fix_after_block" else "attempt",
+            kind="fix"
+            if order is not None and order.kind in ("fix_after_block", "fix_after_arbitration")
+            else "attempt",
             issued_state=held,
             disputes=disputer_problem(sub.plan.assigned_role) is None
             and any(
