@@ -94,7 +94,11 @@ rule, threshold, seed or decision of `CRITERIA.md`; each is how a sentence of it
 6. **L1** also holds the checkout's HEAD to the run commit filled on `master`, refuses while any
    `claude` or `physgate inject` process of the run account is alive, and refuses once the
    experiment has stopped. A check-only trial (`--checks-only`) never reads the token, and needs
-   `RPB_RUNS`, a records directory of its own outside `~/runs/rpg01b`.
+   `RPB_RUNS`, a records directory of its own outside `~/runs/rpg01b`. The owner's statement
+   either confirms §11's idle account or, as the owner decided for round 2 on 30.10.2026, records
+   a waiver of it (`"no_other_session_during_round": false` and the waiver's text in
+   `"owner_waiver"`). L1 records which, and the text; the round's end lists the waiver among its
+   deviations, never its void causes. Anything else is refused.
 7. **The watcher acts on `usage_limit_reached` alone.** The calibration run's rule of stopping at
    the third HTTP 429 is dropped; the 429s are counted and logged. The watcher looks once more
    after every arm has ended, and the round's end searches both arms' run directories and review
