@@ -22,11 +22,12 @@ the "scripts" and "sheet" commits are read; it is ``origin/master`` for a run, a
 takes another only for a check-only trial (``--checks-only``).
 
 The records of the experiment's slots and attempts are ``~/runs/rpg01b/slots.json``; the owner's
-statement for a round (the account's label, and the confirmation that no other session runs on
-the run account during it) is ``~/runs/rpg01b/owner-<r>.json``, written by the owner before the
-round's launch. When §12 stops the experiment (a second cut read in a round, or L10's cut or
-inapplicability), the records say so and every later L1 refuses. Nothing here reads a verdict:
-the round's end reads causes and counts only (R7).
+statement for a round (the account's label, and either the confirmation that no other session
+runs on the run account during it or the owner's recorded waiver of that rule of §11) is
+``~/runs/rpg01b/owner-<r>.json``, written by the owner before the round's launch. A waiver is a
+deviation the round's end discloses; it voids nothing. When §12 stops the experiment (a second
+cut read in a round, or L10's cut or inapplicability), the records say so and every later L1
+refuses. Nothing here reads a verdict: the round's end reads causes and counts only (R7).
 
 Only processes this run started are ever signalled, each proven from the run's own records, and
 on the run machine alone (Linux): off it, ``stop-sessions`` refuses and signals nothing.
@@ -232,7 +233,8 @@ def l1(r: int, checkout: Path, master_ref: str, dry: bool) -> dict[str, Any]:
     """L1: the host, the checkout, the account, the owner's word, the slots.
 
     The checkout is at the tag and at the filled run commit, clean; no claude or inject process
-    of the account is alive. A check-only trial (``dry``) never reads the token and writes no
+    of the account is alive; the owner confirms or waives §11's idle account
+    (:func:`owner_statement`). A check-only trial (``dry``) never reads the token and writes no
     record.
     """
     found: dict[str, Any] = {"check": "L1", "round": r}
@@ -269,13 +271,7 @@ def l1(r: int, checkout: Path, master_ref: str, dry: bool) -> dict[str, Any]:
     owner = RUNS / f"owner-{r}.json"
     if not owner.is_file():
         raise Refused(f"no owner statement for round {r} at {owner}")
-    said = json.loads(owner.read_text())
-    if not str(said.get("account_label", "")).strip():
-        raise Refused("the owner statement names no account label")
-    if said.get("no_other_session_during_round") is not True:
-        raise Refused("the owner has not confirmed that no other session runs during the round")
-    found["account_label"] = said["account_label"]
-    found["owner_confirmed_no_other_session"] = True
+    found.update(owner_statement(json.loads(owner.read_text())))
     if not records:
         if r != 1:
             raise Refused("the slots are drawn and recorded before round 1")
@@ -300,6 +296,52 @@ def l1(r: int, checkout: Path, master_ref: str, dry: bool) -> dict[str, Any]:
         found["arm_order"] = arm_order()
     found["master_ref"] = master_ref
     return found
+
+
+def owner_statement(said: object) -> dict[str, Any]:
+    """The owner's statement for a round, as L1 records it (§11).
+
+    Either ``"no_other_session_during_round": true``, the confirmation that no other session runs
+    on the run account during the round; or ``false`` with ``"owner_waiver"``, the text of the
+    owner's recorded waiver of that rule. A waiver is a disclosed deviation of the round
+    (:func:`after`), never a void cause. Anything else is refused: a field missing or not a bool,
+    ``false`` without a waiver, a waiver that is not text or is blank, or ``true`` beside a
+    waiver.
+    """
+    if not isinstance(said, dict):
+        raise Refused("the owner statement is not a JSON object")
+    if not str(said.get("account_label", "")).strip():
+        raise Refused("the owner statement names no account label")
+    confirmed = said.get("no_other_session_during_round")
+    if not isinstance(confirmed, bool):
+        raise Refused("the owner has neither confirmed nor waived that no other session runs")
+    found: dict[str, Any] = {
+        "account_label": said["account_label"],
+        "owner_confirmed_no_other_session": confirmed,
+    }
+    if confirmed:
+        if "owner_waiver" in said:
+            raise Refused("the owner statement both confirms and waives §11's idle account")
+        found["owner_statement"] = "confirmed"
+        return found
+    waiver = said.get("owner_waiver")
+    if not isinstance(waiver, str) or not waiver.strip():
+        raise Refused("the owner has not confirmed that no other session runs, and gives no waiver")
+    found["owner_statement"] = "waived"
+    found["owner_waiver"] = waiver
+    return found
+
+
+def waiver_deviation(launch: Path) -> list[str]:
+    """The owner's waiver of §11's idle account, as L1 recorded it in ``launch``: a deviation."""
+    raw = C.read_own(launch / "L1.json")
+    try:
+        l1 = json.loads(raw) if raw else {}
+    except ValueError:
+        l1 = {}
+    if not isinstance(l1, dict) or l1.get("owner_statement") != "waived":
+        return []
+    return [f"§11's idle-account rule waived by the owner at L1: {l1.get('owner_waiver')}"]
 
 
 def _os_release() -> str:
@@ -700,7 +742,8 @@ def after(r: int, launch: Path, checkout: Path) -> dict[str, Any]:
     directories and review roots); a crashed or killed process (an exit other than 0 or 1, an arm
     with no exit, or a run that is not :func:`complete`); an infrastructure cascade (3 or more
     reviews of the round); a cut read (§5.5). A second cut read in the same round stops the
-    experiment (§12). Deviations, which void nothing here: a rubric digest, and R6.
+    experiment (§12). Deviations, which void nothing here: a rubric digest, R6, and the owner's
+    waiver of §11's idle account that L1 recorded (:func:`waiver_deviation`).
     """
     import streams as S  # noqa: PLC0415
 
@@ -766,6 +809,7 @@ def after(r: int, launch: Path, checkout: Path) -> dict[str, Any]:
         deviations.append("the gate's records differ")
     if any(v["complete"]["holds"] and v["regate_differ"] is None for v in per_arm.values()):
         deviations.append("regate_r6.py did not run on a complete run")
+    deviations += waiver_deviation(launch)
     found["deviations"] = deviations
     attempt.update(
         {"ended_utc": utc(), "void_causes": causes, "valid": not causes, "deviations": deviations}
