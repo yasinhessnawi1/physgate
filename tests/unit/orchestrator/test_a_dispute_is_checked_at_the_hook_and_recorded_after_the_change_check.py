@@ -26,7 +26,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks"))
 from hook_helpers import bash, event, make_store, node, write_config  # noqa: E402
-from loop_fakes import FakeChanges, Rig, plan  # noqa: E402
+from loop_fakes import FakeChanges, KilledError, Rig, plan  # noqa: E402
 
 from physgate import roles  # noqa: E402
 from physgate.hooks import graph  # noqa: E402
@@ -77,6 +77,7 @@ NODES = (
         quantities={"supply_voltage": quantity(12, "V"), "peak_current": quantity(3, "A")},
     ),
     node("sizing.link", "sizing", kind="interface"),
+    node("sizing.bus.rail", "sizing", quantities={"current": quantity(2, "A")}),
     node("control.loop", "control"),
 )
 
@@ -419,6 +420,28 @@ def test_a_case_variant_of_the_disputes_directory_is_a_write_outside_the_module(
     assert (check.refused_by, check.subject) == ("write_scope", path)
 
 
+def test_disputes_are_sorted_by_node_then_quantity_not_by_their_file_names(
+    tmp_path: Path,
+) -> None:
+    # As files, the rail's comes first ("rail" before "supply"); as (node, quantity), the bus's.
+    rail = ".physgate/disputes/sizing.bus.rail.current.json"
+    run, commit = attempt(tmp_path, "s1", {PATH: body(), rail: body(1, "A")})
+    check = checker(tmp_path, run).check("s1", commit, "control")
+    assert [(d.position.node_id, d.position.name) for d in check.disputes] == [
+        ("sizing.bus", "supply_voltage"),
+        ("sizing.bus.rail", "current"),
+    ]
+
+
+def test_a_dispute_committed_executable_is_a_write_outside_the_module(tmp_path: Path) -> None:
+    run, _ = attempt(tmp_path, "s1", {PATH: body()})
+    worktree = run.subtask_worktree("s1")
+    (worktree / PATH).chmod(0o755)
+    commit = commit_attempt(worktree, "s1", 2, "sess-2", repo=run.repo)
+    check = checker(tmp_path, run).check("s1", commit, "control")
+    assert (check.refused_by, check.subject, check.disputes) == ("write_scope", PATH, ())
+
+
 def test_a_dispute_that_is_a_link_is_refused(tmp_path: Path) -> None:
     run, commit = attempt(tmp_path, "s1", {"modules/s1/d.json": body()})
     worktree = run.subtask_worktree("s1")
@@ -515,6 +538,45 @@ def test_a_refused_change_check_records_no_dispute(tmp_path: Path) -> None:
     second = at(events, ProposalsChecked, nth=1)
     assert [type(e) for e in events[second + 1 : second + 3]] == [DisputeRecorded] * 2
     assert {e.attempt for e in events if isinstance(e, DisputeRecorded)} == {2}
+
+
+def test_a_run_killed_between_two_dispute_lines_resumes_to_both_once_in_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    models = ModelStrings(
+        decomposition="claude-sonnet-5",
+        roles={"electrical": "claude-sonnet-5"},
+        reviewers={"electrical": "claude-opus-5-5"},
+    )
+    changes = FakeChanges()
+    changes.disputes["s1"] = TWO
+    rig = Rig(tmp_path, changes=changes, config_overrides={"models": models})
+    loop = rig.open()
+    emit = loop._emit  # noqa: SLF001 - the loop's own writer
+    written = [0]
+
+    def dies_at_the_second(line: Event) -> None:
+        if isinstance(line, DisputeRecorded):
+            if written[0] == 1:
+                raise KilledError
+            written[0] += 1
+        emit(line)
+
+    monkeypatch.setattr(loop, "_emit", dies_at_the_second)
+    loop.start(plan("s1"))
+    with pytest.raises(KilledError):
+        loop.run()
+    try:
+        rig.open().resume()
+        escaped: Exception | None = None
+    except Exception as exc:  # noqa: BLE001 - a resume that cannot go on is the finding
+        escaped = exc
+    assert escaped is None, repr(escaped)
+    events = read_events(tmp_path / "events.jsonl")
+    last = at(events, ProposalsChecked, nth=-1)
+    after = [e for e in events[last + 1 :] if isinstance(e, DisputeRecorded)]
+    assert [(e.attempt, e.position) for e in after] == [(1, d.position) for d in TWO]
+    replay(events)
 
 
 # --- replay -------------------------------------------------------------------------------------
