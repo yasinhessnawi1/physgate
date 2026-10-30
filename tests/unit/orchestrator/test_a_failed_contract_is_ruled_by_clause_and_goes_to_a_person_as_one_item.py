@@ -578,10 +578,8 @@ def test_no_session_s_words_reach_the_contract_item(
     rows = lines(rig)
     at = failed_at(rows)
     ruled = rows[at + 1]
-    assert (ruled["kind"], ruled["found"][0]["position"]["unit"]) == (
-        "contract_ruled",
-        "UNITCANARY",
-    )
+    assert ruled["kind"] == "contract_ruled"
+    assert ruled["found"][0]["position"]["unit"] == "UNITCANARY"
     queue = (rig.run_dir / "queue.jsonl").read_text()
     assert ITEM in queue
     for canary in ("UNITCANARY", "SOURCE-CANARY", "WRITER-CANARY"):
