@@ -70,7 +70,7 @@ from physgate.orchestrator.events import (  # noqa: E402
 from physgate.orchestrator.exceptions import CorruptEventLogError  # noqa: E402
 from physgate.orchestrator.loop import Loop  # noqa: E402
 from physgate.orchestrator.queue import read_queue  # noqa: E402
-from physgate.orchestrator.replay import replay  # noqa: E402
+from physgate.orchestrator.replay import Step, replay  # noqa: E402
 from physgate.orchestrator.run_config import ModelStrings  # noqa: E402
 from physgate.reviewers.packet import person_order_text  # noqa: E402
 from physgate.roles.integration import INTEGRATION  # noqa: E402
@@ -178,7 +178,13 @@ def test_the_closing_pass_waits_for_an_open_dispute_item_only_in_a_run_that_acts
     tmp_path: Path,
 ) -> None:
     acts = rig_of(tmp_path / "acts")
-    assert run(acts, plan=CLOSING) == "wait"
+    try:
+        kind: str | None = run(acts, plan=CLOSING)
+    except Exception:  # noqa: BLE001 - the record is held below, whatever the loop did
+        kind = None
+    # What the record alone says comes next, then what the loop did.
+    assert replay(events_of(acts)).next_step() == Step("wait", "zc")
+    assert kind == "wait"
     assert _sessions(acts) == [("z0", 1), ("s1", 1), ("s1", 2)]
     assert _item(acts).consequence.on_choose == {"sizing": "retry", "domain": "resize"}
     started = json.loads((acts.run_dir / "events.jsonl").read_bytes().splitlines()[0])
@@ -617,3 +623,23 @@ def test_a_value_held_exact_is_carried_exact(tmp_path: Path) -> None:
     assert f'quantity "supply_voltage": {exact} "volt"' in (closing.repair_instruction or "")
     merged = [(m.subtask_id, m.attempt) for m in events_of(rig) if isinstance(m, Merged)]
     assert merged == [("z0", 1), ("zc", 1), ("s1", 2)]
+
+
+def test_a_dispute_that_no_longer_holds_the_chosen_value_is_ruled_as_before(tmp_path: Path) -> None:
+    # The re-run's dispute of the rail is another value than the one chosen, though the graph now
+    # holds the chosen one: the choice does not hold for it.
+    other = arbitration_runs.dispute("peak_current", 6, "A")
+    rig = at_the_item(
+        tmp_path, script=[arbitration_runs.TWO, arbitration_runs.TWO, (other, arbitration_runs.BUS)]
+    )
+    chose(rig.run_dir, "domain")
+    driven(rig, resume)
+    events = events_of(rig)
+    assert refusal(events) is None
+    returned = _first(_lines(events), kind="attempt_returned")
+    ruled = [
+        (e.conflict.quantity, e.level)
+        for e in events[returned:]
+        if isinstance(e, ArbitrationDecided)
+    ]
+    assert ruled == [("peak_current", "queue"), ("supply_voltage", "person")]
