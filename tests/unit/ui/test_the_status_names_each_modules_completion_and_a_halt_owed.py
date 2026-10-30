@@ -107,8 +107,11 @@ def test_the_status_names_each_declared_modules_completion_or_what_withholds_it(
         withheld = module(pair, subtask)
         assert (withheld["state"], withheld["sizing"]) == ("withheld", False)
         assert withheld["open"] == registry(world, "failed-pair", subtask)
-        (entry,) = withheld["open"]
-        assert entry["name"] == "contract" and "contract result failed" in entry["reason"]
+        # The failed pair withholds both modules, and so does its item, on which no decision is
+        # taken yet.
+        contract, item = withheld["open"]
+        assert contract["name"] == "contract" and "contract result failed" in contract["reason"]
+        assert item["name"] == "open_item" and "has no decision taken" in item["reason"]
     one = served(live, "one-declared")
     assert (module(one, DRIVE)["state"], module(one, FW)["state"]) == ("complete", "not_declared")
 

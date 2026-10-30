@@ -155,7 +155,7 @@ def test_a_choice_in_the_ui_writes_exactly_what_the_command_writes(
     ("fields", "says"),
     [({"position": None}, "a position is chosen with choose, and only with it"),
      ({"verb": "approve", "position": "domain"}, "a position is chosen with choose, and only"),
-     ({"position": "producer"}, "'sizing' or 'domain'")],
+     ({"position": "builder"}, "'sizing', 'domain'")],
     ids=["choose without a position", "a position on approve", "outside the set"],
 )  # fmt: skip
 def test_a_choice_that_is_not_one_is_refused_with_400(
@@ -166,6 +166,16 @@ def test_a_choice_that_is_not_one_is_refused_with_400(
     assert status == 400, body
     assert b"not a decision" in body
     assert says in body.decode(), body
+    assert (run_dir / DECISIONS_NAME).read_bytes() == b""
+
+
+def test_a_position_another_kind_of_item_offers_is_refused_with_409(
+    served: dict[str, tuple[Page, Path]],
+) -> None:
+    page, run_dir = served["arb"]
+    status, body = page.decide(_decision(page.view(), position="producer"))
+    assert status == 409, body
+    assert b"a position the item's kind does not offer: it offers sizing, domain" in body
     assert (run_dir / DECISIONS_NAME).read_bytes() == b""
 
 
