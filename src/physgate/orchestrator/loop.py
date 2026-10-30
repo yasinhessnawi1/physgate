@@ -40,6 +40,7 @@ from physgate.orchestrator.decisions import (
     source_of,
 )
 from physgate.orchestrator.declaration import DeclarationError
+from physgate.orchestrator.dispute import DISPUTES_DIR, UNRECORDABLE
 from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
 from physgate.orchestrator.escalation_state import escalation_state
 from physgate.orchestrator.events import (
@@ -108,6 +109,7 @@ from physgate.orchestrator.integration_state import issued_state
 from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.merge import merge_message
 from physgate.orchestrator.ports import (
+    ChangeCheck,
     ChangeChecker,
     Dispatcher,
     GraphPort,
@@ -1332,6 +1334,27 @@ class Loop:
         )
         return True
 
+    def _recordable(self, subtask_id: str, attempt: int, check: ChangeCheck) -> ChangeCheck:
+        """``check``, or the dispute's refusal if a dispute it read cannot be a line of the record.
+
+        Tried before the check's own line: a session's file never stops the loop, and a line that
+        could not be built or written would fail the same way on every resume.
+        """
+        for found in check.disputes:
+            try:
+                DisputeRecorded(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    attempt=attempt,
+                    position=found.position,
+                    reason=found.reason,
+                ).model_dump_json()
+            except ValueError:
+                path = f"{DISPUTES_DIR}/{found.position.node_id}.{found.position.name}.json"
+                why = {"reason": f"{path}: {UNRECORDABLE}", "subject": path, "disputes": ()}
+                return check.model_copy(update={"refused_by": "dispute", **why})
+        return check
+
     def _incident(self, subtask_id: str | None, cause: IncidentCause, detail: str) -> None:
         self._emit(Incident(**self._env(), subtask_id=subtask_id, cause=cause, detail=detail))
         self._halt_for(subtask_id, cause)
@@ -1461,7 +1484,11 @@ class Loop:
             self._reject(subtask_id, attempt, Finding(source="reading", text=UNREAD))
             return False
         self._stage(subtask_id, attempt, "implement")
-        check = self._changes.check(subtask_id, session.attempt_commit, role, series=session.series)
+        check = self._recordable(
+            subtask_id,
+            attempt,
+            self._changes.check(subtask_id, session.attempt_commit, role, series=session.series),
+        )
         self._emit(
             ProposalsChecked(
                 **self._env(),

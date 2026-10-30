@@ -5,8 +5,9 @@ not write the node. It writes its position as one file of its worktree,
 ``.physgate/disputes/<node id>.<quantity>.json``, holding one JSON object with three keys, each
 once: ``{"value": <number>, "unit": "<unit>", "reason": "<why>"}``. The path names the node and
 the quantity, so an attempt holds one dispute per quantity. A file left in place is the next
-attempt's dispute too; deleting it withdraws it. A dispute is data: code and a person read it, and
-no session is handed it.
+attempt's dispute too; deleting it withdraws it. A dispute is data: the change check reads it
+from the attempt's commit and the run's log records it, and the merge and the reviewer's packet
+leave the directory out, so no later worktree and no reviewer holds another role's reason.
 
 It is held as node proposals are: written with the Write or Edit tool only, and read by two
 readers with :func:`parse`, the hook before the file exists and the change check from the commit
@@ -25,10 +26,10 @@ import math
 import re
 from collections.abc import Mapping
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
+from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.protocols import QuantityRef
-from physgate.state.schema import NODE_ID_MAX_LENGTH
 
 #: Where disputes live in a worktree, as git names the path.
 DISPUTES_DIR = ".physgate/disputes"
@@ -40,7 +41,8 @@ _QUANTITY_MAX = 64
 MAX_BYTES = 2048
 UNIT_MAX = 32
 REASON_MAX = 500
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+#: A control character, or half a surrogate pair: JSON escapes one as ASCII, and no line holds it.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]")
 KEYS = ("reason", "unit", "value")
 
 NAMED = (
@@ -56,8 +58,10 @@ SHAPE = (
     'and "reason" (text)'
 )
 VALUE = "a dispute's value is a finite number, neither quoted nor true or false"
-UNIT = f"a dispute's unit is text of 1 to {UNIT_MAX} characters with no control character"
-REASON = f"a dispute's reason is text of 1 to {REASON_MAX} characters with no control character"
+_PLAIN = "with no control character and no half of a surrogate pair"
+UNIT = f"a dispute's unit is text of 1 to {UNIT_MAX} characters {_PLAIN}"
+REASON = f"a dispute's reason is text of 1 to {REASON_MAX} characters {_PLAIN}"
+UNRECORDABLE = "the run's record cannot hold this dispute as written"
 
 
 class DisputeError(Exception):
@@ -70,7 +74,7 @@ class Dispute(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     position: QuantityRef
-    reason: str
+    reason: NonEmptyStr
 
 
 def disputer_problem(role: str) -> str | None:
@@ -95,11 +99,7 @@ def parse(path: str, data: bytes, role: str, nodes: Mapping[str, Mapping[str, ob
             hold the quantity; or a body that is not a dispute's.
     """
     found = _PATH.fullmatch(path)
-    if (
-        found is None
-        or len(found["node"]) > NODE_ID_MAX_LENGTH
-        or len(found["quantity"]) > _QUANTITY_MAX
-    ):
+    if found is None or len(found["quantity"]) > _QUANTITY_MAX:
         raise DisputeError(NAMED)
     node_id, quantity = found["node"], found["quantity"]
     why = disputer_problem(role)
@@ -116,8 +116,15 @@ def parse(path: str, data: bytes, role: str, nodes: Mapping[str, Mapping[str, ob
     if not isinstance(held, dict) or quantity not in held:
         raise DisputeError(f"the cross node {node_id} holds no quantity {quantity}")
     value, unit, reason = _body(data)
-    position = QuantityRef(node_id=node_id, name=quantity, value=value, unit=unit)
-    return Dispute(position=position, reason=reason)
+    try:
+        position = QuantityRef(node_id=node_id, name=quantity, value=value, unit=unit)
+        return Dispute(position=position, reason=reason)
+    except ValidationError as exc:
+        # Behind the rules above, never a crash: what the models refuse is refused here too.
+        field = str(exc.errors()[0]["loc"][0])
+        raise DisputeError(
+            {"value": VALUE, "unit": UNIT, "reason": REASON}.get(field, SHAPE)
+        ) from None
 
 
 def _body(data: bytes) -> tuple[float | int, str, str]:
