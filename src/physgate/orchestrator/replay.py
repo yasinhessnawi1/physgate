@@ -122,6 +122,8 @@ class AttemptState:
     gate: GateRan | GateSkipped | None = None
     #: Each dispute's ruling, in the disputes' order: written after the gate line.
     arbitrations: list[ArbitrationDecided] = field(default_factory=list)
+    #: The journal head each ruling was made at, in the same order.
+    ruled_at: list[int] = field(default_factory=list)
     review: ReviewRan | None = None
     #: A review that was not a verdict: retried once for infrastructure, otherwise final.
     unavailable: list[ReviewUnavailable] = field(default_factory=list)
@@ -156,6 +158,7 @@ class AttemptState:
         self.declaration = None
         self.disputes = []
         self.arbitrations = []
+        self.ruled_at = []
         self.unavailable = []
         self.cursor = cursor
 
@@ -729,6 +732,7 @@ class RunState:
         if event.level != arbitrate(conflict, standing).level:
             _refuse("an arbitration whose level is not the one the precedence table gives")
         now.arbitrations.append(event)
+        now.ruled_at.append(self.journal_head)
         if now.queued:
             self._ended(sub, now)
 

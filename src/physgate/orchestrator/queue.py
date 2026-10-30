@@ -518,6 +518,7 @@ def arbitration_item(
     run_id: str,
     subtask_id: str,
     attempt: int,
+    fix: bool,
     rulings: tuple[tuple[QuantityRef, Held, Writer | None, str, Standing], ...],
     artefact_diff: str,
     trajectories: tuple[str, ...],
@@ -528,23 +529,20 @@ def arbitration_item(
 
     ``rulings`` is each dispute of the attempt ruled above the gate: the domain's typed position,
     sizing's held value and who wrote it, the level and the standing. Both positions are shown,
-    and never the dispute's reason, which stays on the run's record; the quantities are the held
-    values of the first three ruled for the queue.
+    and never the dispute's reason, which stays on the run's record; the quantities are the first
+    three held values ruled for the queue in a unit the gate's parser takes, and a fix (``fix``)
+    is named as the fix a person ordered, never by its place in the budget.
     """
     from physgate.orchestrator.integration_state import measure
 
     queued = [(held, standing) for _, held, _, level, standing in rulings if level == "queue"]
-    why = [
-        text
-        for text, applies in (
-            (
-                "the quantity was disputed in an earlier attempt",
-                any(s.counted_before for _, s in queued),
-            ),
-            ("this is the subtask's last attempt", any(not s.attempt_left for _, s in queued)),
-        )
-        if applies
-    ]
+    why = []
+    if any(s.counted_before for _, s in queued):
+        why.append("the quantity was disputed in an earlier attempt")
+    if fix:
+        why.append("this is a fix a person ordered")
+    elif any(not s.attempt_left for _, s in queued):
+        why.append("this is the subtask's last attempt")
     return QueueItem(
         item_id=item_id,
         ts=ts,
@@ -552,10 +550,10 @@ def arbitration_item(
         subtask_id=subtask_id,
         source="arbitration",
         decision_required=(
-            f"Subtask {subtask_id}, attempt {attempt} of {REPAIR_BUDGET}, disputes a value of a "
-            f"cross node that sizing wrote, and the precedence rule sends it to a person: "
-            f"{', and '.join(why)}. Decide which value stands; the reason each dispute gives is "
-            "on the run's record."
+            f"Subtask {subtask_id}, attempt {attempt}{'' if fix else f' of {REPAIR_BUDGET}'}, "
+            "disputes a value of a cross node that sizing wrote, and the precedence rule sends it "
+            f"to a person: {', and '.join(why)}. Decide which value stands; the reason each "
+            "dispute gives is on the run's record."
         ),
         artefact_diff=artefact_diff,
         triggering_finding="\n".join(
@@ -563,10 +561,21 @@ def arbitration_item(
             f"{measure(position.value, position.unit)}."
             for position, held, writer, _, _ in rulings
         ),
-        quantities=tuple(held.position for held, _ in queued[:3]),
+        quantities=tuple(h.position for h, _ in queued if _parses(h.position))[:3],
         trajectories=trajectories,
         consequence=consequence,
     )
+
+
+def _parses(position: QuantityRef) -> bool:
+    """Whether the gate's parser takes ``position``'s unit: no other is shown on an item."""
+    from physgate.gate.units import UnitRefusedError, parse
+
+    try:
+        parse(position.value, position.unit)
+    except UnitRefusedError:
+        return False
+    return True
 
 
 #: What a run id or a subtask id is, when an item id is made of it.

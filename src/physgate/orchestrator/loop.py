@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from physgate.contracts.clause import check_pair
-from physgate.contracts.graph import nodes_at
+from physgate.contracts.graph import lines_at, nodes_at
 from physgate.contracts.pairs import ContractError
 from physgate.gate.exceptions import GateError
 from physgate.orchestrator.apply import ProposalRefusedError
@@ -184,7 +184,8 @@ from physgate.series.reader import attempt_records
 from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
 from physgate.state.exceptions import DesignStateError, StoreStaleError
 from physgate.state.protocol import REJECT_CROSS_ROLE
-from physgate.state.store import JournalLine, payload_digest
+from physgate.state.schema import validate_node
+from physgate.state.store import payload_digest
 
 UNREAD = (
     "The session ended without completing its required reading, so nothing it "
@@ -1656,19 +1657,11 @@ class Loop:
         """
         sub = self.state.subtasks[subtask_id]
         now = sub.attempts[-1]
-        lines = self._journal_lines(subtask_id) if now.disputes else []
-        if lines is None:
-            return False
         earlier = [(ln.conflict, ln.level) for a in sub.attempts[:-1] for ln in a.arbitrations]
         for dispute in list(now.disputes):
             node, name = dispute.position.node_id, dispute.position.name
-            own = [ln for ln in lines if ln.node_id == node and ln.rev <= self.state.journal_head]
-            held = self._held_at(own[-1] if own else None, name)
+            held = self._held_at(subtask_id, node, name, self.state.journal_head)
             if held is None:
-                detail = (
-                    f"the journal holds no {name} of {node} at revision {self.state.journal_head}"
-                )
-                self._incident(subtask_id, "foreign_journal_line", detail)
                 return False
             conflict = DisputeConflict(node_id=node, quantity=name)
             standing = dispute_standing(
@@ -1687,54 +1680,41 @@ class Loop:
             )
         return True
 
-    def _journal_lines(self, subtask_id: str | None) -> list[JournalLine] | None:
-        """The whole canonical journal; ``None`` once the run halted because it cannot be read."""
-        try:
-            return self._graph.records_after(0)
-        except DesignStateError as exc:
-            self._incident(subtask_id, "foreign_journal_line", str(exc))
-            return None
+    def _held_at(self, subtask_id: str | None, node: str, name: str, head: int) -> Held | None:
+        """Quantity ``name`` of ``node`` as journal revision ``head`` left it; ``None`` if halted.
 
-    @staticmethod
-    def _held_at(line: JournalLine | None, name: str) -> Held | None:
-        """Quantity ``name`` as journal ``line`` holds it, with its revision; or ``None``."""
-        quantities = line.payload.get("quantities") if line is not None else None
-        found = quantities.get(name) if isinstance(quantities, dict) else None
-        if line is None or not isinstance(found, dict):
-            return None
+        The journal is read as ``nodes_at`` reads it, and the revision is that of the node's line.
+        A journal that cannot be read, that ends before ``head``, or that lacks the quantity halts.
+        """
         try:
-            position = QuantityRef(
-                node_id=line.node_id, name=name, value=found["value"], unit=found["unit"]
-            )
-            return Held(
-                position=position,
-                source=found["source"],
-                written_by=found["written_by"],
-                revision=line.rev,
-            )
-        except (KeyError, ValueError):
-            return None
+            line = lines_at(self._graph.records_after(0), head).get(node)
+            found = validate_node(line.payload).quantities.get(name) if line is not None else None
+            if line is not None and found is not None:
+                position = QuantityRef(node_id=node, name=name, value=found.value, unit=found.unit)
+                by = {"source": found.source, "written_by": found.written_by}
+                return Held(position=position, revision=line.rev, **by)
+            detail = f"the journal holds no {name} of {node} at revision {head}"
+        except (DesignStateError, ValueError) as exc:
+            detail = f"{node} at journal revision {head}: {exc}"
+        self._incident(subtask_id, "foreign_journal_line", detail)
+        return None
 
     def _held_holds(self, subtask_id: str, now: AttemptState | None = None) -> bool:
-        """Each ruling's held value is still the journal's line at its revision; False if halted.
+        """Each ruling's held value is what the journal gives at its ruling's head; False if halted.
 
-        The rulings are ``now``'s, by default the subtask's last attempt's.
+        So a line of its node between the held revision and that head, which the loop could not
+        have ruled on, halts too. The rulings are ``now``'s, by default the last attempt's.
         """
-        lines = self._journal_lines(None)
-        if lines is None:
-            return False
-        at = {ln.rev: ln for ln in lines}
         now = now or self.state.subtasks[subtask_id].attempts[-1]
-        for ruling in now.arbitrations:
-            held, line = ruling.held, at.get(ruling.held.revision)
-            if (
-                line is None
-                or line.node_id != held.position.node_id
-                or (self._held_at(line, held.position.name) != held)
-            ):
+        for ruling, head in zip(now.arbitrations, now.ruled_at, strict=True):
+            held = ruling.held
+            again = self._held_at(None, held.position.node_id, held.position.name, head)
+            if again is None:
+                return False
+            if again != held:
                 detail = (
-                    f"subtask {subtask_id}: journal revision {held.revision} does not hold the "
-                    "value its ruling holds"
+                    f"subtask {subtask_id}: journal revision {head} does not hold the value its "
+                    "ruling holds"
                 )
                 self._incident(None, "foreign_journal_line", detail)
                 return False
@@ -2369,6 +2349,7 @@ class Loop:
                 run_id=self.config.run_id,
                 subtask_id=subtask_id,
                 attempt=now.number,
+                fix=now.fix,
                 rulings=tuple(
                     (
                         positions[(ln.conflict.node_id, ln.conflict.quantity)],
