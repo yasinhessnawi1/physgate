@@ -1,6 +1,6 @@
 --- experiments/R-PG-01/launch.sh (8bc03fc, blob 63efe5ac)
 +++ experiments/R-PG-01b/launch.sh
-@@ -1,152 +1,183 @@
+@@ -1,152 +1,185 @@
  #!/usr/bin/env bash
  #
 -# R-PG-01: the pre-flight refusals, then the run. Every check below holds the checkout to
@@ -32,7 +32,9 @@
 -#   5. R4: the 40 clean twins alone through the gate, 40/40 with the pinned records sha256;
 -#   6. the run: `physgate inject` with §2's parameters, seed 7, the twins reviewed.
 +# Before it, the owner writes ~/runs/rpg01b/owner-<r>.json: {"account_label": "...",
-+# "no_other_session_during_round": true} (L1 records both).
++# "no_other_session_during_round": true}, or, to waive §11's idle account, false with
++# "owner_waiver": "<the waiver's text>" (L1 records the label, which, and the text; the round's
++# end lists a waiver among its deviations, never its void causes).
  #
 -# --preflight-only stops after stage 3; --through-r4 stops after stage 5. Neither reads the token.
 -# Only with one of them, R_PG_01_UNFROZEN=1 skips stage 1's commit checks, so the script can be
@@ -304,7 +306,7 @@
  import json, sys
  from pathlib import Path
  result, head, version, binary, into = sys.argv[1:6]
-@@ -166,43 +197,121 @@
+@@ -166,43 +199,121 @@
                    "requests": defaults.get("requests"), "distinct": len(defaults.get("distinct", []))}))
  sys.exit(1 if problems else 0)
  EOF

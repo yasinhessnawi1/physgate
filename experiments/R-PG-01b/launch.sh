@@ -12,7 +12,9 @@
 #   setsid nohup experiments/R-PG-01b/launch.sh --round <r> > ~/runs/rpg01b/launch-<r>-<attempt>.log 2>&1 < /dev/null &
 #
 # Before it, the owner writes ~/runs/rpg01b/owner-<r>.json: {"account_label": "...",
-# "no_other_session_during_round": true} (L1 records both).
+# "no_other_session_during_round": true}, or, to waive §11's idle account, false with
+# "owner_waiver": "<the waiver's text>" (L1 records the label, which, and the text; the round's
+# end lists a waiver among its deviations, never its void causes).
 #
 # Stages, in order (CRITERIA.md §14):
 #   L1  the host, the checkout at the run tag and clean; the account's label and the token's
