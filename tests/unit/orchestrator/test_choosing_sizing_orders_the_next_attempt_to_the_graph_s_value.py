@@ -288,8 +288,12 @@ def test_a_choice_written_beside_a_session_without_the_layer_acts_once_confirmed
     tmp_path: Path,
 ) -> None:
     rig = rig_of(tmp_path / "run", script=[TWO, TWO, ()])
+
     # The item is listed at s1's attempt 2; a person chooses while s2's session runs.
-    rig.dispatcher.during[4] = lambda: chose(rig.run_dir, "sizing", NOTE)
+    def choosing() -> None:
+        chose(rig.run_dir, "sizing", NOTE)
+
+    rig.dispatcher.during[4] = choosing
     driven(rig, lambda r: run(r, plan=THREE))
     held = one(taken(events_of(rig)))
     assert (held.effect, held.acts, held.why_not) == ("retry", False, "held_os_layer_off")
