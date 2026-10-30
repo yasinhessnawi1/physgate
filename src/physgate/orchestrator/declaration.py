@@ -79,7 +79,7 @@ def read_shape(data: bytes) -> tuple[str, ...]:
     if b"\r" in data:
         raise DeclarationError(LINE_ENDS)
     try:
-        value = json.loads(data)
+        value = json.loads(data, object_pairs_hook=_once)
     except (ValueError, RecursionError):
         raise DeclarationError(NOT_JSON) from None
     if not isinstance(value, dict) or list(value) != [KEY] or not isinstance(value[KEY], list):
@@ -91,6 +91,13 @@ def read_shape(data: bytes) -> tuple[str, ...]:
     if len(set(names)) != len(names):
         raise DeclarationError(TWICE)
     return tuple(str(name) for name in names)
+
+
+def _once(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """A JSON object whose keys are each named once: JSON alone would keep the last of two."""
+    if len({key for key, _ in pairs}) != len(pairs):
+        raise DeclarationError(SHAPE)
+    return dict(pairs)
 
 
 def parse(data: bytes, planned: Mapping[str, str], declaring: str) -> Declaration:

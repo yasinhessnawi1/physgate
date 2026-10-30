@@ -91,6 +91,7 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import (
     EscalationBackendError,
     GateNotRegisteredError,
+    GitError,
     HeldOutExposedError,
     MergeConflictError,
     MergeRefusedError,
@@ -1873,7 +1874,7 @@ class Loop:
                 if merged is None
                 else self._changes.declaration_at(merged.merge_commit, declaring)
             )
-        except DeclarationError:
+        except (DeclarationError, GitError):
             again = None
         held = None if again is None else (again.modules, again.sha256)
         if line is not None and held == (line.modules, line.declaration_sha256):

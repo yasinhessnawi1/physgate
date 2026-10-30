@@ -447,7 +447,10 @@ def _declaration(hook_input: InputView, target: str, config: ConfigView) -> Deci
 
     why = _declarer_problem(str(config.role))
     if why is None and (
-        hook_input.tool_name == "NotebookEdit" or os.path.basename(target) != DECLARATION_NAME
+        hook_input.tool_name == "NotebookEdit"
+        or os.path.dirname(target).casefold()
+        != os.path.join(config.worktree, COMPLETION_DIR).casefold()
+        or os.path.basename(target) != DECLARATION_NAME
     ):
         why = f"the one file in {COMPLETION_DIR} is {DECLARATION_NAME}, a JSON file"
     if why is None:
