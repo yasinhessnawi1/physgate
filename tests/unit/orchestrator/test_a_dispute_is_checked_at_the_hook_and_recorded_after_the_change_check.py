@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -42,17 +43,19 @@ from physgate.orchestrator.events import (  # noqa: E402
     read_events,
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError  # noqa: E402
-from physgate.orchestrator.merge import RunGit, commit_attempt  # noqa: E402
+from physgate.orchestrator.git import merge_base  # noqa: E402
+from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt  # noqa: E402
 from physgate.orchestrator.ports import ChangeCheck  # noqa: E402
 from physgate.orchestrator.protocols import QuantityRef  # noqa: E402
 from physgate.orchestrator.record import PlanEntry  # noqa: E402
 from physgate.orchestrator.replay import replay  # noqa: E402
 from physgate.orchestrator.run_config import ModelStrings  # noqa: E402
+from physgate.reviewers import packet  # noqa: E402
 
 PATH = ".physgate/disputes/sizing.bus.supply_voltage.json"
 OTHER = ".physgate/disputes/sizing.bus.peak_current.json"
 REASON = "the driver needs 24 V at the stall current"
-PLANNED = {"s1": "modules/s1", "siz": "modules/siz", "integ": "modules/integ"}
+PLANNED = {"s1": "modules/s1", "s2": "modules/s2", "siz": "modules/siz", "integ": "modules/integ"}
 
 _ENV = {
     "PATH": "/usr/bin:/bin",
@@ -172,15 +175,50 @@ REFUSED: dict[str, tuple[str, bytes, str, str]] = {
     "a reason past its bound": (PATH, body(reason="r" * 501), "control", dispute.REASON),
     "a reason with a line break": (PATH, body(reason="one\ntwo"), "control", dispute.REASON),
     "a reason with an escape": (PATH, body(reason="red\x1b[0m"), "control", dispute.REASON),
+    "a reason with a next-line control": (
+        PATH,
+        body(reason="one\x85two"),
+        "control",
+        dispute.REASON,
+    ),
+    "a unit with DEL": (PATH, body(unit="V\x7f"), "control", dispute.UNIT),
+    # JSON's escape of half a surrogate pair is ASCII on disk and a lone surrogate once read: no
+    # line of the run's record can hold it.
+    "a reason with a lone surrogate": (PATH, body(reason="a\ud800b"), "control", dispute.REASON),
+    "a unit with a lone surrogate": (PATH, body(unit="V\udfff"), "control", dispute.UNIT),
 }
 
 
 @pytest.mark.parametrize("case", REFUSED)
 def test_a_malformed_dispute_is_refused_by_the_parser(case: str) -> None:
     path, data, role, said = REFUSED[case]
-    with pytest.raises(DisputeError) as refused:
+    try:
         parse(path, data, role, nodes())
-    assert said in str(refused.value)
+        told: Exception | None = None
+    except Exception as exc:  # noqa: BLE001 - any other escape is the finding: a refusal is the contract
+        told = exc
+    assert isinstance(told, DisputeError), repr(told)
+    assert said in str(told)
+
+
+@pytest.mark.parametrize(
+    ("data", "said"),
+    [(body(reason="a\ud800b"), dispute.REASON), (body(unit="V\udfff"), dispute.UNIT)],
+    ids=["the reason", "the unit"],
+)
+def test_what_the_models_refuse_past_the_parser_s_own_rules_is_a_refusal_naming_its_field(
+    monkeypatch: pytest.MonkeyPatch, data: bytes, said: str
+) -> None:
+    # The parser's character rule as it stood before it named surrogates: the models behind it
+    # refuse what it lets through, and that refusal is the dispute's, in the field's own words.
+    monkeypatch.setattr(dispute, "_CONTROL", re.compile(r"[\x00-\x1f\x7f-\x9f]"))
+    try:
+        parse(PATH, data, "control", nodes())
+        told: Exception | None = None
+    except Exception as exc:  # noqa: BLE001 - any other escape is the finding
+        told = exc
+    assert isinstance(told, DisputeError), repr(told)
+    assert str(told) == said
 
 
 @pytest.mark.parametrize(
@@ -315,6 +353,23 @@ def test_a_command_that_only_reads_a_dispute_is_allowed(tmp_path: Path, command:
     assert decision.allow
 
 
+def test_an_edit_of_a_dispute_whose_old_text_the_hook_cannot_find_is_refused(
+    tmp_path: Path,
+) -> None:
+    config = session(tmp_path, "control")
+    target = Path(config.worktree) / PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(body())
+    tool_input = {"file_path": str(target), "old_string": "not in it", "new_string": "24"}
+    decision = graph.pre_tool_use(
+        HookInput.model_validate(
+            event(tool_name="Edit", cwd=config.worktree, tool_input=tool_input)
+        ),
+        config,
+    )
+    assert (decision.allow, decision.reason) == (False, graph.UNLOCATED.format(found=0))
+
+
 # --- the change check, over real git ------------------------------------------------------------
 
 
@@ -398,7 +453,7 @@ def test_a_malformed_dispute_is_refused_at_the_change_check_as_the_dispute_s(
         check = f"raised {type(exc).__name__}: {exc}"
     assert isinstance(check, ChangeCheck), check
     assert (check.refused_by, check.subject, check.disputes) == ("dispute", path, ())
-    assert said in str(check.reason)
+    assert str(check.reason).startswith(f"{path}: ") and said in str(check.reason)
 
 
 @pytest.mark.parametrize(
@@ -469,6 +524,79 @@ def test_a_dispute_left_in_place_disputes_again_and_a_deleted_one_is_withdrawn(
     )
     _, third = attempt(tmp_path, "s1", {PATH: None, OTHER: None}, number=3)
     assert check.check("s1", third, "control").disputes == ()
+
+
+def test_a_dispute_the_run_branch_held_is_withdrawn_by_deleting_it_within_write_scope(
+    tmp_path: Path,
+) -> None:
+    # The deletion is a change from the run branch, so it crosses the write-scope check.
+    repo = tmp_path / "target"
+    (repo / "modules").mkdir(parents=True)
+    (repo / "modules" / "a.txt").write_text("0\n")
+    (repo / PATH).parent.mkdir(parents=True)
+    (repo / PATH).write_bytes(body())
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "start")
+    run, commit = attempt(tmp_path, "s1", {PATH: None})
+    changed = _git(repo, "diff", "--name-status", run.run_branch, commit).splitlines()
+    assert f"D\t{PATH}" in changed
+    check = checker(tmp_path, run).check("s1", commit, "control")
+    assert (check.refused_by, check.reason, check.disputes) == (None, None, ())
+
+
+# --- a dispute stays on its attempt's branch ----------------------------------------------------
+
+
+def _merged(run: RunGit, subtask: str, commit: str) -> str:
+    """Merge ``commit`` as the loop does; what escaped instead, as text, for the assertion."""
+    try:
+        return GitMerger(run, removal_timeout_s=30).merge(subtask, 1, commit, f"Merge {subtask}\n")
+    except Exception as exc:  # noqa: BLE001 - an escape is the finding: the merge is the contract
+        return f"raised {type(exc).__name__}: {exc}"
+
+
+def test_the_merge_leaves_the_disputes_out_and_a_later_worktree_starts_without_them(
+    tmp_path: Path,
+) -> None:
+    run, commit = attempt(tmp_path, "s1", {PATH: body(reason="the merge's canary")})
+    merged = _merged(run, "s1", commit)
+    assert _git(run.repo, "rev-parse", f"{merged}^2") == commit
+    files = _git(run.repo, "ls-tree", "-r", "--name-only", merged).splitlines()
+    assert "modules/s1/notes.md" in files
+    assert not [f for f in files if "disputes" in f]
+    assert not (run.integration / ".physgate" / "disputes").exists()
+    later = run.open_subtask("s2")
+    assert (later / "modules" / "s1" / "notes.md").exists()
+    assert not (later / ".physgate" / "disputes").exists()
+    # The attempt's own commit still holds it: that is what the change check read.
+    assert "the merge's canary" in _git(run.repo, "show", f"{commit}:{PATH}")
+
+
+def test_two_subtasks_disputing_one_quantity_on_open_branches_both_merge(tmp_path: Path) -> None:
+    run, first = attempt(tmp_path, "s1", {PATH: body(value=24)})
+    _, second = attempt(tmp_path, "s2", {PATH: body(value=30, reason="another")}, number=2)
+    check = checker(tmp_path, run)
+    assert check.check("s1", first, "control").disputes == (disputed(24),)
+    _merged(run, "s1", first)
+    # The second subtask's dispute is read from its own commit, whatever the first merged.
+    assert [d.position.value for d in check.check("s2", second, "control").disputes] == [30]
+    merged = _merged(run, "s2", second)
+    assert not merged.startswith("raised"), merged
+    assert "disputes" not in _git(run.repo, "ls-tree", "-r", "--name-only", merged)
+
+
+def test_the_reviewer_s_diff_and_export_leave_the_disputes_out(tmp_path: Path) -> None:
+    run, commit = attempt(tmp_path, "s1", {PATH: body(reason="the packet's canary")})
+    diff = packet._diff(run.repo, merge_base(run.repo, run.run_branch, commit), commit)  # noqa: SLF001
+    assert b"modules/s1/notes.md" in diff
+    assert b"disputes" not in diff
+    assert b"canary" not in diff
+    exported = tmp_path / "export"
+    count = packet._export(run.repo, commit, exported)  # noqa: SLF001
+    assert (exported / "modules" / "s1" / "notes.md").exists()
+    assert not (exported / ".physgate" / "disputes").exists()
+    assert count == len([p for p in exported.rglob("*") if p.is_file()])
 
 
 # --- the line, after the change check -----------------------------------------------------------
@@ -579,6 +707,78 @@ def test_a_run_killed_between_two_dispute_lines_resumes_to_both_once_in_order(
     last = at(events, ProposalsChecked, nth=-1)
     after = [e for e in events[last + 1 :] if isinstance(e, DisputeRecorded)]
     assert [(e.attempt, e.position) for e in after] == [(1, d.position) for d in TWO]
+    replay(events)
+
+
+#: Disputes the parser refuses, as a checker that let them through would hand them on.
+UNRECORDABLE = {
+    "the reason": Dispute.model_construct(position=disputed(24).position, reason="a\ud800b"),
+    "the unit": Dispute.model_construct(
+        position=QuantityRef.model_construct(
+            node_id="sizing.bus", name="supply_voltage", value=24, unit="V\udfff"
+        ),
+        reason=REASON,
+    ),
+}
+
+
+@pytest.mark.parametrize("case", UNRECORDABLE)
+def test_a_dispute_the_record_cannot_hold_is_the_attempt_s_refusal_not_a_crash(
+    tmp_path: Path, case: str
+) -> None:
+    try:
+        events: list[Event] | str = driven(tmp_path, {"s1": (UNRECORDABLE[case],)})
+    except Exception as exc:  # noqa: BLE001 - a crash is the finding: a refusal is the contract
+        events = f"raised {type(exc).__name__}: {exc}"
+    assert isinstance(events, list), events
+    first = events[at(events, ProposalsChecked)]
+    assert isinstance(first, ProposalsChecked)
+    assert (first.refused_by, first.subject) == ("dispute", PATH)
+    assert first.reason == f"{PATH}: {dispute.UNRECORDABLE}"
+    assert not [e for e in events if isinstance(e, DisputeRecorded)]
+    replay(events)
+
+
+def test_a_run_killed_at_a_dispute_the_record_cannot_hold_resumes_past_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    models = ModelStrings(
+        decomposition="claude-sonnet-5",
+        roles={"electrical": "claude-sonnet-5"},
+        reviewers={"electrical": "claude-opus-5-5"},
+    )
+    changes = FakeChanges()
+    changes.disputes["s1"] = (UNRECORDABLE["the reason"],)
+    rig = Rig(tmp_path, changes=changes, config_overrides={"models": models})
+    loop = rig.open()
+    emit = loop._emit  # noqa: SLF001 - the loop's own writer
+
+    def dies_at_the_check_s_line(line: Event) -> None:
+        if isinstance(line, ProposalsChecked):
+            raise KilledError
+        emit(line)
+
+    monkeypatch.setattr(loop, "_emit", dies_at_the_check_s_line)
+    loop.start(plan("s1"))
+    escaped: Exception | None = None
+    try:
+        loop.run()
+    except KilledError:
+        pass
+    except Exception as exc:  # noqa: BLE001 - a crash before the line is the finding
+        escaped = exc
+    if escaped is None:
+        try:
+            rig.open().resume()
+        except Exception as exc:  # noqa: BLE001 - a resume that cannot go on is the finding
+            escaped = exc
+    assert escaped is None, repr(escaped)
+    events = read_events(tmp_path / "events.jsonl")
+    resumed = next(i for i, e in enumerate(events) if e.kind == "resumed")
+    checks = [e for e in events[resumed:] if isinstance(e, ProposalsChecked)]
+    assert checks
+    assert {c.refused_by for c in checks} == {"dispute"}
+    assert not [e for e in events if isinstance(e, DisputeRecorded)]
     replay(events)
 
 

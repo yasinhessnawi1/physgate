@@ -80,6 +80,7 @@ REFUSED: dict[str, tuple[bytes, str]] = {
     "a name past the id's bound": (body("s" * 65), "is not a subtask id"),
     "a name of other characters": (body("S1"), "is not a subtask id"),
     "a name with a line break after it": (body("s1\n"), "is not a subtask id"),
+    "a name holding a lone surrogate": (b'{"complete": ["s1\\ud800"]}', "is not a subtask id"),
     "a module twice": (body("s1", "s2", "s1"), "names a module twice"),
     "an unplanned module": (body("s3"), "no subtask of the plan"),
     "the closing pass": (body("s1c"), "a later pass over"),
