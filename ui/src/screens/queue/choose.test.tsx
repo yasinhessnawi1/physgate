@@ -197,9 +197,18 @@ describe("the choice is offered on an arbitration item alone", () => {
   });
 
   it.each([
-    ["retry", "the next one is told sizing's value as the graph holds it"],
-    ["fix", "one fix is made by a fresh session in the subtask's working copy"],
-    ["end_subtask", "the subtask ends rejected, and nothing of it is merged"],
+    [
+      "retry",
+      "Choose: this attempt is spent, and the next one is told sizing's value as the graph holds " +
+        "it, and your note if you write one. Its reviewer is told what it was told.",
+    ],
+    [
+      "fix",
+      "Choose: one fix is made by a fresh session in the subtask's working copy, told sizing's " +
+        "value as the graph holds it and your note if you write one. It is the subtask's last " +
+        "attempt; if it is not accepted, the subtask ends rejected.",
+    ],
+    ["end_subtask", "Choose: the subtask ends rejected, and nothing of it is merged."],
   ] as const)(
     "an item whose choice of sizing does %s is read, and the dialog says so",
     (does, says) => {
@@ -241,7 +250,9 @@ describe("the choice is offered on an arbitration item alone", () => {
     });
     const dialog = [...host.querySelectorAll("dialog")].find((d) => d.open);
     expect(dialog?.textContent).toContain(
-      "sizing's closing pass is ordered to write the domain's value",
+      "Choose: the subtask waits while sizing's closing pass is ordered to write the domain's " +
+        "value into the graph; once that pass is merged, this attempt is judged again, with no " +
+        "new session.",
     );
     expect(bannedIn(dialog?.textContent ?? "")).toEqual([]);
   });

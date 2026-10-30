@@ -26,9 +26,11 @@ import arbitration_runs  # noqa: E402
 from arbitration_runs import (  # noqa: E402
     BIG,
     CANARIES,
+    RAIL,
     TWO,
     JournalGraph,
     KilledByRowError,
+    bus,
     driven,
     entry,
     events_of,
@@ -52,6 +54,7 @@ from physgate import roles  # noqa: E402
 from physgate.orchestrator import decisions as decisions_module  # noqa: E402
 from physgate.orchestrator.dispatch import role_prompt  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
+    ArbitrationDecided,
     DecisionTaken,
     Event,
     Incident,
@@ -62,7 +65,7 @@ from physgate.orchestrator.events import (  # noqa: E402
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError  # noqa: E402
 from physgate.orchestrator.loop import Loop  # noqa: E402
-from physgate.orchestrator.queue import read_queue  # noqa: E402
+from physgate.orchestrator.queue import MAX_NOTE, read_queue  # noqa: E402
 from physgate.orchestrator.replay import replay  # noqa: E402
 from physgate.reviewers.packet import person_order_text  # noqa: E402
 
@@ -453,4 +456,73 @@ def test_a_value_the_journal_no_longer_holds_halts_before_the_ordered_session(
     driven(rig, resume)
     events = events_of(rig)
     assert [e.cause for e in events if isinstance(e, Incident)] == ["foreign_journal_line"]
+    assert len(rig.dispatcher.requests) == 3
+
+
+# --- the order on a mixed attempt, and one too long for a read by its own text --------------------
+
+
+def test_a_choice_on_a_mixed_attempt_orders_to_every_value_ruled_above_the_gate(
+    tmp_path: Path,
+) -> None:
+    # Attempt 1 disputes the rail alone, ruled for sizing; attempt 2 disputes both: the rail again
+    # goes to a person, the bus for the first time is ruled for sizing.
+    rig = rig_of(tmp_path / "run", script=[(RAIL,), TWO, ()])
+    driven(rig)
+    item = _item(rig)
+    assert [q.name for q in item.quantities] == ["peak_current"]
+    ruled = [
+        (e.attempt, e.conflict.quantity, e.level)
+        for e in events_of(rig)
+        if isinstance(e, ArbitrationDecided)
+    ]
+    assert ruled == [
+        (1, "peak_current", "sizing"), (2, "peak_current", "queue"),
+        (2, "supply_voltage", "sizing"),
+    ]  # fmt: skip
+    chose(rig.run_dir, "sizing", NOTE)
+    driven(rig, resume)
+    # Both quantities ruled above the gate are quoted, and both files are named to withdraw.
+    assert rig.dispatcher.requests[-1].repair_instruction == retry_text(NOTE)
+
+
+#: A value long enough that two of them and the longest note overflow one read, and two alone do
+#: not.
+HUGE = 10**2500 + 1
+
+
+def test_a_choice_whose_order_overflows_one_read_by_its_own_text_ends_the_subtask(
+    tmp_path: Path,
+) -> None:
+    rig = rig_of(tmp_path / "run", script=[TWO, TWO, ()])
+    graph = rig.diff
+    assert isinstance(graph, JournalGraph)
+    graph.writes["z0"] = [bus(HUGE, HUGE + 2)]
+    driven(rig)
+    item = _item(rig)
+    chose(rig.run_dir, "sizing", "\U0001f600" * MAX_NOTE)
+    # The line the loop writes, held by replay alone first: the order with this note is too long.
+    lines = [json.loads(e.model_dump_json()) for e in events_of(rig)]
+    offset, resolution = read_queue(rig.run_dir).decisions[-1]
+    assert item.consequence is not None
+    line = {
+        **{k: lines[-1][k] for k in ("ts", "run_id", "gate_mode")},
+        "seq": len(lines), "kind": "decision_taken", "subtask_id": "s1", "item_id": item.item_id,
+        "verb": "choose", "position": "sizing", "note": resolution.note,
+        "resolved_by": resolution.resolved_by, "decided_ts": resolution.ts,
+        "decision_offset": offset, "shown_sha256": resolution.shown_sha256, "attempt": 2,
+        "attempt_commit": item.consequence.attempt_commit, "effect": "end_subtask", "acts": True,
+        "why_not": None, "confirmed_by": None, "order_too_long": True,
+    }  # fmt: skip
+    assert _refusal_of([*lines, line]) is None
+    said = _refusal_of([*lines, line | {"effect": "retry", "order_too_long": False}])
+    assert said is not None and "could not be read whole" in said, said
+    # And the loop takes it so.
+    driven(rig, resume)
+    events = events_of(rig)
+    assert refusal(events) is None
+    taken_line = one(taken(events))
+    assert (taken_line.effect, taken_line.acts, taken_line.order_too_long) == (
+        "end_subtask", True, True,
+    )  # fmt: skip
     assert len(rig.dispatcher.requests) == 3

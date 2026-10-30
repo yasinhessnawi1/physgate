@@ -221,8 +221,14 @@ def test_no_arbitration_branch_puts_another_sessions_output_into_any_prompt(
             blank = {**line, "reason": "", "position": {**line["position"], "unit": ""}}
             _clean("a dispute's line but its reason and unit", json.dumps(blank))
         elif line["kind"] == "arbitration_decided":
-            # The held value says what the graph held; the line carries no reason.
-            assert "REASON-CANARY" not in text and "STREAM-CANARY" not in text
+            # The held value says what the graph held: the unit as sizing spelt it, and the source
+            # and author sizing wrote beside it (never rendered); no other field of the line
+            # carries a session's words.
+            position = {**line["held"]["position"], "unit": ""}
+            held = {**line["held"], "position": position, "source": "", "written_by": ""}
+            _clean(
+                "a ruling's line but its held source and author", json.dumps({**line, "held": held})
+            )
         else:
             _clean(f"the {line['kind']} line", text)
     _clean("decisions()", json.dumps(decisions(lines)))

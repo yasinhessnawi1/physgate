@@ -66,8 +66,10 @@ BUS = DisputeConflict(node_id="sizing.bus", quantity="supply_voltage")
 RAIL = DisputeConflict(node_id="sizing.bus", quantity="peak_current")
 #: Every standing a dispute can be read in, as far as the table can tell them apart.
 STANDINGS = [
-    Standing(gate_refused=g, counted_before=c, attempt_left=left)
-    for g, c, left in itertools.product((False, True), (0, 1, 2, 7), (False, True))
+    Standing(gate_refused=g, counted_before=c, attempt_left=left, chosen=chosen)
+    for g, c, left, chosen in itertools.product(
+        (False, True), (0, 1, 2, 7), (False, True), (False, True)
+    )
 ]
 
 
@@ -75,6 +77,8 @@ def oracle(standing: Standing) -> str:
     """The level the precedence gives, written out as the architecture states it."""
     if standing.gate_refused:
         return "gate"
+    if standing.chosen:
+        return "person"
     if standing.counted_before == 0 and standing.attempt_left:
         return "sizing"
     return "queue"
@@ -110,7 +114,7 @@ def test_what_survives_the_gate_and_sizing_goes_to_a_person(standing: Standing) 
 
 def test_every_conflict_yields_exactly_one_outcome_the_first_row_that_applies() -> None:
     names = [rank.level for rank in TABLE]
-    assert names == ["gate", "sizing", "queue"]
+    assert names == ["gate", "person", "sizing", "queue"]
     for conflict, standing in itertools.product((BUS, RAIL), STANDINGS):
         found = arbitrate(conflict, standing)
         assert found.level == oracle(standing), (conflict, standing)
@@ -125,7 +129,9 @@ def _inserted(at: int, applies: Any) -> tuple[Rank, ...]:
     return (*TABLE[:at], row, *TABLE[at:])
 
 
-@pytest.mark.parametrize("at", [0, 1, 2], ids=["above the gate", "below the gate", "below sizing"])
+@pytest.mark.parametrize(
+    "at", [0, 1, 2, 3], ids=["above the gate", "below the gate", "below the person", "below sizing"]
+)
 def test_a_precedence_level_inserted_into_the_table_changes_the_outcome_only_where_it_ranks(
     at: int,
 ) -> None:

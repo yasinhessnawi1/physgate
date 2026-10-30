@@ -316,7 +316,10 @@ describe("what the run did with a decision", () => {
     };
     const words = read();
     expect(words, "the taken choice is read").not.toBeNull();
-    expect(words).toContain("sizing's closing pass is ordered to write the domain's value");
+    expect(words).toBe(
+      "The run took it: the subtask waits while sizing's closing pass is ordered to write the " +
+        "domain's value.",
+    );
     expect(bannedIn(words ?? "")).toEqual([]);
   });
 
