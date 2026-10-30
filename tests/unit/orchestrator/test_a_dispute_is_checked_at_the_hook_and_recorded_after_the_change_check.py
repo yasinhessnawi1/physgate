@@ -819,7 +819,8 @@ def test_the_queue_item_s_diff_of_a_text_that_is_not_utf8_is_shown_and_rebuilt_e
     except Exception as exc:  # noqa: BLE001 - any escape is the finding: the item is the contract
         shown = f"raised {type(exc).__name__}: {exc}"
     assert not shown.startswith("raised"), shown
-    assert "+caf�" in shown
+    # Each byte that is not UTF-8 shows as its escape, so two different bytes never look alike.
+    assert "+caf\\xe9" in shown and "�" not in shown
 
     def item(diff: str) -> QueueItem:
         return unavailable_item(

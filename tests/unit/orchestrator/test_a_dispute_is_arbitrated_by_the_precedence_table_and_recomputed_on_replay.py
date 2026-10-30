@@ -30,6 +30,7 @@ from loop_fakes import (  # noqa: E402
     FakeChanges,
     FakeGate,
     FakeReviewer,
+    KilledError,
     Rig,
     failing_gate_result,
     passing_gate_result,
@@ -56,6 +57,7 @@ from physgate.orchestrator.events import (  # noqa: E402
     GateSkipped,
     StageEntered,
     parse_events,
+    read_events,
 )
 from physgate.orchestrator.exceptions import ArbitrationError, CorruptEventLogError  # noqa: E402
 from physgate.orchestrator.protocols import QuantityRef  # noqa: E402
@@ -342,6 +344,8 @@ def refusal(events: Sequence[Event]) -> str | None:
     except CorruptEventLogError as exc:
         reason: str = exc.context.get("reason", str(exc))
         return reason
+    except Exception as exc:  # noqa: BLE001 - any other escape is a refusal no rule gave
+        return f"raised {type(exc).__name__}: {exc}"
     return None
 
 
@@ -353,6 +357,7 @@ HONEST = [("gate", "gate"), ("sizing", "sizing"), ("queue", "queue")]
 
 def test_every_arbitration_line_is_recomputed_on_replay(tmp_path: Path) -> None:
     events = with_rulings(driven(tmp_path, gate=GATE, review=REVIEW), HONEST)
+    assert refusal(events) is None
     lines = [e for e in opened(events) if isinstance(e, ArbitrationDecided)]
     assert [(e.attempt, e.level) for e in lines] == [
         (1, "gate"),
@@ -433,7 +438,8 @@ def test_a_line_answers_the_disputes_in_order_each_once(tmp_path: Path) -> None:
     assert said is not None and "next dispute" in said, said
     three = [*head, *(ruled(events[gate], c, first, "sizing") for c in (RAIL, BUS, BUS))]
     assert refusal(resequenced(three[:-1])) is None
-    assert refusal(resequenced(three)) is not None
+    said = refusal(resequenced(three))
+    assert said is not None and "arbitration" in said, said
 
 
 def test_a_line_for_an_attempt_that_disputes_nothing_does_not_open(tmp_path: Path) -> None:
@@ -508,18 +514,103 @@ def test_the_line_keeps_a_400_digit_value_exact_and_never_holds_the_reason(tmp_p
     assert b"canary" in data  # the dispute's own line holds its reason, for a person
     rulings = [json.loads(raw) for raw in data.splitlines() if b'"arbitration_decided"' in raw]
     assert rulings and not [r for r in rulings if "canary" in json.dumps(r)]
+    assert refusal(events) is None
     read = [e for e in opened(events) if isinstance(e, ArbitrationDecided)]
     values = [e.held.position.value for e in read if e.conflict == BUS]
     assert values == [BIG, BIG, BIG]
     assert {type(v) for v in values} == {int}
 
 
-def test_a_restarted_window_forgets_its_own_lines(tmp_path: Path) -> None:
-    # Two lines of the same attempt in two windows count as the attempt's, never as a repeat:
-    # the replay keeps only the lines of an attempt's last window.
-    events = with_rulings(driven(tmp_path, gate=GATE, review=REVIEW), HONEST)
-    state = replay(opened(events))
-    sub = state.subtasks["s1"]
-    assert [len(a.arbitrations) for a in sub.attempts] == [2, 2, 2]
-    sub.attempts[-1].restart("resolve")
-    assert sub.attempts[-1].arbitrations == []
+def test_a_killed_and_resumed_attempt_is_ruled_in_its_last_window_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Attempt 1 is killed at its review stage line and resumed: two windows, each with its gate
+    # line. Each window is ruled as a first dispute; a ruling of the first window is never counted
+    # by the second, and a first-window line written after the resume does not open.
+    models = ModelStrings(
+        decomposition="claude-sonnet-5",
+        roles={"electrical": "claude-sonnet-5"},
+        reviewers={"electrical": "claude-opus-5-5"},
+    )
+    changes = FakeChanges()
+    changes.disputes["s1"] = TWO
+    rig = Rig(
+        tmp_path,
+        gate=FakeGate(verdicts=[]),
+        reviewer=FakeReviewer(verdicts=[]),
+        changes=changes,
+        config_overrides={"models": models},
+    )
+    loop = rig.open()
+    emit = loop._emit
+    killed: list[bool] = []
+
+    def dies(line: Event) -> None:
+        if not killed and isinstance(line, StageEntered) and line.stage == "review":
+            killed.append(True)
+            raise KilledError
+        emit(line)
+
+    monkeypatch.setattr(loop, "_emit", dies)
+    loop.start(plan("s1"))
+    with pytest.raises(KilledError):
+        loop.run()
+    resumed = rig.open()
+    resumed.resume()
+    resumed.close()
+    events = read_events(tmp_path / "events.jsonl")
+    gates = [i for i, e in enumerate(events) if isinstance(e, GateRan | GateSkipped)]
+    assert [getattr(events[i], "attempt", None) for i in gates] == [1, 1]
+    first = Standing(gate_refused=False, counted_before=0, attempt_left=True)
+
+    def windows(standing_of: Any, level_of: Any) -> list[Event]:
+        out: list[Event] = []
+        for i, event in enumerate(events):
+            out.append(event)
+            if i in gates:
+                window = gates.index(i)
+                out += [ruled(event, c, standing_of(window), level_of(window)) for c in (RAIL, BUS)]
+        return resequenced(out)
+
+    assert refusal(windows(lambda _: first, lambda _: "sizing")) is None
+    counted = Standing(gate_refused=False, counted_before=1, attempt_left=True)
+    said = refusal(
+        windows(lambda w: first if w == 0 else counted, lambda w: "sizing" if w == 0 else "queue")
+    )
+    assert said is not None and "standing" in said, said
+    late: list[Event] = []
+    for i, event in enumerate(events):
+        late.append(event)
+        if isinstance(event, StageEntered) and event.stage == "verify_reading" and i > gates[0]:
+            late.append(ruled(events[gates[0]], RAIL, first, "sizing"))
+    said = refusal(resequenced(late))
+    assert said is not None and "arbitration" in said, said
+
+
+def test_a_dispute_on_the_fix_a_person_ordered_has_no_attempt_left(tmp_path: Path) -> None:
+    # The fix is always a subtask's last attempt: its dispute goes to a person, never to sizing.
+    from test_a_queue_decision_acts_at_a_boundary import _resume
+    from test_a_reject_on_a_blocked_review_gets_one_fix import _blocked_then
+
+    changes = FakeChanges()
+    changes.disputes["s1"] = TWO
+    rig = _blocked_then(tmp_path / "run", changes=changes)
+    _resume(rig)
+    events = read_events(rig.run_dir / "events.jsonl")
+    gates = [
+        i
+        for i, e in enumerate(events)
+        if isinstance(e, GateRan | GateSkipped) and e.subtask_id == "s1"
+    ]
+    fix = gates[-1]
+    assert getattr(events[fix], "attempt", None) == 2
+
+    def ruled_on_the_fix(standing: Standing, level: str) -> list[Event]:
+        lines = [ruled(events[fix], c, standing, level, attempt=2) for c in (RAIL, BUS)]
+        return resequenced([*events[: fix + 1], *lines])
+
+    honest = Standing(gate_refused=False, counted_before=0, attempt_left=False)
+    forged = Standing(gate_refused=False, counted_before=0, attempt_left=True)
+    assert refusal(ruled_on_the_fix(honest, "queue")) is None
+    said = refusal(ruled_on_the_fix(forged, "sizing"))
+    assert said is not None and "standing" in said, said
