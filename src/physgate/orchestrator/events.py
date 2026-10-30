@@ -803,8 +803,9 @@ class DisputeRecorded(_Event):
 
     One line per dispute, straight after the attempt's accepted change check and before its
     gate, sorted by node and quantity. The position is a quantity of a cross node, in the
-    disputing role's own value and unit. The reason is the session's text, kept for a person:
-    data that no session is handed.
+    disputing role's own value and unit. The reason is the session's text, kept for a person.
+    The run keeps it here: the file stays on its attempt's branch, left out of the merge and of
+    the reviewer's packet.
     """
 
     kind: Literal["dispute_recorded"] = "dispute_recorded"

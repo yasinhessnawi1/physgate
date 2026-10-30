@@ -18,7 +18,10 @@ the check and the merge.
 branch name that could have moved. It is idempotent, so a merge already made is
 found and returned rather than made twice. Dispatch is serial and every attempt
 stays in its module, so a conflict means an invariant broke; the merge is
-aborted and the run halts, and the agent is not charged.
+aborted and the run halts, and the agent is not charged. The merge leaves an
+attempt's disputes out: the change check read them from the attempt's commit and
+the run's log records them, so the run branch, and every worktree opened from it,
+never holds one, and two subtasks that dispute one quantity add no file to collide.
 
 **Every git call here holds to the commit's rule.** A repository or worktree a
 session could have touched has its ``.git`` pointer verified once per operation,
@@ -208,6 +211,9 @@ class GitMerger:
     def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
         """Merge exactly ``attempt_commit`` into the run branch and return the merge.
 
+        The merge commit's parents are the run branch and ``attempt_commit``; its tree is the
+        merged tree without the disputes directory.
+
         Raises:
             MergeRefusedError: the subtask's branch no longer points at the checked
                 commit, so what would be merged is not what was checked.
@@ -227,11 +233,23 @@ class GitMerger:
         if already is not None:
             return already
         admin = verified_git_dir(run.integration, linked=True, common=common_dir(run.repo))
+        disputed = git(
+            run.repo, "ls-tree", "--name-only", attempt_commit, "--", DISPUTES_DIR,
+            objects_only=True, git_dir=pinned,
+        )  # fmt: skip
         try:
-            git(
-                run.integration, "merge", "--no-ff", "--no-edit", "-m", message, attempt_commit,
-                git_dir=admin,
-            )  # fmt: skip
+            if disputed:
+                git(
+                    run.integration, "merge", "--no-ff", "--no-commit", "-m", message,
+                    attempt_commit, git_dir=admin,
+                )  # fmt: skip
+                git(run.integration, "rm", "-r", "-q", "-f", "--", DISPUTES_DIR, git_dir=admin)
+                git(run.integration, "commit", "--no-edit", git_dir=admin)
+            else:
+                git(
+                    run.integration, "merge", "--no-ff", "--no-edit", "-m", message,
+                    attempt_commit, git_dir=admin,
+                )  # fmt: skip
         except GitError as exc:
             git(run.integration, "merge", "--abort", check=False, git_dir=admin)
             msg = "an accepted attempt did not merge cleanly"

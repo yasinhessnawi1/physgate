@@ -9,7 +9,9 @@ interface's), and the body. A shell command that names the directory is refused 
 reads. The change check reads every dispute the attempt added or changed since the run branch,
 from the commit it checks, and refuses a malformed one as the dispute's; another role's dispute is
 a write outside its module. The loop records one line per dispute straight after an accepted
-change check, sorted, and replay takes such a line nowhere else. No prompt names the channel yet.
+change check, sorted, and replay takes such a line nowhere else; a dispute no line can hold is the
+attempt's refusal, never a crash. The merge and the reviewer's packet leave the directory out, so
+the file stays on its attempt's branch. No prompt names the channel yet.
 """
 
 from __future__ import annotations

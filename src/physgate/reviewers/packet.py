@@ -15,6 +15,10 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
   note naming its target, never as a link, so nothing in the export reaches outside.
 - ``diff-NN-of-MM.patch``: the attempt's change against where it left the run branch,
   in numbered parts.
+
+The export and the diff leave out the attempt's disputes (``orchestrator.dispute``): a
+dispute is a role's position for a person to arbitrate, recorded on the run's log, and the
+reviewer judges the work without another session's free text in it.
 - ``series-NN-of-MM.md``: for an attempt that sealed simulation records or named one
   from a graph quantity, the harness's listing of them (``series.summary``): each
   record summarised from its own samples, read back held to its seal, and each
@@ -85,6 +89,7 @@ from pydantic import (
 
 from physgate.knowledge import loader
 from physgate.knowledge.library import LibraryError, read_library
+from physgate.orchestrator.dispute import DISPUTES_DIR
 from physgate.orchestrator.exceptions import GitError, TrajectoryTamperedError
 from physgate.orchestrator.git import (
     EMPTY_TREES,
@@ -174,7 +179,7 @@ class Packet(BaseModel):
     spec_as_issued_sha256: Sha256 | None
     rubric_sha256: Sha256
     knowledge_sha256: dict[str, Sha256]
-    #: How many files the attempt's commit holds, as exported.
+    #: How many files the attempt's commit holds, as exported: its disputes left out.
     worktree_files: Annotated[int, Field(ge=0)]
     indicators: tuple[ScanHit, ...]
     required_reading: Annotated[tuple[str, ...], Field(min_length=2)]
@@ -540,7 +545,7 @@ def _write_parts(read: Path, parts: list[tuple[str, bytes]]) -> tuple[Part, ...]
 
 
 def _export(repo: Path | GitDir, commit: str, into: Path) -> int:
-    """Write ``commit``'s files under ``into``, from git's objects, no attribute applied.
+    """Write ``commit``'s files, its disputes left out, under ``into``: no attribute applied.
 
     Not ``git archive``, which honours an attribute file committed in the tree: one
     can leave a file out of the archive or rewrite it on the way, so the reviewer
@@ -558,7 +563,8 @@ def _export(repo: Path | GitDir, commit: str, into: Path) -> int:
         if entry:
             meta, _, raw_path = entry.partition(b"\t")
             mode, kind, oid = meta.decode().split()
-            entries.append((mode, kind, oid, raw_path.decode("utf-8")))
+            if not raw_path.startswith(DISPUTES_DIR.encode() + b"/"):
+                entries.append((mode, kind, oid, raw_path.decode("utf-8")))
     _refuse_merging_paths([relative for _, _, _, relative in entries])
     into.mkdir()
     root = into.resolve()
@@ -625,7 +631,10 @@ def _refuse_merging_paths(paths: list[str]) -> None:
 
 
 def _diff(repo: Path | GitDir, base: str, commit: str) -> bytes:
-    """The change from ``base`` to ``commit``, every file as text, no driver or filter applied."""
+    """The change from ``base`` to ``commit``, every file as text, no driver or filter applied.
+
+    The disputes directory is left out, as from the export.
+    """
     return _git_bytes(
         repo,
         "diff",
@@ -635,6 +644,8 @@ def _diff(repo: Path | GitDir, base: str, commit: str) -> bytes:
         "--text",
         base,
         commit,
+        "--",
+        f":(exclude){DISPUTES_DIR}",
     )
 
 
