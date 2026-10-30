@@ -46,7 +46,7 @@ from physgate.orchestrator.events import (  # noqa: E402
     read_events,
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError  # noqa: E402
-from physgate.orchestrator.git import merge_base  # noqa: E402
+from physgate.orchestrator.git import diff_text, merge_base, verified_git_dir  # noqa: E402
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt  # noqa: E402
 from physgate.orchestrator.ports import ChangeCheck  # noqa: E402
 from physgate.orchestrator.protocols import QuantityRef  # noqa: E402
@@ -842,6 +842,24 @@ def test_the_queue_item_s_diff_of_a_text_that_is_not_utf8_is_shown_and_rebuilt_e
     assert QueueItem.model_validate_json(written.model_dump_json()) == item(
         merger.artefact_diff(commit)
     )
+
+
+def test_the_queue_item_s_diff_leaves_out_the_disputes_and_is_unchanged_without_one(
+    tmp_path: Path,
+) -> None:
+    # A person decides on the work, not on a session's reason: the item's diff leaves out the
+    # disputes directory as the reviewer's packet does, and a diff with no dispute is the same.
+    plain, plain_commit = attempt(tmp_path / "plain", "s1", {"modules/s1/a.py": b"x = 1\n"})
+    merger = GitMerger(plain, removal_timeout_s=30)
+    pinned = verified_git_dir(plain.repo, linked=False)
+    base = merge_base(plain.repo, plain.run_branch, plain_commit, git_dir=pinned)
+    whole = diff_text(plain.repo, base, plain_commit, git_dir=pinned)
+    assert merger.artefact_diff(plain_commit) == whole
+    dispute = {".physgate/disputes/sizing.bus.supply_voltage.json": b'{"reason": "REASON"}'}
+    run, commit = attempt(tmp_path / "disputed", "s1", {"modules/s1/a.py": b"x = 1\n", **dispute})
+    shown = GitMerger(run, removal_timeout_s=30).artefact_diff(commit)
+    assert "modules/s1/a.py" in shown
+    assert ".physgate/disputes" not in shown and "REASON" not in shown
 
 
 def test_a_dispute_one_directory_further_in_is_a_write_outside_the_module(
