@@ -397,9 +397,12 @@ def _after(
     regate: dict[int, int | None] | None = None,
     prior: list[dict[str, Any]] | None = None,
     streams: dict[int, dict[str, str]] | None = None,
+    l1: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """``checks.after`` on one invented attempt of round 1: a complete one unless told."""
     home, runs, launch = _records(tmp, monkeypatch, prior)
+    if l1 is not None:
+        (launch / "L1.json").write_text(json.dumps(l1) + "\n")
     for name, slot in SLOTS_I_F.items():
         _arm(home, runs, slot, **(arm or {}).get(name, {}))
         for sid, text in (streams or {}).get(slot, {}).items():
@@ -416,6 +419,39 @@ def _after(
     found = checks.after(1, launch, C.REPO)
     found["records"] = json.loads((runs / "slots.json").read_text())
     return found
+
+
+def test_the_owner_s_waiver_is_a_disclosed_deviation_of_the_round_and_voids_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    waiver = OWNER_WAIVES["owner_waiver"]
+    l1 = {
+        "check": "L1",
+        "owner_confirmed_no_other_session": False,
+        "owner_statement": "waived",
+        "owner_waiver": waiver,
+    }
+    found = _after(tmp_path, monkeypatch, l1=l1)
+    assert found["valid"] is True and found["void_causes"] == []
+    assert found["deviations"] == [f"§11's idle-account rule waived by the owner at L1: {waiver}"]
+    assert found["records"]["attempts"][-1]["deviations"] == found["deviations"]
+    assert found["records"]["attempts"][-1]["valid"] is True
+
+
+@pytest.mark.parametrize(
+    "l1",
+    [
+        {"check": "L1", "owner_confirmed_no_other_session": True, "owner_statement": "confirmed"},
+        # round 1's record, written before the waiver existed
+        {"check": "L1", "owner_confirmed_no_other_session": True},
+    ],
+    ids=["confirmed", "confirmed-before-the-waiver"],
+)
+def test_a_confirmed_round_has_no_waiver_deviation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, l1: dict[str, Any]
+) -> None:
+    found = _after(tmp_path, monkeypatch, l1=l1)
+    assert found["valid"] is True and found["deviations"] == []
 
 
 def test_a_complete_attempt_is_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -740,6 +776,15 @@ def _checkout(tmp: Path, home: Path, *, filled_commit: str | None = None) -> Pat
     return checkout
 
 
+#: The owner's statements for a round (§11): the confirmation, and the recorded waiver.
+OWNER_CONFIRMS = {"account_label": "a trial", "no_other_session_during_round": True}
+OWNER_WAIVES = {
+    "account_label": "a trial",
+    "no_other_session_during_round": False,
+    "owner_waiver": "other sessions of the owner run on the account; decided 30.10.2026",
+}
+
+
 def _l1(
     tmp: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -749,14 +794,14 @@ def _l1(
     stopped: bool = False,
     dry: bool = True,
     login: list[str] | None = None,
+    owner: Any = None,
 ) -> dict[str, Any]:
     home = tmp / "home"
     checkout = _checkout(tmp, home, filled_commit=filled_commit)
     runs = tmp / "trial"
     runs.mkdir()
-    (runs / "owner-1.json").write_text(
-        json.dumps({"account_label": "a trial", "no_other_session_during_round": True})
-    )
+    said = OWNER_CONFIRMS if owner is None else owner
+    (runs / "owner-1.json").write_text(json.dumps(said))
     if stopped:
         (runs / "slots.json").write_text(
             json.dumps({"draw": checks.draw_slots(), "attempts": [], "stopped": {"reason": "x"}})
@@ -827,6 +872,94 @@ def test_l1_refuses_after_the_experiment_has_stopped(
 ) -> None:
     with pytest.raises(checks.Refused, match="stopped"):
         _l1(tmp_path, monkeypatch, stopped=True)
+
+
+def test_l1_records_the_owner_s_confirmation_as_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    found = _l1(tmp_path, monkeypatch)
+    assert found["owner_confirmed_no_other_session"] is True
+    assert found["owner_statement"] == "confirmed"
+    assert "owner_waiver" not in found
+
+
+def test_l1_takes_the_owner_s_recorded_waiver_of_the_idle_account_and_records_its_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    found = _l1(tmp_path, monkeypatch, owner=OWNER_WAIVES)
+    assert found["owner_confirmed_no_other_session"] is False
+    assert found["owner_statement"] == "waived"
+    assert found["owner_waiver"] == OWNER_WAIVES["owner_waiver"]
+    assert found["account_label"] == "a trial"
+
+
+@pytest.mark.parametrize(
+    "owner",
+    [
+        {"account_label": "a trial"},
+        {"account_label": "a trial", "no_other_session_during_round": None},
+        {"account_label": "a trial", "no_other_session_during_round": "true"},
+        {"account_label": "a trial", "no_other_session_during_round": 1},
+        {"account_label": "a trial", "no_other_session_during_round": 0, "owner_waiver": "w"},
+        {"account_label": "a trial", "no_other_session_during_round": False},
+        {"account_label": "a trial", "no_other_session_during_round": False, "owner_waiver": ""},
+        {
+            "account_label": "a trial",
+            "no_other_session_during_round": False,
+            "owner_waiver": " \n\t",
+        },
+        {"account_label": "a trial", "no_other_session_during_round": False, "owner_waiver": 1},
+        {
+            "account_label": "a trial",
+            "no_other_session_during_round": False,
+            "owner_waiver": ["waived"],
+        },
+        {"account_label": "a trial", "no_other_session_during_round": False, "owner_waiver": None},
+        {"account_label": "a trial", "no_other_session_during_round": True, "owner_waiver": "w"},
+        {"account_label": "a trial", "no_other_session_during_round": True, "owner_waiver": ""},
+    ],
+    ids=[
+        "missing",
+        "null",
+        "a-string",
+        "one",
+        "zero-with-a-waiver",
+        "false-without-a-waiver",
+        "an-empty-waiver",
+        "a-blank-waiver",
+        "a-number-for-a-waiver",
+        "a-list-for-a-waiver",
+        "a-null-waiver",
+        "confirmed-and-waived",
+        "confirmed-and-an-empty-waiver",
+    ],
+)
+def test_l1_refuses_an_owner_statement_that_neither_confirms_nor_waives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, owner: dict[str, Any]
+) -> None:
+    with pytest.raises(checks.Refused, match="owner"):
+        _l1(tmp_path, monkeypatch, owner=owner)
+
+
+@pytest.mark.parametrize(
+    "owner", [[OWNER_WAIVES], "waived", None, 1], ids=["a-list", "a-string", "null", "a-number"]
+)
+def test_l1_refuses_an_owner_statement_that_is_no_object(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, owner: Any
+) -> None:
+    home = tmp_path / "home"
+    checkout = _checkout(tmp_path, home)
+    runs = tmp_path / "trial"
+    runs.mkdir()
+    (runs / "owner-1.json").write_text(json.dumps(owner))
+    monkeypatch.setattr(checks, "HOME", home)
+    monkeypatch.setattr(checks, "RUNS", runs)
+    monkeypatch.setattr(checks, "SLOTS", runs / "slots.json")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(checks, "own_processes", lambda: [])
+    with pytest.raises(checks.Refused, match="owner statement"):
+        checks.l1(1, checkout, "origin/master", True)
 
 
 def test_l1_reads_the_token_in_a_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
