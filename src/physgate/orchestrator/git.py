@@ -913,15 +913,17 @@ def merge_base(repo: Path, one: str, other: str, *, git_dir: GitDir | None = Non
     return git(repo, "merge-base", *ends, objects_only=True, git_dir=git_dir).strip()
 
 
-def diff_text(repo: Path, base: str, commit: str, *, git_dir: GitDir | None = None) -> str:
-    """The patch from ``base`` to ``commit``, for a person to read.
+def diff_text(
+    repo: Path, base: str, commit: str, *pathspec: str, git_dir: GitDir | None = None
+) -> str:
+    r"""The patch from ``base`` to ``commit``, for a person to read.
 
     A file git takes as text may hold bytes that are not UTF-8: each such byte reads as its
     backslash escape (``\\xe9``), the same on every read, so an item rebuilt from it compares
     equal and two different bytes never look alike to the person who decides.
     """
     return git(
-        repo, "diff", *_DIFF_FLAGS, base, commit,
+        repo, "diff", *_DIFF_FLAGS, base, commit, *(("--", *pathspec) if pathspec else ()),
         objects_only=True, git_dir=git_dir, errors="backslashreplace",
     )  # fmt: skip
 

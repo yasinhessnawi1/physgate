@@ -24,7 +24,7 @@ from typing import Literal, NoReturn
 from pydantic import ValidationError
 
 from physgate.contracts.pairs import ContractPair, recorded_pairs_problem
-from physgate.orchestrator.arbitration import arbitrate, dispute_standing
+from physgate.orchestrator.arbitration import Held, arbitrate, dispute_standing
 from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.completion import open_preconditions
@@ -166,6 +166,12 @@ class AttemptState:
         return review if review is not None and review.result.verdict == "blocked" else None
 
     @property
+    def queued(self) -> bool:
+        """Every dispute ruled, one of them for a person: the attempt ends there (level 3)."""
+        ruled = len(self.arbitrations) == len(self.disputes)
+        return ruled and any(line.level == "queue" for line in self.arbitrations)
+
+    @property
     def unavailable_final(self) -> ReviewUnavailable | None:
         """The review outcome that sends the attempt to a person, if there is one."""
         last = self.unavailable[-1] if self.unavailable else None
@@ -259,6 +265,10 @@ class RunState:
         #: decomposition's head, then each recorded write. Anything after it that no
         #: pending intent names is a foreign write.
         self.journal_head = 0
+        #: The decomposition's journal head, and each node's latest recorded write: what a ruling's
+        #: held revision is held to.
+        self.base_revision = 0
+        self.written: dict[str, WriteDone] = {}
         #: Subtasks whose worktree removal was tried, whatever came of it: a refused
         #: removal is left, not retried or forced.
         self.worktrees_handled: set[str] = set()
@@ -366,7 +376,7 @@ class RunState:
             self._plan(event)
             return
         if isinstance(event, Decomposed):
-            self.journal_head = event.head_revision
+            self.journal_head = self.base_revision = event.head_revision
             self.run_head = event.spec_commit
             if event.interface_consumers is not None:
                 self.consumers = {e.interface: e.consumers for e in event.interface_consumers}
@@ -477,6 +487,8 @@ class RunState:
         elif isinstance(event, AttemptRejected):
             basis = self.rejection_basis(now)
             self._expect(now.cursor == "decide" and basis == event.finding.source, "a rejection")
+            if basis == "arbitration" and event.finding.subject != ",".join(self.sized(now)):
+                _refuse("a rejection whose subject is not the nodes ruled for sizing")
             before = sub.attempts[-2].rejected if len(sub.attempts) > 1 else None
             repeats = before is not None and before.finding_key == event.finding_key
             keyed = event.finding_key == event.finding.key()
@@ -499,6 +511,7 @@ class RunState:
             )
             self._expect(landed, "a write")
             now.applied[event.node_id] = event.revision
+            self.written[event.node_id] = event
             self.journal_head = event.revision
             now.pending = None
         elif isinstance(event, NodeFilesRepaired):
@@ -702,6 +715,7 @@ class RunState:
         held = event.held.position
         if (held.node_id, held.name) != (disputed.node_id, disputed.name):
             _refuse("an arbitration's held value is of the quantity disputed")
+        self._held_by_the_log(event.held, disputed.unit)
         earlier = [
             (line.conflict, line.level) for a in sub.attempts[:-1] for line in a.arbitrations
         ]
@@ -714,6 +728,46 @@ class RunState:
         if event.level != arbitrate(conflict, standing).level:
             _refuse("an arbitration whose level is not the one the precedence table gives")
         now.arbitrations.append(event)
+        if now.queued:
+            self._ended(sub, now)
+
+    def _held_by_the_log(self, held: Held, disputed_unit: str) -> None:
+        """Refuse a held value the log does not give: its revision, or its unit's kind.
+
+        The revision is the node's latest recorded write, or for a node no line wrote, at most the
+        decomposition's head; the unit is of the disputed quantity's kind. The registry is loaded
+        here, where a ruling is replayed, and never by the hook.
+        """
+        from physgate.series.consistency import unit_kind_problem
+
+        done = self.written.get(held.position.node_id)
+        revision_held = (
+            held.revision == done.revision
+            if done is not None
+            else held.revision <= self.base_revision
+        )
+        if not revision_held:
+            _refuse("an arbitration's held value at a revision no write of its node puts there")
+        if unit_kind_problem(held.position.unit, disputed_unit) is not None:
+            _refuse("an arbitration's held value in a unit of another kind than the dispute's")
+
+    def writer_of(self, held: Held) -> tuple[str, str] | None:
+        """Who wrote ``held``'s revision, by subtask and role; ``None`` before the run."""
+        done = self.written.get(held.position.node_id)
+        if done is None or done.revision != held.revision:
+            return None
+        return done.subtask_id, self.subtasks[done.subtask_id].plan.assigned_role
+
+    def _arbitrated_basis(self, now: AttemptState) -> FindingSource | None:
+        """Sizing's value stands where a ruling says so and none sends the attempt to a person."""
+        return "arbitration" if self.sized(now) and not now.queued else None
+
+    @staticmethod
+    def sized(now: AttemptState) -> list[str]:
+        """The nodes the attempt's rulings leave sizing's value standing on, sorted, each once."""
+        return sorted(
+            {line.conflict.node_id for line in now.arbitrations if line.level == "sizing"}
+        )
 
     def _issued(self, sub: SubtaskState, now: AttemptState, event: IntegrationStateIssued) -> None:
         """Take integration's issued state: in its window, after ``resolve``, once.
@@ -838,7 +892,10 @@ class RunState:
     @staticmethod
     def _ended_without_merge(now: AttemptState) -> bool:
         return (
-            now.rejected is not None or now.blocked is not None or now.unavailable_final is not None
+            now.rejected is not None
+            or now.blocked is not None
+            or now.unavailable_final is not None
+            or now.queued
         )
 
     def _ended(self, sub: SubtaskState, now: AttemptState) -> None:
@@ -851,8 +908,9 @@ class RunState:
         """
         if now.fix:
             # The fix a person ordered is routed by rule, never asked about: not accepted, the
-            # subtask ends; a review that reached no verdict goes to the person once more.
-            if now.unavailable_final is not None:
+            # subtask ends; a review that reached no verdict, or a dispute ruled for a person
+            # (ARCH-040), goes to the person once more.
+            if now.unavailable_final is not None or now.queued:
                 now.routed = True
             else:
                 sub.ending = "fix_not_accepted"
@@ -875,7 +933,7 @@ class RunState:
         if self.escalation_backend is None:
             _refuse("a decision line in a log whose run names no escalation backend")
         due = self._ended_without_merge(now) and now.decided is None and not now.fix
-        self._expect(due and now.cursor in ("decide", "review"), "an escalation decision")
+        self._expect(due and now.cursor in ("decide", "review", "gate"), "an escalation decision")
         decision = event.decision
         if decision.backend_id != self.escalation_backend:
             _refuse("a decision by another backend than the one the run names")
@@ -1014,6 +1072,8 @@ class RunState:
 
     def _enter(self, now: AttemptState, stage: Stage) -> None:
         session_ok = now.session is not None and now.session.outcome == "completed"
+        # Nothing past the gate line until every dispute of the attempt is ruled (ARCH-040).
+        ruled = now.cursor != "gate" or len(now.arbitrations) == len(now.disputes)
         allowed = {
             "spawn": now.cursor == "resolve",
             "verify_reading": now.cursor == "spawn" and session_ok,
@@ -1023,9 +1083,13 @@ class RunState:
             "gate": now.cursor == "implement"
             and now.changes is not None
             and now.changes.refused_by is None,
-            "review": now.cursor == "gate" and self._gate_allows_review(now),
+            "review": now.cursor == "gate"
+            and self._gate_allows_review(now)
+            and not any(line.level != "gate" for line in now.arbitrations)
+            and ruled,
             "decide": now.cursor != "decide"
-            and (self.rejection_basis(now) is not None or self.mergeable(now)),
+            and (self.rejection_basis(now) is not None or self.mergeable(now))
+            and ruled,
             "diff": now.cursor == "decide" and now.merged is not None,
         }
         if not allowed.get(stage, False) or (now.rejected is not None and now.approved is None):
@@ -1049,8 +1113,10 @@ class RunState:
         if cursor == "implement" and now.changes is not None and now.changes.refused_by:
             return now.changes.refused_by
         gate = now.gate
-        if cursor == "gate" and isinstance(gate, GateRan) and gate.result.verdict == "fail":
-            return "gate" if gate.result.mode == "on" else None
+        if cursor == "gate":
+            ran = isinstance(gate, GateRan) and gate.result.mode == "on"
+            refused = ran and isinstance(gate, GateRan) and gate.result.verdict == "fail"
+            return "gate" if refused else self._arbitrated_basis(now)
         if cursor == "review" and now.review and now.review.result.verdict == "fail":
             return "review"
         return None
@@ -1221,7 +1287,7 @@ class RunState:
             failed = now.session is not None and now.session.outcome == "infrastructure"
             # An infrastructure failure not yet answered is answered by the retry
             # schedule, not by a resume, so a crash there cannot reset the count.
-            final = now.unavailable_final is not None or now.blocked is not None
+            final = now.unavailable_final is not None or now.blocked is not None or now.queued
             if not clean and not failed and not final and now.rejected is None and now.diff is None:
                 return sub
         return None

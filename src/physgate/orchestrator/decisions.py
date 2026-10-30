@@ -136,6 +136,8 @@ def source_of(sub: SubtaskState) -> QueueSource:
     if now is None:
         msg = "a subtask with no attempt has no queue item"
         raise ValueError(msg)
+    if now.queued:
+        return "arbitration"
     if now.blocked is not None:
         return "review_blocked"
     if now.unavailable_final is not None:

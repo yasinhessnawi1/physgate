@@ -329,8 +329,12 @@ class GitMerger:
         return merge_base(run.repo, run.run_branch, attempt_commit, git_dir=pinned)
 
     def artefact_diff(self, attempt_commit: str) -> str:
-        """The attempt's patch against where it left the run branch."""
+        """The attempt's patch against where it left the run branch, without its disputes.
+
+        A dispute's reason is its session's text: a person reads it on the record, not here.
+        """
         run = self._run
         pinned = verified_git_dir(run.repo, linked=False)
         base = merge_base(run.repo, run.run_branch, attempt_commit, git_dir=pinned)
-        return diff_text(run.repo, base, attempt_commit, git_dir=pinned)
+        excluded = f":(exclude){DISPUTES_DIR}"
+        return diff_text(run.repo, base, attempt_commit, excluded, git_dir=pinned)

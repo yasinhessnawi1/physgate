@@ -20,13 +20,20 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from physgate.contracts.clause import check_pair
 from physgate.contracts.graph import nodes_at
 from physgate.contracts.pairs import ContractError
 from physgate.gate.exceptions import GateError
 from physgate.orchestrator.apply import ProposalRefusedError
+from physgate.orchestrator.arbitration import (
+    DisputeConflict,
+    Held,
+    Level,
+    arbitrate,
+    dispute_standing,
+)
 from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import utc_now
@@ -40,11 +47,12 @@ from physgate.orchestrator.decisions import (
     source_of,
 )
 from physgate.orchestrator.declaration import DeclarationError
-from physgate.orchestrator.dispute import DISPUTES_DIR, UNRECORDABLE
+from physgate.orchestrator.dispute import DISPUTES_DIR, UNRECORDABLE, disputer_problem
 from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
 from physgate.orchestrator.escalation_state import escalation_state
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
+    ArbitrationDecided,
     AttemptRejected,
     CompletionDeclared,
     ContractTested,
@@ -91,6 +99,7 @@ from physgate.orchestrator.events import (
     completion_owner_problem,
 )
 from physgate.orchestrator.exceptions import (
+    CorruptEventLogError,
     EscalationBackendError,
     GateNotRegisteredError,
     GitError,
@@ -128,6 +137,7 @@ from physgate.orchestrator.protocols import (
     IssuedSpec,
     IssuedState,
     PersonOrder,
+    QuantityRef,
     Reviewer,
     ReviewResult,
     SessionTrajectory,
@@ -141,6 +151,7 @@ from physgate.orchestrator.queue import (
     QueueResolution,
     QueueSource,
     QueueView,
+    arbitration_item,
     decided_item,
     decisions_file_bytes,
     escalation_item,
@@ -168,12 +179,12 @@ from physgate.orchestrator.replay import (
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError
-from physgate.roles import require_registered
+from physgate.roles import owners_of, require_registered
 from physgate.series.reader import attempt_records
 from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
 from physgate.state.exceptions import DesignStateError, StoreStaleError
 from physgate.state.protocol import REJECT_CROSS_ROLE
-from physgate.state.store import payload_digest
+from physgate.state.store import JournalLine, payload_digest
 
 UNREAD = (
     "The session ended without completing its required reading, so nothing it "
@@ -689,7 +700,7 @@ class Loop:
                 self._decide(step.subtask_id, step.attempt)
             elif step.kind == "escalate":
                 now = self.state.subtasks[step.subtask_id].attempts[-1]
-                if now.unavailable_final is not None or now.blocked is not None:
+                if now.unavailable_final is not None or now.blocked is not None or now.queued:
                     self._to_a_person(step.subtask_id)
                 else:
                     self._escalate(step.subtask_id)
@@ -797,6 +808,8 @@ class Loop:
                 self._incident(None, "queue_item_mismatch", f"item {item.item_id} names no attempt")
                 return False
             attempt = sub.attempts[-1].number
+            if item.source == "arbitration" and not self._held_holds(subtask_id):
+                return False
             if item.source in SCANNED_SOURCES:
                 found = self._scan_hits(subtask_id, where=None)
                 if found is None:
@@ -992,6 +1005,12 @@ class Loop:
                 raise RunStateError(str(exc), subtask=subtask_id, attempt=str(attempt)) from None
             if order is not None:
                 return order.instruction, order
+        # A level-2 finding is rebuilt from its rulings, never taken as written: a session reads it.
+        sized = before is not None and before.finding.source == "arbitration"
+        if sized and before is not None and before.finding != self._sized_finding(previous):
+            msg = "the run-event log does not replay as a run"
+            why = "a rejection whose finding is not the one its rulings give"
+            raise CorruptEventLogError(msg, seq=str(before.seq), reason=why)
         return (repair_instruction(previous.number, before.finding) if before else None), None
 
     def _screened(self, subtask_id: str, order: PersonOrder) -> str:
@@ -1128,6 +1147,11 @@ class Loop:
             spec_commit=self._spec_commit(),
             kind="fix" if order is not None and order.kind == "fix_after_block" else "attempt",
             issued_state=held,
+            disputes=disputer_problem(sub.plan.assigned_role) is None
+            and any(
+                s.plan.assigned_role in owners_of("cross_nodes")
+                for s in self.state.subtasks.values()
+            ),
         )
         try:
             report = self._dispatcher.run(request, on_spawn=self._spawned)
@@ -1549,6 +1573,7 @@ class Loop:
         )
         self._stage(subtask_id, attempt, "gate")
         mode = self.config.gate_mode
+        result: GateResult | None = None
         if mode == "off":
             self._emit(
                 GateSkipped(
@@ -1563,9 +1588,17 @@ class Loop:
             self._emit(
                 GateRan(**self._env(), subtask_id=subtask_id, attempt=attempt, result=result)
             )
-            if result.verdict == "fail" and mode == "on":
-                self._reject(subtask_id, attempt, Finding.from_gate(result))
-                return False
+        if not self._arbitrate(subtask_id, attempt, result):
+            return False
+        now = sub.attempts[-1]
+        if result is not None and result.verdict == "fail" and mode == "on":
+            self._reject(subtask_id, attempt, Finding.from_gate(result))
+            return False
+        if now.queued:
+            return False  # a person rules on the dispute: the escalation decision comes next
+        if self.state.sized(now):
+            self._reject(subtask_id, attempt, self._sized_finding(now))
+            return False
         # The reviewer reads the trajectory: it must still be what was sealed.
         if not self._trajectories_hold(subtask_id, [session]):
             return False
@@ -1607,6 +1640,118 @@ class Loop:
             return False
         self._stage(subtask_id, attempt, "decide")
         return self._merge_attempt(subtask_id, attempt)
+
+    def _arbitrate(self, subtask_id: str, attempt: int, gate: GateResult | None) -> bool:
+        """Rule each dispute of the attempt by the precedence table, one line each (ARCH-040).
+
+        Sizing's position is the node's last journal line at or before the recorded head, the
+        standing is built as the replay builds it, and the table gives the level. A journal that
+        holds no such quantity is not the one the record describes: the run halts, and False.
+        """
+        sub = self.state.subtasks[subtask_id]
+        now = sub.attempts[-1]
+        lines = self._journal_lines(subtask_id) if now.disputes else []
+        if lines is None:
+            return False
+        earlier = [(ln.conflict, ln.level) for a in sub.attempts[:-1] for ln in a.arbitrations]
+        for dispute in list(now.disputes):
+            node, name = dispute.position.node_id, dispute.position.name
+            own = [ln for ln in lines if ln.node_id == node and ln.rev <= self.state.journal_head]
+            held = self._held_at(own[-1] if own else None, name)
+            if held is None:
+                detail = (
+                    f"the journal holds no {name} of {node} at revision {self.state.journal_head}"
+                )
+                self._incident(subtask_id, "foreign_journal_line", detail)
+                return False
+            conflict = DisputeConflict(node_id=node, quantity=name)
+            standing = dispute_standing(
+                conflict, gate=gate, earlier=earlier, attempt=attempt, fix=now.fix
+            )
+            self._emit(
+                ArbitrationDecided(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    attempt=attempt,
+                    conflict=conflict,
+                    standing=standing,
+                    level=cast("Level", arbitrate(conflict, standing).level),
+                    held=held,
+                )
+            )
+        return True
+
+    def _journal_lines(self, subtask_id: str | None) -> list[JournalLine] | None:
+        """The whole canonical journal; ``None`` once the run halted because it cannot be read."""
+        try:
+            return self._graph.records_after(0)
+        except DesignStateError as exc:
+            self._incident(subtask_id, "foreign_journal_line", str(exc))
+            return None
+
+    @staticmethod
+    def _held_at(line: JournalLine | None, name: str) -> Held | None:
+        """Quantity ``name`` as journal ``line`` holds it, with its revision; or ``None``."""
+        quantities = line.payload.get("quantities") if line is not None else None
+        found = quantities.get(name) if isinstance(quantities, dict) else None
+        if line is None or not isinstance(found, dict):
+            return None
+        try:
+            position = QuantityRef(
+                node_id=line.node_id, name=name, value=found["value"], unit=found["unit"]
+            )
+            return Held(
+                position=position,
+                source=found["source"],
+                written_by=found["written_by"],
+                revision=line.rev,
+            )
+        except (KeyError, ValueError):
+            return None
+
+    def _held_holds(self, subtask_id: str) -> bool:
+        """Each ruling's held value is still the journal's line at its revision; False if halted."""
+        lines = self._journal_lines(None)
+        if lines is None:
+            return False
+        at = {ln.rev: ln for ln in lines}
+        for ruling in self.state.subtasks[subtask_id].attempts[-1].arbitrations:
+            held, line = ruling.held, at.get(ruling.held.revision)
+            if (
+                line is None
+                or line.node_id != held.position.node_id
+                or (self._held_at(line, held.position.name) != held)
+            ):
+                detail = (
+                    f"subtask {subtask_id}: journal revision {held.revision} does not hold the "
+                    "value its ruling holds"
+                )
+                self._incident(None, "foreign_journal_line", detail)
+                return False
+        return True
+
+    def _sized_finding(self, now: AttemptState) -> Finding:
+        """The level-2 finding, built from the attempt's rulings and the writes on the record."""
+        sized = [
+            (ln.held, self.state.writer_of(ln.held))
+            for ln in now.arbitrations
+            if ln.level == "sizing"
+        ]
+        return Finding.from_arbitration(sized)
+
+    def _arbitration_sessions(self, subtask_id: str) -> list[SessionEnded]:
+        """The domain's sessions, then each sizing session whose write put a held revision."""
+        sub = self.state.subtasks[subtask_id]
+        sessions = [a.session for a in sub.attempts if a.session is not None]
+        for ruling in sub.attempts[-1].arbitrations:
+            done = self.state.written.get(ruling.held.position.node_id)
+            if done is None or done.revision != ruling.held.revision:
+                continue
+            wrote = self.state.subtasks[done.subtask_id].attempts
+            session = next((a.session for a in wrote if a.number == done.attempt), None)
+            if session is not None and session not in sessions:
+                sessions.append(session)
+        return sessions
 
     def _merge_attempt(self, subtask_id: str, attempt: int) -> bool:
         """Merge the attempt's checked commit; True if it was merged.
@@ -2132,11 +2277,15 @@ class Loop:
         No attempt is spent. A blocked review is on the record as a review; only the routing is
         shared with a review that reached no verdict.
         """
-        session = self.state.subtasks[subtask_id].attempts[-1].session
+        now = self.state.subtasks[subtask_id].attempts[-1]
+        session = now.session
         if session is None:
             msg = "a review sent to a person with no completed session behind it"
             raise RunStateError(msg, subtask=subtask_id)
-        if not self._trajectories_hold(subtask_id, [session]):
+        if now.queued and not self._held_holds(subtask_id):
+            return
+        linked = self._arbitration_sessions(subtask_id) if now.queued else [session]
+        if not self._trajectories_hold(subtask_id, linked):
             return
         scan: tuple[ScanHit, ...] = ()
         if source_of(self.state.subtasks[subtask_id]) in SCANNED_SOURCES and self._acts():
@@ -2198,6 +2347,30 @@ class Loop:
                 spec_defects=defects,
                 artefact_diff=self._merger.artefact_diff(session.attempt_commit),
                 trajectory=session.trajectory,
+                ts=ts,
+                consequence=self._consequence(subtask_id, source, scan),
+            )
+        if source == "arbitration" and now.changes is not None:
+            positions = {(d.position.node_id, d.position.name): d.position for d in now.disputes}
+            ruled = [ln for ln in now.arbitrations if ln.level != "gate"]
+            linked = self._arbitration_sessions(subtask_id)
+            return arbitration_item(
+                item_id=item_id,
+                run_id=self.config.run_id,
+                subtask_id=subtask_id,
+                attempt=now.number,
+                rulings=tuple(
+                    (
+                        positions[(ln.conflict.node_id, ln.conflict.quantity)],
+                        ln.held,
+                        self.state.writer_of(ln.held),
+                        ln.level,
+                        ln.standing,
+                    )
+                    for ln in ruled
+                ),
+                artefact_diff=self._merger.artefact_diff(now.changes.checked_commit),
+                trajectories=tuple(s.trajectory for s in linked if s.trajectory is not None),
                 ts=ts,
                 consequence=self._consequence(subtask_id, source, scan),
             )

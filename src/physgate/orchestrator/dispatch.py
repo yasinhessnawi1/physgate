@@ -449,6 +449,16 @@ def role_prompt(request: SessionRequest, state: Path | None = None) -> str:
         "each run through the series writer, .physgate/lib/series_writer.py, into "
         ".physgate/series/, which nothing else may write. Stop when the specification is met.\n"
     )
+    if request.disputes:
+        text += (
+            "\nA node of the cross domain is sizing's alone to write. If a value one holds is "
+            "wrong for your work, do not write the node: dispute it by writing "
+            ".physgate/disputes/<node id>.<quantity>.json whole with the Write tool, as "
+            '{"value": <number>, "unit": "<unit>", "reason": "<why, at most 500 characters>"}. '
+            "The harness rules on it by a fixed precedence and shows it to no other session; a "
+            "file left in place disputes again on your next attempt, and deleting it withdraws "
+            "it.\n"
+        )
     if state is not None:
         text += (
             f"\nYour issued state is {state}; read it in full first too. The harness built it "

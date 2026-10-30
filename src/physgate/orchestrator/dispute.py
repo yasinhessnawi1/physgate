@@ -38,7 +38,9 @@ DISPUTES_DIR = ".physgate/disputes"
 _PATH = re.compile(
     r"\.physgate/disputes/(?P<node>[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)\.(?P<quantity>[a-z][a-z0-9_]*)\.json"
 )
-_QUANTITY_MAX = 64
+#: A quantity's name, as the path gives it, and its longest.
+QUANTITY_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
+QUANTITY_MAX = 64
 #: The bounds of a dispute's file, unit and reason.
 MAX_BYTES = 2048
 UNIT_MAX = 32
@@ -141,7 +143,7 @@ def parse(path: str, data: bytes, role: str, nodes: Mapping[str, Mapping[str, ob
             hold the quantity; or a body that is not a dispute's.
     """
     found = _PATH.fullmatch(path)
-    if found is None or len(found["quantity"]) > _QUANTITY_MAX:
+    if found is None or len(found["quantity"]) > QUANTITY_MAX:
         raise DisputeError(NAMED)
     node_id, quantity = found["node"], found["quantity"]
     why = disputer_problem(role)

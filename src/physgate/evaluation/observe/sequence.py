@@ -399,6 +399,15 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             step = {"step": "review", **at, "verdict": e["result"]["verdict"]}
         elif kind == "merged":
             step = {"step": "merged", **at}
+        elif kind == "dispute_recorded":
+            # Which quantity, never the value or the reason: those are the session's.
+            position = e["position"]
+            step = {"step": "disputed", **at, "node": position["node_id"]}
+            step["quantity"] = position["name"]
+        elif kind == "arbitration_decided":
+            conflict = e["conflict"]
+            step = {"step": "arbitrated", **at, "node": conflict["node_id"]}
+            step |= {"quantity": conflict["quantity"], "level": e["level"]}
         elif kind == "attempt_rejected":
             step = {"step": "rejected", **at, "finding_key": e["finding_key"]}
         elif kind == "escalation_decided":

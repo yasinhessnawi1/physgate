@@ -165,6 +165,10 @@ def _measure(value: float | int, unit: str) -> str:
     return f"{_q(value)} {_q(named or 'dimensionless')}"
 
 
+#: The renderers a finding quotes the log with, as this document does.
+q, held, measure = _q, _held, _measure
+
+
 def _output(output: NumericOutput | None) -> str:
     return _measure(output.value, output.unit) if output is not None else "none"
 

@@ -12,12 +12,15 @@ from the process that built this harness.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from physgate.orchestrator.arbitration import Held
 from physgate.orchestrator.budget import REPAIR_BUDGET, require_within_budget
 from physgate.orchestrator.common import NonEmptyStr
+from physgate.orchestrator.dispute import DISPUTES_DIR, QUANTITY_MAX, QUANTITY_PATTERN
 from physgate.orchestrator.exceptions import RepairBudgetExhaustedError
 from physgate.orchestrator.protocols import GateResult, NumericOutput, QuantityRef, ReviewResult
 
@@ -32,6 +35,7 @@ FindingSource = Literal[
     "person",
     "declaration",
     "dispute",
+    "arbitration",
 ]
 
 _WHO = {
@@ -44,6 +48,8 @@ _WHO = {
     "person": "a person deciding the approval queue",
     "declaration": "the completion declaration check (the declaration is not one the plan reads)",
     "dispute": "the dispute check (a dispute is not one the harness reads)",
+    "arbitration": "the arbitration rule (sizing alone writes a cross node's quantities, and its "
+    "value stands over a domain's first dispute)",
 }
 
 #: The fixed line every instruction that quotes a person's words ends with: what a person
@@ -102,6 +108,31 @@ class Finding(BaseModel):
             numeric_output=result.numeric_output,
         )
 
+    @classmethod
+    def from_arbitration(cls, sized: Sequence[tuple[Held, Writer | None]]) -> Finding:
+        """The finding of an attempt rejected because sizing's value stands (level 2).
+
+        ``sized`` is each dispute ruled for sizing, in recorded order, with the subtask and role
+        whose write put the held revision (``None`` for a node written before the run). The
+        graph's value and that provenance are quoted, never the dispute's reason, and never the
+        ``source`` or ``written_by`` sizing wrote: both are a session's text. ``quantities``
+        stays empty, as a value held exact can be too large to format as a number.
+        """
+        lines = [ARBITRATION_HEAD, *(held_line(held, writer) for held, writer in sized)]
+        paths = [
+            f"{DISPUTES_DIR}/{held.position.node_id}.{held.position.name}.json"
+            for held, _ in sized
+            if _id(held.position.node_id) and _quantity_name(held.position.name)
+        ]
+        withdraw = (
+            f"delete {' and '.join(paths)} to withdraw {'it' if len(paths) == 1 else 'them'}"
+            if paths
+            else "delete its file to withdraw it"
+        )
+        lines.append(f"{ARBITRATION_TAIL}; {withdraw}.")
+        nodes = sorted({held.position.node_id for held, _ in sized})
+        return cls(source="arbitration", text="\n".join(lines), subject=",".join(nodes))
+
     def key(self) -> str:
         """A stable key for what was found: who refused, about what, by which check.
 
@@ -110,6 +141,58 @@ class Finding(BaseModel):
         comparing prose.
         """
         return f"{self.source}|{self.subject or '-'}|{self.failing_check or '-'}"
+
+
+#: The subtask and role whose write put a held revision, as the run's log gives them.
+Writer = tuple[str, str]
+ARBITRATION_HEAD = (
+    "Sizing's value stands. Sizing alone writes the quantities of a cross node, and a dispute is "
+    "ruled by a fixed precedence: the physics gate first, then sizing, then a person."
+)
+ARBITRATION_TAIL = (
+    "Work to the value the graph holds. A dispute file left in place disputes its quantity again "
+    "on the next attempt, and a quantity disputed again goes to a person"
+)
+
+
+def _id(node_id: str) -> bool:
+    from physgate.orchestrator.integration_state import REFUSED_ID, held
+
+    return held(node_id) != REFUSED_ID
+
+
+def _quantity_name(name: str) -> bool:
+    return len(name) <= QUANTITY_MAX and QUANTITY_PATTERN.fullmatch(name) is not None
+
+
+def held_line(held: Held, writer: Writer | None) -> str:
+    """One held value, as the graph holds it and where it came from, each part held to its form.
+
+    The renderers are integration's issued state's, imported here and not at the top: that module
+    reads the run's lines, which hold findings.
+    """
+    from physgate.orchestrator import integration_state as render
+
+    position = held.position
+    name = (
+        render.q(position.name)
+        if _quantity_name(position.name)
+        else "a quantity name the dispute path refuses"
+    )
+    where = f"at revision {held.revision} of the graph"
+    if writer is None:
+        by = f"written before the run began, {where}"
+    else:
+        subtask = render.held(
+            writer[0], render.SUBTASK_PATTERN, render.PLANNED_ID_MAX_LENGTH, render.REFUSED_SUBTASK
+        )
+        role = render.held(
+            writer[1], render.ROLE_PATTERN, render.PLANNED_ID_MAX_LENGTH, render.REFUSED_ROLE
+        )
+        by = f"written by subtask {subtask} in the {role} role, {where}"
+    measure = render.measure(position.value, position.unit)
+    node = render.held(position.node_id)
+    return f"Node {node}, quantity {name}: the design graph holds {measure}, {by}."
 
 
 def _number(output: NumericOutput) -> str:

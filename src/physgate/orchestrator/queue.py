@@ -54,6 +54,7 @@ from pydantic import (
     model_validator,
 )
 
+from physgate.orchestrator.arbitration import Held, Standing
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.common import (
     NonEmptyStr,
@@ -75,7 +76,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError, QueueError, StaleViewError
 from physgate.orchestrator.protocols import GateResult, IndicatorKind, QuantityRef, SpecDefect
-from physgate.orchestrator.repair import Finding
+from physgate.orchestrator.repair import Finding, Writer, held_line
 from physgate.orchestrator.trajectory import Seal, seal
 from physgate.reviewers.scan import ScanHit
 
@@ -506,6 +507,63 @@ def decided_item(
         artefact_diff=artefact_diff,
         triggering_finding=findings[-1].text,
         quantities=with_quantities[-1].quantities if with_quantities else (),
+        trajectories=trajectories,
+        consequence=consequence,
+    )
+
+
+def arbitration_item(
+    *,
+    item_id: str,
+    run_id: str,
+    subtask_id: str,
+    attempt: int,
+    rulings: tuple[tuple[QuantityRef, Held, Writer | None, str, Standing], ...],
+    artefact_diff: str,
+    trajectories: tuple[str, ...],
+    ts: str,
+    consequence: ItemConsequence | None = None,
+) -> QueueItem:
+    """The item for an attempt whose dispute the precedence rule sends to a person (level 3).
+
+    ``rulings`` is each dispute of the attempt ruled above the gate: the domain's typed position,
+    sizing's held value and who wrote it, the level and the standing. Both positions are shown,
+    and never the dispute's reason, which stays on the run's record; the quantities are the held
+    values of the first three ruled for the queue.
+    """
+    from physgate.orchestrator.integration_state import measure
+
+    queued = [(held, standing) for _, held, _, level, standing in rulings if level == "queue"]
+    why = [
+        text
+        for text, applies in (
+            (
+                "the quantity was disputed in an earlier attempt",
+                any(s.counted_before for _, s in queued),
+            ),
+            ("this is the subtask's last attempt", any(not s.attempt_left for _, s in queued)),
+        )
+        if applies
+    ]
+    return QueueItem(
+        item_id=item_id,
+        ts=ts,
+        run_id=run_id,
+        subtask_id=subtask_id,
+        source="arbitration",
+        decision_required=(
+            f"Subtask {subtask_id}, attempt {attempt} of {REPAIR_BUDGET}, disputes a value of a "
+            f"cross node that sizing wrote, and the precedence rule sends it to a person: "
+            f"{', and '.join(why)}. Decide which value stands; the reason each dispute gives is "
+            "on the run's record."
+        ),
+        artefact_diff=artefact_diff,
+        triggering_finding="\n".join(
+            f"{held_line(held, writer)} The disputing subtask holds it at "
+            f"{measure(position.value, position.unit)}."
+            for position, held, writer, _, _ in rulings
+        ),
+        quantities=tuple(held.position for held, _ in queued[:3]),
         trajectories=trajectories,
         consequence=consequence,
     )

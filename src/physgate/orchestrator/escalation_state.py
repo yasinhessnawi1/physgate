@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from physgate.orchestrator.replay import RunState
 
 #: How an attempt that did not merge ended.
-AttemptEnd = Literal["rejected", "review_blocked", "review_unavailable"]
+AttemptEnd = Literal["rejected", "review_blocked", "review_unavailable", "arbitration"]
 #: What a task-ledger line records for a gate or a review (the ledger's own vocabulary).
 LedgerOutcome = Literal["pass", "fail", "skipped", "blocked"]
 Count = Annotated[int, Field(ge=0)]
@@ -269,6 +269,14 @@ def _ended(state: RunState, subtask_id: str) -> EndPart:
     if now.blocked is not None:
         return EndPart(
             kind="review_blocked",
+            rejected_by=None,
+            repeats_previous=None,
+            unavailable_cause=None,
+            review_retried=retried,
+        )
+    if now.queued:
+        return EndPart(
+            kind="arbitration",
             rejected_by=None,
             repeats_previous=None,
             unavailable_cause=None,
