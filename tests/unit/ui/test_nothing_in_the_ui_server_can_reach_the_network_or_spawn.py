@@ -85,6 +85,9 @@ ALLOWED_MODULES = {
     "physgate.orchestrator.accounting",
     "physgate.orchestrator.change_sets",
     "physgate.state.schema",
+    # The precondition registry, asked for each module's open entries and their own reasons, so
+    # no reason is born in the page. It reads the run state it is given and nothing else.
+    "physgate.orchestrator.completion",
     # The attempts a subtask gets, sent beside the run's configuration: a constant, which the
     # event log's own model already imports.
     "physgate.orchestrator.budget",
