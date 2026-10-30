@@ -43,6 +43,7 @@ from physgate.orchestrator.events import (  # noqa: E402
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError  # noqa: E402
 from physgate.orchestrator.merge import RunGit, commit_attempt  # noqa: E402
+from physgate.orchestrator.ports import ChangeCheck  # noqa: E402
 from physgate.orchestrator.protocols import QuantityRef  # noqa: E402
 from physgate.orchestrator.record import PlanEntry  # noqa: E402
 from physgate.orchestrator.replay import replay  # noqa: E402
@@ -390,10 +391,12 @@ def test_a_malformed_dispute_is_refused_at_the_change_check_as_the_dispute_s(
 ) -> None:
     path, data, role, said = REFUSED[case]
     run, commit = attempt(tmp_path, "s1", {path: data})
+    check: ChangeCheck | str
     try:
         check = checker(tmp_path, run).check("s1", commit, role)
     except Exception as exc:  # noqa: BLE001 - any escape is the finding: a refusal is the contract
-        pytest.fail(f"raised {type(exc).__name__}: {exc}")
+        check = f"raised {type(exc).__name__}: {exc}"
+    assert isinstance(check, ChangeCheck), check
     assert (check.refused_by, check.subject, check.disputes) == ("dispute", path, ())
     assert said in str(check.reason)
 
