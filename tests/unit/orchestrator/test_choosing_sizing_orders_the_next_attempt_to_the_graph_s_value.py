@@ -44,6 +44,9 @@ from test_a_person_chooses_a_position_only_on_an_arbitration_item import (  # no
     taken,
 )
 from test_a_queue_decision_acts_at_a_boundary import _layer  # noqa: E402
+from test_no_arbitration_branch_puts_another_sessions_output_into_any_prompt import (  # noqa: E402
+    _fixed,
+)
 
 from physgate import roles  # noqa: E402
 from physgate.orchestrator import decisions as decisions_module  # noqa: E402
@@ -156,6 +159,17 @@ def test_the_item_says_choosing_sizing_retries_fixes_or_ends_from_the_record(
     driven(on_fix, resume)
     item = _item(on_fix)
     assert item.item_id != one(taken(events_of(on_fix))).item_id
+    assert item.consequence.on_choose == {"sizing": "end_subtask", "domain": "record_only"}
+
+
+def test_the_item_of_a_fix_ordered_after_a_blocked_review_says_choosing_sizing_ends_it(
+    tmp_path: Path,
+) -> None:
+    # The fix is attempt 2 here, with budget left by number: it is still the subtask's last.
+    rig = rig_of(tmp_path / "run", script=[(), TWO])
+    driven(rig, _fixed)
+    item = _item(rig)
+    assert item.consequence.attempt == 2
     assert item.consequence.on_choose == {"sizing": "end_subtask", "domain": "record_only"}
 
 
