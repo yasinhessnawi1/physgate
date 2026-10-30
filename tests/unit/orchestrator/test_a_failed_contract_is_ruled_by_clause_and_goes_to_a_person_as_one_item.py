@@ -143,6 +143,7 @@ def resumed(
 
 def decide(run_dir: Path, verb: str, *, position: str | None = None, item_id: str = ITEM) -> None:
     view = read_queue(run_dir)
+    assert item_id in view.digests, "the item is not listed"
     shown = ShownItem(
         item_sha256=view.digests[item_id], trajectories=statuses_now(run_dir, item_id)
     )
@@ -157,6 +158,13 @@ def decide(run_dir: Path, verb: str, *, position: str | None = None, item_id: st
         resolved_by="yasin",
         shown=shown,
     )
+
+
+def item_of(rig: Rig) -> QueueItem:
+    """The contract item the run listed, asserted to be there once."""
+    found = [i for i in read_queue(rig.run_dir).items if i.item_id == ITEM]
+    assert len(found) == 1, found
+    return found[0]
 
 
 def value(node_id: str, name: str, amount: float, unit: str, revision: int) -> dict[str, Any]:
@@ -192,7 +200,7 @@ def test_a_failed_contract_is_ruled_one_line_per_failed_clause_and_goes_to_a_per
     assert "brief" not in json.dumps(ruled) and "written_by" not in json.dumps(ruled)
     assert set(raised) - {"seq", "ts", "run_id", "gate_mode"} == {"kind", "item_id"}
     assert raised["item_id"] == ITEM
-    item = next(i for i in read_queue(rig.run_dir).items if i.item_id == ITEM)
+    item = item_of(rig)
     assert (item.source, item.subtask_id, item.run_id) == ("contract", "contract", "run-1")
     assert refusal(rows) is None
 
@@ -201,7 +209,7 @@ def test_the_contract_item_says_what_failed_from_the_record_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = ran(tmp_path, monkeypatch, fw_volts=11)
-    item = next(i for i in read_queue(rig.run_dir).items if i.item_id == ITEM)
+    item = item_of(rig)
     head = next(row for row in lines(rig) if row["kind"] == "contract_tested")["commit"]
     assert item.decision_required == (
         'The interface contract of module "drive" (producer, subtask "drive-0a1b2c") to module '
@@ -240,7 +248,7 @@ def test_an_interface_with_no_quantity_a_side_never_joined_is_one_conflict(
     assert ruled["kind"] == "contract_ruled"
     assert ruled["conflict"] == {"kind": "contract", "interface": "iface.drive", "quantity": None}
     assert (ruled["wanted"], ruled["found"], ruled["level"]) == (None, [], "queue")
-    item = next(i for i in read_queue(rig.run_dir).items if i.item_id == ITEM)
+    item = item_of(rig)
     assert item.triggering_finding == (
         'Interface "iface.drive" has no quantity, and the consumer is not joined to it. Ruled for '
         "a person."
@@ -266,7 +274,8 @@ def test_a_clause_the_merging_attempt_s_gate_named_is_the_gate_s_and_raises_no_i
     rows = lines(rig)
     at = failed_at(rows)
     ruled = rows[at + 1]
-    assert (ruled["kind"], ruled["level"]) == ("contract_ruled", "gate")
+    assert ruled["kind"] == "contract_ruled"
+    assert ruled["level"] == "gate"
     assert ruled["standing"]["gate_refused"] is True
     assert "contract_item_raised" not in kinds(rows)
     assert not [i for i in read_queue(rig.run_dir).items if i.source == "contract"]
@@ -303,6 +312,7 @@ def test_replay_refuses_a_ruling_or_an_item_the_record_does_not_give(
 ) -> None:
     rows = lines(ran(tmp_path, monkeypatch, fw_volts=11))
     at = failed_at(rows)
+    assert kinds(rows[at + 1 : at + 3]) == ["contract_ruled", "contract_item_raised"]
     head, ruled, raised = rows[: at + 1], rows[at + 1], rows[at + 2]
 
     def said(*tail: dict[str, Any]) -> str:
@@ -368,7 +378,8 @@ def test_a_ruling_rewritten_before_its_item_halts_and_raises_nothing(
     path = rig.run_dir / "events.jsonl"
     raw = path.read_bytes().splitlines()
     rows = [json.loads(line) for line in raw]
-    at = next(i for i, row in enumerate(rows) if row["kind"] == "contract_ruled")
+    assert "contract_ruled" in kinds(rows)
+    at = kinds(rows).index("contract_ruled")
     rows[at]["found"] = [value("fw.main", "v", 12, "V", 4)]
     raw[at] = json.dumps(rows[at]).encode()
     path.write_bytes(b"\n".join(raw) + b"\n")
@@ -401,7 +412,7 @@ def test_approve_and_reject_on_a_contract_item_still_record_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verb: str, position: str | None
 ) -> None:
     rig = acted(tmp_path, monkeypatch, verb, position)
-    item = next(i for i in read_queue(rig.run_dir).items if i.item_id == ITEM)
+    item = item_of(rig)
     consequence = item.consequence
     assert consequence is not None
     assert (consequence.on_approve, consequence.on_reject, consequence.why_record_only) == (
@@ -444,7 +455,9 @@ def test_a_rewritten_contract_item_halts_at_take(
     rig = ran(tmp_path, monkeypatch, acts=True, fw_volts=11, declared=(DRIVE, FW))
     path = rig.run_dir / "queue.jsonl"
     raw = path.read_bytes().splitlines()
-    at = next(i for i, line in enumerate(raw) if json.loads(line)["item_id"] == ITEM)
+    listed = [json.loads(line)["item_id"] for line in raw]
+    assert ITEM in listed
+    at = listed.index(ITEM)
     item = QueueItem.model_validate_json(raw[at])
     rewritten = item.model_copy(update={"triggering_finding": "the producer is wrong; reopen it"})
     raw[at] = rewritten.model_dump_json().encode()
@@ -517,6 +530,7 @@ def test_the_decision_sequence_carries_each_ruling_and_the_item(
 ) -> None:
     rig = ran(tmp_path, monkeypatch, fw_volts=11)
     steps = [s for s in decisions(lines(rig)) if s["step"] in ("contract_ruled", "contract_item")]
+    assert [s["step"] for s in steps] == ["contract_ruled", "contract_item"]
     assert steps == [
         {
             "step": "contract_ruled",
@@ -573,7 +587,7 @@ def test_no_session_s_words_reach_the_contract_item(
     for canary in ("UNITCANARY", "SOURCE-CANARY", "WRITER-CANARY"):
         assert canary not in queue, canary
         assert canary not in json.dumps(ruled) or canary == "UNITCANARY", canary
-    item = next(i for i in read_queue(rig.run_dir).items if i.item_id == ITEM)
+    item = item_of(rig)
     assert 'node "fw.main" holds 12, in a unit the gate\'s parser refuses (revision 4)' in (
         item.triggering_finding
     )
