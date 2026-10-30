@@ -479,7 +479,11 @@ class Loop:
         """
         if not confirm:
             return
-        if self.config.queue_decisions != "act":
+        if self.config.queue_decisions != "act" and not set(confirm) <= set(
+            self.state.contract_items
+        ):
+            # A run that records only confirms nothing but a contract item's held decision, which
+            # a completion waits on there too.
             msg = "the run only records decisions; nothing is confirmed in it"
             raise RunStateError(msg, run_dir=str(self.run_dir))
         if not confirmed_by:

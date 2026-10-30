@@ -655,7 +655,9 @@ class DecisionTaken(_Event):
         if self.acts and self.effect == "none":
             msg = "a decision that acts has an effect"
             raise ValueError(msg)
-        if self.confirmed_by is not None and not self.acts:
+        if self.confirmed_by is not None and not self.acts and self.subtask_id is not None:
+            # A held decision on a contract item records only, and its confirmation does too:
+            # what it closes is the item, on which a completion waits.
             msg = "a confirmed decision is the one that acts"
             raise ValueError(msg)
         if self.order_too_long and (

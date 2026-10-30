@@ -494,6 +494,14 @@ def decision_effect(
     if resolution.item_id != item.item_id:
         msg = "the decision is on another item than the one it is taken with"
         raise QueueItemMismatchError(msg, item=item.item_id, decided=resolution.item_id)
+    if item.source == "contract" and held:
+        # A decision on a contract item records only, and still closes the item, on which a
+        # completion waits. One written while a session ran without the OS layer could be that
+        # session's own, so it closes nothing until an operator confirms it, in either mode.
+        if item.item_id not in state.contract_items:
+            msg = "the run raised no such contract item"
+            raise QueueItemMismatchError(msg, item=item.item_id)
+        return Taken(effect="none", acts=False, why_not="held_os_layer_off")
     if item.consequence is None:
         return Taken(effect="none", acts=False, why_not="legacy_item")
     if resolution.verb is None or resolution.shown_sha256 is None:
@@ -653,7 +661,8 @@ def _require_contract_taken(state: RunState, event: DecisionTaken) -> None:
 
     It names no subtask and no attempt, and records only: what it records only for is the item's
     own reason in a run that acts, and that the item says nothing of a verb's effect in one that
-    records only.
+    records only; or, written while a session ran without the OS layer, that it is held until an
+    operator confirms it.
     """
     if event.subtask_id is not None or (event.attempt, event.attempt_commit) != (None, None):
         msg = "a decision on a contract item names no subtask and no attempt"
@@ -664,7 +673,9 @@ def _require_contract_taken(state: RunState, event: DecisionTaken) -> None:
     if event.verb == "choose" and event.position not in POSITIONS["contract"]:
         msg = "a choice on a contract item is taken of a position it offers"
         raise ValueError(msg)
-    if event.verb is None:
+    if event.why_not == "held_os_layer_off":
+        allowed = event.confirmed_by is None
+    elif event.verb is None:
         allowed = event.why_not in ("not_bound", "legacy_item")
     elif not state.acts:
         allowed = event.why_not == "legacy_item"
