@@ -60,10 +60,17 @@ TWO = (RAIL, BUS)
 
 
 def bus(
-    volts: float, amps: float, *, source: str = "datasheet", by: str = "sizing"
+    volts: float,
+    amps: float,
+    *,
+    source: str = "datasheet",
+    by: str = "sizing",
+    unit: str | None = None,
 ) -> dict[str, Any]:
-    def q(value: float, unit: str) -> dict[str, Any]:
-        return {"value": value, "unit": unit, "source": source, "written_by": by}
+    """The bus node; with ``unit``, both quantities are written in that unit as it is spelt."""
+
+    def q(value: float, named: str) -> dict[str, Any]:
+        return {"value": value, "unit": unit or named, "source": source, "written_by": by}
 
     return {
         "id": NODE,
@@ -160,22 +167,15 @@ PRESENT = Present(mechanism="seatbelt", claude_version="2.1.301")
 ACT = {"queue_decisions": "act", "os_layer": PRESENT}
 
 
+def entry(subtask_id: str, role: str) -> PlanEntry:
+    return PlanEntry(
+        subtask_id=subtask_id, spec_path=f"specs/{subtask_id}.md", assigned_role=role,
+        module_dir=f"modules/{subtask_id}",
+    )  # fmt: skip
+
+
 def entries(sizing: bool) -> list[PlanEntry]:
-    out = [
-        PlanEntry(
-            subtask_id="s1", spec_path="specs/s1.md", assigned_role="electrical",
-            module_dir="modules/s1",
-        )
-    ]  # fmt: skip
-    if sizing:
-        out.insert(
-            0,
-            PlanEntry(
-                subtask_id="z0", spec_path="specs/z0.md", assigned_role="sizing",
-                module_dir="modules/z0",
-            ),
-        )  # fmt: skip
-    return out
+    return [entry("z0", "sizing"), entry("s1", "electrical")][0 if sizing else 1 :]
 
 
 def rig_of(
@@ -209,25 +209,36 @@ def rig_of(
     )
 
 
-def started(rig: Rig, *, sizing: bool = True) -> Loop:
+def started(
+    rig: Rig, *, sizing: bool = True, plan: list[PlanEntry] | None = None, head: int = 1
+) -> Loop:
+    """The run started on ``plan`` (by default ``s1``, after ``z0`` with ``sizing``) at ``head``."""
     loop = rig.open()
+    plan = plan or entries(sizing)
     summary = DecompositionSummary(
         session_id="decomp-1",
         model="claude-sonnet-5",
         num_turns=1,
-        subtasks=2 if sizing else 1,
+        subtasks=len(plan),
         interface_nodes=("iface.bus",),
         spec_commit="a" * 40,
-        head_revision=1,
+        head_revision=head,
     )
-    loop.record.start(entries(sizing), decomposed=summary)
+    loop.record.start(plan, decomposed=summary)
     _layer(loop)
     return loop
 
 
-def run(rig: Rig, *, sizing: bool = True, kill: Callable[[Event], bool] | None = None) -> str:
+def run(
+    rig: Rig,
+    *,
+    sizing: bool = True,
+    kill: Callable[[Event], bool] | None = None,
+    plan: list[PlanEntry] | None = None,
+    head: int = 1,
+) -> str:
     """Drive the run to its end; with ``kill``, the process dies before the first line it names."""
-    loop = started(rig, sizing=sizing)
+    loop = started(rig, sizing=sizing, plan=plan, head=head)
     if kill is not None:
         emit = loop._emit
         died: list[bool] = []
@@ -255,6 +266,14 @@ def resume(rig: Rig) -> str:
     kind = loop.resume().kind
     loop.close()
     return kind
+
+
+def driven(rig: Rig, how: Callable[[Rig], object] = run) -> None:
+    """Drive the run to its end; a line the replay refuses to the loop's own face is a finding."""
+    try:
+        how(rig)
+    except Exception as exc:  # noqa: BLE001 - any escape is the finding
+        raise AssertionError(f"the loop's own run escaped: {exc!r}") from None
 
 
 class KilledByRowError(Exception):

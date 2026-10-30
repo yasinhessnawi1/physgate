@@ -1,7 +1,9 @@
 """No branch of the arbitration stage puts one session's words where another session reads them.
 
 A dispute's reason is the disputing session's text, and sizing's stream, and the ``source`` and
-``written_by`` it wrote into the graph, are sizing's. Each carries a canary here, and every
+``written_by`` it wrote into the graph, are sizing's, and so is a unit sizing spelt as a bare word,
+which the change check and the replay take when the dispute names the same word. Each carries a
+canary here, and every
 branch of the stage is driven by the loop: the gate's refusal, sizing's value under each gate
 mode, and the queue on a repeat, on the last attempt and on the fix a person ordered. No canary
 reaches a later session's prompt, a reviewer's artefact, integration's issued state, an
@@ -29,6 +31,9 @@ from arbitration_runs import (  # noqa: E402
     CANARIES,
     RAIL,
     KilledByRowError,
+    bus,
+    dispute,
+    driven,
     events_of,
     refusal,
     resume,
@@ -60,6 +65,18 @@ def _sizing_registered(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
 
 
+#: A unit only the spelling guard holds: a word, which the gate's parser refuses.
+UNIT = "UNITCANARY"
+WORDED = (dispute("peak_current", 5, UNIT), dispute("supply_voltage", 24, UNIT))
+
+
+def _worded(rig: Any) -> Any:  # noqa: ANN401 - the rig
+    """Sizing writes the bus in a unit word, with the gate off; the domain disputes in that word."""
+    rig.diff.writes["z0"] = [bus(24, 3, unit=UNIT)]
+    run(rig)
+    return rig
+
+
 def _fixed(rig: Any) -> Any:  # noqa: ANN401 - the rig
     """A person orders the fix after attempt 1's review blocked; the fix disputes."""
     rig.reviewer.results[2] = blocked_review()
@@ -86,6 +103,10 @@ BRANCHES: dict[str, tuple[dict[str, Any], Callable[[Any], Any] | None, list[tupl
         {"mode": "off"}, None, [(1, "sizing"), (1, "sizing"), (2, "queue"), (2, "queue")],
     ),
     "L3 on the fix": ({"script": [(), (RAIL, BUS)]}, _fixed, [(2, "queue"), (2, "queue")]),
+    "L2 off, then L3, in a unit word": (
+        {"mode": "off", "script": [WORDED]}, _worded,
+        [(1, "sizing"), (1, "sizing"), (2, "queue"), (2, "queue")],
+    ),
 }  # fmt: skip
 #: The sessions each branch's plan needs: sizing's one, and one per attempt of the domain's.
 DISPATCHED = {
@@ -94,11 +115,12 @@ DISPATCHED = {
     "L2 observe, failing, then L3": 3,
     "L2 off, then L3": 3,
     "L3 on the fix": 3,
+    "L2 off, then L3, in a unit word": 3,
 }
 
 
 def _clean(where: str, text: str) -> None:
-    found = [c for c in CANARIES if c in text]
+    found = [c for c in (*CANARIES, UNIT) if c in text]
     assert not found, (where, found)
 
 
@@ -146,7 +168,9 @@ def test_no_arbitration_branch_puts_another_sessions_output_into_any_prompt(
     for line in lines:
         text = json.dumps(line)
         if line["kind"] == "dispute_recorded":
-            _clean("a dispute's line but its reason", json.dumps({**line, "reason": ""}))
+            # The dispute's own words: its reason, and the unit it names.
+            blank = {**line, "reason": "", "position": {**line["position"], "unit": ""}}
+            _clean("a dispute's line but its reason and unit", json.dumps(blank))
         elif line["kind"] == "arbitration_decided":
             # The held value says what the graph held; the line carries no reason.
             assert "REASON-CANARY" not in text and "STREAM-CANARY" not in text
@@ -207,7 +231,7 @@ def test_a_process_killed_anywhere_in_the_stage_resumes_to_the_same_end(
 ) -> None:
     rigged, at = KILLS[kill]
     whole = rig_of(tmp_path / "whole", **rigged)
-    run(whole)
+    driven(whole)
     assert any(_outcome(whole)[0].values()), "the run rules no dispute"
     killed = rig_of(tmp_path / "killed", **rigged)
     if at == "item":
@@ -228,5 +252,5 @@ def test_a_process_killed_anywhere_in_the_stage_resumes_to_the_same_end(
         assert callable(at)
         assert run(killed, kill=at()) == "killed"
     assert refusal(events_of(killed)) is None
-    resume(killed)
+    driven(killed, resume)
     assert _outcome(killed) == _outcome(whole)

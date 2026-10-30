@@ -27,6 +27,9 @@ from arbitration_runs import (  # noqa: E402
     RAIL,
     REASON,
     JournalGraph,
+    bus,
+    driven,
+    entry,
     events_of,
     refusal,
     resume,
@@ -114,14 +117,6 @@ def first(found: Any) -> Any:  # noqa: ANN401 - whatever the row lists
     found = list(found)
     assert found, "nothing listed"
     return found[0]
-
-
-def driven(rig: Any, how: Any = run) -> None:  # noqa: ANN401 - the rig, and run or resume
-    """Drive the run to its end; a line the replay refuses to the loop's own face is a finding."""
-    try:
-        how(rig)
-    except Exception as exc:  # noqa: BLE001 - any escape is the finding
-        raise AssertionError(f"the loop's own run escaped: {exc!r}") from None
 
 
 def levels(events: list[Event]) -> list[tuple[int, str]]:
@@ -391,7 +386,7 @@ def test_a_held_value_the_journal_no_longer_holds_halts_the_run_before_the_item(
     }  # fmt: skip
     graph.journal[1] = JournalLine(rev=2, op="write", node_id=NODE, version=2, payload=rewritten)
     assert not read_queue(rig.run_dir).open_items()
-    resume(rig)
+    driven(rig, resume)
     events = events_of(rig)
     incident = one([e for e in events if isinstance(e, Incident)])
     assert incident.cause == "foreign_journal_line"
@@ -413,7 +408,7 @@ def test_a_held_value_the_journal_no_longer_holds_halts_the_run_before_the_next_
         "value": 9, "unit": "A", "source": "datasheet", "written_by": "sizing",
     }  # fmt: skip
     graph.journal[1] = JournalLine(rev=2, op="write", node_id=NODE, version=2, payload=rewritten)
-    resume(rig)
+    driven(rig, resume)
     events = events_of(rig)
     incident = one(e for e in events if isinstance(e, Incident))
     assert incident.cause == "foreign_journal_line"
@@ -436,7 +431,7 @@ def test_a_held_value_the_journal_no_longer_holds_halts_the_run_before_a_decisio
     }  # fmt: skip
     graph.journal[1] = JournalLine(rev=2, op="write", node_id=NODE, version=2, payload=rewritten)
     decide(rig.run_dir, "approve")
-    resume(rig)
+    driven(rig, resume)
     events = events_of(rig)
     incident = one(e for e in events if isinstance(e, Incident))
     assert incident.cause == "foreign_journal_line"
@@ -535,3 +530,161 @@ def test_a_ruling_held_value_is_built_from_the_journal(tmp_path: Path) -> None:
         written_by="WRITER-CANARY sizing pass",
         revision=2,
     )
+
+
+# --- the fix round: the write a held revision came from, and the head a ruling was made at --------
+
+
+def test_a_decision_on_the_item_is_taken_after_sizing_writes_the_disputed_node_again(
+    tmp_path: Path,
+) -> None:
+    from physgate.orchestrator.events import DecisionTaken
+
+    # z0 sizes the bus, s1 disputes it to a person, z1 writes the bus again while the item waits.
+    rig = rig_of(tmp_path / "run")
+    graph = rig.diff
+    assert isinstance(graph, JournalGraph)
+    graph.writes["z1"] = [bus(30, 4)]
+    plan = [entry("z0", "sizing"), entry("s1", "electrical"), entry("z1", "sizing")]
+    driven(rig, lambda r: run(r, plan=plan))
+    assert [ln.rev for ln in graph.journal] == [1, 2, 3]
+    item = one(read_queue(rig.run_dir).open_items())
+    assert item.triggering_finding.count(SIZED_BY) == 2
+    assert len(item.trajectories) == 3
+    decide(rig.run_dir, "approve")
+    driven(rig, resume)
+    events = events_of(rig)
+    assert not [e for e in events if isinstance(e, Incident)]
+    assert one(of(events, DecisionTaken)).item_id == item.item_id
+    assert refusal(events) is None
+
+
+def test_a_ruling_forged_to_an_older_line_of_its_node_halts_the_run_before_the_next_attempt_is_told(
+    tmp_path: Path,
+) -> None:
+    # The bus was written twice before the run: 2 A and 12 V at revision 1, 7 A and 13 V at 2.
+    rig = rig_of(tmp_path / "run", sizing=False)
+    graph = rig.diff
+    assert isinstance(graph, JournalGraph)
+    graph.journal.append(
+        JournalLine(rev=2, op="write", node_id=NODE, version=2, payload=bus(13, 7))
+    )
+    second = lambda e: isinstance(e, StageEntered) and e.subtask_id == "s1" and e.attempt == 2  # noqa: E731
+    assert run(rig, sizing=False, head=2, kill=second) == "killed"
+    assert [r.held.revision for r in of(events_of(rig), ArbitrationDecided)] == [2, 2]
+    # Both rulings, and the finding built from them, rewritten to revision 1 and what it held.
+    path = rig.run_dir / "events.jsonl"
+    older = {"peak_current": 2, "supply_voltage": 12}
+    forged = []
+    for raw in path.read_bytes().splitlines(keepends=True):
+        line = json.loads(raw)
+        if line["kind"] == "arbitration_decided":
+            line["held"]["revision"] = 1
+            line["held"]["position"]["value"] = older[line["held"]["position"]["name"]]
+        if line["kind"] == "attempt_rejected":
+            text = line["finding"]["text"].replace("holds 7 ", "holds 2 ")
+            text = text.replace("holds 13 ", "holds 12 ").replace("at revision 2", "at revision 1")
+            line["finding"]["text"] = text
+        forged.append(json.dumps(line).encode() + b"\n")
+    path.write_bytes(b"".join(forged))
+    # The replay holds the form; whether a ruling's line is the node's last is the journal's.
+    assert refusal(events_of(rig)) is None
+    driven(rig, resume)
+    events = events_of(rig)
+    assert one(e for e in events if isinstance(e, Incident)).cause == "foreign_journal_line"
+    assert not [r for r in rig.dispatcher.requests if r.subtask_id == "s1" and r.attempt == 2]
+
+
+# --- the journal a ruling reads -------------------------------------------------------------------
+
+
+def test_a_disputed_quantity_the_journal_does_not_hold_halts_the_run_before_any_ruling(
+    tmp_path: Path,
+) -> None:
+    sized = bus(24, 3)
+    del sized["quantities"]["peak_current"]
+    rig = rig_of(tmp_path / "run")
+    graph = rig.diff
+    assert isinstance(graph, JournalGraph)
+    graph.writes["z0"] = [sized]
+    driven(rig)
+    events = events_of(rig)
+    assert [e.cause for e in events if isinstance(e, Incident)] == ["foreign_journal_line"]
+    assert not of(events, ArbitrationDecided)
+    assert refusal(events) is None
+
+
+@pytest.mark.parametrize("journal", ["unreadable", "ending before the recorded head"])
+def test_a_journal_that_cannot_give_the_held_value_halts_the_run_before_any_ruling(
+    tmp_path: Path, journal: str
+) -> None:
+    from physgate.state.exceptions import DesignStateError
+
+    rig = rig_of(tmp_path / "run")
+    graph, gate = rig.diff, rig.gate
+    assert isinstance(graph, JournalGraph) and gate is not None
+    judge = gate.check
+
+    def broken(revision: int) -> list[JournalLine]:
+        if journal == "unreadable":
+            raise DesignStateError("a journal line is not one the store wrote", line="2")
+        return [ln for ln in graph.journal if revision < ln.rev < 2]  # line 2 is gone
+
+    def check(artefact: Any, *, mode: Any) -> Any:  # noqa: ANN401 - the gate port's types
+        if artefact.subtask_id == "s1":
+            setattr(graph, "records_after", broken)  # noqa: B010 - the journal from the gate on
+        return judge(artefact, mode=mode)
+
+    setattr(gate, "check", check)  # noqa: B010
+    driven(rig)
+    events = events_of(rig)
+    assert [e.cause for e in events if isinstance(e, Incident)] == ["foreign_journal_line"]
+    assert not of(events, ArbitrationDecided)
+    assert refusal(events) is None
+
+
+def test_a_ruling_holds_the_node_as_the_recorded_head_left_it(tmp_path: Path) -> None:
+    rig = rig_of(tmp_path / "run")
+    graph, gate = rig.diff, rig.gate
+    assert isinstance(graph, JournalGraph) and gate is not None
+    judge = gate.check
+
+    def check(artefact: Any, *, mode: Any) -> Any:  # noqa: ANN401 - the gate port's types
+        if artefact.subtask_id == "s1" and len(graph.journal) == 2:
+            # A line no recorded write put, past the head, before the rulings are made.
+            line = JournalLine(rev=3, op="write", node_id=NODE, version=3, payload=bus(48, 9))
+            graph.journal.append(line)
+        return judge(artefact, mode=mode)
+
+    setattr(gate, "check", check)  # noqa: B010
+    driven(rig)
+    ruled = of(events_of(rig), ArbitrationDecided)
+    assert [(r.attempt, r.held.revision) for r in ruled][:2] == [(1, 2), (1, 2)]
+    assert [r.held.position.value for r in ruled][:2] == [3, BIG]
+
+
+# --- the item on a fix ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("script", "gate", "fix"),
+    [([(), (RAIL, BUS)], [], 2), ([(), (), (), (RAIL, BUS)], ["fail", "fail"], 4)],
+    ids=["at attempt 2", "past the budget"],
+)
+def test_the_item_on_a_fix_says_it_is_a_fix_a_person_ordered(
+    tmp_path: Path, script: list[Any], gate: list[str], fix: int
+) -> None:
+    rig = rig_of(tmp_path / "run", gate=gate, script=script)
+    rig.reviewer.results[2] = blocked_review()
+    driven(rig)
+    decide(rig.run_dir, "reject", "the bus needs a margin the specification gives")
+    driven(rig, resume)
+    events = events_of(rig)
+    assert levels(events) == [(fix, "queue"), (fix, "queue")]
+    item = one(i for i in read_queue(rig.run_dir).open_items() if i.source == "arbitration")
+    assert item.decision_required == (
+        f"Subtask s1, attempt {fix}, disputes a value of a cross node that sizing wrote, and the "
+        "precedence rule sends it to a person: this is a fix a person ordered. Decide which "
+        "value stands; the reason each dispute gives is on the run's record."
+    )
+    assert refusal(events) is None
