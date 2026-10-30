@@ -44,6 +44,7 @@ from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.decisions import SCANNED_SOURCES
 from physgate.orchestrator.events import Event, parse_events, read_events
 from physgate.orchestrator.exceptions import CorruptEventLogError, QueueError
+from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.protocols import Artefact, GateResult, QuantityRef, RunningGateMode
 from physgate.orchestrator.queue import (
     PersonDecision,
@@ -577,3 +578,49 @@ def test_no_session_s_words_reach_the_contract_item(
         item.triggering_finding
     )
     assert item.quantities == (QuantityRef(node_id="iface.drive", name="v", value=12, unit="V"),)
+
+
+@pytest.mark.parametrize("acts", [False, True], ids=["records", "acts"])
+def test_a_held_decision_on_a_contract_item_leaves_it_open_until_it_is_confirmed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, acts: bool
+) -> None:
+    # Sessions run without the OS layer; a person decides the item while fw's session runs, where
+    # that session's own shell could have written the line.
+    monkeypatch.setattr(Loop, "_require_os_layer", lambda self: None)
+    low = node("budget.supply", "sizing", "iface.drive", v=11)
+    declared = (BUDGET, DRIVE, FW)
+    rig = rig_for(
+        tmp_path,
+        dispatcher=FakeDispatcher(trajectories=tmp_path / "run" / "sessions"),
+    )
+    if acts:
+        rig.config_overrides.update(ACTS)
+    rig.diff.writes.update({BUDGET: [low]})  # type: ignore[attr-defined]
+    rig.dispatcher.during[3] = lambda: decide(rig.run_dir, "approve")
+    loop = rig.open()
+    hooked(monkeypatch, loop, declared=declared)
+    start(loop, sizing=True)
+    _layer(loop, present=False)
+    loop.run()
+    loop.close()
+    rows = lines(rig)
+    taken = [row for row in rows if row["kind"] == "decision_taken"]
+    assert [(t["item_id"], t["acts"], t["why_not"]) for t in taken] == [
+        (ITEM, False, "held_os_layer_off")
+    ]
+    assert [r["subtask_id"] for r in rows if r["kind"] == "module_completed"] == [FW]
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    assert state.undecided(ITEM)
+    assert "open_item" in dict(open_preconditions(state, DRIVE))
+    assert refusal(rows) is None
+    # Confirmed by the operator, it closes the item, and the modules are recorded complete.
+    again = rig.open()
+    hooked(monkeypatch, again, declared=declared)
+    _layer(again, present=False)
+    assert again.resume(confirm=(ITEM,), confirmed_by="operator").kind == "done"
+    again.close()
+    rows = lines(rig)
+    confirmed = [row for row in rows if row["kind"] == "decision_taken"][-1]
+    assert (confirmed["confirmed_by"], confirmed["acts"]) == ("operator", False)
+    assert [r["subtask_id"] for r in rows if r["kind"] == "module_completed"] == [FW, BUDGET, DRIVE]
+    assert refusal(rows) is None
