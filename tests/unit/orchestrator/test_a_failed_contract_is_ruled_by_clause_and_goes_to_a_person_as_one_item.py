@@ -43,11 +43,10 @@ from physgate.orchestrator import completion
 from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.decisions import SCANNED_SOURCES
 from physgate.orchestrator.events import Event, parse_events, read_events
-from physgate.orchestrator.exceptions import CorruptEventLogError
+from physgate.orchestrator.exceptions import CorruptEventLogError, QueueError
 from physgate.orchestrator.protocols import Artefact, GateResult, QuantityRef, RunningGateMode
 from physgate.orchestrator.queue import (
     PersonDecision,
-    QueueError,
     QueueItem,
     ShownItem,
     read_queue,
