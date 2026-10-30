@@ -10,8 +10,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ShapeError } from "../../api/client";
 import { decisionRequest, decisionText, type ItemView, itemView } from "../../api/queue";
-import { bannedIn } from "../../words/queue";
+import { bannedIn, decisionSummary } from "../../words/queue";
 import { Decide } from "./Decide";
+// The queue's own bytes for one choice with a note, as the Python writer writes them.
+import PYTHON_CHOICE_LINE from "./choice-with-note.line?raw";
 import { lineToWrite } from "./model";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -109,6 +111,20 @@ describe("a choice's text, line and request are the queue's own", () => {
     );
   });
 
+  it("a choice with a note is the line the Python writer writes, read from the shared fixture", () => {
+    // The fixture is the queue's own bytes for this choice, its time put as the dialog puts it;
+    // a Python row holds the writer to the same file, so the two languages are compared.
+    const python = PYTHON_CHOICE_LINE.trimEnd();
+    expect(lineToWrite(ARBITRATION, "choose", "keep 24 V", "yasin", "sizing")).toBe(python);
+  });
+
+  it("names no position on approve or reject, and no choice without one", () => {
+    expect(decisionText("approve", "", "sizing")).toBeNull();
+    expect(decisionText("reject", "a reason", "domain")).toBeNull();
+    expect(() => decisionSummary("yasin", "choose", "Decide.", "")).toThrow(/position/);
+    expect(() => decisionSummary("yasin", "approve", "Decide.", "", "sizing")).toThrow(/position/);
+  });
+
   it("the request carries the position with choose, and no position with another verb", () => {
     expect(JSON.parse(decisionRequest(ARBITRATION, "choose", "x", "sizing"))).toEqual({
       item_id: "run-1-s1",
@@ -125,6 +141,11 @@ describe("what each position does is read from the item", () => {
   it("is both positions, in the set's order", () => {
     expect(ARBITRATION.item.consequence?.onChoose).toEqual(BOTH);
     expect(itemView(raw("review_unavailable", undefined)).item.consequence?.onChoose).toBeNull();
+  });
+
+  it("a set on an item of another kind, or an arbitration consequence without one, is refused", () => {
+    expect(() => itemView(raw("review_unavailable", BOTH))).toThrow(ShapeError);
+    expect(() => itemView(raw("arbitration", undefined))).toThrow(ShapeError);
   });
 
   it("a position set of another shape is refused whole", () => {
@@ -152,6 +173,27 @@ describe("the choice is offered on an arbitration item alone", () => {
     root = null;
     const other = panel(itemView(raw("review_unavailable", undefined)));
     expect(buttons(other.host, "Choose")).toHaveLength(0);
+  });
+
+  it("offers both positions on an arbitration item with no consequence, as a run that records writes it", () => {
+    const recorded = raw("arbitration", undefined);
+    (recorded.item as Record<string, unknown>).consequence = undefined;
+    const { host } = panel(itemView(recorded));
+    expect(buttons(host, "Choose sizing's value")).toHaveLength(1);
+    expect(buttons(host, "Choose the domain's value")).toHaveLength(1);
+  });
+
+  it.each([
+    ["sizing", "Choose sizing's value", "chose sizing's value on"],
+    ["domain", "Choose the domain's value", "chose the domain's value on"],
+  ] as const)("the dialog's opening sentence names the %s position", (_, label, says) => {
+    const { host } = panel(ARBITRATION);
+    const [button] = buttons(host, label);
+    act(() => {
+      button?.click();
+    });
+    const dialog = [...host.querySelectorAll("dialog")].find((d) => d.open);
+    expect(dialog?.textContent).toContain(`This records: yasin ${says}`);
   });
 
   it("confirming sends the choice once, with its position, and says it is recorded", async () => {

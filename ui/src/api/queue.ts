@@ -61,9 +61,21 @@ export interface Consequence {
   readonly onChoose: Readonly<Record<Position, OnChoose>> | null;
 }
 
-/** The positions an item states, held to the set in its order: any other shape is refused. */
-function onChoose(value: unknown): Readonly<Record<Position, OnChoose>> | null {
-  if (value === undefined || value === null) return null;
+/**
+ * The positions an item states, held to the set in its order: any other shape is refused. As the
+ * queue's own model holds it: only an arbitration item states them, and one that says what its
+ * verbs do must say what choosing each position does.
+ */
+function onChoose(
+  value: unknown,
+  source: QueueSource,
+): Readonly<Record<Position, OnChoose>> | null {
+  const offers = source === "arbitration";
+  if (value === undefined || value === null) {
+    if (offers) throw new ShapeError("an arbitration item's positions");
+    return null;
+  }
+  if (!offers) throw new ShapeError("positions on an item of another kind");
   const stated = object(value, "what choosing each position does");
   if (Object.keys(stated).join() !== POSITIONS.join()) throw new ShapeError("an item's positions");
   return {
@@ -72,7 +84,7 @@ function onChoose(value: unknown): Readonly<Record<Position, OnChoose>> | null {
   };
 }
 
-function consequence(value: unknown): Consequence | null {
+function consequence(value: unknown, source: QueueSource): Consequence | null {
   if (value === undefined || value === null) return null;
   const c = object(value, "an item's consequence");
   const commit = optionalText(c.attempt_commit, "an attempt's commit");
@@ -95,7 +107,7 @@ function consequence(value: unknown): Consequence | null {
       };
     }),
     scanHits: list(c.scan_hits, "the scan's hits").length,
-    onChoose: onChoose(c.on_choose),
+    onChoose: onChoose(c.on_choose, source),
   };
 }
 
@@ -122,12 +134,13 @@ export interface QueueItem {
 
 export function queueItem(value: unknown): QueueItem {
   const item = object(value, "a queue item");
+  const source = oneOf(item.source, SOURCES, "a queue source");
   return {
     itemId: text(item.item_id, "an item id"),
     ts: text(item.ts, "a time"),
     runId: text(item.run_id, "a run id"),
     subtaskId: text(item.subtask_id, "a subtask id"),
-    source: oneOf(item.source, SOURCES, "a queue source"),
+    source,
     decisionRequired: text(item.decision_required, "the decision required"),
     artefactDiff: text(item.artefact_diff, "an artefact diff"),
     triggeringFinding: text(item.triggering_finding, "a triggering finding"),
@@ -142,7 +155,7 @@ export function queueItem(value: unknown): QueueItem {
     trajectories: list(item.trajectories, "the trajectories").map((raw) =>
       text(raw, "a trajectory link"),
     ),
-    consequence: consequence(item.consequence),
+    consequence: consequence(item.consequence, source),
   };
 }
 

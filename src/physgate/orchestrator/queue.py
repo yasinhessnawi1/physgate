@@ -1415,9 +1415,10 @@ def record_decision(
 
     The decision is ``decision``, free text that binds to nothing, or ``person``, a verb and a
     note bound to the view ``shown`` (ARCH-133): its line then also names the verb, the note and
-    the digest of the item line shown. A bound approve is refused unless every trajectory shown
-    held its seal, and an approve of a blocked review unless its note says how the blocked check
-    is decided.
+    the digest of the item line shown. A bound approve, and a choice of the domain's position
+    (which carries a session's typed value forward), is refused unless every trajectory shown
+    held its seal; a choice of sizing's position binds to any view, as a reject does. An approve
+    of a blocked review is refused unless its note says how the blocked check is decided.
 
     A refusal writes nothing. ``run_dir`` also names the files in a refusal.
 

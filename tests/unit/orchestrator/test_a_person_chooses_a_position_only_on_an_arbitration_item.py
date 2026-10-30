@@ -300,6 +300,23 @@ def test_choosing_sizing_binds_to_a_view_whatever_its_seals_showed(tmp_path: Pat
     assert (record.verb, record.decision) == ("choose", "choose sizing")
 
 
+#: The line a choice with a note is written as, which the operator UI's confirmation also shows:
+#: one file both languages are held to.
+CHOICE_LINE = Path(__file__).resolve().parents[3] / "ui/src/screens/queue/choice-with-note.line"
+
+
+def test_a_choice_with_a_note_is_written_as_the_line_the_ui_shows(tmp_path: Path) -> None:
+    rig = arbitrated(tmp_path)
+    chose(rig.run_dir, "sizing", "keep 24 V")
+    written = json.loads((rig.run_dir / DECISIONS_NAME).read_bytes().splitlines()[-1])
+    # The item, its digest and the time are this run's; the UI's fixture names its own.
+    shown = written | {
+        "item_id": "run-1-s1", "ts": "\u2039the time you confirm\u203a", "shown_sha256": "a" * 64,
+    }  # fmt: skip
+    line = json.dumps(shown, separators=(",", ":"), ensure_ascii=False)
+    assert line == CHOICE_LINE.read_text(encoding="utf-8").rstrip("\n")
+
+
 # --- the item ----------------------------------------------------------------------------------
 
 

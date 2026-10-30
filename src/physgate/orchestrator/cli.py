@@ -245,7 +245,9 @@ def add_parsers(
         description=(
             "Record a decision on one item. --approve, --reject or --choose binds it to the item "
             "line whose digest `queue list` printed (--sha256), and a run that acts on decisions "
-            "acts on it; --decision records free text, which binds to nothing and never acts."
+            "takes it and does what the item says. --choose domain binds only where every "
+            "transcript the listing showed held its seal; --decision records free text, which "
+            "binds to nothing and never acts."
         ),
     )
     resolve.add_argument("item")

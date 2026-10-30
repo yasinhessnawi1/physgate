@@ -84,12 +84,15 @@ export function decisionSummary(
   note: string,
   position?: Position,
 ): string {
+  // A choice names its position, always: the record never holds one without it.
+  if ((verb === "choose") !== (position !== undefined))
+    throw new Error("a position is chosen with choose, and only with it");
   const did =
-    verb === "approve"
-      ? "approved"
-      : verb === "reject"
-        ? "rejected"
-        : `chose ${POSITION_WORDS[position ?? "sizing"].toLowerCase()} on`;
+    position !== undefined
+      ? `chose ${POSITION_WORDS[position].toLowerCase()} on`
+      : verb === "approve"
+        ? "approved"
+        : "rejected";
   const quoted = `'${decisionRequired}'`;
   return note.trim() === ""
     ? `This records: ${operator} ${did} ${quoted}.`
