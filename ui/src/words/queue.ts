@@ -53,6 +53,10 @@ export const SOURCE_WORDS: Readonly<Record<QueueSource, SourceWords>> = {
     kind: "Sent early to a person",
     why: "The escalation decision sent the subtask to a person while it still had attempts left.",
   },
+  contract: {
+    kind: "Interface contract failed",
+    why: "Two merged modules do not both hold an interface fixed at decomposition.",
+  },
 };
 
 /** Every sentence a screen says about a decision. Nothing else on a screen says it. */
@@ -127,6 +131,7 @@ const HEADLINES: Readonly<Record<QueueSource, string>> = {
   review_blocked: "A review could not decide a safety-critical check",
   arbitration: "The builder and the reviewer disagree",
   escalation_decision: "A subtask was sent to a person",
+  contract: "Two merged modules break an interface contract",
 };
 
 /**
@@ -162,6 +167,8 @@ const WHY_RECORD_ONLY_WORDS: Readonly<Record<WhyRecordOnly, string>> = {
 export const POSITION_WORDS: Readonly<Record<Position, string>> = {
   sizing: "Sizing's value",
   domain: "The domain's value",
+  producer: "The producer's work",
+  consumer: "The consumer's work",
 };
 
 /** What choosing a position does, from what the item says it does. */
@@ -177,6 +184,7 @@ export const CHOOSE_WORDS: Readonly<Record<OnChoose, string>> = {
   resize:
     "Choose: the subtask waits while sizing's closing pass is ordered to write the domain's value " +
     "into the graph; once that pass is merged, this attempt is judged again, with no new session.",
+  reopen: "Choose: the other module is reopened for one more attempt, told the interface's values.",
   record_only: "Choose: the decision is recorded, and nothing in the run acts on it.",
 };
 

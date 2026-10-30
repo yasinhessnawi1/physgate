@@ -18,6 +18,7 @@ export const SOURCES = [
   "review_blocked",
   "arbitration",
   "escalation_decision",
+  "contract",
 ] as const;
 export type QueueSource = (typeof SOURCES)[number];
 
@@ -32,15 +33,24 @@ export const WHY_RECORD_ONLY = [
   "source",
   "legacy",
 ] as const;
-/** The positions an arbitration item offers, in the order it states them; no other kind offers any. */
+/** The positions an arbitration item offers, in the order it states them. */
 export const POSITIONS = ["sizing", "domain"] as const;
+/** The positions a failed contract's item offers, in the order it states them: whose merged work stands. */
+export const CONTRACT_POSITIONS = ["producer", "consumer"] as const;
 /**
  * What choosing a position does: order the next attempt to the graph's value, order the one fix to
  * it, end the subtask, resize (the subtask waits for sizing's closing pass to write the domain's
  * value), or record the decision only.
  */
-export const ON_CHOOSE = ["retry", "fix", "end_subtask", "resize", "record_only"] as const;
-export type Position = (typeof POSITIONS)[number];
+export const ON_CHOOSE = [
+  "retry",
+  "fix",
+  "end_subtask",
+  "resize",
+  "reopen",
+  "record_only",
+] as const;
+export type Position = (typeof POSITIONS)[number] | (typeof CONTRACT_POSITIONS)[number];
 export type OnChoose = (typeof ON_CHOOSE)[number];
 export type OnApprove = (typeof ON_APPROVE)[number];
 export type OnReject = (typeof ON_REJECT)[number];
@@ -62,30 +72,35 @@ export interface Consequence {
   /** How many hits the scan before review found, for an item whose review never judged them. */
   readonly scanHits: number;
   /** What choosing each position does, on an item that offers positions; ``null`` otherwise. */
-  readonly onChoose: Readonly<Record<Position, OnChoose>> | null;
+  readonly onChoose: Readonly<Partial<Record<Position, OnChoose>>> | null;
 }
 
+/** The positions each kind of item offers; no other kind offers any. */
+const OFFERED: Readonly<Partial<Record<QueueSource, readonly Position[]>>> = {
+  arbitration: POSITIONS,
+  contract: CONTRACT_POSITIONS,
+};
+
 /**
- * The positions an item states, held to the set in its order: any other shape is refused. As the
- * queue's own model holds it: only an arbitration item states them, and one that says what its
- * verbs do must say what choosing each position does.
+ * The positions an item states, held to its kind's set in its order: any other shape is refused.
+ * As the queue's own model holds it: only an arbitration or a failed contract's item states them,
+ * and one that says what its verbs do must say what choosing each position does.
  */
 function onChoose(
   value: unknown,
   source: QueueSource,
-): Readonly<Record<Position, OnChoose>> | null {
-  const offers = source === "arbitration";
+): Readonly<Partial<Record<Position, OnChoose>>> | null {
+  const offered = OFFERED[source];
   if (value === undefined || value === null) {
-    if (offers) throw new ShapeError("an arbitration item's positions");
+    if (offered !== undefined) throw new ShapeError(`a ${source} item's positions`);
     return null;
   }
-  if (!offers) throw new ShapeError("positions on an item of another kind");
+  if (offered === undefined) throw new ShapeError("positions on an item of another kind");
   const stated = object(value, "what choosing each position does");
-  if (Object.keys(stated).join() !== POSITIONS.join()) throw new ShapeError("an item's positions");
-  return {
-    sizing: oneOf(stated.sizing, ON_CHOOSE, "what choosing sizing does"),
-    domain: oneOf(stated.domain, ON_CHOOSE, "what choosing the domain does"),
-  };
+  if (Object.keys(stated).join() !== offered.join()) throw new ShapeError("an item's positions");
+  return Object.fromEntries(
+    offered.map((p) => [p, oneOf(stated[p], ON_CHOOSE, `what choosing ${p} does`)]),
+  );
 }
 
 function consequence(value: unknown, source: QueueSource): Consequence | null {
