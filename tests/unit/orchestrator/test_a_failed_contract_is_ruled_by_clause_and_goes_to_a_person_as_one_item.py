@@ -160,6 +160,15 @@ def decide(run_dir: Path, verb: str, *, position: str | None = None, item_id: st
     )
 
 
+def escaped(how: Callable[[], object]) -> str | None:
+    """What escaped the loop's own run, or None: a refusal of its own line is a finding."""
+    try:
+        how()
+    except Exception as exc:  # noqa: BLE001 - any escape is the finding
+        return repr(exc)
+    return None
+
+
 def item_of(rig: Rig) -> QueueItem:
     """The contract item the run listed, asserted to be there once."""
     found = [i for i in read_queue(rig.run_dir).items if i.item_id == ITEM]
@@ -386,7 +395,8 @@ def test_a_ruling_rewritten_before_its_item_halts_and_raises_nothing(
     assert refusal(rows) is None  # the log alone cannot tell
     resumed(rig, monkeypatch)
     after = lines(rig)
-    incident = next(row for row in after if row["kind"] == "incident")
+    assert "incident" in kinds(after)
+    incident = after[kinds(after).index("incident")]
     assert incident["cause"] == "foreign_journal_line"
     assert "contract_item_raised" not in kinds(after)
     # The item the killed process listed holds the journal's values, never the rewritten line's.
@@ -465,7 +475,8 @@ def test_a_rewritten_contract_item_halts_at_take(
     decide(rig.run_dir, "choose", position="producer")
     resumed(rig, monkeypatch, declared=(DRIVE, FW))
     rows = lines(rig)
-    incident = next(row for row in rows if row["kind"] == "incident")
+    assert "incident" in kinds(rows)
+    incident = rows[kinds(rows).index("incident")]
     assert incident["cause"] == "queue_item_mismatch"
     assert "decision_taken" not in kinds(rows)
 
@@ -613,7 +624,7 @@ def test_a_held_decision_on_a_contract_item_leaves_it_open_until_it_is_confirmed
     hooked(monkeypatch, loop, declared=declared)
     start(loop, sizing=True)
     _layer(loop, present=False)
-    loop.run()
+    assert escaped(loop.run) is None
     loop.close()
     rows = lines(rig)
     taken = [row for row in rows if row["kind"] == "decision_taken"]
@@ -629,10 +640,51 @@ def test_a_held_decision_on_a_contract_item_leaves_it_open_until_it_is_confirmed
     again = rig.open()
     hooked(monkeypatch, again, declared=declared)
     _layer(again, present=False)
-    assert again.resume(confirm=(ITEM,), confirmed_by="operator").kind == "done"
+    resumed_kind: list[str] = []
+    assert (
+        escaped(
+            lambda: resumed_kind.append(again.resume(confirm=(ITEM,), confirmed_by="operator").kind)
+        )
+        is None
+    )
+    assert resumed_kind == ["done"]
     again.close()
     rows = lines(rig)
     confirmed = [row for row in rows if row["kind"] == "decision_taken"][-1]
     assert (confirmed["confirmed_by"], confirmed["acts"]) == ("operator", False)
     assert [r["subtask_id"] for r in rows if r["kind"] == "module_completed"] == [FW, BUDGET, DRIVE]
     assert refusal(rows) is None
+
+
+def test_a_clause_both_modules_deviate_from_has_no_attempt_a_choice_could_spend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    low = node("drive.motor", "control", "iface.drive", "iface.tilt", v=11, period=10)
+    rig = ran(tmp_path, monkeypatch, fw_volts=11, writes={DRIVE: [low]})
+    rows = lines(rig)
+    at = failed_at(rows)
+    ruled = rows[at + 1]
+    assert ruled["kind"] == "contract_ruled"
+    assert ruled["standing"] == {"gate_refused": False, "counted_before": 0, "attempt_left": False}
+    assert [v["position"]["node_id"] for v in ruled["found"]] == ["drive.motor", "fw.main"]
+    assert "Both modules' nodes deviate from the interface." in item_of(rig).decision_required
+    assert refusal(rows) is None
+
+
+def test_a_ruling_rewritten_after_its_item_halts_at_take_as_the_journal_s(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = ran(tmp_path, monkeypatch, acts=True, fw_volts=11, declared=(DRIVE, FW))
+    path = rig.run_dir / "events.jsonl"
+    rows = lines(rig)
+    assert "contract_ruled" in kinds(rows)
+    at = kinds(rows).index("contract_ruled")
+    rows[at]["found"] = [value("fw.main", "v", 12, "V", 4)]
+    path.write_bytes(b"".join(json.dumps(row).encode() + b"\n" for row in rows))
+    assert refusal(rows) is None  # the log alone cannot tell
+    decide(rig.run_dir, "choose", position="producer")
+    resumed(rig, monkeypatch, declared=(DRIVE, FW))
+    after = lines(rig)
+    assert "incident" in kinds(after)
+    assert after[kinds(after).index("incident")]["cause"] == "foreign_journal_line"
+    assert "decision_taken" not in kinds(after)
