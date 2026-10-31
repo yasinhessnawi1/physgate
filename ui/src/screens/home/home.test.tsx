@@ -11,7 +11,7 @@ import { EngineWords } from "../common/engine";
 import { haltOwedWords, inProgress } from "../common/runs";
 import type { RunRead } from "./data";
 import { CostSoFar, StripLegend, statusWords } from "./Home";
-import { runEnd, runEndWords } from "./runEnd";
+import { runEnd, runEndWords, waitingFor } from "./runEnd";
 import { NoRunsYet } from "./NoRunsYet";
 import { STRIP_STATES, STRIP_WORDS, strip, stripCounts } from "./strip";
 
@@ -330,6 +330,12 @@ describe("an item a reopen superseded waits for no one", () => {
 
   it("an open item a decision can act on still waits, beside a superseded one", () => {
     expect(said(read(item("r-contract-2"), item("r-fw-1")))).toContain("Ended · 1 waiting for you");
+  });
+
+  it("only the items the status names as superseded are not counted", () => {
+    expect(waitingFor([item("r-contract-2"), item("r-fw-1")], status.superseded)).toBe(1);
+    expect(waitingFor([item("r-contract-2")], {})).toBe(1);
+    expect(waitingFor(null, status.superseded)).toBeNull();
   });
 });
 

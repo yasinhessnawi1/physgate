@@ -2,14 +2,17 @@
  * How a run that stopped ended, read from its log, its queue and the completions the server
  * reads from the record. Completion is a declaration (ARCH-051), so "Complete" is said only of a
  * run that plans a subtask declaring it: when every module but sizing's has its completion line
- * and the queue was read and holds no open item. A run without one never reads "Complete": with
- * every planned subtask merged (as many as the decomposition announced), the whole-design gate's
- * verdict a pass and nothing open, it reads "All merged · gate passed". A warn is not a pass here:
+ * and the queue was read and holds no open item a decision can act on. An item a reopen
+ * superseded is not one: nothing waits on it, and a decision on it is recorded only. A run
+ * without one never reads "Complete": with every planned subtask merged (as many as the
+ * decomposition announced), the whole-design gate's verdict a pass and nothing open, it reads
+ * "All merged · gate passed". A warn is not a pass here:
  * the harness itself accepts only "pass" (outside observe mode) as clearing the whole-design gate.
  * Anything else is "Ended", with what is left, and a module's completion withheld is named with
  * the server's own reasons. Counts are a view over the records, never a verdict.
  */
 import type { RunEvent } from "../../api/events";
+import type { QueueItem } from "../../api/queue";
 import type { ModuleCompletion, RunStatus } from "../../api/run";
 
 /** What the log says of the whole-design gate. */
@@ -41,7 +44,18 @@ const STATE_WORDS: Readonly<Record<ModuleCompletion["state"], string>> = {
   withheld: "withheld",
 };
 
-/** ``openItems`` is the queue's open count, or ``null`` when the queue could not be read. */
+/**
+ * How many of the queue's open items wait for a person, or ``null`` when the queue could not be
+ * read: every one but those a reopen superseded.
+ */
+export function waitingFor(
+  open: readonly QueueItem[] | null,
+  superseded: RunStatus["superseded"],
+): number | null {
+  return open === null ? null : open.filter((i) => !Object.hasOwn(superseded, i.itemId)).length;
+}
+
+/** ``openItems`` is what waits for a person (``waitingFor``), or ``null`` when the queue could not be read. */
 export function runEnd(
   events: readonly RunEvent[],
   openItems: number | null,
