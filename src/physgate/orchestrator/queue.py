@@ -60,9 +60,11 @@ from physgate.orchestrator.common import (
     NonEmptyStr,
     Timestamp,
     first_problem,
-    utc_now,
     utc_stamp,
 )
+
+# Exported: the clock a decision's time is written by is the one the UI stamps a view with.
+from physgate.orchestrator.common import utc_now as utc_now
 from physgate.orchestrator.escalation import CONFIDENCE_FLOOR, Decision
 from physgate.orchestrator.events import (
     ContractRuled,
