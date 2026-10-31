@@ -129,6 +129,13 @@ def test_the_offline_self_check_built_the_firmware_and_ran_the_libraries(
     assert check["libraries"]["phase_margin_deg"] == pytest.approx(28.0202, abs=1e-3)
     assert check["platformio_server"] == "3.1.0"
     assert not (env / "platformio" / ".cache").exists()
+    own = sorted(p.name for p in (REPO / "toolenv" / "servers").glob("*.py"))
+    assert written["own_servers"] == own
+    assert {"control_server.py", "mujoco_server.py"} <= set(own)
+    for name in own:
+        assert (env / "servers" / name).read_bytes() == (
+            REPO / "toolenv" / "servers" / name
+        ).read_bytes()
 
 
 def test_using_the_environment_writes_nothing_into_it(
