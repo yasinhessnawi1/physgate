@@ -219,6 +219,47 @@ describe("the ledger folds to one row per subtask, read from its latest record",
     );
   });
 
+  it.each([
+    ["choose sizing", "chose sizing's value"],
+    ["choose domain", "chose the domain's value"],
+    ["choose producer", "chose the producer's work"],
+    ["choose consumer", "chose the consumer's work"],
+  ])("a person's choice %s reads as what was chosen", (decision, says) => {
+    const decided: QueueListing = {
+      open: [],
+      decided: [
+        {
+          itemId: ITEM,
+          ts: "t",
+          decision,
+          resolvedBy: "yasin",
+          flag: null,
+          taken: null,
+          reviewTime: null,
+          decompositionDefect: false,
+        },
+      ],
+    };
+    const [control] = fold({ queue: decided });
+    expect(control === undefined ? "" : stateWords(control.state)).toBe(
+      `Decided by yasin: ${says}. Not merged.`,
+    );
+  });
+
+  it("a subtask waiting for sizing's closing pass says so, before its escalation", () => {
+    const waiting: RunStatus = { ...DONE, waiting: ["control-1"] };
+    const [control, firmware] = fold({ status: waiting });
+    expect(control === undefined ? "" : stateWords(control.state)).toBe(
+      "Waiting: sizing's closing pass is ordered to write the value a person chose.",
+    );
+    expect(firmware?.state).toEqual({ kind: "merged", commit: MERGE });
+    const html = renderToStaticMarkup(
+      <LedgerTable rows={fold({ status: waiting })} lines={LEDGER.length} mode="on" run="r" />,
+    );
+    expect(html).toContain("sizing&#x27;s closing pass is ordered");
+    expect(bannedIn(html)).toEqual([]);
+  });
+
   it("an escalation whose queue was not read claims neither waiting nor decided", () => {
     const [control] = fold({ queue: null });
     expect(control?.state).toEqual({ kind: "sent", itemId: ITEM });

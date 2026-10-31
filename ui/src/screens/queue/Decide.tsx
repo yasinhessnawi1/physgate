@@ -37,6 +37,8 @@ export function Decide({
   readonly holdsToken: boolean;
   readonly send: (verb: Verb, note: string, position?: Position) => Promise<Result<Resolved>>;
   readonly onDecided: () => void;
+  /** The item whose choice reopened a module this one is about, when a reopen superseded it. */
+  readonly supersededBy?: string | undefined;
 }) {
   const [answer, setAnswer] = useState<Result<Resolved> | null>(null);
   // The buttons and the command palette open the same confirmation, under the same rules.

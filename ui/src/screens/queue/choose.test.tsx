@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 /**
- * A choice between the two positions of an arbitration item: offered on that item alone, written
- * as the queue writes it (the verb, the position, the note), sent with its position, and said to
- * do exactly what the item says, which in this build is to be recorded.
+ * A choice between the two positions of an arbitration item or a failed contract's: offered on
+ * those items alone, written as the queue writes it (the verb, the position, the note), sent with
+ * its position, and said to do exactly what the item says, which in this build is to be recorded.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -251,8 +251,9 @@ describe("the choice is offered on an arbitration item alone", () => {
     const dialog = [...host.querySelectorAll("dialog")].find((d) => d.open);
     expect(dialog?.textContent).toContain(
       "Choose: the subtask waits while sizing's closing pass is ordered to write the domain's " +
-        "value into the graph; once that pass is merged, this attempt is judged again, with no " +
-        "new session.",
+        "value into the graph; once that pass is merged, this attempt is judged again from its " +
+        "finished session, with no new session. If the pass writes another value, the dispute " +
+        "is ruled again.",
     );
     expect(bannedIn(dialog?.textContent ?? "")).toEqual([]);
   });
@@ -305,10 +306,12 @@ describe("a failed contract's item is read with its own positions", () => {
     ).toThrow(ShapeError);
   });
 
-  it("offers no arbitration choice on a contract item", () => {
+  it("offers the contract's two positions on a contract item, and no arbitration choice", () => {
     expect(() => itemView(raw("contract", PAIR))).not.toThrow();
     const { host } = panel(itemView(raw("contract", PAIR)));
     expect(buttons(host, "Choose sizing's value")).toHaveLength(0);
     expect(buttons(host, "Choose the domain's value")).toHaveLength(0);
+    expect(buttons(host, "Choose the producer's work")).toHaveLength(1);
+    expect(buttons(host, "Choose the consumer's work")).toHaveLength(1);
   });
 });
