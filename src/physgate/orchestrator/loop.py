@@ -867,7 +867,14 @@ class Loop:
         except QueueItemMismatchError as exc:
             self._incident(None, "queue_item_mismatch", f"{exc}: {exc.context}")
             return False
-        if contract and resolution.verb is not None and not self._contract_item_holds(item):
+        # A superseded item records only: its consequence is no longer the record's to rebuild.
+        superseded = item.item_id in self.state.superseded
+        if (
+            contract
+            and resolution.verb is not None
+            and not superseded
+            and not self._contract_item_holds(item)
+        ):
             return False
         # Held to the record whole, not field by field: the item as listed must be the item the
         # loop builds from the log now, its links, finding, diff and consequence alike. Otherwise

@@ -13,7 +13,12 @@ import { LedgerTable } from "./Ledger";
 import { attemptsWords, foldLedger, stateWords, subtaskLabel } from "./ledgerRows";
 
 /** A status with no halt owed, in a run that plans no subtask declaring completion. */
-const NOT_DECLARING = { owedHalt: null, completion: { owner: false, modules: [] } } as const;
+const NOT_DECLARING = {
+  owedHalt: null,
+  completion: { owner: false, modules: [] },
+  waiting: [],
+  superseded: {},
+} as const;
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -197,6 +202,8 @@ describe("the ledger folds to one row per subtask, read from its latest record",
           resolvedBy: "yasin",
           flag: null,
           taken: null,
+          reviewTime: null,
+          decompositionDefect: false,
         },
       ],
     };

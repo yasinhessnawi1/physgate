@@ -8,7 +8,17 @@
  */
 import { requireQuantity } from "../design/quantity";
 import type { Quantity } from "../design/quantity";
-import { count, flag, list, object, oneOf, optionalCount, optionalText, text } from "./check";
+import {
+  count,
+  flag,
+  list,
+  object,
+  oneOf,
+  optionalCount,
+  optionalText,
+  seconds,
+  text,
+} from "./check";
 import { ShapeError } from "./client";
 
 export const SOURCES = [
@@ -210,6 +220,10 @@ export interface Decided {
   /** The queue's own mark for a decision written while a session ran, word for word. */
   readonly flag: string | null;
   readonly taken: Taken | null;
+  /** From when the server showed the view to the decision; ``null`` with no view on record. */
+  readonly reviewTime: Quantity | null;
+  /** Written over a minute after its view was shown: the record logs a decomposition defect. */
+  readonly decompositionDefect: boolean;
 }
 
 function taken(value: unknown): Taken | null {
@@ -224,6 +238,12 @@ function taken(value: unknown): Taken | null {
   };
 }
 
+function reviewTime(value: unknown): Quantity | null {
+  if (value === null || value === undefined) return null;
+  const q = object(value, "a review time");
+  return { value: seconds(q.value, "a review time"), unit: oneOf(q.unit, ["s"], "seconds") };
+}
+
 function decided(value: unknown): Decided {
   const d = object(value, "a decision");
   return {
@@ -233,6 +253,8 @@ function decided(value: unknown): Decided {
     resolvedBy: text(d.resolved_by, "who decided"),
     flag: optionalText(d.flag, "a decision's mark"),
     taken: taken(d.taken),
+    reviewTime: reviewTime(d.review_time),
+    decompositionDefect: d.decomposition_defect === true,
   };
 }
 
@@ -271,6 +293,8 @@ export interface ItemView {
   readonly itemSha256: string;
   readonly open: boolean;
   readonly trajectories: readonly TrajectoryView[];
+  /** The id the server stamped this view under, which a decision on it sends back; never a time. */
+  readonly viewId: string | null;
 }
 
 const DIGEST = /^[0-9a-f]{64}$/;
@@ -292,6 +316,7 @@ export function itemView(value: unknown): ItemView {
         status: oneOf(t.status, STATUSES, "a seal status"),
       };
     }),
+    viewId: optionalText(view.view_id, "a view id"),
   };
 }
 
@@ -347,7 +372,10 @@ export function resolved(value: unknown): Resolved {
   };
 }
 
-/** The body of a decision request: the item, the verb, its position and note, and what was shown. */
+/**
+ * The body of a decision request: the item, the verb, its position and note, what was shown, and
+ * the id the server stamped the view under. No time: when it was shown is the server's own record.
+ */
 export function decisionRequest(
   view: ItemView,
   verb: Verb,
@@ -363,5 +391,6 @@ export function decisionRequest(
       item_sha256: view.itemSha256,
       trajectories: view.trajectories.map((t) => t.status),
     },
+    ...(view.viewId === null ? {} : { view_id: view.viewId }),
   });
 }

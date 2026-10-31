@@ -643,3 +643,26 @@ def test_a_dispute_that_no_longer_holds_the_chosen_value_is_ruled_as_before(tmp_
         if isinstance(e, ArbitrationDecided)
     ]
     assert ruled == [("peak_current", "queue"), ("supply_voltage", "person")]
+
+
+def test_the_status_names_each_subtask_waiting_for_the_closing_pass(tmp_path: Path) -> None:
+    import shutil
+
+    from ui_rig import context_over, fake_ui
+
+    from physgate.ui import readers
+
+    rig = resized(tmp_path)
+    rows = (rig.run_dir / "events.jsonl").read_bytes().splitlines(keepends=True)
+    back = next(i for i, r in enumerate(rows) if json.loads(r)["kind"] == "attempt_returned")
+    root = tmp_path / "status-root"
+    for name, upto in (("waits", back), ("returned", len(rows))):
+        (root / name).mkdir(parents=True)
+        shutil.copy(rig.run_dir / "run.json", root / name / "run.json")
+        (root / name / "events.jsonl").write_bytes(b"".join(rows[:upto]))
+    context = context_over(root, ui_root=fake_ui(tmp_path / "checkout"))
+    said = {
+        name: json.loads(readers.status(context, {"root": "0", "name": name}).body).get("waiting")
+        for name in ("waits", "returned")
+    }
+    assert said == {"waits": ["s1"], "returned": []}

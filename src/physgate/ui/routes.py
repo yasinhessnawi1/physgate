@@ -40,6 +40,7 @@ from physgate.ui.assets import Assets
 from physgate.ui.exceptions import PathRefusedError, UIError
 from physgate.ui.guard import RouteKind, require_registered
 from physgate.ui.paths import Allowlist
+from physgate.ui.views import ViewRegister
 
 #: The patterns a path parameter may take. Each excludes a separator, a NUL and a
 #: leading dot, so no parameter can name a parent directory or a hidden file.
@@ -78,12 +79,14 @@ class Context:
     """What every handler is given: the allowlist, the built app, and who acts, if anyone.
 
     ``operator`` is the name the server was started with; an action is recorded as theirs.
-    Without one, every action route is refused.
+    Without one, every action route is refused. ``views`` is the register of the item views this
+    server rendered, which a decision's review time starts from.
     """
 
     allowlist: Allowlist
     assets: Assets
     operator: str | None = None
+    views: ViewRegister = field(default_factory=ViewRegister)
 
 
 _body: ContextVar[bytes | None] = ContextVar("physgate_ui_request_body", default=None)

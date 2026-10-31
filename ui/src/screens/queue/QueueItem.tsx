@@ -16,7 +16,14 @@ import { type Source, sourceAttribute } from "../../design/components/data/sourc
 import { Term } from "../../design/components/help/Term";
 import { StatusTag } from "../../design/components/status/StatusTag";
 import { nodeLabel, quantityLabel } from "../../words/humanise";
-import { consequenceWords, queueHeadline, SOURCE_WORDS, takenWords } from "../../words/queue";
+import {
+  consequenceWords,
+  queueHeadline,
+  reviewTimeWords,
+  SOURCE_WORDS,
+  supersededWords,
+  takenWords,
+} from "../../words/queue";
 import { clockTime, utc } from "../../words/runs";
 import { ActorTag } from "../common/ActorTag";
 import { SEAL_TAG, sealLine } from "./model";
@@ -26,12 +33,15 @@ export function QueueItem({
   decided,
   source,
   subtaskName,
+  supersededBy,
   children,
 }: {
   readonly view: ItemView;
   readonly decided: Decided | undefined;
   readonly source: Source;
   readonly subtaskName: string;
+  /** The item whose choice reopened a module this one is about, when a reopen superseded it. */
+  readonly supersededBy?: string | undefined;
   readonly children?: ReactNode;
 }) {
   const { item } = view;
@@ -161,6 +171,8 @@ export function QueueItem({
                 <dd className="pg-queue-taken">{takenWords(decided.taken)}</dd>
               </>
             )}
+            <dt>Time to decide</dt>
+            <dd className="pg-queue-review-time">{reviewTimeWords(decided)}</dd>
           </dl>
           {decided.flag !== null && (
             <p className="pg-queue-flag" role="note">
@@ -169,7 +181,14 @@ export function QueueItem({
           )}
         </section>
       ) : (
-        children
+        <>
+          {supersededBy !== undefined && (
+            <p className="pg-queue-superseded" role="note">
+              {supersededWords(supersededBy)}
+            </p>
+          )}
+          {children}
+        </>
       )}
     </section>
   );

@@ -13,6 +13,7 @@
  */
 import type {
   Consequence,
+  Decided,
   OnChoose,
   Position,
   QueueSource,
@@ -251,7 +252,38 @@ const NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
   order_too_long:
     "Recorded only: what the reopened attempt would be told is longer than its reviewer can " +
     "read whole, so nothing was reopened.",
+  superseded:
+    "Recorded only: a choice on another item reopened a module this item is about, so what it " +
+    "said was no longer true.",
 };
+
+/** The note on an open item a reopen superseded, naming the item whose choice reopened it. */
+export function supersededWords(by: string): string {
+  return (
+    `A choice on ${by} reopened a module this item is about, so what it says is no longer ` +
+    "true. A decision on it is recorded only. The run lists the contract again if it still " +
+    "fails once that module is merged again."
+  );
+}
+
+/** How long a decision took, from when this server showed its view; or why none is recorded. */
+export function reviewTimeWords(d: Decided): string {
+  if (d.reviewTime === null)
+    return (
+      "None recorded: the decision was not made on a view this server showed and still held " +
+      "(it was made on the command line, or the server had started again)."
+    );
+  const whole = Math.round(Number(d.reviewTime.value));
+  const took =
+    whole < 60
+      ? `${String(whole)} s`
+      : `${String(Math.floor(whole / 60))} min ${String(whole % 60)} s`;
+  const said = `${took}, from when this server showed the item to when the decision was written.`;
+  return d.decompositionDefect
+    ? `${said} Over one minute: the record marks the item a decomposition defect, a sign the ` +
+        "design was split too coarsely to decide in a minute."
+    : said;
+}
 
 /** What the run did with a decision, from its own record of taking it. */
 export function takenWords(t: Taken): string {

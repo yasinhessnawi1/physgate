@@ -654,6 +654,9 @@ def _contract_effect(
         # In either mode: a decision that closes the item is bound to the line the person saw.
         msg = "the item's line is not the one the decision was taken on"
         raise QueueItemMismatchError(msg, item=item.item_id)
+    if item.item_id in state.superseded:
+        # What the item said is no longer true: still bound to the line shown, it records only.
+        return Taken(effect="none", acts=False, why_not=hold or "superseded")
     if item.consequence is None or resolution.verb is None or resolution.shown_sha256 is None:
         unbound: WhyNot = "legacy_item" if item.consequence is None else "not_bound"
         return Taken(effect="none", acts=False, why_not=hold or unbound)
@@ -798,7 +801,8 @@ def _require_contract_taken(state: RunState, event: DecisionTaken) -> None:
     It names no subtask and no attempt. A choice reopens only the subtask the record gives, where
     the record gives a reopen, and that only where its order fits one read; anything else records
     only: for the item's own reason in a run that acts, because the item says nothing of a verb's
-    effect in one that records only, or, held, until an operator confirms it.
+    effect in one that records only, because another item's reopen superseded it, or, held, until
+    an operator confirms it.
     """
     if event.subtask_id is not None or (event.attempt, event.attempt_commit) != (None, None):
         msg = "a decision on a contract item names no subtask and no attempt"
@@ -816,7 +820,9 @@ def _require_contract_taken(state: RunState, event: DecisionTaken) -> None:
     effect: DecisionEffect = "none"
     why: WhyNot | None = "legacy_item"
     reopens: str | None = None
-    if event.verb is None:
+    if event.item_id in state.superseded:
+        why = "superseded"
+    elif event.verb is None:
         why = event.why_not if event.why_not in ("not_bound", "legacy_item") else "not_bound"
     elif state.acts:
         if event.shown_sha256 is None:

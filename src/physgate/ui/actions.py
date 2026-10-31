@@ -8,9 +8,10 @@ written under the same lock and the same checks. Nothing else is written, and th
 What the request carries, and nothing more: the item, approve, reject or choose with the
 position chosen, a note (required to reject), and what the page showed of the item (its line's
 digest and each trajectory's seal status), which the decision function checks again under its
-lock. Who decided is the operator the server was started with, never a field of the request. The
-run directory is reached by the walk from its root that no swap can redirect, and the decision
-function opens every file beneath it.
+lock, and the id the server gave that view, never a time: the server's register says when it was
+shown, and that goes into the decision's line (ARCH-130). Who decided is the operator the server
+was started with, never a field of the request. The run directory is reached by the walk from its
+root that no swap can redirect, and the decision function opens every file beneath it.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from physgate.orchestrator.common import NonEmptyStr, first_problem
 from physgate.orchestrator.events import Position
@@ -27,6 +28,7 @@ from physgate.orchestrator.queue import MAX_NOTE, PersonDecision, ShownItem, Ver
 from physgate.ui import readers
 from physgate.ui.exceptions import UIError
 from physgate.ui.routes import Context, Response, error_response, json_response, request_body
+from physgate.ui.views import VIEW_ID_PATTERN
 
 
 class DecisionRequest(BaseModel):
@@ -39,6 +41,7 @@ class DecisionRequest(BaseModel):
     position: Position | None = None
     note: Annotated[str, Field(max_length=MAX_NOTE)]
     shown: ShownItem
+    view_id: Annotated[str, StringConstraints(pattern=VIEW_ID_PATTERN)] | None = None
 
 
 def decide(context: Context, params: Mapping[str, str]) -> Response:
@@ -70,6 +73,9 @@ def decide(context: Context, params: Mapping[str, str]) -> Response:
             400, UIError("the request is not a decision", reason=first_problem(exc))
         )
     run_dir = readers.run_dir_of(context, params)
+    shown_at = context.views.shown_at(
+        request.view_id, run_dir, request.item_id, request.shown.item_sha256
+    )
     try:
         with context.allowlist.opened_directory(run_dir) as fd:
             record = record_decision(
@@ -78,6 +84,7 @@ def decide(context: Context, params: Mapping[str, str]) -> Response:
                 person=person,
                 resolved_by=operator,
                 shown=request.shown,
+                shown_at=shown_at,
                 dir_fd=fd,
             )
     except QueueError as exc:

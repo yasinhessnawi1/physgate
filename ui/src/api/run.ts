@@ -176,6 +176,10 @@ export interface RunStatus {
     readonly owner: boolean;
     readonly modules: readonly ModuleCompletion[];
   };
+  /** The subtasks that wait for sizing's closing pass, in plan order. */
+  readonly waiting: readonly string[];
+  /** Each contract item a reopen superseded, by id: the item whose decision reopened its module. */
+  readonly superseded: Readonly<Record<string, string>>;
 }
 
 function moduleCompletion(value: unknown): ModuleCompletion {
@@ -219,6 +223,13 @@ export function runStatus(value: unknown): RunStatus {
       owner: flag(completion.owner, "whether a subtask declares completion"),
       modules: list(completion.modules, "modules").map(moduleCompletion),
     },
+    waiting: list(s.waiting ?? [], "the waiting subtasks").map((w) => text(w, "a subtask id")),
+    superseded: Object.fromEntries(
+      Object.entries(object(s.superseded ?? {}, "the superseded items")).map(([k, v]) => [
+        k,
+        text(v, "an item id"),
+      ]),
+    ),
   };
 }
 

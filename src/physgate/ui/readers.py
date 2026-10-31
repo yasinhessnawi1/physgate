@@ -272,7 +272,11 @@ def _completion(state: RunState) -> dict[str, object]:
 
 
 def status(context: Context, params: Mapping[str, str]) -> Response:
-    """Where the run stands: the loop's next step, a halt owed or taken, and each completion."""
+    """Where the run stands: the loop's next step, a halt owed or taken, and each completion.
+
+    Also each subtask that waits for sizing's closing pass, and each contract item a reopen
+    superseded with the item whose decision reopened its module, as replay holds them.
+    """
     run_dir = run_dir_of(context, params)
     state = replay(read_events(_file(context, run_dir, EVENTS)))
     step = state.next_step()
@@ -292,6 +296,8 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             if owed is None
             else {"cause": owed.cause, "subtask_id": owed.subtask_id, "detail": owed.detail},
             "completion": _completion(state),
+            "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
+            "superseded": dict(state.superseded),
         }
     )
 
@@ -470,11 +476,16 @@ def queue(context: Context, params: Mapping[str, str]) -> Response:
 
 
 def queue_item(context: Context, params: Mapping[str, str]) -> Response:
-    """One item as a person is shown it: open or not, its digest, each trajectory's seal status."""
+    """One item as a person is shown it: open or not, its digest, each trajectory's seal status.
+
+    The view is stamped in the server's register under a new id, sent with it: a decision taken on
+    it sends the id back, and its review time runs from this stamp (ARCH-130).
+    """
     run_dir = run_dir_of(context, params)
     _queue_files(context, run_dir)
     view = item_view(run_dir, int(params["position"]), read_stream=_streams(context, run_dir))
     if view is None:
         msg = "the run's queue holds no item at that position"
         raise NotFoundError(msg, position=params["position"])
-    return json_response(view.model_dump(mode="json"))
+    view_id = context.views.shown(run_dir, view.item.item_id, view.item_sha256)
+    return json_response({**view.model_dump(mode="json"), "view_id": view_id})

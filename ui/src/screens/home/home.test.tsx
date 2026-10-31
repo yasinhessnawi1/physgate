@@ -14,7 +14,12 @@ import { NoRunsYet } from "./NoRunsYet";
 import { STRIP_STATES, STRIP_WORDS, strip, stripCounts } from "./strip";
 
 /** A status with no halt owed, in a run that plans no subtask declaring completion. */
-const NOT_DECLARING = { owedHalt: null, completion: { owner: false, modules: [] } } as const;
+const NOT_DECLARING = {
+  owedHalt: null,
+  completion: { owner: false, modules: [] },
+  waiting: [],
+  superseded: {},
+} as const;
 
 const line = (id: string, attempts: number, mergeCommit: string | null = null): LedgerLine => ({
   id,
@@ -300,6 +305,8 @@ describe("a run that owes a halt", () => {
     halted: null,
     owedHalt: { cause: "declaration_mismatch", subtask: null },
     completion: NOT_DECLARING.completion,
+    waiting: [],
+    superseded: {},
   };
 
   it("is not in progress, and says a halt is owed with its cause", () => {

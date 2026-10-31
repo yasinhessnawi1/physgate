@@ -13,6 +13,7 @@ The route table keeps its one action.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -297,3 +298,22 @@ def test_a_view_stamp_belongs_to_a_decision_taken_on_a_view() -> None:
     bare = QueueResolution.model_validate({**BOUND, "ts": "2026-10-31T09:00:10.000000Z"})
     assert "shown_at" not in bare.model_dump_json()
     assert "decomposition_defect" not in bare.model_dump_json()
+
+
+def test_the_register_holds_its_limit_dropping_the_oldest_and_matches_whole(clock: Clock) -> None:
+    from physgate.ui.views import MAX_VIEWS, VIEW_ID_PATTERN, ViewRegister
+
+    assert MAX_VIEWS == 4096
+    views = ViewRegister(limit=2)
+    run, digest = Path("/runs/r"), "a" * 64
+    first = views.shown(run, "i1", digest)
+    clock.now = T0 + timedelta(seconds=1)
+    second = views.shown(run, "i2", digest)
+    assert re.fullmatch(VIEW_ID_PATTERN, first) and first != second
+    assert views.shown_at(first, run, "i1", digest) == T0
+    views.shown(run, "i3", digest)
+    assert views.shown_at(first, run, "i1", digest) is None  # the oldest, dropped
+    assert views.shown_at(second, run, "i2", digest) == T0 + timedelta(seconds=1)
+    for other in ((Path("/runs/s"), "i2", digest), (run, "i1", digest), (run, "i2", "b" * 64)):
+        assert views.shown_at(second, *other) is None
+    assert views.shown_at(None, run, "i2", digest) is None

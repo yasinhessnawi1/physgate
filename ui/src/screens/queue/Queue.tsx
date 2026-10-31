@@ -11,6 +11,7 @@ import { runEvent } from "../../api/events";
 import {
   decisionRequest,
   type ItemView,
+  itemView,
   type Position,
   queueListing,
   resolved,
@@ -120,6 +121,15 @@ export default function Queue({ setHeader, query }: ViewProps) {
     base === null || total === null ? null : () => allItems(base, total),
     `${String(base)}/items/${String(total)}#${String(version)}`,
   );
+  // The chosen item's view is read again when it is chosen: the server stamps when it showed it,
+  // and a decision's review time runs from that stamp, not from when the list was read.
+  const picked = views?.ok === true ? chosenItem(views.value, query.get("item")) : undefined;
+  const fresh = useResult(
+    base === null || picked === undefined || !picked.open
+      ? null
+      : () => getJson(`${base}/queue/items/${String(picked.position)}`, itemView),
+    `${String(base)}/items/${String(picked?.position)}/shown#${String(version)}`,
+  );
   const events = useLines(base === null ? null : `${base}/events`, runEvent);
   const operator = pageOperator();
   const configValue = config?.ok === true ? config.value : undefined;
@@ -191,7 +201,9 @@ export default function Queue({ setHeader, query }: ViewProps) {
     );
   const names =
     events.result?.ok === true ? subtaskNames(events.result.value) : new Map<string, string>();
-  const item = chosenItem(views.value, query.get("item"));
+  const listed = chosenItem(views.value, query.get("item"));
+  const item =
+    fresh?.ok === true && fresh.value.item.itemId === listed?.item.itemId ? fresh.value : listed;
   const decided =
     item === undefined
       ? undefined
@@ -222,6 +234,9 @@ export default function Queue({ setHeader, query }: ViewProps) {
             decided={decided}
             source={runSource(config.value)}
             subtaskName={names.get(item.item.subtaskId) ?? "The whole design"}
+            supersededBy={
+              status?.ok === true ? status.value.superseded[item.item.itemId] : undefined
+            }
           >
             <Decide
               key={`${item.item.itemId}#${String(version)}`}

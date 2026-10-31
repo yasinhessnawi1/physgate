@@ -350,6 +350,8 @@ class RunState:
         #: each contract item was raised for, by item id.
         self.contract_rulings: dict[int, list[ContractRuled]] = {}
         self.contract_items: dict[str, ContractTested] = {}
+        #: Each contract item a reopen superseded, by id: the item whose decision reopened it.
+        self.superseded: dict[str, str] = {}
         #: The system requirements the plan allocates to integration, and the brief's own words for
         #: each one given by number, as the decomposition's line records them.
         self.system_requirements: tuple[SystemRequirement, ...] | None = None
@@ -891,15 +893,16 @@ class RunState:
         their diffs clean), and a retest after every later clean merge in either side's module
         directory, as sizing's closing pass is one: the first such pair, in the recorded order.
         """
-        for pair in self.contract_pairs or ():
-            sides = [self.subtasks[side.subtask_id] for side in (pair.producer, pair.consumer)]
-            if any(sub.status != "done" for sub in sides):
-                continue
-            latest = self.latest_contract(pair)
-            merged = max(self.merged_at[sub.plan.module_dir] for sub in sides)
-            if latest is None or latest.seq < merged:
-                return pair
-        return None
+        return next((pair for pair in self.contract_pairs or () if self._owes(pair)), None)
+
+    def _owes(self, pair: ContractPair) -> bool:
+        """Whether ``pair`` is owed a result: both sides done, and a merge since its latest."""
+        sides = [self.subtasks[side.subtask_id] for side in (pair.producer, pair.consumer)]
+        if any(sub.status != "done" for sub in sides):
+            return False
+        latest = self.latest_contract(pair)
+        merged = max(self.merged_at[sub.plan.module_dir] for sub in sides)
+        return latest is None or latest.seq < merged
 
     def latest_contract(self, pair: ContractPair) -> ContractTested | None:
         """The pair's latest contract result on the record, if it has one."""
@@ -951,6 +954,9 @@ class RunState:
         result failed with a clause ruled for a person and has no item, while the pair has no
         item a decision has not been taken on. Whatever results of other pairs landed after it:
         a failure held back while the pair's item was open gets its own once that is decided.
+        An item a reopen superseded counts as none, once neither module of the pair runs: the
+        retest the reopened merge owes comes first, and a result it leaves failing gets a new
+        round made from what is true then.
         """
         if self.owed_ruling() is not None:
             return None
@@ -960,9 +966,14 @@ class RunState:
                 continue
             if not any(line.level == "queue" for line in self.rulings_of(tested)):
                 continue
-            if any(result.seq == tested.seq for result in self.contract_items.values()):
+            raised = [i for i, result in self.contract_items.items() if result.seq == tested.seq]
+            if any(i not in self.superseded for i in raised):
                 continue
             if any(self.undecided(item) for item in self.items_of(pair)):
+                continue
+            sides = (pair.producer.subtask_id, pair.consumer.subtask_id)
+            runs = any(self.subtasks[s].status in ("active", "waiting") for s in sides)
+            if raised and (runs or self._owes(pair)):
                 continue
             return tested
         return None
@@ -976,7 +987,13 @@ class RunState:
         return [i for i in self.contract_items if self.pair_of(i) == pair]
 
     def undecided(self, item_id: str) -> bool:
-        """No decision was taken on the item, or the one taken is held and not yet confirmed."""
+        """No decision was taken on the item, or the one taken is held and not yet confirmed.
+
+        An item a reopen superseded is never undecided: what it said is no longer true, so it holds
+        no wait and no completion, and a decision on it records only.
+        """
+        if item_id in self.superseded:
+            return False
         taken = self.taken.get(item_id)
         held = taken is not None and taken.why_not == "held_os_layer_off"
         return taken is None or (held and item_id not in self.confirmed)
@@ -1248,6 +1265,12 @@ class RunState:
             _refuse("a reopen of another commit than the subtask's last merge")
         if event.attempt != last.number + 1:
             _refuse("a reopen at another attempt than the subtask's next")
+        # Every other item on a pair of the reopened module said what this reopen changes.
+        for item_id, tested in self.contract_items.items():
+            pair = tested.result.pair
+            sides = (pair.producer.subtask_id, pair.consumer.subtask_id)
+            if item_id != event.item_id and event.subtask_id in sides and self.undecided(item_id):
+                self.superseded[item_id] = event.item_id
         sub.status = "active"
         sub.next_resolve = event.attempt
         sub.fix_next = last.number == REPAIR_BUDGET

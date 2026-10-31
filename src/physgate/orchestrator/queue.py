@@ -38,7 +38,7 @@ import time
 import unicodedata
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -281,12 +281,35 @@ def note_problem(note: str) -> str | None:
     return None
 
 
+#: The longest a person may take to decide an item before it is logged as a decomposition
+#: defect: ARCH-130 asks for a median review under one minute.
+REVIEW_LIMIT = timedelta(minutes=1)
+
+
+def review_time(resolution: QueueResolution) -> timedelta | None:
+    """How long the person took: from the server's showing of the view to the decision's line.
+
+    ``None`` for a decision with no view on record, never zero: the gap from the item's listing
+    to the decision is no review time, since it counts every hour the item waited.
+    """
+    if resolution.shown_at is None:
+        return None
+    return _moment(resolution.ts) - _moment(resolution.shown_at)
+
+
+def _moment(stamp: str) -> datetime:
+    return datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
+
+
 class QueueResolution(_Record):
     """A person's decision on one item.
 
     ``verb``, ``note`` and ``shown_sha256`` are written for a decision taken with a verb on a
     view of the item (ARCH-133); a free-text decision, and every line written before they
-    existed, carries none of them and binds to nothing.
+    existed, carries none of them and binds to nothing. ``shown_at`` is when the operator UI's
+    server showed the person that view, from its own register, and a decision written over a
+    minute after it is marked ``decomposition_defect`` (ARCH-130); a decision with no view on
+    record (the command line's) carries neither, and has no review time.
     """
 
     kind: Literal["resolution"] = "resolution"
@@ -296,6 +319,8 @@ class QueueResolution(_Record):
     position: Position | None = None
     note: NonEmptyStr | None = None
     shown_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
+    shown_at: Timestamp | None = None
+    decomposition_defect: Literal[True] | None = None
 
     @model_validator(mode="after")
     def _one_meaning(self) -> QueueResolution:
@@ -304,9 +329,21 @@ class QueueResolution(_Record):
         # was taken on and its text is exactly the verb's; with no verb, nothing binds.
         if (problem := position_problem(self.verb, self.position)) is not None:
             raise ValueError(problem)
+        took = review_time(self)
+        if took is not None and took < timedelta(0):
+            msg = "a view is shown before the decision taken on it"
+            raise ValueError(msg)
+        if (took is not None and took > REVIEW_LIMIT) != (self.decomposition_defect is not None):
+            msg = (
+                "a decision is marked a decomposition defect exactly when it was written over one "
+                "minute after its view was shown"
+            )
+            raise ValueError(msg)
         if self.verb is None:
-            if self.note is not None or self.shown_sha256 is not None:
-                msg = "a note or a view's digest belongs to a decision with a verb"
+            if (self.note, self.shown_sha256, self.shown_at) != (None, None, None):
+                msg = (
+                    "a note, a view's digest or when it was shown belongs to a decision with a verb"
+                )
                 raise ValueError(msg)
             return self
         if self.shown_sha256 is None:
@@ -326,7 +363,14 @@ class QueueResolution(_Record):
     @model_serializer(mode="wrap")
     def _omit_unbound_fields(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for name in ("verb", "position", "note", "shown_sha256"):
+        for name in (
+            "verb",
+            "position",
+            "note",
+            "shown_sha256",
+            "shown_at",
+            "decomposition_defect",
+        ):
             if data.get(name) is None:
                 data.pop(name, None)
         return data
@@ -1267,7 +1311,13 @@ def queue_listing(
             sid for start, end, sid in windows if start <= offset and (end is None or offset < end)
         ]
         flag = f"made while session {during[0]} ran; confirm" if during else None
-        entry: dict[str, object] = {**decision.model_dump(), "flag": flag}
+        took = review_time(decision)
+        entry: dict[str, object] = {
+            **decision.model_dump(),
+            "flag": flag,
+            # Null for a decision no server's view is on record for: the command line's.
+            "review_time": None if took is None else {"value": took.total_seconds(), "unit": "s"},
+        }
         if decision.item_id in taken:
             # What the run did with it, from its own record; absent until it takes the decision,
             # and in every run that only records, whose listing is as it always was.
@@ -1597,6 +1647,7 @@ def record_decision(
     resolved_by: str,
     clock: Callable[[], datetime] | None = None,
     shown: ShownItem | None = None,
+    shown_at: datetime | None = None,
     dir_fd: int | None = None,
 ) -> QueueResolution:
     """Record a person's decision on an open item: the one function that writes a decision.
@@ -1622,6 +1673,11 @@ def record_decision(
     held its seal; a choice of sizing's position binds to any view, as a reject does. An approve
     of a blocked review is refused unless its note says how the blocked check is decided.
 
+    ``shown_at`` is when the operator UI's server showed the view ``shown`` names, from its own
+    register; it is written into the same line, marked a decomposition defect when the decision
+    comes over a minute after it (ARCH-130). Only a bound decision carries one, and none that the
+    clock would put after the decision: the review time is then null, never negative.
+
     A refusal writes nothing. ``run_dir`` also names the files in a refusal.
 
     Raises:
@@ -1637,16 +1693,25 @@ def record_decision(
     if person is not None and shown is None:
         msg = "a decision with a verb is bound to the view it was taken on, and none was given"
         raise QueueError(msg, item=item_id)
+    now = (clock or utc_now)()
+    if person is None or shown_at is None or shown_at > now:
+        shown_at = None
+    late = (
+        shown_at is not None
+        and _moment(utc_stamp(now)) - _moment(utc_stamp(shown_at)) > REVIEW_LIMIT
+    )
     try:
         record = QueueResolution(
             item_id=item_id,
-            ts=utc_stamp((clock or utc_now)()),
+            ts=utc_stamp(now),
             decision=person.text() if person is not None else str(decision),
             resolved_by=resolved_by,
             verb=person.verb if person is not None else None,
             position=person.position if person is not None else None,
             note=person.note if person is not None else None,
             shown_sha256=shown.item_sha256 if person is not None and shown is not None else None,
+            shown_at=None if shown_at is None else utc_stamp(shown_at),
+            decomposition_defect=True if late else None,
         )
     except ValidationError as exc:
         msg = "the decision is not one the queue can record"

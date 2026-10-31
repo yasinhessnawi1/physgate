@@ -178,6 +178,8 @@ describe("the records are held to their shapes", () => {
           resolved_by: "yasin",
           flag: "made while session sess-7 ran; confirm",
           taken: null,
+          reviewTime: null,
+          decompositionDefect: false,
         },
       ],
     });
@@ -326,6 +328,8 @@ describe("the item shows the five things, and every seal status apart", () => {
           resolvedBy: "yasin",
           flag: "made while session still running or not yet resumed ran; confirm",
           taken: null,
+          reviewTime: null,
+          decompositionDefect: false,
         }}
         source={SOURCE}
         subtaskName="Subtask 1"

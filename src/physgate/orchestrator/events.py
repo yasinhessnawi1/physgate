@@ -602,7 +602,9 @@ DecisionEffect = Literal["merge", "retry", "fix", "end_subtask", "resize", "reop
 #: verb, or no view. ``legacy_item``: an item that says nothing of what a verb does.
 #: ``held_os_layer_off``: written while a session ran without the OS layer, so its own shell
 #: could have written it; it acts once the operator confirms it. ``order_too_long``: a choice that
-#: would reopen a module whose order its reviewer could not read whole.
+#: would reopen a module whose order its reviewer could not read whole. ``superseded``: a
+#: decision on a contract item another item's reopen superseded, since what it said is no longer
+#: true.
 WhyNot = Literal[
     "record_only_source",
     "last_rejection_automated",
@@ -612,6 +614,7 @@ WhyNot = Literal[
     "legacy_item",
     "held_os_layer_off",
     "order_too_long",
+    "superseded",
 ]
 
 
