@@ -1160,26 +1160,9 @@ def start_run(
     if outcome.ok and outcome.plan is not None:
         # Before anything is written: a refusal here leaves no run record, no run
         # branch and no worktree behind, so the same run directory can be used again.
-        planned = _planned_subtasks(outcome.plan, config)
-        pairs = _contract_pairs(outcome.plan, planned)
-        words = _brief_words(outcome.plan, brief)
-        try:
-            curated = read_library(library, (one.entry.assigned_role for one in planned))
-        except LibraryError as exc:
-            raise DecompositionError(str(exc), **exc.context) from None
-        # The series writer goes with the library: a role's scripts import it from
-        # .physgate/lib, and the run branch holds the very bytes the harness ships.
-        curated.update(series_library())
-        _require_library_fits(target_repo, config.target_head, curated)
-        # A contract's file is named by its node's id, so an id that is no node id would
-        # name a file outside the contracts' directory; the store would refuse it only
-        # after the specifications were committed.
-        for node in outcome.plan.interface_nodes:
-            try:
-                validate_node_id(node.id)
-            except MalformedNodeIdError as exc:
-                msg = "an interface node's id is not a node id"
-                raise DecompositionError(msg, node=node.id[:64], reason=str(exc)) from None
+        planned, pairs, words, curated = require_startable(
+            outcome.plan, config=config, target_repo=target_repo, library=library, brief=brief
+        )
     store_root = run_dir / "store"
     record = RunRecord(config, run_dir)
     spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
@@ -1244,6 +1227,47 @@ def start_run(
         reviewed=reviewed,
     )
     return record
+
+
+def require_startable(
+    plan: IntegratedPlan | Plan,
+    *,
+    config: RunConfig,
+    target_repo: Path,
+    library: Path | None,
+    brief: str | None,
+) -> tuple[
+    list[_Issued], tuple[ContractPair, ...] | None, tuple[CriterionWords, ...], dict[Path, bytes]
+]:
+    """What a run is started from, its plan held to every rule it is refused by before a write.
+
+    The planned subtasks, the contract pairs, the brief's words and the curated library. Called
+    by ``decompose`` before the plan's review is spent, and by :func:`start_run` before it writes.
+
+    Raises:
+        DecompositionError: as :func:`start_run` raises it before anything is written.
+    """
+    planned = _planned_subtasks(plan, config)
+    pairs = _contract_pairs(plan, planned)
+    words = _brief_words(plan, brief)
+    try:
+        curated = read_library(library, (one.entry.assigned_role for one in planned))
+    except LibraryError as exc:
+        raise DecompositionError(str(exc), **exc.context) from None
+    # The series writer goes with the library: a role's scripts import it from
+    # .physgate/lib, and the run branch holds the very bytes the harness ships.
+    curated.update(series_library())
+    _require_library_fits(target_repo, config.target_head, curated)
+    # A contract's file is named by its node's id, so an id that is no node id would
+    # name a file outside the contracts' directory; the store would refuse it only
+    # after the specifications were committed.
+    for node in plan.interface_nodes:
+        try:
+            validate_node_id(node.id)
+        except MalformedNodeIdError as exc:
+            msg = "an interface node's id is not a node id"
+            raise DecompositionError(msg, node=node.id[:64], reason=str(exc)) from None
+    return planned, pairs, words, curated
 
 
 def _brief_words(plan: Plan, brief: str | None) -> tuple[CriterionWords, ...]:

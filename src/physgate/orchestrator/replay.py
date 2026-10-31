@@ -304,6 +304,8 @@ class RunState:
         self.reviews_plan = False
         self.plan_sha256: str | None = None
         self.design_review: DesignReviewRan | None = None
+        #: Whom the tokens between the plan and its review's line are attributed to.
+        self.review_tokens: set[str] = set()
         self.order: list[str] = []
         self.subtasks: dict[str, SubtaskState] = {}
         self.halted: Halted | None = None
@@ -413,6 +415,11 @@ class RunState:
         if isinstance(event, Halted):
             self.halted = self.last_halt = event
             return
+        reviewing = (
+            self.reviews_plan and self.design_review is None and self.plan_sha256 is not None
+        )
+        if isinstance(event, TokensUsed) and reviewing:  # after the plan: what its review spent
+            self.review_tokens.add(event.attribution)
         if isinstance(
             event,
             LeftoverStopped
@@ -670,11 +677,9 @@ class RunState:
             _refuse("a plan's review follows the plan it names")
         if event.plan_sha256 != self.plan_sha256:
             _refuse("a plan's review names another plan than the run recorded")
-        dispatched = self.integration is not None or any(
-            sub.attempts for sub in self.subtasks.values()
-        )
-        if dispatched:
-            _refuse("a plan's review comes before any dispatch")
+        ending = event.result or event.unavailable
+        if self.review_tokens - {f"reviewer:{(ending.session_id if ending else None) or 'none'}"}:
+            _refuse("a plan's review's tokens are attributed to the session its line names")
         self.design_review = event
 
     def _plan(self, event: SubtaskPlanned) -> None:

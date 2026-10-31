@@ -832,6 +832,16 @@ class DesignUnavailable(BaseModel):
     detail: NonEmptyStr
     session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")] | None
     reviewer_model: NonEmptyStr | None
+    #: What the review found the specification lacks, as an attempt's no-verdict line keeps it;
+    #: left out when it found nothing, so such a line keeps its bytes.
+    spec_defects: tuple[SpecDefect, ...] = ()
+
+    @model_serializer(mode="wrap")
+    def _omit_none_found(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.spec_defects:
+            data.pop("spec_defects", None)
+        return data
 
 
 class DesignReviewRan(_Event):

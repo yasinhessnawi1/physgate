@@ -51,6 +51,7 @@ from physgate.orchestrator.decompose import (
     call,
     plan_sha256,
     require_fresh,
+    require_startable,
     start_run,
 )
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
@@ -567,6 +568,50 @@ def _library_root() -> Path | None:
     return harness_root()
 
 
+def _install_bin(
+    install: Path, run_dir: Path | None = None
+) -> tuple[Path, Literal["checked", "built"], float]:
+    """The installation's binary: checked against its build, and the run's record, or built.
+
+    Returns the binary, which of the two was done, and how many seconds it took.
+    """
+    started = time.monotonic()
+    if not install.exists():
+        return prepare_install(install, _project_root()), "built", time.monotonic() - started
+    require_current(install, _project_root())
+    if run_dir is not None:
+        require_recorded_manifest(install, _recorded_manifest(run_dir, install))
+    return install / "bin" / "physgate", "checked", time.monotonic() - started
+
+
+def _reviewer_setup(
+    args: argparse.Namespace,
+    config: RunConfig,
+    credential: Credential,
+    review_root: Path,
+    install_bin: Path,
+) -> ReviewerSetup:
+    """What a run's reviewers are built from, their rubrics read from the source checkout.
+
+    Raises:
+        ReviewerNotRegisteredError: there is no checkout to read the rubrics from.
+    """
+    library = _library_root()
+    if library is None:
+        msg = "the reviewers' rubrics are read from a source checkout, and there is none"
+        raise ReviewerNotRegisteredError(msg)
+    return ReviewerSetup.of_run(
+        config,
+        review_root=review_root,
+        repo=args.target.resolve(),
+        install_bin=install_bin,
+        binary=claude_binary(),
+        base_url=os.environ.get("ANTHROPIC_BASE_URL"),
+        credential=credential,
+        library=library,
+    )
+
+
 def _plan_reviewer(
     args: argparse.Namespace,
     config: RunConfig,
@@ -595,28 +640,8 @@ def _plan_reviewer(
         raise RunConfigError(msg, design_review=config.design_review)
     review_root = require_review_root(args.review_root)
     install = args.install.resolve()
-    started = time.monotonic()
-    action: Literal["checked", "built"] = "checked" if install.exists() else "built"
-    if action == "checked":
-        require_current(install, _project_root())
-        install_bin = install / "bin" / "physgate"
-    else:
-        install_bin = prepare_install(install, _project_root())
-    seconds = time.monotonic() - started
-    library = _library_root()
-    if library is None:
-        msg = "the design reviewer's rubric is read from a source checkout, and there is none"
-        raise ReviewerNotRegisteredError(msg)
-    setup = ReviewerSetup.of_run(
-        config,
-        review_root=review_root,
-        repo=args.target.resolve(),
-        install_bin=install_bin,
-        binary=claude_binary(),
-        base_url=os.environ.get("ANTHROPIC_BASE_URL"),
-        credential=credential,
-        library=library,
-    )
+    install_bin, action, seconds = _install_bin(install)
+    setup = _reviewer_setup(args, config, credential, review_root, install_bin)
     factory = design_reviewer if registrations is None else registrations.plan_reviewer_factory
     reviewer = factory(setup, config) if factory is not None else None
     if reviewer is None:
@@ -662,37 +687,23 @@ def _reviewed(
         decomposition_model=config.models.decomposition,
         decomposition_session_id=outcome.session_id,
     )
-    sealed = outcome.stream_seal
+    ending: dict[str, object]
     try:
         result = reviewer.review_plan(under)
+        ending = {"session_id": result.session_id, "usage": result.usage, "result": result}
     except ReviewUnavailableError as exc:
         why = DesignUnavailable(
             cause=exc.cause,
             detail=str(exc) or exc.cause,
             session_id=exc.session_id,
             reviewer_model=exc.reviewer_model,
+            spec_defects=exc.spec_defects,
         )
-        return PlanReviewed(
-            install=install,
-            stream_seal=sealed,
-            session_id=exc.session_id,
-            usage=exc.usage,
-            unavailable=why,
-        )
+        ending = {"session_id": exc.session_id, "usage": exc.usage, "unavailable": why}
     except HeldOutExposedError as exc:
-        return PlanReviewed(
-            install=install,
-            stream_seal=sealed,
-            session_id=exc.session_id,
-            usage=exc.usage,
-            exposed=True,
-        )
-    return PlanReviewed(
-        install=install,
-        stream_seal=sealed,
-        session_id=result.session_id,
-        usage=result.usage,
-        result=result,
+        ending = {"session_id": exc.session_id, "usage": exc.usage, "exposed": True}
+    return PlanReviewed.model_validate(
+        {"install": install, "stream_seal": outcome.stream_seal, **ending}
     )
 
 
@@ -717,7 +728,9 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
     _say_os_layer(config.os_layer, config.network, allowed=why is None)
     if why is not None:
         return _fail(why)
-    refused = refusals(RunFacts(config=config, os_layer=config.os_layer, shell_sessions=True))
+    refused = refusals(
+        RunFacts(config=config, os_layer=config.os_layer, shell_sessions=True, new_run=True)
+    )
     if refused:
         return _fail("the run may not start", requirements="; ".join(refused))
     run_dir = args.run_dir.resolve()
@@ -733,13 +746,23 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
         require_fresh(run_dir)
         reviewing = _plan_reviewer(args, config, credential, registrations)
         brief = args.brief.read_text()
+        workdir = run_dir / "decomposition"
         outcome = call(
             brief,
             config=config,
-            workdir=run_dir / "decomposition",
+            workdir=workdir,
             base_url=os.environ.get("ANTHROPIC_BASE_URL"),
             credential=credential,
         )
+        if reviewing is not None and outcome.ok and outcome.plan is not None:
+            # A plan the run could not start is refused before its review is spent on it.
+            require_startable(
+                outcome.plan,
+                config=config,
+                target_repo=args.target.resolve(),
+                library=_library_root(),
+                brief=brief,
+            )
         # The plan's review, after the call and before anything of the run is written.
         reviewed = (
             _reviewed(
@@ -747,7 +770,7 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
                 outcome,
                 config=config,
                 brief=args.brief,
-                stream=run_dir / "decomposition" / "stdout.jsonl",
+                stream=workdir / "stdout.jsonl",
             )
             if reviewing is not None
             else None
@@ -858,22 +881,10 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         install = args.install.resolve()
         reviewers = registrations.reviewers
         if not reviewers and registrations.reviewer_factory is not None:
-            library = _library_root()
-            if library is None:
-                msg = "the reviewers' rubrics are read from a source checkout, and there is none"
-                raise ReviewerNotRegisteredError(msg)
-            reviewers = registrations.reviewer_factory(
-                ReviewerSetup.of_run(
-                    config,
-                    review_root=review_root,
-                    repo=args.target.resolve(),
-                    install_bin=install / "bin" / "physgate",
-                    binary=claude_binary(),
-                    base_url=os.environ.get("ANTHROPIC_BASE_URL"),
-                    credential=credential,
-                    library=library,
-                )
+            setup = _reviewer_setup(
+                args, config, credential, review_root, install / "bin" / "physgate"
             )
+            reviewers = registrations.reviewer_factory(setup)
         refuse_unregistered(config, registrations.gate, reviewers)
         # The binding the run recorded, through the register, before anything is built.
         escalation = escalation_for(config)
@@ -888,15 +899,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         if not (run_dir / "events.jsonl").exists():
             msg = "the run was never started; decompose it first"
             raise RunStateError(msg, run_dir=str(run_dir))
-        started = time.monotonic()
-        action: Literal["checked", "built"] = "checked" if install.exists() else "built"
-        if action == "checked":
-            require_current(install, _project_root())
-            require_recorded_manifest(install, _recorded_manifest(run_dir, install))
-            install_bin = install / "bin" / "physgate"
-        else:
-            install_bin = prepare_install(install, _project_root())
-        checked_in = time.monotonic() - started
+        install_bin, action, checked_in = _install_bin(install, run_dir)
         run = RunGit(repo=args.target.resolve(), run_dir=run_dir, run_id=config.run_id)
         store_root = run_dir / "store"
         plan = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, SubtaskPlanned)]

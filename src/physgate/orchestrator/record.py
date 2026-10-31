@@ -133,6 +133,10 @@ class PlanReviewed(BaseModel):
         if self.exposed and self.session_id is None:
             msg = "an exposure names the review session whose stream showed it"
             raise ValueError(msg)
+        ending = self.result or self.unavailable
+        if ending is not None and ending.session_id != self.session_id:
+            msg = "a review's tokens are attributed to the session its ending names"
+            raise ValueError(msg)
         return self
 
 
@@ -182,6 +186,23 @@ class RunRecord:
                     logged=str(self.state.escalation_backend),
                     recorded=str(config.escalation_backend),
                 )
+            first = self.log.events[0] if self.log.events else None
+            said = (
+                (first.queue_decisions, first.design_review)
+                if isinstance(first, RunStarted)
+                else None
+            )
+            if said is not None and said != self._said():
+                # Replay reads both switches from the first line alone: one that says other than
+                # the configuration would drive this run by another run's rules.
+                msg = "the run's first line says other than its config of the switches it names"
+                raise RunConfigError(
+                    msg,
+                    run_dir=str(self.run_dir),
+                    logged=f"queue_decisions={said[0]}, design_review={said[1]}",
+                    recorded=f"queue_decisions={config.queue_decisions}, "
+                    f"design_review={config.design_review}",
+                )
         elif self.log.events:
             msg = "the run has events but no recorded configuration"
             raise RunConfigError(msg, run_dir=str(self.run_dir))
@@ -227,8 +248,8 @@ class RunRecord:
             **envelope(),
             config_sha256=self.config.sha256(),
             escalation_backend=self.config.escalation_backend,
-            queue_decisions="act" if self.config.queue_decisions == "act" else None,
-            design_review="observe" if self.config.design_review == "observe" else None,
+            queue_decisions=self._said()[0],
+            design_review=self._said()[1],
         )
         if call is not None:
             for message in call.usage:
@@ -241,6 +262,11 @@ class RunRecord:
         if reviewed is not None:
             # The review's session ran under this installation, before anything was written.
             yield InstallChecked(**envelope(), **reviewed.install.model_dump())
+
+    def _said(self) -> tuple[Literal["act"] | None, Literal["observe"] | None]:
+        """What the run's first line says of whether it acts on decisions and reviews its plan."""
+        acts: Literal["act"] | None = "act" if self.config.queue_decisions == "act" else None
+        return acts, "observe" if self.config.design_review == "observe" else None
 
     def _reviewing(
         self, reviewed: PlanReviewed, plan_sha256: str, envelope: Callable[[], Envelope]
