@@ -114,7 +114,7 @@ def test_a_plan_naming_mechanical_and_electrical_decomposes_and_is_reviewed_by_d
 def test_the_design_reviewer_is_built_with_the_design_rubric_for_such_a_plan(
     shipped: None,
 ) -> None:
-    from physgate.reviewers.claude import DESIGN_REVIEWER
+    from physgate.orchestrator.run_config import DESIGN_REVIEWER
 
     # The plan's reviewer is one reviewer of the plan, whatever roles the plan names.
     assert DESIGN_REVIEWER == "design"

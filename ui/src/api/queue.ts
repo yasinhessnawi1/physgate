@@ -283,10 +283,15 @@ export function queueListing(value: unknown): QueueListing {
 /** The key an item's link to the decomposition's stream reads as, in place of a session's id. */
 export const DECOMPOSITION_STREAM = "decomposition/stdout.jsonl";
 
-/** Where the server serves a trajectory an item links: a session's, or the decomposition's. */
+/** The key a link to a later round's stream reads as: round 2 to 9 of the decomposition. */
+const ROUND_STREAM = /^decomposition\/round-([2-9])\/stdout\.jsonl$/;
+
+/** Where the server serves a trajectory an item links: a session's, the decomposition's, or a round's. */
 export function trajectoryPath(base: string, sessionId: string): string {
-  return sessionId === DECOMPOSITION_STREAM
-    ? `${base}/trajectories/decomposition`
+  if (sessionId === DECOMPOSITION_STREAM) return `${base}/trajectories/decomposition`;
+  const round = ROUND_STREAM.exec(sessionId)?.[1];
+  return round !== undefined
+    ? `${base}/trajectories/decomposition/${round}`
     : `${base}/trajectories/${encodeURIComponent(sessionId)}`;
 }
 

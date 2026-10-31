@@ -23,7 +23,7 @@ from physgate.orchestrator.decompose import Outcome, start_run
 from physgate.orchestrator.events import EventLog
 from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.git import head_of
-from physgate.orchestrator.plan import Plan, plan_sha256
+from physgate.orchestrator.plan import Plan, plan_bytes, plan_sha256
 from physgate.orchestrator.protocols import MessageUsage, ReviewResult, SpecDefect, Usage
 from physgate.orchestrator.replay import RunState
 from physgate.orchestrator.run_config import ModelStrings
@@ -193,7 +193,17 @@ def started(
     run_dir = root / "run"
     the_config = config(repo, design_review, **overrides)
     the_outcome = outcome(run_dir)
-    given = {"reviewed": review(run_dir)} if review is not None else {}
+    given: dict[str, Any] = {"reviewed": review(run_dir)} if review is not None else {}
+    if given and design_review not in (None, "off") and the_outcome.plan is not None:
+        # The round's journal and plan file, as the command writes them before the run starts.
+        from journal_helper import rounds
+
+        given["proposals"] = rounds(
+            run_dir,
+            [(SESSION, plan_bytes(the_outcome.plan), given["reviewed"])],
+            holds=design_review != "observe",
+            model=DECOMPOSITION,
+        )
     start_run(
         the_outcome,
         config=the_config,

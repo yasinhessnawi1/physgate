@@ -89,6 +89,7 @@ from physgate.orchestrator.record import (
     EarlierRound,
     PlanEntry,
     PlanReviewed,
+    Proposal,
     RunRecord,
 )
 from physgate.orchestrator.repair import quoted
@@ -1328,11 +1329,13 @@ def start_run(
     reviewed: PlanReviewed | None = None,
     earlier: Sequence[EarlierRound] = (),
     refused: str | None = None,
+    proposals: Sequence[Proposal] = (),
 ) -> RunRecord:
     """Start the run from the last call's outcome: record a failure, or write the plan.
 
     ``reviewed`` is what the plan's review came to, in a run that reviews its plan; it ends the
-    opening (:meth:`RunRecord.start`), after ``earlier``, the rounds re-planned before it.
+    opening (:meth:`RunRecord.start`), after ``earlier``, the rounds re-planned before it;
+    ``proposals`` are every round's call, the last included, in a run that reviews its plan.
     ``refused`` is why the start check refused the plan's own content: the run is then recorded
     as a failed decomposition.
 
@@ -1376,7 +1379,7 @@ def start_run(
     spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
     if refused is not None or not outcome.ok or outcome.plan is None:
         detail = refused or f"{outcome.cause}: {outcome.detail}"
-        record.fail_decomposition(spent, detail, earlier)
+        record.fail_decomposition(spent, detail, earlier, proposals)
         return record
     plan = outcome.plan
     entries = [one.entry for one in planned]
@@ -1435,6 +1438,7 @@ def start_run(
         ),
         reviewed=reviewed,
         earlier=earlier,
+        proposals=proposals,
     )
     record.hold_plan()  # a plan its review did not pass, under on: the one item it is held on
     return record

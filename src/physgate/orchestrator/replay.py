@@ -84,6 +84,7 @@ from physgate.orchestrator.events import (
     ModuleCompleted,
     NodeFilesRepaired,
     OsLayerChecked,
+    PlanProposed,
     PlanRejected,
     ProposalsChecked,
     Resumed,
@@ -312,6 +313,10 @@ class RunState:
         self.replans = 0
         #: Whom the tokens since the last review line, but the calls', are attributed to.
         self.review_tokens: set[str] = set()
+        #: Each round's proposal, in order, and whom the call tokens since the last are attributed
+        #: to: a round's call is its own session's, tied to its round by its proposal.
+        self.proposals: list[PlanProposed] = []
+        self.call_tokens: set[str] = set()
         #: Whether the review holds the plan it did not pass (``on``), and the rejection line a
         #: person's reject of the plan's item led to.
         self.holds_plan = False
@@ -432,15 +437,15 @@ class RunState:
             self.replans = replans(event.design_review or "off")
             return
         if isinstance(event, Halted):
+            if event.reason == "decomposition_failed" and self.reviews_plan:
+                self._proposals_end(None, plan=False)
             self.halted = self.last_halt = event
             return
-        if (
-            isinstance(event, TokensUsed)
-            and self.reviews_plan
-            and self.design_review is None
-            and (self.plan_sha256 is not None or not event.attribution.startswith("decomposition:"))
-        ):  # a round's review's spending: before the plan, only the calls' are not
-            self.review_tokens.add(event.attribution)
+        if isinstance(event, TokensUsed) and self.reviews_plan and self.design_review is None:
+            if self.plan_sha256 is None and event.attribution.startswith("decomposition:"):
+                self.call_tokens.add(event.attribution)  # a round's call's: its proposal follows
+            else:  # a round's review's spending: before the plan, only the calls' are not
+                self.review_tokens.add(event.attribution)
         if isinstance(
             event,
             LeftoverStopped
@@ -488,7 +493,12 @@ class RunState:
                 _refuse("nothing is planned after the run's contract pairs")
             self._plan(event)
             return
+        if isinstance(event, PlanProposed):
+            self._proposed(event)
+            return
         if isinstance(event, Decomposed):
+            if self.reviews_plan:
+                self._proposals_end(event.session_id, plan=True, digest=event.plan_sha256)
             self.journal_head = self.base_revision = event.head_revision
             self.run_head = event.spec_commit
             if event.interface_consumers is not None:
@@ -692,6 +702,41 @@ class RunState:
         elif isinstance(event, Resumed):
             self._resume(sub, now, event.point)
 
+    def _proposed(self, event: PlanProposed) -> None:
+        """Take a round's proposal: in turn, within the budget, its call its own session's."""
+        k = len(self.proposals) + 1
+        if not self.reviews_plan or self.design_review is not None or self.plan_sha256 is not None:
+            _refuse(
+                "a round is proposed in a run that reviews its plan, before its plan is written"
+            )
+        if event.round != k or k > self.replans + 1 or len(self.earlier_reviews) != k - 1:
+            _refuse("each round is proposed in turn, after its earlier round's review, in budget")
+        if event.session_id in {one.session_id for one in self.proposals}:
+            _refuse("each round's call is a session of its own")
+        if self.call_tokens - {f"decomposition:{event.session_id}"} or (
+            event.plan_sha256 is not None and not self.call_tokens
+        ):
+            _refuse("a round's call tokens are its own session's, and a call that planned spent")
+        self.call_tokens = set()
+        self.proposals.append(event)
+
+    def _proposals_end(
+        self, session_id: str | None, *, plan: bool, digest: str | None = None
+    ) -> None:
+        """The opening's plan, or its failed decomposition, follows its last round's proposal."""
+        last = self.proposals[-1] if self.proposals else None
+        if (
+            last is None
+            or self.call_tokens
+            or len(self.earlier_reviews) != len(self.proposals) - 1
+            or (last.plan_sha256 is not None) != plan
+            or (plan and (last.session_id, last.plan_sha256) != (session_id, digest))
+        ):
+            _refuse(
+                "a run that reviews its plan writes its plan, or its failed decomposition, after "
+                "its last round's proposal, by that round's session and digest"
+            )
+
     def _plan_reviewed(self, event: DesignReviewRan) -> None:
         """Take a round's review: in a reviewing run, before dispatch, the plan's once after it.
 
@@ -706,6 +751,16 @@ class RunState:
         if self.review_tokens - {f"reviewer:{(ending.session_id if ending else None) or 'none'}"}:
             _refuse("a plan's review's tokens are attributed to the session its line names")
         self.review_tokens = set()
+        proposal = self.proposals[-1] if self.proposals else None
+        if (
+            proposal is None
+            or event.round != proposal.round
+            or event.plan_sha256 != proposal.plan_sha256
+            or len(self.earlier_reviews) != proposal.round - 1
+            or event.started is None
+            or event.ended is None
+        ):
+            _refuse("a plan's review names its round, after that round's proposal of the same plan")
         if self.plan_sha256 is None:
             if (
                 len(self.earlier_reviews) >= self.replans

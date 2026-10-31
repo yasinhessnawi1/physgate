@@ -14,6 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from journal_helper import one_round, plan_digest
 from loop_fakes import FakeDispatcher, KilledError, Rig, plan, usage
 
 from physgate.orchestrator.events import Event, OsLayerChecked, read_events
@@ -46,7 +47,9 @@ MODELS = ModelStrings(
 PRESENT = Present(mechanism="seatbelt", claude_version="2.1.301")
 ITEM = "run-1-plan"
 SPEC_COMMIT = "c" * 40
-PLAN_DIGEST = "d" * 64
+#: The rig's plan file, as the round journal keeps it, and the digest it is named by.
+PLAN_BYTES = b'{"modules": "the rig\'s plan"}'
+PLAN_DIGEST = plan_digest(PLAN_BYTES)
 FINDING = "the plan leaves the bus unprotected"
 SESSION = "decomposition-session-1"
 REVIEW_SESSION = "review-session-1"
@@ -146,8 +149,13 @@ def opened(
             **ending,
         }
     )
+    holds = the_rig.config_overrides.get("design_review") != "observe"
+    proposals = one_round(
+        the_rig.run_dir, session=SESSION, plan=PLAN_BYTES, reviewed=reviewed, holds=holds
+    )
     loop.record.start(
         plan(*ids),
+        proposals=proposals,
         call=DecompositionCall(
             session_id=SESSION, usage=(MessageUsage(message_id="d1", usage=usage(10)),)
         ),

@@ -1473,13 +1473,27 @@ DECOMPOSITION_STREAM = f"{DECOMPOSITION_NAME}/{STREAM_NAME}"
 
 #: A session id as the event log's own model accepts it.
 _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+#: The highest round a link or a seal is read for: past every repair level the flag allows.
+LAST_ROUND = 9
 #: The directory of a round after the first, beneath the decomposition's.
-_ROUND = re.compile(r"^round-([2-9])$")
+_ROUND = re.compile(rf"^round-([2-{LAST_ROUND}])$")
+#: Each round's plan file, beneath its round's directory: round 1's too.
+PLAN_NAME = "plan.json"
+
+
+def round_parts(k: int) -> tuple[str, ...]:
+    """Where round k's call runs, beneath the run: the decomposition's directory for round 1."""
+    return (DECOMPOSITION_NAME,) if k == 1 else (DECOMPOSITION_NAME, f"round-{k}")
+
+
+def plan_parts(k: int) -> tuple[str, ...]:
+    """Where round k's plan file is, beneath the run: in its own round directory, round 1's too."""
+    return (DECOMPOSITION_NAME, f"round-{k}", PLAN_NAME)
 
 
 def round_stream(k: int) -> str:
     """The link to round k's stream: the decomposition's for round 1, its round's own after."""
-    return DECOMPOSITION_STREAM if k == 1 else f"{DECOMPOSITION_NAME}/round-{k}/{STREAM_NAME}"
+    return "/".join((*round_parts(k), STREAM_NAME))
 
 
 #: What an item's trajectory link is found to be, when its view is built and again when a
@@ -1521,7 +1535,7 @@ def recorded_seal(events: list[Event], session_id: str) -> Seal | None:
     A round's stream is sealed by its round's review, which held it to that seal: round k's is the
     k-th review line's, every round before the last having been reviewed.
     """
-    rounds = [round_stream(k) for k in range(1, 10)]
+    rounds = [round_stream(k) for k in range(1, LAST_ROUND + 1)]
     if session_id in rounds:
         reviews = [e.stream_seal for e in events if isinstance(e, DesignReviewRan)]
         k = rounds.index(session_id)

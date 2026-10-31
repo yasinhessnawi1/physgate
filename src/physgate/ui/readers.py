@@ -68,6 +68,7 @@ from physgate.orchestrator.queue import (
     queue_listing,
     read_stream,
     recorded_seal,
+    round_stream,
     stream_parts,
 )
 from physgate.orchestrator.replay import RunState, recorded_ledger, replay
@@ -201,12 +202,21 @@ def trajectory(context: Context, params: Mapping[str, str]) -> Response:
 
 def decomposition_stream(context: Context, params: Mapping[str, str]) -> Response:
     """The decomposition's captured stream, held to the seal the plan's review recorded."""
+    return _round_stream(context, params, DECOMPOSITION_STREAM)
+
+
+def decomposition_round_stream(context: Context, params: Mapping[str, str]) -> Response:
+    """A later round's captured stream, held to the seal its round's review recorded."""
+    return _round_stream(context, params, round_stream(int(params["round"])))
+
+
+def _round_stream(context: Context, params: Mapping[str, str], stream: str) -> Response:
     run_dir = run_dir_of(context, params)
-    sealed = recorded_seal(list(read_events(_file(context, run_dir, EVENTS))), DECOMPOSITION_STREAM)
+    sealed = recorded_seal(list(read_events(_file(context, run_dir, EVENTS))), stream)
     if sealed is None:
-        msg = "the run records no sealed decomposition stream"
+        msg = "the run records no sealed stream of that round of its decomposition"
         raise NotFoundError(msg, run=params["name"])
-    path = _file(context, run_dir, *stream_parts(DECOMPOSITION_STREAM))
+    path = _file(context, run_dir, *stream_parts(stream))
     return Response(200, read_sealed(path, sealed), JSON_LINES)
 
 

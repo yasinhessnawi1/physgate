@@ -829,6 +829,43 @@ class Decomposed(_Event):
         return data
 
 
+class PlanProposed(_Event):
+    """One round's call, written in the run's opening after the tokens it spent (ARCH-060).
+
+    A run that reviews its plan writes one per round, the last included: the round, the call's own
+    session, the model that answered and its turns, and the plan's digest or why the round has no
+    plan it could start. ``started`` and ``ended`` are the call's, measured as it ran, because every
+    line of the opening is written together when the rounds have ended. Replay ties the round's
+    call tokens to its session, and the round's review to its digest.
+    """
+
+    kind: Literal["plan_proposed"] = "plan_proposed"
+    round: Annotated[int, Field(ge=1)]
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    model: NonEmptyStr | None
+    num_turns: Annotated[int, Field(ge=0)]
+    plan_sha256: Sha256 | None = None
+    #: Why the round has no plan it could start; ``None`` exactly when it has one.
+    cause: NonEmptyStr | None = None
+    started: Timestamp
+    ended: Timestamp
+
+    @model_validator(mode="after")
+    def _a_plan_or_why_not(self) -> PlanProposed:
+        if (self.plan_sha256 is None) == (self.cause is None):
+            msg = "a round proposes a plan by its digest, or says why it has none, and never both"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        for absent in ("plan_sha256", "cause"):
+            if data.get(absent) is None:
+                data.pop(absent, None)
+        return data
+
+
 class DesignUnavailable(BaseModel):
     """Why the plan's review is not a verdict: its cause, and the session that spent on it."""
 
@@ -867,6 +904,11 @@ class DesignReviewRan(_Event):
     unavailable: DesignUnavailable | None = None
     #: The plan's item every dispatch is held on, under ``on`` where the review did not pass.
     held_item: NonEmptyStr | None = None
+    #: The round reviewed, and the review's own start and end, measured as it ran; replay requires
+    #: them, and reads the round's proposal by its number.
+    round: Annotated[int, Field(ge=1)] | None = None
+    started: Timestamp | None = None
+    ended: Timestamp | None = None
 
     @model_validator(mode="after")
     def _a_verdict_or_why_there_is_none(self) -> DesignReviewRan:
@@ -878,7 +920,7 @@ class DesignReviewRan(_Event):
     @model_serializer(mode="wrap")
     def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for absent in ("result", "unavailable", "held_item"):
+        for absent in ("result", "unavailable", "held_item", "round", "started", "ended"):
             if data.get(absent) is None:
                 data.pop(absent, None)
         return data
@@ -1276,6 +1318,7 @@ Event = Annotated[
     | Incident
     | Resumed
     | Decomposed
+    | PlanProposed
     | DesignReviewRan
     | PlanRejected
     | ContractPairsPlanned

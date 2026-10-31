@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from design_review_rig import refusal
-from replan_rig import Step, decompose, events, journal, outcome_of
+from design_review_rig import outcome_of, refusal
+from replan_rig import Step, decompose, events, journal
 
 from physgate.orchestrator.events import read_events
 
@@ -88,8 +88,8 @@ def test_each_round_s_plan_file_digests_to_its_proposal_s_digest(three: Path) ->
     proposals = [e for e in read_events(three / "events.jsonl") if e.kind == "plan_proposed"]
     assert len(proposals) == 3, "no proposal on the record"
     for proposal in proposals:
-        plan = three / "decomposition" / f"round-{proposal.round}" / "plan.json"  # type: ignore[attr-defined]
-        assert hashlib.sha256(plan.read_bytes()).hexdigest() == proposal.plan_sha256  # type: ignore[attr-defined]
+        plan = three / "decomposition" / f"round-{proposal.round}" / "plan.json"
+        assert hashlib.sha256(plan.read_bytes()).hexdigest() == proposal.plan_sha256
 
 
 @pytest.mark.parametrize(

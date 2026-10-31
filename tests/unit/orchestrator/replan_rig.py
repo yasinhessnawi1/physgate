@@ -333,7 +333,7 @@ def round_dir(run_dir: Path, k: int) -> Path:
 
 
 _ENVELOPE = ("seq", "ts", "run_id", "held_item")
-_TIMES = ("started", "ended")
+_TIMES = ("started", "ended", "call_ended", "review_started")
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
@@ -351,7 +351,8 @@ def rounds_record(run_dir: Path, upto: int, *, opening: bool = True) -> str:
     The journal's start and end lines of those rounds, their plan files, and (``opening``) where a
     run was started, its tokens of those rounds' sessions and those rounds' review lines; session
     ids, the run id and the run-directory prefix replaced by placeholders in order of first
-    appearance, ``ts``, ``started`` and ``ended`` dropped, and of a review line its place in the
+    appearance, ``ts``, ``started``, ``ended`` and the call's end and the review's start dropped,
+    each round's proposal kept, and of a review line its place in the
     log and the item it holds on (the last round alone holds, and it is not among those compared).
     """
     lines = [one for one in journal(run_dir) if one.get("round", 0) <= upto]
@@ -377,8 +378,14 @@ def rounds_record(run_dir: Path, upto: int, *, opening: bool = True) -> str:
         for one in log
         if one["kind"] == "design_review_ran"
     ][:upto]
+    proposals = [
+        {k: v for k, v in one.items() if k not in _ENVELOPE}
+        for one in log
+        if one["kind"] == "plan_proposed" and one["round"] <= upto
+    ]
+    records = {"journal": lines, "plans": plans, "tokens": spent, "reviews": reviews}
     text = json.dumps(
-        _drop_times({"journal": lines, "plans": plans, "tokens": spent, "reviews": reviews}),
+        _drop_times({**records, "proposals": proposals}),
         sort_keys=True,
     )
     text = text.replace(str(run_dir), "<run-dir>")

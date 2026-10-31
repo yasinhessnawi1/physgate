@@ -21,7 +21,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from replan_rig import Step, Stopped, decompose, outcome_of
+from design_review_rig import outcome_of
+from replan_rig import Step, Stopped, decompose
 
 from physgate.orchestrator.exceptions import RunStateError
 from physgate.orchestrator.run_config import load_run_config
@@ -251,7 +252,7 @@ def test_a_reviewed_run_whose_rounds_ended_opens(tmp_path: Path) -> None:
 def _killed_after_the_start(tmp_path: Path) -> Path:
     from physgate.orchestrator import design_rounds
 
-    real = design_rounds.start_run
+    real = getattr(design_rounds, "start_run")  # noqa: B009 - the module's own import
 
     def start_then_stop(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         real(*args, **kwargs).close()

@@ -149,8 +149,20 @@ def _held_at_round_two(run_dir: Path) -> Path:
         )
 
     call = record.DecompositionCall
+    from journal_helper import plan_digest, rounds
+
+    first_review = reviewed(first, REVIEW_SESSION, "r1")
+    second_review = reviewed(second, f"{REVIEW_SESSION}-2", "r2")
+    proposals = rounds(
+        run_dir,
+        [
+            (SESSION, b"round 1's plan", first_review),
+            (f"{SESSION}-2", b"round 2's plan", second_review),
+        ],
+    )
     loop.record.start(
         plan("s1", "s2"),
+        proposals=proposals,
         call=call(
             session_id=f"{SESSION}-2", usage=(MessageUsage(message_id="d2", usage=usage(9)),)
         ),
@@ -162,16 +174,16 @@ def _held_at_round_two(run_dir: Path) -> Path:
             interface_nodes=("iface.bus",),
             spec_commit=SPEC_COMMIT,
             head_revision=1,
-            plan_sha256="d" * 64,
+            plan_sha256=plan_digest(b"round 2's plan"),
         ),
-        reviewed=reviewed(second, f"{REVIEW_SESSION}-2", "r2"),
+        reviewed=second_review,
         earlier=(
             earlier(
                 call=call(
                     session_id=SESSION, usage=(MessageUsage(message_id="d1", usage=usage(10)),)
                 ),
-                reviewed=reviewed(first, REVIEW_SESSION, "r1"),
-                plan_sha256="e" * 64,
+                reviewed=first_review,
+                plan_sha256=plan_digest(b"round 1's plan"),
             ),
         ),
     )
