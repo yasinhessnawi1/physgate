@@ -41,11 +41,12 @@ def _config(**fields: Any) -> Any:  # noqa: ANN401 - a configuration, or why the
     return outcome_of(lambda: make_config(**fields))
 
 
-def test_the_register_names_the_flag_with_off_and_observe() -> None:
+def test_the_register_names_the_flag_with_off_observe_and_on() -> None:
     flag = getattr(flags, "DESIGN_REVIEW", None)
     assert flag is not None, "the register has no design_review flag"
     assert flag.name == "design_review"
-    assert flag.values == ("off", "observe")
+    assert flag.values == ("off", "observe", "on")
+    assert "plan_review" in flag.meanings["on"] and "plan_rejected" in flag.meanings["on"]
     assert flag.architecture == "ARCH-060"
     assert flag in flags.REGISTER
     assert typing.get_args(getattr(flags, "DesignReview", None)) == flag.values
@@ -120,3 +121,17 @@ def test_the_comparison_reports_the_flag() -> None:
     from physgate.evaluation.observe.compare import REPORTED
 
     assert "design_review" in REPORTED
+
+
+def test_a_run_that_holds_its_plan_records_on_and_is_never_reportable(tmp_path: Path) -> None:
+    on = _config(design_review="on", models=PINNED)
+    assert isinstance(on, RunConfig), on
+    assert b'"design_review":"on"' in on.canonical_bytes()
+    path = tmp_path / "on.json"
+    write_run_config(path, on)
+    assert load_run_config(path).design_review == "on"
+    assert not isinstance(_config(design_review="on"), RunConfig)  # no design reviewer pinned
+    reportable = _config(design_review="on", reportable=True, harness=CLEAN_HARNESS, models=PINNED)
+    assert isinstance(reportable, RunConfig), reportable
+    refused = outcome_of(lambda: _refusals(reportable))
+    assert any("design_review: observe" in why for why in refused), refused

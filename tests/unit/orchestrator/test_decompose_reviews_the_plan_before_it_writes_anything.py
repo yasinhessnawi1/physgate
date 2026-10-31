@@ -82,9 +82,11 @@ class Calls:
 
     def __init__(self) -> None:
         self.made = 0
+        self.briefs: list[str] = []
 
     def __call__(self, brief: str, *, workdir: Path, **_: Any) -> Outcome:  # noqa: ANN401
         self.made += 1
+        self.briefs.append(brief)
         workdir.mkdir(parents=True, exist_ok=True)
         message = {"id": "m1", "model": "claude-sonnet-5", "content": []}
         (workdir / "stdout.jsonl").write_text(json.dumps({"type": "assistant", "message": message}))
@@ -332,8 +334,61 @@ def test_a_review_that_showed_held_out_material_halts_the_run_it_starts(
             "held-out material", session_id="review-session-3", reviewer_model=DESIGN, usage=()
         )
     )
-    assert _exit(_args(tmp_path, REVIEWING), reviewer) == 0
+    # The run is halted, so the command fails: nothing of it will be dispatched.
+    assert _exit(_args(tmp_path, REVIEWING), reviewer) == 1
     log = _log(tmp_path)
     assert [one["kind"] for one in log[-2:]] == ["incident", "halted"]
     assert log[-2]["cause"] == "held_out_read"
     assert all(one["kind"] != "design_review_ran" for one in log)
+
+
+def test_the_call_and_the_review_are_given_one_decoded_form_of_the_brief(
+    tmp_path: Path, calls: Calls
+) -> None:
+    reviewer = StandIn(_verdict())
+    args = _args(tmp_path, REVIEWING)
+    written = BRIEF.replace("\n", "\r\n").encode("utf-8")
+    (tmp_path / "brief.md").write_bytes(written)
+    assert _exit(args, reviewer) == 0
+    [under] = reviewer.seen
+    # The bytes as the run's digest names them, decoded once, for the call and the review alike.
+    assert calls.briefs == [under.brief] == [written.decode("utf-8")]
+
+
+def test_an_lf_brief_reaches_the_call_exactly_as_its_bytes_read(
+    tmp_path: Path, calls: Calls
+) -> None:
+    reviewer = StandIn(_verdict())
+    assert _exit(_args(tmp_path, REVIEWING), reviewer) == 0
+    assert calls.briefs == [BRIEF] == [reviewer.seen[0].brief]
+
+
+def test_decompose_holds_a_new_run_to_the_requirements_of_a_new_run(
+    tmp_path: Path, calls: Calls, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[Any] = []
+
+    def refusals(facts: Any) -> list[str]:  # noqa: ANN401
+        asked.append(facts)
+        return []
+
+    monkeypatch.setattr(orchestrator_cli, "refusals", refusals)
+    assert _exit(_args(tmp_path, REVIEWING), StandIn(_verdict())) == 0
+    assert [facts.new_run for facts in asked] == [True]
+
+
+@pytest.mark.parametrize("verdict", ["fail", "blocked"])
+def test_decompose_under_on_holds_the_run_on_the_plan_s_item(
+    tmp_path: Path, calls: Calls, verdict: str
+) -> None:
+    from physgate.orchestrator.queue import read_queue
+
+    params = {**REVIEWING, "design_review": "on"}
+    assert _exit(_args(tmp_path, params), StandIn(_verdict(verdict))) == 0
+    assert calls.made == 1
+    log = _log(tmp_path)
+    assert log[0]["design_review"] == "on"
+    assert log[-1]["kind"] == "design_review_ran"
+    assert log[-1].get("held_item") == "run-1-plan"
+    found = outcome_of(lambda: read_queue(tmp_path / "run").open_items())
+    assert [getattr(i, "source", None) for i in found] == ["plan_review"], found

@@ -272,6 +272,11 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
         assert "sk-" not in text and "TOKEN" not in named
         for role, model in config.models.roles.items():
             assert config.models.reviewers[role] != model  # ARCH-060: another model reviews
+        # The product's new-run paths review the plan and hold it: a design reviewer is pinned,
+        # on another model than the decomposition's, the one the file pins for the roles' reviews.
+        assert config.design_review == "on"
+        assert config.models.design_reviewer not in (None, config.models.decomposition)
+        assert {config.models.design_reviewer} == set(config.models.reviewers.values())
     assert set(found) == {"subscription", "api_key"}
     # The evaluation pins: Opus implements and decomposes, Sonnet reviews. On an API key,
     # the cheap end: Sonnet implements and Haiku reviews.
