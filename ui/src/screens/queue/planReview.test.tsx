@@ -8,6 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
+import * as queueApi from "../../api/queue";
 import { EFFECTS, itemView, ON_APPROVE, ON_REJECT, queueListing, SOURCES } from "../../api/queue";
 import {
   bannedIn,
@@ -137,5 +138,15 @@ describe("the plan's review item", () => {
       "The run took it: the hold was released, and the plan runs as it stands.",
     );
     expect(ended).toBe("The run took it: the run ended with no module dispatched.");
+  });
+
+  it("is read from the server's own route for the decomposition's stream", () => {
+    const path = (queueApi as Record<string, unknown>).trajectoryPath;
+    expect(typeof path).toBe("function");
+    const of = path as (base: string, sessionId: string) => string;
+    expect(of("/api/runs/0/r", "decomposition/stdout.jsonl")).toBe(
+      "/api/runs/0/r/decomposition/stream",
+    );
+    expect(of("/api/runs/0/r", "s-1")).toBe("/api/runs/0/r/trajectories/s-1");
   });
 });

@@ -85,7 +85,8 @@ def test_the_plan_s_item_says_what_was_judged_and_what_each_verb_does(tmp_path: 
         f"The plan of digest {PLAN_DIGEST}, as the run recorded it: see "
         f"decomposition/stdout.jsonl and the specifications commit {SPEC_COMMIT}."
     )
-    assert item.trajectories == (str(stream_path(run_dir)),)
+    # Relative to the run directory, so a run moved between decompose and run builds it alike.
+    assert item.trajectories == ("decomposition/stdout.jsonl",)
     assert item.quantities == ()
     c = item.consequence
     assert c is not None
@@ -293,3 +294,49 @@ def test_the_operator_ui_reads_the_decomposition_s_stream_as_the_item_s_trajecto
     stream_path(run_dir).write_text("{}\n")
     [listed] = json.loads(readers.queue(context, params).body)["open"]
     assert listed["trajectory_statuses"] == ["tampered"]
+
+
+def test_a_run_moved_between_decompose_and_run_takes_the_decision_on_its_item(
+    tmp_path: Path,
+) -> None:
+    import shutil
+
+    held = _held(tmp_path / "before")
+    moved = tmp_path / "after" / "run"
+    moved.parent.mkdir()
+    shutil.move(held, moved)
+    decide(moved, "approve")
+    assert again(rig(moved)) == "done"
+    assert "incident" not in kinds(moved)
+    assert "stage_entered" in dispatched(moved)
+
+
+def test_free_text_on_the_plan_s_item_is_refused_and_the_item_stays_open(tmp_path: Path) -> None:
+    from physgate.orchestrator.exceptions import QueueError
+    from physgate.orchestrator.queue import record_decision
+
+    run_dir = _held(tmp_path)
+    refused = outcome_of(
+        lambda: record_decision(run_dir, ITEM, decision="looks fine to me", resolved_by="yasin")
+    )
+    assert isinstance(refused, QueueError), refused
+    assert "approve or reject" in str(refused)
+    assert (run_dir / "queue_decisions.jsonl").read_bytes() == b""
+    assert [i.item_id for i in read_queue(run_dir).open_items()] == [ITEM]
+
+
+def test_the_operator_ui_serves_the_decomposition_s_stream_held_to_its_seal(
+    tmp_path: Path,
+) -> None:
+    from ui_rig import context_over, fake_ui
+
+    from physgate.ui import readers
+
+    served = getattr(readers, "decomposition_stream", None)
+    assert served is not None, "the UI serves no decomposition stream"
+    run_dir = _held(tmp_path / "root")
+    context = context_over(tmp_path / "root", ui_root=fake_ui(tmp_path / "checkout"))
+    params = {"root": "0", "name": run_dir.name}
+    assert served(context, params).body == stream_path(run_dir).read_bytes()
+    stream_path(run_dir).write_text("{}\n")
+    assert isinstance(outcome_of(lambda: served(context, params)), Exception)

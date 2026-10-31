@@ -102,7 +102,7 @@ def test_decompose_under_on_lists_the_plan_s_item_once_and_holds(tmp_path: Path)
     assert lines(run_dir)[-1].get("held_item") == ITEM
     [item] = read_queue(run_dir).open_items()
     assert (item.item_id, item.source, item.subtask_id) == (ITEM, "plan_review", "plan")
-    assert item.trajectories == (str(run_dir / "decomposition" / "stdout.jsonl"),)
+    assert item.trajectories == ("decomposition/stdout.jsonl",)
     state = replay(read_events(run_dir / "events.jsonl"))
     assert state.next_step().kind == "wait"
 
@@ -285,3 +285,35 @@ def test_the_decision_function_refuses_a_decision_on_another_plan_item(tmp_path:
         update={"consequence": item.consequence.model_copy(update={"on_reject": "record_only"})}  # type: ignore[union-attr]
     )
     assert isinstance(taken(reshaped), QueueItemMismatchError)
+
+
+def test_free_text_on_the_plan_s_item_is_no_decision_replay_takes(tmp_path: Path) -> None:
+    log = _log(tmp_path)
+    free = {
+        **_decision(log, "approve"),
+        "verb": None,
+        "shown_sha256": None,
+        "effect": "none",
+        "acts": False,
+        "why_not": "not_bound",
+    }
+    assert DECIDED in refusal(tmp_path, [*log, free])
+
+
+def test_the_decision_function_refuses_free_text_on_the_plan_s_item(tmp_path: Path) -> None:
+    from physgate.orchestrator.decisions import decision_effect
+    from physgate.orchestrator.exceptions import QueueItemMismatchError
+    from physgate.orchestrator.queue import QueueResolution
+
+    run_dir = _run(tmp_path)
+    [item] = read_queue(run_dir).items
+    state = replay(read_events(run_dir / "events.jsonl"))
+    resolution = QueueResolution(
+        item_id=item.item_id, ts=item.ts, decision="looks fine", resolved_by="yasin"
+    )
+    found = outcome_of(
+        lambda: decision_effect(
+            state, item, resolution, line_sha256="a" * 64, scan_hits=(), held=False
+        )
+    )
+    assert isinstance(found, QueueItemMismatchError), found
