@@ -283,7 +283,11 @@ def test_the_record_itself_refuses_a_review_its_run_does_not_take(tmp_path: Path
     (run_dir / "decomposition" / "stdout.jsonl").write_text("{}\n")
     for flag, given in (("observe", None), ("off", reviewed(run_dir))):
         record = RunRecord(config(repo, flag), run_dir)
-        refused = outcome_of(lambda r=record, g=given: r.start([], decomposed=summary, reviewed=g))
+
+        def begin(record: RunRecord = record, given: Any = given) -> None:  # noqa: ANN401
+            record.start([], decomposed=summary, reviewed=given)
+
+        refused = outcome_of(begin)
         record.close()
         assert isinstance(refused, RunConfigError), (flag, refused)
         events = run_dir / "events.jsonl"
