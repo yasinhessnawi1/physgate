@@ -323,6 +323,21 @@ describe("the queue page reads the chosen item's view again when it is chosen", 
     );
   });
 
+  it("and its dialog says a decision on it is recorded only", async () => {
+    const { host } = await mounted({ superseded: { "run-esc-s1": "run-1-contract-1" } });
+    const reject = [...host.querySelectorAll("button")].find((b) =>
+      b.textContent.startsWith("Reject"),
+    );
+    act(() => {
+      reject?.click();
+    });
+    const dialog = [...host.querySelectorAll("dialog")].find((d) => d.open);
+    expect(dialog?.textContent).toContain(
+      "Recorded only: a choice on run-1-contract-1 reopened a module this item is about, so " +
+        "nothing in the run acts on this decision.",
+    );
+  });
+
   it("and the decision sends the id of that view", async () => {
     const { host, views, posted } = await mounted();
     // Read once for the list, and once more because it is the item chosen.
