@@ -809,9 +809,9 @@ def call(
     settings.write_text("{}\n")
     session_id = str(uuid.uuid4())
     roles = sorted(config.models.roles)
+    sent = prompt_for(brief, roles) if prompt is None else prompt
     argv = decomposition_argv(
         binary,
-        prompt=prompt_for(brief, roles) if prompt is None else prompt,
         schema=plan_schema(roles),
         model=config.models.decomposition,
         session_id=session_id,
@@ -837,7 +837,8 @@ def call(
             argv,
             cwd=workdir / "cwd",
             env=env,
-            stdin=subprocess.DEVNULL,
+            # On stdin, not as an argument: one argument is capped at 128 KiB on Linux.
+            input=sent,
             capture_output=True,
             text=True,
             check=False,
