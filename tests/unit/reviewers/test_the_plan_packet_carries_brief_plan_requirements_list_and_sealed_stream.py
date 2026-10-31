@@ -28,6 +28,7 @@ from plan_fixture import (
     stream_text,
     under_review,
 )
+from pydantic import ValidationError
 
 from physgate.orchestrator.plan import plan_sha256
 from physgate.orchestrator.trajectory import seal
@@ -143,7 +144,15 @@ def test_a_plan_off_its_recorded_digest_is_refused(tmp_path: Path) -> None:
 
 def test_an_integrated_plan_stays_integrated_under_review(tmp_path: Path) -> None:
     under = under_review(tmp_path)
-    assert type(under.plan).__name__ == "IntegratedPlan"
+    # Read back from its JSON, as a record of the review is: the plan keeps its integrated form,
+    # and with it the two lists, rather than a subclass instance kept only in memory.
+    try:
+        again = type(under).model_validate_json(under.model_dump_json())
+    except ValidationError as exc:
+        pytest.fail(f"the plan under review does not read back from its JSON: {exc}")
+    assert type(again.plan).__name__ == "IntegratedPlan"
+    assert again.plan == under.plan
+    assert again == under
 
 
 @pytest.mark.parametrize(

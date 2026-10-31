@@ -38,6 +38,7 @@ from physgate.orchestrator.run_config import ModelStrings, RunBounds
 from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup, claude_reviewers
 from physgate.reviewers.contract import issued_criteria
 from physgate.reviewers.exceptions import ReviewError
+from physgate.reviewers.packet import PacketError
 from physgate.reviewers.rubric import evaluation_words, load_rubric
 
 VERSION = "2.1.301"
@@ -152,8 +153,11 @@ def test_a_plan_whose_packet_cannot_be_built_is_unprepared(
     reviewer = _design(tmp_path, REVIEWER)
     under = under_review(tmp_path)
     Path(under.stream).write_text(stream_text() + "{}\n")
-    with pytest.raises(ReviewUnavailableError) as refused:
+    # Caught as either, then asserted: a packet failure that escapes unconverted is a failed
+    # assertion here, not an exception the suite could count as a pass of some other row.
+    with pytest.raises((ReviewUnavailableError, PacketError)) as refused:
         _review_plan(reviewer, under)
+    assert refused.type is ReviewUnavailableError
     assert refused.value.cause == "unprepared"
     assert watched.sessions == []
 
