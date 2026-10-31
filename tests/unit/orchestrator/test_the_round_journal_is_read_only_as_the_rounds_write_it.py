@@ -201,6 +201,11 @@ FORGERIES: dict[str, tuple[Callable[..., None], int, str]] = {
         1,
         "time",
     ),
+    "a review with no start on the monotonic clock": (
+        lambda lines, _: _elapsed(_ended(lines, 2)).update(review_started=None),
+        2,
+        "time",
+    ),
     "a round that starts before the round before it ended": (
         lambda lines, _: _elapsed(_ended(lines, 1)).update(ended=10.0**6),
         2,
