@@ -82,7 +82,7 @@ def _dispatcher(tmp_path: Path, **config: Any) -> ClaudeDispatcher:  # noqa: ANN
     return ClaudeDispatcher(
         config=make_config(**config),
         run=SimpleNamespace(  # type: ignore[arg-type]
-            subtask_branch=lambda subtask: f"b/{subtask}", run_dir=tmp_path / "run"
+            subtask_branch=lambda subtask, _reopen=0: f"b/{subtask}", run_dir=tmp_path / "run"
         ),
         store_root=tmp_path / "store",
         install_bin=tmp_path / "install" / "bin" / "physgate",
@@ -119,7 +119,7 @@ def _install_argv(
     dispatcher = ClaudeDispatcher(
         config=make_config(**config),
         run=SimpleNamespace(  # type: ignore[arg-type]
-            subtask_branch=lambda subtask: f"b/{subtask}", run_dir=tmp_path / "run"
+            subtask_branch=lambda subtask, _reopen=0: f"b/{subtask}", run_dir=tmp_path / "run"
         ),
         store_root=tmp_path / "store",
         install_bin=tmp_path / "install" / "bin" / "physgate",

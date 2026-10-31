@@ -46,7 +46,7 @@ def _attempt(
     monkeypatch.setattr(ClaudeDispatcher, "_run_session", run_session)
     dispatcher = ClaudeDispatcher(
         config=config,
-        run=SimpleNamespace(open_subtask=lambda _s: worktree, run_dir=run_dir),  # type: ignore[arg-type]
+        run=SimpleNamespace(open_subtask=lambda _s, _r=0: worktree, run_dir=run_dir),  # type: ignore[arg-type]
         store_root=run_dir / "store",
         install_bin=run_dir / "install" / "bin" / "physgate",
         binary="claude",

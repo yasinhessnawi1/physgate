@@ -230,8 +230,10 @@ def test_an_attempt_out_of_scope_is_rejected_before_the_gate(tmp_path: Path) -> 
 class _KilledAfterMerge(GitMerger):
     """Makes the real merge, then dies before the loop can record it."""
 
-    def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
-        super().merge(subtask_id, attempt, attempt_commit, message)
+    def merge(
+        self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+    ) -> str:
+        super().merge(subtask_id, attempt, attempt_commit, message, reopen)
         raise KeyboardInterrupt
 
 
@@ -268,11 +270,13 @@ def test_a_branch_moved_after_the_check_halts_the_run_as_an_incident(tmp_path: P
     run = run_layout(tmp_path)
 
     class Moving(GitMerger):
-        def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
+        def merge(
+            self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+        ) -> str:
             worktree = run.subtask_worktree(subtask_id)
             (worktree / "modules" / "power" / "late.py").write_text("late\n")
             commit_attempt(worktree, subtask_id, attempt, "late", repo=run.repo)
-            return super().merge(subtask_id, attempt, attempt_commit, message)
+            return super().merge(subtask_id, attempt, attempt_commit, message, reopen)
 
     before = head_of(run.repo, run.run_branch)
     loop = _loop(run, GitDispatcher(run), Gate(), Moving(run, removal_timeout_s=60.0))
@@ -445,8 +449,10 @@ def test_the_merge_a_killed_process_made_and_never_recorded_is_where_the_run_lef
     run = run_layout(tmp_path)
 
     class KilledAtSecondMerge(GitMerger):
-        def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
-            done = super().merge(subtask_id, attempt, attempt_commit, message)
+        def merge(
+            self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+        ) -> str:
+            done = super().merge(subtask_id, attempt, attempt_commit, message, reopen)
             if subtask_id == "s2":
                 raise KeyboardInterrupt
             return done

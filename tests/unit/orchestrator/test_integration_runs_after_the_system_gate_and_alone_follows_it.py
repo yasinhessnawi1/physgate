@@ -720,11 +720,11 @@ class DiesAtTheFirstRemoval(FakeMerger):
 
     deaths: list[int] = field(default_factory=lambda: [1])
 
-    def remove_worktree(self, subtask_id: str) -> WorktreeRemoval:
+    def remove_worktree(self, subtask_id: str, reopen: int = 0) -> WorktreeRemoval:
         if self.deaths:
             self.deaths.pop()
             raise KilledError
-        return super().remove_worktree(subtask_id)
+        return super().remove_worktree(subtask_id, reopen)
 
 
 def _killed_at_a_call_that_does_not_let_it_run(tmp_path: Path, case: str) -> Rig:

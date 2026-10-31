@@ -656,8 +656,10 @@ class KilledAfterMerge(FakeMerger):
     #: Killed on the merge of this subtask, once.
     kill: str | None = "s1"
 
-    def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
-        commit = super().merge(subtask_id, attempt, attempt_commit, message)
+    def merge(
+        self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+    ) -> str:
+        commit = super().merge(subtask_id, attempt, attempt_commit, message, reopen)
         if subtask_id == self.kill:
             self.kill = None
             self.moved = True
