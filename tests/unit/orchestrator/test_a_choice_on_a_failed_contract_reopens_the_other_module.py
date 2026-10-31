@@ -740,7 +740,8 @@ def test_a_reopen_whose_order_does_not_fit_one_read_records_only(
     rig = opened(tmp_path, monkeypatch)
     monkeypatch.setattr(deciding, "fits_one_read", lambda data: False)
     choose(rig.run_dir, "producer", note="keep the drive")
-    again(rig, monkeypatch)
+    said = escaped(lambda: again(rig, monkeypatch))
+    assert said is None, said
     rows = lines(rig)
     taken = of(rows, "decision_taken")
     assert [(t["effect"], t["acts"], t["why_not"], t["order_too_long"]) for t in taken] == [
