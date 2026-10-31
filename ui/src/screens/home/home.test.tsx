@@ -3,12 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { RunEvent } from "../../api/events";
+import type { QueueItem } from "../../api/queue";
 import type { ModuleCompletion, RunStatus } from "../../api/run";
 import { costRecord, type LedgerLine } from "../../api/records";
 import { namesACommand } from "../../rules/commands";
 import { EngineWords } from "../common/engine";
 import { haltOwedWords, inProgress } from "../common/runs";
-import { CostSoFar, StripLegend } from "./Home";
+import type { RunRead } from "./data";
+import { CostSoFar, StripLegend, statusWords } from "./Home";
 import { runEnd, runEndWords } from "./runEnd";
 import { NoRunsYet } from "./NoRunsYet";
 import { STRIP_STATES, STRIP_WORDS, strip, stripCounts } from "./strip";
@@ -295,6 +297,39 @@ describe("a run that declares completion reads Complete only as its record says"
   it("an open item, or a queue not read, keeps a completed run from Complete", () => {
     expect(words(declaring(module("drive", "complete")), 1)).toBe("Ended · 1 waiting for you");
     expect(words(declaring(module("drive", "complete")), null)).not.toBe("Complete");
+  });
+});
+
+describe("an item a reopen superseded waits for no one", () => {
+  const status: RunStatus = {
+    kind: "done",
+    subtask: null,
+    halted: null,
+    owedHalt: null,
+    completion: {
+      owner: true,
+      modules: [{ subtask: "drive", sizing: false, state: "complete", open: [] }],
+    },
+    waiting: [],
+    superseded: { "r-contract-2": "r-contract-1" },
+  };
+  const item = (itemId: string) => ({ itemId }) as QueueItem;
+  const read = (...open: QueueItem[]) =>
+    ({
+      status: { ok: true, value: status },
+      events: { ok: true, value: [] },
+      queue: { ok: true, value: { open, decisions: [] } },
+    }) as unknown as RunRead;
+  const said = (r: RunRead) => renderToStaticMarkup(<>{statusWords(r)}</>);
+
+  it("a completed run whose only open item is superseded reads Complete", () => {
+    expect(said(read(item("r-contract-2")))).toBe(said(read()));
+    expect(said(read())).toContain("Complete");
+    expect(said(read())).not.toContain("Ended");
+  });
+
+  it("an open item a decision can act on still waits, beside a superseded one", () => {
+    expect(said(read(item("r-contract-2"), item("r-fw-1")))).toContain("Ended · 1 waiting for you");
   });
 });
 
