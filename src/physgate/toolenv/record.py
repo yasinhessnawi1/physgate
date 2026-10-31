@@ -26,14 +26,17 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from physgate.toolenv.exceptions import ToolEnvironmentError
 from physgate.toolenv.manifest import manifest, scan
 
 AbsolutePath = Annotated[str, StringConstraints(pattern=r"^/")]
-Name = Annotated[str, StringConstraints(min_length=1, max_length=200)]
-Version = Annotated[str, StringConstraints(min_length=1, max_length=200)]
+#: Printable text only: what a program of the environment says is recorded, and a control
+#: character in it would be read by whatever shows the record.
+_PRINTABLE = r"^[^\x00-\x1f\x7f]+$"
+Name = Annotated[str, StringConstraints(min_length=1, max_length=200, pattern=_PRINTABLE)]
+Version = Annotated[str, StringConstraints(min_length=1, max_length=200, pattern=_PRINTABLE)]
 Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 #: What the interpreter is asked, from an isolated start: one line of JSON.
@@ -130,12 +133,13 @@ def _overlaps(root: str, place: Path) -> bool:
 
 def _probe(interpreter: str, runner: Runner) -> dict[str, object]:
     answer = runner([interpreter, "-I", "-c", PROBE])
-    if answer is None:
+    if answer is None or len(answer.encode("utf-8", "surrogatepass")) > MAX_ANSWER_BYTES:
         msg = "the tool environment's interpreter did not answer the probe"
         raise ToolEnvironmentError(msg, interpreter=interpreter)
     try:
         found = json.loads(answer)
-    except ValueError:
+    except (ValueError, RecursionError):
+        # Parsed as data only; an answer nested past the parser's depth is no answer either.
         found = None
     if not isinstance(found, dict):
         msg = "the tool environment's interpreter answered something that is not one JSON object"
@@ -220,28 +224,33 @@ def measure(
     if not any(_under(os.path.realpath(prefix), os.path.realpath(r)) for r in roots):
         msg = "the interpreter's prefix lies outside the tool environment's roots"
         raise ToolEnvironmentError(msg, prefix=prefix)
-    tools = tuple(
-        NativeTool(
-            name=name,
-            path=path,
-            resolved=os.path.realpath(path),
-            version=_version_line(name, path, runner),
+    try:
+        tools = tuple(
+            NativeTool(
+                name=name,
+                path=path,
+                resolved=os.path.realpath(path),
+                version=_version_line(name, path, runner),
+            )
+            for name, path in sorted(native.items())
         )
-        for name, path in sorted(native.items())
-    )
-    walked = manifest([Path(root) for root in roots])
-    return ToolEnvironment(
-        interpreter=interpreter,
-        resolved=os.path.realpath(interpreter),
-        python_version=version,
-        prefix=os.path.realpath(prefix),
-        distributions=_distributions(found.get("distributions")),
-        native_tools=tools,
-        roots=tuple(roots),
-        manifest_digest=walked.digest,
-        entries=walked.entries,
-        total_bytes=walked.total_bytes,
-    )
+        walked = manifest([Path(root) for root in roots])
+        return ToolEnvironment(
+            interpreter=interpreter,
+            resolved=os.path.realpath(interpreter),
+            python_version=version,
+            prefix=os.path.realpath(prefix),
+            distributions=_distributions(found.get("distributions")),
+            native_tools=tools,
+            roots=tuple(roots),
+            manifest_digest=walked.digest,
+            entries=walked.entries,
+            total_bytes=walked.total_bytes,
+        )
+    except ValidationError as exc:
+        # What the environment says is data: anything the record cannot hold refuses it.
+        msg = "the tool environment answered something the record cannot hold"
+        raise ToolEnvironmentError(msg, error=str(exc.errors()[0].get("msg", ""))[:200]) from None
 
 
 def require_same(
