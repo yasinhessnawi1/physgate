@@ -336,8 +336,10 @@ class RunRecord:
 
         # The reader holds the first line to round 1's start, the one that names the arm.
         first, state = journal.lines[0], self.state
-        arm = (getattr(first, "design_review", None), getattr(first, "decomposition_model", None))
-        yield "arm", arm, (self.config.design_review, self.config.models.decomposition)
+        named = ("design_review", "decomposition_model", "brief_sha256")
+        arm = tuple(getattr(first, name, None) for name in named)
+        config = self.config
+        yield "arm", arm, (config.design_review, config.models.decomposition, config.brief_sha256)
         ended = [e for e in journal.lines if isinstance(e, RoundEnded)]
         call = ("round", "session_id", "plan_sha256", "model", "num_turns", "started")
         cause = [None if e.plan_sha256 else e.ending.plan_cause for e in ended]

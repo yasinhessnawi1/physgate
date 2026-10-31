@@ -205,6 +205,7 @@ def started(
             holds=design_review != "observe",
             model=DECOMPOSITION,
             decomposition_model=the_config.models.decomposition,
+            brief_sha256=the_config.brief_sha256,
         )
     start_run(
         the_outcome,

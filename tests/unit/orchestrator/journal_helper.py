@@ -4,7 +4,8 @@ A rig that starts a reviewing run without the command writes what the rounds wou
 1's start and end lines, its plan file, and the terminal line naming what followed. It gets the
 round's proposal back, for the run's opening. The run then opens as one ``decompose`` started:
 each round's call spent what the rig's opening records it spending, and round 1 names the run's
-``design_review`` mode and its designer's model, as the run's configuration does.
+``design_review`` mode, its designer's model and the brief's digest, as the run's
+configuration does.
 """
 
 from __future__ import annotations
@@ -61,6 +62,7 @@ def rounds(
     holds: bool = True,
     model: str = "claude-sonnet-5",
     decomposition_model: str = "claude-sonnet-5",
+    brief_sha256: str = "a" * 64,
 ) -> tuple[Proposal, ...]:
     """Journal each round, in order: its call's session, its plan file's bytes and its review.
 
@@ -92,6 +94,7 @@ def rounds(
                     "started": now,
                     "design_review": design_review if k == 1 else None,
                     "decomposition_model": decomposition_model if k == 1 else None,
+                    "brief_sha256": brief_sha256 if k == 1 else None,
                 }
             ),
             RoundEnded(

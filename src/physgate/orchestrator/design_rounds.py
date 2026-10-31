@@ -93,7 +93,8 @@ class _Line(BaseModel):
 class RoundStarted(_Line):
     """A round begun: written before its call, naming the session the call is made as.
 
-    Round 1's names the run's ``design_review`` mode and the designer's pinned model, so an attempt
+    Round 1's names the run's ``design_review`` mode, the designer's pinned model and the brief's
+    digest, so an attempt
     that ends void, with no run record, says from its journal alone what it was; no later round's.
     """
 
@@ -102,6 +103,7 @@ class RoundStarted(_Line):
     started: Timestamp
     design_review: DesignReview | None = None
     decomposition_model: NonEmptyStr | None = None
+    brief_sha256: Sha256 | None = None
 
 
 Seconds = Annotated[float, Field(ge=0)]
@@ -296,7 +298,8 @@ def read_journal(run_dir: Path, *, last: int, holds: bool = True) -> Journal:
                 raise _refused(run_dir, line.round, "budget")
             if line.session_id in seen:
                 raise _refused(run_dir, line.round, "session")
-            if (line.design_review, line.decomposition_model).count(None) != (line.round > 1) * 2:
+            arm = (line.design_review, line.decomposition_model, line.brief_sha256)
+            if arm.count(None) != (line.round > 1) * len(arm):
                 raise _refused(run_dir, line.round, "arm")
             if (
                 before is not None
@@ -553,6 +556,7 @@ def decompose_in_rounds(
                 started=started,
                 design_review=config.design_review if first else None,
                 decomposition_model=config.models.decomposition if first else None,
+                brief_sha256=config.brief_sha256 if first else None,
             ),
         )
         try:
