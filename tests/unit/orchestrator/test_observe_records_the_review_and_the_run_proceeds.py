@@ -60,11 +60,12 @@ def test_observe_records_the_review_and_the_run_proceeds(tmp_path: Path) -> None
     assert log[0]["kind"] == "run_started"
     assert log[0].get("design_review") == "observe"
     kind = design_line_kind()
-    # The opening: the call's tokens, the installation the review ran under, the plan, then the
-    # review's tokens and its line, last, before anything is dispatched.
+    # The opening: the call's tokens and its proposal, the installation the review ran under, the
+    # plan, then the review's tokens and its line, last, before anything is dispatched.
     assert kinds(run_dir) == [
         "run_started",
         "tokens_used",
+        "plan_proposed",
         "install_checked",
         "decomposed",
         "subtask_planned",
@@ -76,15 +77,15 @@ def test_observe_records_the_review_and_the_run_proceeds(tmp_path: Path) -> None
     assert ran["result"]["verdict"] == "fail"
     assert ran["result"]["session_id"] == REVIEW_SESSION
     assert ran["result"]["reviewer_model"] == REVIEWER
-    assert ran["plan_sha256"] == digest(plan()) == log[3]["plan_sha256"]
+    assert ran["plan_sha256"] == digest(plan()) == log[4]["plan_sha256"] == log[2]["plan_sha256"]
     assert "unavailable" not in ran
-    assert log[2]["path"] == "/install"
-    assert log[6]["attribution"] == f"reviewer:{REVIEW_SESSION}"
+    assert log[3]["path"] == "/install"
+    assert log[7]["attribution"] == f"reviewer:{REVIEW_SESSION}"
     # The run goes on: its next step is the first subtask's first attempt.
     state = replay(read_events(run_dir / "events.jsonl"))
     step = state.next_step()
     assert (step.kind, step.attempt, step.point) == ("attempt", 1, "resolve")
-    assert step.subtask_id == log[4]["subtask_id"]
+    assert step.subtask_id == log[5]["subtask_id"]
 
 
 @pytest.mark.parametrize("verdict", ["pass", "fail", "blocked"])
@@ -197,7 +198,7 @@ def test_nothing_is_dispatched_in_a_reviewing_run_before_its_review_is_recorded(
 
     def edit(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
         kept = [one for one in log if one["kind"] != kind]
-        return [*kept, _dispatch(log[-1], log[4]["subtask_id"])]
+        return [*kept, _dispatch(log[-1], log[5]["subtask_id"])]
 
     assert "review" in _refused(tmp_path, edit)
 
@@ -217,7 +218,7 @@ def test_the_review_is_recorded_once(tmp_path: Path) -> None:
 def test_the_review_follows_the_plan_it_names(tmp_path: Path) -> None:
     def edit(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ran = log[-1]
-        return [log[0], log[1], log[2], ran, *log[3:-1]]
+        return [*log[:4], ran, *log[4:-1]]
 
     assert "follows the plan" in _refused(tmp_path, edit)
 
@@ -232,7 +233,7 @@ def test_the_review_names_the_plan_the_run_recorded(tmp_path: Path) -> None:
 def test_the_review_comes_before_any_dispatch(tmp_path: Path) -> None:
     def edit(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ran = log[-1]
-        return [*log[:-1], _dispatch(ran, log[4]["subtask_id"]), ran]
+        return [*log[:-1], _dispatch(ran, log[5]["subtask_id"]), ran]
 
     # Refused for the dispatch before it, which is the rule that matters here.
     assert "review" in _refused(tmp_path, edit)

@@ -760,7 +760,7 @@ class RunState:
             or event.started is None
             or event.ended is None
         ):
-            _refuse("a plan's review names its round, after that round's proposal of the same plan")
+            _refuse("a plan's review names its round and the plan it proposed, never another plan")
         if self.plan_sha256 is None:
             if (
                 len(self.earlier_reviews) >= self.replans

@@ -66,6 +66,7 @@ def _valid(world: dict[str, Path], run: str) -> dict[str, str]:
         "session": sealed_session(world["root"] / run),
         "date": PRICES,
         "revision": "1",
+        "round": "2",
         "node": journal_records_after(world["root"] / run / "store", 0)[-1].node_id,
     }
 
@@ -97,11 +98,29 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     base = tmp_path_factory.mktemp("world")
     root = real_runs(base)
     escalated_run(base)
+    _replanned_run(base / "replanned", root / REPLANNED)
     held = base / "held"
     held.mkdir()
     (held / "scenario.json").write_text("{}\n")
     ui = fake_ui(base / "checkout")
     return {"root": root, "held": held, "ui": ui}
+
+
+#: A run held on its second round's review: the one run with a later round's stream to serve.
+REPLANNED = "run-replanned"
+
+
+def _replanned_run(scratch: Path, run_dir: Path) -> None:
+    """A ``repair:1`` run held on round 2, made by ``decompose`` and moved under the root."""
+    import shutil
+    import sys
+
+    sys.path.insert(0, str(REPO / "tests" / "unit" / "orchestrator"))
+    from replan_rig import Step, decompose
+
+    ran = decompose(scratch, "repair:1", [Step(), Step()])
+    assert ran.code == 0, ran.code
+    shutil.move(ran.run_dir, run_dir)
 
 
 def _context(world: dict[str, Path]) -> Context:
@@ -190,6 +209,9 @@ def test_every_read_route_answers_get_and_head_alike(world: dict[str, Path]) -> 
     with serving(_context(world)) as live:
         for route in (r for r in ROUTES if r.kind == "read"):
             target = _targets(route, world)[0]
+            if any(kind == "round" for _, kind in route.segments):
+                # Only a re-planned run has a later round's stream to serve.
+                target = target.replace(f"/{RUNS[0]}/", f"/{REPLANNED}/", 1)
             get_status, get_headers, body = live.request("GET", target)
             head_status, head_headers, head_body = live.request("HEAD", target)
             assert get_status == head_status == 200, target

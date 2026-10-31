@@ -33,7 +33,11 @@ from test_the_physgate_command_starts_and_decides import fake_binary
 import physgate.orchestrator.cli as orchestrator_cli
 from physgate.evaluation.requirements import observed_design_review_for_reportable_runs
 from physgate.orchestrator.decompose import Outcome
-from physgate.orchestrator.exceptions import ReviewUnavailableError, RunConfigError
+from physgate.orchestrator.exceptions import (
+    CorruptEventLogError,
+    ReviewUnavailableError,
+    RunConfigError,
+)
 from physgate.orchestrator.plan import Plan
 from physgate.orchestrator.protocols import MessageUsage, SpecDefect, Usage
 from physgate.orchestrator.record import RunRecord
@@ -107,11 +111,18 @@ def test_a_run_opens_only_from_a_first_line_naming_its_plan_review(
     )
     assert isinstance(run_dir, Path), run_dir
     log = lines(run_dir)
-    kept = [one for one in log[1:] if one["kind"] != "design_review_ran"]
+    # The lines only a reviewing run has, taken out: what is left is a run that reviews nothing.
+    kept = [one for one in log[1:] if one["kind"] not in ("design_review_ran", "plan_proposed")]
     (run_dir / "events.jsonl").write_text(
         "".join(json.dumps({**one, "seq": i}) + "\n" for i, one in enumerate([edit(log[0]), *kept]))
     )
     opened = outcome_of(lambda: RunRecord(load_run_config(run_dir / "run.json"), run_dir))
+    if design_review == "off":
+        # A first line that says the run reviews its plan is refused by replay itself now: such a
+        # run proposes each round before its plan, and this log proposes none.
+        assert isinstance(opened, CorruptEventLogError), opened
+        assert "proposal" in opened.context["reason"]
+        return
     assert isinstance(opened, RunConfigError), opened
     assert "design_review" in str(opened.context)
 
