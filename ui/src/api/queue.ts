@@ -286,7 +286,7 @@ export const DECOMPOSITION_STREAM = "decomposition/stdout.jsonl";
 /** Where the server serves a trajectory an item links: a session's, or the decomposition's. */
 export function trajectoryPath(base: string, sessionId: string): string {
   return sessionId === DECOMPOSITION_STREAM
-    ? `${base}/decomposition/stream`
+    ? `${base}/trajectories/decomposition`
     : `${base}/trajectories/${encodeURIComponent(sessionId)}`;
 }
 

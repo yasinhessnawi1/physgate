@@ -175,10 +175,17 @@ def graph(context: Context, params: Mapping[str, str]) -> Response:
     )
 
 
+#: The trajectory route's name for the decomposition's stream: the harness names every session by a
+#: random UUID, so no session it ran is named this.
+DECOMPOSITION = "decomposition"
+
+
 def trajectory(context: Context, params: Mapping[str, str]) -> Response:
-    """A session's captured stream, held to the seal its end recorded."""
+    """A session's captured stream, held to the seal its end recorded; or the decomposition's."""
     run_dir = run_dir_of(context, params)
     session_id = params["session"]
+    if session_id == DECOMPOSITION:
+        return decomposition_stream(context, params)
     ended = [
         event
         for event in read_events(_file(context, run_dir, EVENTS))

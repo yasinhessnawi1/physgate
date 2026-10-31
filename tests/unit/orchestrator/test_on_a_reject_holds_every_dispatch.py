@@ -337,6 +337,9 @@ def test_the_operator_ui_serves_the_decomposition_s_stream_held_to_its_seal(
     run_dir = _held(tmp_path / "root")
     context = context_over(tmp_path / "root", ui_root=fake_ui(tmp_path / "checkout"))
     params = {"root": "0", "name": run_dir.name}
-    assert served(context, params).body == stream_path(run_dir).read_bytes()
+    # Through the trajectory route, as the app asks for it: the stream as sealed, and nothing else.
+    asked = {**params, "session": "decomposition"}
+    found = outcome_of(lambda: readers.trajectory(context, asked))
+    assert getattr(found, "body", None) == stream_path(run_dir).read_bytes(), found
     stream_path(run_dir).write_text("{}\n")
-    assert isinstance(outcome_of(lambda: served(context, params)), Exception)
+    assert isinstance(outcome_of(lambda: readers.trajectory(context, asked)), Exception)

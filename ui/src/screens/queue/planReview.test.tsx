@@ -145,7 +145,7 @@ describe("the plan's review item", () => {
     expect(typeof path).toBe("function");
     const of = path as (base: string, sessionId: string) => string;
     expect(of("/api/runs/0/r", "decomposition/stdout.jsonl")).toBe(
-      "/api/runs/0/r/decomposition/stream",
+      "/api/runs/0/r/trajectories/decomposition",
     );
     expect(of("/api/runs/0/r", "s-1")).toBe("/api/runs/0/r/trajectories/s-1");
   });
