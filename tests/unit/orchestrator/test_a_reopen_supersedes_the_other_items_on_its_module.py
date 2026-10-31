@@ -40,7 +40,13 @@ from ui_rig import context_over, fake_ui
 
 from physgate import roles
 from physgate.orchestrator.events import Event, SubtaskReopened, read_events
-from physgate.orchestrator.queue import read_queue
+from physgate.orchestrator.queue import (
+    PersonDecision,
+    ShownItem,
+    read_queue,
+    record_decision,
+    statuses_now,
+)
 from physgate.orchestrator.replay import replay
 from physgate.ui import readers
 
@@ -176,23 +182,93 @@ def test_a_kill_at_the_reopen_resumes_to_exactly_one_new_round(
     assert refusal(rows) is None
 
 
-def test_a_superseded_item_is_listed_again_once_its_module_ends_without_merging_again(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Merged at 1 and reopened, fw's attempts 2 and 3 are refused by review: it goes to a person
-    # unmerged, so no retest is owed and the old failed result is the pair's latest. Once fw
-    # settles, that result is listed again, saying what is true then: fw cannot be reopened.
+#: fw's verdicts when its reopened attempts 2 and 3 are refused by review and it goes to a person.
+REFUSED_TWICE = ("pass", "pass", "fail", "fail", "pass", "pass")
+
+
+def escalated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Rig:
+    """fw, reopened by the choice on the first item, goes to a person unmerged."""
     rig = opened(
         tmp_path,
         monkeypatch,
         writes={FW: [BOTH_LOW]},
         mended={FW: HALF},
-        reviewer=FakeReviewer(verdicts=["pass", "pass", "fail", "fail"]),
+        reviewer=FakeReviewer(verdicts=list(REFUSED_TWICE)),
     )
     choose(rig.run_dir, "producer")
     assert escaped(lambda: again(rig, monkeypatch)) is None
+    return rig
+
+
+def settle(rig: Rig, verb: str) -> None:
+    """A person's ``verb`` on fw's escalation item, bound to the view as it stands."""
+    item_id = replay(read_events(rig.run_dir / "events.jsonl")).subtasks[FW].queue_item
+    assert item_id is not None
+    shown = ShownItem(
+        item_sha256=read_queue(rig.run_dir).digests[item_id],
+        trajectories=statuses_now(rig.run_dir, item_id),
+    )
+    note = "fw stays as it is" if verb == "reject" else None
+    record_decision(
+        rig.run_dir,
+        item_id,
+        person=PersonDecision(verb=verb, note=note),  # type: ignore[arg-type]
+        resolved_by="yasin",
+        shown=shown,
+    )
+
+
+def test_a_pair_owes_no_new_round_while_its_reopened_module_waits_for_a_person(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Merged at 1 and reopened, fw's attempts 2 and 3 are refused by review and go to a person.
+    # fw may still merge, so the pair it still fails with is not listed again while it waits.
+    rig = escalated(tmp_path, monkeypatch)
     rows = lines(rig)
     assert [r["attempt"] for r in of(rows, "attempt_rejected", subtask_id=FW)] == [2, 3]
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    assert state.subtasks[FW].status == "escalated"
+    assert [r["item_id"] for r in of(rows, "contract_item_raised")] == [ITEM, OTHER]
+    assert state.superseded == {OTHER: ITEM}
+    assert refusal(rows) is None
+
+
+def test_a_superseded_item_is_listed_again_from_the_retest_once_its_module_is_merged_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The person approves fw's attempt 3: fw is merged again, the pair is retested and still
+    # fails, and exactly one new round is listed, made from that retest. A choice on it is taken
+    # with no halt.
+    rig = escalated(tmp_path, monkeypatch)
+    settle(rig, "approve")
+    assert escaped(lambda: again(rig, monkeypatch)) is None
+    rows = lines(rig)
+    assert len(of(rows, "merged", subtask_id=FW)) == 2
+    tested = of(rows, "contract_tested")
+    assert [r["result"]["outcome"] for r in tested] == ["fail", "fail", "pass", "fail"]
+    raised = of(rows, "contract_item_raised")
+    assert [r["item_id"] for r in raised] == [ITEM, OTHER, AGAIN]
+    assert rows.index(tested[-1]) < rows.index(raised[-1])
+    assert replay(read_events(rig.run_dir / "events.jsonl")).undecided(AGAIN)
+    choose(rig.run_dir, "producer", item_id=AGAIN)
+    assert escaped(lambda: again(rig, monkeypatch)) is None
+    rows = lines(rig)
+    assert of(rows, "incident") == []
+    assert len(of(rows, "decision_taken", item_id=AGAIN)) == 1
+    assert refusal(rows) is None
+
+
+def test_a_superseded_item_is_listed_again_once_its_module_ends_without_merging_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The person rejects fw's attempt 3, so fw ends without merging again: no retest is owed and
+    # the old failed result is the pair's latest. It is listed again, saying what is true then:
+    # fw cannot be reopened.
+    rig = escalated(tmp_path, monkeypatch)
+    settle(rig, "reject")
+    assert escaped(lambda: again(rig, monkeypatch)) is None
+    rows = lines(rig)
+    assert replay(read_events(rig.run_dir / "events.jsonl")).subtasks[FW].status == "rejected"
     assert len(of(rows, "contract_tested")) == 2  # no retest: fw never merged again
     assert [r["item_id"] for r in of(rows, "contract_item_raised")] == [ITEM, OTHER, AGAIN]
     item = next(i for i in read_queue(rig.run_dir).items if i.item_id == AGAIN)
