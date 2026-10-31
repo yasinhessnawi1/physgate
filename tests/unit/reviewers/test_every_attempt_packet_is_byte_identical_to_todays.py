@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 import uuid
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,6 @@ from packet_fixture import ISSUED, SPEC, artefact_of, make_attempt, stream
 from rubric_fixture import PLACEHOLDER
 
 import physgate.reviewers.claude as claude
-import physgate.reviewers.packet as packet_module
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import Installed
 from physgate.orchestrator.protocols import IssuedSpec, IssuedState, PersonOrder
@@ -52,8 +52,8 @@ def _state() -> IssuedState:
 def shown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, form: str) -> dict[str, str]:
     """Every byte the attempt's review is shown in ``form``, by name, normalised and hashed."""
     draws = iter(f"{n:016x}" for n in range(1, 1000))
-    monkeypatch.setattr(packet_module.secrets, "token_hex", lambda size: next(draws))
-    monkeypatch.setattr(claude.uuid, "uuid4", lambda: SESSION)
+    monkeypatch.setattr(secrets, "token_hex", lambda size: next(draws))
+    monkeypatch.setattr(uuid, "uuid4", lambda: SESSION)
     monkeypatch.setattr(claude, "binary_version", lambda binary: "2.1.301")
     attempt = make_attempt(tmp_path, stream())
     library = tmp_path / "harness"

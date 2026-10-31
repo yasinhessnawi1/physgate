@@ -50,7 +50,7 @@ def module(name: str) -> ModuleType:
 
 
 def plan_answer() -> dict[str, Any]:
-    node = {
+    node: dict[str, Any] = {
         "id": "iface.drive",
         "kind": "interface",
         "domain": "control",
