@@ -46,6 +46,11 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
+#: The key of the design reviewer among the reviewer pins: it reviews the plan, not a role's work,
+#: and no role may take its name.
+DESIGN_REVIEWER = "design"
+
+
 class ModelStrings(_Frozen):
     """Every model a run may call, by what calls it."""
 
@@ -53,12 +58,17 @@ class ModelStrings(_Frozen):
     roles: dict[NonEmptyStr, ModelString]
     reviewers: dict[NonEmptyStr, ModelString]
 
+    @property
+    def design_reviewer(self) -> str | None:
+        """The model the design reviewer is pinned to, or ``None`` for a run that pins none."""
+        return self.reviewers.get(DESIGN_REVIEWER)
+
     @model_validator(mode="after")
     def _the_design_reviewer_is_not_the_decomposition_s_model(self) -> ModelStrings:
         # The design reviewer judges the plan, so the decomposition is its implementer:
         # a judge on the model it judges is the self-preference reviewers are paired on
         # another model to avoid (ARCH-060). Refused here, before any call is made.
-        if self.reviewers.get("design") == self.decomposition:
+        if self.design_reviewer == self.decomposition:
             msg = "the design reviewer may not run on the decomposition's model"
             raise ValueError(msg)
         return self
