@@ -37,6 +37,11 @@ ReviewCause = (
 ReviewClass = Literal["verdict", "unavailable", "infrastructure", "exposure"]
 #: Which marked material a non-pass verdict's findings carried.
 Canary = Literal["held_out", "review_material"]
+#: The run-level voids, outside any round's table: a result whose totals are not its usage (on
+#: either call), a decomposition killed mid-loop, a plan file whose digest is not its line's, a
+#: record that is missing. Each is the instrument's, never the designer's or the reviewer's.
+RunVoidCause = Literal["accounting_mismatch", "killed", "plan_digest_mismatch", "record_missing"]
+RUN_VOIDS: frozenset[str] = frozenset(get_args(RunVoidCause))
 
 #: The causes that are the designer's. ``wall_clock`` is among them: the designer ran out of time.
 _NO_PLAN: frozenset[str] = frozenset(

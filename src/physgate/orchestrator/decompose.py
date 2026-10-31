@@ -46,6 +46,7 @@ from physgate.orchestrator.credentials import (
 )
 from physgate.orchestrator.exceptions import (
     DecompositionError,
+    GitError,
     InvocationError,
     LibraryRefusedError,
     PlanRefusedError,
@@ -175,8 +176,10 @@ TERMINAL_CAUSES: Mapping[str, FailureCause] = {
     "malformed_tool_use_exhausted": "malformed_output",
     "prompt_too_long": "context_exceeded",
     "model_error": "api_error",
-    "blocking_limit": "usage_limit",
-    "rapid_refill_breaker": "usage_limit",
+    # The binary's own context limits, grouped with prompt_too_long: its check before a request
+    # is sent (blocking_limit) and its stop on compaction that cannot keep up.
+    "blocking_limit": "context_exceeded",
+    "rapid_refill_breaker": "context_exceeded",
     "budget_exhausted": "budget_exhausted",
     **dict.fromkeys(
         (
@@ -582,7 +585,7 @@ def replan_prompt(brief: str, roles: Sequence[str], plan: Plan, findings: Replan
     canonical = json.dumps(plan.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
     lacking = f"{NO_INPUT_SUPPLIED_LINE}\n\n" if findings.lacks_input else ""
     return (
-        f"{prompt_for(brief, roles)}\n{REPLAN_SENTENCE}\n\n"
+        f"{prompt_for(brief, sorted(roles))}\n{REPLAN_SENTENCE}\n\n"
         "The plan the reviewer did not pass:\n"
         + "\n".join(quoted(canonical))
         + "\n\nWhat the review found:\n"
@@ -696,6 +699,10 @@ def read_stream(
     return result, usages, frozenset(models)
 
 
+#: The result's ``api_error`` when the answer was cut at the output cap and the binary gave up.
+OUTPUT_CAP = "max_output_tokens"
+
+
 def judge(
     # The result object from the binary's JSON stream: an untyped boundary.
     result: dict[str, Any] | None,
@@ -726,6 +733,10 @@ def judge(
     # The clock, a missing result and a sandbox that never started come first, as for every
     # session: the binary's own reason is read only from a result it gave in time.
     if result is not None and end.cause not in ("wall_clock", "no_result", "sandbox_unavailable"):
+        if result.get("api_error") == OUTPUT_CAP:
+            # The binary retried the cut answer, then ended api_error: the plan outgrew the cap.
+            capped = "the call stopped at the output cap with no plan"
+            return "no_structured_output", capped, None, seen_model, turns
         if named is not None:
             said = refused if named == "schema_refused" and refused else None
             return named, said or f"the call ended with {terminal}", None, seen_model, turns
@@ -1420,23 +1431,24 @@ def require_startable(
         words = _brief_words(plan, brief)
     except DecompositionError as exc:
         raise PlanRefusedError(str(exc), **exc.context) from None
-    try:
-        curated = read_library(library, (one.entry.assigned_role for one in planned))
-        # The series writer goes with the library: a role's scripts import it from
-        # .physgate/lib, and the run branch holds the very bytes the harness ships.
-        curated.update(series_library())
-        _require_library_fits(target_repo, config.target_head, curated)
-    except (LibraryError, DecompositionError) as exc:
-        raise LibraryRefusedError(str(exc), **exc.context) from None
     # A contract's file is named by its node's id, so an id that is no node id would
     # name a file outside the contracts' directory; the store would refuse it only
-    # after the specifications were committed.
+    # after the specifications were committed. The plan's own content is refused before
+    # the library is looked at, so a plan at fault is never read as the instrument's.
     for node in plan.interface_nodes:
         try:
             validate_node_id(node.id)
         except MalformedNodeIdError as exc:
             msg = "an interface node's id is not a node id"
             raise PlanRefusedError(msg, node=node.id[:64], reason=str(exc)) from None
+    try:
+        curated = read_library(library, (one.entry.assigned_role for one in planned))
+        # The series writer goes with the library: a role's scripts import it from
+        # .physgate/lib, and the run branch holds the very bytes the harness ships.
+        curated.update(series_library())
+        _require_library_fits(target_repo, config.target_head, curated)
+    except (LibraryError, DecompositionError, GitError) as exc:
+        raise LibraryRefusedError(str(exc), **exc.context) from None
     return planned, pairs, words, curated
 
 

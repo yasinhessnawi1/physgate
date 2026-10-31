@@ -209,7 +209,7 @@ class RunRecord:
                         "the run's first line does not name the decision mode its config acts on: "
                         "a run recorded before its first line named it, or one edited since, and "
                         "nothing on the line tells the two apart; decompose it again to act on "
-                        "decisions"
+                        "decisions, or again under queue_decisions: record to keep it record-only"
                     )
                 raise RunConfigError(
                     msg,

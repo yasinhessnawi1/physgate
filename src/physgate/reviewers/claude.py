@@ -63,7 +63,7 @@ from physgate.orchestrator.credentials import (
     write_key_helper,
     write_login,
 )
-from physgate.orchestrator.decompose import binary_version, schema_refusal
+from physgate.orchestrator.decompose import OUTPUT_CAP, binary_version, schema_refusal
 from physgate.orchestrator.dispatch import (
     OWNER_NAME,
     Installed,
@@ -130,6 +130,12 @@ from physgate.reviewers.verdict import Unavailable, judge, to_result
 COMPACT_BOUNDARY = "compact_boundary"
 #: The result's ``terminal_reason`` when a request outgrew the window (measured).
 PROMPT_TOO_LONG = "prompt_too_long"
+#: The binary's context limits, which it groups as one: a request too long for the window, its own
+#: check before sending one, and its stop on a compaction that cannot keep up. Reviewer sessions
+#: do not compact, so a review that outgrows its window ends at the binary's own check.
+CONTEXT_LIMITS = frozenset({PROMPT_TOO_LONG, "blocking_limit", "rapid_refill_breaker"})
+#: The binary's end when a tool call it could not parse was retried until it stopped.
+MALFORMED_TOOL_USE = "malformed_tool_use_exhausted"
 #: The result's ``terminal_reason`` when the binary's own cap on refused structured
 #: answers (five, on both binaries) ended the session: every refusal before it was told
 #: to the reviewer, so a fresh session would repeat it (measured on both binaries).
@@ -359,7 +365,8 @@ def unavailable_end(
     Read in this order, so a cause the generic classification would call
     infrastructure, and retry, is named for what it is first: a compaction anywhere
     in the stream, then a request that outgrew the window, then a refusal by the
-    model, then the binary's cap on refused structured answers (an invalid verdict,
+    model, then a verdict cut at the output cap (no verdict), then the binary's cap on a
+    tool call it could not parse or on refused structured answers (an invalid verdict,
     with the last refusal); then the session's end as every session's is classified,
     where running out of turns is no verdict (a schema refusal before it, an invalid
     one) and anything else is infrastructure.
@@ -367,7 +374,7 @@ def unavailable_end(
     events = _events(stream)
     if any(e.get("type") == "system" and e.get("subtype") == COMPACT_BOUNDARY for e in events):
         return "compacted", "the session compacted what it had read"
-    if result is not None and result.get("terminal_reason") == PROMPT_TOO_LONG:
+    if result is not None and result.get("terminal_reason") in CONTEXT_LIMITS:
         return "context_exceeded", "the review outgrew the model's context window"
     refusal = any(
         e.get("type") == "system" and str(e.get("subtype", "")).startswith("model_refusal")
@@ -375,6 +382,10 @@ def unavailable_end(
     )
     if refusal or (result is not None and result.get("stop_reason") == "refusal"):
         return "refused", "the model declined to review"
+    if result is not None and result.get("api_error") == OUTPUT_CAP:
+        return "no_verdict", "the verdict was cut at the output cap"
+    if result is not None and result.get("terminal_reason") == MALFORMED_TOOL_USE:
+        return "invalid_verdict", "the binary could not parse the verdict the session gave"
     if result is not None and result.get("terminal_reason") == STRUCTURED_OUTPUT_EXHAUSTED:
         errors = result.get("errors")
         told = [e for e in errors if isinstance(e, str)] if isinstance(errors, list) else []

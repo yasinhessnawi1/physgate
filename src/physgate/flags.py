@@ -125,7 +125,10 @@ def _repair_meaning(n: int) -> str:
         f"an experiment arm, named only by a reportable run: as under on, but a verdict other than "
         f"a pass is followed by a re-plan, {times}, each a decomposition call told the brief's "
         "prompt, the plan and the review's findings, and each reviewed again; a review that is no "
-        "verdict, a canary in the findings or the last re-plan's review holds the run as under on"
+        "verdict, a canary in the findings or the last re-plan's review holds the run as under on, "
+        "a round with no plan records a failed decomposition with no re-plan, and a round the "
+        "instrument failed (its call, the library, or a review that could not run) ends "
+        "decompose with no run, the rounds before it kept"
     )
 
 
@@ -149,7 +152,9 @@ DESIGN_REVIEW = Flag(
             "or a review that is no verdict, opens one plan_review item and holds every dispatch "
             "until a person decides it: an approve releases the run, a reject ends it with "
             "plan_rejected and no dispatch; under queue_decisions: record the item stays open "
-            "and the run ends escalated"
+            "and the run ends escalated. A plan refused for its own content records a failed "
+            "decomposition; a failure of the instrument (the call's, the library's, or a review "
+            "that could not run or be prepared) ends decompose with no run"
         ),
         **{f"repair:{n}": _repair_meaning(n) for n in (1, 2, 3)},
     },
