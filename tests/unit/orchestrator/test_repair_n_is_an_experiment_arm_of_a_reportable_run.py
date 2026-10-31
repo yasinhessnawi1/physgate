@@ -61,6 +61,16 @@ def test_the_register_names_repair_one_to_three() -> None:
         assert "re-plan" in meaning and "reportable" in meaning, value
 
 
+@pytest.mark.parametrize("value", ["on", *REPAIRS])
+def test_the_meanings_of_on_and_repair_say_what_voids_a_round_and_what_fails_the_run(
+    value: str,
+) -> None:
+    meaning = flags.DESIGN_REVIEW.meanings[value]
+    # A review the instrument could not make ends decompose with no run; no plan fails the run.
+    assert "no run" in meaning, meaning
+    assert "failed decomposition" in meaning, meaning
+
+
 @pytest.mark.parametrize("value", REPAIRS)
 def test_repair_n_is_refused_in_a_run_that_is_not_reportable(value: str) -> None:
     plain = _config(design_review=value, models=PINNED)

@@ -147,3 +147,20 @@ def test_an_act_run_whose_first_line_does_not_name_it_says_why_it_is_refused(
     found = outcome_of(lambda: RunRecord(load_run_config(run_dir / "run.json"), run_dir))
     assert isinstance(found, RunConfigError), found
     assert "recorded before its first line named" in str(found), str(found)
+    # Both remedies: decomposed again to act on decisions, or under record to keep it record-only.
+    assert "to act on decisions" in str(found), str(found)
+    assert "queue_decisions: record" in str(found), str(found)
+
+
+def test_a_run_halted_by_its_review_s_exposure_opens_and_is_not_told_it_was_cut(
+    tmp_path: Path,
+) -> None:
+    from design_review_rig import reviewed
+
+    run_dir = started(tmp_path, review=lambda d: reviewed(d, exposed=True))
+    config = load_run_config(run_dir / "run.json")
+    opened_record = outcome_of(lambda: RunRecord(config, run_dir))
+    assert isinstance(opened_record, RunRecord), opened_record
+    assert opened_record.state.halted is not None
+    assert opened_record.state.halted.detail == "held_out_read"
+    opened_record.close()

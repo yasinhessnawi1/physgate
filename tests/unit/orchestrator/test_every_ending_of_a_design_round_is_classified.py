@@ -31,8 +31,8 @@ MODEL = "claude-sonnet-5"
 #: (`strings` over ~/pinned/claude-2.1.301-macos: its two lists of terminal reasons), with the
 #: cause the plan call names for it. ``completed`` is judged on the answer, below.
 TERMINAL: dict[str, str] = {
-    "blocking_limit": "usage_limit",
-    "rapid_refill_breaker": "usage_limit",
+    "blocking_limit": "context_exceeded",
+    "rapid_refill_breaker": "context_exceeded",
     "prompt_too_long": "context_exceeded",
     "image_error": "harness_stopped",
     "model_error": "api_error",
