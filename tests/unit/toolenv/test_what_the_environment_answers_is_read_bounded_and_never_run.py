@@ -71,6 +71,14 @@ def _tree(tmp_path: Path) -> tuple[Path, Path]:
         ' "distributions": [["np\\u001b", "1"]]}',
         '{"version": "3.12.9", "prefix": "ROOT", "physgate": false, "distributions": "all"}',
         "[" * 100_000,
+        json.dumps(
+            {
+                "version": "3.12.9",
+                "prefix": "ROOT",
+                "physgate": False,
+                "distributions": [["d" + str(i), "1"] for i in range(80_000)],
+            }
+        ),
     ],
 )
 def test_a_hostile_probe_answer_is_refused_cleanly(tmp_path: Path, answer: str) -> None:
@@ -80,8 +88,13 @@ def test_a_hostile_probe_answer_is_refused_cleanly(tmp_path: Path, answer: str) 
     def run(argv: Sequence[str]) -> str | None:
         return text
 
-    with pytest.raises(ToolEnvironmentError):
+    try:
         measure(str(python), [str(root)], native={}, forbidden={}, runner=run)
+    except Exception as exc:  # noqa: BLE001 - the test asserts what it was
+        raised: BaseException | None = exc
+    else:
+        raised = None
+    assert isinstance(raised, ToolEnvironmentError), raised
 
 
 def test_a_well_formed_probe_answer_is_recorded(tmp_path: Path) -> None:

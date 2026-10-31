@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Sequence
+import threading
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import pytest
@@ -200,8 +201,8 @@ def test_an_interpreter_that_answers_no_json_object_is_refused(tmp_path: Path) -
         def run(argv: Sequence[str], answer: str | None = answer) -> str | None:
             return "tool 1.0\n" if argv[1:2] == ["--version"] else answer
 
-        with pytest.raises(ToolEnvironmentError):
-            _measure(root, python, tool, runner=run)
+        raised = _raised(lambda run=run: _measure(root, python, tool, runner=run))
+        assert isinstance(raised, ToolEnvironmentError), (answer, raised)
 
 
 def test_a_native_tool_without_a_printable_version_line_is_refused(tmp_path: Path) -> None:
@@ -290,3 +291,56 @@ def test_relative_and_absolute_links_that_stay_inside_are_kept(tmp_path: Path) -
         _measure(root, python, tool)
     (root / "bin" / "loop").unlink()
     _measure(root, python, tool)
+
+
+def _raised(call: Callable[[], object]) -> BaseException | None:
+    """What ``call`` raised, if anything: a refusal must be the domain error, never another."""
+    try:
+        call()
+    except Exception as exc:  # noqa: BLE001 - the test asserts what it was
+        return exc
+    return None
+
+
+def test_a_program_named_inside_that_leads_outside_is_refused_as_such(tmp_path: Path) -> None:
+    root, python, tool = _environment(tmp_path)
+    stray = tmp_path / "stray-gcc"
+    stray.write_text("#!/bin/sh\n")
+    stray.chmod(0o755)
+    (root / "bin" / "gcc").symlink_to(stray)
+    with pytest.raises(ToolEnvironmentError, match="lies outside its roots"):
+        _measure(root, python, root / "bin" / "gcc")
+
+
+def test_a_link_to_the_directory_above_the_roots_is_refused(tmp_path: Path) -> None:
+    root, python, tool = _environment(tmp_path)
+    (root / "bin" / "up").symlink_to("../..")
+    with pytest.raises(ToolEnvironmentError, match="leads outside"):
+        _measure(root, python, tool)
+
+
+def test_a_link_that_walks_out_through_a_plain_directory_and_back_is_refused(
+    tmp_path: Path,
+) -> None:
+    # Every link on the way lies inside and the end lies inside, but the walk passes through a
+    # plain directory outside, which could be replaced by a link at any time.
+    root, python, tool = _environment(tmp_path)
+    (tmp_path / "outside").mkdir()
+    (root / "bin" / "a").symlink_to(root)
+    (root / "bin" / "around").symlink_to("a/../outside/../env/bin/avr-gcc")
+    assert (root / "bin" / "around").resolve() == tool.resolve()
+    with pytest.raises(ToolEnvironmentError, match="leads outside"):
+        _measure(root, python, tool)
+
+
+def test_a_loop_of_links_ends_in_a_refusal_not_a_hang(tmp_path: Path) -> None:
+    root, python, tool = _environment(tmp_path)
+    (root / "bin" / "ping").symlink_to("pong")
+    (root / "bin" / "pong").symlink_to("ping")
+    outcome: list[BaseException | None] = []
+    worker = threading.Thread(target=lambda: outcome.append(_raised(lambda: manifest([root]))))
+    worker.daemon = True
+    worker.start()
+    worker.join(timeout=30)
+    assert outcome, "following a loop of links did not end"
+    assert isinstance(outcome[0], ToolEnvironmentError), outcome
