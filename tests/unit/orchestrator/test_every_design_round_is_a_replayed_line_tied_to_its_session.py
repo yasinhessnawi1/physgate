@@ -14,6 +14,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -231,8 +232,26 @@ def _call_tokens_after_the_last_proposal(log: list[dict[str, Any]]) -> list[dict
     return [*log[:at], forged, *log[at:]]
 
 
+def _review_tokens_before_its_proposal(k: int) -> Callable[[list[dict[str, Any]]], Any]:
+    # Round k's review's tokens moved to just before its own proposal: nothing else changes, and
+    # the tokens still come after the earlier round's review and before round k's review line.
+    def moved(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        [proposal] = [one for one in _of(log, "plan_proposed") if one["round"] == k]
+        [review] = [one for one in _of(log, "design_review_ran") if one["round"] == k]
+        spent = f"reviewer:{review['result']['session_id']}"
+        tokens = [one for one in log if one.get("attribution") == spent]
+        assert tokens, f"round {k}'s review spent nothing"
+        rest = [one for one in log if one.get("attribution") != spent]
+        at = rest.index(proposal)
+        return [*rest[:at], *tokens, *rest[at:]]
+
+    return moved
+
+
 EDITS = {
     "round 1's review tokens deleted": _review_tokens_deleted,
+    "round 1's review tokens before its proposal": _review_tokens_before_its_proposal(1),
+    "round 2's review tokens before its proposal": _review_tokens_before_its_proposal(2),
     "the last proposal names another model than the plan's": lambda log: _last_proposal(
         log, model="claude-fable-5-1"
     ),
@@ -264,6 +283,8 @@ def test_replay_refuses_a_round_not_tied_to_its_own_sessions(tmp_path: Path, nam
 #: What each new tie's refusal says, so a later fault cannot pass for it.
 NAMED = {
     "round 1's review tokens deleted": "a review that gave a verdict spent",
+    "round 1's review tokens before its proposal": "spends after its own proposal",
+    "round 2's review tokens before its proposal": "spends after its own proposal",
     "the last proposal names another model than the plan's": "model and turns",
     "the last proposal names other turns than the plan's": "model and turns",
 }

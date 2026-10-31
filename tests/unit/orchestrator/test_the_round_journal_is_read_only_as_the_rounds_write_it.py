@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import math
 import os
 import uuid
 from collections.abc import Callable
@@ -55,9 +56,15 @@ def _terminal(lines: list[dict[str, Any]]) -> dict[str, Any]:
     return next(one for one in lines if one["kind"] == "rounds_ended")
 
 
+def _items_met(result: dict[str, Any]) -> None:
+    # A verdict that no longer rejects carries no rejecting item, or it is no verdict at all.
+    result["items"] = [{**item, "result": "met"} for item in result.get("items", [])]
+
+
 def _passed(one: dict[str, Any]) -> None:
     one["ending"]["review_cause"] = "pass"
     one["review"]["result"]["verdict"] = "pass"
+    _items_met(one["review"]["result"])
 
 
 def _verdict_terminal(lines: list[dict[str, Any]]) -> None:
@@ -477,6 +484,23 @@ def test_a_journal_time_that_is_not_a_timestamp_is_refused(
     assert "check" not in found.context, found.context
 
 
+MONOTONIC = ("started", "call_ended", "review_started", "ended")
+
+
+@pytest.mark.parametrize("name", MONOTONIC)
+def test_a_monotonic_time_no_clock_gives_is_refused(three_fails: Path, name: str) -> None:
+    # Infinity from this time of the last round on: still in order, so only the type refuses it,
+    # as a line the rounds never write.
+    lines = _journal(three_fails)
+    _elapsed(_ended(lines, 3)).update(dict.fromkeys(MONOTONIC[MONOTONIC.index(name) :], math.inf))
+    _write(three_fails, lines)
+    assert "Infinity" in three_fails.joinpath(*JOURNAL).read_text()
+    found = _read(three_fails, 3)
+    assert isinstance(found, RunStateError), f"{name}: read as {found!r}"
+    assert found.context.get("cause") == "record_missing"
+    assert "check" not in found.context, found.context
+
+
 def test_every_round_s_times_are_kept_on_a_clock_no_step_moves_and_in_order(
     three_fails: Path,
 ) -> None:
@@ -566,6 +590,7 @@ def _blocked(lines: list[dict[str, Any]]) -> None:
     _ended(lines, 1)["ending"]["review_cause"] = "blocked"
     blocking = [{"finding": "the brief gives no supply voltage", "blocking": True}]
     _review_of(lines, 1, verdict="blocked", spec_defects=blocking)
+    _items_met(_ended(lines, 1)["review"]["result"])
 
 
 def _replanned_file(lines: list[dict[str, Any]], run_dir: Path) -> None:

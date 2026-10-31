@@ -26,13 +26,13 @@ import pytest
 import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as runner
 from journal_helper import one_round, plan_digest
 from loop_fakes import FakeGate, FakeReviewer, usage
-from replan_rig import Step, decompose
+from replan_rig import RUBRIC, Step, decompose, item_of
 
 from physgate import roles
 from physgate.orchestrator.design_rounds import RoundEnded, RoundsEnded, RoundStarted, read_journal
 from physgate.orchestrator.dispute import Dispute
 from physgate.orchestrator.events import Event
-from physgate.orchestrator.protocols import MessageUsage, QuantityRef, ReviewResult
+from physgate.orchestrator.protocols import MessageUsage, QuantityRef, ReviewResult, Usage
 from physgate.orchestrator.record import DecompositionCall, PlanReviewed, ReviewInstall, RunRecord
 from physgate.orchestrator.replay import RunState
 from physgate.orchestrator.run_config import ModelStrings, RunConfig, load_run_config
@@ -62,6 +62,17 @@ def _spent(events: list[Event], who: str) -> list[Any]:
     return [e for e in events if e.kind == "tokens_used" and e.attribution == who]
 
 
+def _tokens(n: int) -> Usage:
+    return Usage(
+        input_tokens=n, output_tokens=n, cache_read_input_tokens=0, cache_creation_input_tokens=0
+    )
+
+
+def _usage_of(events: list[Event], who: str) -> list[tuple[str, Usage]]:
+    """Each token line of ``who``: its message and what it spent."""
+    return [(e.message_id, e.usage) for e in _spent(events, who)]
+
+
 def test_a_completed_reviewed_decomposition_s_signals_are_lines_a_fresh_process_replays(
     tmp_path: Path,
 ) -> None:
@@ -79,7 +90,8 @@ def test_a_completed_reviewed_decomposition_s_signals_are_lines_a_fresh_process_
     proposals, reviews = state.proposals, [*state.earlier_reviews, state.design_review]
     assert [p.round for p in proposals] == [r.round for r in reviews if r] == [1, 2, 3]
     assert len(proposals) - 1 == 2, "re-plans"
-    for proposal, review in zip(proposals, reviews, strict=True):
+    kinds = ["fail", "blocked", "canary"]
+    for proposal, review, kind in zip(proposals, reviews, kinds, strict=True):
         assert review is not None and review.result is not None
         assert (proposal.model, proposal.num_turns) == ("claude-sonnet-5", 1)
         assert all(STAMP.match(t) for t in (proposal.started, proposal.ended))
@@ -88,9 +100,13 @@ def test_a_completed_reviewed_decomposition_s_signals_are_lines_a_fresh_process_
         assert hashlib.sha256(plan.read_bytes()).hexdigest() == proposal.plan_sha256
         assert review.plan_sha256 == proposal.plan_sha256
         assert review.result.reviewer_model == config.models.reviewers["design"]
-        assert "rubric_sha256" in type(review.result).model_fields
-        assert _spent(events, f"decomposition:{proposal.session_id}")
-        assert _spent(events, f"reviewer:{review.result.session_id}")
+        # The rubric it was judged by and its per-item results, on the line itself.
+        assert review.result.rubric_sha256 == RUBRIC
+        assert review.result.items == (item_of(proposal.round, kind),)
+        # Each round's call and review spent what the script spent, by message, on its own lines.
+        k = proposal.round
+        assert _usage_of(events, f"decomposition:{proposal.session_id}") == [(f"d{k}", _tokens(10))]
+        assert _usage_of(events, f"reviewer:{review.result.session_id}") == [(f"r{k}", _tokens(5))]
     assert [r.result.verdict for r in reviews if r and r.result] == ["fail", "blocked", "fail"]
     # The plan's item, and the review line that holds the run on it.
     held = reviews[-1]
@@ -103,6 +119,30 @@ def test_a_completed_reviewed_decomposition_s_signals_are_lines_a_fresh_process_
     for line in ended:
         assert line.elapsed.ended - line.elapsed.started >= 0
         assert line.elapsed.call_ended - line.elapsed.started >= 0
+
+
+def test_a_round_with_no_plan_is_read_with_its_cause_and_the_halt_that_ends_the_run(
+    tmp_path: Path,
+) -> None:
+    ran = decompose(tmp_path, "repair:2", [Step(), Step(call="no_structured_output")])
+    _, events, state, _ = _fresh(ran.run_dir)
+    assert [(p.round, p.cause) for p in state.proposals] == [(1, None), (2, "no_structured_output")]
+    assert state.proposals[0].plan_sha256 is not None and state.proposals[1].plan_sha256 is None
+    assert state.last_halt is not None and state.last_halt.reason == "decomposition_failed"
+    assert events[-1].kind == "halted" and not _of(events, "decomposed")
+
+
+def test_a_review_that_reached_no_verdict_is_read_with_its_cause_and_its_hold(
+    tmp_path: Path,
+) -> None:
+    ran = decompose(tmp_path, "on", [Step(review="no_verdict")])
+    assert ran.code == 0, ran.code
+    _, events, state, items = _fresh(ran.run_dir)
+    review = state.design_review
+    assert review is not None and review.result is None and review.unavailable is not None
+    assert review.unavailable.cause == "no_verdict"
+    assert review.held_item is not None and items == [review.held_item]
+    assert _usage_of(events, f"reviewer:{review.unavailable.session_id}") == [("r1", _tokens(5))]
 
 
 def test_a_void_attempt_s_rounds_are_read_from_its_journal_alone(tmp_path: Path) -> None:

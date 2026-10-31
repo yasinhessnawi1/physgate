@@ -16,6 +16,7 @@ assertion, not at collection, in a tree without it.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import re
@@ -44,7 +45,13 @@ from physgate.orchestrator.exceptions import (
     ReviewUnavailableError,
 )
 from physgate.orchestrator.plan import Plan
-from physgate.orchestrator.protocols import MessageUsage, ReviewResult, SpecDefect, Usage
+from physgate.orchestrator.protocols import (
+    ItemVerdict,
+    MessageUsage,
+    ReviewResult,
+    SpecDefect,
+    Usage,
+)
 from physgate.orchestrator.record import ReviewInstall
 from physgate.orchestrator.trajectory import seal
 
@@ -118,8 +125,26 @@ def _usage(n: int) -> Usage:
     )
 
 
+#: The digest of the rubric every scripted review is judged by, as a plan reviewer names it.
+RUBRIC = hashlib.sha256(b"the design rubric, scripted").hexdigest()
+
+
+def item_of(k: int, kind: str) -> ItemVerdict:
+    """The one rubric item round k finds: unmet where the round fails, met otherwise."""
+    rejects = kind in ("fail", "canary")
+    return ItemVerdict(
+        item="every interface names its consumers",
+        section="acceptance_criteria",
+        result="unmet" if rejects else "met",
+        evidence=f"round {k}'s plan, interface iface.bus",
+    )
+
+
 def verdict(k: int, kind: str, said: int | None = None) -> ReviewResult:
-    """Round k's verdict, finding as round ``said`` (or k) does; ``canary`` carries the canary."""
+    """Round k's verdict, finding as round ``said`` (or k) does; ``canary`` carries the canary.
+
+    Each names the rubric it was judged by and its one item, as a plan reviewer's verdict does.
+    """
     finding = f"round {said or k}: the plan leaves the bus unprotected"
     if kind == "canary":
         finding += f" ({CANARY})"
@@ -131,6 +156,8 @@ def verdict(k: int, kind: str, said: int | None = None) -> ReviewResult:
         session_id=f"review-{k}",
         usage=(MessageUsage(message_id=f"r{k}", usage=_usage(5)),),
         spec_defects=blocking if kind == "blocked" else (),
+        items=(item_of(said or k, kind),),
+        rubric_sha256=RUBRIC,
     )
 
 
