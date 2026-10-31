@@ -6,8 +6,8 @@ superseded. It no longer holds the waits or completion, and a decision written o
 taken record-only, as ``superseded``, still bound to the line the person saw, and never acts.
 While either module of its pair is neither merged nor ended rejected, sent to a person included,
 the pair owes nothing; once the module settles, the retest the reopened merge owes decides, and a
-pair that still fails is listed again as a new round, made from what is true then. The status route names each superseded item and the item whose reopen
-superseded it.
+pair that still fails is listed again as a new round, made from what is true then. The status
+route names each superseded item and the item whose reopen superseded it.
 """
 
 from __future__ import annotations
