@@ -1311,13 +1311,11 @@ def queue_listing(
             sid for start, end, sid in windows if start <= offset and (end is None or offset < end)
         ]
         flag = f"made while session {during[0]} ran; confirm" if during else None
-        took = review_time(decision)
-        entry: dict[str, object] = {
-            **decision.model_dump(),
-            "flag": flag,
-            # Null for a decision no server's view is on record for: the command line's.
-            "review_time": None if took is None else {"value": took.total_seconds(), "unit": "s"},
-        }
+        entry: dict[str, object] = {**decision.model_dump(), "flag": flag}
+        if (took := review_time(decision)) is not None:
+            # Only where a server's view is on record: a decision with none (the command line's)
+            # has no review time, and its entry stays as it always was.
+            entry["review_time"] = {"value": took.total_seconds(), "unit": "s"}
         if decision.item_id in taken:
             # What the run did with it, from its own record; absent until it takes the decision,
             # and in every run that only records, whose listing is as it always was.

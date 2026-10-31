@@ -163,7 +163,7 @@ def test_a_decision_with_no_recorded_view_has_no_review_time(
     line = _line(run_dir)
     assert "shown_at" not in line and "decomposition_defect" not in line
     entry = _listed(run_dir)
-    assert "review_time" in entry and entry["review_time"] is None
+    assert "review_time" not in entry
 
 
 def test_a_view_shown_by_a_server_since_stopped_has_no_review_time(
@@ -190,7 +190,7 @@ def test_a_view_stamped_after_the_decision_by_a_stepped_back_clock_writes_none(
     line = _line(run_dir)
     assert line["ts"] == "2026-10-31T08:59:57.250000Z"
     assert "shown_at" not in line and "decomposition_defect" not in line
-    assert _listed(run_dir).get("review_time", "absent") is None
+    assert "review_time" not in _listed(run_dir)
 
 
 def test_a_decision_on_the_command_line_has_no_review_time(run_dir: Path, clock: Clock) -> None:
@@ -209,7 +209,7 @@ def test_a_decision_on_the_command_line_has_no_review_time(run_dir: Path, clock:
     line = _line(run_dir)
     assert line["verb"] == "approve" and "shown_at" not in line
     entry = _listed(run_dir)
-    assert "review_time" in entry and entry["review_time"] is None
+    assert "review_time" not in entry
 
 
 @pytest.mark.parametrize("field", ["shown_at", "ts", "decided_ts"])
