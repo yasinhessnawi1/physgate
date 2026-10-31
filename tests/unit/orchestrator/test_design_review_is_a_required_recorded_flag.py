@@ -76,7 +76,8 @@ def test_a_run_recorded_before_the_flag_reads_as_off_with_its_digest_unchanged(
     write_run_config(path, config)
     recorded = json.loads(path.read_bytes())
     assert "design_review" not in recorded  # what a run before the flag wrote, byte for byte
-    loaded = load_run_config(path)
+    loaded = outcome_of(lambda: load_run_config(path))
+    assert isinstance(loaded, RunConfig), loaded
     assert loaded.design_review == "off"
     assert loaded.sha256() == config.sha256()
 
