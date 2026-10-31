@@ -57,6 +57,15 @@ function rawView(overrides: Record<string, unknown> = {}): Record<string, unknow
 }
 
 const VIEW: ItemView = itemView(rawView());
+/** The same item with every transcript holding its seal: only then can it be approved. */
+const SEALED: ItemView = itemView(
+  rawView({
+    trajectories: [
+      { link: "/r/sessions/s-1/stdout.jsonl", session_id: "s-1", status: "holds" },
+      { link: "/r/sessions/s-2/stdout.jsonl", session_id: "s-2", status: "holds" },
+    ],
+  }),
+);
 const SOURCE = { id: "run run-esc", commit: "abcdef1234" };
 
 let root: Root | null = null;
@@ -345,10 +354,10 @@ describe("the item shows the five things, and every seal status apart", () => {
 });
 
 describe("deciding goes through a confirmation naming the line it writes", () => {
-  function panel(operator: string | null, send = vi.fn(), holdsToken = true) {
+  function panel(operator: string | null, send = vi.fn(), holdsToken = true, view = SEALED) {
     const host = mount(
       <Decide
-        view={VIEW}
+        view={view}
         runId="run-esc"
         operator={operator}
         holdsToken={holdsToken}

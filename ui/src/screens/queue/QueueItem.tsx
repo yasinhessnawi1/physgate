@@ -2,13 +2,13 @@
  * One queue item as a person decides it: the decision it asks for, why a person is asked (with
  * the queue's own source under it), what triggered it, up to three quantities with their source,
  * the artefact diff as recorded, and the transcripts' seals folded into one line. Where the run
- * that listed it acts on decisions, what each verb will do, from the item's own fields. A decided
- * item shows its decision, the queue's own mark word for word, what the run did with it once it
- * took it, and no way to decide again.
+ * that listed it acts on decisions, what each verb and each position will do, from the item's own
+ * fields. A decided item shows its decision, the queue's own mark word for word, what the run did
+ * with it once it took it, and no way to decide again.
  */
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
-import type { Decided, ItemView } from "../../api/queue";
+import { type Decided, type ItemView, offeredPositions } from "../../api/queue";
 import { Id } from "../../design/components/data/Id";
 import { Quantity } from "../../design/components/data/Quantity";
 import { SourceChip } from "../../design/components/data/SourceChip";
@@ -17,7 +17,9 @@ import { Term } from "../../design/components/help/Term";
 import { StatusTag } from "../../design/components/status/StatusTag";
 import { nodeLabel, quantityLabel } from "../../words/humanise";
 import {
+  chooseWords,
   consequenceWords,
+  POSITION_WORDS,
   queueHeadline,
   reviewTimeWords,
   SOURCE_WORDS,
@@ -45,6 +47,7 @@ export function QueueItem({
   readonly children?: ReactNode;
 }) {
   const { item } = view;
+  const { consequence } = item;
   const words = SOURCE_WORDS[item.source];
   return (
     <section
@@ -87,12 +90,23 @@ export function QueueItem({
           </dd>
           <dt>What triggered it</dt>
           <dd className="pg-queue-finding">{item.triggeringFinding}</dd>
-          {item.consequence !== null && (
+          {consequence !== null && (
             <>
               <dt>If you approve</dt>
-              <dd className="pg-queue-on-approve">{consequenceWords(item.consequence).approve}</dd>
+              <dd className="pg-queue-on-approve">{consequenceWords(consequence).approve}</dd>
               <dt>If you reject</dt>
-              <dd className="pg-queue-on-reject">{consequenceWords(item.consequence).reject}</dd>
+              <dd className="pg-queue-on-reject">{consequenceWords(consequence).reject}</dd>
+              {offeredPositions(item.source).map((position) => {
+                const effect = consequence.onChoose?.[position];
+                return (
+                  effect !== undefined && (
+                    <Fragment key={position}>
+                      <dt>If you choose {POSITION_WORDS[position].toLowerCase()}</dt>
+                      <dd className="pg-queue-on-choose">{chooseWords(consequence, effect)}</dd>
+                    </Fragment>
+                  )
+                );
+              })}
             </>
           )}
         </dl>

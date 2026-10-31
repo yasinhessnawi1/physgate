@@ -91,6 +91,11 @@ const OFFERED: Readonly<Partial<Record<QueueSource, readonly Position[]>>> = {
   contract: CONTRACT_POSITIONS,
 };
 
+/** The positions an item of ``source`` offers, in its order; none for any other kind. */
+export function offeredPositions(source: QueueSource): readonly Position[] {
+  return OFFERED[source] ?? [];
+}
+
 /**
  * The positions an item states, held to its kind's set in its order: any other shape is refused.
  * As the queue's own model holds it: only an arbitration or a failed contract's item states them,

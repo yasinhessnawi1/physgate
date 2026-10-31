@@ -45,7 +45,7 @@ export function RowView({
           {row.sentence}
           {row.value !== null && (
             <span className="pg-row-value">
-              {" · recorded "}
+              {row.valueInline === true ? " " : " · recorded "}
               <Quantity {...row.value} />
             </span>
           )}
@@ -68,7 +68,7 @@ export function RowView({
     <>
       {shown}
       <details className={`pg-trow-more pg-trow-more-${String(row.depth)}`}>
-        <summary>Show the rest</summary>
+        <summary>{row.moreLabel ?? "Show the rest"}</summary>
         <p className="pg-trow-more-text">{row.more}</p>
       </details>
     </>

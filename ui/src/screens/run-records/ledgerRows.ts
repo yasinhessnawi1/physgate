@@ -6,7 +6,7 @@
  *
  * Every field is read from a record: the ledger's latest line, the event log (planning,
  * rejections, reviews with no verdict, escalations), the queue's listing and where the run
- * stands. Nothing is inferred past them. A stage the latest attempt has not recorded reads "not
+ * stands, which names each subtask that waits for sizing's closing pass. Nothing is inferred past them. A stage the latest attempt has not recorded reads "not
  * run" only when the attempt is over; while the run is on that attempt it reads "not yet".
  */
 import type { RunEvent } from "../../api/events";
@@ -31,6 +31,8 @@ export type StageResult =
 /** Where a subtask stands, from its latest record. */
 export type SubtaskState =
   | { readonly kind: "merged"; readonly commit: string }
+  /** A person chose the domain's value, and sizing's closing pass is ordered to write it. */
+  | { readonly kind: "closing-pass" }
   /** Escalated, and its queue item is open. */
   | { readonly kind: "waiting"; readonly itemId: string }
   /** Escalated, and a person decided its queue item. */
@@ -107,6 +109,7 @@ function stateOf(
   { events, status, queue }: FoldContext,
 ): SubtaskState {
   if (latest.mergeCommit !== null) return { kind: "merged", commit: latest.mergeCommit };
+  if (status?.waiting.includes(id) === true) return { kind: "closing-pass" };
   const escalation = events.findLast((e) => e.kind === "escalated" && e.subtask === id);
   if (escalation?.kind === "escalated") {
     const itemId = escalation.itemId;
@@ -217,6 +220,10 @@ export function attemptsWords(row: Pick<SubtaskRow, "attempts" | "budget">): str
 const DECISION_WORDS: Readonly<Record<string, string>> = {
   approve: "approved",
   reject: "rejected",
+  "choose sizing": "chose sizing's value",
+  "choose domain": "chose the domain's value",
+  "choose producer": "chose the producer's work",
+  "choose consumer": "chose the consumer's work",
 };
 
 /** Where a subtask stands, as a sentence no stronger than the record it is read from. */
@@ -224,6 +231,8 @@ export function stateWords(state: SubtaskState): string {
   switch (state.kind) {
     case "merged":
       return "Merged";
+    case "closing-pass":
+      return "Waiting: sizing's closing pass is ordered to write the value a person chose.";
     case "waiting":
       return "Escalated: waiting for a person's decision";
     case "decided":

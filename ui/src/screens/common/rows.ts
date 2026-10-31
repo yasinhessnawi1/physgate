@@ -11,6 +11,7 @@ import type { Verdict } from "../../design/components/verdict/verdict";
 import type { Quantity } from "../../design/quantity";
 import { type Actor, eventActor, type Models } from "../../words/actors";
 import { checkWords } from "../../words/checks";
+import { nodeLabel, quantityLabel } from "../../words/humanise";
 import { causeWords, triesWords } from "../../words/review";
 import { setAsideWith } from "../../words/queue";
 
@@ -33,8 +34,12 @@ export interface Row {
   readonly sentence: string;
   /** The rest of a long finding the sentence opens with, shown folded; ``null`` when it fits. */
   readonly more: string | null;
+  /** What the fold's control says, when it folds something other than the rest of a finding. */
+  readonly moreLabel?: string;
   /** A recorded value the sentence names, drawn as a quantity after it. */
   readonly value: Quantity | null;
+  /** A value the sentence ends on, drawn straight after it rather than as recorded beside it. */
+  readonly valueInline?: boolean;
   readonly meta: string;
   readonly end: RowEnd | null;
   readonly subtask: string | null;
@@ -106,6 +111,46 @@ function gateEnd(mode: string, outcome: Verdict): RowEnd {
     ? { kind: "gate", mode, outcome }
     : { kind: "gate-unknown-mode", mode, outcome };
 }
+
+/** A quantity of a node in words: "Current draw on Drive motor". */
+function named(quantity: string, node: string): string {
+  return `${quantityLabel(quantity)} on ${nodeLabel(node)}`;
+}
+
+/** A dispute's ruling, by the level that stands. */
+function rulingWords(level: string, attempt: number, what: string): string {
+  const a = `attempt ${String(attempt)}`;
+  switch (level) {
+    case "gate":
+      return `The gate refused ${a}, so its refusal stands over the dispute of ${what}`;
+    case "person":
+      return `A person's choice stands: ${a} holds the value chosen for ${what}`;
+    case "sizing":
+      return `Sizing's value of ${what} stands over ${a}'s dispute`;
+    default:
+      return `The dispute of ${what} goes to a person`;
+  }
+}
+
+/** A failed contract clause's ruling: the gate's, or a person's. */
+function clauseWords(event: Extract<RunEvent, { kind: "contract_ruled" }>): string {
+  const iface = nodeLabel(event.interface);
+  if (event.quantity === null && event.level !== "gate")
+    return `Interface ${iface} has no quantity, and a side is not joined to it: ruled for a person`;
+  const clause =
+    event.quantity === null
+      ? `interface ${iface}`
+      : `the contract clause ${quantityLabel(event.quantity)} on interface ${iface}`;
+  return event.level === "gate"
+    ? `The gate's refusal stands over ${clause}`
+    : `${capital(clause)} failed: ruled for a person`;
+}
+
+const REJECTED_WORDS: Readonly<Record<string, string>> = {
+  person: "as a person's decision ordered",
+  fix_not_accepted: "the fix a person ordered was not accepted",
+  closing_pass: "sizing's closing pass ended without merging the value a person chose",
+};
 
 /** One line as a row, or ``null`` for a line no person reads as an event. */
 export function rowOf(
@@ -319,6 +364,74 @@ export function rowOf(
         subtask: event.subtask,
         attempt: event.attempt,
       };
+    case "dispute_recorded":
+      return {
+        ...base,
+        depth: 2,
+        sentence: `Attempt ${String(event.attempt)} disputes sizing's value of ${named(event.quantity, event.node)}, proposing`,
+        value: event.proposed,
+        valueInline: true,
+        // The agent's own text, which nothing checks: folded, and said to be the agent's.
+        more: `The agent's reason, in its own words, which nothing checks: ${event.reason}`,
+        moreLabel: "The agent's reason",
+        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)} · ${event.node} · ${event.quantity}`,
+        subtask: event.subtask,
+        attempt: event.attempt,
+      };
+    case "arbitration_decided":
+      return {
+        ...base,
+        depth: 2,
+        sentence: rulingWords(event.level, event.attempt, named(event.quantity, event.node)),
+        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)} · sizing's value from revision ${String(event.heldRevision)}`,
+        subtask: event.subtask,
+        attempt: event.attempt,
+      };
+    case "contract_ruled":
+      return {
+        ...base,
+        depth: 0,
+        sentence: clauseWords(event),
+        meta: `contract · ${String(event.failing)} failing ${event.failing === 1 ? "node" : "nodes"}`,
+      };
+    case "contract_item_raised":
+      return {
+        ...base,
+        depth: 0,
+        sentence: `A failed contract was sent to a person (${event.itemId})`,
+        meta: "contract",
+      };
+    case "attempt_returned":
+      return {
+        ...base,
+        depth: 2,
+        sentence: `Sizing's closing pass merged; attempt ${String(event.attempt)} is judged again from its finished session, with no new session (${event.itemId})`,
+        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)}`,
+        subtask: event.subtask,
+        attempt: event.attempt,
+      };
+    case "subtask_reopened":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.subtask)} reopened for attempt ${String(event.attempt)}, as a person's choice on ${event.itemId} ordered; its earlier merge stays on the record`,
+        meta: `${event.subtask} · earlier merge ${event.mergeCommit.slice(0, 7)}`,
+        subtask: event.subtask,
+      };
+    case "subtask_rejected": {
+      const why = REJECTED_WORDS[event.by] ?? event.by;
+      const item = event.itemId === null ? "" : ` (${event.itemId})`;
+      return {
+        ...base,
+        depth: 1,
+        sentence:
+          event.by === "person"
+            ? `${subtaskName(event.subtask)} ended rejected, ${why}${item}`
+            : `${subtaskName(event.subtask)} ended rejected: ${why}${item}`,
+        meta: `${event.subtask} · attempt ${String(event.attempt)}`,
+        subtask: event.subtask,
+      };
+    }
     default:
       return null;
   }

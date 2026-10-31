@@ -208,6 +208,10 @@ export default function Queue({ setHeader, query }: ViewProps) {
     item === undefined
       ? undefined
       : listing.value.decided.find((d) => d.itemId === item.item.itemId);
+  const supersededBy =
+    item === undefined || status?.ok !== true
+      ? undefined
+      : status.value.superseded[item.item.itemId];
   const send = (verb: Verb, note: string, position?: Position) =>
     item === undefined
       ? Promise.resolve<Result<never>>({
@@ -234,9 +238,7 @@ export default function Queue({ setHeader, query }: ViewProps) {
             decided={decided}
             source={runSource(config.value)}
             subtaskName={names.get(item.item.subtaskId) ?? "The whole design"}
-            supersededBy={
-              status?.ok === true ? status.value.superseded[item.item.itemId] : undefined
-            }
+            supersededBy={supersededBy}
           >
             <Decide
               key={`${item.item.itemId}#${String(version)}`}
@@ -248,6 +250,7 @@ export default function Queue({ setHeader, query }: ViewProps) {
               onDecided={() => {
                 setVersion((v) => v + 1);
               }}
+              supersededBy={supersededBy}
             />
           </QueueItem>
         )}

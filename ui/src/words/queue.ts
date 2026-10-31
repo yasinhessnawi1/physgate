@@ -47,8 +47,11 @@ export const SOURCE_WORDS: Readonly<Record<QueueSource, SourceWords>> = {
     why: "The reviewer could not decide a safety-critical check, because the specification lacks its input.",
   },
   arbitration: {
-    kind: "Builder and reviewer disagree",
-    why: "The agent that built the work and the reviewer disagree, and only a person can settle it.",
+    kind: "Disputed sizing value",
+    why:
+      "A domain's agent disputes a value that sizing owns. The gate did not settle it, and by " +
+      "the precedence rule it comes to a person: the same quantity was disputed in an earlier " +
+      "attempt, or this was the subtask's last attempt.",
   },
   escalation_decision: {
     kind: "Sent early to a person",
@@ -130,7 +133,7 @@ const HEADLINES: Readonly<Record<QueueSource, string>> = {
   repair_budget_exhausted: "A subtask used up its repairs",
   review_unavailable: "The review reached no verdict",
   review_blocked: "A review could not decide a safety-critical check",
-  arbitration: "The builder and the reviewer disagree",
+  arbitration: "A domain disputes a value sizing owns",
   escalation_decision: "A subtask was sent to a person",
   contract: "Two merged modules break an interface contract",
 };
@@ -184,10 +187,45 @@ export const CHOOSE_WORDS: Readonly<Record<OnChoose, string>> = {
   end_subtask: "Choose: the subtask ends rejected, and nothing of it is merged.",
   resize:
     "Choose: the subtask waits while sizing's closing pass is ordered to write the domain's value " +
-    "into the graph; once that pass is merged, this attempt is judged again, with no new session.",
-  reopen: "Choose: the other module is reopened for one more attempt, told the interface's values.",
+    "into the graph; once that pass is merged, this attempt is judged again from its finished " +
+    "session, with no new session. If the pass writes another value, the dispute is ruled again.",
+  reopen:
+    "Choose: the other module is reopened for one more attempt, its next or its one fix, told the " +
+    "interface's values it does not hold. Its earlier merge stays on the record, and the contract " +
+    "is tested again once it is merged.",
   record_only: "Choose: the decision is recorded, and nothing in the run acts on it.",
 };
+
+/**
+ * What choosing a position whose effect is ``effect`` does, as the item states it; on the one
+ * that reopens the other module, every reward-hacking indicator a review of that module confirmed.
+ */
+export function chooseWords(c: Consequence, effect: OnChoose): string {
+  const named = c.confirmedIndicators.map((i) => `attempt ${String(i.attempt)} (${i.kind})`);
+  if (effect !== "reopen" || named.length === 0) return CHOOSE_WORDS[effect];
+  const found =
+    named.length === 1
+      ? "A review of the module it reopens confirmed a reward-hacking indicator"
+      : "Reviews of the module it reopens confirmed reward-hacking indicators";
+  return `${CHOOSE_WORDS.reopen} ${found}: ${named.join(", ")}.`;
+}
+
+/** Why approve, and choosing the domain's value, cannot be taken while a seal does not hold. */
+export const UNSEALED_WORDS = {
+  approve:
+    "A transcript of this item does not hold its seal, and an approve binds only to sealed work.",
+  domain:
+    "A transcript of this item does not hold its seal, and choosing the domain's value carries " +
+    "the agent's typed value into the graph, so it binds only to sealed work.",
+} as const;
+
+/** What a decision on an item a reopen superseded does, for every verb: it is recorded only. */
+export function supersededOutcome(by: string): string {
+  return (
+    `Recorded only: a choice on ${by} reopened a module this item is about, so nothing in the ` +
+    "run acts on this decision."
+  );
+}
 
 /** The approve button's label on an item whose approve records only. */
 export const APPROVE_RECORDS_ONLY = "Approve (records only)…";
