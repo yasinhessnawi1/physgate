@@ -287,7 +287,11 @@ def test_a_mesh_under_the_worktree_is_read_for_mujoco_and_one_outside_is_not(
     assert free["type"] == "free" and free["position"]["unit"] == "m"
     (root.parent / "outside.stl").write_bytes(_tetrahedron())
     escaping = model.replace("meshes/tetra.stl", "../../outside.stl")
-    assert "outside the worktree" in client.refusal("load_model", xml=escaping)
+    assert "may not" in client.refusal("load_model", xml=escaping)
+    (root / "models" / "meshes" / "link.stl").symlink_to(root.parent / "outside.stl")
+    linked = model.replace("meshes/tetra.stl", "meshes/link.stl")
+    (root / "models" / "linked.xml").write_text(linked)
+    assert "outside the worktree" in client.refusal("load_model", path="models/linked.xml")
 
 
 @needs_env

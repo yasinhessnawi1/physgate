@@ -18,6 +18,7 @@ import os
 import re
 import stat
 import sys
+import tempfile
 import xml.etree.ElementTree as ElementTree
 from typing import Any
 
@@ -38,6 +39,8 @@ _ASSET_ELEMENTS = {"mesh", "hfield", "texture", "skin"}
 _REFUSED_ELEMENTS = {"include", "model", "plugin", "extension", "instance"}
 #: Attributes that move where MuJoCo looks for every file the model names.
 _DIRECTORIES = {"meshdir", "texturedir", "assetdir"}
+#: A name an asset may be given: a plain relative path, nothing MuJoCo could read otherwise.
+_PLAIN = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*")
 #: How a library's error is shown: one line, its paths replaced, bounded.
 MAX_ERROR = 300
 
@@ -95,7 +98,7 @@ class Simulation:
         try:
             found = os.fstat(fd)
             if not stat.S_ISREG(found.st_mode):
-                raise RefusedError("a model or asset is a regular file")
+                raise RefusedError("a model or asset must be a regular file")
             if not self._under_root(os.path.realpath(_opened_path(fd))):
                 raise RefusedError("the model path leads outside the worktree")
             if found.st_size > limit:
@@ -105,8 +108,14 @@ class Simulation:
         finally:
             os.close(fd)
 
-    def _vetted(self, text: str, base: str) -> dict[str, bytes]:
-        """The asset files ``text`` names, read from under the root; anything else refused."""
+    def _vetted(self, text: str, base: str) -> tuple[str, dict[str, bytes]]:
+        """The model rewritten to name only files the server read for it, and those files.
+
+        Each asset's name must be a plain relative path, read from under the root; it is then
+        renamed in the model to a flat name of the server's, the key it is handed to MuJoCo
+        under, so MuJoCo's lookup and the server's read cannot name different files. The
+        directory attributes that would prefix those names are refused, not resolved.
+        """
         upper = text.upper()
         if "<!DOCTYPE" in upper or "<!ENTITY" in upper:
             raise RefusedError("a model may not declare a document type or entities")
@@ -116,21 +125,30 @@ class Simulation:
             line = exc.position[0] if exc.position else 0
             raise RefusedError(f"the model is not well-formed XML (line {line})") from None
         assets: dict[str, bytes] = {}
+        renamed: dict[str, str] = {}
         for element in tree.iter():
             tag = element.tag if isinstance(element.tag, str) else ""
             if tag in _REFUSED_ELEMENTS:
                 raise RefusedError(
                     f"a model may not use <{tag}>: it names what the server does not vet"
                 )
-            for name, value in element.attrib.items():
+            for name, value in list(element.attrib.items()):
                 if name == "file" and tag in _ASSET_ELEMENTS:
-                    if value not in assets:
-                        assets[value] = self._read(value, base, MAX_ASSETS)
+                    if not _PLAIN.fullmatch(value) or any(
+                        p in (".", "..") for p in value.split("/")
+                    ):
+                        raise RefusedError(
+                            f"a model may not name an asset {value[:60]!r}: plain relative paths"
+                        )
+                    if value not in renamed:
+                        renamed[value] = f"asset{len(renamed)}{os.path.splitext(value)[1].lower()}"
+                        assets[renamed[value]] = self._read(value, base, MAX_ASSETS)
                         if sum(map(len, assets.values())) > MAX_ASSETS:
                             raise RefusedError(f"a model's assets hold at most {MAX_ASSETS} bytes")
+                    element.set("file", renamed[value])
                 elif name.startswith("file") or name in _DIRECTORIES:
                     raise RefusedError(f"a model may not name files through <{tag} {name}>")
-        return assets
+        return ElementTree.tostring(tree, encoding="unicode"), assets
 
     def _redacted(self, error: Exception) -> str:
         line = (str(error).strip().splitlines() or [type(error).__name__])[0]
@@ -202,13 +220,20 @@ class Simulation:
         else:
             text, base = arguments["xml"], self.root
         # MuJoCo is handed the text and the vetted files only, so it opens nothing itself.
-        assets = self._vetted(text, base)
+        text, assets = self._vetted(text, base)
         import mujoco
 
-        try:
-            model = mujoco.MjModel.from_xml_string(text, assets)
-        except Exception as exc:  # noqa: BLE001 - the library's refusal, shown bounded
-            raise RefusedError(f"MuJoCo refused the model: {self._redacted(exc)}") from None
+        # From an empty directory: a name MuJoCo looked up outside the assets handed to it
+        # would find no file there either.
+        here = os.getcwd()
+        with tempfile.TemporaryDirectory(prefix="mujoco-load-") as empty:
+            os.chdir(empty)
+            try:
+                model = mujoco.MjModel.from_xml_string(text, assets)
+            except Exception as exc:  # noqa: BLE001 - the library's refusal, shown bounded
+                raise RefusedError(f"MuJoCo refused the model: {self._redacted(exc)}") from None
+            finally:
+                os.chdir(here)
         self.model, self.data = model, mujoco.MjData(model)
         return self._info()
 

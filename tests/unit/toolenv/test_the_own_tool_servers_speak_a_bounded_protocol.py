@@ -262,12 +262,13 @@ NAMING = {
     "an include": '<mujoco><include file="{outside}"/></mujoco>',
     "a mesh outside": '<mujoco><asset><mesh file="{outside}"/></asset></mujoco>',
     "a mesh up and out": '<mujoco><asset><mesh file="../../elsewhere.stl"/></asset></mujoco>',
-    "a mesh directory": '<mujoco><compiler meshdir="/"/><asset><mesh file="a.stl"/></asset></mujoco>',
+    "a mesh directory": '<mujoco><compiler meshdir="/"/></mujoco>',
     "a texture directory": '<mujoco><compiler texturedir="/"/></mujoco>',
     "an asset directory": '<mujoco><compiler assetdir="/"/></mujoco>',
     "a cube face": '<mujoco><asset><texture type="cube" fileright="{outside}"/></asset></mujoco>',
     "a model asset": '<mujoco><asset><model name="m" file="{outside}"/></asset></mujoco>',
-    "a plugin": '<mujoco><extension><plugin plugin="mujoco.elasticity.cable"/></extension></mujoco>',
+    "a plugin": '<mujoco><extension><plugin plugin="mujoco.elasticity.cable"/></extension>'
+    "</mujoco>",
     "an entity": '<!DOCTYPE m [<!ENTITY x SYSTEM "file://{outside}">]><mujoco model="&x;"/>',
 }
 
@@ -298,3 +299,19 @@ def test_a_model_file_that_names_a_file_is_refused(
 def test_a_model_that_is_not_well_formed_is_refused_without_its_text(mujoco: Server) -> None:
     text = _refused(mujoco.call("load_model", {"xml": "<mujoco><body></mujoco>"}))
     assert "well-formed" in text and "<body>" not in text
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["./mesh.stl", "meshes//mesh.stl", "meshes/../mesh.stl", "meshes/./mesh.stl", "", "a\\b.stl"],
+)
+def test_an_asset_name_that_is_not_a_plain_relative_path_is_refused(
+    mujoco: Server, tmp_path: Path, name: str
+) -> None:
+    # MuJoCo could look such a name up differently from the server, miss the file the server
+    # read for it, and fall back to opening a path of its own.
+    (tmp_path / "meshes").mkdir()
+    for path in (tmp_path / "mesh.stl", tmp_path / "meshes" / "mesh.stl"):
+        path.write_bytes(b"solid")
+    model = f'<mujoco><asset><mesh name="m" file="{name}"/></asset></mujoco>'
+    assert "may not" in _refused(mujoco.call("load_model", {"xml": model}))
