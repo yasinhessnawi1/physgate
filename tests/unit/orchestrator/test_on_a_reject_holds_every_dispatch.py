@@ -126,7 +126,8 @@ def test_a_pass_under_on_holds_nothing(tmp_path: Path) -> None:
 
 def test_on_a_reject_approve_releases(tmp_path: Path) -> None:
     run_dir = _held(tmp_path)
-    decide(run_dir, "approve")
+    # Bound to the view as listed, and held to it again under the decision function's lock.
+    assert outcome_of(lambda: decide(run_dir, "approve")) is None
     assert again(rig(run_dir)) == "done"
     [taken] = [e for e in lines(run_dir) if e.kind == "decision_taken"]
     assert (taken.subtask_id, taken.item_id, taken.effect, taken.acts) == (
