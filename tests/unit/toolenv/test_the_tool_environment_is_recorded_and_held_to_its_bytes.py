@@ -213,3 +213,47 @@ def test_a_native_tool_without_a_printable_version_line_is_refused(tmp_path: Pat
 
     with pytest.raises(ToolEnvironmentError, match="version line"):
         _measure(root, python, tool, runner=run)
+
+
+def test_a_program_named_from_outside_the_roots_is_refused_even_if_it_leads_inside(
+    tmp_path: Path,
+) -> None:
+    # A name outside the roots is in no manifest, so it could be repointed unseen after the
+    # check; only the bytes it led to when measured were ever held to the record.
+    root, python, tool = _environment(tmp_path)
+    shelf = tmp_path / "shelf"
+    shelf.mkdir()
+    (shelf / "avr-gcc").symlink_to(tool)
+    (shelf / "python3").symlink_to(python)
+    with pytest.raises(ToolEnvironmentError, match="named outside"):
+        _measure(root, python, shelf / "avr-gcc")
+    with pytest.raises(ToolEnvironmentError, match="named outside"):
+        _measure(root, shelf / "python3", tool)
+
+
+def test_a_link_inside_the_roots_repointed_between_sessions_is_refused(tmp_path: Path) -> None:
+    root, python, tool = _environment(tmp_path)
+    other = root / "bin" / "other-gcc"
+    other.write_text("#!/bin/sh\n")
+    other.chmod(0o755)
+    named = root / "bin" / "gcc"
+    named.symlink_to(tool)
+    env = _measure(root, python, named)
+    assert getattr(env.native_tools[0], "resolved", None) == str(tool.resolve())
+    at_start = scan([root])
+    require_unchanged(env, at_start)
+    named.unlink()
+    named.symlink_to(other)
+    with pytest.raises(ToolEnvironmentError):
+        require_unchanged(env, at_start)
+
+
+def test_a_link_that_passes_through_a_place_outside_the_roots_is_refused(tmp_path: Path) -> None:
+    # Its own text and its end both lie inside the roots, but a link outside them sits on the
+    # way, and that one can be repointed without any entry of the environment changing.
+    root, python, tool = _environment(tmp_path)
+    outside = tmp_path / "outside-link"
+    outside.symlink_to(tool)
+    (root / "bin" / "gcc").symlink_to(outside)
+    with pytest.raises(ToolEnvironmentError, match="leads outside"):
+        _measure(root, python, tool)

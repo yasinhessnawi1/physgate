@@ -69,7 +69,9 @@ class NativeTool(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     name: Name
+    #: The path as named, which lies inside a root, and where it leads.
     path: AbsolutePath
+    resolved: AbsolutePath
     version: Version
 
 
@@ -194,6 +196,12 @@ def measure(
                 raise ToolEnvironmentError(msg, root=root, place=str(place))
     named = {"python": interpreter, **native}
     for name, path in named.items():
+        # Named, not only resolved, inside a root: every link on the way to the program is
+        # then an entry of the manifest and of the scan, so repointing one is seen. A name
+        # outside the roots could be repointed after this check with nothing to notice it.
+        if not any(_under(os.path.abspath(path), os.path.abspath(root)) for root in roots):
+            msg = "a program of the tool environment is named outside its roots"
+            raise ToolEnvironmentError(msg, tool=name, path=path)
         real = os.path.realpath(path)
         if not any(_under(real, os.path.realpath(root)) for root in roots):
             msg = "a program of the tool environment lies outside its roots"
@@ -213,7 +221,12 @@ def measure(
         msg = "the interpreter's prefix lies outside the tool environment's roots"
         raise ToolEnvironmentError(msg, prefix=prefix)
     tools = tuple(
-        NativeTool(name=name, path=path, version=_version_line(name, path, runner))
+        NativeTool(
+            name=name,
+            path=path,
+            resolved=os.path.realpath(path),
+            version=_version_line(name, path, runner),
+        )
         for name, path in sorted(native.items())
     )
     walked = manifest([Path(root) for root in roots])
@@ -255,9 +268,18 @@ def require_same(
 def require_unchanged(recorded: ToolEnvironment, at_start: str) -> None:
     """Refuse a session when any entry of the environment changed since ``at_start``'s scan.
 
+    Each program the run recorded must also still lead to the file it led to then.
+
     Raises:
-        ToolEnvironmentError: the scan differs, or an entry is refused (:func:`scan`).
+        ToolEnvironmentError: the scan differs, an entry is refused (:func:`scan`), or a
+            program's name leads elsewhere.
     """
     if scan([Path(root) for root in recorded.roots]) != at_start:
         msg = "an entry of the tool environment changed since the run started"
         raise ToolEnvironmentError(msg, roots=",".join(recorded.roots))
+    programs = [(recorded.interpreter, recorded.resolved)]
+    programs += [(tool.path, tool.resolved) for tool in recorded.native_tools]
+    for named, resolved in programs:
+        if os.path.realpath(named) != resolved:
+            msg = "a program of the tool environment no longer leads where the run recorded"
+            raise ToolEnvironmentError(msg, path=named, recorded=resolved)

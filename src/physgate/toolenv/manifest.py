@@ -15,7 +15,7 @@ since the full manifest was taken (about 0.1 s for the same tree).
 - a regular file with more than one link: its other name lies outside every protected root, and a
   write through it changes the file here (an installer that hard-links from its cache leaves
   thousands of these on Linux);
-- a symbolic link whose target, resolved, leaves the roots;
+- a symbolic link whose text, or whose target once resolved, leaves the roots;
 - anything that is not a regular file, a directory or a link (a pipe, a socket, a device).
 """
 
@@ -76,8 +76,11 @@ def _check(path: str, found: os.stat_result, roots: Sequence[str]) -> None:
             )
             raise ToolEnvironmentError(msg, path=path, links=str(found.st_nlink))
     elif stat.S_ISLNK(mode):
+        # Both what the link says and where it ends must lie inside: a link whose text names a
+        # place outside, even one that leads back in, passes through something no scan covers.
+        said = os.path.normpath(os.path.join(os.path.dirname(path), os.readlink(path)))
         target = os.path.realpath(path)
-        if not any(_under(target, root) for root in roots):
+        if not all(any(_under(p, root) for root in roots) for p in (said, target)):
             msg = "a link in the tool environment leads outside it"
             raise ToolEnvironmentError(msg, path=path, target=target)
     elif not stat.S_ISDIR(mode):
