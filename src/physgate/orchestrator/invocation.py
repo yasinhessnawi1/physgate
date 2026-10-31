@@ -1,11 +1,12 @@
 """How a Claude Code session is invoked: the one module that names the binary.
 
 Every invocation is isolated the same way: no settings source at all, a settings
-file from outside every worktree, a scratch home and configuration directory, an
-environment built from nothing, stdin from ``/dev/null``, a full model string and
-a session id the orchestrator chose. The binary's own retries are set explicitly,
-because its default was measured to retry an overloaded endpoint for minutes and
-to hide those requests from the orchestrator's count.
+file from outside every worktree, no tool server but those the harness names, a
+scratch home and configuration directory, an environment built from nothing, stdin
+from ``/dev/null``, a full model string and a session id the orchestrator chose.
+The binary's own retries are set explicitly, because its default was measured to
+retry an overloaded endpoint for minutes and to hide those requests from the
+orchestrator's count.
 
 The version is pinned: the headless contract the orchestrator relies on (the
 stream's shape, the result fields, what a resume replays) was measured on
@@ -33,6 +34,21 @@ from physgate.orchestrator.managed import FLAGS_SETTING, FLAGS_SILENT_VERSIONS, 
 #: runs recorded on them can still be resumed and reproduced.
 PINNED_VERSIONS = frozenset({"2.1.272", "2.1.283", "2.1.301"})
 _BINARY = "claude"
+
+#: The tool-server configuration every session is spawned with: none. The binary starts
+#: a tool server named in a ``.mcp.json`` of the working directory or any directory above
+#: it, or in the user scope of its configuration directory, as a process of its own outside
+#: the OS layer, where it can write anywhere, read what no session may and reach the
+#: network whatever the session's network setting says. In print mode it does so with no
+#: approval step (measured on 2.1.301 and 2.1.272). ``--setting-sources ""`` closes those
+#: sources today; the strict mode with this explicit configuration closes them by itself,
+#: so a server starts only where the harness names one.
+NO_TOOL_SERVERS = '{"mcpServers":{}}'
+#: The most a tool server's answer may hold, in tokens. Set rather than left to the binary,
+#: whose default (25,000 on 2.1.301) a remote feature flag can replace when it is unset.
+MAX_SERVER_OUTPUT_TOKENS = 25_000
+#: The arguments that pin a session's tool servers to :data:`NO_TOOL_SERVERS`.
+NO_TOOL_SERVER_ARGS = ("--strict-mcp-config", "--mcp-config", NO_TOOL_SERVERS)
 
 
 def claude_binary() -> str:
@@ -95,6 +111,7 @@ def decomposition_argv(
         "",
         "--settings",
         str(settings),
+        *NO_TOOL_SERVER_ARGS,
         "--tools",
         "",
         "--json-schema",
@@ -151,6 +168,7 @@ def isolated_env(
         "DISABLE_AUTOUPDATER": "1",
         "DISABLE_TELEMETRY": "1",
         "DISABLE_ERROR_REPORTING": "1",
+        "MAX_MCP_OUTPUT_TOKENS": str(MAX_SERVER_OUTPUT_TOKENS),
     }
     if claude_version in FLAGS_SILENT_VERSIONS:
         name, value = FLAGS_SETTING
@@ -203,6 +221,7 @@ def role_argv(
         "-p",
         prompt,
         *spawn_args,
+        *NO_TOOL_SERVER_ARGS,
         "--output-format",
         "stream-json",
         "--verbose",
@@ -261,6 +280,7 @@ def reviewer_argv(
         "-p",
         prompt,
         *spawn_args,
+        *NO_TOOL_SERVER_ARGS,
         "--tools",
         "Read",
         "--json-schema",
