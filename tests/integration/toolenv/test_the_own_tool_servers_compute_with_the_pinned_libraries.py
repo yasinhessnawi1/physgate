@@ -252,3 +252,53 @@ def test_the_pinned_binary_connects_to_both_servers_lists_their_tools_and_calls_
     assert api.failures == []
     answered = api.requests[-1].last_user
     assert '"phase_margin"' in answered and "28.020" in answered
+
+
+def _tetrahedron() -> bytes:
+    """A binary STL of a small tetrahedron: the least mesh MuJoCo loads."""
+    import struct
+
+    v = [(0.0, 0.0, 0.0), (0.1, 0.0, 0.0), (0.0, 0.1, 0.0), (0.0, 0.0, 0.1)]
+    faces = [(0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3)]
+    out = b"\0" * 80 + struct.pack("<I", len(faces))
+    for face in faces:
+        out += struct.pack("<3f", 0, 0, 0)
+        for index in face:
+            out += struct.pack("<3f", *v[index])
+        out += b"\0\0"
+    return out
+
+
+@needs_env
+def test_a_mesh_under_the_worktree_is_read_for_mujoco_and_one_outside_is_not(
+    mujoco: tuple[Client, Path],
+) -> None:
+    client, root = mujoco
+    (root / "models" / "meshes").mkdir(parents=True)
+    (root / "models" / "meshes" / "tetra.stl").write_bytes(_tetrahedron())
+    model = (
+        '<mujoco><asset><mesh name="t" file="meshes/tetra.stl"/></asset><worldbody><body>'
+        '<freejoint/><geom type="mesh" mesh="t"/></body></worldbody></mujoco>'
+    )
+    (root / "models" / "robot.xml").write_text(model)
+    loaded = client.call("load_model", path="models/robot.xml")
+    assert loaded["bodies"] == 2
+    free = client.call("step", steps=10)["joints"][0]
+    assert free["type"] == "free" and free["position"]["unit"] == "m"
+    (root.parent / "outside.stl").write_bytes(_tetrahedron())
+    escaping = model.replace("meshes/tetra.stl", "../../outside.stl")
+    assert "outside the worktree" in client.refusal("load_model", xml=escaping)
+
+
+@needs_env
+def test_mujoco_s_own_refusal_is_one_bounded_line_with_no_path_of_the_machine(
+    mujoco: tuple[Client, Path],
+) -> None:
+    client, root = mujoco
+    (root / "broken.xml").write_text(
+        '<mujoco><worldbody><geom type="mesh" mesh="none"/></worldbody></mujoco>'
+    )
+    text = client.refusal("load_model", path="broken.xml")
+    assert text.startswith('{"error": "MuJoCo refused the model: ')
+    assert len(text) < 400 and "\\n" not in text
+    assert str(root) not in text and os.path.realpath(root) not in text

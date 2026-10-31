@@ -252,3 +252,49 @@ def test_no_server_imports_the_harness_and_none_needs_a_library_to_start() -> No
             assert root != "physgate", (path.name, module)
             if at_top:
                 assert root in sys.stdlib_module_names or root in local, (path.name, module)
+
+
+# ---- what a model may name ------------------------------------------------------------------
+
+#: A model is judged before MuJoCo reads it: a file it names in turn is read by MuJoCo itself,
+#: from anywhere, unless the server refuses the name or reads the file for it.
+NAMING = {
+    "an include": '<mujoco><include file="{outside}"/></mujoco>',
+    "a mesh outside": '<mujoco><asset><mesh file="{outside}"/></asset></mujoco>',
+    "a mesh up and out": '<mujoco><asset><mesh file="../../elsewhere.stl"/></asset></mujoco>',
+    "a mesh directory": '<mujoco><compiler meshdir="/"/><asset><mesh file="a.stl"/></asset></mujoco>',
+    "a texture directory": '<mujoco><compiler texturedir="/"/></mujoco>',
+    "an asset directory": '<mujoco><compiler assetdir="/"/></mujoco>',
+    "a cube face": '<mujoco><asset><texture type="cube" fileright="{outside}"/></asset></mujoco>',
+    "a model asset": '<mujoco><asset><model name="m" file="{outside}"/></asset></mujoco>',
+    "a plugin": '<mujoco><extension><plugin plugin="mujoco.elasticity.cable"/></extension></mujoco>',
+    "an entity": '<!DOCTYPE m [<!ENTITY x SYSTEM "file://{outside}">]><mujoco model="&x;"/>',
+}
+
+
+def _names_refused(text: str) -> bool:
+    """A name refused outright, or an asset refused for lying outside the worktree."""
+    return "may not" in text or "outside the worktree" in text
+
+
+@pytest.mark.parametrize("case", sorted(NAMING))
+def test_a_model_given_inline_that_names_a_file_is_refused(
+    mujoco: Server, tmp_path: Path, case: str
+) -> None:
+    outside = tmp_path.parent / "secret.txt"
+    answer = mujoco.call("load_model", {"xml": NAMING[case].format(outside=outside)})
+    assert _names_refused(_refused(answer))
+
+
+@pytest.mark.parametrize("case", sorted(NAMING))
+def test_a_model_file_that_names_a_file_is_refused(
+    mujoco: Server, tmp_path: Path, case: str
+) -> None:
+    outside = tmp_path.parent / "secret.txt"
+    (tmp_path / "model.xml").write_text(NAMING[case].format(outside=outside))
+    assert _names_refused(_refused(mujoco.call("load_model", {"path": "model.xml"})))
+
+
+def test_a_model_that_is_not_well_formed_is_refused_without_its_text(mujoco: Server) -> None:
+    text = _refused(mujoco.call("load_model", {"xml": "<mujoco><body></mujoco>"}))
+    assert "well-formed" in text and "<body>" not in text

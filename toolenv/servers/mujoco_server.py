@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
+import stat
 import sys
+import xml.etree.ElementTree as ElementTree
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -25,8 +28,18 @@ from mcp_stdio import RefusedError, Server, quantity  # noqa: E402 - the line ab
 NOTE = "A working aid: nothing here is evidence. Simulate in a module script and record it."
 #: The most steps one call may take.
 MAX_STEPS = 100_000
-#: The longest model text taken inline.
+#: The longest model text taken inline or read from a file.
 MAX_XML = 1 << 19
+#: The most bytes of asset files one model may read.
+MAX_ASSETS = 64 << 20
+#: The elements whose ``file`` the server reads for MuJoCo, from under the root only.
+_ASSET_ELEMENTS = {"mesh", "hfield", "texture", "skin"}
+#: Elements that name further models, files or native code the server does not vet.
+_REFUSED_ELEMENTS = {"include", "model", "plugin", "extension", "instance"}
+#: Attributes that move where MuJoCo looks for every file the model names.
+_DIRECTORIES = {"meshdir", "texturedir", "assetdir"}
+#: How a library's error is shown: one line, its paths replaced, bounded.
+MAX_ERROR = 300
 
 #: How each kind of joint's position and velocity coordinates split, with their units.
 _JOINTS = {
@@ -38,6 +51,16 @@ _JOINTS = {
 }  # fmt: skip
 
 
+def _opened_path(fd: int) -> str:
+    """The path an open file has now, as the system reports it."""
+    if sys.platform == "darwin":
+        import fcntl
+
+        found = fcntl.fcntl(fd, getattr(fcntl, "F_GETPATH", 50), b"\0" * 1024)
+        return os.fsdecode(found.split(b"\0", 1)[0])
+    return os.readlink(f"/proc/self/fd/{fd}")
+
+
 class Simulation:
     """The one model this server holds, and its data."""
 
@@ -47,12 +70,77 @@ class Simulation:
         self.model: Any = None
         self.data: Any = None
 
-    def _inside(self, given: str) -> str:
-        path = given if os.path.isabs(given) else os.path.join(self.root, given)
+    def _inside(self, given: str, base: str | None = None) -> str:
+        start = base or self.root
+        path = given if os.path.isabs(given) else os.path.join(start, given)
         real = os.path.realpath(path)
-        if not (real == self.root or real.startswith(self.root + os.sep)):
+        if not self._under_root(real):
             raise RefusedError("the model path leads outside the worktree")
         return real
+
+    def _under_root(self, real: str) -> bool:
+        return real == self.root or real.startswith(self.root + os.sep)
+
+    def _read(self, given: str, base: str | None, limit: int) -> bytes:
+        """A file under the root, opened once and judged by what was opened, not by its name.
+
+        The final name may not be a link, and the path the open file actually has must lie
+        under the root, so a link swapped in after the name was judged is refused too.
+        """
+        real = self._inside(given, base)
+        try:
+            fd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+        except OSError as exc:
+            raise RefusedError(f"the file {os.path.basename(real)!r} cannot be opened") from exc
+        try:
+            found = os.fstat(fd)
+            if not stat.S_ISREG(found.st_mode):
+                raise RefusedError("a model or asset is a regular file")
+            if not self._under_root(os.path.realpath(_opened_path(fd))):
+                raise RefusedError("the model path leads outside the worktree")
+            if found.st_size > limit:
+                raise RefusedError(f"a model or asset holds at most {limit} bytes")
+            with os.fdopen(os.dup(fd), "rb") as handle:
+                return handle.read(limit + 1)[:limit]
+        finally:
+            os.close(fd)
+
+    def _vetted(self, text: str, base: str) -> dict[str, bytes]:
+        """The asset files ``text`` names, read from under the root; anything else refused."""
+        upper = text.upper()
+        if "<!DOCTYPE" in upper or "<!ENTITY" in upper:
+            raise RefusedError("a model may not declare a document type or entities")
+        try:
+            tree = ElementTree.fromstring(text)
+        except ElementTree.ParseError as exc:
+            line = exc.position[0] if exc.position else 0
+            raise RefusedError(f"the model is not well-formed XML (line {line})") from None
+        assets: dict[str, bytes] = {}
+        for element in tree.iter():
+            tag = element.tag if isinstance(element.tag, str) else ""
+            if tag in _REFUSED_ELEMENTS:
+                raise RefusedError(
+                    f"a model may not use <{tag}>: it names what the server does not vet"
+                )
+            for name, value in element.attrib.items():
+                if name == "file" and tag in _ASSET_ELEMENTS:
+                    if value not in assets:
+                        assets[value] = self._read(value, base, MAX_ASSETS)
+                        if sum(map(len, assets.values())) > MAX_ASSETS:
+                            raise RefusedError(f"a model's assets hold at most {MAX_ASSETS} bytes")
+                elif name.startswith("file") or name in _DIRECTORIES:
+                    raise RefusedError(f"a model may not name files through <{tag} {name}>")
+        return assets
+
+    def _redacted(self, error: Exception) -> str:
+        line = (str(error).strip().splitlines() or [type(error).__name__])[0]
+
+        def shown(match: re.Match[str]) -> str:
+            real = os.path.realpath(match.group(0))
+            return "<worktree>" + real[len(self.root) :] if self._under_root(real) else "<path>"
+
+        line = re.sub(r"/[^\s'\"]+", shown, line)
+        return "".join(c if c.isprintable() else " " for c in line)[:MAX_ERROR]
 
     def _need(self) -> None:
         if self.model is None:
@@ -103,13 +191,24 @@ class Simulation:
         given = [name for name in ("path", "xml") if name in arguments]
         if len(given) != 1:
             raise RefusedError("a model is given as exactly one of path or xml")
-        path = self._inside(arguments["path"]) if "path" in arguments else None
+        if "path" in arguments:
+            real = self._inside(arguments["path"])
+            raw = self._read(arguments["path"], None, MAX_XML)
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                raise RefusedError("the model file is not UTF-8 text") from None
+            base = os.path.dirname(real)
+        else:
+            text, base = arguments["xml"], self.root
+        # MuJoCo is handed the text and the vetted files only, so it opens nothing itself.
+        assets = self._vetted(text, base)
         import mujoco
 
-        if path is not None:
-            model = mujoco.MjModel.from_xml_path(path)
-        else:
-            model = mujoco.MjModel.from_xml_string(arguments["xml"])
+        try:
+            model = mujoco.MjModel.from_xml_string(text, assets)
+        except Exception as exc:  # noqa: BLE001 - the library's refusal, shown bounded
+            raise RefusedError(f"MuJoCo refused the model: {self._redacted(exc)}") from None
         self.model, self.data = model, mujoco.MjData(model)
         return self._info()
 
