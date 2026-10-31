@@ -221,6 +221,11 @@ FORGERIES: dict[str, tuple[Callable[..., None], int, str]] = {
         1,
         "arm",
     ),
+    "round 1's start line names no brief": (
+        lambda lines, _: _started(lines, 1).update(brief_sha256=None),
+        1,
+        "arm",
+    ),
     "a later round's start line names the arm": (
         lambda lines, _: _started(lines, 2).update(
             design_review="repair:2", decomposition_model="claude-sonnet-5"
@@ -536,8 +541,11 @@ def test_round_one_names_the_run_s_mode_and_designer_and_no_later_round_does(
     assert started, "no round started"
     assert started[0].get("design_review") == policy, started[0]
     assert started[0].get("decomposition_model") == "claude-sonnet-5", started[0]
+    brief = hashlib.sha256((tmp_path / "brief.md").read_bytes()).hexdigest()
+    assert started[0].get("brief_sha256") == brief, started[0]
     for one in started[1:]:
-        assert one.get("design_review") is None and one.get("decomposition_model") is None
+        arm = ("design_review", "decomposition_model", "brief_sha256")
+        assert all(one.get(name) is None for name in arm), one
 
 
 @pytest.fixture
@@ -586,6 +594,10 @@ def _log_edited(run_dir: Path, kind: str, at: int, **fields: Any) -> None:  # no
 #: what the open names as disagreeing with the log: the arm, a call, a review or the tokens.
 OPEN_EDITS: dict[str, tuple[Callable[[list[dict[str, Any]], Path], None], str]] = {
     "round 1's mode": (lambda lines, _: _started(lines, 1).update(design_review="repair:1"), "arm"),
+    "round 1's brief": (
+        lambda lines, _: _started(lines, 1).update(brief_sha256="e" * 64),
+        "arm",
+    ),
     "round 1's designer": (
         lambda lines, _: _started(lines, 1).update(decomposition_model="claude-fable-5-1"),
         "arm",
