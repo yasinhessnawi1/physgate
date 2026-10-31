@@ -242,6 +242,11 @@ def clause_conflicts(result: ContractResult) -> tuple[ClauseConflict, ...]:
     found: list[ClauseConflict] = []
     for check in result.interfaces:
         unjoined: set[SideName] = set(check.not_joined)
+        listed: tuple[tuple[SideName, tuple[str, ...]], ...] = (
+            ("producer", check.producer_nodes),
+            ("consumer", check.consumer_nodes),
+        )
+        joined = {side for side, nodes in listed if nodes}
         if not check.clauses and unjoined:
             conflict = ContractConflict(interface=check.interface, quantity=None)
             found.append(ClauseConflict(conflict, _in_order(unjoined), (), ()))
@@ -249,7 +254,10 @@ def clause_conflicts(result: ContractResult) -> tuple[ClauseConflict, ...]:
             if clause.outcome == "pass":
                 continue
             failing = [n for n in clause.nodes if n.outcome != "pass"]
-            deviating: set[SideName] = unjoined | {n.side for n in failing}
+            # A joined side the clause lists no node of fails it as well: no failed clause
+            # names no one.
+            absent = joined - {n.side for n in clause.nodes}
+            deviating: set[SideName] = unjoined | absent | {n.side for n in failing}
             found.append(
                 ClauseConflict(
                     ContractConflict(interface=check.interface, quantity=clause.quantity),
@@ -272,15 +280,19 @@ def contract_standing(
     """The standing of a failed clause, from the record's lines about its pair.
 
     ``gate`` is the gate line of the attempt whose merge owed the result. It refused the clause
-    when it failed (in any mode: under ``on`` a merged attempt passed, so only ``observe`` reaches
-    this) naming the clause's quantity on the interface or on one of the clause's ``nodes``. The
-    system-scope result is never read: replay owes no contract result after the integration call,
-    so no clause is ever ruled with one on the record. ``earlier`` are the pair's earlier rulings;
-    ``attempt_left`` whether the one module a choice would reopen has an attempt or its fix left.
+    where it blocks, as for a dispute: under ``on``, failing, naming the clause's quantity on the
+    interface or on one of the clause's ``nodes``. Under ``observe`` the merge went ahead despite
+    the gate, whose verdict then decided nothing, so a person is asked. Level 1 is therefore
+    unreachable for a contract today: under ``on`` a merged attempt passed its gate, and the
+    system-scope result is never read, as replay owes no contract result after the integration
+    call, so no clause is ever ruled with one on the record. ``earlier`` are the pair's earlier
+    rulings; ``attempt_left`` whether the one module a choice would reopen has an attempt or its
+    fix left.
     """
     named = {conflict.interface, *nodes}
     refused = (
         gate is not None
+        and gate.mode == "on"
         and gate.verdict == "fail"
         and conflict.quantity is not None
         and any(q.name == conflict.quantity and q.node_id in named for q in gate.quantities)

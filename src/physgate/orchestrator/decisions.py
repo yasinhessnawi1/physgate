@@ -66,7 +66,9 @@ from physgate.orchestrator.queue import (
     QueueSource,
     Verb,
     WhyRecordOnly,
+    held_windows_of,
     parses,
+    within,
 )
 from physgate.orchestrator.repair import (
     arbitration_value_instruction,
@@ -648,12 +650,13 @@ def _contract_effect(
         msg = "the run raised no such contract item"
         raise QueueItemMismatchError(msg, item=item.item_id)
     hold: WhyNot | None = "held_os_layer_off" if held else None
+    if resolution.shown_sha256 is not None and resolution.shown_sha256 != line_sha256:
+        # In either mode: a decision that closes the item is bound to the line the person saw.
+        msg = "the item's line is not the one the decision was taken on"
+        raise QueueItemMismatchError(msg, item=item.item_id)
     if item.consequence is None or resolution.verb is None or resolution.shown_sha256 is None:
         unbound: WhyNot = "legacy_item" if item.consequence is None else "not_bound"
         return Taken(effect="none", acts=False, why_not=hold or unbound)
-    if resolution.shown_sha256 != line_sha256:
-        msg = "the item's line is not the one the decision was taken on"
-        raise QueueItemMismatchError(msg, item=item.item_id)
     expected = contract_consequence(state, tested)
     if expected != item.consequence:
         msg = "the item says another consequence than the run's record gives"
@@ -802,6 +805,13 @@ def _require_contract_taken(state: RunState, event: DecisionTaken) -> None:
         raise ValueError(msg)
     if event.verb == "choose" and event.position not in POSITIONS["contract"]:
         msg = "a choice on a contract item is taken of a position it offers"
+        raise ValueError(msg)
+    written_held = within(event.decision_offset, held_windows_of(state.windows))
+    if event.confirmed_by is None and (event.why_not == "held_os_layer_off") != written_held:
+        msg = (
+            "a decision on a contract item is held exactly where its line was written while a "
+            "session ran without the OS layer"
+        )
         raise ValueError(msg)
     effect: DecisionEffect = "none"
     why: WhyNot | None = "legacy_item"

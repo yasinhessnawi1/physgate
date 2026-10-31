@@ -356,6 +356,9 @@ class RunState:
         self.brief_words: tuple[CriterionWords, ...] = ()
         #: A taken decision that reopens a merged subtask, until its reopen line is written.
         self.pending_reopen: DecisionTaken | None = None
+        #: The lines a session's window in the decisions file is read from, in order: what tells
+        #: a decision written while a session ran without the OS layer (``queue.held_windows_of``).
+        self.windows: list[Event] = []
 
     # -- following the log -------------------------------------------------------
 
@@ -387,6 +390,10 @@ class RunState:
         self._record(event)
         if closed:
             _refuse("nothing about a subtask follows the integration call")
+        if isinstance(event, OsLayerChecked | LeftoverRead | SessionEnded) or (
+            isinstance(event, StageEntered) and event.decisions_bytes is not None
+        ):
+            self.windows.append(event)
 
     def _record(self, event: Event) -> None:
         if isinstance(event, RunStarted):
@@ -940,19 +947,25 @@ class RunState:
     def owed_item(self) -> ContractTested | None:
         """The failed result whose item the record owes, if any.
 
-        Once every clause of the latest failed result is ruled and one went to a person, while
-        its pair has no item a decision has not been taken on.
+        Once every ruling owed is written: the first pair, in the recorded order, whose latest
+        result failed with a clause ruled for a person and has no item, while the pair has no
+        item a decision has not been taken on. Whatever results of other pairs landed after it:
+        a failure held back while the pair's item was open gets its own once that is decided.
         """
-        tested = self.failed_result()
-        if tested is None or self.owed_ruling() is not None:
+        if self.owed_ruling() is not None:
             return None
-        if not any(line.level == "queue" for line in self.rulings_of(tested)):
-            return None
-        if any(result.seq == tested.seq for result in self.contract_items.values()):
-            return None
-        if any(self.undecided(item) for item in self.items_of(tested.result.pair)):
-            return None
-        return tested
+        for pair in self.contract_pairs or ():
+            tested = self.latest_contract(pair)
+            if tested is None or tested.result.outcome != "fail":
+                continue
+            if not any(line.level == "queue" for line in self.rulings_of(tested)):
+                continue
+            if any(result.seq == tested.seq for result in self.contract_items.values()):
+                continue
+            if any(self.undecided(item) for item in self.items_of(pair)):
+                continue
+            return tested
+        return None
 
     def pair_of(self, item_id: str) -> ContractPair:
         """The pair a contract item is about: its failed result's."""
