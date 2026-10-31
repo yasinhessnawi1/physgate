@@ -192,6 +192,31 @@ def requests_of(rig: Rig, subtask: str) -> list[Any]:
     return [r for r in rig.dispatcher.requests if r.subtask_id == subtask]
 
 
+def same_lines(rig: Rig, reference: Rig) -> None:
+    """The two runs wrote the same lines, but for what each process or run directory adds.
+
+    An item's line and the decisions file hold the run's own directory, so the digests a decision
+    is bound to and sealed by differ; each process records the OS layer it runs under.
+    """
+
+    def text(of_rig: Rig) -> list[str]:
+        digests = {r["shown_sha256"] for r in lines(of_rig) if r.get("shown_sha256")}
+        out = []
+        for line in comparable(read_events(of_rig.run_dir / "events.jsonl")):
+            if line["kind"] == "os_layer_checked":
+                continue  # each process taking over records the layer it runs under
+            line.pop("decided_ts", None)  # when the person wrote it, by the wall clock
+            if line["kind"] == "decisions_sealed":
+                line.pop("sha256")  # the decisions file holds the run's own paths
+            said = json.dumps(line, default=str).replace(str(of_rig.run_dir), "RUN")
+            for digest in digests:
+                said = said.replace(digest, "SHOWN")
+            out.append(said)
+        return out
+
+    assert text(rig) == text(reference)
+
+
 CONFORM = (
     "A person kept the other module's work on the failed interface contract of queue item "
     '"run-1-contract-1", and reopened this module, merged at attempt 1, to conform to the '
@@ -442,9 +467,14 @@ def test_replay_refuses_a_reopen_no_decision_explains(
     path = rig.run_dir / "events.jsonl"
     path.write_bytes(path.read_bytes() + json.dumps(forged).encode() + b"\n")
     dispatched = len(rig.dispatcher.requests)
-    opening = escaped(rig.open)
-    assert opening is not None and "CorruptEventLogError" in opening, opening
-    assert "no taken decision explains" in opening, opening
+    caught: list[Exception] = []
+    try:
+        rig.open()
+    except Exception as exc:  # noqa: BLE001 - any escape is the finding
+        caught.append(exc)
+    assert [type(exc).__name__ for exc in caught] == ["CorruptEventLogError"], caught
+    reason = str(getattr(caught[0], "context", {}).get("reason"))
+    assert "no taken decision explains" in reason, reason
     assert len(rig.dispatcher.requests) == dispatched
     # With the decision taken and the reopen not yet written: another subtask, commit or digest.
     cut = chosen(tmp_path / "decided", monkeypatch, kill=lambda e, _: e.kind == "subtask_reopened")
@@ -500,9 +530,7 @@ def test_a_kill_between_the_decision_and_the_reopen_resumes_to_exactly_one(
     assert again(rig, monkeypatch) == "done"
     rows = lines(rig)
     assert len(of(rows, "subtask_reopened")) == 1
-    ours = json.dumps(comparable(read_events(rig.run_dir / "events.jsonl")), default=str)
-    theirs = json.dumps(comparable(read_events(reference.run_dir / "events.jsonl")), default=str)
-    assert ours.replace(str(rig.run_dir), "RUN") == theirs.replace(str(reference.run_dir), "RUN")
+    same_lines(rig, reference)
     assert refusal(rows) is None
 
 
@@ -542,13 +570,7 @@ def test_a_kill_on_the_way_to_a_second_round_resumes_to_the_uninterrupted_lines(
     for kind in ("contract_ruled", "contract_item_raised"):
         rig = chosen(tmp_path / kind, monkeypatch, mended={}, kill=after_reopen(kind))
         again(rig, monkeypatch)
-        ours = json.dumps(comparable(read_events(rig.run_dir / "events.jsonl")), default=str)
-        theirs = json.dumps(
-            comparable(read_events(reference.run_dir / "events.jsonl")), default=str
-        )
-        assert ours.replace(str(rig.run_dir), "RUN") == theirs.replace(
-            str(reference.run_dir), "RUN"
-        )
+        same_lines(rig, reference)
         assert [i.item_id for i in read_queue(rig.run_dir).items] == [ITEM, f"{ITEM}-r2"]
 
 
