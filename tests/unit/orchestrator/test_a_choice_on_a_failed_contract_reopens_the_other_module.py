@@ -873,3 +873,23 @@ def test_the_reopen_is_a_step_of_the_decision_sequence(
     assert [{k: v for k, v in s.items() if k != "seq"} for s in steps] == [
         {"step": "reopened", "subtask_id": FW, "attempt": 2, "item_id": ITEM}
     ]
+
+
+def test_a_ruling_rewritten_before_the_reopened_session_halts_and_spawns_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The order quotes the rulings: each is held to the journal before the session is told it.
+    rig = chosen(tmp_path, monkeypatch, kill=lambda e, _: e.kind == "subtask_reopened")
+    path = rig.run_dir / "events.jsonl"
+    rows = lines(rig)
+    at = kinds(rows).index("contract_ruled")
+    rows[at]["found"] = [
+        {**rows[at]["found"][0], "position": {**rows[at]["found"][0]["position"], "value": 12}}
+    ]
+    path.write_bytes(b"".join(json.dumps(row).encode() + b"\n" for row in rows))
+    assert refusal(rows) is None  # the log alone cannot tell
+    again(rig, monkeypatch)
+    after = lines(rig)
+    assert "subtask_reopened" in kinds(after)
+    assert [i["cause"] for i in of(after, "incident")] == ["foreign_journal_line"]
+    assert len(requests_of(rig, FW)) == 1

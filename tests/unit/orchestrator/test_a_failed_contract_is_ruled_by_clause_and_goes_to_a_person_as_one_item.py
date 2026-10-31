@@ -277,18 +277,19 @@ class NamingGate(FakeGate):
         return failing_gate_result(mode).model_copy(update={"quantities": (named,)})
 
 
-def test_a_clause_the_merging_attempt_s_gate_named_is_the_gate_s_and_raises_no_item(
+def test_a_clause_a_gate_that_only_observed_named_still_goes_to_a_person(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Under observe the merge happened despite the gate, so its verdict decided nothing.
     rig = ran(tmp_path, monkeypatch, fw_volts=11, gate_mode="observe", gate=NamingGate())
     rows = lines(rig)
     at = failed_at(rows)
     ruled = rows[at + 1]
     assert ruled["kind"] == "contract_ruled"
-    assert ruled["level"] == "gate"
-    assert ruled["standing"]["gate_refused"] is True
-    assert "contract_item_raised" not in kinds(rows)
-    assert not [i for i in read_queue(rig.run_dir).items if i.source == "contract"]
+    assert ruled["level"] == "queue"
+    assert ruled["standing"]["gate_refused"] is False
+    assert "contract_item_raised" in kinds(rows)
+    assert [i.item_id for i in read_queue(rig.run_dir).items if i.source == "contract"] == [ITEM]
     assert refusal(rows) is None
 
 
