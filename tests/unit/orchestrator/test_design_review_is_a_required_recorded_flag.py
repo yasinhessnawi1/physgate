@@ -1,11 +1,11 @@
 """Whether a run reviews its plan is a flag of the register, required and recorded.
 
-``design_review`` is ``off`` or ``observe`` (ARCH-060). A new run names it, or the command refuses
+``design_review`` is ``off``, ``observe``, ``on`` or ``repair:N`` (ARCH-060). A new run names it, or the command refuses
 it before anything is written; it is never read from the environment. A run recorded before the
 flag existed reads as ``off``, with exactly the digest its first line carries, and so does every
 ``off`` run, whose recorded form leaves the field out; an ``observe`` run records it, and names a
-design reviewer. A reportable run starts only under ``observe``: its review is recorded and never
-changes what the run does.
+design reviewer. A reportable run reviews its plan: under ``observe``, where its review is recorded
+and never changes what the run does, or under the arm its frozen criteria name.
 """
 
 from __future__ import annotations
