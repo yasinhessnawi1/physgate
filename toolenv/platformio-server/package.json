@@ -1,0 +1,7 @@
+{
+  "name": "physgate-platformio-server",
+  "private": true,
+  "dependencies": {
+    "platformio-mcp": "3.1.0"
+  }
+}

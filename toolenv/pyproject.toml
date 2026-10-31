@@ -1,0 +1,19 @@
+# The tool environment's own project: the libraries a role session computes and builds with.
+# It is locked and provisioned apart from the harness (pint changes how it handles units when
+# numpy is importable). `exclude-newer` holds the lock to releases at least a week old when it
+# was taken; provision.py builds the environment from this lock, copying every file.
+[project]
+name = "physgate-tool-environment"
+version = "0"
+requires-python = "==3.12.9"
+dependencies = [
+  "control==0.10.1",
+  "numpy==2.1.2",
+  "scipy==1.14.1",
+  "mujoco==3.17.0",
+  "platformio==6.2.0",
+]
+
+[tool.uv]
+package = false
+exclude-newer = "2026-10-24T00:00:00Z"
