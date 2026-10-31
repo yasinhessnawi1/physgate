@@ -129,7 +129,8 @@ def opened(
     if acts:
         _layer(loop)
     with contextlib.suppress(KilledError):
-        loop.run()
+        said = escaped(loop.run)
+        assert said is None or "KilledError" in said, said
     loop.close()
     return rig
 
@@ -180,7 +181,10 @@ def chosen(
 ) -> Rig:
     rig = opened(tmp_path, monkeypatch, **kw)
     choose(rig.run_dir, position, note)
-    again(rig, monkeypatch, kill=kill, declared=kw.get("declared", DECLARED))
+    said = escaped(
+        lambda: again(rig, monkeypatch, kill=kill, declared=kw.get("declared", DECLARED))
+    )
+    assert said is None, said
     return rig
 
 
@@ -250,12 +254,17 @@ def test_choosing_a_position_reopens_the_other_module_with_the_interfaces_values
         "nodes break the contract."
     )
     choose(rig.run_dir, "producer")
-    assert again(rig, monkeypatch) == "done"
+    stopped: list[str] = []
+    assert escaped(lambda: stopped.append(again(rig, monkeypatch))) is None
+    assert stopped == ["done"]
     rows = lines(rig)
     (taken,) = of(rows, "decision_taken")
     assert (taken["effect"], taken["acts"], taken["why_not"]) == ("reopen", True, None)
     assert taken.get("reopens") == FW
     at = rows.index(taken)
+    # The line names the module the record gives it, and no other.
+    why = refusal([*rows[:at], taken | {"reopens": DRIVE}])
+    assert why is not None and "does other than the record allows" in why, why
     reopened = rows[at + 1]
     assert reopened["kind"] == "subtask_reopened"
     merged = of(rows, "merged", subtask_id=FW)
@@ -411,7 +420,8 @@ def test_a_reopen_spends_the_subtasks_own_budget_and_never_a_fresh_one(
         assert item.consequence.on_choose["producer"] == "record_only"
         assert 'Choosing the producer records only: module "fw" has no attempt left.' in words
     choose(rig.run_dir, "producer")
-    again(rig, monkeypatch)
+    said = escaped(lambda: again(rig, monkeypatch))
+    assert said is None, said
     rows = lines(rig)
     fw = requests_of(rig, FW)
     if merged_at == "fix":
@@ -893,3 +903,43 @@ def test_a_ruling_rewritten_before_the_reopened_session_halts_and_spawns_nothing
     assert "subtask_reopened" in kinds(after)
     assert [i["cause"] for i in of(after, "incident")] == ["foreign_journal_line"]
     assert len(requests_of(rig, FW)) == 1
+
+
+def test_the_order_a_reopen_gives_is_held_to_the_material_no_session_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from loop_fakes import FakeMaterial
+
+    # The interface's node id stands in for reviewer material: the order quotes it.
+    rig = chosen(tmp_path, monkeypatch, material=FakeMaterial(review_material=('"fw.main" holds',)))
+    rows = lines(rig)
+    assert "subtask_reopened" in kinds(rows)
+    assert [i["cause"] for i in of(rows, "incident")] == ["review_material_read"]
+    assert len(requests_of(rig, FW)) == 1
+
+
+def test_a_reopened_subtask_that_spends_its_attempts_goes_to_a_person(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Merged at 1 and reopened, fw's attempts 2 and 3 are rejected by review: no attempt is left.
+    rig = rig_for(tmp_path, fw_volts=11, dispatcher=FakeDispatcher(trajectories=tmp_path / "s"))
+    rig.config_overrides.update(ACTS)
+    rig.reviewer.verdicts[:] = ["pass", "pass", "fail", "fail"]
+    loop = rig.open()
+    hooked(monkeypatch, loop, declared=DECLARED)
+    start(loop)
+    _layer(loop)
+    loop.run()
+    loop.close()
+    choose(rig.run_dir, "producer")
+    said = escaped(lambda: again(rig, monkeypatch))
+    assert said is None, said
+    rows = lines(rig)
+    assert [r["attempt"] for r in of(rows, "attempt_rejected", subtask_id=FW)] == [2, 3]
+    items = [i for i in read_queue(rig.run_dir).items if i.subtask_id == FW]
+    assert [i.source for i in items] == ["repair_budget_exhausted"]
+    assert items[0].decision_required.startswith(
+        f"Subtask {FW} has no attempt left of 3: 1 merged before a person's choice reopened it, "
+        "and the others were rejected."
+    )
+    assert refusal(rows) is None
