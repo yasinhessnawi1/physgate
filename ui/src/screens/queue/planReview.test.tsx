@@ -149,4 +149,18 @@ describe("the plan's review item", () => {
     );
     expect(of("/api/runs/0/r", "s-1")).toBe("/api/runs/0/r/trajectories/s-1");
   });
+
+  it("reads a later round's stream from its round's own route", () => {
+    const of = queueApi.trajectoryPath;
+    expect(of("/api/runs/0/r", "decomposition/round-2/stdout.jsonl")).toBe(
+      "/api/runs/0/r/trajectories/decomposition/2",
+    );
+    expect(of("/api/runs/0/r", "decomposition/round-4/stdout.jsonl")).toBe(
+      "/api/runs/0/r/trajectories/decomposition/4",
+    );
+    // Only a round's own link names a round: anything else is a session's id, encoded whole.
+    expect(of("/api/runs/0/r", "decomposition/round-1/stdout.jsonl")).toBe(
+      "/api/runs/0/r/trajectories/decomposition%2Fround-1%2Fstdout.jsonl",
+    );
+  });
 });
