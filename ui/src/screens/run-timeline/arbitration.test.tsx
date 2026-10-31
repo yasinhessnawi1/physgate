@@ -176,6 +176,15 @@ describe("a dispute's row says what the agent proposes, and folds its reason as 
     expect(host.textContent).toContain("disputes sizing's value");
     expect(host.textContent).not.toContain("stalls");
   });
+
+  it("draws the proposed value straight after the sentence, as what is proposed, not recorded", () => {
+    const host = document.createElement("div");
+    host.innerHTML = row === undefined ? "" : renderToStaticMarkup(<RowView row={row} />);
+    const what = host.querySelector(".pg-trow-what")?.textContent ?? "";
+    expect(what).toMatch(/, proposing 4\s?A$/);
+    expect(what).not.toContain("recorded");
+    expect(host.querySelector("details summary")?.textContent).toBe("The agent's reason");
+  });
 });
 
 describe("a ruling's row says which level stands, by its name, and never sizing's value", () => {
