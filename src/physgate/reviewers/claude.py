@@ -63,7 +63,7 @@ from physgate.orchestrator.credentials import (
     write_key_helper,
     write_login,
 )
-from physgate.orchestrator.decompose import binary_version, read_stream, schema_refusal
+from physgate.orchestrator.decompose import binary_version, schema_refusal
 from physgate.orchestrator.dispatch import (
     OWNER_NAME,
     Installed,
@@ -94,7 +94,6 @@ from physgate.orchestrator.protocols import (
     require_separate_models,
 )
 from physgate.orchestrator.run_config import DESIGN_REVIEWER, Effort, RunBounds, RunConfig
-from physgate.orchestrator.trajectory import read_sealed
 from physgate.reviewers.contract import WRAPPER, contract_text, issued_criteria, verdict_schema
 from physgate.reviewers.ending import await_session
 from physgate.reviewers.exceptions import ReviewError
@@ -124,11 +123,9 @@ from physgate.reviewers.rubric import (
     load_rubric,
     not_evaluable_needs,
 )
+from physgate.reviewers.transcript import SYNTHETIC_MODEL as SYNTHETIC_MODEL
 from physgate.reviewers.verdict import Unavailable, judge, to_result
 
-#: The model name the binary gives the messages it writes itself, for an error or a
-#: refusal: not a model's answer, so not held to the pin (measured on both binaries).
-SYNTHETIC_MODEL = "<synthetic>"
 #: How the binary marks a compaction in the stream (measured on both binaries).
 COMPACT_BOUNDARY = "compact_boundary"
 #: The result's ``terminal_reason`` when a request outgrew the window (measured).
@@ -497,8 +494,10 @@ class ClaudeReviewer:
         """Review the plan ``under`` names, with its brief and its whole stream, in a fresh session.
 
         Refused before anything is prepared unless this is the design reviewer, on a model other
-        than the plan's implementer's: the one the run pinned for the decomposition, and, once
-        the stream is held to its seal, every model the stream shows answering.
+        than the plan's implementer's: the one the run pinned for the decomposition, and every
+        model the stream shows answering, read from the one read of it the packet is written
+        from, before anything is written. The packet holds the copies the session reads, so the
+        stream is not read again once the packet is checked.
 
         Raises:
             ReviewError: this reviewer is not the design reviewer.
@@ -515,15 +514,15 @@ class ClaudeReviewer:
         review = review_dir(self._root, session_id)
         try:
             packet = build_plan_packet(
-                review, under, rubric=self._rubric, library=self._setup.library
+                review,
+                under,
+                rubric=self._rubric,
+                library=self._setup.library,
+                reviewer_model=self._model,
             )
             check_plan_packet(packet, under)
         except ReviewError as exc:
             raise self._unprepared(exc, session_id) from None
-        # The stream the packet held to its seal: a model it shows answering made the plan.
-        stream = read_sealed(Path(under.stream), under.stream_seal).decode("utf-8")
-        for answered in sorted(read_stream(stream)[2] - {SYNTHETIC_MODEL}):
-            require_separate_models(implementer=answered, reviewer=self._model)
         return self._in_session(
             review,
             packet,

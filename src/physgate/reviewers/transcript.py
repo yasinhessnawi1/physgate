@@ -51,6 +51,9 @@ DROPPED: tuple[str, ...] = (
     "system:status",
     "system:thinking_tokens",
 )
+#: The model name the binary gives the messages it writes itself, for an error or a
+#: refusal: not a model's answer, so not held to the pin (measured on both binaries).
+SYNTHETIC_MODEL = "<synthetic>"
 #: The longest line the rendering holds, well under what the Read tool shows of one.
 WIDTH = 1000
 #: Ends every piece of a cut line but the last.

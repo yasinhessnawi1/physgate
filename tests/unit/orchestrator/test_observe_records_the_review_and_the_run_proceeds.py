@@ -23,6 +23,7 @@ from design_review_rig import (
     REVIEWER,
     design_line_kind,
     digest,
+    git,
     kinds,
     line,
     lines,
@@ -159,13 +160,20 @@ def test_a_run_that_does_not_review_its_plan_writes_its_opening_as_before(tmp_pa
 def test_a_run_that_does_not_review_its_plan_records_no_review(tmp_path: Path) -> None:
     refused = outcome_of(lambda: started(tmp_path, "off"))
     assert isinstance(refused, RunConfigError), refused
-    assert not (tmp_path / "run" / "events.jsonl").exists()
+    _nothing_written(tmp_path)
 
 
 def test_a_run_that_reviews_its_plan_is_not_started_without_its_review(tmp_path: Path) -> None:
     refused = outcome_of(lambda: started(tmp_path, "observe", review=None))
     assert isinstance(refused, RunConfigError), refused
-    assert not (tmp_path / "run" / "events.jsonl").exists()
+    _nothing_written(tmp_path)
+
+
+def _nothing_written(root: Path) -> None:
+    """No run record and no run branch: refused before the specifications were committed."""
+    events = root / "run" / "events.jsonl"
+    assert not events.exists() or not events.read_bytes()
+    assert git(root / "target", "branch", "--format=%(refname:short)").split() == ["master"]
 
 
 # -- replay holds the line to its place ----------------------------------------------------
@@ -211,14 +219,14 @@ def test_the_review_follows_the_plan_it_names(tmp_path: Path) -> None:
         ran = log[-1]
         return [log[0], log[1], log[2], ran, *log[3:-1]]
 
-    assert "plan" in _refused(tmp_path, edit)
+    assert "follows the plan" in _refused(tmp_path, edit)
 
 
 def test_the_review_names_the_plan_the_run_recorded(tmp_path: Path) -> None:
     def edit(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [*log[:-1], {**log[-1], "plan_sha256": "0" * 64}]
 
-    assert "plan" in _refused(tmp_path, edit)
+    assert "another plan" in _refused(tmp_path, edit)
 
 
 def test_the_review_comes_before_any_dispatch(tmp_path: Path) -> None:
@@ -250,3 +258,34 @@ def test_the_review_line_says_a_verdict_or_why_there_is_none_and_not_both(
         return [*log[:-1], ran]
 
     assert _refused(tmp_path, edit) != ""
+
+
+def test_the_record_itself_refuses_a_review_its_run_does_not_take(tmp_path: Path) -> None:
+    # Held where the opening is written, not only where the decomposition starts the run: a
+    # caller that starts a record directly is refused the same, before anything is written.
+    from design_review_rig import config, target_repo
+
+    from physgate.orchestrator.record import DecompositionSummary, RunRecord
+
+    repo = target_repo(tmp_path)
+    run_dir = tmp_path / "run"
+    summary = DecompositionSummary(
+        session_id="decomposition-session-1",
+        model="claude-opus-5-5",
+        num_turns=1,
+        subtasks=0,
+        interface_nodes=("iface.drive",),
+        spec_commit="c" * 40,
+        head_revision=1,
+        plan_sha256=digest(plan()),
+    )
+    (run_dir / "decomposition").mkdir(parents=True)
+    (run_dir / "decomposition" / "stdout.jsonl").write_text("{}\n")
+    for flag, given in (("observe", None), ("off", reviewed(run_dir))):
+        record = RunRecord(config(repo, flag), run_dir)
+        refused = outcome_of(lambda r=record, g=given: r.start([], decomposed=summary, reviewed=g))
+        record.close()
+        assert isinstance(refused, RunConfigError), (flag, refused)
+        events = run_dir / "events.jsonl"
+        assert not events.exists() or not events.read_bytes(), flag
+        assert not (run_dir / "run.json").exists(), flag

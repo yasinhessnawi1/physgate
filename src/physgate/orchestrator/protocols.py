@@ -30,6 +30,8 @@ from pydantic import (
 from physgate.orchestrator.budget import ATTEMPT_LIMIT
 from physgate.orchestrator.common import ModelString, NonEmptyStr
 from physgate.orchestrator.exceptions import GateContractError, ModelSeparationError
+from physgate.orchestrator.plan import IntegratedPlan, Plan
+from physgate.orchestrator.trajectory import Seal
 from physgate.series.seal import AttemptSeries
 
 Count = Annotated[int, Field(ge=0)]
@@ -720,6 +722,37 @@ class Reviewer(Protocol):
 
     def review(self, artefact: Artefact) -> ReviewResult:
         """Review ``artefact`` and its full trajectory."""
+        ...
+
+
+class PlanUnderReview(_Frozen):
+    """The plan one decomposition call submitted, with what it was made from."""
+
+    #: The brief exactly as the call was given it, and the digest the run recorded for it.
+    brief: Annotated[str, StringConstraints(min_length=1)]
+    brief_sha256: Sha256
+    #: The plan as validated, of the form the run's roles call for, and its digest.
+    plan: IntegratedPlan | Plan
+    plan_sha256: Sha256
+    #: The call's captured stream, and its seal taken where the call wrote it.
+    stream: NonEmptyStr
+    stream_seal: Seal
+    #: The model the run pinned for the call: the plan's implementer.
+    decomposition_model: ModelString
+    decomposition_session_id: NonEmptyStr
+
+
+@runtime_checkable
+class PlanReviewer(Protocol):
+    """The design reviewer: it judges the plan, on a different model from the decomposition's."""
+
+    @property
+    def model(self) -> str:
+        """The pinned model string this reviewer runs on."""
+        ...
+
+    def review_plan(self, under: PlanUnderReview) -> ReviewResult:
+        """Review the plan ``under`` names, with its brief and the call's whole stream."""
         ...
 
 

@@ -158,6 +158,7 @@ def test_a_plan_whose_packet_cannot_be_built_is_unprepared(
     with pytest.raises((ReviewUnavailableError, PacketError)) as refused:
         _review_plan(reviewer, under)
     assert refused.type is ReviewUnavailableError
+    assert isinstance(refused.value, ReviewUnavailableError)
     assert refused.value.cause == "unprepared"
     assert watched.sessions == []
 

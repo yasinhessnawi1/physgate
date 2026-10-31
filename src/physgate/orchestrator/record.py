@@ -12,19 +12,23 @@ import itertools
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Annotated, Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from physgate.contracts.pairs import ContractPair
 from physgate.orchestrator.common import NonEmptyStr, utc_now, utc_stamp
 from physgate.orchestrator.events import (
     ContractPairsPlanned,
     Decomposed,
+    DesignReviewRan,
+    DesignUnavailable,
     Envelope,
     Event,
     EventLog,
     Halted,
+    Incident,
+    InstallChecked,
     RunStarted,
     SubtaskPlanned,
     SubtaskRemoved,
@@ -34,10 +38,11 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import RunConfigError, RunStateError
 from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.plan import CriterionWords, InterfaceConsumers, SystemRequirement
-from physgate.orchestrator.protocols import MessageUsage
+from physgate.orchestrator.protocols import MessageUsage, ReviewResult
 from physgate.orchestrator.queue import ApprovalQueue
 from physgate.orchestrator.replay import RunState, project_ledger
 from physgate.orchestrator.run_config import RunConfig, require_recorded, write_run_config
+from physgate.orchestrator.trajectory import Seal
 from physgate.roles import owners_of
 from physgate.state.task_ledger import TaskLedger
 
@@ -87,6 +92,48 @@ class DecompositionSummary(BaseModel):
     #: The brief's own words for each system requirement the plan gives by number; ``None`` or
     #: empty when there are none, and then left out of the line.
     brief_words: tuple[CriterionWords, ...] | None = None
+
+
+class ReviewInstall(BaseModel):
+    """The hooks' installation the plan's review session ran under, as it was checked or built."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    path: NonEmptyStr
+    action: Literal["checked", "built"]
+    seconds: Annotated[float, Field(ge=0)]
+    entries: Annotated[int, Field(ge=0)]
+
+
+class PlanReviewed(BaseModel):
+    """What the plan's review came to, for the run's opening, and what its session spent.
+
+    One of a verdict, why there is none, or an exposure of held-out material in its stream.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    install: ReviewInstall
+    #: The seal the review held the call's stream to: the one the call took.
+    stream_seal: Seal
+    #: The review's session, which its tokens are attributed to; ``None`` if none ran.
+    session_id: NonEmptyStr | None
+    usage: tuple[MessageUsage, ...]
+    result: ReviewResult | None = None
+    unavailable: DesignUnavailable | None = None
+    #: The review's stream showed one of the run's held-out canaries (ARCH-141).
+    exposed: bool = False
+
+    @model_validator(mode="after")
+    def _one_ending(self) -> PlanReviewed:
+        endings = (self.result is not None, self.unavailable is not None, self.exposed)
+        if sum(endings) != 1:
+            msg = "a plan's review ends in a verdict, in none, or in an exposure: one of them"
+            raise ValueError(msg)
+        if self.exposed and self.session_id is None:
+            msg = "an exposure names the review session whose stream showed it"
+            raise ValueError(msg)
+        return self
 
 
 class _Mark(TypedDict, total=False):
@@ -156,27 +203,32 @@ class RunRecord:
         """The fields the next line carries, to spread into an event where it is built."""
         return self.log.envelope()
 
-    def _begin(self, call: DecompositionCall | None) -> None:
+    def _begin(self, call: DecompositionCall | None, reviewed: PlanReviewed | None = None) -> None:
         if self.log.events:
             msg = "the run was already started"
             raise RunStateError(msg, run_dir=str(self.run_dir))
         write_run_config(self.config_path, self.config)
-        for line in self._opening(call, self.envelope):
+        for line in self._opening(call, self.envelope, reviewed):
             self.emit(line)
 
     def _opening(
-        self, call: DecompositionCall | None, envelope: Callable[[], Envelope]
+        self,
+        call: DecompositionCall | None,
+        envelope: Callable[[], Envelope],
+        reviewed: PlanReviewed | None = None,
     ) -> Iterator[Event]:
-        """The run's start line and what its one model call spent, each built as it is asked for.
+        """The run's start line, what its one model call spent, and the review's installation.
 
-        A line's envelope is taken when the line is built, so a caller that writes each line
-        before it asks for the next gives every line the sequence number it is written at.
+        Each line is built as it is asked for. A line's envelope is taken when the line is
+        built, so a caller that writes each line before it asks for the next gives every line
+        the sequence number it is written at.
         """
         yield RunStarted(
             **envelope(),
             config_sha256=self.config.sha256(),
             escalation_backend=self.config.escalation_backend,
             queue_decisions="act" if self.config.queue_decisions == "act" else None,
+            design_review="observe" if self.config.design_review == "observe" else None,
         )
         if call is not None:
             for message in call.usage:
@@ -186,6 +238,35 @@ class RunRecord:
                     message_id=message.message_id,
                     usage=message.usage,
                 )
+        if reviewed is not None:
+            # The review's session ran under this installation, before anything was written.
+            yield InstallChecked(**envelope(), **reviewed.install.model_dump())
+
+    def _reviewing(
+        self, reviewed: PlanReviewed, plan_sha256: str, envelope: Callable[[], Envelope]
+    ) -> Iterator[Event]:
+        """What the plan's review spent, then its line, or the exposure its stream showed."""
+        for message in reviewed.usage:
+            yield TokensUsed(
+                **envelope(),
+                attribution=f"reviewer:{reviewed.session_id or 'none'}",
+                message_id=message.message_id,
+                usage=message.usage,
+            )
+        if reviewed.exposed:
+            # The held-out tier counts as exposed (ARCH-141): the exposure, then one halt, and
+            # nothing is dispatched. The canary is never recorded.
+            detail = f"held-out material in the stream of review session {reviewed.session_id}"
+            yield Incident(**envelope(), subtask_id=None, cause="held_out_read", detail=detail)
+            yield Halted(**envelope(), reason="incident", detail="held_out_read")
+            return
+        yield DesignReviewRan(
+            **envelope(),
+            plan_sha256=plan_sha256,
+            stream_seal=reviewed.stream_seal,
+            result=reviewed.result,
+            unavailable=reviewed.unavailable,
+        )
 
     def _planning(
         self,
@@ -245,15 +326,29 @@ class RunRecord:
         *,
         call: DecompositionCall | None = None,
         decomposed: DecompositionSummary | None = None,
+        reviewed: PlanReviewed | None = None,
     ) -> None:
-        """Record the configuration, the decomposition call and the plan, once.
+        """Record the configuration, the decomposition call, the plan and its review, once.
+
+        ``reviewed`` is what the plan's review came to, given exactly when the run reviews its
+        plan; its lines end the opening, after the plan they judge.
 
         Raises:
             RunStateError: the run was already started.
-            RunConfigError: a subtask's role has no pinned model; or a line of the run's opening
-                is one the log would refuse, the role register's check on the plan's marks
-                among them. Either is raised before anything is written.
+            RunConfigError: a subtask's role has no pinned model; a review is given to a run that
+                does not review its plan, or none to one that does, or one with no plan's digest
+                to name; or a line of the run's opening is one the log would refuse, the role
+                register's check on the plan's marks among them. Each is raised before anything
+                is written.
         """
+        reviews = self.config.design_review != "off"
+        if (reviewed is not None) != reviews:
+            msg = "a run that reviews its plan records the review, and only such a run records one"
+            raise RunConfigError(msg, design_review=self.config.design_review)
+        digest = decomposed.plan_sha256 if decomposed is not None else None
+        if reviewed is not None and digest is None:
+            msg = "a plan's review names the plan by its digest, and this run records none"
+            raise RunConfigError(msg, run_dir=str(self.run_dir))
         for entry in plan:
             if entry.assigned_role not in self.config.models.roles:
                 msg = "a planned subtask's role has no pinned model"
@@ -267,16 +362,21 @@ class RunRecord:
         # leaves no part of itself on the record, and no run is started from part of it.
         unwritten = self._unwritten()
         opening = [
-            *self._opening(call, unwritten),
+            *self._opening(call, unwritten, reviewed),
             *self._planning(plan, decomposed, marked, unwritten),
         ]
+        if reviewed is not None and digest is not None:
+            opening += self._reviewing(reviewed, digest, unwritten)
         try:
             require_writable(opening, RunState())
         except ValueError as exc:
             raise RunConfigError(str(exc), run_dir=str(self.run_dir)) from None
-        self._begin(call)
+        self._begin(call, reviewed)
         for line in self._planning(plan, decomposed, marked, self.envelope):
             self.emit(line)
+        if reviewed is not None and digest is not None:
+            for line in self._reviewing(reviewed, digest, self.envelope):
+                self.emit(line)
 
     def fail_decomposition(self, call: DecompositionCall | None, detail: str) -> None:
         """Record a run whose one model call produced no usable plan. It ends there."""

@@ -21,6 +21,7 @@ from plan_fixture import (
     DRIVE_SPEC,
     FW_SPEC,
     REPO,
+    REVIEWER,
     base_plan,
     design_rubric,
     integrated_plan,
@@ -40,7 +41,9 @@ def _build(tmp_path: Path, under: Any = None) -> tuple[Any, Any, Path]:  # noqa:
     plan_packet = module("plan_packet")
     under = under if under is not None else under_review(tmp_path)
     review = tmp_path / "reviews" / "r1"
-    packet = plan_packet.build_plan_packet(review, under, rubric=design_rubric(), library=REPO)
+    packet = plan_packet.build_plan_packet(
+        review, under, rubric=design_rubric(), library=REPO, reviewer_model=REVIEWER
+    )
     return packet, under, review / "read"
 
 
@@ -285,5 +288,9 @@ def test_a_rubric_that_is_not_the_one_loaded_is_refused(tmp_path: Path) -> None:
     rubric = design_rubric().model_copy(update={"text": design_rubric().text + "\n- extra\n"})
     with pytest.raises(PacketError, match="rubric"):
         module("plan_packet").build_plan_packet(
-            tmp_path / "reviews" / "r1", under_review(tmp_path), rubric=rubric, library=REPO
+            tmp_path / "reviews" / "r1",
+            under_review(tmp_path),
+            rubric=rubric,
+            library=REPO,
+            reviewer_model=REVIEWER,
         )

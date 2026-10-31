@@ -52,7 +52,7 @@ def spec() -> str:
 
 
 def plan() -> Plan:
-    node = {
+    node: dict[str, Any] = {
         "id": "iface.drive",
         "kind": "interface",
         "domain": "control",

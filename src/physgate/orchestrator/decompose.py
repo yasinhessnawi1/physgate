@@ -43,7 +43,12 @@ from physgate.orchestrator.credentials import (
     remove_secrets,
     write_login,
 )
-from physgate.orchestrator.exceptions import DecompositionError, InvocationError, RunStateError
+from physgate.orchestrator.exceptions import (
+    DecompositionError,
+    InvocationError,
+    RunConfigError,
+    RunStateError,
+)
 from physgate.orchestrator.git import commit_all, common_dir, git, init_repo
 from physgate.orchestrator.invocation import (
     claude_binary,
@@ -78,9 +83,11 @@ from physgate.orchestrator.record import (
     DecompositionCall,
     DecompositionSummary,
     PlanEntry,
+    PlanReviewed,
     RunRecord,
 )
 from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.trajectory import Seal, seal
 from physgate.reviewers.contract import criterion_words, issued_criteria
 from physgate.roles import CrossCuttingDuty, owners_of
 from physgate.series.collect import series_library
@@ -489,6 +496,9 @@ class Outcome(_Frozen):
     policy_limits_sha256: str | None = None
     #: The served catalog and feature flags as the call's debug log showed them.
     observed_traffic: ObservedTraffic | None = None
+    #: The seal of the stream as the call wrote it, taken over exactly those bytes; ``None`` for
+    #: an outcome no call wrote a stream for.
+    stream_seal: Seal | None = None
 
 
 def read_stream(
@@ -683,7 +693,11 @@ def call(
         observed = read_debug_log(
             workdir / DEBUG_LOG, flags_off_by_setting=flags_off_by_setting(reported, env)
         )
-    (workdir / "stdout.jsonl").write_text(stdout.replace(credential.secret, REDACTED_TEXT))
+    # Sealed here, over the bytes written: a seal taken by a later reader would seal whatever
+    # the file held by then, and the plan's review reads the stream only as this seal holds it.
+    written = stdout.replace(credential.secret, REDACTED_TEXT).encode("utf-8")
+    (workdir / "stdout.jsonl").write_bytes(written)
+    stream_seal = seal(written)
     result, usage, answered = read_stream(stdout)
     require_matching_totals(result, usage)
     cause, detail, plan, model, turns = judge(
@@ -716,6 +730,7 @@ def call(
         num_turns=turns,
         policy_limits_sha256=policy_limits_digest(workdir / "config"),
         observed_traffic=observed,
+        stream_seal=stream_seal,
     )
 
 
@@ -1106,8 +1121,12 @@ def start_run(
     target_repo: Path,
     library: Path | None,
     brief: str | None = None,
+    reviewed: PlanReviewed | None = None,
 ) -> RunRecord:
     """Start the run from the call's outcome: record a failure, or write the plan.
+
+    ``reviewed`` is what the plan's review came to, in a run that reviews its plan; it ends the
+    opening (:meth:`RunRecord.start`).
 
     The subtasks are planned in the harness's order (:func:`_planned_subtasks`), each
     with its specification. With them, the run branch gets the curated library every
@@ -1120,6 +1139,8 @@ def start_run(
 
     Raises:
         RunStateError: the run directory already holds a run.
+        RunConfigError: a review is given to a run that does not review its plan, or none to one
+            that does; refused before anything is written.
         DecompositionError: the plan is not of the form the run's roles call for, two
             subtasks were minted one id, an interface node's id is not a node id, the
             store refused an interface node the plan validated, or the curated library
@@ -1128,6 +1149,10 @@ def start_run(
             brief's words for a requirement longer than a module's specification may be.
     """
     require_fresh(run_dir)
+    if outcome.ok and (reviewed is not None) != (config.design_review != "off"):
+        # Before anything is written, as the record would refuse it only after the commit.
+        msg = "a run that reviews its plan records the review, and only such a run records one"
+        raise RunConfigError(msg, design_review=config.design_review)
     curated: dict[Path, bytes] = {}
     planned: list[_Issued] = []
     pairs: tuple[ContractPair, ...] | None = None
@@ -1216,6 +1241,7 @@ def start_run(
             contract_pairs=pairs,
             brief_words=words or None,
         ),
+        reviewed=reviewed,
     )
     return record
 

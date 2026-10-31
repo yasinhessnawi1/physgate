@@ -26,7 +26,12 @@ from physgate.cli import main
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.decompose import Outcome
 from physgate.orchestrator.events import read_events
-from physgate.orchestrator.exceptions import InvocationError, ModelSeparationError
+from physgate.orchestrator.exceptions import (
+    HeldOutExposedError,
+    InvocationError,
+    ModelSeparationError,
+    ReviewUnavailableError,
+)
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.plan import Plan, plan_sha256
 from physgate.orchestrator.protocols import MessageUsage, ReviewResult, SpecDefect, Usage
@@ -42,7 +47,7 @@ REVIEWING = {
 
 
 def _plan() -> Plan:
-    node = {
+    node: dict[str, Any] = {
         "id": "iface.bus",
         "kind": "interface",
         "domain": "electrical",
@@ -170,7 +175,7 @@ def calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Calls:
 def _exit(args: list[str], reviewer: StandIn | None) -> Any:  # noqa: ANN401 - a code, or the escape
     def run() -> int:
         registrations = (
-            orchestrator_cli.Registrations(plan_reviewer_factory=reviewer.factory)  # type: ignore[call-arg]
+            orchestrator_cli.Registrations(plan_reviewer_factory=reviewer.factory)
             if reviewer is not None
             else orchestrator_cli.Registrations()
         )
@@ -250,7 +255,7 @@ def test_a_run_that_reviews_its_plan_names_where_reviews_are_prepared(
     ],
     ids=["invocation", "separation"],
 )
-def test_a_reviewer_that_cannot_run_fails_decompose_with_nothing_recorded(
+def test_a_review_that_cannot_run_fails_decompose_with_nothing_recorded(
     tmp_path: Path, calls: Calls, error: Exception
 ) -> None:
     reviewer = StandIn(error)
@@ -274,7 +279,9 @@ def test_a_decompose_stopped_during_the_review_leaves_no_run(
     assert "no run configuration" in capsys.readouterr().err
 
 
-def test_a_run_that_does_not_review_its_plan_asks_no_reviewer(tmp_path: Path, calls: Calls) -> None:
+def test_a_run_that_does_not_review_its_plan_asks_for_no_review(
+    tmp_path: Path, calls: Calls
+) -> None:
     reviewer = StandIn(_verdict())
     params = {**REVIEWING, "design_review": "off"}
     assert _exit(_args(tmp_path, params, places=False), reviewer) == 0
@@ -291,3 +298,42 @@ def _blocking(verdict: str) -> tuple[SpecDefect, ...]:
     if verdict != "blocked":
         return ()
     return (SpecDefect(finding="the brief gives no supply voltage", blocking=True),)
+
+
+def _log(tmp_path: Path) -> list[dict[str, Any]]:
+    events = (tmp_path / "run" / "events.jsonl").read_text().splitlines()
+    return [json.loads(raw) for raw in events]
+
+
+def test_a_review_with_no_verdict_is_what_the_review_came_to(tmp_path: Path, calls: Calls) -> None:
+    spent = (MessageUsage(message_id="r9", usage=_usage(3)),)
+    reviewer = StandIn(
+        ReviewUnavailableError(
+            "a required file was not read in full",
+            cause="reading_incomplete",
+            session_id="review-session-2",
+            reviewer_model=DESIGN,
+            usage=spent,
+        )
+    )
+    assert _exit(_args(tmp_path, REVIEWING), reviewer) == 0
+    log = _log(tmp_path)
+    assert log[-1]["kind"] == "design_review_ran"
+    assert log[-1]["unavailable"]["cause"] == "reading_incomplete"
+    assert log[-1]["unavailable"]["session_id"] == "review-session-2"
+    assert log[-2]["attribution"] == "reviewer:review-session-2"
+
+
+def test_a_review_that_showed_held_out_material_halts_the_run_it_starts(
+    tmp_path: Path, calls: Calls
+) -> None:
+    reviewer = StandIn(
+        HeldOutExposedError(
+            "held-out material", session_id="review-session-3", reviewer_model=DESIGN, usage=()
+        )
+    )
+    assert _exit(_args(tmp_path, REVIEWING), reviewer) == 0
+    log = _log(tmp_path)
+    assert [one["kind"] for one in log[-2:]] == ["incident", "halted"]
+    assert log[-2]["cause"] == "held_out_read"
+    assert all(one["kind"] != "design_review_ran" for one in log)

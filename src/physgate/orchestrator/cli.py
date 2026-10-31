@@ -44,10 +44,18 @@ from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.catches import catches, parse_time
 from physgate.orchestrator.common import first_problem, render_jsonl
-from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
-from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
+from physgate.orchestrator.credentials import SECRET_VARIABLE, Credential, credential_for
+from physgate.orchestrator.decompose import (
+    Outcome,
+    binary_version,
+    call,
+    plan_sha256,
+    require_fresh,
+    start_run,
+)
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
+    DesignUnavailable,
     Envelope,
     EnvironmentRecorded,
     Event,
@@ -58,10 +66,12 @@ from physgate.orchestrator.events import (
     read_events,
 )
 from physgate.orchestrator.exceptions import (
+    HeldOutExposedError,
     InvocationError,
     OrchestratorError,
     QueueError,
     ReviewerNotRegisteredError,
+    ReviewUnavailableError,
     RunConfigError,
     RunStateError,
 )
@@ -76,7 +86,7 @@ from physgate.orchestrator.install import (
 from physgate.orchestrator.invocation import claude_binary, session_search_path
 from physgate.orchestrator.loop import Loop, escalation_for, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
-from physgate.orchestrator.protocols import Gate, Reviewer
+from physgate.orchestrator.protocols import Gate, PlanReviewer, PlanUnderReview, Reviewer
 from physgate.orchestrator.queue import (
     POSITIONS,
     PersonDecision,
@@ -85,6 +95,7 @@ from physgate.orchestrator.queue import (
     record_decision,
     statuses_now,
 )
+from physgate.orchestrator.record import PlanReviewed, ReviewInstall
 from physgate.orchestrator.replay import recorded_ledger
 from physgate.orchestrator.requirements import RunFacts, refusals
 from physgate.orchestrator.role_python import RolePython
@@ -105,7 +116,7 @@ from physgate.orchestrator.run_config import (
 from physgate.oslayer.listeners import loopback_listeners
 from physgate.oslayer.policy import NETWORK_UNENFORCED
 from physgate.oslayer.probe import Absent, Present, judge_here
-from physgate.reviewers.claude import ReviewerSetup, claude_reviewers
+from physgate.reviewers.claude import ReviewerSetup, claude_reviewers, design_reviewer
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.places import require_review_root
 from physgate.roles import require_registered
@@ -128,6 +139,8 @@ RUN_GUIDANCE = (
 
 #: Builds a driven run's reviewers from its setup, once the run's facts are known.
 ReviewerFactory = Callable[[ReviewerSetup], Mapping[str, Reviewer]]
+#: Builds a run's design reviewer from its setup and configuration, or ``None`` if it pins none.
+PlanReviewerFactory = Callable[[ReviewerSetup, RunConfig], PlanReviewer | None]
 
 
 @dataclass(frozen=True)
@@ -144,6 +157,8 @@ class Registrations:
     gate: Gate | None = None
     reviewers: Mapping[str, Reviewer] = field(default_factory=dict)
     reviewer_factory: ReviewerFactory | None = None
+    #: The design reviewer of a run that reviews its plan, built by ``decompose`` before the call.
+    plan_reviewer_factory: PlanReviewerFactory | None = None
 
 
 def default_registrations() -> Registrations:
@@ -160,7 +175,11 @@ def default_registrations() -> Registrations:
     """
     from physgate.gate.runner import PhysicsGate
 
-    return Registrations(gate=PhysicsGate(), reviewer_factory=claude_reviewers)
+    return Registrations(
+        gate=PhysicsGate(),
+        reviewer_factory=claude_reviewers,
+        plan_reviewer_factory=design_reviewer,
+    )
 
 
 def add_parsers(
@@ -232,7 +251,23 @@ def add_parsers(
     )
     d.add_argument("--target", required=True, type=Path, help="the target repository")
     d.add_argument("--run-dir", required=True, type=Path)
-    d.set_defaults(func=_decompose)
+    d.add_argument(
+        "--install",
+        type=Path,
+        help=(
+            "the hooks' read-only installation the plan's review runs under, built there if it "
+            "does not exist; required when the parameters review the plan"
+        ),
+    )
+    d.add_argument(
+        "--review-root",
+        type=Path,
+        help=(
+            "where the plan's review is prepared, as for run; required when the parameters "
+            "review the plan"
+        ),
+    )
+    d.set_defaults(func=functools.partial(_decompose, registrations=registrations))
 
     q = subparsers.add_parser("queue", help="the approval queue")
     actions = q.add_subparsers(dest="action", required=True)
@@ -532,7 +567,136 @@ def _library_root() -> Path | None:
     return harness_root()
 
 
-def _decompose(args: argparse.Namespace) -> int:
+def _plan_reviewer(
+    args: argparse.Namespace,
+    config: RunConfig,
+    credential: Credential,
+    registrations: Registrations | None,
+) -> tuple[PlanReviewer, ReviewInstall] | None:
+    """The design reviewer of a run that reviews its plan, and its installation; ``None`` if not.
+
+    Built before the call is spent: a review that could not run would leave the call's tokens
+    spent on a run that never starts. The installation is checked against its build, or built,
+    as a run's is.
+
+    Raises:
+        RunConfigError: the run reviews its plan and names no installation or review root.
+        ReviewerNotRegisteredError: no design reviewer is registered, or there is no checkout
+            to read its rubric from.
+        ReviewRootError: the review root is not one a reviewer may read beneath.
+    """
+    if config.design_review == "off":
+        return None
+    if args.install is None or args.review_root is None:
+        msg = (
+            "a run that reviews its plan names the installation and the place its review "
+            "runs under: --install and --review-root"
+        )
+        raise RunConfigError(msg, design_review=config.design_review)
+    review_root = require_review_root(args.review_root)
+    install = args.install.resolve()
+    started = time.monotonic()
+    action: Literal["checked", "built"] = "checked" if install.exists() else "built"
+    if action == "checked":
+        require_current(install, _project_root())
+        install_bin = install / "bin" / "physgate"
+    else:
+        install_bin = prepare_install(install, _project_root())
+    seconds = time.monotonic() - started
+    library = _library_root()
+    if library is None:
+        msg = "the design reviewer's rubric is read from a source checkout, and there is none"
+        raise ReviewerNotRegisteredError(msg)
+    setup = ReviewerSetup.of_run(
+        config,
+        review_root=review_root,
+        repo=args.target.resolve(),
+        install_bin=install_bin,
+        binary=claude_binary(),
+        base_url=os.environ.get("ANTHROPIC_BASE_URL"),
+        credential=credential,
+        library=library,
+    )
+    factory = design_reviewer if registrations is None else registrations.plan_reviewer_factory
+    reviewer = factory(setup, config) if factory is not None else None
+    if reviewer is None:
+        msg = "a run that reviews its plan needs its design reviewer, and none is registered"
+        raise ReviewerNotRegisteredError(msg)
+    checked = ReviewInstall(
+        path=str(install), action=action, seconds=seconds, entries=manifest_entries(install)
+    )
+    return reviewer, checked
+
+
+def _reviewed(
+    reviewing: tuple[PlanReviewer, ReviewInstall],
+    outcome: Outcome,
+    *,
+    config: RunConfig,
+    brief: Path,
+    stream: Path,
+) -> PlanReviewed | None:
+    """What the review of the call's plan came to; ``None`` when the call gave no plan.
+
+    The reviewer is handed the brief as the run's digest names it, the plan and its digest, and
+    the call's stream with the seal the call took where it wrote it. A review that is not a
+    verdict, or whose stream showed held-out material, is what the review came to; anything
+    else it raises fails the command, with nothing of the run recorded.
+
+    Raises:
+        RunStateError: the call gave a plan and sealed no stream.
+    """
+    if not outcome.ok or outcome.plan is None:
+        return None  # nothing to review: the failed call is what the run records
+    if outcome.stream_seal is None:
+        msg = "the call gave a plan and sealed no stream, so its plan cannot be reviewed"
+        raise RunStateError(msg, session_id=outcome.session_id)
+    reviewer, install = reviewing
+    under = PlanUnderReview(
+        brief=brief.read_bytes().decode("utf-8"),
+        brief_sha256=config.brief_sha256,
+        plan=outcome.plan,
+        plan_sha256=plan_sha256(outcome.plan),
+        stream=str(stream),
+        stream_seal=outcome.stream_seal,
+        decomposition_model=config.models.decomposition,
+        decomposition_session_id=outcome.session_id,
+    )
+    sealed = outcome.stream_seal
+    try:
+        result = reviewer.review_plan(under)
+    except ReviewUnavailableError as exc:
+        why = DesignUnavailable(
+            cause=exc.cause,
+            detail=str(exc) or exc.cause,
+            session_id=exc.session_id,
+            reviewer_model=exc.reviewer_model,
+        )
+        return PlanReviewed(
+            install=install,
+            stream_seal=sealed,
+            session_id=exc.session_id,
+            usage=exc.usage,
+            unavailable=why,
+        )
+    except HeldOutExposedError as exc:
+        return PlanReviewed(
+            install=install,
+            stream_seal=sealed,
+            session_id=exc.session_id,
+            usage=exc.usage,
+            exposed=True,
+        )
+    return PlanReviewed(
+        install=install,
+        stream_seal=sealed,
+        session_id=result.session_id,
+        usage=result.usage,
+        result=result,
+    )
+
+
+def _decompose(args: argparse.Namespace, *, registrations: Registrations | None = None) -> int:
     try:
         # The credential first, from the mode the parameters name: a run whose mode
         # has no secret in the environment is refused before anything else happens.
@@ -567,6 +731,7 @@ def _decompose(args: argparse.Namespace) -> int:
         return _fail(str(exc), **exc.context)
     try:
         require_fresh(run_dir)
+        reviewing = _plan_reviewer(args, config, credential, registrations)
         brief = args.brief.read_text()
         outcome = call(
             brief,
@@ -575,6 +740,18 @@ def _decompose(args: argparse.Namespace) -> int:
             base_url=os.environ.get("ANTHROPIC_BASE_URL"),
             credential=credential,
         )
+        # The plan's review, after the call and before anything of the run is written.
+        reviewed = (
+            _reviewed(
+                reviewing,
+                outcome,
+                config=config,
+                brief=args.brief,
+                stream=run_dir / "decomposition" / "stdout.jsonl",
+            )
+            if reviewing is not None
+            else None
+        )
         record = start_run(
             outcome,
             config=config,
@@ -582,20 +759,29 @@ def _decompose(args: argparse.Namespace) -> int:
             target_repo=args.target.resolve(),
             library=_library_root(),
             brief=brief,
+            reviewed=reviewed,
         )
-    except OrchestratorError as exc:
+    except (OrchestratorError, ReviewError) as exc:
         return _fail(str(exc), **exc.context)
     subtasks = [line.id for line in record.ledger.read_all()]
     record.close()
-    _print(
-        {
-            "run_id": config.run_id,
-            "decomposed": outcome.ok,
-            "cause": outcome.cause,
-            "detail": outcome.detail,
-            "subtasks": subtasks,
-        }
-    )
+    printed: dict[str, object] = {
+        "run_id": config.run_id,
+        "decomposed": outcome.ok,
+        "cause": outcome.cause,
+        "detail": outcome.detail,
+        "subtasks": subtasks,
+    }
+    if reviewed is not None:
+        # Said only for a run that reviews its plan, so what any other run prints is unchanged.
+        printed["plan_review"] = (
+            reviewed.result.verdict
+            if reviewed.result is not None
+            else reviewed.unavailable.cause
+            if reviewed.unavailable is not None
+            else "held_out_exposed"
+        )
+    _print(printed)
     return 0 if outcome.ok else 1
 
 

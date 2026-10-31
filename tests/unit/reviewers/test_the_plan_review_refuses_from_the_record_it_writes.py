@@ -109,7 +109,7 @@ def test_the_review_reads_the_stream_no_more_once_its_packet_is_checked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     watched = _Watched(monkeypatch)
-    checked = claude.check_plan_packet
+    checked = module("plan_packet").check_plan_packet
 
     def then_changed(packet: Any, under: Any) -> None:  # noqa: ANN401
         checked(packet, under)
@@ -154,11 +154,11 @@ def test_every_library_copy_changed_after_the_build_is_refused_at_the_check(
         path = _read(root) / copy
         body = path.read_bytes()
         path.write_bytes(body[:-1] + (b"x" if body[-1:] != b"x" else b"y"))  # the same size
-        refused = outcome_of(
-            lambda root=root, packet=packet: module("plan_packet").check_plan_packet(
-                packet, under_review(root)
-            )
-        )
+
+        def check(root: Path = root, packet: Any = packet) -> None:  # noqa: ANN401
+            module("plan_packet").check_plan_packet(packet, under_review(root))
+
+        refused = outcome_of(check)
         assert isinstance(refused, PacketError), (copy, refused)
         assert "library" in str(refused), (copy, refused)
 

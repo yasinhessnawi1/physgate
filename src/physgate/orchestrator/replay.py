@@ -60,6 +60,7 @@ from physgate.orchestrator.events import (
     DecisionsSealed,
     DecisionTaken,
     Decomposed,
+    DesignReviewRan,
     DiffChecked,
     DisputeRecorded,
     EnvironmentRecorded,
@@ -298,6 +299,11 @@ class RunState:
         self.escalation_backend: str | None = None
         #: Whether the run acts on a person's decisions, as its first line says.
         self.acts = False
+        #: Whether the run reviews its plan, as its first line says; the plan's digest the
+        #: decomposition's line gives, and the review's line once it is on the record.
+        self.reviews_plan = False
+        self.plan_sha256: str | None = None
+        self.design_review: DesignReviewRan | None = None
         self.order: list[str] = []
         self.subtasks: dict[str, SubtaskState] = {}
         self.halted: Halted | None = None
@@ -402,6 +408,7 @@ class RunState:
             self.gate_mode = event.gate_mode
             self.escalation_backend = event.escalation_backend
             self.acts = event.queue_decisions == "act"
+            self.reviews_plan = event.design_review == "observe"
             return
         if isinstance(event, Halted):
             self.halted = self.last_halt = event
@@ -461,10 +468,23 @@ class RunState:
                 self.interfaces = event.interface_nodes
             self.system_requirements = event.system_requirements
             self.brief_words = event.brief_words or ()
+            self.plan_sha256 = event.plan_sha256
             return
         if isinstance(event, ContractPairsPlanned):
             self._pairs(event)
             return
+        if isinstance(event, DesignReviewRan):
+            self._plan_reviewed(event)
+            return
+        if (
+            self.reviews_plan
+            and self.design_review is None
+            and isinstance(
+                event,
+                StageEntered | IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated,
+            )
+        ):
+            _refuse("nothing is dispatched in a run that reviews its plan before its review")
         if isinstance(event, ContractTested):
             self._tested(event)
             return
@@ -639,6 +659,23 @@ class RunState:
             self.incident = event
         elif isinstance(event, Resumed):
             self._resume(sub, now, event.point)
+
+    def _plan_reviewed(self, event: DesignReviewRan) -> None:
+        """Take the plan's review: once, in a reviewing run, after the plan, before dispatch."""
+        if not self.reviews_plan:
+            _refuse("a plan's review in a run that does not review its plan")
+        if self.design_review is not None:
+            _refuse("a plan is reviewed once")
+        if self.plan_sha256 is None:
+            _refuse("a plan's review follows the plan it names")
+        if event.plan_sha256 != self.plan_sha256:
+            _refuse("a plan's review names another plan than the run recorded")
+        dispatched = self.integration is not None or any(
+            sub.attempts for sub in self.subtasks.values()
+        )
+        if dispatched:
+            _refuse("a plan's review comes before any dispatch")
+        self.design_review = event
 
     def _plan(self, event: SubtaskPlanned) -> None:
         """Take a planned subtask, and note it if its line marks it as integration's.

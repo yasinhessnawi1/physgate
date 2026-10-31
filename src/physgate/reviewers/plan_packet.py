@@ -4,8 +4,8 @@ The design reviewer judges the plan the decomposition submitted, before any modu
 specification is the brief, its work is the plan, and its trajectory is the decomposition's
 stream. A plan review's ``read/`` directory holds:
 
-- ``brief-NN-of-MM.md``: the brief exactly as the decomposition was given it, in parts, held to
-  the digest the run recorded for it.
+- ``brief-NN-of-MM.md``: the brief the decomposition was given, held to the digest the run
+  recorded for it, with every line cut to what one read shows and joined again to the brief.
 - ``plan-NN-of-MM.md``: the plan as the harness validated it, rendered by the harness: every
   module with its role, directory and specification, every interface node, and, in a run with
   the integration role, the consumers of each interface and the system requirements allocated to
@@ -16,10 +16,13 @@ stream. A plan review's ``read/`` directory holds:
   the seal taken when the call ended, and rendered whole (``transcript.render``).
 - ``rubric.md``: the design rubric, its digest checked again against the one it was loaded with.
 - ``knowledge/``: the design library: the standards every role reads, and the design standards
-  and skill file.
+  and skill file. Each copy, and the rubric, is held to its recorded digest before the review.
 - ``worktree/``: empty. A plan has no commit; the directory is the review session's working
   directory, as an attempt's export is.
 - ``files-NN-of-MM.md``: the listing of every other file, written last and read first.
+
+The stream is read once: the models it shows answering are recorded from that read, and a
+stream the reviewer's own model answered is refused before anything is written.
 
 The parts are cut as an attempt's are (``packet.split_parts``), and :func:`check_plan_packet`
 holds each group of parts joined to what it was cut from before the review starts. The record
@@ -40,8 +43,11 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 from physgate.knowledge import loader
 from physgate.knowledge.library import LibraryError, read_library
 from physgate.orchestrator.common import ModelString, NonEmptyStr
+from physgate.orchestrator.decompose import read_stream
 from physgate.orchestrator.exceptions import TrajectoryTamperedError
 from physgate.orchestrator.plan import IntegratedPlan, Plan, plan_sha256
+from physgate.orchestrator.protocols import PlanUnderReview as PlanUnderReview
+from physgate.orchestrator.protocols import require_separate_models
 from physgate.orchestrator.run_config import DESIGN_REVIEWER
 from physgate.orchestrator.trajectory import Seal, read_sealed
 from physgate.reviewers.packet import (
@@ -60,7 +66,7 @@ from physgate.reviewers.packet import (
 )
 from physgate.reviewers.places import READ_DIRNAME
 from physgate.reviewers.rubric import Rubric
-from physgate.reviewers.transcript import cut_line, render
+from physgate.reviewers.transcript import SYNTHETIC_MODEL, cut_line, joined, render
 
 BRIEF_PART = "brief-{n:02d}-of-{total:02d}.md"
 PLAN_PART = "plan-{n:02d}-of-{total:02d}.md"
@@ -71,23 +77,6 @@ Nonce = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")]
 
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-
-class PlanUnderReview(_Frozen):
-    """The plan one decomposition call submitted, with what it was made from."""
-
-    #: The brief exactly as the call was given it, and the digest the run recorded for it.
-    brief: Annotated[str, StringConstraints(min_length=1)]
-    brief_sha256: Sha256
-    #: The plan as validated, of the form the run's roles call for, and its digest.
-    plan: IntegratedPlan | Plan
-    plan_sha256: Sha256
-    #: The call's captured stream, and its seal taken when the call ended.
-    stream: NonEmptyStr
-    stream_seal: Seal
-    #: The model the run pinned for the call: the plan's implementer.
-    decomposition_model: ModelString
-    decomposition_session_id: NonEmptyStr
 
 
 _PLAN_PART_NAME = r"^(brief|plan|transcript|files)-[0-9]{2,}-of-[0-9]{2,}\.md$"
@@ -119,6 +108,8 @@ class PlanPacket(_Frozen):
     required_reading: tuple[str, ...]
     decomposition_model: ModelString
     decomposition_session_id: NonEmptyStr
+    #: The models the stream shows answering, from the one read the packet was written from.
+    answering_models: tuple[NonEmptyStr, ...]
 
     @property
     def indicators(self) -> tuple[()]:
@@ -205,17 +196,30 @@ def _write_parts(read: Path, parts: list[tuple[str, bytes]]) -> tuple[PlanPart, 
     return tuple(written)
 
 
-def _held(under: PlanUnderReview) -> tuple[bytes, str]:
-    """The brief's bytes and the sealed stream, each held to what the run recorded of it.
+def _cut(text: str) -> str:
+    """``text`` with every line cut to what one read shows (``transcript.cut_line``)."""
+    return "\n".join(piece for line in text.split("\n") for piece in cut_line(line))
+
+
+def _held(under: PlanUnderReview) -> tuple[bytes, str, tuple[str, ...]]:
+    """The brief as issued, the sealed stream and its answering models, each held to the record.
+
+    The brief is issued cut to what one read shows, and must join again to itself: a brief that
+    already holds the cut's mark would read back as another. The answering models are read from
+    the same bytes the packet renders, so the refusal and the record rest on one read.
 
     Raises:
-        PacketError: the brief is not the one recorded, the plan is not, or the stream is gone,
-            off its seal, not UTF-8 or empty.
+        PacketError: the brief is not the one recorded or holds the cut's mark, the plan is not
+            the one recorded, or the stream is gone, off its seal, not UTF-8 or empty.
     """
     brief = under.brief.encode("utf-8")
     if _digest(brief) != under.brief_sha256:
         msg = "the brief is not the one the run recorded"
         raise PacketError(msg, recorded=under.brief_sha256, found=_digest(brief))
+    issued = _cut(under.brief)
+    if joined(issued) != under.brief:
+        msg = "the brief holds the mark a cut line ends in, so its lines could not be issued whole"
+        raise PacketError(msg, recorded=under.brief_sha256)
     # Taken from the plan itself: a plan held in the base form has lost an integrated plan's lists.
     if plan_sha256(under.plan) != under.plan_sha256:
         msg = "the plan is not the one the decomposition submitted"
@@ -231,20 +235,26 @@ def _held(under: PlanUnderReview) -> tuple[bytes, str]:
     if not stream.strip():
         msg = "a review reads the whole trajectory, and the decomposition's is empty"
         raise PacketError(msg, trajectory=under.stream)
-    return brief, stream
+    answering = tuple(sorted(read_stream(stream)[2] - {SYNTHETIC_MODEL}))
+    return issued.encode("utf-8"), stream, answering
 
 
 def build_plan_packet(
-    review: Path, under: PlanUnderReview, *, rubric: Rubric, library: Path
+    review: Path, under: PlanUnderReview, *, rubric: Rubric, library: Path, reviewer_model: str
 ) -> PlanPacket:
-    """Write everything the review of ``under`` is shown under ``review``/``read``.
+    """Write everything the review of ``under`` by ``reviewer_model`` is shown under ``review``.
 
     Raises:
+        ModelSeparationError: the stream shows ``reviewer_model`` answering, which made the plan;
+            refused before anything is written.
         PacketError: the brief, the plan or the stream is not what the run recorded,
             ``read/`` exists already, the rubric is not the one loaded, or the library cannot
             be read.
     """
-    brief, stream = _held(under)
+    brief, stream, answering = _held(under)
+    # A model the stream shows answering made the plan: a reviewer on it would judge its own.
+    for answered in answering:
+        require_separate_models(implementer=answered, reviewer=reviewer_model)
     read = Path(review) / READ_DIRNAME
     if read.exists():
         msg = "a review is prepared into a directory of its own, new"
@@ -299,6 +309,7 @@ def build_plan_packet(
         required_reading=tuple(str(p) for p in reading),
         decomposition_model=under.decomposition_model,
         decomposition_session_id=under.decomposition_session_id,
+        answering_models=answering,
     )
     (Path(review) / RECORD_NAME).write_text(packet.model_dump_json(indent=1) + "\n")
     return packet
@@ -308,14 +319,33 @@ def check_plan_packet(packet: PlanPacket, under: PlanUnderReview) -> None:
     """Hold the issued parts to what they were cut from, before the review starts.
 
     Each part must be on disk as written, and each group joined must be its source again: the
-    brief, the plan rendered with the recorded nonce, the sealed stream rendered with the
-    recorded nonce, and the listing of the read directory as it stands.
+    brief cut as it is issued, the plan rendered with the recorded nonce, the sealed stream
+    rendered with the recorded nonce, and the listing of the read directory as it stands. The
+    rubric and every library copy are held to the digests the record gives them, and the
+    answering models to the ones the stream shows now.
 
     Raises:
-        PacketError: a part is missing or changed, or a group joined is not its source.
+        PacketError: a part or a copy is missing or changed, a group joined is not its source,
+            or the record names other answering models than the stream shows.
     """
     read = Path(packet.read_root)
-    brief, stream = _held(under)
+    brief, stream, answering = _held(under)
+    if answering != packet.answering_models:
+        msg = "the packet names other answering models than the stream shows"
+        raise PacketError(msg, read=str(read))
+    copies = {
+        "rubric": {read / RUBRIC_NAME: packet.rubric_sha256},
+        "library": {
+            read / KNOWLEDGE_NAME / Path(name).relative_to(loader.DEFAULT_ROOT): digest
+            for name, digest in packet.knowledge_sha256.items()
+        },
+    }
+    for what, held in copies.items():
+        for path, digest in held.items():
+            body = path.read_bytes() if path.is_file() else None
+            if body is None or _digest(body) != digest:
+                msg = f"a {what} copy is missing or is not what was issued"
+                raise PacketError(msg, copy=str(path.relative_to(read)))
     # Rendered again with the recorded nonces: a nonce the source now holds renders otherwise.
     plan_text, _ = render_plan(under.plan, nonce=packet.plan_nonce)
     transcript, _ = render(stream, nonce=packet.transcript_nonce)

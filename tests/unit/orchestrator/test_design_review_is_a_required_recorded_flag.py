@@ -89,7 +89,7 @@ def test_a_run_that_reviews_its_plan_names_its_design_reviewer() -> None:
 
 
 def _refusals(config: RunConfig, *, new_run: bool = True) -> list[str]:
-    facts = RunFacts(config=config, os_layer=PRESENT, shell_sessions=True, new_run=new_run)  # type: ignore[call-arg]
+    facts = RunFacts(config=config, os_layer=PRESENT, shell_sessions=True, new_run=new_run)
     return [why for requirement in REQUIREMENTS if (why := requirement(facts)) is not None]
 
 

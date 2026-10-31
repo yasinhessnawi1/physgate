@@ -316,6 +316,7 @@ PARAMS = {
     "escalation_backend",
     "queue_decisions",
     "os_layer_absent",
+    "design_review",
     "held_out",
     "held_out_canaries",
     "held_out_sha256",
@@ -367,6 +368,7 @@ def config(run_id: str = "run-1") -> RunConfig:
         queue_decisions="record",
         # The rig also runs where the layer is absent (the hook suite's job has no sandbox).
         os_layer_absent="allow",
+        design_review="off",
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),

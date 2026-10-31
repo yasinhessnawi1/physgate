@@ -114,5 +114,27 @@ OS_LAYER_ABSENT = Flag(
     architecture="ARCH-091",
 )
 
+#: Whether the plan is reviewed before anything is dispatched. Spelled out for the type checker, as
+#: the others are; a test holds it equal to the register's entry.
+DesignReview = Literal["off", "observe"]
+
+DESIGN_REVIEW = Flag(
+    name="design_review",
+    values=("off", "observe"),
+    meanings={
+        "off": (
+            "the plan is not reviewed: nothing is asked of a design reviewer and nothing about a "
+            "review is recorded; every run recorded before the switch existed reads as this"
+        ),
+        "observe": (
+            "the design reviewer, on a model other than the decomposition's, judges the plan "
+            "after the one call and before anything is dispatched; what it came to is recorded "
+            "in the run's opening and the run proceeds whatever it says, so the verdict is "
+            "measured without changing the run; every reportable run uses it"
+        ),
+    },
+    architecture="ARCH-060",
+)
+
 #: Every ablation flag, in the order the architecture lists the switches.
-REGISTER: tuple[Flag, ...] = (GATE_MODE, QUEUE_DECISIONS, OS_LAYER_ABSENT)
+REGISTER: tuple[Flag, ...] = (GATE_MODE, QUEUE_DECISIONS, OS_LAYER_ABSENT, DESIGN_REVIEW)

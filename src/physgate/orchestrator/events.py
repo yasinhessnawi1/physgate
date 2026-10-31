@@ -78,6 +78,7 @@ from physgate.orchestrator.protocols import (
     RecordedUnavailableCause,
     ReviewResult,
     SpecDefect,
+    UnavailableCause,
     Usage,
 )
 from physgate.orchestrator.repair import Finding
@@ -192,12 +193,16 @@ class RunStarted(_Event):
     #: ``act`` in a run that acts on a person's decisions, which replay reads to hold the closing
     #: pass's wait; left out of a run that records only, so its line keeps its bytes.
     queue_decisions: Literal["act"] | None = None
+    #: ``observe`` in a run that reviews its plan, which replay reads to hold every dispatch to the
+    #: review's line; left out of a run that does not, so its line keeps its bytes.
+    design_review: Literal["observe"] | None = None
 
     @model_serializer(mode="wrap")
     def _omit_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        if self.queue_decisions is None:
-            data.pop("queue_decisions", None)
+        for absent in ("queue_decisions", "design_review"):
+            if getattr(self, absent) is None:
+                data.pop(absent, None)
         return data
 
 
@@ -818,6 +823,49 @@ class Decomposed(_Event):
         return data
 
 
+class DesignUnavailable(BaseModel):
+    """Why the plan's review is not a verdict: its cause, and the session that spent on it."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    cause: UnavailableCause
+    detail: NonEmptyStr
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")] | None
+    reviewer_model: NonEmptyStr | None
+
+
+class DesignReviewRan(_Event):
+    """What the design reviewer came to on the plan, written in the run's opening (ARCH-060).
+
+    The review runs after the one call and before anything of the run is written, so its line is
+    the opening's last: after the plan it judged, before any dispatch. It names the plan by the
+    digest the decomposition's line carries and the call's stream by the seal the review held it
+    to, and gives either the verdict or why there is none. What the review spent is attributed to
+    its own session on the lines before it.
+    """
+
+    kind: Literal["design_review_ran"] = "design_review_ran"
+    plan_sha256: Sha256
+    stream_seal: Seal
+    result: ReviewResult | None = None
+    unavailable: DesignUnavailable | None = None
+
+    @model_validator(mode="after")
+    def _a_verdict_or_why_there_is_none(self) -> DesignReviewRan:
+        if (self.result is None) == (self.unavailable is None):
+            msg = "a plan's review gives a verdict or why there is none, and never both"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        for absent in ("result", "unavailable"):
+            if data.get(absent) is None:
+                data.pop(absent, None)
+        return data
+
+
 class ContractPairsPlanned(_Event):
     """The module pairs whose interface contract the run tests, read from its plan.
 
@@ -1203,6 +1251,7 @@ Event = Annotated[
     | Incident
     | Resumed
     | Decomposed
+    | DesignReviewRan
     | ContractPairsPlanned
     | ContractTested
     | IntegrationStateIssued

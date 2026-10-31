@@ -41,7 +41,7 @@ def test_the_call_seals_the_bytes_it_wrote(
 
     monkeypatch.setattr(decompose, "claude_binary", lambda: "/nonexistent/claude")
     monkeypatch.setattr(decompose, "binary_version", lambda binary=None: "2.1.272")
-    monkeypatch.setattr(decompose.subprocess, "run", ran)
+    monkeypatch.setattr(subprocess, "run", ran)
     outcome = decompose.call(
         "Build a robot.\n",
         config=make_config(),
