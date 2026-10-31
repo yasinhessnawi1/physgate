@@ -467,7 +467,9 @@ def test_a_journal_time_that_is_not_a_timestamp_is_refused(
     _write(three_fails, lines)
     found = _read(three_fails, 3)
     assert isinstance(found, RunStateError), f"{kind}.{name}: read as {found!r}"
+    # Refused as a line the rounds never write, before any check of its round reads it.
     assert found.context.get("cause") == "record_missing"
+    assert "check" not in found.context, found.context
 
 
 def test_every_round_s_times_are_kept_on_a_clock_no_step_moves_and_in_order(
