@@ -255,6 +255,9 @@ def test_the_decompose_command_in_subscription_mode_records_the_mode_and_not_the
 
     params = json.loads((EXAMPLES / "params.subscription.json").read_text())
     params["bounds"] = config().bounds.model_dump(mode="json")  # the scripted endpoint's
+    # The row is about the subscription credential, not the plan's review: the examples name
+    # design_review: on, whose review needs an installation this command is not given.
+    params["design_review"] = "off"
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     repo = target_repo(tmp_path)
