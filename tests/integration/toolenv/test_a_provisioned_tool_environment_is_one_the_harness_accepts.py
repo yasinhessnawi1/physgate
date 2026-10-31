@@ -164,7 +164,14 @@ def test_using_the_environment_writes_nothing_into_it(
     (sketch / "src").mkdir(parents=True)
     (sketch / "platformio.ini").write_text(provision.FIXTURE_INI)
     (sketch / "src" / "main.cpp").write_text(provision.FIXTURE_MAIN)
+    # A stand-in git first on the path, which notes every call: a build that needed git
+    # would call it, and the session's git directory is out of a role session's reach.
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    (shim / "git").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path / "git-calls"}\nexit 1\n')
+    (shim / "git").chmod(0o755)
     pio_env = provision.pio_environment(core, tmp_path, offline=True) | {
+        "PATH": f"{shim}:/usr/bin:/bin",
         "HOME": str(home),
         "PLATFORMIO_BUILD_DIR": str(tmp_path / "build"),
         "PLATFORMIO_WORKSPACE_DIR": str(tmp_path / "workspace"),
@@ -181,6 +188,7 @@ def test_using_the_environment_writes_nothing_into_it(
     )
     assert built.returncode == 0, built.stdout[-2000:]
     assert "used 4798 bytes from 28672 bytes" in built.stdout
+    assert not (tmp_path / "git-calls").exists()
     assert scan([env]) == before
 
 
