@@ -286,10 +286,6 @@ def test_relative_and_absolute_links_that_stay_inside_are_kept(tmp_path: Path) -
     (root / "lib" / "node_modules" / ".bin").mkdir(parents=True)
     (root / "lib" / "node_modules" / ".bin" / "gcc").symlink_to("../../../bin/avr-gcc")
     (root / "bin" / "python").symlink_to(python.resolve())
-    (root / "bin" / "loop").symlink_to("loop")
-    with pytest.raises(ToolEnvironmentError, match="leads outside"):
-        _measure(root, python, tool)
-    (root / "bin" / "loop").unlink()
     _measure(root, python, tool)
 
 
@@ -335,8 +331,10 @@ def test_a_link_that_walks_out_through_a_plain_directory_and_back_is_refused(
 
 def test_a_loop_of_links_ends_in_a_refusal_not_a_hang(tmp_path: Path) -> None:
     root, python, tool = _environment(tmp_path)
+    # Run apart, so a walk that never ends fails this test instead of hanging the suite.
     (root / "bin" / "ping").symlink_to("pong")
     (root / "bin" / "pong").symlink_to("ping")
+    (root / "bin" / "self").symlink_to("self")
     outcome: list[BaseException | None] = []
     worker = threading.Thread(target=lambda: outcome.append(_raised(lambda: manifest([root]))))
     worker.daemon = True
