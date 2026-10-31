@@ -174,6 +174,17 @@ def test_the_review_s_tokens_name_the_session_its_ending_names(tmp_path: Path) -
     assert "session" in str(refused)
 
 
+def test_a_review_s_record_names_one_session_for_its_tokens_and_its_ending(tmp_path: Path) -> None:
+    from design_review_rig import stream
+    from pydantic import ValidationError
+
+    stream(tmp_path / "run")
+    refused = outcome_of(lambda: reviewed(tmp_path / "run", session_id="someone-else"))
+    assert isinstance(refused, ValidationError), refused
+    assert "the session its ending names" in str(refused)
+    assert not isinstance(outcome_of(lambda: reviewed(tmp_path / "run")), Exception)
+
+
 def test_replay_holds_the_review_s_tokens_to_the_session_its_line_names(tmp_path: Path) -> None:
     run_dir = outcome_of(lambda: started(tmp_path))
     assert isinstance(run_dir, Path), run_dir
