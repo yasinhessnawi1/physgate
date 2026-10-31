@@ -23,6 +23,7 @@ from orch_helpers import make_config
 import physgate.orchestrator.decompose as decompose
 from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.credentials import Credential
+from physgate.orchestrator.exceptions import RunStateError
 from physgate.orchestrator.plan import Plan
 from physgate.orchestrator.protocols import (
     CriterionDefect,
@@ -207,9 +208,17 @@ def test_the_brief_s_missing_input_is_quoted_with_the_line_that_it_is_not_suppli
 def test_a_passed_plan_is_never_replanned() -> None:
     findings_of = _named("replan_findings")
     assert findings_of is not None, "no re-plan findings are built"
-    found = outcome_of(lambda: findings_of(_review("pass")))
-    assert isinstance(found, Exception), found
-    assert "pass" in str(found)
+    # The review is built first, so only the re-plan's refusal can be what is caught.
+    passed = ReviewResult(
+        verdict="pass",
+        finding="the plan protects the bus",
+        reviewer_model=REVIEWER,
+        session_id=REVIEW_SESSION,
+        usage=(),
+    )
+    found = outcome_of(lambda: findings_of(passed))
+    assert isinstance(found, RunStateError), found
+    assert "passed is not re-planned" in str(found)
 
 
 @pytest.mark.parametrize(
@@ -242,7 +251,7 @@ def test_the_first_call_is_sent_the_prompt_it_is_given_on_stdin(
         sent.append((list(argv), kw))
         raise SentError
 
-    monkeypatch.setattr(decompose.subprocess, "run", run)
+    monkeypatch.setattr("physgate.orchestrator.decompose.subprocess.run", run)
     monkeypatch.setattr(decompose, "claude_binary", lambda: "claude")
     monkeypatch.setattr(decompose, "binary_version", lambda binary=None: "2.1.301")
     config = make_config(claude_version="2.1.301")

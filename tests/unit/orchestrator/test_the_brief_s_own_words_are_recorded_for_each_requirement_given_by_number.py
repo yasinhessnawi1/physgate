@@ -23,7 +23,7 @@ from pydantic import ValidationError
 
 from physgate import roles
 from physgate.orchestrator.events import Decomposed
-from physgate.orchestrator.exceptions import DecompositionError
+from physgate.orchestrator.exceptions import PlanRefusedError
 from physgate.orchestrator.plan import SPEC_MAX_CHARS, CriterionWords, Plan, SystemRequirement
 from physgate.reviewers.contract import criterion_words
 
@@ -117,7 +117,8 @@ def test_words_past_a_specifications_bound_are_refused_before_anything_is_writte
     # Refused by the bound's own check, with its own reason: not by the record's type later.
     with pytest.raises(Exception) as caught:  # noqa: B017, PT011 - the type is asserted below
         pairs.start(tmp_path, pairs.integrated(), brief=long)
-    assert type(caught.value) is DecompositionError, repr(caught.value)
+    # A refusal of the plan's own content, which the start check names as the plan's.
+    assert type(caught.value) is PlanRefusedError, repr(caught.value)
     assert "brief's words for a requirement are longer" in str(caught.value)
     assert caught.value.context["limit"] == str(SPEC_MAX_CHARS)
     assert not (tmp_path / "run" / "events.jsonl").exists()
