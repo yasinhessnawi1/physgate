@@ -278,7 +278,11 @@ describe("the queue page reads the chosen item's view again when it is chosen", 
     [`${BASE}/queue`]: { open: [rawItem()], decided: [] },
   };
 
-  it("and the decision sends the id of that view", async () => {
+  async function mounted(status: Record<string, unknown> = {}): Promise<{
+    host: HTMLElement;
+    views: string[];
+    posted: string[];
+  }> {
     window.history.replaceState(null, "", "/#act=tok");
     takeTokenFromAddress();
     const meta = document.createElement("meta");
@@ -287,6 +291,10 @@ describe("the queue page reads the chosen item's view again when it is chosen", 
     document.head.append(meta);
     const views = [FIRST, CHOSEN];
     const posted: string[] = [];
+    const answers: Record<string, unknown> = {
+      ...ANSWERS,
+      [`${BASE}/status`]: { ...(ANSWERS[`${BASE}/status`] as object), ...status },
+    };
     vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
       const url = typeof input === "string" ? input : (input as Request).url;
       let body: unknown;
@@ -297,7 +305,7 @@ describe("the queue page reads the chosen item's view again when it is chosen", 
         };
       } else if (url === `${BASE}/queue/items/0`) body = rawView(views.shift() ?? "C".repeat(22));
       else if (url === `${BASE}/events`) return Promise.resolve(new Response(""));
-      else body = ANSWERS[url];
+      else body = answers[url];
       return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
     });
     const host = mount(<Queue setHeader={vi.fn()} query={new URLSearchParams()} />);
@@ -305,6 +313,18 @@ describe("the queue page reads the chosen item's view again when it is chosen", 
       await act(async () => {
         await Promise.resolve();
       });
+    return { host, views, posted };
+  }
+
+  it("says so on an item the status names superseded, and on no other", async () => {
+    const { host } = await mounted({ superseded: { "run-esc-s1": "run-1-contract-1" } });
+    expect(host.querySelector(".pg-queue-superseded")?.textContent).toBe(
+      supersededWords("run-1-contract-1"),
+    );
+  });
+
+  it("and the decision sends the id of that view", async () => {
+    const { host, views, posted } = await mounted();
     // Read once for the list, and once more because it is the item chosen.
     expect(views).toEqual([]);
     const approve = [...host.querySelectorAll("button")].find((b) =>
