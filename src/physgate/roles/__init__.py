@@ -8,7 +8,9 @@ its resume and the loop before anything is dispatched. Curated content and a
 reviewer's rubric existing for a role do not make it ready: the mechanical role, for
 one, owes a person's sign-off on its sizing, which nothing builds yet. A role is
 added here when everything its dispatch needs is in place, and never before its
-always-loaded reading and its reviewer's promoted rubric exist.
+always-loaded reading and its reviewer's promoted rubric exist; or for planning only, so a plan
+may name it while nothing dispatches it (:func:`dispatchable`): mechanical and electrical are
+registered so until they are built.
 
 The register holds both kinds of role: domain roles (ARCH-050) and the cross-cutting
 roles (ARCH-051), sizing and integration, which have no domain. Each cross-cutting
@@ -32,8 +34,10 @@ from physgate.orchestrator.exceptions import (
     RoleRegisterError,
 )
 from physgate.roles.control import CONTROL
+from physgate.roles.electrical import ELECTRICAL
 from physgate.roles.firmware import FIRMWARE
 from physgate.roles.integration import INTEGRATION
+from physgate.roles.mechanical import MECHANICAL
 from physgate.roles.role import CrossCuttingDuty, CrossCuttingRole, RegisteredRole, Role
 from physgate.roles.sizing import SIZING
 
@@ -82,8 +86,9 @@ def register_of(roles: Iterable[RegisteredRole]) -> dict[str, RegisteredRole]:
     return register
 
 
-#: The roles the harness ships registered: those whose dispatch has everything it needs.
-SHIPPED: tuple[RegisteredRole, ...] = (CONTROL, FIRMWARE, INTEGRATION)
+#: The roles the harness ships registered: those whose dispatch has everything it needs, and
+#: those a plan may name before they are built (:func:`dispatchable` tells them apart).
+SHIPPED: tuple[RegisteredRole, ...] = (CONTROL, FIRMWARE, INTEGRATION, MECHANICAL, ELECTRICAL)
 #: Every role registered so far, keyed by name.
 ROLES: dict[str, RegisteredRole] = register_of(SHIPPED)
 
@@ -129,6 +134,17 @@ def owner_of(duty: CrossCuttingDuty) -> str:
     return owners[0]
 
 
+def dispatchable(name: str) -> bool:
+    """Whether a session of the role ``name`` may be dispatched, read from its row now.
+
+    The row decides, never the name: a role registered for planning only is planned and
+    reviewed, and its sessions wait until it is built. A role the register does not hold is not
+    dispatchable either.
+    """
+    row = ROLES.get(name)
+    return row is not None and not (isinstance(row, Role) and row.planning_only)
+
+
 def require_registered(roles: Iterable[str]) -> None:
     """Refuse a run that names a role the register does not hold.
 
@@ -146,8 +162,10 @@ def require_registered(roles: Iterable[str]) -> None:
 
 __all__ = [
     "CONTROL",
+    "ELECTRICAL",
     "FIRMWARE",
     "INTEGRATION",
+    "MECHANICAL",
     "ROLES",
     "SHIPPED",
     "SIZING",
@@ -155,6 +173,7 @@ __all__ = [
     "CrossCuttingRole",
     "RegisteredRole",
     "Role",
+    "dispatchable",
     "owner_of",
     "owners_of",
     "register_of",

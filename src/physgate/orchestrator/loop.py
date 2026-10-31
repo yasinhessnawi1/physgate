@@ -194,7 +194,7 @@ from physgate.orchestrator.replay import (
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError
-from physgate.roles import owners_of, require_registered
+from physgate.roles import dispatchable, owners_of, require_registered
 from physgate.series.reader import attempt_records
 from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
 from physgate.state.exceptions import DesignStateError, StoreStaleError
@@ -743,8 +743,30 @@ class Loop:
                         item_id=item_id,
                     )
                 )
-            else:
+            elif self._roles_built():
                 self._attempt(step.subtask_id, step.attempt, step.point or "resolve")
+
+    def _roles_built(self) -> bool:
+        """Whether every role the plan still names can be dispatched; otherwise the run halts.
+
+        Asked before every attempt, so a run whose plan names a role registered for planning only
+        halts at its first dispatch, before any session of any role is spent: it could never
+        finish. The halt is not resumed; the run is decomposed again once the role is built.
+        """
+        unbuilt = sorted(
+            {
+                f"{sub.plan.subtask_id} ({sub.plan.assigned_role})"
+                for sub in self.state.subtasks.values()
+                if sub.status != "removed" and not dispatchable(sub.plan.assigned_role)
+            }
+        )
+        if unbuilt:
+            detail = (
+                f"the plan names a role registered for planning only, whose sessions are not "
+                f"dispatched until it is built: {', '.join(unbuilt)}"
+            )
+            self._emit(Halted(**self._env(), reason="role_not_built", detail=detail))
+        return not unbuilt
 
     # -- a person's decisions -------------------------------------------------------------
 

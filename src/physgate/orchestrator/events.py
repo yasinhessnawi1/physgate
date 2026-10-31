@@ -141,6 +141,7 @@ HaltReason = Literal[
     "credential_refused",
     "decomposition_failed",
     "os_layer_unavailable",
+    "role_not_built",
 ]
 
 #: Halts a resume continues from, the same attempt with a fresh schedule: the

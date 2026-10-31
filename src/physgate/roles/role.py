@@ -83,6 +83,9 @@ class Role(_Reads):
     domain: DomainKind
     #: Where this row is specified, so a reader can find the acceptance test.
     architecture: _ArchId
+    #: A role a plan may name and the design reviewer judges, whose sessions are never
+    #: dispatched until the role is built: the loop halts a run whose plan names it.
+    planning_only: bool = False
 
 
 class CrossCuttingRole(_Reads):

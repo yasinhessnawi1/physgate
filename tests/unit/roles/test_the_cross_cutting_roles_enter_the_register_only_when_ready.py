@@ -228,7 +228,7 @@ def test_the_register_refuses_any_role_named_design(row: roles.RegisteredRole) -
 
 
 def test_the_fields_of_each_row_are_in_their_recorded_order() -> None:
-    assert list(roles.Role.model_fields) == ["name", "domain", "architecture"]
+    assert list(roles.Role.model_fields) == ["name", "domain", "architecture", "planning_only"]
     assert list(roles.CrossCuttingRole.model_fields) == ["name", "architecture", "owns"]
 
 
