@@ -126,7 +126,7 @@ def test_a_stream_off_its_seal_is_refused_before_anything_is_written(tmp_path: P
 
 def test_a_brief_off_its_recorded_digest_is_refused(tmp_path: Path) -> None:
     under = under_review(tmp_path, brief=BRIEF + "3. It weighs under 2 kg.\n")
-    with pytest.raises(PacketError, match="brief"):
+    with pytest.raises(PacketError, match="brief is not the one the run recorded"):
         _build(tmp_path, under)
     assert not (tmp_path / "reviews").exists()
 
@@ -136,7 +136,7 @@ def test_a_plan_off_its_recorded_digest_is_refused(tmp_path: Path) -> None:
     held_as_base = under_review(
         tmp_path, plan=base_plan(), plan_sha256=plan_sha256(integrated_plan())
     )
-    with pytest.raises(PacketError, match="plan"):
+    with pytest.raises(PacketError, match="not the one the decomposition submitted"):
         _build(tmp_path, held_as_base)
     assert not (tmp_path / "reviews").exists()
 
@@ -178,14 +178,14 @@ def test_a_part_changed_after_the_build_is_refused_before_the_review(
     module("plan_packet").check_plan_packet(packet, under)
     part = read / getattr(packet, group)[0].name
     part.write_bytes(part.read_bytes() + b"x")
-    with pytest.raises(PacketError, match="part"):
+    with pytest.raises(PacketError, match="part is missing or is not what was issued"):
         module("plan_packet").check_plan_packet(packet, under)
 
 
 def test_a_file_added_to_the_read_directory_is_refused_before_the_review(tmp_path: Path) -> None:
     packet, under, read = _build(tmp_path)
     (read / "worktree" / "note.md").write_text("read me first\n")
-    with pytest.raises(PacketError, match="listing"):
+    with pytest.raises(PacketError, match="listing's parts joined"):
         module("plan_packet").check_plan_packet(packet, under)
 
 
@@ -194,7 +194,7 @@ def test_the_plan_rendered_with_another_nonce_is_refused_before_the_review(
 ) -> None:
     packet, under, _ = _build(tmp_path)
     other = "0" * 16 if packet.plan_nonce != "0" * 16 else "1" * 16
-    with pytest.raises(PacketError, match="plan"):
+    with pytest.raises(PacketError, match="plan's parts joined"):
         module("plan_packet").check_plan_packet(
             packet.model_copy(update={"plan_nonce": other}), under
         )
@@ -270,3 +270,11 @@ def test_a_plan_rendered_again_with_its_nonce_is_the_same_bytes(tmp_path: Path) 
     assert plan_packet.render_plan(integrated_plan(), nonce=nonce) == (text, nonce)
     assert text.startswith("The plan the decomposition submitted")
     assert f"<<<DATA {nonce} and the line DATA {nonce}>>>" in text.replace("\n", " ")
+
+
+def test_a_rubric_that_is_not_the_one_loaded_is_refused(tmp_path: Path) -> None:
+    rubric = design_rubric().model_copy(update={"text": design_rubric().text + "\n- extra\n"})
+    with pytest.raises(PacketError, match="rubric"):
+        module("plan_packet").build_plan_packet(
+            tmp_path / "reviews" / "r1", under_review(tmp_path), rubric=rubric, library=REPO
+        )
