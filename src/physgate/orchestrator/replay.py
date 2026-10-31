@@ -954,9 +954,10 @@ class RunState:
         result failed with a clause ruled for a person and has no item, while the pair has no
         item a decision has not been taken on. Whatever results of other pairs landed after it:
         a failure held back while the pair's item was open gets its own once that is decided.
-        An item a reopen superseded counts as none, once neither module of the pair runs: the
-        retest the reopened merge owes comes first, and a result it leaves failing gets a new
-        round made from what is true then.
+        An item a reopen superseded counts as none. Never while a module of the pair is
+        unsettled, neither merged nor ended rejected, as a module sent to a person still may
+        merge, or while a retest is owed: a result the retest leaves failing gets a new round
+        made from what is true then.
         """
         if self.owed_ruling() is not None:
             return None
@@ -972,8 +973,8 @@ class RunState:
             if any(self.undecided(item) for item in self.items_of(pair)):
                 continue
             sides = (pair.producer.subtask_id, pair.consumer.subtask_id)
-            runs = any(self.subtasks[s].status in ("active", "waiting") for s in sides)
-            if raised and (runs or self._owes(pair)):
+            unsettled = any(self.subtasks[s].status not in ("done", "rejected") for s in sides)
+            if unsettled or self._owes(pair):
                 continue
             return tested
         return None
