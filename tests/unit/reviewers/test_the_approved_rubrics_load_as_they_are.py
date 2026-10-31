@@ -117,6 +117,10 @@ APPROVED = {
         (("final", "04aa9d73f433efcf10376b5be74e74a2397ef66d653441a61e52819996931c67", 65),),
         ("PA", "PS", "PP", "PH"),
     ),
+    "sizing": (
+        (("final", "8b2c030e3dba21ca3e73bd6163f821f1df17cb98fb5866a7e9eb0f1d631f990c", 65),),
+        ("SA", "SS", "SP", "SH"),
+    ),
 }
 VERSIONS = [(role, folder) for role, (versions, _) in APPROVED.items() for folder, _, _ in versions]
 _CANARY = re.compile(rb"\n\n<!-- [0-9a-f]{32} -->\n\Z")
