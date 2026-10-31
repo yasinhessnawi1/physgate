@@ -180,9 +180,11 @@ def _proposal_session_reused(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
     proposals = _of(log, "plan_proposed")
     assert len(proposals) == 2, "no proposal on the record"
     first, second = proposals[0]["session_id"], proposals[1]["session_id"]
+    # The plan's line re-pointed too, so only the rule that each call is a session of its own
+    # refuses it.
     return [
         {**one, "session_id": first}
-        if one is proposals[1]
+        if one is proposals[1] or one["kind"] == "decomposed"
         else {**one, "attribution": f"decomposition:{first}"}
         if one.get("attribution") == f"decomposition:{second}"
         else one
@@ -221,6 +223,17 @@ def test_replay_refuses_a_round_not_tied_to_its_own_sessions(tmp_path: Path, nam
     edited = outcome_of(lambda: EDITS[name](log))
     assert not isinstance(edited, Exception), f"{name}: {edited!r}"
     assert refusal(tmp_path, edited) != "", f"{name}: replay accepted it"
+
+
+def test_a_failed_decomposition_s_proposal_is_numbered_as_its_turn(tmp_path: Path) -> None:
+    # Round 1 gave no plan: the run fails there, its one proposal round 1. Numbered 2, nothing
+    # else on the log names a round, so only the rule that rounds are proposed in turn refuses it.
+    ran = decompose(tmp_path / "one", "repair:1", [Step(call="no_structured_output")])
+    log = events(ran.run_dir)
+    assert [p["round"] for p in _of(log, "plan_proposed")] == [1]
+    assert refusal(tmp_path, log) == ""
+    renumbered = [{**one, "round": 2} if one["kind"] == "plan_proposed" else one for one in log]
+    assert refusal(tmp_path, renumbered) != ""
 
 
 def test_the_held_round_s_stream_is_served_held_to_its_round_s_seal(tmp_path: Path) -> None:

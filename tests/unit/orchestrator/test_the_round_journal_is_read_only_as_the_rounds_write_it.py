@@ -290,7 +290,11 @@ def test_a_reviewed_run_over_a_journal_that_is_not_its_rounds_is_refused_when_op
     elif edit == "cut":
         _write(ran.run_dir, lines[:-1])
     elif edit == "void":
-        _write(ran.run_dir, [*lines[:-1], {**lines[-1], "follows": "void"}])
+        # A void the rounds could have written (the start raised after the round ended), so only
+        # the open's own rule refuses it: a started run is never over a void attempt's journal.
+        void = {"follows": "void", "ending_class": "infrastructure", "cause": "RunStateError"}
+        _write(ran.run_dir, [*lines[:-1], {**lines[-1], **void}])
+        assert not isinstance(_read(ran.run_dir, 2), Exception)
     else:
         session = str(uuid.uuid4())
         for one in lines:
