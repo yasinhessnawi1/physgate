@@ -7,7 +7,7 @@
 import type { Result } from "../../api/client";
 import { getLines } from "../../api/client";
 import type { RunEvent } from "../../api/events";
-import type { QueueListing } from "../../api/queue";
+import { type QueueListing, trajectoryPath } from "../../api/queue";
 import type { RunConfig } from "../../api/records";
 import type { GateCheck, Trace } from "../../api/run";
 import { Id } from "../../design/components/data/Id";
@@ -33,8 +33,8 @@ import { escalatedItemOf, repairsUsedUp } from "./usedUp";
 
 function Seal({ base, session }: { readonly base: string; readonly session: string }) {
   const read = useResult(
-    () => getLines(`${base}/trajectories/${encodeURIComponent(session)}`, (v) => v),
-    `${base}/trajectories/${session}`,
+    () => getLines(trajectoryPath(base, session), (v) => v),
+    trajectoryPath(base, session),
   );
   if (read === null) return <span className="pg-muted">Checking the seal…</span>;
   if (read.ok) return <StatusTag status="seal-holds" />;

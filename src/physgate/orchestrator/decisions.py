@@ -588,6 +588,9 @@ def decision_effect(
         raise QueueItemMismatchError(msg, item=item.item_id, decided=resolution.item_id)
     if item.source == "contract":
         return _contract_effect(state, item, resolution, line_sha256=line_sha256, held=held)
+    if item.source == "plan_review" and resolution.verb is None:
+        msg = "a plan's item is decided by approve or reject, and this decision is neither"
+        raise QueueItemMismatchError(msg, item=item.item_id)
     if item.consequence is None:
         return Taken(effect="none", acts=False, why_not="legacy_item")
     if resolution.verb is None or resolution.shown_sha256 is None:
@@ -811,20 +814,18 @@ def _require_plan_taken(state: RunState, event: DecisionTaken) -> None:
 
     It is taken only in a run that acts, while the plan is held on it, and names no subtask,
     attempt or position. An approve releases the run and a reject ends it, each acting unless it is
-    held until an operator confirms it; free text binds to nothing.
+    held until an operator confirms it; free text is no decision on it.
     """
     if not state.acts or state.plan_hold() != event.item_id:
         msg = "a decision on the plan's item is taken in a run that acts, while the plan is held"
         raise ValueError(msg)
     verbs: dict[str | None, DecisionEffect] = {"approve": "release", "reject": "end_run"}
-    if event.verb is None:
-        allowed = event.effect == "none" and event.why_not in ("not_bound", "legacy_item")
-    else:
-        allowed = (
-            event.shown_sha256 is not None
-            and event.effect == verbs.get(event.verb)
-            and event.why_not in (None, "held_os_layer_off")
-        )
+    allowed = (
+        event.verb is not None
+        and event.shown_sha256 is not None
+        and event.effect == verbs.get(event.verb)
+        and event.why_not in (None, "held_os_layer_off")
+    )
     named = (event.subtask_id, event.attempt, event.attempt_commit, event.order_too_long)
     if not allowed or named != (None, None, None, False):
         msg = (

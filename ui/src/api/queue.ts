@@ -280,6 +280,16 @@ export function queueListing(value: unknown): QueueListing {
   };
 }
 
+/** The key an item's link to the decomposition's stream reads as, in place of a session's id. */
+export const DECOMPOSITION_STREAM = "decomposition/stdout.jsonl";
+
+/** Where the server serves a trajectory an item links: a session's, or the decomposition's. */
+export function trajectoryPath(base: string, sessionId: string): string {
+  return sessionId === DECOMPOSITION_STREAM
+    ? `${base}/decomposition/stream`
+    : `${base}/trajectories/${encodeURIComponent(sessionId)}`;
+}
+
 export const STATUSES = [
   "holds",
   "tampered",

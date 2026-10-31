@@ -62,10 +62,12 @@ from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.gate_events import recorded_gate_checks, recorded_gate_events
 from physgate.orchestrator.queue import (
+    DECOMPOSITION_STREAM,
     item_view,
     queue_files,
     queue_listing,
     read_stream,
+    recorded_seal,
     stream_parts,
 )
 from physgate.orchestrator.replay import RunState, recorded_ledger, replay
@@ -188,6 +190,17 @@ def trajectory(context: Context, params: Mapping[str, str]) -> Response:
         raise NotFoundError(msg, session=session_id)
     path = _file(context, run_dir, SESSIONS, session_id, STREAM)
     return Response(200, read_sealed(path, sealed.trajectory_seal), JSON_LINES)
+
+
+def decomposition_stream(context: Context, params: Mapping[str, str]) -> Response:
+    """The decomposition's captured stream, held to the seal the plan's review recorded."""
+    run_dir = run_dir_of(context, params)
+    sealed = recorded_seal(list(read_events(_file(context, run_dir, EVENTS))), DECOMPOSITION_STREAM)
+    if sealed is None:
+        msg = "the run records no sealed decomposition stream"
+        raise NotFoundError(msg, run=params["name"])
+    path = _file(context, run_dir, *stream_parts(DECOMPOSITION_STREAM))
+    return Response(200, read_sealed(path, sealed), JSON_LINES)
 
 
 def prices(context: Context, params: Mapping[str, str]) -> Response:

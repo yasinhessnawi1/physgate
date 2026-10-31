@@ -40,9 +40,8 @@ from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.plan import CriterionWords, InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.protocols import MessageUsage, ReviewResult
 from physgate.orchestrator.queue import (
-    DECOMPOSITION_NAME,
+    DECOMPOSITION_STREAM,
     PLAN,
-    STREAM_NAME,
     ApprovalQueue,
     QueueItem,
     item_id_for,
@@ -317,7 +316,8 @@ class RunRecord:
         return plan_item(
             review=review,
             spec_commit=decomposed.spec_commit,
-            stream=str(self.run_dir / DECOMPOSITION_NAME / STREAM_NAME),
+            # Relative to the run, so a run moved between decompose and run builds it alike.
+            stream=DECOMPOSITION_STREAM,
             consequence=plan_consequence() if acts else None,
         )
 

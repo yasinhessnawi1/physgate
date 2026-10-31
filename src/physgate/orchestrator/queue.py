@@ -1886,6 +1886,10 @@ def _decide(dir_fd: int, run_dir: Path, record: QueueResolution, shown: ShownIte
             raise QueueError(str(exc), queue=str(queue_path)) from None
         if shown is not None:
             _require_as_shown(dir_fd, run_dir, records, record.item_id, shown)
+        if record.verb is None and records.items[record.item_id].source == "plan_review":
+            # Free text binds to nothing, and would close the one item the run is held on.
+            msg = "a plan's item is decided by approve or reject, and free text is neither"
+            raise QueueError(msg, item=record.item_id)
         if record.verb is not None and shown is not None:
             _require_bindable(records.items[record.item_id], record, shown)
         if good_end != len(decided):

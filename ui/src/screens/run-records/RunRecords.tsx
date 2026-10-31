@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 
 import { getLines } from "../../api/client";
 import { runEvent } from "../../api/events";
-import { queueListing } from "../../api/queue";
+import { queueListing, trajectoryPath } from "../../api/queue";
 import {
   costRecord,
   gateEventLine,
@@ -65,8 +65,8 @@ function Seal({
 }) {
   const [asked, setAsked] = useState(auto);
   const read = useResult(
-    asked ? () => getLines(`${base}/trajectories/${encodeURIComponent(session)}`, (v) => v) : null,
-    `${base}/trajectories/${session}`,
+    asked ? () => getLines(trajectoryPath(base, session), (v) => v) : null,
+    trajectoryPath(base, session),
   );
   if (!asked)
     return (
