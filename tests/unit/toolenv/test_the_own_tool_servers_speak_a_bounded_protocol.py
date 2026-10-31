@@ -10,6 +10,7 @@ the argument checks, which never reach a library. What they compute is the integ
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import subprocess
 import sys
@@ -174,7 +175,8 @@ def test_an_unknown_tool_is_a_protocol_error(control: Server) -> None:
 
 
 def test_an_argument_the_schema_does_not_name_is_refused(control: Server) -> None:
-    assert "not_a_field" in _refused(control.call("margins", {"system": PLANT, "not_a_field": 1}))
+    text = _refused(control.call("margins", {"system": PLANT, "not_a_field": 1}))
+    assert "does not take" in text and "not_a_field" in text
 
 
 def test_a_missing_or_wrongly_typed_argument_is_refused(control: Server) -> None:
@@ -315,3 +317,19 @@ def test_an_asset_name_that_is_not_a_plain_relative_path_is_refused(
         path.write_bytes(b"solid")
     model = f'<mujoco><asset><mesh name="m" file="{name}"/></asset></mujoco>'
     assert "may not" in _refused(mujoco.call("load_model", {"xml": model}))
+
+
+def test_a_library_s_error_is_shown_as_one_bounded_line_with_its_paths_replaced(
+    tmp_path: Path,
+) -> None:
+    spec = importlib.util.spec_from_file_location(
+        "mujoco_server_under_test", SERVERS / "mujoco_server.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    simulation = module.Simulation(str(tmp_path))
+    error = RuntimeError(f"cannot read {tmp_path}/models/a.xml or /etc/secret\x1b[2J\nsecond line")
+    shown = simulation._redacted(error)
+    assert shown == "cannot read <worktree>/models/a.xml or <path>"
+    assert len(simulation._redacted(RuntimeError("x" * 10_000))) == module.MAX_ERROR
