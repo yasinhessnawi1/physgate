@@ -28,7 +28,8 @@ from test_decompose_reviews_the_plan_before_it_writes_anything import (  # noqa:
 
 import physgate.cli  # noqa: E402
 import physgate.orchestrator.cli as orchestrator_cli  # noqa: E402
-from physgate.evaluation.observe.rerun import RerunError, through_the_command  # noqa: E402
+from physgate.evaluation.observe.exceptions import RerunError  # noqa: E402
+from physgate.evaluation.observe.rerun import through_the_command  # noqa: E402
 
 
 def _plan(tmp_path: Path, mode: str) -> Any:  # noqa: ANN401 - the driver's plan, stood in

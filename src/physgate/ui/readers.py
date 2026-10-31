@@ -175,8 +175,8 @@ def graph(context: Context, params: Mapping[str, str]) -> Response:
     )
 
 
-#: The trajectory route's name for the decomposition's stream: the harness names every session by a
-#: random UUID, so no session it ran is named this.
+#: The trajectory route's name for the decomposition's stream: replay refuses a session line naming
+#: this id, so no session of a run is ever named it.
 DECOMPOSITION = "decomposition"
 
 

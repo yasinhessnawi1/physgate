@@ -813,8 +813,9 @@ def _require_plan_taken(state: RunState, event: DecisionTaken) -> None:
     """Refuse a decision on the plan's item this code could not have taken.
 
     It is taken only in a run that acts, while the plan is held on it, and names no subtask,
-    attempt or position. An approve releases the run and a reject ends it, each acting unless it is
-    held until an operator confirms it; free text is no decision on it.
+    attempt or position. An approve releases the run and a reject ends it; free text is no decision
+    on it. It is never held for the OS layer: a decision is held only when written while a session
+    ran without the layer, and no session runs while the plan is held.
     """
     if not state.acts or state.plan_hold() != event.item_id:
         msg = "a decision on the plan's item is taken in a run that acts, while the plan is held"
@@ -824,7 +825,7 @@ def _require_plan_taken(state: RunState, event: DecisionTaken) -> None:
         event.verb is not None
         and event.shown_sha256 is not None
         and event.effect == verbs.get(event.verb)
-        and event.why_not in (None, "held_os_layer_off")
+        and event.why_not is None
     )
     named = (event.subtask_id, event.attempt, event.attempt_commit, event.order_too_long)
     if not allowed or named != (None, None, None, False):

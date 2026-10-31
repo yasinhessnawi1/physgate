@@ -8,8 +8,9 @@ A run of reviewers alone runs no shell, and a run that is not reportable is the
 product's to run as it likes; neither is held to this.
 
 A reportable run also records a person's queue decisions and acts on none, so no measured
-outcome is changed by a decision taken during it; and it starts under ``design_review: observe``,
-so its plan's review is recorded and changes nothing the run does.
+outcome is changed by a decision taken during it; and it reviews its plan, under
+``design_review: observe`` (recorded, changing nothing the run does) unless its criteria name
+another value as an experiment's arm.
 
 A reportable run never names the core's development allowance for running without the OS
 layer (``os_layer_absent: allow``), whatever the layer where it runs: its record never carries
@@ -84,16 +85,19 @@ def record_decisions_for_reportable_runs(facts: RunFacts) -> str | None:
 
 
 def observed_design_review_for_reportable_runs(facts: RunFacts) -> str | None:
-    """Refuse to start a reportable run that does not record its plan's review under ``observe``.
+    """Refuse to start a reportable run that does not record its plan's review.
 
-    The design reviewer's verdict is measured without changing the run: the review is recorded and
-    the run proceeds whatever it says. Asked of a new run only: a reportable run recorded before
-    the flag existed reads as ``off``, and it still resumes.
+    A reportable run reviews its plan under ``observe``, where the verdict is measured without
+    changing the run, unless its frozen criteria name another value as an arm (``on``, or
+    ``repair:N``, which only a reportable run may name). The criteria are not something code can
+    read, so the rule admits every value that reviews the plan and refuses the one that does not.
+    Asked of a new run only: a reportable run recorded before the flag existed reads as ``off``,
+    and it still resumes.
     """
-    if facts.new_run and facts.config.reportable and facts.config.design_review != "observe":
+    if facts.new_run and facts.config.reportable and facts.config.design_review == "off":
         return (
-            "a reportable run records its plan's review and is never changed by it: "
-            "design_review: observe"
+            "a reportable run records its plan's review: design_review: observe, or the arm its "
+            "criteria name"
         )
     return None
 

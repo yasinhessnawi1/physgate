@@ -77,7 +77,17 @@ def _review(
         finding="the plan leaves the bus unprotected",
         reviewer_model=REVIEWER,
         session_id=REVIEW_SESSION,
-        usage=(MessageUsage(message_id="r1", usage=Usage(input_tokens=1, output_tokens=1)),),
+        usage=(
+            MessageUsage(
+                message_id="r1",
+                usage=Usage(
+                    input_tokens=1,
+                    output_tokens=1,
+                    cache_read_input_tokens=0,
+                    cache_creation_input_tokens=0,
+                ),
+            ),
+        ),
         failing_item="PA-3",
         items=(
             ItemVerdict(
@@ -178,7 +188,7 @@ def test_the_brief_s_missing_input_is_quoted_with_the_line_that_it_is_not_suppli
         SpecDefect(finding="the brief gives no supply voltage", blocking=True, item="PA-4"),
         SpecDefect(finding="the brief's units are loose", blocking=False),
     )
-    findings = findings_of(_review("blocked", defects=defects, criteria=criteria))
+    findings = findings_of(_review("fail", defects=defects, criteria=criteria))
     assert findings.text.splitlines()[3:] == [
         "The brief's criterion 1 is unmet: nothing stands it up",
         "The brief lacks what a check needs (PA-4): the brief gives no supply voltage",
@@ -240,8 +250,9 @@ def test_the_first_call_is_sent_the_prompt_it_is_given(
     roles = sorted(config.models.roles)
     for given in (None, "a re-plan's prompt"):
         kwargs: dict[str, Any] = {} if given is None else {"prompt": given}
-        found = outcome_of(
-            lambda kwargs=kwargs: decompose.call(
+
+        def made(kwargs: dict[str, Any] = kwargs) -> Any:  # noqa: ANN401 - the call's outcome
+            return decompose.call(
                 BRIEF,
                 config=config,
                 workdir=tmp_path / "w",
@@ -249,7 +260,25 @@ def test_the_first_call_is_sent_the_prompt_it_is_given(
                 credential=credential,
                 **kwargs,
             )
-        )
+
+        found = outcome_of(made)
         assert isinstance(found, SentError), found
     # Without a prompt the call is sent the decomposition prompt, whatever the run's policy.
     assert sent == [decompose.prompt_for(BRIEF, roles), "a re-plan's prompt"]
+
+
+def test_a_blocked_review_is_replanned_with_what_the_brief_lacks() -> None:
+    blocked = ReviewResult(
+        verdict="blocked",
+        finding="the bus voltage cannot be checked",
+        reviewer_model=REVIEWER,
+        session_id=REVIEW_SESSION,
+        usage=(),
+        spec_defects=(SpecDefect(finding="the brief gives no supply voltage", blocking=True),),
+    )
+    findings = decompose.replan_findings(blocked)
+    assert findings.text == (
+        "The review's finding: the bus voltage cannot be checked\n"
+        "The brief lacks what a check needs: the brief gives no supply voltage"
+    )
+    assert findings.lacks_input

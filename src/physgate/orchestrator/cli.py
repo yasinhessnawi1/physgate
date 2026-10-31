@@ -36,6 +36,7 @@ import physgate
 from physgate.evaluation.inject.runner import CONFIG_NAME as INSTRUMENT_CONFIG_NAME
 from physgate.evaluation.inject.runner import CONTROLS_DIRNAME as INSTRUMENT_CONTROLS_DIRNAME
 from physgate.evaluation.inject.runner import InstrumentConfig
+from physgate.flags import replans
 from physgate.gate.exceptions import GateError
 from physgate.knowledge.library import LibraryError, read_library
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
@@ -723,6 +724,13 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
         )
     if credential is None:  # the configuration validated, so the mode is a known one
         return _fail("the run parameters name no auth mode")
+    if replans(config.design_review):
+        # Refused before anything is spent: a re-plan's rounds must each be kept whatever a later
+        # round does, and this build keeps none, so it runs no repair arm.
+        return _fail(
+            "this build records no re-plan rounds, so it runs no repair arm",
+            design_review=config.design_review,
+        )
     assert config.os_layer is not None  # measured above, for every new run
     why = os_layer_refusal(config, config.os_layer)
     _say_os_layer(config.os_layer, config.network, allowed=why is None)

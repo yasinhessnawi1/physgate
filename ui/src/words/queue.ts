@@ -65,7 +65,8 @@ export const SOURCE_WORDS: Readonly<Record<QueueSource, SourceWords>> = {
     kind: "The plan's review did not pass",
     why:
       "The design reviewer did not pass the plan the decomposition submitted, or reached no " +
-      "verdict on it, and nothing is dispatched until a person decides.",
+      "verdict on it: in a run that acts on decisions, nothing is dispatched until a person " +
+      "decides; in one that only records them, the run ends with the item open.",
   },
 };
 

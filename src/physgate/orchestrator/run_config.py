@@ -27,7 +27,7 @@ from pydantic import (
 )
 
 import physgate
-from physgate.flags import DesignReview, OsLayerAbsent, QueueDecisions
+from physgate.flags import DesignReview, OsLayerAbsent, QueueDecisions, replans
 from physgate.orchestrator.common import (
     AuthMode,
     GateMode,
@@ -418,6 +418,18 @@ class RunConfig(_Frozen):
     def _a_reviewed_plan_names_its_reviewer(self) -> RunConfig:
         if self.design_review != "off" and self.models.design_reviewer is None:
             msg = "a run that reviews its plan pins a design reviewer: models.reviewers.design"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _repair_is_an_experiment_arm(self) -> RunConfig:
+        # A re-plan is a second decomposition call, which the one-call rule allows in no run but
+        # an experiment's arm, and an experiment's runs are reportable.
+        if replans(self.design_review) and not self.reportable:
+            msg = (
+                f"design_review: {self.design_review} re-plans a rejected plan, an experiment arm "
+                "that only a reportable run names"
+            )
             raise ValueError(msg)
         return self
 

@@ -204,6 +204,13 @@ class RunRecord:
                 # Replay reads both switches from the first line alone: one that says other than
                 # the configuration would drive this run by another run's rules.
                 msg = "the run's first line says other than its config of the switches it names"
+                if said[0] is None and config.queue_decisions == "act":
+                    msg = (
+                        "the run's first line does not name the decision mode its config acts on: "
+                        "a run recorded before its first line named it, or one edited since, and "
+                        "nothing on the line tells the two apart; decompose it again to act on "
+                        "decisions"
+                    )
                 raise RunConfigError(
                     msg,
                     run_dir=str(self.run_dir),
@@ -217,6 +224,20 @@ class RunRecord:
         self.ledger = TaskLedger(self.run_dir / "ledger.jsonl")
         self.queue = ApprovalQueue(self.run_dir / "queue.jsonl", clock=clock)
         project_ledger(self.state, self.ledger)
+        if (
+            self.state.reviews_plan
+            and self.state.plan_sha256 is not None
+            and self.state.design_review is None
+            and self.state.halted is None
+        ):
+            # The opening is written a line at a time: a decompose killed after the plan and
+            # before its review's line left a run nothing may dispatch from, and nothing ever will.
+            self.close()
+            msg = (
+                "the run's opening was cut before its review: nothing of it was dispatched; "
+                "decompose it again into a fresh run directory"
+            )
+            raise RunStateError(msg, run_dir=str(self.run_dir))
 
     def close(self) -> None:
         """Release every file handle."""
@@ -275,7 +296,12 @@ class RunRecord:
         """What the run's first line says of whether it acts on decisions and reviews its plan."""
         acts: Literal["act"] | None = "act" if self.config.queue_decisions == "act" else None
         review = self.config.design_review
-        return acts, None if review == "off" else review
+        if review == "off":
+            return acts, None
+        if review in ("observe", "on"):
+            return acts, "on" if review == "on" else "observe"
+        msg = "this build records no re-plan rounds, so it starts no repair arm's run"
+        raise RunConfigError(msg, design_review=review)
 
     def _reviewing(
         self, reviewed: PlanReviewed, plan_sha256: str, envelope: Callable[[], Envelope]

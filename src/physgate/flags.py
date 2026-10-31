@@ -116,11 +116,22 @@ OS_LAYER_ABSENT = Flag(
 
 #: Whether the plan is reviewed before anything is dispatched. Spelled out for the type checker, as
 #: the others are; a test holds it equal to the register's entry.
-DesignReview = Literal["off", "observe", "on"]
+DesignReview = Literal["off", "observe", "on", "repair:1", "repair:2", "repair:3"]
+
+
+def _repair_meaning(n: int) -> str:
+    times = "once" if n == 1 else f"at most {n} times"
+    return (
+        f"an experiment arm, named only by a reportable run: as under on, but a verdict other than "
+        f"a pass is followed by a re-plan, {times}, each a decomposition call told the brief's "
+        "prompt, the plan and the review's findings, and each reviewed again; a review that is no "
+        "verdict, a canary in the findings or the last re-plan's review holds the run as under on"
+    )
+
 
 DESIGN_REVIEW = Flag(
     name="design_review",
-    values=("off", "observe", "on"),
+    values=("off", "observe", "on", "repair:1", "repair:2", "repair:3"),
     meanings={
         "off": (
             "the plan is not reviewed: nothing is asked of a design reviewer and nothing about a "
@@ -130,7 +141,8 @@ DESIGN_REVIEW = Flag(
             "the design reviewer, on a model other than the decomposition's, judges the plan "
             "after the one call and before anything is dispatched; what it came to is recorded "
             "in the run's opening and the run proceeds whatever it says, so the verdict is "
-            "measured without changing the run; every reportable run uses it"
+            "measured without changing the run; every reportable run uses it unless its "
+            "criteria name another value as an arm"
         ),
         "on": (
             "the design reviewer judges the plan as under observe; a verdict other than a pass, "
@@ -139,9 +151,16 @@ DESIGN_REVIEW = Flag(
             "plan_rejected and no dispatch; under queue_decisions: record the item stays open "
             "and the run ends escalated"
         ),
+        **{f"repair:{n}": _repair_meaning(n) for n in (1, 2, 3)},
     },
     architecture="ARCH-060",
 )
+
+
+def replans(value: DesignReview) -> int:
+    """How many re-plans ``value`` allows a rejected plan: N under ``repair:N``, none otherwise."""
+    return int(value.removeprefix("repair:")) if value.startswith("repair:") else 0
+
 
 #: Every ablation flag, in the order the architecture lists the switches.
 REGISTER: tuple[Flag, ...] = (GATE_MODE, QUEUE_DECISIONS, OS_LAYER_ABSENT, DESIGN_REVIEW)

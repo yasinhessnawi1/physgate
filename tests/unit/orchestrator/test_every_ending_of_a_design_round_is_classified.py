@@ -93,6 +93,14 @@ REVIEW_TABLE: dict[str, str] = {
 }
 
 
+def _values(alias: Any) -> set[str]:  # noqa: ANN401 - a Literal, or a union of them
+    """Every value a Literal, or a union of Literals, admits."""
+    found: set[str] = set()
+    for arg in typing.get_args(alias):
+        found |= _values(arg) if typing.get_args(arg) else {arg}
+    return found
+
+
 def _endings() -> Any:  # noqa: ANN401 - the module, or None in a tree without it
     try:
         return importlib.import_module("physgate.orchestrator.endings")
@@ -173,8 +181,8 @@ def test_the_plan_call_s_wall_clock_is_the_designer_s_no_plan() -> None:
 def test_every_ending_is_classified_as_the_table_says() -> None:
     endings = _endings()
     assert endings is not None, "no ending is classified"
-    assert set(typing.get_args(endings.PlanCause)) == set(PLAN_TABLE) | {"budget_exhausted"}
-    assert set(typing.get_args(endings.ReviewCause)) == set(REVIEW_TABLE)
+    assert _values(endings.PlanCause) == set(PLAN_TABLE) | {"budget_exhausted"}
+    assert _values(endings.ReviewCause) == set(REVIEW_TABLE)
     for cause, kind in PLAN_TABLE.items():
         for budget_set in (False, True):
             assert endings.plan_class(cause, budget_set=budget_set) == kind, cause
@@ -182,7 +190,7 @@ def test_every_ending_is_classified_as_the_table_says() -> None:
         assert endings.review_class(cause) == kind, cause
     assert endings.plan_class(None, budget_set=False) == "plan"
     # Every cause the plan call names is classified: none falls outside the table.
-    assert set(typing.get_args(decompose.FailureCause)) <= set(typing.get_args(endings.PlanCause))
+    assert _values(decompose.FailureCause) <= _values(endings.PlanCause)
 
 
 def test_a_spent_budget_is_the_designer_s_only_when_the_run_set_it() -> None:
@@ -283,7 +291,7 @@ def _startable(monkeypatch: pytest.MonkeyPatch, failing: str) -> Any:  # noqa: A
     return outcome_of(
         lambda: decompose.require_startable(
             Planned(),  # type: ignore[arg-type]
-            config=config,  # type: ignore[arg-type]
+            config=config,
             target_repo=Path("/nowhere"),
             library=None,
             brief="b",
@@ -305,29 +313,31 @@ def test_a_start_check_names_whether_the_plan_or_the_library_was_refused(
     monkeypatch: pytest.MonkeyPatch, failing: str, cause: str
 ) -> None:
     found = _startable(monkeypatch, failing)
-    refused = {
+    refused: dict[str, type[Exception] | None] = {
         "plan_refused": getattr(exceptions, "PlanRefusedError", None),
         "library_refused": getattr(exceptions, "LibraryRefusedError", None),
     }
-    assert refused[cause] is not None, f"no exception names {cause}"
-    assert isinstance(found, refused[cause]), found
+    kind = refused[cause]
+    assert kind is not None, f"no exception names {cause}"
+    assert isinstance(found, kind), found
     assert isinstance(found, DecompositionError)  # what every caller already catches
-    assert found.cause == cause
-    other = next(kind for name, kind in refused.items() if name != cause)
+    assert getattr(found, "cause", None) == cause
+    other = next(k for name, k in refused.items() if name != cause)
     assert other is None or not isinstance(found, other)
 
 
 def test_a_node_id_that_is_no_node_id_is_the_plan_s_refusal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    for name, value in {
+    stand_ins: dict[str, Any] = {
         "_planned_subtasks": [],
         "_contract_pairs": None,
         "_brief_words": (),
         "read_library": {},
         "series_library": {},
         "_require_library_fits": None,
-    }.items():
+    }
+    for name, value in stand_ins.items():
         monkeypatch.setattr(decompose, name, lambda *_, value=value, **__: value)
 
     class Node:
@@ -340,7 +350,7 @@ def test_a_node_id_that_is_no_node_id_is_the_plan_s_refusal(
     found = outcome_of(
         lambda: decompose.require_startable(
             Planned(),  # type: ignore[arg-type]
-            config=config,  # type: ignore[arg-type]
+            config=config,
             target_repo=Path("/nowhere"),
             library=None,
             brief="b",

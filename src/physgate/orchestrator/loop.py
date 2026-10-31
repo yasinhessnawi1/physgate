@@ -156,6 +156,7 @@ from physgate.orchestrator.protocols import (
     require_separate_models,
 )
 from physgate.orchestrator.queue import (
+    DECOMPOSITION_STREAM,
     INTEGRATION,
     ItemConsequence,
     QueueItem,
@@ -171,6 +172,7 @@ from physgate.orchestrator.queue import (
     integration_item,
     item_id_for,
     read_queue,
+    stream_parts,
     unavailable_item,
     whole_lines,
     within,
@@ -903,6 +905,11 @@ class Loop:
             sessions = [s for a in self.state.subtasks[subtask_id].attempts for s in a.ended]
             if not self._sealed_hold(sessions):
                 return False
+        # A release dispatches the plan the person approved on a view of the decomposition's
+        # stream: it is taken only while that stream still holds the seal the review recorded,
+        # as a merge is taken only over sealed streams.
+        if taken.acts and taken.effect == "release" and not self._decomposition_holds():
+            return False
         # A choice of the domain's value carries a session's typed value into the graph: it binds
         # only where every stream its item links still holds its seal.
         if (
@@ -2566,6 +2573,21 @@ class Loop:
                 self._incident(None, "trajectory_tampered", detail)
                 return False
         return self._trajectories_hold(None, sessions)
+
+    def _decomposition_holds(self) -> bool:
+        """The decomposition's stream is still what the plan's review sealed; else an incident."""
+        review = self.state.design_review
+        if review is None:
+            self._incident(None, "trajectory_tampered", "the plan's review sealed no stream")
+            return False
+        try:
+            read_sealed(
+                self.run_dir.joinpath(*stream_parts(DECOMPOSITION_STREAM)), review.stream_seal
+            )
+        except TrajectoryTamperedError as exc:
+            self._incident(None, "trajectory_tampered", f"{exc}: {exc.context}")
+            return False
+        return True
 
     def _trajectories_hold(self, subtask_id: str | None, sessions: list[SessionEnded]) -> bool:
         """Every sealed trajectory is still what it was; otherwise an incident."""

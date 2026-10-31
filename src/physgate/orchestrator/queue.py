@@ -875,10 +875,17 @@ def plan_item(
         run_id=review.run_id,
         subtask_id=PLAN,
         source="plan_review",
+        # What deciding it does, in the run it is in: a run that records decisions only ends with
+        # the item open, and a decision there is a record that releases nothing.
         decision_required=(
             "The design reviewer did not pass the plan the decomposition submitted, and nothing "
             "has been dispatched. Approve to run the plan as it stands; reject to end the run "
             "with no module dispatched (a new run is a new decomposition)."
+            if consequence is not None
+            else "The design reviewer did not pass the plan the decomposition submitted, and "
+            "nothing has been dispatched. This run records decisions only: it ended with this "
+            "item open, and a decision here is recorded and releases nothing (a new run is a new "
+            "decomposition)."
         ),
         artefact_diff=(
             f"The plan of digest {review.plan_sha256}, as the run recorded it: see "

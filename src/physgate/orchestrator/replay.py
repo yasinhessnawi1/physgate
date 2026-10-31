@@ -113,7 +113,7 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR, CriterionWords, SystemRequirement
 from physgate.orchestrator.protocols import ChosenValue, QuantityRef
-from physgate.orchestrator.queue import PLAN, contract_item_id, item_id_for
+from physgate.orchestrator.queue import DECOMPOSITION_NAME, PLAN, contract_item_id, item_id_for
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
 from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
@@ -402,6 +402,13 @@ class RunState:
             and not isinstance(event, WorktreeRemoved | DecisionTaken | ModuleCompleted)
             and not (subtask_id == self.completion_subtask and self.integration_may_run())
         )
+        if (
+            isinstance(event, SessionSpawned | SessionEnded | LeftoverRead)
+            and event.session_id == DECOMPOSITION_NAME
+        ):
+            # The route that serves a session's stream by its id serves the decomposition's under
+            # this name: no session is ever named so, by the record's rule, not a harness's habit.
+            _refuse(f"no session is named {DECOMPOSITION_NAME}, the decomposition stream's name")
         self._record(event)
         if closed:
             _refuse("nothing about a subtask follows the integration call")

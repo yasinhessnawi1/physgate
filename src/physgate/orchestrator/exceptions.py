@@ -132,6 +132,24 @@ class DecompositionError(OrchestratorError):
     """The decomposition's plan cannot be written: a node the store refuses, a bad path."""
 
 
+class PlanRefusedError(DecompositionError):
+    """A plan the run cannot start for its own content: its shape, its ids, its pairs, its words.
+
+    The plan's outcome, the designer's, as a call that gives no usable plan is.
+    """
+
+    cause = "plan_refused"
+
+
+class LibraryRefusedError(DecompositionError):
+    """A plan the run cannot start for the library or the target repository it is put into.
+
+    The instrument's failure, never the designer's: the plan was not judged.
+    """
+
+    cause = "library_refused"
+
+
 class StoreRefusalError(OrchestratorError):
     """The store refused a write the pre-check had accepted. An incident, never a retry."""
 
