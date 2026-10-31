@@ -24,6 +24,8 @@ ALLOWED_MODULES = {
     "contextlib",
     "contextvars",
     "dataclasses",
+    # When the server showed an item's view: the queue's own time value, held in memory.
+    "datetime",
     # A stream the allowlist refuses is reported as an error the trajectory check reads.
     "errno",
     "hashlib",

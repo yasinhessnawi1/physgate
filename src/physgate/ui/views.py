@@ -15,11 +15,10 @@ from __future__ import annotations
 
 import secrets
 import threading
-from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 
-from physgate.orchestrator import queue
+import physgate.orchestrator.queue as queue_module
 
 #: The most views held at once; past it the oldest is dropped.
 MAX_VIEWS = 4096
@@ -35,15 +34,15 @@ class ViewRegister:
         """An empty register holding at most ``limit`` views."""
         self._limit = limit
         self._lock = threading.Lock()
-        self._views: OrderedDict[str, tuple[Path, str, str, datetime]] = OrderedDict()
+        self._views: dict[str, tuple[Path, str, str, datetime]] = {}
 
     def shown(self, run_dir: Path, item_id: str, item_sha256: str) -> str:
         """Record that the view of ``item_id``'s line ``item_sha256`` is shown now; its id."""
         view_id = secrets.token_urlsafe(16)
         with self._lock:
-            self._views[view_id] = (run_dir, item_id, item_sha256, queue.utc_now())
+            self._views[view_id] = (run_dir, item_id, item_sha256, queue_module.utc_now())
             while len(self._views) > self._limit:
-                self._views.popitem(last=False)
+                del self._views[next(iter(self._views))]
         return view_id
 
     def shown_at(
