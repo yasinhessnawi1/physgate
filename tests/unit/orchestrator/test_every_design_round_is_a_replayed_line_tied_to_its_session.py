@@ -204,7 +204,43 @@ def _decomposed_by_another(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{**one, "session_id": first} if one["kind"] == "decomposed" else one for one in log]
 
 
+def _review_tokens_deleted(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    session = _of(log, "design_review_ran")[0]["result"]["session_id"]
+    spent = f"reviewer:{session}"
+    assert any(one.get("attribution") == spent for one in log), "the review spent nothing"
+    return [one for one in log if one.get("attribution") != spent]
+
+
+def _last_proposal(log: list[dict[str, Any]], **fields: Any) -> list[dict[str, Any]]:  # noqa: ANN401
+    proposals = _of(log, "plan_proposed")
+    assert proposals, "no proposal on the record"
+    return [{**one, **fields} if one is proposals[-1] else one for one in log]
+
+
+def _review_untimed(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    first = _of(log, "design_review_ran")[0]
+    untimed = {k: v for k, v in first.items() if k not in ("started", "ended")}
+    return [untimed if one is first else one for one in log]
+
+
+def _call_tokens_after_the_last_proposal(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    last = _of(log, "plan_proposed")[-1]
+    spent = next(one for one in log if one.get("attribution", "").startswith("decomposition:"))
+    forged = {**spent, "attribution": "decomposition:forged-call", "message_id": "fx"}
+    at = log.index(last) + 1
+    return [*log[:at], forged, *log[at:]]
+
+
 EDITS = {
+    "round 1's review tokens deleted": _review_tokens_deleted,
+    "the last proposal names another model than the plan's": lambda log: _last_proposal(
+        log, model="claude-fable-5-1"
+    ),
+    "the last proposal names other turns than the plan's": lambda log: _last_proposal(
+        log, num_turns=9
+    ),
+    "a review line with no times": _review_untimed,
+    "call tokens between the last proposal and the plan": _call_tokens_after_the_last_proposal,
     "round 2's call tokens re-attributed to round 1": _reattributed,
     "round 2's call tokens deleted": _deleted,
     "a forged extra earlier round": _extra_round,
@@ -223,6 +259,37 @@ def test_replay_refuses_a_round_not_tied_to_its_own_sessions(tmp_path: Path, nam
     edited = outcome_of(lambda: EDITS[name](log))
     assert not isinstance(edited, Exception), f"{name}: {edited!r}"
     assert refusal(tmp_path, edited) != "", f"{name}: replay accepted it"
+
+
+#: What each new tie's refusal says, so a later fault cannot pass for it.
+NAMED = {
+    "round 1's review tokens deleted": "a review that gave a verdict spent",
+    "the last proposal names another model than the plan's": "model and turns",
+    "the last proposal names other turns than the plan's": "model and turns",
+}
+
+
+@pytest.mark.parametrize("name", list(NAMED))
+def test_each_tie_is_named_with_a_later_fault_present(tmp_path: Path, name: str) -> None:
+    # The last review re-pointed to a plan no round proposed: refused one line later, by another
+    # rule. The edit is still the one named.
+    log = EDITS[name](_two_rounds(tmp_path))
+    last = _of(log, "design_review_ran")[-1]
+    later = [{**one, "plan_sha256": "e" * 64} if one is last else one for one in log]
+    assert NAMED[name] in refusal(tmp_path, later)
+
+
+def test_an_exposure_in_a_plan_s_review_follows_that_review_s_own_tokens(tmp_path: Path) -> None:
+    ran = decompose(tmp_path / "exposed", "repair:1", [Step(), Step(review="exposed")])
+    log = events(ran.run_dir)
+    assert [log[-2]["kind"], log[-2].get("cause")] == ["incident", "held_out_read"]
+    assert refusal(tmp_path, log) == ""
+    spent = [one for one in log if one.get("attribution") == "reviewer:review-2"]
+    assert spent, "the exposed review spent nothing"
+    assert refusal(tmp_path, [one for one in log if one not in spent]) != ""
+    another = {**spent[-1], "attribution": "reviewer:review-x", "message_id": "rx"}
+    at = log.index(spent[-1]) + 1
+    assert refusal(tmp_path, [*log[:at], another, *log[at:]]) != ""
 
 
 def test_a_failed_decomposition_s_proposal_is_numbered_as_its_turn(tmp_path: Path) -> None:

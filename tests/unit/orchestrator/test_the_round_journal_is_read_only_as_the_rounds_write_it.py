@@ -13,16 +13,19 @@ round's end line is written.
 
 from __future__ import annotations
 
+import hashlib
+import itertools
 import json
 import os
 import uuid
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 from design_review_rig import outcome_of
-from replan_rig import Step, Stopped, decompose
+from replan_rig import Step, Stopped, decompose, events
 
 from physgate.orchestrator.exceptions import RunStateError
 from physgate.orchestrator.run_config import load_run_config
@@ -98,6 +101,34 @@ def _a_round_past_the_last(lines: list[dict[str, Any]], run_dir: Path) -> None:
     )
 
 
+#: A wall-clock time other than any the rounds took.
+STEPPED = "2001-01-01T00:00:00.000000Z"
+
+
+def _started(lines: list[dict[str, Any]], k: int) -> dict[str, Any]:
+    return next(one for one in lines if one["kind"] == "round_started" and one["round"] == k)
+
+
+def _elapsed(one: dict[str, Any]) -> dict[str, Any]:
+    assert "elapsed" in one, f"round {one['round']}'s end line records no monotonic times"
+    elapsed: dict[str, Any] = one["elapsed"]
+    return elapsed
+
+
+def _reviewed_by(one: dict[str, Any], session: str) -> None:
+    one["review"]["session_id"] = session
+    one["review"]["result"]["session_id"] = session
+
+
+def _void_after_a_replanned_round(lines: list[dict[str, Any]]) -> None:
+    # Round 2 ended fail and is re-planned; the journal ends there with a void naming no round's
+    # own ending, as if the loop had raised after it.
+    terminal = _terminal(lines)
+    del lines[4:]
+    void = {"follows": "void", "ending_class": "infrastructure", "cause": "RunStateError"}
+    lines.append({**terminal, "round": 2, **void})
+
+
 #: Each forgery the loop could not have written, the round it is on, and the check that names it.
 FORGERIES: dict[str, tuple[Callable[..., None], int, str]] = {
     "an earlier round passed": (lambda lines, _: _passed(_ended(lines, 1)), 1, "follows"),
@@ -119,6 +150,79 @@ FORGERIES: dict[str, tuple[Callable[..., None], int, str]] = {
         "session",
     ),
     "a round past the run's last": (_a_round_past_the_last, 4, "budget"),
+    "a void terminal after a round that is re-planned": (
+        lambda lines, _: _void_after_a_replanned_round(lines),
+        2,
+        "terminal",
+    ),
+    "a planned round that spent nothing": (
+        lambda lines, _: _ended(lines, 2).update(usage=[]),
+        2,
+        "spent",
+    ),
+    "a planned round of no turns": (
+        lambda lines, _: _ended(lines, 2).update(num_turns=0),
+        2,
+        "spent",
+    ),
+    "a review under its round's own call session": (
+        lambda lines, _: _reviewed_by(_ended(lines, 1), _ended(lines, 1)["session_id"]),
+        1,
+        "session",
+    ),
+    "a review under an earlier round's review session": (
+        lambda lines, _: _reviewed_by(_ended(lines, 2), _ended(lines, 1)["review"]["session_id"]),
+        2,
+        "session",
+    ),
+    "a review with no start": (
+        lambda lines, _: _ended(lines, 2).update(review_started=None),
+        2,
+        "pairing",
+    ),
+    "a call that ends before it starts": (
+        lambda lines, _: _elapsed(_ended(lines, 1)).update(
+            started=2.0, call_ended=1.0, review_started=3.0, ended=4.0
+        ),
+        1,
+        "time",
+    ),
+    "a review that starts before its call ends": (
+        lambda lines, _: _elapsed(_ended(lines, 1)).update(
+            started=1.0, call_ended=3.0, review_started=2.0, ended=4.0
+        ),
+        1,
+        "time",
+    ),
+    "a review that ends before it starts": (
+        lambda lines, _: _elapsed(_ended(lines, 1)).update(
+            started=1.0, call_ended=2.0, review_started=4.0, ended=3.0
+        ),
+        1,
+        "time",
+    ),
+    "a round that starts before the round before it ended": (
+        lambda lines, _: _elapsed(_ended(lines, 1)).update(ended=10.0**6),
+        2,
+        "time",
+    ),
+    "an end line whose start is not its start line's": (
+        lambda lines, _: _ended(lines, 2).update(started=STEPPED),
+        2,
+        "time",
+    ),
+    "round 1's start line names no arm": (
+        lambda lines, _: _started(lines, 1).update(design_review=None),
+        1,
+        "arm",
+    ),
+    "a later round's start line names the arm": (
+        lambda lines, _: _started(lines, 2).update(
+            design_review="repair:2", decomposition_model="claude-sonnet-5"
+        ),
+        2,
+        "arm",
+    ),
 }
 
 
@@ -338,3 +442,216 @@ def test_each_plan_file_is_synced_before_its_round_s_end_line(
         hits = [w for ino, size, w in synced if (ino, size) == (stat.st_ino, stat.st_size)]
         assert hits, f"round {k}'s plan file was never synced"
         assert min(hits) <= before, f"round {k}'s plan file was synced only after its end line"
+
+
+@pytest.mark.parametrize(
+    ("kind", "name"),
+    [
+        ("round_started", "started"),
+        ("round_ended", "started"),
+        ("round_ended", "call_ended"),
+        ("round_ended", "review_started"),
+        ("round_ended", "ended"),
+    ],
+)
+def test_a_journal_time_that_is_not_a_timestamp_is_refused(
+    three_fails: Path, kind: str, name: str
+) -> None:
+    lines = _journal(three_fails)
+    next(one for one in lines if one["kind"] == kind and one["round"] == 1)[name] = "yesterday"
+    _write(three_fails, lines)
+    found = _read(three_fails, 3)
+    assert isinstance(found, RunStateError), f"{kind}.{name}: read as {found!r}"
+    assert found.context.get("cause") == "record_missing"
+
+
+def test_every_round_s_times_are_kept_on_a_clock_no_step_moves_and_in_order(
+    three_fails: Path,
+) -> None:
+    ended = [one for one in _journal(three_fails) if one["kind"] == "round_ended"]
+    assert len(ended) == 3
+    after = 0.0
+    for one in ended:
+        at = _elapsed(one)
+        times = [after, at["started"], at["call_ended"], at["review_started"], at["ended"]]
+        assert times == sorted(times), f"round {one['round']}: {times}"
+        after = at["ended"]
+
+
+def test_a_clock_stepped_back_in_every_round_refuses_nothing(tmp_path: Path) -> None:
+    from physgate.orchestrator.common import utc_now
+
+    origin, ticks = utc_now(), itertools.count()
+
+    def stepping_back() -> datetime:
+        return origin - timedelta(minutes=next(ticks))
+
+    ran = decompose(
+        tmp_path,
+        "repair:2",
+        [Step(), Step(review="blocked"), Step(review="pass")],
+        loop_patches={"utc_now": stepping_back},
+    )
+    assert ran.code == 0, ran.code
+    starts = [one["started"] for one in _journal(ran.run_dir) if one["kind"] == "round_ended"]
+    assert len(set(starts)) == 3 and starts == sorted(starts, reverse=True), "no step back"
+    assert not isinstance(_read(ran.run_dir, 3), Exception)
+    assert not isinstance(_opened(ran.run_dir), Exception)
+
+
+def test_a_start_time_for_a_review_that_never_ran_is_refused(tmp_path: Path) -> None:
+    ran = decompose(tmp_path, "repair:1", [Step(), Step(call="no_structured_output")])
+    lines = _journal(ran.run_dir)
+    assert _ended(lines, 2)["review"] is None
+    _ended(lines, 2)["review_started"] = _ended(lines, 2)["call_ended"]
+    _write(ran.run_dir, lines)
+    found = _read(ran.run_dir, 2)
+    assert isinstance(found, RunStateError), f"read as {found!r}"
+    assert (found.context.get("round"), found.context.get("check")) == ("2", "pairing")
+
+
+@pytest.mark.parametrize(
+    ("policy", "steps", "starts"),
+    [
+        ("repair:2", [Step(), Step(review="pass")], True),
+        ("repair:2", [Step(), Step(review="infrastructure")], False),
+        ("on", [Step(review="pass")], True),
+        ("observe", [Step()], True),
+    ],
+)
+def test_round_one_names_the_run_s_mode_and_designer_and_no_later_round_does(
+    tmp_path: Path, policy: str, steps: list[Step], starts: bool
+) -> None:
+    ran = decompose(tmp_path, policy, steps)
+    # A void attempt starts no run: its journal alone says what arm it was.
+    assert (ran.run_dir / "run.json").exists() is starts
+    started = [one for one in _journal(ran.run_dir) if one["kind"] == "round_started"]
+    assert started, "no round started"
+    assert started[0].get("design_review") == policy, started[0]
+    assert started[0].get("decomposition_model") == "claude-sonnet-5", started[0]
+    for one in started[1:]:
+        assert one.get("design_review") is None and one.get("decomposition_model") is None
+
+
+@pytest.fixture
+def two_rounds(tmp_path: Path) -> Path:
+    ran = decompose(tmp_path / "two", "repair:3", [Step(), Step(review="pass")])
+    assert ran.code == 0, ran.code
+    assert not isinstance(_opened(ran.run_dir), Exception)
+    return ran.run_dir
+
+
+def _review_of(lines: list[dict[str, Any]], k: int, **fields: Any) -> None:  # noqa: ANN401
+    _ended(lines, k)["review"]["result"].update(fields)
+    if "session_id" in fields:
+        _ended(lines, k)["review"]["session_id"] = fields["session_id"]
+
+
+def _blocked(lines: list[dict[str, Any]]) -> None:
+    _ended(lines, 1)["ending"]["review_cause"] = "blocked"
+    _review_of(lines, 1, verdict="blocked")
+
+
+def _replanned_file(lines: list[dict[str, Any]], run_dir: Path) -> None:
+    # The round's plan file and its digest changed together: the journal reads, the log disagrees.
+    plan = run_dir / "decomposition" / "round-1" / "plan.json"
+    plan.write_bytes(plan.read_bytes() + b" ")
+    _ended(lines, 1)["plan_sha256"] = hashlib.sha256(plan.read_bytes()).hexdigest()
+
+
+def _restarted(lines: list[dict[str, Any]]) -> None:
+    _started(lines, 1)["started"] = _ended(lines, 1)["started"] = STEPPED
+
+
+def _spent_more(one: dict[str, Any]) -> None:
+    one["usage"]["input_tokens"] += 1
+
+
+def _log_edited(run_dir: Path, kind: str, at: int, **fields: Any) -> None:  # noqa: ANN401
+    log = events(run_dir)
+    line = [one for one in log if one["kind"] == kind][at]
+    line.update(fields)
+    (run_dir / "events.jsonl").write_text("".join(json.dumps(one) + "\n" for one in log))
+
+
+#: Each edit of a completed run's journal (or its log) that the journal's own reader accepts, and
+#: what the open names as disagreeing with the log: the arm, a call, a review or the tokens.
+OPEN_EDITS: dict[str, tuple[Callable[[list[dict[str, Any]], Path], None], str]] = {
+    "round 1's mode": (lambda lines, _: _started(lines, 1).update(design_review="repair:1"), "arm"),
+    "round 1's designer": (
+        lambda lines, _: _started(lines, 1).update(decomposition_model="claude-fable-5-1"),
+        "arm",
+    ),
+    "a call's model": (lambda lines, _: _ended(lines, 1).update(model="claude-fable-5-1"), "calls"),
+    "a call's turns": (lambda lines, _: _ended(lines, 1).update(num_turns=7), "calls"),
+    "a call's start": (lambda lines, _: _restarted(lines), "calls"),
+    "a call's end": (lambda lines, _: _ended(lines, 1).update(call_ended=STEPPED), "calls"),
+    "a round's digest and its plan file": (_replanned_file, "calls"),
+    "an earlier proposal's turns, in the log": (
+        lambda _, run_dir: _log_edited(run_dir, "plan_proposed", 0, num_turns=7),
+        "calls",
+    ),
+    "an earlier proposal's start, in the log": (
+        lambda _, run_dir: _log_edited(run_dir, "plan_proposed", 0, started=STEPPED),
+        "calls",
+    ),
+    "a review's session": (lambda lines, _: _review_of(lines, 1, session_id="review-x"), "reviews"),
+    "a review's verdict": (lambda lines, _: _blocked(lines), "reviews"),
+    "a review's start": (
+        lambda lines, _: _ended(lines, 1).update(review_started=STEPPED),
+        "reviews",
+    ),
+    "a review's end": (lambda lines, _: _ended(lines, 1).update(ended=STEPPED), "reviews"),
+    "a call's usage": (lambda lines, _: _spent_more(_ended(lines, 2)["usage"][0]), "tokens"),
+    "a review's usage": (
+        lambda lines, _: _spent_more(_ended(lines, 1)["review"]["usage"][0]),
+        "tokens",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("name", "second"),
+    [(name, False) for name in OPEN_EDITS]
+    + [(name, True) for name, (_, what) in OPEN_EDITS.items() if what != "tokens"],
+)
+def test_a_journal_that_disagrees_with_its_log_is_refused_when_opened_naming_what(
+    two_rounds: Path, name: str, second: bool
+) -> None:
+    # With ``second``, a later comparison's fault too (round 2's call tokens): the first
+    # disagreement in the open's order is the one named.
+    edit, what = OPEN_EDITS[name]
+    lines = _journal(two_rounds)
+    edit(lines, two_rounds)
+    if second:
+        _spent_more(_ended(lines, 2)["usage"][0])
+    _write(two_rounds, lines)
+    assert not isinstance(_read(two_rounds, 4), Exception), f"{name}: the journal is not read"
+    found = _opened(two_rounds)
+    assert isinstance(found, RunStateError), f"{name}: opened as {found!r}"
+    assert found.context.get("disagrees") == what, found.context
+
+
+#: Honest endings that start a run, under every reviewing mode: each opens.
+HONEST = {
+    "observe, a failed plan call": ("observe", [Step(call="api_error")]),
+    "observe, a refused plan": ("observe", [Step(refusal="plan_refused")]),
+    "observe, an infrastructure review": ("observe", [Step(review="infrastructure")]),
+    "observe, a fail": ("observe", [Step()]),
+    "on, no plan": ("on", [Step(call="no_structured_output")]),
+    "on, an exposure": ("on", [Step(review="exposed")]),
+    "repair:1, an exposure at round 2": ("repair:1", [Step(), Step(review="exposed")]),
+    "repair:2, a canary at round 2": ("repair:2", [Step(), Step(review="canary")]),
+    "repair:2, no verdict at round 3": ("repair:2", [Step(), Step(), Step(review="no_verdict")]),
+    "repair:1, held at the last round": ("repair:1", [Step(), Step()]),
+    "repair:2, a refused plan at round 2": ("repair:2", [Step(), Step(refusal="plan_refused")]),
+}
+
+
+@pytest.mark.parametrize("name", list(HONEST))
+def test_every_honest_ending_that_starts_a_run_opens(tmp_path: Path, name: str) -> None:
+    policy, steps = HONEST[name]
+    ran = decompose(tmp_path, policy, steps)
+    assert (ran.run_dir / "events.jsonl").exists(), f"{name}: no run was started ({ran.code!r})"
+    found = _opened(ran.run_dir)
+    assert not isinstance(found, Exception), f"{name}: {found!r}"
