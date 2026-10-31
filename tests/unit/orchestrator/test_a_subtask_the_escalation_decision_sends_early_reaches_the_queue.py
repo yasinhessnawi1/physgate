@@ -11,6 +11,7 @@ it was by the recording of every escalation path.
 
 from __future__ import annotations
 
+import json
 import re
 import typing
 from pathlib import Path
@@ -175,6 +176,22 @@ def test_the_operator_interface_knows_every_queue_source() -> None:
     assert listed is not None
     assert re.findall(r'"([a-z_]+)"', listed.group(1)) == list(typing.get_args(QueueSource))
     labels = (ROOT / "ui" / "src" / "words" / "queue.ts").read_text()
-    entry = r"{source}: {{\n    kind: \"[^\"]+\",\n    why: \"[^\"]+\","
     for source in typing.get_args(QueueSource):
-        assert re.search("\n  " + entry.format(source=source), labels), source
+        entry = re.search(rf"\n  {source}: {{\n(.*?)\n  }},", labels, re.DOTALL)
+        assert entry is not None, source
+        for field in ("kind", "why"):
+            assert _words(entry.group(1), field).strip(), (source, field)
+
+
+#: A string literal in the words file: double-quoted, with backslash escapes.
+_LITERAL = r'"(?:[^"\\\n]|\\.)*"'
+
+
+def _words(entry: str, field: str) -> str:
+    """The text of ``field`` in a words entry: one literal, or literals joined by ``+``.
+
+    However prettier breaks the line: after the colon, and around each ``+``.
+    """
+    found = re.search(rf"\b{field}:\s*({_LITERAL}(?:\s*\+\s*{_LITERAL})*)\s*,", entry)
+    assert found is not None, field
+    return "".join(json.loads(part) for part in re.findall(_LITERAL, found.group(1)))
