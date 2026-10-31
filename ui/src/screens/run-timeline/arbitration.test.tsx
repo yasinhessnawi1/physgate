@@ -31,6 +31,7 @@ function written(fields: Record<string, unknown>): Record<string, unknown> {
 }
 
 const POSITION = { node_id: "drive_motor", name: "current_draw" };
+const DISPUTED = { kind: "dispute", node_id: "drive_motor", quantity: "current_draw" };
 const STANDING = { gate_refused: false, counted_before: 0, attempt_left: true };
 const HELD = {
   position: { ...POSITION, value: 2.5, unit: "A" },
@@ -45,7 +46,7 @@ function ruled(level: string): Record<string, unknown> {
     kind: "arbitration_decided",
     subtask_id: "s1",
     attempt: 2,
-    conflict: { kind: "dispute", ...POSITION },
+    conflict: DISPUTED,
     standing: STANDING,
     level,
     held: HELD,
@@ -285,7 +286,7 @@ describe("no held or contract value, source or writer reaches a screen", () => {
       kind: "arbitration_decided",
       subtask_id: "s1",
       attempt: 2,
-      conflict: { kind: "dispute", ...POSITION },
+      conflict: DISPUTED,
       standing: STANDING,
       level: "sizing",
       held: {
@@ -332,7 +333,7 @@ describe("no held or contract value, source or writer reaches a screen", () => {
     const rows = rowsOf(events, MODELS);
     expect(rows.length).toBe(5);
     const timeline = rows.map((row) => renderToStaticMarkup(<RowView row={row} />)).join("");
-    expect(timeline).toContain("Sizing's value of Current draw on Drive motor stands");
+    expect(timeline).toContain("value of Current draw on Drive motor stands over attempt 2");
     expect(timeline).not.toMatch(canaries);
     const lines: LedgerLine[] = [
       { id: "s1", role: "electrical", attempts: 2, gate: "pass", review: null, mergeCommit: null },
