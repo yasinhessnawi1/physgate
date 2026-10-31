@@ -75,6 +75,7 @@ const SKIPPED_REASONS: Readonly<Record<string, string>> = {
   not_all_merged: "not every subtask merged",
   "gate_mode=off": "the gate is off for this run",
   nothing_planned: "nothing was planned",
+  plan_rejected: "a person rejected the plan",
 };
 
 /** The longest first line a finding gets on a row before the rest is folded away. */

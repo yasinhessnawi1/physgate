@@ -71,6 +71,7 @@ from physgate.orchestrator.events import (
     ContractTested,
     ContractValue,
     DecisionTaken,
+    DesignReviewRan,
     Event,
     LeftoverRead,
     OsLayerChecked,
@@ -81,7 +82,13 @@ from physgate.orchestrator.events import (
     read_jsonl,
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError, QueueError, StaleViewError
-from physgate.orchestrator.protocols import GateResult, IndicatorKind, QuantityRef, SpecDefect
+from physgate.orchestrator.protocols import (
+    REJECTING_RESULTS,
+    GateResult,
+    IndicatorKind,
+    QuantityRef,
+    SpecDefect,
+)
 from physgate.orchestrator.repair import Finding, Writer, held_line
 from physgate.orchestrator.trajectory import Seal, seal
 from physgate.reviewers.scan import ScanHit
@@ -97,6 +104,7 @@ QueueSource = Literal[
     "arbitration",
     "escalation_decision",
     "contract",
+    "plan_review",
 ]
 
 
@@ -107,11 +115,12 @@ class _Record(BaseModel):
     ts: Timestamp
 
 
-#: What approving an item does: merge the attempt it names, or record the decision only.
-OnApprove = Literal["merge_attempt", "record_only"]
+#: What approving an item does: merge the attempt it names, release the run its plan's review
+#: holds, or record the decision only.
+OnApprove = Literal["merge_attempt", "release", "record_only"]
 #: What rejecting an item does: start the next attempt from the note, order the one fix a
-#: blocked review gets, end the subtask, or record the decision only.
-OnReject = Literal["retry", "fix", "end_subtask", "record_only"]
+#: blocked review gets, end the subtask, end the run its plan's review holds, or record only.
+OnReject = Literal["retry", "fix", "end_subtask", "end_run", "record_only"]
 #: Why approving an item records only. ``gate``, ``change_check`` and ``reading``: an automated
 #: check refused the attempt, and a person overrides the reviewer alone. ``indicator_in_history``:
 #: a review of some attempt of the subtask confirmed a reward-hacking indicator.
@@ -181,11 +190,15 @@ class ItemConsequence(BaseModel):
 
     @model_validator(mode="after")
     def _approve_says_what_it_merges_or_why_it_does_not(self) -> ItemConsequence:
-        merges = self.on_approve == "merge_attempt"
-        if merges == (self.why_record_only is not None):
-            msg = "approve merges with no reason not to, or records only and says why"
+        if (self.on_approve == "record_only") != (self.why_record_only is not None):
+            msg = "approve acts with no reason not to, or records only and says why"
             raise ValueError(msg)
-        if merges and (self.attempt is None or self.attempt_commit is None):
+        if (self.on_approve == "release") != (self.on_reject == "end_run"):
+            msg = "a held plan's item releases the run or ends it, and no other item does either"
+            raise ValueError(msg)
+        if self.on_approve == "merge_attempt" and (
+            self.attempt is None or self.attempt_commit is None
+        ):
             msg = "an approve that merges names the attempt and the commit it merges"
             raise ValueError(msg)
         return self
@@ -817,6 +830,67 @@ def integration_item(
     )
 
 
+#: The subtask field of the item a plan's review holds the run on: it is about the whole plan.
+PLAN = "plan"
+
+
+def plan_consequence() -> ItemConsequence:
+    """What each verb does to the plan's item: an approve releases the run, a reject ends it."""
+    return ItemConsequence(
+        attempt=None,
+        attempt_commit=None,
+        on_approve="release",
+        on_reject="end_run",
+        why_record_only=None,
+        confirmed_indicators=(),
+        scan_hits=(),
+    )
+
+
+def plan_item(
+    *, review: DesignReviewRan, spec_commit: str, stream: str, consequence: ItemConsequence | None
+) -> QueueItem:
+    """The item a plan its review did not pass holds the run on, built from the review's line.
+
+    It names what the review came to (its finding, each rubric item it failed and each blocking
+    specification defect, or why there is no verdict), the plan by its digest and the commit of
+    its specifications, and the decomposition's stream as its one trajectory.
+
+    Raises:
+        QueueError: the review's line holds the run on no item.
+    """
+    if review.held_item is None:
+        msg = "a plan's review that holds nothing raises no item"
+        raise QueueError(msg, plan=review.plan_sha256)
+    result, why = review.result, review.unavailable
+    found = [f"no verdict ({why.cause}): {why.detail}"] if why is not None else []
+    rubric = result.items if result is not None else ()
+    defects = (*(result.spec_defects if result else ()), *(why.spec_defects if why else ()))
+    found += [result.finding] if result is not None else []
+    found += [f"{i.item}: {i.result}" for i in rubric if i.result in REJECTING_RESULTS]
+    found += [f"blocking specification defect: {d.finding}" for d in defects if d.blocking]
+    return QueueItem(
+        item_id=review.held_item,
+        ts=review.ts,
+        run_id=review.run_id,
+        subtask_id=PLAN,
+        source="plan_review",
+        decision_required=(
+            "The design reviewer did not pass the plan the decomposition submitted, and nothing "
+            "has been dispatched. Approve to run the plan as it stands; reject to end the run "
+            "with no module dispatched (a new run is a new decomposition)."
+        ),
+        artefact_diff=(
+            f"The plan of digest {review.plan_sha256}, as the run recorded it: see "
+            f"decomposition/stdout.jsonl and the specifications commit {spec_commit}."
+        ),
+        triggering_finding="\n".join(found),
+        quantities=(),
+        trajectories=(stream,),
+        consequence=consequence,
+    )
+
+
 #: The subtask field of a failed contract's item: it is about a pair of modules, not one subtask.
 CONTRACT = "contract"
 
@@ -1358,9 +1432,7 @@ def _stream_reader(
     except OSError as exc:
         raise _unreadable(Path(run_dir), exc) from None
     try:
-        yield lambda session_id: _read_in(
-            dir_fd, SESSIONS_NAME, session_id, STREAM_NAME, cap=RECORD_READ_CAP
-        )
+        yield lambda session_id: _read_in(dir_fd, *stream_parts(session_id), cap=RECORD_READ_CAP)
     finally:
         os.close(dir_fd)
 
@@ -1376,6 +1448,10 @@ def item_sha256(line: bytes) -> str:
 SESSIONS_NAME = "sessions"
 STREAM_NAME = "stdout.jsonl"
 EVENTS_NAME = "events.jsonl"
+DECOMPOSITION_NAME = "decomposition"
+#: What a link to the decomposition's stream reads as, in place of a session's id: no id has a
+#: separator in it, so no session is ever read as the decomposition, or the other way round.
+DECOMPOSITION_STREAM = f"{DECOMPOSITION_NAME}/{STREAM_NAME}"
 
 #: A session id as the event log's own model accepts it.
 _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -1392,16 +1468,31 @@ def trajectory_session(link: str) -> str | None:
 
     A link is the path the session's stream had on the machine that ran it. It is never
     opened as written: only its last three components are read, and they must be the
-    sessions directory, a session id, and the stream's name.
+    sessions directory, a session id, and the stream's name; or the decomposition's directory
+    and the stream's name, read as :data:`DECOMPOSITION_STREAM`.
     """
     parts = Path(link).parts
+    if parts[-2:] == (DECOMPOSITION_NAME, STREAM_NAME) and parts[-3:-2] != (SESSIONS_NAME,):
+        return DECOMPOSITION_STREAM
     if len(parts) < 3 or parts[-3] != SESSIONS_NAME or parts[-1] != STREAM_NAME:
         return None
     return parts[-2] if _SESSION_ID.fullmatch(parts[-2]) else None
 
 
+def stream_parts(session_id: str) -> tuple[str, ...]:
+    """Where beneath the run directory the stream a trajectory's id names is read from."""
+    if session_id == DECOMPOSITION_STREAM:
+        return (DECOMPOSITION_NAME, STREAM_NAME)
+    return (SESSIONS_NAME, session_id, STREAM_NAME)
+
+
 def recorded_seal(events: list[Event], session_id: str) -> Seal | None:
-    """The seal recorded for a session's stream: at its end, or when a resume read it left over."""
+    """The seal recorded for a session's stream: at its end, or when a resume read it left over.
+
+    The decomposition's stream is sealed by the plan's review, which held it to that seal.
+    """
+    if session_id == DECOMPOSITION_STREAM:
+        return next((e.stream_seal for e in events if isinstance(e, DesignReviewRan)), None)
     for event in events:
         if (
             isinstance(event, SessionEnded | LeftoverRead)
@@ -1879,9 +1970,7 @@ def _require_as_shown(
     statuses = trajectory_statuses(
         records.items[item_id],
         events,
-        lambda session_id: _read_in(
-            dir_fd, SESSIONS_NAME, session_id, STREAM_NAME, cap=RECORD_READ_CAP
-        ),
+        lambda session_id: _read_in(dir_fd, *stream_parts(session_id), cap=RECORD_READ_CAP),
     )
     if statuses != shown.trajectories:
         msg = "a trajectory of the item is no longer as it was shown, so the decision is refused"

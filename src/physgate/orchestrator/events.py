@@ -193,9 +193,10 @@ class RunStarted(_Event):
     #: ``act`` in a run that acts on a person's decisions, which replay reads to hold the closing
     #: pass's wait; left out of a run that records only, so its line keeps its bytes.
     queue_decisions: Literal["act"] | None = None
-    #: ``observe`` in a run that reviews its plan, which replay reads to hold every dispatch to the
-    #: review's line; left out of a run that does not, so its line keeps its bytes.
-    design_review: Literal["observe"] | None = None
+    #: ``observe`` or ``on`` in a run that reviews its plan, which replay reads to hold every
+    #: dispatch to the review's line, and under ``on`` to the person's decision on a plan it did
+    #: not pass; left out of a run that does not, so its line keeps its bytes.
+    design_review: Literal["observe", "on"] | None = None
 
     @model_serializer(mode="wrap")
     def _omit_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -367,13 +368,13 @@ class IntegrationGateRan(_Event):
 class IntegrationGateSkipped(_Event):
     """Integration was not gated, and why.
 
-    The gate is off, the design is incomplete, or nothing was planned.
-    ``subtasks`` names the planned subtasks that were not merged; for the other
-    two reasons it is empty.
+    The gate is off, the design is incomplete, nothing was planned, or a person rejected the plan.
+    ``subtasks`` names the planned subtasks that were not merged, or for a rejected plan every
+    planned subtask; for the other two reasons it is empty.
     """
 
     kind: Literal["integration_gate_skipped"] = "integration_gate_skipped"
-    reason: Literal["gate_mode=off", "not_all_merged", "nothing_planned"]
+    reason: Literal["gate_mode=off", "not_all_merged", "nothing_planned", "plan_rejected"]
     subtasks: tuple[NonEmptyStr, ...]
 
 
@@ -598,7 +599,11 @@ Position = Literal["sizing", "domain", "producer", "consumer"]
 #: for sizing's closing pass, ordered to write the domain's value, then returns to the gate.
 #: ``reopen``: a merged module's planning subtask takes one more attempt, to conform to the
 #: interface of a failed contract.
-DecisionEffect = Literal["merge", "retry", "fix", "end_subtask", "resize", "reopen", "none"]
+#: ``release`` and ``end_run``: an approve of the plan's item lets the held run dispatch, a reject
+#: ends it with nothing dispatched.
+DecisionEffect = Literal[
+    "merge", "retry", "fix", "end_subtask", "resize", "reopen", "release", "end_run", "none"
+]
 #: Why a decision taken did not act. ``record_only_source``: approve or reject on an item whose
 #: source neither verb acts on. ``last_rejection_automated``: approve where an automated check,
 #: not the reviewer, refused the attempt. ``indicator_in_history``: approve where a review of
@@ -859,6 +864,8 @@ class DesignReviewRan(_Event):
     stream_seal: Seal
     result: ReviewResult | None = None
     unavailable: DesignUnavailable | None = None
+    #: The plan's item every dispatch is held on, under ``on`` where the review did not pass.
+    held_item: NonEmptyStr | None = None
 
     @model_validator(mode="after")
     def _a_verdict_or_why_there_is_none(self) -> DesignReviewRan:
@@ -870,10 +877,17 @@ class DesignReviewRan(_Event):
     @model_serializer(mode="wrap")
     def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for absent in ("result", "unavailable"):
+        for absent in ("result", "unavailable", "held_item"):
             if data.get(absent) is None:
                 data.pop(absent, None)
         return data
+
+
+class PlanRejected(_Event):
+    """A person rejected the plan its review held the run on: nothing of it is dispatched."""
+
+    kind: Literal["plan_rejected"] = "plan_rejected"
+    item_id: NonEmptyStr
 
 
 class ContractPairsPlanned(_Event):
@@ -1262,6 +1276,7 @@ Event = Annotated[
     | Resumed
     | Decomposed
     | DesignReviewRan
+    | PlanRejected
     | ContractPairsPlanned
     | ContractTested
     | IntegrationStateIssued
@@ -1363,7 +1378,8 @@ class _Context:
         if isinstance(event, GateSkipped) and mode != "off":
             msg = f"the gate was skipped in a run whose gate mode is {mode!r}"
             raise ValueError(msg)
-        if isinstance(event, IntegrationGateSkipped):
+        # A rejected plan is skipped in any mode, naming every subtask it planned (the run's rule).
+        if isinstance(event, IntegrationGateSkipped) and event.reason != "plan_rejected":
             if (event.reason == "gate_mode=off") != (mode == "off"):
                 msg = (
                     f"integration skipped as {event.reason!r} in a run whose gate mode is {mode!r}"

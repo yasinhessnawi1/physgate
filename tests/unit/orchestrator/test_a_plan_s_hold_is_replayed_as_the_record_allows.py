@@ -117,7 +117,7 @@ def test_under_record_decompose_lists_the_item_and_the_run_is_escalated(tmp_path
 def test_a_pass_under_on_names_no_item_and_lists_none(tmp_path: Path) -> None:
     run_dir = _run(tmp_path, verdict="pass")
     assert "held_item" not in lines(run_dir)[-1]
-    assert read_queue(run_dir).items == []
+    assert read_queue(run_dir).items == ()
     assert replay(read_events(run_dir / "events.jsonl")).next_step().kind == "attempt"
 
 

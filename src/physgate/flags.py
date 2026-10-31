@@ -116,11 +116,11 @@ OS_LAYER_ABSENT = Flag(
 
 #: Whether the plan is reviewed before anything is dispatched. Spelled out for the type checker, as
 #: the others are; a test holds it equal to the register's entry.
-DesignReview = Literal["off", "observe"]
+DesignReview = Literal["off", "observe", "on"]
 
 DESIGN_REVIEW = Flag(
     name="design_review",
-    values=("off", "observe"),
+    values=("off", "observe", "on"),
     meanings={
         "off": (
             "the plan is not reviewed: nothing is asked of a design reviewer and nothing about a "
@@ -131,6 +131,13 @@ DESIGN_REVIEW = Flag(
             "after the one call and before anything is dispatched; what it came to is recorded "
             "in the run's opening and the run proceeds whatever it says, so the verdict is "
             "measured without changing the run; every reportable run uses it"
+        ),
+        "on": (
+            "the design reviewer judges the plan as under observe; a verdict other than a pass, "
+            "or a review that is no verdict, opens one plan_review item and holds every dispatch "
+            "until a person decides it: an approve releases the run, a reject ends it with "
+            "plan_rejected and no dispatch; under queue_decisions: record the item stays open "
+            "and the run ends escalated"
         ),
     },
     architecture="ARCH-060",

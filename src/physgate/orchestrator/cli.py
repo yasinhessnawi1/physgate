@@ -658,7 +658,7 @@ def _reviewed(
     outcome: Outcome,
     *,
     config: RunConfig,
-    brief: Path,
+    brief: str,
     stream: Path,
 ) -> PlanReviewed | None:
     """What the review of the call's plan came to; ``None`` when the call gave no plan.
@@ -678,7 +678,7 @@ def _reviewed(
         raise RunStateError(msg, session_id=outcome.session_id)
     reviewer, install = reviewing
     under = PlanUnderReview(
-        brief=brief.read_bytes().decode("utf-8"),
+        brief=brief,
         brief_sha256=config.brief_sha256,
         plan=outcome.plan,
         plan_sha256=plan_sha256(outcome.plan),
@@ -745,7 +745,8 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
     try:
         require_fresh(run_dir)
         reviewing = _plan_reviewer(args, config, credential, registrations)
-        brief = args.brief.read_text()
+        # Decoded once, from the bytes the run's digest names: the call and the review read alike.
+        brief = args.brief.read_bytes().decode("utf-8")
         workdir = run_dir / "decomposition"
         outcome = call(
             brief,
@@ -769,7 +770,7 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
                 reviewing,
                 outcome,
                 config=config,
-                brief=args.brief,
+                brief=brief,
                 stream=workdir / "stdout.jsonl",
             )
             if reviewing is not None
@@ -805,7 +806,8 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
             else "held_out_exposed"
         )
     _print(printed)
-    return 0 if outcome.ok else 1
+    # A review whose stream showed held-out material halted the run: nothing will be dispatched.
+    return 0 if outcome.ok and not (reviewed is not None and reviewed.exposed) else 1
 
 
 def _project_root() -> Path:

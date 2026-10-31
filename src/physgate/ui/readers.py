@@ -61,7 +61,13 @@ from physgate.orchestrator.common import render_jsonl
 from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.gate_events import recorded_gate_checks, recorded_gate_events
-from physgate.orchestrator.queue import item_view, queue_files, queue_listing, read_stream
+from physgate.orchestrator.queue import (
+    item_view,
+    queue_files,
+    queue_listing,
+    read_stream,
+    stream_parts,
+)
 from physgate.orchestrator.replay import RunState, recorded_ledger, replay
 from physgate.orchestrator.run_config import load_run_config
 from physgate.orchestrator.trajectory import read_sealed
@@ -457,7 +463,7 @@ def _streams(context: Context, run_dir: Path) -> Callable[[str], bytes | None]:
 
     def stream(session_id: str) -> bytes | None:
         try:
-            path = _file(context, run_dir, SESSIONS, session_id, STREAM)
+            path = _file(context, run_dir, *stream_parts(session_id))
         except PathRefusedError as exc:
             raise OSError(errno.EPERM, str(exc)) from None
         return read_stream(path)

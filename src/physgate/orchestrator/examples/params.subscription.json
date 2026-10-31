@@ -13,7 +13,8 @@
    "mechanical": "claude-sonnet-5",
    "electrical": "claude-sonnet-5",
    "control": "claude-sonnet-5",
-   "firmware": "claude-sonnet-5"
+   "firmware": "claude-sonnet-5",
+   "design": "claude-sonnet-5"
   }
  },
  "bounds": {
@@ -34,7 +35,7 @@
  "escalation_backend": "rules",
  "queue_decisions": "record",
  "os_layer_absent": "refuse",
- "design_review": "off",
+ "design_review": "on",
  "held_out": [],
  "held_out_canaries": [],
  "held_out_sha256": [],

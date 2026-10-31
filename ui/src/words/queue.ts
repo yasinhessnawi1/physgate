@@ -61,6 +61,12 @@ export const SOURCE_WORDS: Readonly<Record<QueueSource, SourceWords>> = {
     kind: "Interface contract failed",
     why: "Two merged modules do not both hold an interface fixed at decomposition.",
   },
+  plan_review: {
+    kind: "The plan's review did not pass",
+    why:
+      "The design reviewer did not pass the plan the decomposition submitted, or reached no " +
+      "verdict on it, and nothing is dispatched until a person decides.",
+  },
 };
 
 /** Every sentence a screen says about a decision. Nothing else on a screen says it. */
@@ -136,6 +142,7 @@ const HEADLINES: Readonly<Record<QueueSource, string>> = {
   arbitration: "A domain disputes a value sizing owns",
   escalation_decision: "A subtask was sent to a person",
   contract: "Two merged modules break an interface contract",
+  plan_review: "The plan's review did not pass",
 };
 
 /**
@@ -254,12 +261,21 @@ const REJECT_WORDS: Readonly<Record<Consequence["onReject"], string>> = {
     "review's verdict and your note and nothing of the earlier session. It is the subtask's " +
     "last attempt; if it is not accepted, the subtask ends rejected.",
   end_subtask: "Reject: the subtask ends rejected, and nothing of it is merged.",
+  end_run:
+    "Reject: the run ends with no module dispatched, and your reason is recorded. A new run is " +
+    "a new decomposition.",
   record_only: "Reject: the decision is recorded, and nothing in the run acts on it.",
 };
 
 /** What approve and reject will do to an item, made from the consequence the run listed. */
 export function consequenceWords(c: Consequence): ChoiceWords {
   const reject = REJECT_WORDS[c.onReject];
+  if (c.onApprove === "release")
+    return {
+      approveLabel: "Approve…",
+      approve: "Approve: the hold is released, and the plan runs as it stands.",
+      reject,
+    };
   if (c.onApprove === "merge_attempt") {
     const commit = c.attemptCommit === null ? "" : ` (commit ${c.attemptCommit.slice(0, 12)})`;
     return {
@@ -340,6 +356,8 @@ export function takenWords(t: Taken): string {
     reopen:
       "The run took it: the other module was reopened for one more attempt, told the " +
       "interface's values.",
+    release: "The run took it: the hold was released, and the plan runs as it stands.",
+    end_run: "The run took it: the run ended with no module dispatched.",
     none: "The run took it; it changed nothing.",
   };
   const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;

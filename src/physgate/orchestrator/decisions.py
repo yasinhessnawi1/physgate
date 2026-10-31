@@ -68,6 +68,7 @@ from physgate.orchestrator.queue import (
     WhyRecordOnly,
     held_windows_of,
     parses,
+    plan_consequence,
     within,
 )
 from physgate.orchestrator.repair import (
@@ -554,6 +555,8 @@ def _effect_of(
     if verb == "approve":
         if consequence.on_approve == "merge_attempt":
             return "merge", None
+        if consequence.on_approve == "release":
+            return "release", None
         return "none", _WHY_NOT[consequence.why_record_only or "legacy"]
     if consequence.on_reject == "record_only":
         return "none", "record_only_source"
@@ -592,7 +595,12 @@ def decision_effect(
     if resolution.shown_sha256 != line_sha256:
         msg = "the item's line is not the one the decision was taken on"
         raise QueueItemMismatchError(msg, item=item.item_id)
-    if item.subtask_id == INTEGRATION:
+    if item.source == "plan_review":
+        if state.plan_hold() != item.item_id:
+            msg = "the run's plan is held on no such item"
+            raise QueueItemMismatchError(msg, item=item.item_id)
+        expected = plan_consequence()
+    elif item.subtask_id == INTEGRATION:
         escalated = state.integration_escalated
         if escalated is None or escalated.item_id != item.item_id:
             msg = "the run escalated no such integration item"
@@ -726,6 +734,9 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
     if event.item_id in state.contract_items:
         _require_contract_taken(state, event)
         return
+    if state.design_review is not None and event.item_id == state.design_review.held_item:
+        _require_plan_taken(state, event)
+        return
     if event.subtask_id is None:
         if event.acts or event.effect != "none":
             msg = "a decision on the integration item records only"
@@ -789,6 +800,37 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
         allowed = event.effect == "none" and event.why_not == why
     if not allowed:
         msg = "a decision that does other than the record allows"
+        raise ValueError(msg)
+    if event.acts and event.verb == "reject" and event.note is None:
+        msg = "a reject that acts carries its note"
+        raise ValueError(msg)
+
+
+def _require_plan_taken(state: RunState, event: DecisionTaken) -> None:
+    """Refuse a decision on the plan's item this code could not have taken.
+
+    It is taken only in a run that acts, while the plan is held on it, and names no subtask,
+    attempt or position. An approve releases the run and a reject ends it, each acting unless it is
+    held until an operator confirms it; free text binds to nothing.
+    """
+    if not state.acts or state.plan_hold() != event.item_id:
+        msg = "a decision on the plan's item is taken in a run that acts, while the plan is held"
+        raise ValueError(msg)
+    verbs: dict[str | None, DecisionEffect] = {"approve": "release", "reject": "end_run"}
+    if event.verb is None:
+        allowed = event.effect == "none" and event.why_not in ("not_bound", "legacy_item")
+    else:
+        allowed = (
+            event.shown_sha256 is not None
+            and event.effect == verbs.get(event.verb)
+            and event.why_not in (None, "held_os_layer_off")
+        )
+    named = (event.subtask_id, event.attempt, event.attempt_commit, event.order_too_long)
+    if not allowed or named != (None, None, None, False):
+        msg = (
+            "a decision on the plan's item releases the run or ends it as its verb says, and "
+            "names no subtask, attempt or position"
+        )
         raise ValueError(msg)
     if event.acts and event.verb == "reject" and event.note is None:
         msg = "a reject that acts carries its note"

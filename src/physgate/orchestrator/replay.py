@@ -83,6 +83,7 @@ from physgate.orchestrator.events import (
     ModuleCompleted,
     NodeFilesRepaired,
     OsLayerChecked,
+    PlanRejected,
     ProposalsChecked,
     Resumed,
     ReviewRan,
@@ -112,7 +113,7 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR, CriterionWords, SystemRequirement
 from physgate.orchestrator.protocols import ChosenValue, QuantityRef
-from physgate.orchestrator.queue import contract_item_id, item_id_for
+from physgate.orchestrator.queue import PLAN, contract_item_id, item_id_for
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
 from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
@@ -306,6 +307,10 @@ class RunState:
         self.design_review: DesignReviewRan | None = None
         #: Whom the tokens between the plan and its review's line are attributed to.
         self.review_tokens: set[str] = set()
+        #: Whether the review holds the plan it did not pass (``on``), and the rejection line a
+        #: person's reject of the plan's item led to.
+        self.holds_plan = False
+        self.plan_rejected: PlanRejected | None = None
         self.order: list[str] = []
         self.subtasks: dict[str, SubtaskState] = {}
         self.halted: Halted | None = None
@@ -410,7 +415,8 @@ class RunState:
             self.gate_mode = event.gate_mode
             self.escalation_backend = event.escalation_backend
             self.acts = event.queue_decisions == "act"
-            self.reviews_plan = event.design_review == "observe"
+            self.reviews_plan = event.design_review is not None
+            self.holds_plan = event.design_review == "on"
             return
         if isinstance(event, Halted):
             self.halted = self.last_halt = event
@@ -483,26 +489,30 @@ class RunState:
         if isinstance(event, DesignReviewRan):
             self._plan_reviewed(event)
             return
-        if (
-            self.reviews_plan
-            and self.design_review is None
-            and isinstance(
-                event,
-                StageEntered | IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated,
-            )
-        ):
+        dispatch = isinstance(
+            event, StageEntered | IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated
+        )
+        if dispatch and self.reviews_plan and self.design_review is None:
             _refuse("nothing is dispatched in a run that reviews its plan before its review")
+        if isinstance(event, PlanRejected):
+            decided = self.plan_decision()
+            if (
+                decided is None
+                or decided.effect != "end_run"
+                or self.plan_rejected is not None
+                or event.item_id != decided.item_id
+            ):
+                _refuse("a plan is rejected once, after a person's reject of the plan's item")
+            self.plan_rejected = event
+            return
+        if dispatch and self.plan_hold() is not None:
+            _refuse("nothing is dispatched while the plan's review holds the run")
+        if dispatch and self.plan_ends() and not isinstance(event, IntegrationGateSkipped):
+            _refuse("nothing is dispatched in a run whose plan a person rejected")
         if isinstance(event, ContractTested):
             self._tested(event)
             return
-        if (
-            self.consumers is not None
-            and self.contract_pairs is None
-            and isinstance(
-                event,
-                StageEntered | IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated,
-            )
-        ):
+        if dispatch and self.consumers is not None and self.contract_pairs is None:
             _refuse("nothing is dispatched before the run's contract pairs are recorded")
         if (
             isinstance(
@@ -680,7 +690,33 @@ class RunState:
         ending = event.result or event.unavailable
         if self.review_tokens - {f"reviewer:{(ending.session_id if ending else None) or 'none'}"}:
             _refuse("a plan's review's tokens are attributed to the session its line names")
+        held = self.holds_plan and (event.result is None or event.result.verdict != "pass")
+        if event.held_item != (_item_id(event.run_id, PLAN, 1) if held else None):
+            _refuse(
+                "a plan's review holds the run on the plan's item exactly where the run holds "
+                "its plan and the review did not pass"
+            )
         self.design_review = event
+
+    def plan_decision(self) -> DecisionTaken | None:
+        """The person's decision on the plan's item, once it acted (taken, or confirmed)."""
+        held = None if self.design_review is None else self.design_review.held_item
+        taken = None if held is None else self.taken.get(held)
+        return taken if taken is not None and (taken.acts or held in self.confirmed) else None
+
+    def plan_hold(self) -> str | None:
+        """The plan's item every dispatch is held on, until a decision on it acts."""
+        held = None if self.design_review is None else self.design_review.held_item
+        return held if self.plan_decision() is None else None
+
+    def plan_ends(self) -> bool:
+        """Whether a person's reject of the plan's item was taken: nothing of it is dispatched."""
+        decided = self.plan_decision()
+        return decided is not None and decided.effect == "end_run"
+
+    def planned(self) -> tuple[str, ...]:
+        """Every planned subtask not yet dispatched or removed, in plan order."""
+        return tuple(s for s in self.order if self.subtasks[s].status == "planned")
 
     def _plan(self, event: SubtaskPlanned) -> None:
         """Take a planned subtask, and note it if its line marks it as integration's.
@@ -1443,6 +1479,16 @@ class RunState:
             _refuse("the integration call is made once")
         if self._contract_item_open():
             _refuse("the integration call waits while a contract item is undecided")
+        skip = event if isinstance(event, IntegrationGateSkipped) else None
+        skips = skip is not None and skip.reason == "plan_rejected"
+        if skips or self.plan_rejected is not None:
+            if not (skip and skips and self.plan_rejected and skip.subtasks == self.planned()):
+                _refuse(
+                    "a rejected plan's integration call, and only its, is skipped as plan_rejected "
+                    "after its rejection, naming every planned subtask"
+                )
+            self.integration = event
+            return
         order = self.integrated()
         unresolved = [s for s in order if self.subtasks[s].status in ("planned", "active")]
         if unresolved:
@@ -1620,6 +1666,11 @@ class RunState:
             return Step(kind="halt")
         if self.halted is not None:
             return Step(kind="halted")
+        if self.plan_hold() is not None:
+            # A run that records only leaves the item open, and ends escalated.
+            return Step(kind="wait") if self.acts else Step(kind="escalated")
+        if self.plan_ends():
+            return Step(kind="integrate") if self.integration is None else Step(kind="done")
         if self.pending_reopen is not None:
             return Step(kind="reopen", subtask_id=self.pending_reopen.reopens)
         if any(o is not None for o in (self.owed_ruling(), self.owed_item(), self.owed_contract())):

@@ -29,11 +29,13 @@ export const SOURCES = [
   "arbitration",
   "escalation_decision",
   "contract",
+  "plan_review",
 ] as const;
 export type QueueSource = (typeof SOURCES)[number];
 
-export const ON_APPROVE = ["merge_attempt", "record_only"] as const;
-export const ON_REJECT = ["retry", "fix", "end_subtask", "record_only"] as const;
+/** ``release`` and ``end_run``: the plan's item, which lets a held run dispatch or ends it. */
+export const ON_APPROVE = ["merge_attempt", "release", "record_only"] as const;
+export const ON_REJECT = ["retry", "fix", "end_subtask", "end_run", "record_only"] as const;
 export const WHY_RECORD_ONLY = [
   "gate",
   "change_check",
@@ -200,6 +202,8 @@ export const EFFECTS = [
   "end_subtask",
   "resize",
   "reopen",
+  "release",
+  "end_run",
   "none",
 ] as const;
 export type Effect = (typeof EFFECTS)[number];

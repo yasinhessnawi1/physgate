@@ -224,7 +224,8 @@ def lines(run_dir: Path) -> list[Event]:
 
 
 def kinds(run_dir: Path) -> list[str]:
-    return [event.kind for event in lines(run_dir)]
+    """Each line's kind, but the OS layer's, which every process of the rig writes as it opens."""
+    return [event.kind for event in lines(run_dir) if event.kind != "os_layer_checked"]
 
 
 def dispatched(run_dir: Path) -> list[str]:

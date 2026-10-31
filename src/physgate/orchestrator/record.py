@@ -39,7 +39,16 @@ from physgate.orchestrator.exceptions import RunConfigError, RunStateError
 from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.plan import CriterionWords, InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.protocols import MessageUsage, ReviewResult
-from physgate.orchestrator.queue import ApprovalQueue
+from physgate.orchestrator.queue import (
+    DECOMPOSITION_NAME,
+    PLAN,
+    STREAM_NAME,
+    ApprovalQueue,
+    QueueItem,
+    item_id_for,
+    plan_consequence,
+    plan_item,
+)
 from physgate.orchestrator.replay import RunState, project_ledger
 from physgate.orchestrator.run_config import RunConfig, require_recorded, write_run_config
 from physgate.orchestrator.trajectory import Seal
@@ -263,10 +272,11 @@ class RunRecord:
             # The review's session ran under this installation, before anything was written.
             yield InstallChecked(**envelope(), **reviewed.install.model_dump())
 
-    def _said(self) -> tuple[Literal["act"] | None, Literal["observe"] | None]:
+    def _said(self) -> tuple[Literal["act"] | None, Literal["observe", "on"] | None]:
         """What the run's first line says of whether it acts on decisions and reviews its plan."""
         acts: Literal["act"] | None = "act" if self.config.queue_decisions == "act" else None
-        return acts, "observe" if self.config.design_review == "observe" else None
+        review = self.config.design_review
+        return acts, None if review == "off" else review
 
     def _reviewing(
         self, reviewed: PlanReviewed, plan_sha256: str, envelope: Callable[[], Envelope]
@@ -286,13 +296,36 @@ class RunRecord:
             yield Incident(**envelope(), subtask_id=None, cause="held_out_read", detail=detail)
             yield Halted(**envelope(), reason="incident", detail="held_out_read")
             return
+        passed = reviewed.result is not None and reviewed.result.verdict == "pass"
+        holds = self.config.design_review == "on" and not passed
         yield DesignReviewRan(
             **envelope(),
             plan_sha256=plan_sha256,
             stream_seal=reviewed.stream_seal,
             result=reviewed.result,
             unavailable=reviewed.unavailable,
+            held_item=item_id_for(self.config.run_id, PLAN, 1) if holds else None,
         )
+
+    def plan_item(self) -> QueueItem | None:
+        """The item the plan's review holds the run on, built from the log; ``None`` if none."""
+        review = self.state.design_review
+        if review is None or review.held_item is None:
+            return None
+        decomposed = next(e for e in self.log.events if isinstance(e, Decomposed))
+        acts = self.config.queue_decisions == "act"
+        return plan_item(
+            review=review,
+            spec_commit=decomposed.spec_commit,
+            stream=str(self.run_dir / DECOMPOSITION_NAME / STREAM_NAME),
+            consequence=plan_consequence() if acts else None,
+        )
+
+    def hold_plan(self) -> None:
+        """List the item the plan's review holds the run on, once, while the hold is open."""
+        item = self.plan_item() if self.state.plan_hold() is not None else None
+        if item is not None and item.item_id not in {i.item_id for i in self.queue.items()}:
+            self.queue.add(item)
 
     def _planning(
         self,

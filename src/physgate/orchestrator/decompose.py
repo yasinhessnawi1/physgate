@@ -1226,6 +1226,7 @@ def start_run(
         ),
         reviewed=reviewed,
     )
+    record.hold_plan()  # a plan its review did not pass, under on: the one item it is held on
     return record
 
 

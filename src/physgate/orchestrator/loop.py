@@ -91,6 +91,7 @@ from physgate.orchestrator.events import (
     ModuleCompleted,
     NodeFilesRepaired,
     OsLayerChecked,
+    PlanRejected,
     ProposalsChecked,
     Resumed,
     ReviewRan,
@@ -693,6 +694,7 @@ class Loop:
             if self._at_a_boundary(step) and self._take_decisions():
                 continue  # what a decision did changes what comes next
             if step.kind in ("done", "halted", "escalated", "wait"):
+                self.record.hold_plan()  # a decompose killed before it listed the plan's item
                 self._clean_up_worktrees()
                 return step
             if step.kind == "halt":
@@ -835,7 +837,8 @@ class Loop:
         No attempt is in progress here, so an incident names no subtask; its detail does.
         """
         contract = item.source == "contract"
-        subtask_id = None if item.subtask_id == INTEGRATION or contract else item.subtask_id
+        whole = item.subtask_id == INTEGRATION or item.source == "plan_review"
+        subtask_id = None if whole or contract else item.subtask_id
         digest = view.digests.get(item.item_id)
         if digest is None:
             self._incident(None, "queue_item_mismatch", f"item {item.item_id} has no line")
@@ -879,11 +882,14 @@ class Loop:
         # Held to the record whole, not field by field: the item as listed must be the item the
         # loop builds from the log now, its links, finding, diff and consequence alike. Otherwise
         # the person decided on something the run did not write.
-        if (
-            resolution.verb is not None
-            and subtask_id is not None
-            and self._item_for(subtask_id, item_id=item.item_id, ts=item.ts, scan=scan) != item
-        ):
+        rebuilt = (
+            self._item_for(subtask_id, item_id=item.item_id, ts=item.ts, scan=scan)
+            if subtask_id is not None
+            else self.record.plan_item()
+            if item.source == "plan_review"
+            else item
+        )
+        if resolution.verb is not None and rebuilt != item:
             detail = f"item {item.item_id} is not the item the run's record builds"
             self._incident(None, "queue_item_mismatch", detail)
             return False
@@ -2039,6 +2045,16 @@ class Loop:
         Integration's own subtask is neither waited for nor judged here: it runs after this
         call, whose result its session reads, wherever the call lets it run.
         """
+        if self.state.plan_ends():
+            # A person rejected the plan: its rejection, then the call skipped, and nothing else.
+            decided = self.state.plan_decision()
+            if self.state.plan_rejected is None and decided is not None:
+                self._emit(PlanRejected(**self._env(), item_id=decided.item_id))
+            planned = self.state.planned()
+            self._emit(
+                IntegrationGateSkipped(**self._env(), reason="plan_rejected", subtasks=planned)
+            )
+            return
         if self.state.integration is None:
             mode = self.config.gate_mode
             order = self.state.integrated()

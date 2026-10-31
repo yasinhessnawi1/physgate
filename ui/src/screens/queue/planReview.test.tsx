@@ -133,7 +133,9 @@ describe("the plan's review item", () => {
       })),
     });
     const [released, ended] = listing.decided.map((d) => takenWords(d.taken ?? (null as never)));
-    expect(released).toBe("The run took it: the hold was released, and the plan runs as it stands.");
+    expect(released).toBe(
+      "The run took it: the hold was released, and the plan runs as it stands.",
+    );
     expect(ended).toBe("The run took it: the run ended with no module dispatched.");
   });
 });
