@@ -549,7 +549,8 @@ def _review_of(lines: list[dict[str, Any]], k: int, **fields: Any) -> None:  # n
 
 def _blocked(lines: list[dict[str, Any]]) -> None:
     _ended(lines, 1)["ending"]["review_cause"] = "blocked"
-    _review_of(lines, 1, verdict="blocked")
+    blocking = [{"finding": "the brief gives no supply voltage", "blocking": True}]
+    _review_of(lines, 1, verdict="blocked", spec_defects=blocking)
 
 
 def _replanned_file(lines: list[dict[str, Any]], run_dir: Path) -> None:

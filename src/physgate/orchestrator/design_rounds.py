@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,9 +29,9 @@ from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
-from physgate.flags import replans
+from physgate.flags import DesignReview, replans
 from physgate.orchestrator.canaries import CanaryCheck
-from physgate.orchestrator.common import NonEmptyStr, utc_now, utc_stamp
+from physgate.orchestrator.common import NonEmptyStr, Timestamp, utc_now, utc_stamp
 from physgate.orchestrator.decompose import (
     ROUNDS_JOURNAL,
     Outcome,
@@ -90,11 +91,40 @@ class _Line(BaseModel):
 
 
 class RoundStarted(_Line):
-    """A round begun: written before its call, naming the session the call is made as."""
+    """A round begun: written before its call, naming the session the call is made as.
+
+    Round 1's names the run's ``design_review`` mode and the designer's pinned model, so an attempt
+    that ends void, with no run record, says from its journal alone what it was; no later round's.
+    """
 
     kind: Literal["round_started"] = "round_started"
     session_id: NonEmptyStr
-    started: NonEmptyStr
+    started: Timestamp
+    design_review: DesignReview | None = None
+    decomposition_model: NonEmptyStr | None = None
+
+
+Seconds = Annotated[float, Field(ge=0)]
+
+
+class Elapsed(BaseModel):
+    """A round's times in seconds since its attempt began, on the monotonic clock no step moves.
+
+    The wall-clock times beside them can step back (NTP), so order is read from these alone.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    started: Seconds
+    call_ended: Seconds
+    review_started: Seconds | None
+    ended: Seconds
+
+    def in_order(self, after: float) -> bool:
+        """Whether the round's times run in turn, from ``after``, the round before's end."""
+        review = () if self.review_started is None else (self.review_started,)
+        times = [after, self.started, self.call_ended, *review, self.ended]
+        return times == sorted(times)
 
 
 class RoundEnded(_Line):
@@ -111,12 +141,13 @@ class RoundEnded(_Line):
     detail: str
     review: RoundReview | None
     #: The round's span: from before its start line to its review's end, or its own end.
-    started: NonEmptyStr
-    ended: NonEmptyStr
+    started: Timestamp
+    ended: Timestamp
     #: When the call ended, and when the review began (``None`` where none ran): the call and the
     #: review timed apart.
-    call_ended: NonEmptyStr
-    review_started: NonEmptyStr | None
+    call_ended: Timestamp
+    review_started: Timestamp | None
+    elapsed: Elapsed
 
 
 class RoundsEnded(_Line):
@@ -237,7 +268,9 @@ def read_journal(run_dir: Path, *, last: int, holds: bool = True) -> Journal:
     ran, saying what its ending says. A round follows only a round that is re-planned
     (:func:`what_follows`, with ``holds`` as the run holds a plan). The one terminal line names
     the last round, and what that round gives: its class, cause and what followed, or a void after
-    a round that raised. Each ended round's plan file digests to its line's ``plan_sha256``.
+    a round that raised, the run it went on to start. Each ended round's plan file digests to its
+    line's ``plan_sha256``; a round that planned spent; each review is a session of its own; each
+    round's times run in turn on the monotonic clock; round 1 alone names the run's arm.
 
     Raises:
         RunStateError: the journal is missing, a line is not a journal line, a plan file is not
@@ -251,7 +284,7 @@ def read_journal(run_dir: Path, *, last: int, holds: bool = True) -> Journal:
     except (OSError, ValidationError) as exc:
         msg = "the round journal is missing, or a line of it is not one the rounds write"
         raise RunStateError(msg, run_dir=str(run_dir), cause="record_missing") from exc
-    k, session, terminal = 0, "", False
+    k, session, terminal, opened = 0, "", False, ""
     seen: set[str] = set()
     before: RoundEnded | None = None
     for line in lines:
@@ -263,18 +296,33 @@ def read_journal(run_dir: Path, *, last: int, holds: bool = True) -> Journal:
                 raise _refused(run_dir, line.round, "budget")
             if line.session_id in seen:
                 raise _refused(run_dir, line.round, "session")
+            if (line.design_review, line.decomposition_model).count(None) != (line.round > 1) * 2:
+                raise _refused(run_dir, line.round, "arm")
             if (
                 before is not None
                 and what_follows(before.ending, last=before.round == last, holds=holds) != "replan"
             ):
                 raise _refused(run_dir, before.round, "follows")
-            k, session = line.round, line.session_id
+            k, session, opened = line.round, line.session_id, line.started
             seen.add(session)
         elif isinstance(line, RoundEnded):
             if not session or line.session_id != session:
                 raise _refused(run_dir, k, "session" if session else "order")
             if not _paired(line):
                 raise _refused(run_dir, k, "pairing")
+            if line.plan_sha256 is not None and (not line.usage or line.num_turns < 1):
+                raise _refused(run_dir, k, "spent")  # a call that planned spent
+            reviewer = line.review.session_id if line.review else None
+            if reviewer is not None and reviewer in seen:
+                raise _refused(run_dir, k, "session")  # each review a session of its own
+            seen.add(reviewer or session)
+            at = line.elapsed
+            if (
+                line.started != opened
+                or (at.review_started is None) != (line.review_started is None)
+                or not at.in_order(before.elapsed.ended if before else 0.0)
+            ):
+                raise _refused(run_dir, k, "time")
             if line.plan_sha256 is not None and _digest(plan_path(run_dir, k)) != line.plan_sha256:
                 raise _refused(run_dir, k, "digest", "plan_digest_mismatch")
             session, before = "", line
@@ -286,7 +334,10 @@ def read_journal(run_dir: Path, *, last: int, holds: bool = True) -> Journal:
             if not session and before is not None:
                 follows = what_follows(before.ending, last=k == last, holds=holds)
                 given = (follows if follows != "replan" else "void", *_what_ended(before.ending))
-                if (line.follows, line.ending_class, line.cause) != given and not raised:
+                # A void the loop raised follows only a round it went on to start a run from.
+                if (line.follows, line.ending_class, line.cause) != given and not (
+                    raised and follows in ("start", "fail_run")
+                ):
                     raise _refused(run_dir, k, "terminal")
     return Journal(lines, terminal)
 
@@ -349,8 +400,8 @@ class _Ran:
     detail: str
     reviewed: PlanReviewed | None
     findings: ReplanFindings | None
-    call_ended: str
-    review_started: str | None
+    call_ended: tuple[str, float]
+    review_started: tuple[str, float] | None
 
 
 def _one_round(
@@ -364,7 +415,7 @@ def _one_round(
     """Round k: its call, its plan's start check, its plan's review, the canary in its findings."""
     workdir = round_dir(loop.run_dir, k)
     outcome = loop.make_call(brief, workdir=workdir, prompt=prompt, session_id=session)
-    call_ended = utc_stamp(utc_now())
+    call_ended = loop.now()
     cause: PlanCause | None = outcome.cause
     detail = outcome.detail
     if outcome.ok and outcome.plan is not None:
@@ -383,9 +434,9 @@ def _one_round(
     reviewed, findings = None, None
     review_cause: ReviewCause | None = None
     canary: Canary | None = None
-    review_started: str | None = None
+    review_started: tuple[str, float] | None = None
     if cause is None:
-        review_started = utc_stamp(utc_now())
+        review_started = loop.now()
         try:
             reviewed = review_round(
                 loop.reviewing,
@@ -421,6 +472,12 @@ class _Loop:
     reviewing: tuple[PlanReviewer, ReviewInstall]
     check: CanaryCheck
     make_call: MakeCall
+    #: The attempt's start on the monotonic clock.
+    origin: float
+
+    def now(self) -> tuple[str, float]:
+        """The wall-clock time, and the seconds since the attempt began on the monotonic clock."""
+        return utc_stamp(utc_now()), time.monotonic() - self.origin
 
     def end(self, k: int, follows: str, ending_class: str, cause: str, detail: str) -> None:
         """Write the terminal line: the round the rounds ended on, how, and what followed."""
@@ -476,7 +533,9 @@ def decompose_in_rounds(
             brief=brief,
         )
         return RoundsOutcome(found, outcome.ok, outcome.cause, outcome.detail, None)
-    loop = _Loop(config, run_dir, target_repo, library, reviewing, check, make_call)
+    loop = _Loop(
+        config, run_dir, target_repo, library, reviewing, check, make_call, time.monotonic()
+    )
     last = replans(config.design_review) + 1
     earlier: list[EarlierRound] = []
     proposals: list[Proposal] = []
@@ -484,9 +543,17 @@ def decompose_in_rounds(
     k = 0
     while True:
         k += 1
-        session, started = str(uuid.uuid4()), utc_stamp(utc_now())
+        session, (started, began) = str(uuid.uuid4()), loop.now()
+        first = k == 1
         _append(
-            run_dir / ROUNDS_JOURNAL, RoundStarted(round=k, session_id=session, started=started)
+            run_dir / ROUNDS_JOURNAL,
+            RoundStarted(
+                round=k,
+                session_id=session,
+                started=started,
+                design_review=config.design_review if first else None,
+                decomposition_model=config.models.decomposition if first else None,
+            ),
         )
         try:
             ran = _one_round(brief, k, loop=loop, prompt=prompt, session=session)
@@ -503,7 +570,9 @@ def decompose_in_rounds(
             if ran.reviewed is None
             else RoundReview(**{n: getattr(ran.reviewed, n) for n in fields})
         )
-        ended = utc_stamp(utc_now())
+        ended, done = loop.now()
+        call_ended, timed = ran.call_ended[0], ran.review_started
+        review_started, review_began = (None, None) if timed is None else timed
         _append(
             run_dir / ROUNDS_JOURNAL,
             RoundEnded(
@@ -518,8 +587,14 @@ def decompose_in_rounds(
                 review=review,
                 started=started,
                 ended=ended,
-                call_ended=ran.call_ended,
-                review_started=ran.review_started,
+                call_ended=call_ended,
+                review_started=review_started,
+                elapsed=Elapsed(
+                    started=began,
+                    call_ended=ran.call_ended[1],
+                    review_started=review_began,
+                    ended=done,
+                ),
             ),
         )
         proposals.append(
@@ -531,9 +606,9 @@ def decompose_in_rounds(
                 plan_sha256=digest,
                 cause=None if digest is not None else str(ending.plan_cause),
                 started=started,
-                ended=ran.call_ended,
-                review_started=ran.review_started,
-                review_ended=ended if ran.review_started is not None else None,
+                ended=call_ended,
+                review_started=review_started,
+                review_ended=ended if review_started is not None else None,
             )
         )
         follows = what_follows(ending, last=k == last, holds=config.design_review != "observe")

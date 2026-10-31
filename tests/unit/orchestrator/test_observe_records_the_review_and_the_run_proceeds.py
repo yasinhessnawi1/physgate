@@ -217,8 +217,10 @@ def test_the_review_is_recorded_once(tmp_path: Path) -> None:
 
 def test_the_review_follows_the_plan_it_names(tmp_path: Path) -> None:
     def edit(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        ran = log[-1]
-        return [*log[:4], ran, *log[4:-1]]
+        # The review moved before the plan with the tokens it spent, so only its place is wrong.
+        spent, ran = log[-2], log[-1]
+        assert spent["kind"] == "tokens_used" and spent["attribution"].startswith("reviewer:")
+        return [*log[:4], spent, ran, *log[4:-2]]
 
     assert "follows the plan" in _refused(tmp_path, edit)
 

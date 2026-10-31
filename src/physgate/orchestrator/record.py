@@ -12,12 +12,12 @@ import itertools
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Literal, TypedDict
+from typing import TYPE_CHECKING, Annotated, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from physgate.contracts.pairs import ContractPair
-from physgate.orchestrator.common import NonEmptyStr, utc_now, utc_stamp
+from physgate.orchestrator.common import NonEmptyStr, Timestamp, utc_now, utc_stamp
 from physgate.orchestrator.events import (
     ContractPairsPlanned,
     Decomposed,
@@ -54,6 +54,9 @@ from physgate.orchestrator.run_config import RunConfig, require_recorded, write_
 from physgate.orchestrator.trajectory import Seal
 from physgate.roles import owners_of
 from physgate.state.task_ledger import TaskLedger
+
+if TYPE_CHECKING:
+    from physgate.orchestrator.design_rounds import Journal
 
 
 class DecompositionCall(BaseModel):
@@ -169,10 +172,10 @@ class Proposal(BaseModel):
     num_turns: Annotated[int, Field(ge=0)]
     plan_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None
     cause: NonEmptyStr | None
-    started: NonEmptyStr
-    ended: NonEmptyStr
-    review_started: NonEmptyStr | None
-    review_ended: NonEmptyStr | None
+    started: Timestamp
+    ended: Timestamp
+    review_started: Timestamp | None
+    review_ended: Timestamp | None
 
 
 class EarlierRound(BaseModel):
@@ -198,6 +201,10 @@ class _Mark(TypedDict, total=False):
 #: The timestamp a line carries when it is only checked, never written: the run's clock is not
 #: asked for it, so the lines that are written keep the times they always had.
 _UNWRITTEN_TS = utc_stamp(datetime(1970, 1, 1, tzinfo=UTC))
+
+
+def _fields(line: BaseModel, names: Sequence[str]) -> tuple[object, ...]:
+    return tuple(getattr(line, name) for name in names)
 
 
 class RunRecord:
@@ -289,36 +296,79 @@ class RunRecord:
         between the two leaves an event log that reads as finished: only the journal says otherwise.
 
         Raises:
-            RunStateError: the journal is missing, cut, ends void, or names other rounds than the
-                log's proposals.
+            RunStateError: the journal is missing, cut, ends void, or says other of its rounds than
+                the log does: the arm, a call, a review or what either spent, which it names.
         """
         # Imported here: the rounds start the run through this record.
-        from physgate.orchestrator.design_rounds import RoundEnded, read_journal
+        from physgate.orchestrator.design_rounds import read_journal
 
         try:
             journal = read_journal(
                 self.run_dir, last=self.state.replans + 1, holds=self.state.holds_plan
             )
-            ended = [
-                (e.round, e.session_id, e.plan_sha256)
-                for e in journal.lines
-                if isinstance(e, RoundEnded)
-            ]
-            proposed = [(p.round, p.session_id, p.plan_sha256) for p in self.state.proposals]
+            disagrees = next(
+                (what for what, said, logged in self._rounds_said(journal) if said != logged),
+                None,
+            )
             if (
                 not journal.complete
                 or getattr(journal.lines[-1], "follows", "void") == "void"
-                or ended != proposed
+                or disagrees is not None
             ):
                 msg = (
                     "the decomposition was killed before its rounds ended, or its round journal is "
                     "not this run's rounds: nothing of it is dispatched; decompose again into a "
                     "fresh run directory"
                 )
-                raise RunStateError(msg, run_dir=str(self.run_dir))
+                raise RunStateError(msg, run_dir=str(self.run_dir), disagrees=disagrees or "none")
         except RunStateError:
             self.close()
             raise
+
+    def _rounds_said(self, journal: Journal) -> Iterator[tuple[str, object, object]]:
+        """What the journal and the log each say of the rounds, in the order they are compared.
+
+        The arm; each round's call (its session, digest or cause, model, turns and times); each
+        review that wrote a line (its ending, seal and times); and every token the opening spent,
+        in turn, against each round's call usage and review usage.
+        """
+        from physgate.orchestrator.design_rounds import RoundEnded
+
+        # The reader holds the first line to round 1's start, the one that names the arm.
+        first, state = journal.lines[0], self.state
+        arm = (getattr(first, "design_review", None), getattr(first, "decomposition_model", None))
+        yield "arm", arm, (self.config.design_review, self.config.models.decomposition)
+        ended = [e for e in journal.lines if isinstance(e, RoundEnded)]
+        call = ("round", "session_id", "plan_sha256", "model", "num_turns", "started")
+        cause = [None if e.plan_sha256 else e.ending.plan_cause for e in ended]
+        calls = [
+            (*_fields(e, call), e.call_ended, why) for e, why in zip(ended, cause, strict=True)
+        ]
+        yield "calls", calls, [(*_fields(p, call), p.ended, p.cause) for p in state.proposals]
+        seen = ("result", "unavailable", "stream_seal")
+        ran = [(e, r) for e in ended if (r := e.review) is not None and not r.exposed]
+        reviews = [(e.round, *_fields(r, seen), e.review_started, e.ended) for e, r in ran]
+        lines = [*state.earlier_reviews, *filter(None, [state.design_review])]
+        yield "reviews", reviews, [_fields(r, ("round", *seen, "started", "ended")) for r in lines]
+        spent = []
+        for e in ended:
+            spent += [(f"decomposition:{e.session_id}", m.message_id, m.usage) for m in e.usage]
+            if e.review is not None:
+                who = f"reviewer:{e.review.session_id or 'none'}"
+                spent += [(who, m.message_id, m.usage) for m in e.review.usage]
+        # The opening ends at the last round's review line, or at the halt that ends the run.
+        events, last = self.log.events, len(state.proposals)
+        ends = (
+            isinstance(e, Halted) or isinstance(e, DesignReviewRan) and e.round == last
+            for e in events
+        )
+        end = next((i for i, done in enumerate(ends) if done), len(events))
+        tokens = [
+            (e.attribution, e.message_id, e.usage)
+            for e in events[:end]
+            if isinstance(e, TokensUsed)
+        ]
+        yield "tokens", spent, tokens
 
     def close(self) -> None:
         """Release every file handle."""

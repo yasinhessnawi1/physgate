@@ -153,19 +153,20 @@ def _held_at_round_two(run_dir: Path) -> Path:
 
     first_review = reviewed(first, REVIEW_SESSION, "r1")
     second_review = reviewed(second, f"{REVIEW_SESSION}-2", "r2")
+    first_call = (MessageUsage(message_id="d1", usage=usage(10)),)
+    second_call = (MessageUsage(message_id="d2", usage=usage(9)),)
     proposals = rounds(
         run_dir,
         [
-            (SESSION, b"round 1's plan", first_review),
-            (f"{SESSION}-2", b"round 2's plan", second_review),
+            (SESSION, b"round 1's plan", first_review, first_call),
+            (f"{SESSION}-2", b"round 2's plan", second_review, second_call),
         ],
+        design_review="repair:1",
     )
     loop.record.start(
         plan("s1", "s2"),
         proposals=proposals,
-        call=call(
-            session_id=f"{SESSION}-2", usage=(MessageUsage(message_id="d2", usage=usage(9)),)
-        ),
+        call=call(session_id=f"{SESSION}-2", usage=second_call),
         decomposed=record.DecompositionSummary(
             session_id=f"{SESSION}-2",
             model="claude-sonnet-5",
@@ -179,9 +180,7 @@ def _held_at_round_two(run_dir: Path) -> Path:
         reviewed=second_review,
         earlier=(
             earlier(
-                call=call(
-                    session_id=SESSION, usage=(MessageUsage(message_id="d1", usage=usage(10)),)
-                ),
+                call=call(session_id=SESSION, usage=first_call),
                 reviewed=first_review,
                 plan_sha256=plan_digest(b"round 1's plan"),
             ),

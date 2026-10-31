@@ -200,9 +200,11 @@ def started(
 
         given["proposals"] = rounds(
             run_dir,
-            [(SESSION, plan_bytes(the_outcome.plan), given["reviewed"])],
+            [(SESSION, plan_bytes(the_outcome.plan), given["reviewed"], the_outcome.usage)],
+            design_review=the_config.design_review,
             holds=design_review != "observe",
             model=DECOMPOSITION,
+            decomposition_model=the_config.models.decomposition,
         )
     start_run(
         the_outcome,

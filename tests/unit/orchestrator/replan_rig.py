@@ -333,7 +333,7 @@ def round_dir(run_dir: Path, k: int) -> Path:
 
 
 _ENVELOPE = ("seq", "ts", "run_id", "held_item")
-_TIMES = ("started", "ended", "call_ended", "review_started")
+_TIMES = ("started", "ended", "call_ended", "review_started", "elapsed")
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
@@ -351,12 +351,15 @@ def rounds_record(run_dir: Path, upto: int, *, opening: bool = True) -> str:
     The journal's start and end lines of those rounds, their plan files, and (``opening``) where a
     run was started, its tokens of those rounds' sessions and those rounds' review lines; session
     ids, the run id and the run-directory prefix replaced by placeholders in order of first
-    appearance, ``ts``, ``started``, ``ended`` and the call's end and the review's start dropped,
+    appearance, ``ts``, ``started``, ``ended``, the call's end, the review's start and the
+    monotonic times dropped, and round 1's ``design_review`` mode,
     each round's proposal kept, and of a review line its place in the
     log and the item it holds on (the last round alone holds, and it is not among those compared).
     """
     lines = [one for one in journal(run_dir) if one.get("round", 0) <= upto]
     lines = [one for one in lines if one["kind"] in ("round_started", "round_ended")]
+    # Round 1 names the run's own mode: a shorter run's differs by what it is.
+    lines = [{k: v for k, v in one.items() if k != "design_review"} for one in lines]
     sessions = {one["session_id"] for one in lines if "session_id" in one}
     sessions |= {
         one["review"]["session_id"]

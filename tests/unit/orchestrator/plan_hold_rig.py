@@ -150,15 +150,20 @@ def opened(
         }
     )
     holds = the_rig.config_overrides.get("design_review") != "observe"
+    spent = (MessageUsage(message_id="d1", usage=usage(10)),)
     proposals = one_round(
-        the_rig.run_dir, session=SESSION, plan=PLAN_BYTES, reviewed=reviewed, holds=holds
+        the_rig.run_dir,
+        session=SESSION,
+        plan=PLAN_BYTES,
+        reviewed=reviewed,
+        spent=spent,
+        design_review=the_rig.config_overrides["design_review"],
+        holds=holds,
     )
     loop.record.start(
         plan(*ids),
         proposals=proposals,
-        call=DecompositionCall(
-            session_id=SESSION, usage=(MessageUsage(message_id="d1", usage=usage(10)),)
-        ),
+        call=DecompositionCall(session_id=SESSION, usage=spent),
         decomposed=DecompositionSummary(
             session_id=SESSION,
             model="claude-sonnet-5",

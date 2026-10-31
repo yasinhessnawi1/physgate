@@ -438,7 +438,7 @@ class RunState:
             return
         if isinstance(event, Halted):
             if event.reason == "decomposition_failed" and self.reviews_plan:
-                self._proposals_end(None, plan=False)
+                self._proposals_end(None)
             self.halted = self.last_halt = event
             return
         if isinstance(event, TokensUsed) and self.reviews_plan and self.design_review is None:
@@ -469,6 +469,9 @@ class RunState:
             self.worktrees_handled.add(event.subtask_id)
             return
         if isinstance(event, Incident) and event.subtask_id is None:
+            opening = self.reviews_plan and self.design_review is None
+            if opening and event.cause == "held_out_read" and len(self.review_tokens) != 1:
+                _refuse("an exposure in a plan's review follows that one review session's tokens")
             self.incident = event
             return
         if self.halted is not None and not isinstance(event, Resumed | Incident):
@@ -498,7 +501,7 @@ class RunState:
             return
         if isinstance(event, Decomposed):
             if self.reviews_plan:
-                self._proposals_end(event.session_id, plan=True, digest=event.plan_sha256)
+                self._proposals_end(event)
             self.journal_head = self.base_revision = event.head_revision
             self.run_head = event.spec_commit
             if event.interface_consumers is not None:
@@ -720,21 +723,30 @@ class RunState:
         self.call_tokens = set()
         self.proposals.append(event)
 
-    def _proposals_end(
-        self, session_id: str | None, *, plan: bool, digest: str | None = None
-    ) -> None:
-        """The opening's plan, or its failed decomposition, follows its last round's proposal."""
+    def _proposals_end(self, decomposed: Decomposed | None) -> None:
+        """The opening's plan, or its failed decomposition, follows its last round's proposal.
+
+        The plan's line names the last round's call: its session, digest and turns, and its model
+        (the pinned one where the call's answer named none).
+        """
         last = self.proposals[-1] if self.proposals else None
         if (
             last is None
             or self.call_tokens
             or len(self.earlier_reviews) != len(self.proposals) - 1
-            or (last.plan_sha256 is not None) != plan
-            or (plan and (last.session_id, last.plan_sha256) != (session_id, digest))
+            or (last.plan_sha256 is not None) != (decomposed is not None)
+            or (
+                decomposed is not None
+                and (
+                    (last.session_id, last.plan_sha256, last.num_turns)
+                    != (decomposed.session_id, decomposed.plan_sha256, decomposed.num_turns)
+                    or last.model not in (None, decomposed.model)
+                )
+            )
         ):
             _refuse(
                 "a run that reviews its plan writes its plan, or its failed decomposition, after "
-                "its last round's proposal, by that round's session and digest"
+                "its last round's proposal, by that round's session, digest, model and turns"
             )
 
     def _plan_reviewed(self, event: DesignReviewRan) -> None:
@@ -748,8 +760,12 @@ class RunState:
         if self.design_review is not None:
             _refuse("a plan is reviewed once")
         ending = event.result or event.unavailable
-        if self.review_tokens - {f"reviewer:{(ending.session_id if ending else None) or 'none'}"}:
-            _refuse("a plan's review's tokens are attributed to the session its line names")
+        named = f"reviewer:{(ending.session_id if ending else None) or 'none'}"
+        if self.review_tokens - {named} or (event.result is not None and not self.review_tokens):
+            _refuse(
+                "a plan's review's tokens are attributed to the session its line names, and a "
+                "review that gave a verdict spent"
+            )
         self.review_tokens = set()
         proposal = self.proposals[-1] if self.proposals else None
         if (

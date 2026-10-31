@@ -333,9 +333,11 @@ def test_a_review_with_no_verdict_is_what_the_review_came_to(tmp_path: Path, cal
 def test_a_review_that_showed_held_out_material_halts_the_run_it_starts(
     tmp_path: Path, calls: Calls
 ) -> None:
+    # The session read the material, so it spent: an exposure follows its own review's tokens.
+    spent = (MessageUsage(message_id="r3", usage=_usage(3)),)
     reviewer = StandIn(
         HeldOutExposedError(
-            "held-out material", session_id="review-session-3", reviewer_model=DESIGN, usage=()
+            "held-out material", session_id="review-session-3", reviewer_model=DESIGN, usage=spent
         )
     )
     # The run is halted, so the command fails: nothing of it will be dispatched.
