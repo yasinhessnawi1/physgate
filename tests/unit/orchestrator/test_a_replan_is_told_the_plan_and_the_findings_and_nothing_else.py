@@ -230,19 +230,19 @@ def test_a_canary_in_the_findings_is_found_before_anything_is_sent(
     assert check_of(decompose.replan_findings(review), check) == seen
 
 
-def test_the_first_call_is_sent_the_prompt_it_is_given(
+def test_the_first_call_is_sent_the_prompt_it_is_given_on_stdin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sent: list[str] = []
+    sent: list[tuple[list[str], dict[str, Any]]] = []
 
     class SentError(Exception):
         pass
 
-    def argv(binary: str, *, prompt: str, **_: Any) -> list[str]:  # noqa: ANN401
-        sent.append(prompt)
+    def run(argv: list[str], **kw: Any) -> Any:  # noqa: ANN401
+        sent.append((list(argv), kw))
         raise SentError
 
-    monkeypatch.setattr(decompose, "decomposition_argv", argv)
+    monkeypatch.setattr(decompose.subprocess, "run", run)
     monkeypatch.setattr(decompose, "claude_binary", lambda: "claude")
     monkeypatch.setattr(decompose, "binary_version", lambda binary=None: "2.1.301")
     config = make_config(claude_version="2.1.301")
@@ -263,8 +263,13 @@ def test_the_first_call_is_sent_the_prompt_it_is_given(
 
         found = outcome_of(made)
         assert isinstance(found, SentError), found
-    # Without a prompt the call is sent the decomposition prompt, whatever the run's policy.
-    assert sent == [decompose.prompt_for(BRIEF, roles), "a re-plan's prompt"]
+    # Without a prompt the call is sent the decomposition prompt, whatever the run's policy; on
+    # stdin, never as an argument, which Linux caps at 128 KiB and a re-plan's prompt can pass.
+    expected = [decompose.prompt_for(BRIEF, roles), "a re-plan's prompt"]
+    assert [kw.get("input") for _, kw in sent] == expected
+    for (argv, kw), prompt in zip(sent, expected, strict=True):
+        assert prompt not in argv and "stdin" not in kw
+        assert argv[argv.index("-p") + 1].startswith("--")
 
 
 def test_a_blocked_review_is_replanned_with_what_the_brief_lacks() -> None:
