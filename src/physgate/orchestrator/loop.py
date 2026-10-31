@@ -1250,6 +1250,10 @@ class Loop:
             # these bytes are still the file's first (ARCH-133). Whole lines only: a torn final
             # line is no decision, and the writer may lawfully cut it. A run that records only
             # takes decisions on contract items, which close them: it seals while one is open.
+            # A session spawned before the first item, or once every item is decided, runs
+            # unsealed. That is safe only because the queue's reader refuses a decision on an item
+            # not listed or already decided, at every read: a line such a session plants can then
+            # never close an item a person has not, and loosening that rule reopens the gap.
             beside = whole_lines(decisions_file_bytes(self.run_dir))
             self._emit(
                 DecisionsSealed(

@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loop_fakes import FakeDispatcher, KilledError, Rig
+from loop_fakes import FakeDispatcher, FakeReviewer, KilledError, Rig
 from test_a_blocked_review_is_a_review_that_goes_to_a_person import blocked_review
 from test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item import (
     ITEM,
@@ -54,9 +54,13 @@ from physgate.orchestrator import decisions as deciding
 from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.dispatch import role_prompt
 from physgate.orchestrator.events import Event, IntegrationGateRan, read_events
+from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt
+from physgate.orchestrator.protocols import IndicatorReport, ReviewResult
 from physgate.orchestrator.queue import (
+    DECISIONS_NAME,
     PersonDecision,
+    QueueResolution,
     ShownItem,
     read_queue,
     record_decision,
@@ -946,4 +950,121 @@ def test_a_reopened_subtask_that_spends_its_attempts_goes_to_a_person(
         f"Subtask {FW} has no attempt left of 3: 1 merged before a person's choice reopened it, "
         "and the others were rejected."
     )
+    assert refusal(rows) is None
+
+
+# --- held choices, the item's indicators, and a line planted before any item ---------------------
+
+
+def test_a_held_choice_reopens_only_once_it_is_confirmed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A choice written while a session ran without the OS layer is held: nothing is reopened until
+    # an operator confirms it, and then exactly once.
+    monkeypatch.setattr(Loop, "_require_os_layer", lambda self: None)
+    declared = (BUDGET, DRIVE, FW)
+    rig = rig_for(tmp_path, dispatcher=FakeDispatcher(trajectories=tmp_path / "run" / "sessions"))
+    rig.config_overrides.update(ACTS)
+    rig.diff.writes.update({BUDGET: [node("budget.supply", "sizing", "iface.drive", v=11)]})  # type: ignore[attr-defined]
+    mend(rig, {BUDGET: node("budget.supply", "sizing", "iface.drive", v=12)})
+    rig.dispatcher.during[3] = lambda: choose(rig.run_dir, "producer")
+    loop = rig.open()
+    hooked(monkeypatch, loop, declared=declared)
+    start(loop, sizing=True)
+    _layer(loop, present=False)
+    assert escaped(loop.run) is None
+    loop.close()
+    rows = lines(rig)
+    (held,) = of(rows, "decision_taken")
+    assert (held["effect"], held["acts"], held["why_not"], held.get("reopens")) == (
+        "reopen",
+        False,
+        "held_os_layer_off",
+        BUDGET,
+    )
+    assert of(rows, "subtask_reopened") == []
+    assert len(requests_of(rig, BUDGET)) == 1
+    assert refusal(rows) is None
+    resumed = rig.open()
+    hooked(monkeypatch, resumed, declared=declared)
+    _layer(resumed, present=False)
+    stopped: list[str] = []
+    said = escaped(
+        lambda: stopped.append(resumed.resume(confirm=(ITEM,), confirmed_by="operator").kind)
+    )
+    resumed.close()
+    assert (said, stopped) == (None, ["done"])
+    rows = lines(rig)
+    confirmed = of(rows, "decision_taken")[1]
+    assert (confirmed["acts"], confirmed["confirmed_by"]) == (True, "operator")
+    (reopened,) = of(rows, "subtask_reopened")
+    assert rows.index(reopened) == rows.index(confirmed) + 1
+    assert (reopened["subtask_id"], reopened["attempt"]) == (BUDGET, 2)
+    assert [r.attempt for r in requests_of(rig, BUDGET)] == [1, 2]
+    assert refusal(rows) is None
+
+
+def _confirmed_at(n: int) -> ReviewResult:
+    indicator = IndicatorReport(
+        kind="disabled_checks", evidence="t1", disposition="confirmed", reason="a skip"
+    )
+    return ReviewResult(
+        verdict="fail",
+        finding="a check switched off",
+        reviewer_model="claude-opus-5-5",
+        session_id=f"rev-{n}",
+        usage=(),
+        indicators=(indicator,),
+    )
+
+
+def test_the_contract_item_lists_the_reopenable_modules_confirmed_indicators(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # fw's first attempt is refused with a confirmed indicator (review 2); its second merges.
+    reviewer = FakeReviewer(results={2: _confirmed_at(2)})
+    rig = opened(tmp_path, monkeypatch, mended={}, reviewer=reviewer)
+    item = item_of(rig)
+    assert item.consequence is not None
+    assert item.consequence.on_choose == {"producer": "reopen", "consumer": "record_only"}
+    assert [(i.attempt, i.kind) for i in item.consequence.confirmed_indicators] == [
+        (1, "disabled_checks")
+    ]
+    # The module the item could reopen is fw, whatever the kept module's history holds.
+    assert "(attempt 3)" in item.decision_required
+
+
+def test_a_line_planted_for_the_next_item_during_an_unsealed_session_never_closes_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Record-only, no OS layer: fw's session runs before any item is listed, so unsealed, and its
+    # shell writes a decision for the item id the run will give fw's failed contract.
+    monkeypatch.setattr(Loop, "_require_os_layer", lambda self: None)
+    rig = rig_for(
+        tmp_path, fw_volts=11, dispatcher=FakeDispatcher(trajectories=tmp_path / "run" / "sessions")
+    )
+    path = rig.run_dir / DECISIONS_NAME
+    planted = QueueResolution(
+        item_id=ITEM, decision="approve", resolved_by="yasin", ts="2026-09-26T12:00:00.000000Z"
+    )
+
+    def plant() -> None:
+        path.write_bytes(path.read_bytes() + planted.model_dump_json().encode() + b"\n")
+
+    rig.dispatcher.during[1] = plant
+    loop = rig.open()
+    hooked(monkeypatch, loop, declared=DECLARED)
+    start(loop)
+    _layer(loop, present=False)
+    stopped: list[str] = []
+    assert escaped(lambda: stopped.append(loop.run().kind)) is None
+    loop.close()
+    assert path.read_bytes() == planted.model_dump_json().encode() + b"\n"
+    rows = lines(rig)
+    # The line is held as written in a session's window: it closes nothing, so nothing completes.
+    assert [(t["item_id"], t["acts"], t["why_not"]) for t in of(rows, "decision_taken")] == [
+        (ITEM, False, "held_os_layer_off")
+    ]
+    assert of(rows, "module_completed") == []
+    assert replay(read_events(rig.run_dir / "events.jsonl")).undecided(ITEM)
     assert refusal(rows) is None
