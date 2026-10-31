@@ -156,7 +156,6 @@ from physgate.orchestrator.protocols import (
     require_separate_models,
 )
 from physgate.orchestrator.queue import (
-    DECOMPOSITION_STREAM,
     INTEGRATION,
     ItemConsequence,
     QueueItem,
@@ -172,6 +171,7 @@ from physgate.orchestrator.queue import (
     integration_item,
     item_id_for,
     read_queue,
+    round_stream,
     stream_parts,
     unavailable_item,
     whole_lines,
@@ -2575,15 +2575,14 @@ class Loop:
         return self._trajectories_hold(None, sessions)
 
     def _decomposition_holds(self) -> bool:
-        """The decomposition's stream is still what the plan's review sealed; else an incident."""
+        """The held round's stream is still what its review sealed; else an incident."""
         review = self.state.design_review
         if review is None:
             self._incident(None, "trajectory_tampered", "the plan's review sealed no stream")
             return False
+        held = round_stream(len(self.state.earlier_reviews) + 1)
         try:
-            read_sealed(
-                self.run_dir.joinpath(*stream_parts(DECOMPOSITION_STREAM)), review.stream_seal
-            )
+            read_sealed(self.run_dir.joinpath(*stream_parts(held)), review.stream_seal)
         except TrajectoryTamperedError as exc:
             self._incident(None, "trajectory_tampered", f"{exc}: {exc.context}")
             return False

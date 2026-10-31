@@ -196,3 +196,24 @@ def test_a_release_of_a_held_later_round_is_checked_against_that_round_s_stream(
     else:
         assert dispatched(run_dir) == [], kinds(run_dir)
         assert "incident" in kinds(run_dir)
+
+
+def test_an_opening_cut_after_an_earlier_round_and_before_the_plan_is_refused(
+    tmp_path: Path,
+) -> None:
+    from physgate.orchestrator.exceptions import RunStateError
+    from physgate.orchestrator.record import RunRecord
+    from physgate.orchestrator.run_config import load_run_config
+
+    ran = decompose(tmp_path, "repair:1", [Step(), Step()])
+    assert ran.code == 0, ran.code
+    raw = (ran.run_dir / "events.jsonl").read_text().splitlines(keepends=True)
+    first = next(i for i, one in enumerate(raw) if '"design_review_ran"' in one)
+    # Killed after round 1's review line, before round 2's tokens and the plan the run starts from.
+    (ran.run_dir / "events.jsonl").write_text("".join(raw[: first + 1]))
+    for later in ("ledger.jsonl", "queue.jsonl"):  # written after the plan, so not yet there
+        (ran.run_dir / later).unlink()
+    config = load_run_config(ran.run_dir / "run.json")
+    found = outcome_of(lambda: RunRecord(config, ran.run_dir))
+    assert isinstance(found, RunStateError), found
+    assert "cut before its review" in str(found), str(found)

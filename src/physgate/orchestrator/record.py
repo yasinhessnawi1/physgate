@@ -40,13 +40,13 @@ from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.plan import CriterionWords, InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.protocols import MessageUsage, ReviewResult
 from physgate.orchestrator.queue import (
-    DECOMPOSITION_STREAM,
     PLAN,
     ApprovalQueue,
     QueueItem,
     item_id_for,
     plan_consequence,
     plan_item,
+    round_stream,
 )
 from physgate.orchestrator.replay import RunState, project_ledger
 from physgate.orchestrator.run_config import RunConfig, require_recorded, write_run_config
@@ -113,15 +113,14 @@ class ReviewInstall(BaseModel):
     entries: Annotated[int, Field(ge=0)]
 
 
-class PlanReviewed(BaseModel):
-    """What the plan's review came to, for the run's opening, and what its session spent.
+class RoundReview(BaseModel):
+    """What one round's plan review came to, and what its session spent, as its round keeps it.
 
     One of a verdict, why there is none, or an exposure of held-out material in its stream.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    install: ReviewInstall
     #: The seal the review held the call's stream to: the one the call took.
     stream_seal: Seal
     #: The review's session, which its tokens are attributed to; ``None`` if none ran.
@@ -133,7 +132,7 @@ class PlanReviewed(BaseModel):
     exposed: bool = False
 
     @model_validator(mode="after")
-    def _one_ending(self) -> PlanReviewed:
+    def _one_ending(self) -> RoundReview:
         endings = (self.result is not None, self.unavailable is not None, self.exposed)
         if sum(endings) != 1:
             msg = "a plan's review ends in a verdict, in none, or in an exposure: one of them"
@@ -146,6 +145,26 @@ class PlanReviewed(BaseModel):
             msg = "a review's tokens are attributed to the session its ending names"
             raise ValueError(msg)
         return self
+
+
+class PlanReviewed(RoundReview):
+    """What the plan's review came to, for the run's opening, and the installation it ran under."""
+
+    install: ReviewInstall
+
+
+class EarlierRound(BaseModel):
+    """A round before the last, re-planned after its review did not pass: kept in the opening."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    call: DecompositionCall
+    reviewed: PlanReviewed
+    plan_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+#: What a run's first line says of how it reviews its plan; nothing for a run that does not.
+DesignReviewSaid = Literal["observe", "on", "repair:1", "repair:2", "repair:3"] | None
 
 
 class _Mark(TypedDict, total=False):
@@ -226,7 +245,7 @@ class RunRecord:
         project_ledger(self.state, self.ledger)
         if (
             self.state.reviews_plan
-            and self.state.plan_sha256 is not None
+            and (self.state.plan_sha256 is not None or self.state.earlier_reviews)
             and self.state.design_review is None
             and self.state.halted is None
         ):
@@ -253,12 +272,17 @@ class RunRecord:
         """The fields the next line carries, to spread into an event where it is built."""
         return self.log.envelope()
 
-    def _begin(self, call: DecompositionCall | None, reviewed: PlanReviewed | None = None) -> None:
+    def _begin(
+        self,
+        call: DecompositionCall | None,
+        reviewed: PlanReviewed | None = None,
+        earlier: Sequence[EarlierRound] = (),
+    ) -> None:
         if self.log.events:
             msg = "the run was already started"
             raise RunStateError(msg, run_dir=str(self.run_dir))
         write_run_config(self.config_path, self.config)
-        for line in self._opening(call, self.envelope, reviewed):
+        for line in self._opening(call, self.envelope, reviewed, earlier):
             self.emit(line)
 
     def _opening(
@@ -266,12 +290,14 @@ class RunRecord:
         call: DecompositionCall | None,
         envelope: Callable[[], Envelope],
         reviewed: PlanReviewed | None = None,
+        earlier: Sequence[EarlierRound] = (),
     ) -> Iterator[Event]:
-        """The run's start line, what its one model call spent, and the review's installation.
+        """The run's start line, what its first call spent, the review's installation, each round.
 
-        Each line is built as it is asked for. A line's envelope is taken when the line is
-        built, so a caller that writes each line before it asks for the next gives every line
-        the sequence number it is written at.
+        Each round before the last follows: its review's tokens and line, then the next call's
+        tokens, so the last call's are the opening's last before its plan. Each line is built as
+        it is asked for. A line's envelope is taken when the line is built, so a caller that writes
+        each line before it asks for the next gives every line the sequence number it is written at.
         """
         yield RunStarted(
             **envelope(),
@@ -280,33 +306,46 @@ class RunRecord:
             queue_decisions=self._said()[0],
             design_review=self._said()[1],
         )
-        if call is not None:
-            for message in call.usage:
-                yield TokensUsed(
-                    **envelope(),
-                    attribution=f"decomposition:{call.session_id}",
-                    message_id=message.message_id,
-                    usage=message.usage,
-                )
-        if reviewed is not None:
+        calls = [*(one.call for one in earlier), *((call,) if call is not None else ())]
+        if calls:
+            yield from self._spent(calls[0], envelope)
+        ran = reviewed or (earlier[0].reviewed if earlier else None)
+        if ran is not None:
             # The review's session ran under this installation, before anything was written.
-            yield InstallChecked(**envelope(), **reviewed.install.model_dump())
+            yield InstallChecked(**envelope(), **ran.install.model_dump())
+        for index, one in enumerate(earlier):
+            yield from self._reviewing(one.reviewed, one.plan_sha256, envelope, last=False)
+            if index + 1 < len(calls):
+                yield from self._spent(calls[index + 1], envelope)
 
-    def _said(self) -> tuple[Literal["act"] | None, Literal["observe", "on"] | None]:
+    @staticmethod
+    def _spent(call: DecompositionCall, envelope: Callable[[], Envelope]) -> Iterator[Event]:
+        for message in call.usage:
+            yield TokensUsed(
+                **envelope(),
+                attribution=f"decomposition:{call.session_id}",
+                message_id=message.message_id,
+                usage=message.usage,
+            )
+
+    def _said(self) -> tuple[Literal["act"] | None, DesignReviewSaid]:
         """What the run's first line says of whether it acts on decisions and reviews its plan."""
         acts: Literal["act"] | None = "act" if self.config.queue_decisions == "act" else None
         review = self.config.design_review
-        if review == "off":
-            return acts, None
-        if review in ("observe", "on"):
-            return acts, "on" if review == "on" else "observe"
-        msg = "this build records no re-plan rounds, so it starts no repair arm's run"
-        raise RunConfigError(msg, design_review=review)
+        return acts, None if review == "off" else review
 
     def _reviewing(
-        self, reviewed: PlanReviewed, plan_sha256: str, envelope: Callable[[], Envelope]
+        self,
+        reviewed: RoundReview,
+        plan_sha256: str,
+        envelope: Callable[[], Envelope],
+        *,
+        last: bool = True,
     ) -> Iterator[Event]:
-        """What the plan's review spent, then its line, or the exposure its stream showed."""
+        """What a round's review spent, then its line, or the exposure its stream showed.
+
+        Only the last round's line may hold the run: an earlier one was re-planned.
+        """
         for message in reviewed.usage:
             yield TokensUsed(
                 **envelope(),
@@ -322,7 +361,7 @@ class RunRecord:
             yield Halted(**envelope(), reason="incident", detail="held_out_read")
             return
         passed = reviewed.result is not None and reviewed.result.verdict == "pass"
-        holds = self.config.design_review == "on" and not passed
+        holds = last and self.config.design_review != "observe" and not passed
         yield DesignReviewRan(
             **envelope(),
             plan_sha256=plan_sha256,
@@ -339,12 +378,15 @@ class RunRecord:
             return None
         decomposed = next(e for e in self.log.events if isinstance(e, Decomposed))
         acts = self.config.queue_decisions == "act"
+        earlier = tuple(self.state.earlier_reviews)
         return plan_item(
             review=review,
             spec_commit=decomposed.spec_commit,
-            # Relative to the run, so a run moved between decompose and run builds it alike.
-            stream=DECOMPOSITION_STREAM,
+            # Relative to the run, so a run moved between decompose and run builds it alike: the
+            # held round's own stream, which its line sealed.
+            stream=round_stream(len(earlier) + 1),
             consequence=plan_consequence() if acts else None,
+            earlier=earlier,
         )
 
     def hold_plan(self) -> None:
@@ -412,11 +454,13 @@ class RunRecord:
         call: DecompositionCall | None = None,
         decomposed: DecompositionSummary | None = None,
         reviewed: PlanReviewed | None = None,
+        earlier: Sequence[EarlierRound] = (),
     ) -> None:
         """Record the configuration, the decomposition call, the plan and its review, once.
 
         ``reviewed`` is what the plan's review came to, given exactly when the run reviews its
-        plan; its lines end the opening, after the plan they judge.
+        plan; its lines end the opening, after the plan they judge. ``earlier`` are the rounds
+        re-planned before it, each kept in the opening before the plan.
 
         Raises:
             RunStateError: the run was already started.
@@ -447,7 +491,7 @@ class RunRecord:
         # leaves no part of itself on the record, and no run is started from part of it.
         unwritten = self._unwritten()
         opening = [
-            *self._opening(call, unwritten, reviewed),
+            *self._opening(call, unwritten, reviewed, earlier),
             *self._planning(plan, decomposed, marked, unwritten),
         ]
         if reviewed is not None and digest is not None:
@@ -456,16 +500,18 @@ class RunRecord:
             require_writable(opening, RunState())
         except ValueError as exc:
             raise RunConfigError(str(exc), run_dir=str(self.run_dir)) from None
-        self._begin(call, reviewed)
+        self._begin(call, reviewed, earlier)
         for line in self._planning(plan, decomposed, marked, self.envelope):
             self.emit(line)
         if reviewed is not None and digest is not None:
             for line in self._reviewing(reviewed, digest, self.envelope):
                 self.emit(line)
 
-    def fail_decomposition(self, call: DecompositionCall | None, detail: str) -> None:
-        """Record a run whose one model call produced no usable plan. It ends there."""
-        self._begin(call)
+    def fail_decomposition(
+        self, call: DecompositionCall | None, detail: str, earlier: Sequence[EarlierRound] = ()
+    ) -> None:
+        """Record a run whose last call produced no plan it could start, after ``earlier``."""
+        self._begin(call, None, earlier)
         self.emit(Halted(**self.envelope(), reason="decomposition_failed", detail=detail))
 
     def remove(self, subtask_id: str, reason: str) -> None:

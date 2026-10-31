@@ -74,7 +74,7 @@ from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR as INTEGRATION_MOD
 from physgate.orchestrator.plan import REQUIREMENT_MAX_CHARS as REQUIREMENT_MAX_CHARS
 from physgate.orchestrator.plan import SPEC_MAX_CHARS as SPEC_MAX_CHARS
 from physgate.orchestrator.plan import Contribution as Contribution
-from physgate.orchestrator.plan import CriterionWords
+from physgate.orchestrator.plan import CriterionWords, plan_bytes
 from physgate.orchestrator.plan import IntegratedPlan as IntegratedPlan
 from physgate.orchestrator.plan import InterfaceConsumers as InterfaceConsumers
 from physgate.orchestrator.plan import Plan as Plan
@@ -86,6 +86,7 @@ from physgate.orchestrator.protocols import REJECTING_RESULTS, MessageUsage, Rev
 from physgate.orchestrator.record import (
     DecompositionCall,
     DecompositionSummary,
+    EarlierRound,
     PlanEntry,
     PlanReviewed,
     RunRecord,
@@ -582,7 +583,7 @@ def replan_prompt(brief: str, roles: Sequence[str], plan: Plan, findings: Replan
     its digest is taken over, and the findings as the review gave them, each between fences the
     text cannot close (the repair instructions' quotation), so both are data.
     """
-    canonical = json.dumps(plan.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    canonical = plan_bytes(plan).decode()
     lacking = f"{NO_INPUT_SUPPLIED_LINE}\n\n" if findings.lacks_input else ""
     return (
         f"{prompt_for(brief, sorted(roles))}\n{REPLAN_SENTENCE}\n\n"
@@ -799,8 +800,9 @@ def call(
     base_url: str | None,
     credential: Credential,
     prompt: str | None = None,
+    session_id: str | None = None,
 ) -> Outcome:
-    """Make the run's one model call, isolated, and judge what came back.
+    """Make one decomposition call, isolated, as session ``session_id``, and judge what came back.
 
     The call has no tools, so no agent runs in it. An API key goes in its
     environment; a subscription token goes in as the binary's login file in the
@@ -818,7 +820,7 @@ def call(
         (workdir / name).mkdir(parents=True, exist_ok=True)
     settings = workdir / "settings.json"
     settings.write_text("{}\n")
-    session_id = str(uuid.uuid4())
+    session_id = session_id or str(uuid.uuid4())
     roles = sorted(config.models.roles)
     sent = prompt_for(brief, roles) if prompt is None else prompt
     argv = decomposition_argv(
@@ -923,12 +925,32 @@ def read_debug_log(path: Path, *, flags_off_by_setting: bool = False) -> Observe
     return observe_traffic(text, flags_off_by_setting=flags_off_by_setting)
 
 
-def require_fresh(run_dir: Path) -> None:
+#: The round journal of a reviewed decomposition, beneath the run directory.
+ROUNDS_JOURNAL = PurePosixPath("decomposition", "rounds.jsonl")
+
+
+def require_fresh(run_dir: Path, *, rounds: bool = True) -> None:
     """Refuse a run directory that already holds a run, before any token is spent.
 
+    With ``rounds``, a decomposition's round journal too: a decomposition killed mid-loop is
+    never resumed, and the refusal names the last round it ended.
+
     Raises:
-        RunStateError: it holds a run's log, configuration or store.
+        RunStateError: it holds a run's log, configuration or store, or a round journal.
     """
+    journal = run_dir / ROUNDS_JOURNAL
+    if rounds and journal.exists():
+        ended = [
+            line.get("round")
+            for line in (_json_line(raw) for raw in journal.read_bytes().splitlines())
+            if line.get("kind") == "round_ended"
+        ]
+        msg = (
+            f"the run directory holds a decomposition's rounds, the last ended round "
+            f"{ended[-1] if ended else 'none'}; a decomposition is never resumed: decompose "
+            "again into a fresh run directory"
+        )
+        raise RunStateError(msg, run_dir=str(run_dir))
     if any((run_dir / name).exists() for name in ("events.jsonl", "run.json", "store")):
         msg = (
             "the run directory already holds a run; a rerun is a new run in a new directory. "
@@ -936,6 +958,15 @@ def require_fresh(run_dir: Path) -> None:
             "nothing here deletes it"
         )
         raise RunStateError(msg, run_dir=str(run_dir))
+
+
+def _json_line(raw: bytes) -> dict[str, Any]:
+    """One line read as an object, or an empty one: a refusal names what it can read."""
+    try:
+        found = json.loads(raw)
+    except ValueError:
+        return {}
+    return found if isinstance(found, dict) else {}
 
 
 def _blob_id(data: bytes, object_format: str) -> str:
@@ -1295,11 +1326,15 @@ def start_run(
     library: Path | None,
     brief: str | None = None,
     reviewed: PlanReviewed | None = None,
+    earlier: Sequence[EarlierRound] = (),
+    refused: str | None = None,
 ) -> RunRecord:
-    """Start the run from the call's outcome: record a failure, or write the plan.
+    """Start the run from the last call's outcome: record a failure, or write the plan.
 
     ``reviewed`` is what the plan's review came to, in a run that reviews its plan; it ends the
-    opening (:meth:`RunRecord.start`).
+    opening (:meth:`RunRecord.start`), after ``earlier``, the rounds re-planned before it.
+    ``refused`` is why the start check refused the plan's own content: the run is then recorded
+    as a failed decomposition.
 
     The subtasks are planned in the harness's order (:func:`_planned_subtasks`), each
     with its specification. With them, the run branch gets the curated library every
@@ -1321,8 +1356,8 @@ def start_run(
             file missing or empty, or the target holding other bytes where it goes; or the
             brief's words for a requirement longer than a module's specification may be.
     """
-    require_fresh(run_dir)
-    if outcome.ok and (reviewed is not None) != (config.design_review != "off"):
+    require_fresh(run_dir, rounds=False)  # the journal is this decomposition's own
+    if outcome.ok and refused is None and (reviewed is not None) != (config.design_review != "off"):
         # Before anything is written, as the record would refuse it only after the commit.
         msg = "a run that reviews its plan records the review, and only such a run records one"
         raise RunConfigError(msg, design_review=config.design_review)
@@ -1330,7 +1365,7 @@ def start_run(
     planned: list[_Issued] = []
     pairs: tuple[ContractPair, ...] | None = None
     words: tuple[CriterionWords, ...] = ()
-    if outcome.ok and outcome.plan is not None:
+    if outcome.ok and outcome.plan is not None and refused is None:
         # Before anything is written: a refusal here leaves no run record, no run
         # branch and no worktree behind, so the same run directory can be used again.
         planned, pairs, words, curated = require_startable(
@@ -1339,8 +1374,9 @@ def start_run(
     store_root = run_dir / "store"
     record = RunRecord(config, run_dir)
     spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
-    if not outcome.ok or outcome.plan is None:
-        record.fail_decomposition(spent, f"{outcome.cause}: {outcome.detail}")
+    if refused is not None or not outcome.ok or outcome.plan is None:
+        detail = refused or f"{outcome.cause}: {outcome.detail}"
+        record.fail_decomposition(spent, detail, earlier)
         return record
     plan = outcome.plan
     entries = [one.entry for one in planned]
@@ -1398,6 +1434,7 @@ def start_run(
             brief_words=words or None,
         ),
         reviewed=reviewed,
+        earlier=earlier,
     )
     record.hold_plan()  # a plan its review did not pass, under on: the one item it is held on
     return record

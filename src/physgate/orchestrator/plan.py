@@ -195,11 +195,15 @@ def list_problems(
     return found
 
 
-def plan_sha256(plan: Plan) -> str:
-    """The plan's digest: sha256 of its canonical JSON, every field of its own form in it.
+def plan_bytes(plan: Plan) -> bytes:
+    """The plan's canonical JSON, every field of its own form in it: what its digest is taken over.
 
     Taken from the plan object, whose dump is of its own form: a holder typed with the
     base form, as the call's outcome is, dumps an integrated plan without its two lists.
     """
-    canonical = json.dumps(plan.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
+    return json.dumps(plan.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()
+
+
+def plan_sha256(plan: Plan) -> str:
+    """The plan's digest: sha256 of :func:`plan_bytes`."""
+    return hashlib.sha256(plan_bytes(plan)).hexdigest()

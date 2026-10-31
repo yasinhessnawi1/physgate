@@ -36,7 +36,6 @@ import physgate
 from physgate.evaluation.inject.runner import CONFIG_NAME as INSTRUMENT_CONFIG_NAME
 from physgate.evaluation.inject.runner import CONTROLS_DIRNAME as INSTRUMENT_CONTROLS_DIRNAME
 from physgate.evaluation.inject.runner import InstrumentConfig
-from physgate.flags import replans
 from physgate.gate.exceptions import GateError
 from physgate.knowledge.library import LibraryError, read_library
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
@@ -47,17 +46,13 @@ from physgate.orchestrator.catches import catches, parse_time
 from physgate.orchestrator.common import first_problem, render_jsonl
 from physgate.orchestrator.credentials import SECRET_VARIABLE, Credential, credential_for
 from physgate.orchestrator.decompose import (
-    Outcome,
     binary_version,
     call,
-    plan_sha256,
     require_fresh,
-    require_startable,
-    start_run,
 )
+from physgate.orchestrator.design_rounds import decompose_in_rounds
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
-    DesignUnavailable,
     Envelope,
     EnvironmentRecorded,
     Event,
@@ -68,12 +63,10 @@ from physgate.orchestrator.events import (
     read_events,
 )
 from physgate.orchestrator.exceptions import (
-    HeldOutExposedError,
     InvocationError,
     OrchestratorError,
     QueueError,
     ReviewerNotRegisteredError,
-    ReviewUnavailableError,
     RunConfigError,
     RunStateError,
 )
@@ -88,7 +81,7 @@ from physgate.orchestrator.install import (
 from physgate.orchestrator.invocation import claude_binary, session_search_path
 from physgate.orchestrator.loop import Loop, escalation_for, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
-from physgate.orchestrator.protocols import Gate, PlanReviewer, PlanUnderReview, Reviewer
+from physgate.orchestrator.protocols import Gate, PlanReviewer, Reviewer
 from physgate.orchestrator.queue import (
     POSITIONS,
     PersonDecision,
@@ -97,7 +90,7 @@ from physgate.orchestrator.queue import (
     record_decision,
     statuses_now,
 )
-from physgate.orchestrator.record import PlanReviewed, ReviewInstall
+from physgate.orchestrator.record import ReviewInstall
 from physgate.orchestrator.replay import recorded_ledger
 from physgate.orchestrator.requirements import RunFacts, refusals
 from physgate.orchestrator.role_python import RolePython
@@ -654,60 +647,6 @@ def _plan_reviewer(
     return reviewer, checked
 
 
-def _reviewed(
-    reviewing: tuple[PlanReviewer, ReviewInstall],
-    outcome: Outcome,
-    *,
-    config: RunConfig,
-    brief: str,
-    stream: Path,
-) -> PlanReviewed | None:
-    """What the review of the call's plan came to; ``None`` when the call gave no plan.
-
-    The reviewer is handed the brief as the run's digest names it, the plan and its digest, and
-    the call's stream with the seal the call took where it wrote it. A review that is not a
-    verdict, or whose stream showed held-out material, is what the review came to; anything
-    else it raises fails the command, with nothing of the run recorded.
-
-    Raises:
-        RunStateError: the call gave a plan and sealed no stream.
-    """
-    if not outcome.ok or outcome.plan is None:
-        return None  # nothing to review: the failed call is what the run records
-    if outcome.stream_seal is None:
-        msg = "the call gave a plan and sealed no stream, so its plan cannot be reviewed"
-        raise RunStateError(msg, session_id=outcome.session_id)
-    reviewer, install = reviewing
-    under = PlanUnderReview(
-        brief=brief,
-        brief_sha256=config.brief_sha256,
-        plan=outcome.plan,
-        plan_sha256=plan_sha256(outcome.plan),
-        stream=str(stream),
-        stream_seal=outcome.stream_seal,
-        decomposition_model=config.models.decomposition,
-        decomposition_session_id=outcome.session_id,
-    )
-    ending: dict[str, object]
-    try:
-        result = reviewer.review_plan(under)
-        ending = {"session_id": result.session_id, "usage": result.usage, "result": result}
-    except ReviewUnavailableError as exc:
-        why = DesignUnavailable(
-            cause=exc.cause,
-            detail=str(exc) or exc.cause,
-            session_id=exc.session_id,
-            reviewer_model=exc.reviewer_model,
-            spec_defects=exc.spec_defects,
-        )
-        ending = {"session_id": exc.session_id, "usage": exc.usage, "unavailable": why}
-    except HeldOutExposedError as exc:
-        ending = {"session_id": exc.session_id, "usage": exc.usage, "exposed": True}
-    return PlanReviewed.model_validate(
-        {"install": install, "stream_seal": outcome.stream_seal, **ending}
-    )
-
-
 def _decompose(args: argparse.Namespace, *, registrations: Registrations | None = None) -> int:
     try:
         # The credential first, from the mode the parameters name: a run whose mode
@@ -724,13 +663,6 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
         )
     if credential is None:  # the configuration validated, so the mode is a known one
         return _fail("the run parameters name no auth mode")
-    if replans(config.design_review):
-        # Refused before anything is spent: a re-plan's rounds must each be kept whatever a later
-        # round does, and this build keeps none, so it runs no repair arm.
-        return _fail(
-            "this build records no re-plan rounds, so it runs no repair arm",
-            design_review=config.design_review,
-        )
     assert config.os_layer is not None  # measured above, for every new run
     why = os_layer_refusal(config, config.os_layer)
     _say_os_layer(config.os_layer, config.network, allowed=why is None)
@@ -755,53 +687,31 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
         reviewing = _plan_reviewer(args, config, credential, registrations)
         # Decoded once, from the bytes the run's digest names: the call and the review read alike.
         brief = args.brief.read_bytes().decode("utf-8")
-        workdir = run_dir / "decomposition"
-        outcome = call(
+        made = decompose_in_rounds(
             brief,
-            config=config,
-            workdir=workdir,
-            base_url=os.environ.get("ANTHROPIC_BASE_URL"),
-            credential=credential,
-        )
-        if reviewing is not None and outcome.ok and outcome.plan is not None:
-            # A plan the run could not start is refused before its review is spent on it.
-            require_startable(
-                outcome.plan,
-                config=config,
-                target_repo=args.target.resolve(),
-                library=_library_root(),
-                brief=brief,
-            )
-        # The plan's review, after the call and before anything of the run is written.
-        reviewed = (
-            _reviewed(
-                reviewing,
-                outcome,
-                config=config,
-                brief=brief,
-                stream=workdir / "stdout.jsonl",
-            )
-            if reviewing is not None
-            else None
-        )
-        record = start_run(
-            outcome,
             config=config,
             run_dir=run_dir,
             target_repo=args.target.resolve(),
             library=_library_root(),
-            brief=brief,
-            reviewed=reviewed,
+            reviewing=reviewing,
+            check=material_check(config),
+            make_call=functools.partial(
+                call,
+                config=config,
+                base_url=os.environ.get("ANTHROPIC_BASE_URL"),
+                credential=credential,
+            ),
         )
     except (OrchestratorError, ReviewError) as exc:
         return _fail(str(exc), **exc.context)
+    record, reviewed = made.record, made.reviewed
     subtasks = [line.id for line in record.ledger.read_all()]
     record.close()
     printed: dict[str, object] = {
         "run_id": config.run_id,
-        "decomposed": outcome.ok,
-        "cause": outcome.cause,
-        "detail": outcome.detail,
+        "decomposed": made.ok,
+        "cause": made.cause,
+        "detail": made.detail,
         "subtasks": subtasks,
     }
     if reviewed is not None:
@@ -815,7 +725,7 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
         )
     _print(printed)
     # A review whose stream showed held-out material halted the run: nothing will be dispatched.
-    return 0 if outcome.ok and not (reviewed is not None and reviewed.exposed) else 1
+    return 0 if made.ok and not (reviewed is not None and reviewed.exposed) else 1
 
 
 def _project_root() -> Path:

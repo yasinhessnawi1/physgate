@@ -158,3 +158,28 @@ def round_ending(
         review_class=None if review_cause is None else review_class(review_cause),
         canary=canary,
     )
+
+
+#: What follows a round: another round, the run started from it (held or not, as its review and
+#: the run's mode say), the run recorded as a failed decomposition, or no run at all.
+Follows = Literal["replan", "start", "fail_run", "void"]
+#: The review's endings that are no review at all: void in every mode that reviews its plan.
+_NEVER_A_REVIEW = frozenset({"invocation_error", "model_separation"})
+
+
+def what_follows(ending: RoundEnding, *, last: bool, holds: bool) -> Follows:
+    """What follows a round, from its ending and whether it is the last its run may have alone.
+
+    ``holds``: the run holds a plan its review did not pass (every reviewing mode but
+    ``observe``), where the instrument's failure is never recorded as a review. A verdict other
+    than a pass is re-planned while a round remains and no canary is in its findings; every
+    other review ending starts the run, which holds or halts as its record says.
+    """
+    if ending.plan_class == "infrastructure":
+        return "void" if holds or ending.plan_cause == "library_refused" else "fail_run"
+    if ending.plan_class == "no_plan":
+        return "fail_run"
+    if ending.review_class == "infrastructure":
+        return "void" if holds or ending.review_cause in _NEVER_A_REVIEW else "start"
+    replan = ending.review_cause in ("fail", "blocked") and ending.canary is None and not last
+    return "replan" if replan else "start"

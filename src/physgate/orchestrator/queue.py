@@ -36,7 +36,7 @@ import re
 import stat
 import time
 import unicodedata
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -848,13 +848,19 @@ def plan_consequence() -> ItemConsequence:
 
 
 def plan_item(
-    *, review: DesignReviewRan, spec_commit: str, stream: str, consequence: ItemConsequence | None
+    *,
+    review: DesignReviewRan,
+    spec_commit: str,
+    stream: str,
+    consequence: ItemConsequence | None,
+    earlier: Sequence[DesignReviewRan] = (),
 ) -> QueueItem:
     """The item a plan its review did not pass holds the run on, built from the review's line.
 
-    It names what the review came to (its finding, each rubric item it failed and each blocking
-    specification defect, or why there is no verdict), the plan by its digest and the commit of
-    its specifications, and the decomposition's stream as its one trajectory.
+    It names each earlier round's verdict, then what the review came to (its finding, each rubric
+    item it failed and each blocking specification defect, or why there is no verdict), the plan
+    by its digest and the commit of its specifications, and the held round's stream as its one
+    trajectory.
 
     Raises:
         QueueError: the review's line holds the run on no item.
@@ -863,7 +869,12 @@ def plan_item(
         msg = "a plan's review that holds nothing raises no item"
         raise QueueError(msg, plan=review.plan_sha256)
     result, why = review.result, review.unavailable
-    found = [f"no verdict ({why.cause}): {why.detail}"] if why is not None else []
+    found = [
+        f"round {k}: {one.result.verdict}: {one.result.finding}"
+        for k, one in enumerate(earlier, start=1)
+        if one.result is not None
+    ]
+    found += [f"no verdict ({why.cause}): {why.detail}"] if why is not None else []
     rubric = result.items if result is not None else ()
     defects = (*(result.spec_defects if result else ()), *(why.spec_defects if why else ()))
     found += [result.finding] if result is not None else []
@@ -889,7 +900,7 @@ def plan_item(
         ),
         artefact_diff=(
             f"The plan of digest {review.plan_sha256}, as the run recorded it: see "
-            f"decomposition/stdout.jsonl and the specifications commit {spec_commit}."
+            f"{stream} and the specifications commit {spec_commit}."
         ),
         triggering_finding="\n".join(found),
         quantities=(),
@@ -1462,6 +1473,14 @@ DECOMPOSITION_STREAM = f"{DECOMPOSITION_NAME}/{STREAM_NAME}"
 
 #: A session id as the event log's own model accepts it.
 _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+#: The directory of a round after the first, beneath the decomposition's.
+_ROUND = re.compile(r"^round-([2-9])$")
+
+
+def round_stream(k: int) -> str:
+    """The link to round k's stream: the decomposition's for round 1, its round's own after."""
+    return DECOMPOSITION_STREAM if k == 1 else f"{DECOMPOSITION_NAME}/round-{k}/{STREAM_NAME}"
+
 
 #: What an item's trajectory link is found to be, when its view is built and again when a
 #: decision is recorded on that view.
@@ -1481,6 +1500,9 @@ def trajectory_session(link: str) -> str | None:
     parts = Path(link).parts
     if parts[-2:] == (DECOMPOSITION_NAME, STREAM_NAME) and parts[-3:-2] != (SESSIONS_NAME,):
         return DECOMPOSITION_STREAM
+    held = _ROUND.fullmatch(parts[-2]) if len(parts) >= 3 else None
+    if held is not None and parts[-3] == DECOMPOSITION_NAME and parts[-1] == STREAM_NAME:
+        return round_stream(int(held.group(1)))
     if len(parts) < 3 or parts[-3] != SESSIONS_NAME or parts[-1] != STREAM_NAME:
         return None
     return parts[-2] if _SESSION_ID.fullmatch(parts[-2]) else None
@@ -1488,18 +1510,22 @@ def trajectory_session(link: str) -> str | None:
 
 def stream_parts(session_id: str) -> tuple[str, ...]:
     """Where beneath the run directory the stream a trajectory's id names is read from."""
-    if session_id == DECOMPOSITION_STREAM:
-        return (DECOMPOSITION_NAME, STREAM_NAME)
+    if session_id.startswith(f"{DECOMPOSITION_NAME}/"):
+        return tuple(session_id.split("/"))
     return (SESSIONS_NAME, session_id, STREAM_NAME)
 
 
 def recorded_seal(events: list[Event], session_id: str) -> Seal | None:
     """The seal recorded for a session's stream: at its end, or when a resume read it left over.
 
-    The decomposition's stream is sealed by the plan's review, which held it to that seal.
+    A round's stream is sealed by its round's review, which held it to that seal: round k's is the
+    k-th review line's, every round before the last having been reviewed.
     """
-    if session_id == DECOMPOSITION_STREAM:
-        return next((e.stream_seal for e in events if isinstance(e, DesignReviewRan)), None)
+    rounds = [round_stream(k) for k in range(1, 10)]
+    if session_id in rounds:
+        reviews = [e.stream_seal for e in events if isinstance(e, DesignReviewRan)]
+        k = rounds.index(session_id)
+        return reviews[k] if k < len(reviews) else None
     for event in events:
         if (
             isinstance(event, SessionEnded | LeftoverRead)

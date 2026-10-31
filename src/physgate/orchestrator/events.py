@@ -193,10 +193,10 @@ class RunStarted(_Event):
     #: ``act`` in a run that acts on a person's decisions, which replay reads to hold the closing
     #: pass's wait; left out of a run that records only, so its line keeps its bytes.
     queue_decisions: Literal["act"] | None = None
-    #: ``observe`` or ``on`` in a run that reviews its plan, which replay reads to hold every
-    #: dispatch to the review's line, and under ``on`` to the person's decision on a plan it did
-    #: not pass; left out of a run that does not, so its line keeps its bytes.
-    design_review: Literal["observe", "on"] | None = None
+    #: ``observe``, ``on`` or ``repair:N`` in a run that reviews its plan, which replay reads to
+    #: hold every dispatch to the review's line, and but under ``observe`` to the person's decision
+    #: on a plan it did not pass; left out of a run that does not, so its line keeps its bytes.
+    design_review: Literal["observe", "on", "repair:1", "repair:2", "repair:3"] | None = None
 
     @model_serializer(mode="wrap")
     def _omit_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:

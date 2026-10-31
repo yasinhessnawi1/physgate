@@ -24,6 +24,7 @@ from typing import Literal, NoReturn
 from pydantic import ValidationError
 
 from physgate.contracts.pairs import ContractPair, recorded_pairs_problem
+from physgate.flags import replans
 from physgate.orchestrator.arbitration import (
     ClauseConflict,
     Held,
@@ -305,7 +306,11 @@ class RunState:
         self.reviews_plan = False
         self.plan_sha256: str | None = None
         self.design_review: DesignReviewRan | None = None
-        #: Whom the tokens between the plan and its review's line are attributed to.
+        #: The review lines of the rounds re-planned before the plan the run starts from, in order,
+        #: and how many the run's first line allows.
+        self.earlier_reviews: list[DesignReviewRan] = []
+        self.replans = 0
+        #: Whom the tokens since the last review line, but the calls', are attributed to.
         self.review_tokens: set[str] = set()
         #: Whether the review holds the plan it did not pass (``on``), and the rejection line a
         #: person's reject of the plan's item led to.
@@ -423,15 +428,18 @@ class RunState:
             self.escalation_backend = event.escalation_backend
             self.acts = event.queue_decisions == "act"
             self.reviews_plan = event.design_review is not None
-            self.holds_plan = event.design_review == "on"
+            self.holds_plan = self.reviews_plan and event.design_review != "observe"
+            self.replans = replans(event.design_review or "off")
             return
         if isinstance(event, Halted):
             self.halted = self.last_halt = event
             return
-        reviewing = (
-            self.reviews_plan and self.design_review is None and self.plan_sha256 is not None
-        )
-        if isinstance(event, TokensUsed) and reviewing:  # after the plan: what its review spent
+        if (
+            isinstance(event, TokensUsed)
+            and self.reviews_plan
+            and self.design_review is None
+            and (self.plan_sha256 is not None or not event.attribution.startswith("decomposition:"))
+        ):  # a round's review's spending: before the plan, only the calls' are not
             self.review_tokens.add(event.attribution)
         if isinstance(
             event,
@@ -685,18 +693,34 @@ class RunState:
             self._resume(sub, now, event.point)
 
     def _plan_reviewed(self, event: DesignReviewRan) -> None:
-        """Take the plan's review: once, in a reviewing run, after the plan, before dispatch."""
+        """Take a round's review: in a reviewing run, before dispatch, the plan's once after it.
+
+        A review before the plan the run starts from is a round re-planned within the run's budget:
+        a verdict that did not pass, holding on nothing.
+        """
         if not self.reviews_plan:
             _refuse("a plan's review in a run that does not review its plan")
         if self.design_review is not None:
             _refuse("a plan is reviewed once")
-        if self.plan_sha256 is None:
-            _refuse("a plan's review follows the plan it names")
-        if event.plan_sha256 != self.plan_sha256:
-            _refuse("a plan's review names another plan than the run recorded")
         ending = event.result or event.unavailable
         if self.review_tokens - {f"reviewer:{(ending.session_id if ending else None) or 'none'}"}:
             _refuse("a plan's review's tokens are attributed to the session its line names")
+        self.review_tokens = set()
+        if self.plan_sha256 is None:
+            if (
+                len(self.earlier_reviews) >= self.replans
+                or event.held_item is not None
+                or event.result is None
+                or event.result.verdict == "pass"
+            ):
+                _refuse(
+                    "a plan's review follows the plan it names, but a round re-planned within "
+                    "the run's budget: a verdict that did not pass, holding on nothing"
+                )
+            self.earlier_reviews.append(event)
+            return
+        if event.plan_sha256 != self.plan_sha256:
+            _refuse("a plan's review names another plan than the run recorded")
         held = self.holds_plan and (event.result is None or event.result.verdict != "pass")
         if event.held_item != (_item_id(event.run_id, PLAN, 1) if held else None):
             _refuse(

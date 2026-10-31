@@ -248,7 +248,10 @@ def test_a_plan_the_run_could_not_start_is_refused_before_its_review_is_spent(
 
     monkeypatch.setattr(Calls, "__call__", bad_id)
     reviewer = StandIn(_verdict())
-    assert _exit(_args(tmp_path, REVIEWING), reviewer) == 2
+    # The plan's own content is refused: a failed decomposition is recorded, with no review spent.
+    assert _exit(_args(tmp_path, REVIEWING), reviewer) == 1
     assert reviewer.seen == []
     assert calls.made == 1
-    _nothing_recorded(tmp_path / "run")
+    last = lines(tmp_path / "run")[-1]
+    assert (last["kind"], last["reason"]) == ("halted", "decomposition_failed")
+    assert last["detail"].startswith("plan_refused: ")

@@ -266,7 +266,12 @@ def decompose(
         patch.setenv("PHYSGATE_CLAUDE_BIN", str(fake_binary(root, "2.1.272")))
         patch.setattr(orchestrator_cli, "call", script.call)
         patch.setattr(orchestrator_cli, "refusals", lambda facts: [])
-        patch.setattr(orchestrator_cli, "_plan_reviewer", lambda *a, **k: (script, INSTALL))
+        patch.setattr(
+            orchestrator_cli,
+            "_plan_reviewer",
+            # As the command's own: a run that does not review its plan is given no reviewer.
+            lambda args, config, *a: None if config.design_review == "off" else (script, INSTALL),
+        )
         held = frozenset({CANARY})
         patch.setattr(
             orchestrator_cli,
