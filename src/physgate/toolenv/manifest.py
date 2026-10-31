@@ -15,7 +15,8 @@ since the full manifest was taken (about 0.1 s for the same tree).
 - a regular file with more than one link: its other name lies outside every protected root, and a
   write through it changes the file here (an installer that hard-links from its cache leaves
   thousands of these on Linux);
-- a symbolic link whose text, or whose target once resolved, leaves the roots;
+- a symbolic link whose resolution, followed as the system follows it, passes through or ends
+  anywhere outside the roots, or loops;
 - anything that is not a regular file, a directory or a link (a pipe, a socket, a device).
 """
 
@@ -76,16 +77,52 @@ def _check(path: str, found: os.stat_result, roots: Sequence[str]) -> None:
             )
             raise ToolEnvironmentError(msg, path=path, links=str(found.st_nlink))
     elif stat.S_ISLNK(mode):
-        # Both what the link says and where it ends must lie inside: a link whose text names a
-        # place outside, even one that leads back in, passes through something no scan covers.
-        said = os.path.normpath(os.path.join(os.path.dirname(path), os.readlink(path)))
-        target = os.path.realpath(path)
-        if not all(any(_under(p, root) for root in roots) for p in (said, target)):
+        if not _stays_inside(path, roots):
             msg = "a link in the tool environment leads outside it"
-            raise ToolEnvironmentError(msg, path=path, target=target)
+            raise ToolEnvironmentError(msg, path=path, target=os.path.realpath(path))
     elif not stat.S_ISDIR(mode):
         msg = "the tool environment holds something that is not a file, a directory or a link"
         raise ToolEnvironmentError(msg, path=path)
+
+
+#: The most links one resolution may follow, as the system's own limit does.
+MAX_LINK_HOPS = 40
+
+
+def _stays_inside(link: str, roots: Sequence[str]) -> bool:
+    """Whether resolving ``link`` passes through nothing outside the roots, the way the system does.
+
+    The text of a link is followed one component at a time, as the kernel follows it: a link met
+    on the way is read and followed before a later ``..`` applies, so text that folds to a place
+    inside can still walk through one outside. Every place the walk reaches must lie inside a
+    root, or be a directory above one on the way down to it (never a link); the end must lie
+    inside a root; a walk of more than :data:`MAX_LINK_HOPS` links, a loop among them, is refused.
+    """
+
+    def above_a_root(place: str) -> bool:
+        return any(_under(root, place) for root in roots) and not os.path.islink(place)
+
+    current = os.path.dirname(link)
+    pending = list(reversed(os.readlink(link).split("/")))
+    if os.readlink(link).startswith("/"):
+        current = "/"
+    hops = 1
+    while pending:
+        part = pending.pop()
+        if part in ("", "."):
+            continue
+        current = os.path.dirname(current) if part == ".." else os.path.join(current, part)
+        inside = any(_under(current, root) for root in roots)
+        if not (inside or above_a_root(current)):
+            return False
+        if inside and os.path.islink(current):
+            hops += 1
+            if hops > MAX_LINK_HOPS:
+                return False
+            text = os.readlink(current)
+            current = "/" if text.startswith("/") else os.path.dirname(current)
+            pending.extend(reversed(text.split("/")))
+    return any(_under(current, root) for root in roots)
 
 
 def _sha256(path: str) -> str:

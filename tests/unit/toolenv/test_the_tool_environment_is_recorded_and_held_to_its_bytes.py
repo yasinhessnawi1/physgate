@@ -257,3 +257,36 @@ def test_a_link_that_passes_through_a_place_outside_the_roots_is_refused(tmp_pat
     (root / "bin" / "gcc").symlink_to(outside)
     with pytest.raises(ToolEnvironmentError, match="leads outside"):
         _measure(root, python, tool)
+
+
+def test_a_link_whose_dot_dot_runs_after_another_link_out_of_the_roots_is_refused(
+    tmp_path: Path,
+) -> None:
+    # The text "a/../outside/back" folds, as text, to a place inside the environment, and its
+    # end lies inside too; but the system follows "a" (here, the environment's top) before it
+    # applies "..", so the walk passes through "outside", which no scan covers and which could
+    # be repointed at any time.
+    root, python, tool = _environment(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "back").symlink_to(tool)
+    (root / "bin" / "a").symlink_to(root)
+    _measure(root, python, tool)
+    (root / "bin" / "escape").symlink_to("a/../outside/back")
+    assert (root / "bin" / "escape").resolve() == tool.resolve()
+    with pytest.raises(ToolEnvironmentError, match="leads outside"):
+        _measure(root, python, tool)
+
+
+def test_relative_and_absolute_links_that_stay_inside_are_kept(tmp_path: Path) -> None:
+    # The shapes an installer makes: a launcher's absolute link to its interpreter, a package
+    # store's "../package/bin/tool".
+    root, python, tool = _environment(tmp_path)
+    (root / "lib" / "node_modules" / ".bin").mkdir(parents=True)
+    (root / "lib" / "node_modules" / ".bin" / "gcc").symlink_to("../../../bin/avr-gcc")
+    (root / "bin" / "python").symlink_to(python.resolve())
+    (root / "bin" / "loop").symlink_to("loop")
+    with pytest.raises(ToolEnvironmentError, match="leads outside"):
+        _measure(root, python, tool)
+    (root / "bin" / "loop").unlink()
+    _measure(root, python, tool)
