@@ -445,6 +445,10 @@ class RunState:
             if self.plan_sha256 is None and event.attribution.startswith("decomposition:"):
                 self.call_tokens.add(event.attribution)  # a round's call's: its proposal follows
             else:  # a round's review's spending: before the plan, only the calls' are not
+                if event.attribution.startswith("reviewer:") and len(self.proposals) == len(
+                    self.earlier_reviews
+                ):
+                    _refuse("a round's review spends after its own proposal, never before it")
                 self.review_tokens.add(event.attribution)
         if isinstance(
             event,

@@ -106,7 +106,8 @@ class RoundStarted(_Line):
     brief_sha256: Sha256 | None = None
 
 
-Seconds = Annotated[float, Field(ge=0)]
+#: Seconds on the monotonic clock: finite, as no clock gives infinity.
+Seconds = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 
 
 class Elapsed(BaseModel):
