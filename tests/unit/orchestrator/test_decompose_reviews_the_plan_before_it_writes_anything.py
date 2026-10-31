@@ -84,14 +84,15 @@ class Calls:
         self.made = 0
         self.briefs: list[str] = []
 
-    def __call__(self, brief: str, *, workdir: Path, **_: Any) -> Outcome:  # noqa: ANN401
+    def __call__(self, brief: str, *, workdir: Path, **given: Any) -> Outcome:  # noqa: ANN401
         self.made += 1
         self.briefs.append(brief)
         workdir.mkdir(parents=True, exist_ok=True)
         message = {"id": "m1", "model": "claude-sonnet-5", "content": []}
         (workdir / "stdout.jsonl").write_text(json.dumps({"type": "assistant", "message": message}))
         return Outcome(
-            session_id="decomposition-session-1",
+            # The session the call is told to take, as the real call takes it.
+            session_id=given.get("session_id") or "decomposition-session-1",
             ok=True,
             cause=None,
             detail="a plan",
@@ -209,7 +210,10 @@ def test_decompose_reviews_the_plan_and_records_it_in_the_opening(
     assert Path(under.stream) == stream
     assert under.stream_seal == seal(stream.read_bytes())
     assert under.decomposition_model == "claude-sonnet-5"
-    assert under.decomposition_session_id == "decomposition-session-1"
+    journal = run_dir / "decomposition" / "rounds.jsonl"
+    assert journal.exists(), "the round's call is named in the round journal before it is made"
+    started = json.loads(journal.read_text().splitlines()[0])
+    assert under.decomposition_session_id == started["session_id"]
     [setup] = reviewer.setups
     assert Path(setup.review_root) == (tmp_path / "review-scratch").resolve()
     assert Path(setup.install_bin) == (tmp_path / "install").resolve() / "bin" / "physgate"

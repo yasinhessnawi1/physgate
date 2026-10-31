@@ -3,8 +3,8 @@
 A rejected plan re-planned at most N times is a second decomposition call, which the one-call rule
 allows nowhere else, so the configuration refuses ``repair:N`` unless the run is reportable. A
 reportable run reviews its plan: under ``observe``, or under the arm its frozen criteria name
-(``on`` or ``repair:N``); one that does not review it is refused. Until the rounds a re-plan needs
-are recorded, ``decompose`` refuses ``repair:N`` before any call is spent.
+(``on`` or ``repair:N``); one that does not review it is refused. ``decompose`` runs a repair
+arm, refusing what it refuses of any reviewing run before any call is spent.
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ def test_a_reportable_run_that_does_not_review_its_plan_is_refused() -> None:
     assert any("design_review: observe" in why for why in refused), refused
 
 
-def test_decompose_spends_no_call_on_a_repair_arm_whose_rounds_it_cannot_record(
+def test_decompose_runs_a_repair_arm_and_spends_no_call_before_its_refusals(
     tmp_path: Path,
     calls: Calls,  # noqa: F811 - the fixture
     monkeypatch: pytest.MonkeyPatch,
@@ -115,11 +115,19 @@ def test_decompose_spends_no_call_on_a_repair_arm_whose_rounds_it_cannot_record(
 
     monkeypatch.setattr(orchestrator_cli, "_config", reportable)
     params = {**REVIEWING, "design_review": "on"}
-    reviewer = StandIn(_verdict())
-    code = _exit(_args(tmp_path, params), reviewer)
+    reviewer = StandIn(_verdict("pass"))
+    # Named without where its review runs: refused before the call is spent.
+    code = _exit(_args(tmp_path / "unplaced", params, places=False), reviewer)
     err = capsys.readouterr().err
     assert code == 2, (code, err)
     assert calls.made == 0
     assert reviewer.seen == []
-    _nothing_recorded(tmp_path / "run")
-    assert "repair" in err
+    _nothing_recorded(tmp_path / "unplaced" / "run")
+    assert "--review-root" in err
+    # Placed, the arm runs: its plan is reviewed and its run started.
+    code = _exit(_args(tmp_path / "placed", params), reviewer)
+    assert code == 0, (code, capsys.readouterr().err)
+    assert calls.made == 1
+    assert len(reviewer.seen) == 1
+    first = (tmp_path / "placed" / "run" / "events.jsonl").read_text().splitlines()[0]
+    assert '"design_review":"repair:2"' in first
