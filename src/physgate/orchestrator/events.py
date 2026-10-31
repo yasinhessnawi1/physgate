@@ -591,7 +591,9 @@ class Escalated(_Event):
 Position = Literal["sizing", "domain", "producer", "consumer"]
 #: What a person's decision did when the loop took it (ARCH-133). ``resize``: the subtask waits
 #: for sizing's closing pass, ordered to write the domain's value, then returns to the gate.
-DecisionEffect = Literal["merge", "retry", "fix", "end_subtask", "resize", "none"]
+#: ``reopen``: a merged module's planning subtask takes one more attempt, to conform to the
+#: interface of a failed contract.
+DecisionEffect = Literal["merge", "retry", "fix", "end_subtask", "resize", "reopen", "none"]
 #: Why a decision taken did not act. ``record_only_source``: approve or reject on an item whose
 #: source neither verb acts on. ``last_rejection_automated``: approve where an automated check,
 #: not the reviewer, refused the attempt. ``indicator_in_history``: approve where a review of
@@ -599,7 +601,8 @@ DecisionEffect = Literal["merge", "retry", "fix", "end_subtask", "resize", "none
 #: the scan before review found one no review judged. ``not_bound``: a decision that names no
 #: verb, or no view. ``legacy_item``: an item that says nothing of what a verb does.
 #: ``held_os_layer_off``: written while a session ran without the OS layer, so its own shell
-#: could have written it; it acts once the operator confirms it.
+#: could have written it; it acts once the operator confirms it. ``order_too_long``: a choice that
+#: would reopen a module whose order its reviewer could not read whole.
 WhyNot = Literal[
     "record_only_source",
     "last_rejection_automated",
@@ -608,6 +611,7 @@ WhyNot = Literal[
     "not_bound",
     "legacy_item",
     "held_os_layer_off",
+    "order_too_long",
 ]
 
 
@@ -646,6 +650,8 @@ class DecisionTaken(_Event):
     #: subtask instead: what that session's reviewer would be told of the order is longer than one
     #: read shows whole, so its review could not be prepared. Nothing is spawned.
     order_too_long: bool = False
+    #: The planning subtask a choice on a failed contract's item reopens, with that effect alone.
+    reopens: NonEmptyStr | None = None
 
     @model_validator(mode="after")
     def _an_act_needs_no_excuse_and_a_non_act_has_one(self) -> DecisionTaken:
@@ -660,24 +666,29 @@ class DecisionTaken(_Event):
             # what it closes is the item, on which a completion waits.
             msg = "a confirmed decision is the one that acts"
             raise ValueError(msg)
-        if self.order_too_long and (
-            self.verb not in ("reject", "choose") or self.effect != "end_subtask"
-        ):
+        # A choice on a contract item that would reopen a module records only instead.
+        ends = self.verb in ("reject", "choose") and self.effect == "end_subtask"
+        records = self.verb == "choose" and self.effect == "none" and self.subtask_id is None
+        if self.order_too_long and not (ends or records):
             msg = (
-                "only a reject or a choice ends a subtask for an order its reviewer could not "
-                "read whole"
+                "only a reject or a choice ends a subtask, and a choice on a contract item records "
+                "only, for an order its reviewer could not read whole"
             )
             raise ValueError(msg)
         if (self.verb == "choose") != (self.position is not None):
             msg = "a position is chosen with choose, and only with it"
+            raise ValueError(msg)
+        if (self.effect == "reopen") != (self.reopens is not None):
+            msg = "a decision names the subtask it reopens, and only one that reopens does"
             raise ValueError(msg)
         return self
 
     @model_serializer(mode="wrap")
     def _omit_absent_position(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        if self.position is None:
-            data.pop("position", None)
+        for absent in ("position", "reopens"):
+            if getattr(self, absent) is None:
+                data.pop(absent, None)
         return data
 
 
@@ -694,6 +705,22 @@ class SubtaskRejected(_Event):
     attempt: Annotated[int, Field(ge=1)]
     by: Literal["person", "fix_not_accepted", "closing_pass"]
     item_id: NonEmptyStr | None
+
+
+class SubtaskReopened(_Event):
+    """A merged module's planning subtask reopens, as the taken decision on ``item_id`` ordered.
+
+    The next line about any subtask after that decision: it names the decision's item and the
+    digest of the item line it was taken on, the subtask's last merge, and the attempt it reopens
+    at, its next one or its one fix. The earlier merge stays on the record.
+    """
+
+    kind: Literal["subtask_reopened"] = "subtask_reopened"
+    subtask_id: NonEmptyStr
+    item_id: NonEmptyStr
+    shown_sha256: Sha256
+    merge_commit: Sha
+    attempt: Attempt
 
 
 class AttemptReturned(_Event):
@@ -1168,6 +1195,7 @@ Event = Annotated[
     | Escalated
     | DecisionTaken
     | SubtaskRejected
+    | SubtaskReopened
     | AttemptReturned
     | Incident
     | Resumed

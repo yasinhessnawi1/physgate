@@ -248,6 +248,9 @@ const NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
     "operator confirms it on the command line.",
   not_bound: "Recorded only: it was not taken on a view of the item.",
   legacy_item: "Recorded only: the item does not say what a decision does.",
+  order_too_long:
+    "Recorded only: what the reopened attempt would be told is longer than its reviewer can " +
+    "read whole, so nothing was reopened.",
 };
 
 /** What the run did with a decision, from its own record of taking it. */
@@ -264,6 +267,9 @@ export function takenWords(t: Taken): string {
     resize:
       "The run took it: the subtask waits while sizing's closing pass is ordered to write the " +
       "domain's value.",
+    reopen:
+      "The run took it: the other module was reopened for one more attempt, told the " +
+      "interface's values.",
     none: "The run took it; it changed nothing.",
   };
   const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;

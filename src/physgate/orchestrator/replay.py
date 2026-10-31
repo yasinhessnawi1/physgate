@@ -94,6 +94,7 @@ from physgate.orchestrator.events import (
     SubtaskPlanned,
     SubtaskRejected,
     SubtaskRemoved,
+    SubtaskReopened,
     TokensUsed,
     WorktreeRemoved,
     WriteDone,
@@ -222,6 +223,10 @@ class SubtaskState:
     #: The domain's values a person chose on the subtask's items, for sizing's closing pass to
     #: write: what the attempt's rulings are held to when it returns.
     chosen: list[ChosenValue] = field(default_factory=list)
+    #: How often a person's choice on a failed contract reopened the merged subtask, and the
+    #: last reopen: its worktree and branch are named by the count.
+    reopens: int = 0
+    reopened: SubtaskReopened | None = None
 
 
 @dataclass(frozen=True)
@@ -242,6 +247,7 @@ class Step:
         "escalated",
         "wait",
         "return",
+        "reopen",
         "done",
     ]
     subtask_id: str | None = None
@@ -348,6 +354,8 @@ class RunState:
         #: each one given by number, as the decomposition's line records them.
         self.system_requirements: tuple[SystemRequirement, ...] | None = None
         self.brief_words: tuple[CriterionWords, ...] = ()
+        #: A taken decision that reopens a merged subtask, until its reopen line is written.
+        self.pending_reopen: DecisionTaken | None = None
 
     # -- following the log -------------------------------------------------------
 
@@ -416,6 +424,11 @@ class RunState:
             return
         if self.halted is not None and not isinstance(event, Resumed | Incident):
             _refuse("the run is halted; only a resume, or an incident found at one, may follow")
+        if isinstance(event, SubtaskReopened):
+            self._reopen(event)
+            return
+        if self.pending_reopen is not None and not isinstance(event, Resumed | Incident):
+            _refuse("nothing comes between a decision that reopens a subtask and its reopen")
         if isinstance(event, ContractRuled):
             self._ruled(event)
             return
@@ -1169,6 +1182,9 @@ class RunState:
             self.confirmed.add(event.item_id)
         else:
             self.taken[event.item_id] = event
+        if event.acts and event.effect == "reopen":
+            self.pending_reopen = event
+            return
         if not event.acts or event.subtask_id is None:
             return
         sub = self.subtasks[event.subtask_id]
@@ -1195,6 +1211,42 @@ class RunState:
             sub.fix_next = True
         else:
             sub.ending = "person"
+
+    def _reopen(self, event: SubtaskReopened) -> None:
+        """Take a reopen: the one the taken decision before it ordered, of the record's merge.
+
+        The subtask takes its next attempt, or its one fix after its last, in a fresh worktree;
+        its earlier merge stays on the record.
+        """
+        pending = self.pending_reopen
+        if pending is None:
+            _refuse("a reopen that no taken decision explains")
+        if (event.subtask_id, event.item_id, event.shown_sha256) != (
+            pending.reopens,
+            pending.item_id,
+            pending.shown_sha256,
+        ):
+            _refuse("a reopen of another subtask, item or view than its decision's")
+        sub = self.subtasks[event.subtask_id]
+        last = sub.attempts[-1] if sub.attempts else None
+        if sub.status != "done" or last is None or last.merged is None:
+            _refuse("a reopen of a subtask that is not merged")
+        if event.merge_commit != last.merged.merge_commit:
+            _refuse("a reopen of another commit than the subtask's last merge")
+        if event.attempt != last.number + 1:
+            _refuse("a reopen at another attempt than the subtask's next")
+        sub.status = "active"
+        sub.next_resolve = event.attempt
+        sub.fix_next = last.number == REPAIR_BUDGET
+        self.worktrees_handled.discard(event.subtask_id)
+        sub.reopens += 1
+        sub.reopened = event
+        self._ledger(event.subtask_id, reset=True, reopened_by=event.item_id)
+        self.pending_reopen = None
+
+    def _contract_item_open(self) -> bool:
+        """In a run that acts, a failed contract's item no decision has closed yet."""
+        return self.acts and any(self.undecided(item) for item in self.contract_items)
 
     def _design_incomplete(self) -> bool:
         """Whether the call on the record skipped a design a decision can still complete.
@@ -1255,11 +1307,13 @@ class RunState:
     def _waits(self, subtask_id: str) -> bool:
         """The closing pass waits, in a run that acts, before its first attempt, for every item.
 
-        Every arbitration item without a decision taken, or with one held for the operator's
-        confirmation and not yet confirmed.
+        Every arbitration or contract item without a decision taken, or with one held for the
+        operator's confirmation and not yet confirmed.
         """
         if not self.acts or subtask_id != self.closing_pass():
             return False
+        if self._contract_item_open():
+            return True
         for sub in self.subtasks.values():
             if sub.status != "escalated" or not sub.attempts or not sub.attempts[-1].queued:
                 continue
@@ -1308,6 +1362,8 @@ class RunState:
             return
         if self.integration is not None:
             _refuse("the integration call is made once")
+        if self._contract_item_open():
+            _refuse("the integration call waits while a contract item is undecided")
         order = self.integrated()
         unresolved = [s for s in order if self.subtasks[s].status in ("planned", "active")]
         if unresolved:
@@ -1337,7 +1393,9 @@ class RunState:
         if sub.status not in ("planned", "active") or sub.next_resolve != attempt:
             _refuse(f"attempt {attempt} of {sub.plan.subtask_id!r} cannot start now")
         if sub.status == "planned" and self._waits(sub.plan.subtask_id):
-            _refuse("sizing's closing pass waits while a dispute's item is undecided")
+            _refuse(
+                "sizing's closing pass waits while a dispute's or a contract's item is undecided"
+            )
         if not sub.attempts or sub.attempts[-1].number != attempt:
             if any(a.fix for a in sub.attempts):
                 _refuse("the fix a person ordered is a subtask's last attempt")
@@ -1483,6 +1541,8 @@ class RunState:
             return Step(kind="halt")
         if self.halted is not None:
             return Step(kind="halted")
+        if self.pending_reopen is not None:
+            return Step(kind="reopen", subtask_id=self.pending_reopen.reopens)
         if any(o is not None for o in (self.owed_ruling(), self.owed_item(), self.owed_contract())):
             return Step(kind="contract")
         for subtask_id in self.integrated():
@@ -1491,7 +1551,7 @@ class RunState:
                 return step
         ran = self.integration
         if ran is None:
-            return Step(kind="integrate")
+            return Step(kind="wait") if self._contract_item_open() else Step(kind="integrate")
         blocked = (
             isinstance(ran, IntegrationGateRan)
             and ran.result.verdict == "fail"
@@ -1540,6 +1600,8 @@ class RunState:
             return None
         if sub.ending is not None:
             return Step("end_subtask", subtask_id, now.number)
+        if now.merged is not None and sub.next_resolve is not None:
+            return Step("attempt", subtask_id, sub.next_resolve, "resolve")  # reopened
         if now.approved is not None:
             # A person's approve: merge exactly the attempt it names, then diff.
             point: Literal["merge", "diff"] = "merge" if now.merged is None else "diff"

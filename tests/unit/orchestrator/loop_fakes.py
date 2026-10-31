@@ -311,9 +311,14 @@ class FakeMerger:
     ledger_at_merge: list[Any] = field(default_factory=list)
 
     messages: list[str] = field(default_factory=list)
+    #: Per merge: how often the subtask had been reopened, which names its branch.
+    reopens: list[int] = field(default_factory=list)
 
-    def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
+    def merge(
+        self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+    ) -> str:
         self.messages.append(message)
+        self.reopens.append(reopen)
         if self.ledger_path is not None:
             fresh = TaskLedger(self.ledger_path)
             self.ledger_at_merge.append(fresh.find(subtask_id))
@@ -333,11 +338,10 @@ class FakeMerger:
 
     removed: list[str] = field(default_factory=list)
 
-    def remove_worktree(self, subtask_id: str) -> WorktreeRemoval:
+    def remove_worktree(self, subtask_id: str, reopen: int = 0) -> WorktreeRemoval:
         self.removed.append(subtask_id)
-        return WorktreeRemoval(
-            path=f"worktrees/{subtask_id}", outcome="removed", seconds=0.01, detail=None
-        )
+        path = f"worktrees/{subtask_id}" + (f".reopen-{reopen}" if reopen else "")
+        return WorktreeRemoval(path=path, outcome="removed", seconds=0.01, detail=None)
 
 
 @dataclass

@@ -28,16 +28,22 @@ subtask; the order each gives quotes the graph's value as the rulings held it. *
 the domain's value does:** while sizing's closing pass has not started and every value it would
 carry is in a unit the gate's parser takes, the subtask waits, the closing pass is ordered to
 write each value, and the disputed attempt then returns to the gate; otherwise it records only.
+**What choosing a position on a failed contract does:** the chosen module's work stands, and the
+other module reopens for one more attempt of its own budget, told the interface's values, while it
+alone deviates, has an attempt or its fix left, and the integration call is not on the record;
+otherwise it records only.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
-from physgate.orchestrator.budget import after_rejection
+from physgate.orchestrator.arbitration import clause_conflicts
+from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.events import (
+    ContractTested,
     DecisionEffect,
     DecisionTaken,
     GateRan,
@@ -51,6 +57,7 @@ from physgate.orchestrator.queue import (
     INTEGRATION,
     POSITIONS,
     ConfirmedIndicator,
+    ContractChoice,
     ItemConsequence,
     OnChoose,
     OnReject,
@@ -65,6 +72,8 @@ from physgate.orchestrator.repair import (
     arbitration_value_instruction,
     chose_sizing_fix_instruction,
     chose_sizing_retry_instruction,
+    conform_clause,
+    contract_conform_instruction,
     fix_instruction,
     person_repair_instruction,
 )
@@ -72,6 +81,7 @@ from physgate.reviewers.packet import fits_one_read, person_order_text
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError, scan
 
 if TYPE_CHECKING:
+    from physgate.contracts.pairs import Side
     from physgate.orchestrator.replay import AttemptState, RunState, SubtaskState
 
 
@@ -95,6 +105,8 @@ class Taken:
     #: A reject that ends the subtask in place of the order it would give, because what that
     #: order's reviewer would be told is longer than one read shows whole.
     order_too_long: bool = False
+    #: The planning subtask a choice on a contract item reopens, with that effect.
+    reopens: str | None = None
 
 
 #: Why approve records only, as an item says it, and as the decision taken on it says it.
@@ -198,21 +210,98 @@ def _arbitration_effect() -> tuple[WhyRecordOnly, OnReject]:
     return "source", "record_only"
 
 
-def contract_consequence() -> ItemConsequence:
-    """What each verb does to a failed contract's item: in this build, every one records only.
+def contract_choices(state: RunState, tested: ContractTested) -> dict[Position, ContractChoice]:
+    """What choosing each position of the item for the failed result ``tested`` does.
 
-    Both modules merged and neither waits on the item, so approve and reject pick nothing, and a
-    choice of the producer's or the consumer's work is recorded and reopens no merged module.
+    The chosen position's module stands. The other reopens when it alone deviates on the clauses
+    ruled for a person, its planning subtask is merged with an attempt or its one fix left, and
+    the integration call is not on the record: after it, nothing about a subtask but integration's
+    follows, and a completion could stand over the reopened module. Otherwise the choice records
+    only, for the reason the item states.
     """
+    pair = tested.result.pair
+    queued = {line.conflict for line in state.rulings_of(tested) if line.level == "queue"}
+    deviating = {
+        side for c in clause_conflicts(tested.result) if c.conflict in queued for side in c.sides
+    }
+    both: tuple[tuple[Position, Side], ...] = (
+        ("producer", pair.consumer),
+        ("consumer", pair.producer),
+    )
+    choices: dict[Position, ContractChoice] = {}
+    for position, side in both:
+        sub = state.subtasks[side.subtask_id]
+        last = sub.attempts[-1].number if sub.attempts else 0
+        why: Literal["reopen", "deviates", "both", "spent", "closed"] = "reopen"
+        if len(deviating) == 2:
+            why = "both"
+        elif position in deviating:
+            why = "deviates"
+        elif sub.status != "done" or state.integration is not None:
+            why = "closed"
+        elif any(attempt.fix for attempt in sub.attempts):
+            why = "spent"
+        choices[position] = ContractChoice(
+            why, side.module, side.subtask_id, last + 1, fix=last >= REPAIR_BUDGET
+        )
+    return choices
+
+
+def contract_consequence(state: RunState, tested: ContractTested) -> ItemConsequence:
+    """What each verb does to the item for the failed result ``tested``.
+
+    Approve and reject pick nothing, so both record only; what choosing each position does comes
+    from :func:`contract_choices`. The indicators are the reopenable module's, for the person.
+    """
+    choices = contract_choices(state, tested)
+    reopens = [choice.subtask for choice in choices.values() if choice.why == "reopen"]
     return ItemConsequence(
         attempt=None,
         attempt_commit=None,
         on_approve="record_only",
         on_reject="record_only",
         why_record_only="source",
-        confirmed_indicators=(),
+        confirmed_indicators=confirmed_indicators(state.subtasks[reopens[0]]) if reopens else (),
         scan_hits=(),
-        on_choose=dict.fromkeys(POSITIONS["contract"], "record_only"),
+        on_choose={position: choice.effect for position, choice in choices.items()},
+    )
+
+
+def conform_order(
+    state: RunState, item_id: str, subtask_id: str, of_attempt: int, note: str | None
+) -> PersonOrder:
+    """The order a reopen gives ``subtask_id``'s reopened attempt: each clause its module fails.
+
+    Read from the rulings of the item's result, which the loop holds to the journal before it
+    uses them: the interface's value and each of the module's failing nodes, by revision and
+    writer. Nothing of either module's session, and no node's free-text provenance.
+    """
+    tested = state.contract_items[item_id]
+    pair = tested.result.pair
+    side = "producer" if pair.producer.subtask_id == subtask_id else "consumer"
+    checks = {check.interface: check for check in tested.result.interfaces}
+    writers: dict[int, tuple[str, str] | None] = {
+        revision: (done.subtask_id, state.subtasks[done.subtask_id].plan.assigned_role)
+        for revision, done in state.by_revision.items()
+    }
+    clauses = []
+    for ruling in state.rulings_of(tested):
+        check = checks[ruling.conflict.interface]
+        unjoined = side in check.not_joined
+        nodes = [
+            node.node
+            for clause in check.clauses
+            if clause.quantity == ruling.conflict.quantity
+            for node in clause.nodes
+            if node.side == side and node.outcome != "pass"
+        ]
+        if ruling.level == "queue" and (nodes or unjoined):
+            clauses.append(conform_clause(ruling, nodes, unjoined, writers))
+    return PersonOrder(
+        kind="contract_conform",
+        item_id=item_id,
+        of_attempt=of_attempt,
+        instruction=contract_conform_instruction(item_id, of_attempt, clauses, note),
     )
 
 
@@ -302,8 +391,6 @@ def item_consequence(
     ``scan_hits`` is what the scan before review found in the streams of the attempts no review
     judged; it counts for the sources in :data:`SCANNED_SOURCES`.
     """
-    if source == "contract":
-        return contract_consequence()
     if subtask_id == INTEGRATION or source == "gate_escalation":
         return ItemConsequence(
             attempt=None,
@@ -494,14 +581,8 @@ def decision_effect(
     if resolution.item_id != item.item_id:
         msg = "the decision is on another item than the one it is taken with"
         raise QueueItemMismatchError(msg, item=item.item_id, decided=resolution.item_id)
-    if item.source == "contract" and held:
-        # A decision on a contract item records only, and still closes the item, on which a
-        # completion waits. One written while a session ran without the OS layer could be that
-        # session's own, so it closes nothing until an operator confirms it, in either mode.
-        if item.item_id not in state.contract_items:
-            msg = "the run raised no such contract item"
-            raise QueueItemMismatchError(msg, item=item.item_id)
-        return Taken(effect="none", acts=False, why_not="held_os_layer_off")
+    if item.source == "contract":
+        return _contract_effect(state, item, resolution, line_sha256=line_sha256, held=held)
     if item.consequence is None:
         return Taken(effect="none", acts=False, why_not="legacy_item")
     if resolution.verb is None or resolution.shown_sha256 is None:
@@ -509,12 +590,7 @@ def decision_effect(
     if resolution.shown_sha256 != line_sha256:
         msg = "the item's line is not the one the decision was taken on"
         raise QueueItemMismatchError(msg, item=item.item_id)
-    if item.source == "contract":
-        if item.item_id not in state.contract_items:
-            msg = "the run raised no such contract item"
-            raise QueueItemMismatchError(msg, item=item.item_id)
-        expected = contract_consequence()
-    elif item.subtask_id == INTEGRATION:
+    if item.subtask_id == INTEGRATION:
         escalated = state.integration_escalated
         if escalated is None or escalated.item_id != item.item_id:
             msg = "the run escalated no such integration item"
@@ -551,6 +627,63 @@ def decision_effect(
             effect=effect, acts=False, why_not="held_os_layer_off", order_too_long=too_long
         )
     return Taken(effect=effect, acts=True, why_not=None, order_too_long=too_long)
+
+
+def _contract_effect(
+    state: RunState,
+    item: QueueItem,
+    resolution: QueueResolution,
+    *,
+    line_sha256: str,
+    held: bool,
+) -> Taken:
+    """What a decision on a failed contract's item does: a reopen, or recording only.
+
+    A decision on it closes the item, on which the waits and a completion rest, so one written
+    while a session ran without the OS layer is held, whatever it would do, until an operator
+    confirms it, in either mode.
+    """
+    tested = state.contract_items.get(item.item_id)
+    if tested is None:
+        msg = "the run raised no such contract item"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    hold: WhyNot | None = "held_os_layer_off" if held else None
+    if item.consequence is None or resolution.verb is None or resolution.shown_sha256 is None:
+        unbound: WhyNot = "legacy_item" if item.consequence is None else "not_bound"
+        return Taken(effect="none", acts=False, why_not=hold or unbound)
+    if resolution.shown_sha256 != line_sha256:
+        msg = "the item's line is not the one the decision was taken on"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    expected = contract_consequence(state, tested)
+    if expected != item.consequence:
+        msg = "the item says another consequence than the run's record gives"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    try:
+        effect, why = _effect_of(expected, resolution.verb, resolution.position)
+    except ValueError as exc:  # the writer refuses this line; one that reaches the file anyway
+        raise QueueItemMismatchError(str(exc), item=item.item_id) from None
+    reopens = _reopen_of(state, tested, resolution.position) if effect == "reopen" else None
+    too_long = reopens is not None and not _conform_fits(
+        state, item.item_id, reopens, resolution.note
+    )
+    if too_long:
+        effect, why, reopens = "none", "order_too_long", None
+    if hold is not None or why is not None:
+        return Taken(effect, False, hold or why, order_too_long=too_long, reopens=reopens)
+    return Taken(effect, acts=True, why_not=None, reopens=reopens)
+
+
+def _reopen_of(state: RunState, tested: ContractTested, position: Position | None) -> str | None:
+    """The planning subtask choosing ``position`` reopens, if it reopens one."""
+    choice = contract_choices(state, tested).get(position) if position is not None else None
+    return choice.subtask if choice is not None and choice.why == "reopen" else None
+
+
+def _conform_fits(state: RunState, item_id: str, subtask_id: str, note: str | None) -> bool:
+    """Whether the reviewer of the reopened attempt could read its order whole."""
+    merged_at = state.subtasks[subtask_id].attempts[-1].number
+    order = conform_order(state, item_id, subtask_id, merged_at, note)
+    return fits_one_read(person_order_text(order))
 
 
 def require_taken(state: RunState, event: DecisionTaken) -> None:
@@ -657,33 +790,39 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
 
 
 def _require_contract_taken(state: RunState, event: DecisionTaken) -> None:
-    """Refuse a decision on a failed contract's item that this build could not have taken.
+    """Refuse a decision on a failed contract's item that this code could not have taken.
 
-    It names no subtask and no attempt, and records only: what it records only for is the item's
-    own reason in a run that acts, and that the item says nothing of a verb's effect in one that
-    records only; or, written while a session ran without the OS layer, that it is held until an
-    operator confirms it.
+    It names no subtask and no attempt. A choice reopens only the subtask the record gives, where
+    the record gives a reopen, and that only where its order fits one read; anything else records
+    only: for the item's own reason in a run that acts, because the item says nothing of a verb's
+    effect in one that records only, or, held, until an operator confirms it.
     """
     if event.subtask_id is not None or (event.attempt, event.attempt_commit) != (None, None):
         msg = "a decision on a contract item names no subtask and no attempt"
         raise ValueError(msg)
-    if event.acts or event.effect != "none":
-        msg = "a decision on a contract item records only"
-        raise ValueError(msg)
     if event.verb == "choose" and event.position not in POSITIONS["contract"]:
         msg = "a choice on a contract item is taken of a position it offers"
         raise ValueError(msg)
-    if event.why_not == "held_os_layer_off":
-        allowed = event.confirmed_by is None
-    elif event.verb is None:
-        allowed = event.why_not in ("not_bound", "legacy_item")
-    elif not state.acts:
-        allowed = event.why_not == "legacy_item"
-    else:
+    effect: DecisionEffect = "none"
+    why: WhyNot | None = "legacy_item"
+    reopens: str | None = None
+    if event.verb is None:
+        why = event.why_not if event.why_not in ("not_bound", "legacy_item") else "not_bound"
+    elif state.acts:
         if event.shown_sha256 is None:
             msg = "a decision with a verb names the digest of the item line it was taken on"
             raise ValueError(msg)
-        allowed = event.why_not == _effect_of(contract_consequence(), event.verb, event.position)[1]
-    if not allowed:
+        tested = state.contract_items[event.item_id]
+        effect, why = _effect_of(contract_consequence(state, tested), event.verb, event.position)
+        if effect == "reopen":
+            reopens = _reopen_of(state, tested, event.position)
+            if reopens is None or not _conform_fits(state, event.item_id, reopens, event.note):
+                effect, why, reopens = "none", "order_too_long", None
+    held = event.why_not == "held_os_layer_off" and event.confirmed_by is None
+    if (event.effect, event.reopens, event.order_too_long) != (
+        effect,
+        reopens,
+        why == "order_too_long",
+    ) or (not held and (event.why_not, event.acts) != (why, why is None)):
         msg = "a decision on a contract item that does other than the record allows"
         raise ValueError(msg)

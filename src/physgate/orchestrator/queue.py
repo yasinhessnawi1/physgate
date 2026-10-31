@@ -122,8 +122,9 @@ WhyRecordOnly = Literal[
 Sha1 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 #: What choosing a position does: order the next attempt to the graph's value, order the one fix
 #: to it, end the subtask, resize (the subtask waits for sizing's closing pass, ordered to write
-#: the domain's value, then returns to the gate), or record the decision only.
-OnChoose = Literal["retry", "fix", "end_subtask", "resize", "record_only"]
+#: the domain's value, then returns to the gate), reopen the other module of a failed contract, or
+#: record the decision only.
+OnChoose = Literal["retry", "fix", "end_subtask", "resize", "reopen", "record_only"]
 #: The positions each kind of item offers, in the order the item states them: an arbitration's
 #: sizing (the graph's value stands) and domain (the disputing subtask's); a failed contract's
 #: producer and consumer (whose merged work stands). No other kind offers any.
@@ -458,13 +459,15 @@ def escalation_item(
     ts: str,
     spent_by_person: int = 0,
     consequence: ItemConsequence | None = None,
+    merged: int = 0,
 ) -> QueueItem:
     """The item for a subtask whose every attempt was rejected.
 
     The triggering finding is the last one. The quantities are the last
     finding's that has any, because the most recent evidence is the most
     relevant. An attempt a person rejected from the queue left no finding of its own, so
-    ``spent_by_person`` counts those; every attempt is still one finding or one of them.
+    ``spent_by_person`` counts those, and ``merged`` the attempts that merged before a person's
+    choice on a failed contract reopened the subtask; every attempt is one of the three.
 
     Raises:
         QueueError: fewer findings or trajectories than attempts were given.
@@ -472,7 +475,8 @@ def escalation_item(
     if (
         not findings
         or spent_by_person < 0
-        or len(findings) + spent_by_person != REPAIR_BUDGET
+        or merged < 0
+        or len(findings) + spent_by_person + merged != REPAIR_BUDGET
         or len(trajectories) != REPAIR_BUDGET
     ):
         msg = "an exhausted budget is escalated with every attempt's finding and trajectory"
@@ -480,9 +484,12 @@ def escalation_item(
     with_quantities = [f for f in findings if f.quantities]
     rejected = (
         f"was rejected on all {REPAIR_BUDGET} attempts"
-        if not spent_by_person
+        if not spent_by_person and not merged
         else f"has no attempt left of {REPAIR_BUDGET}: a person rejected {spent_by_person} of "
         "them from the queue, and the others were rejected"
+        if not merged
+        else f"has no attempt left of {REPAIR_BUDGET}: {merged} merged before a person's choice "
+        "reopened it, and the others were rejected"
     )
     return QueueItem(
         item_id=item_id,
@@ -768,6 +775,57 @@ def integration_item(
 CONTRACT = "contract"
 
 
+@dataclass(frozen=True)
+class ContractChoice:
+    """What choosing one position of a failed contract's item does, and why, as the item says it.
+
+    ``why``: ``reopen``, the other module alone deviates and has an attempt left; ``deviates``, the
+    chosen module's own nodes break the contract; ``both``, both modules' do; ``spent``, the other
+    module has no attempt left; ``closed``, it is not merged now, or the integration call is on the
+    record. ``module`` and ``subtask`` are the other side's, ``attempt`` the one a reopen starts.
+    """
+
+    why: Literal["reopen", "deviates", "both", "spent", "closed"]
+    module: str
+    subtask: str
+    attempt: int
+    fix: bool
+
+    @property
+    def effect(self) -> OnChoose:
+        """What the choice does: reopen the other module, or record only."""
+        return "reopen" if self.why == "reopen" else "record_only"
+
+
+def _choice_words(choices: Mapping[Position, ContractChoice] | None) -> str:
+    """What each position does, one sentence each; the run's own sentence where nothing acts."""
+    from physgate.orchestrator import integration_state as render
+
+    if choices is None:
+        return "In this run a choice is recorded, and nothing in the run acts on it."
+    if all(choice.why == "both" for choice in choices.values()):
+        return (
+            "Either choice records only: the interface, fixed at decomposition, disagrees with "
+            "both modules, and a new decomposition is the remedy."
+        )
+    words = []
+    for position, choice in choices.items():
+        lead, other = f"Choosing the {position}", f"module {render.q(choice.module)}"
+        if choice.why == "reopen":
+            slot = "its one fix" if choice.fix else f"attempt {choice.attempt}"
+            words.append(
+                f"{lead} keeps its work and reopens {other} for one more attempt ({slot}), told "
+                "the interface's values."
+            )
+        elif choice.why == "deviates":
+            words.append(f"{lead} records only: its own nodes break the contract.")
+        elif choice.why == "spent":
+            words.append(f"{lead} records only: {other} has no attempt left.")
+        else:
+            words.append(f"{lead} records only: {other} is not merged now, or integration ran.")
+    return " ".join(words)
+
+
 def contract_item_id(run_id: str, pair_number: int, round_: int) -> str:
     """A failed contract's item id: the run, the pair's number, and from its second item, the round.
 
@@ -794,6 +852,7 @@ def contract_item(
     trajectories: tuple[str, ...],
     ts: str,
     consequence: ItemConsequence | None = None,
+    choices: Mapping[Position, ContractChoice] | None = None,
 ) -> QueueItem:
     """The item for a failed contract, a clause of which the precedence rule sends to a person.
 
@@ -842,7 +901,7 @@ def contract_item(
             f"The interface contract of {producer} to {consumer} failed{again} "
             "after both merged. The interfaces are fixed at decomposition, and no run changes "
             f"them. {who} from the interface. Decide whose merged work stands: choose producer or "
-            "choose consumer. In this build a choice is recorded, and no merged module is reopened."
+            f"choose consumer. {_choice_words(choices)}"
         ),
         artefact_diff=(
             f"The run branch from {start} to {head}: see `git diff {start} {head}` in the "

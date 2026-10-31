@@ -1180,7 +1180,7 @@ class ClaudeDispatcher:
             "--worktree",
             str(worktree),
             "--own-branch",
-            self._run.subtask_branch(request.subtask_id),
+            self._run.subtask_branch(request.subtask_id, request.reopened),
             "--store-root",
             str(self._store_root),
             "--state-dir",
@@ -1257,7 +1257,7 @@ class ClaudeDispatcher:
         if reported != self._config.claude_version:
             msg = "the binary is not the version this run recorded"
             raise InvocationError(msg, reported=reported, recorded=self._config.claude_version)
-        worktree = self._run.open_subtask(request.subtask_id)
+        worktree = self._run.open_subtask(request.subtask_id, request.reopened)
         if self._layer_on():
             # Before anything of the session exists: in a place the sandbox makes writable,
             # its commands and any other sandboxed session's there can abort each other's.

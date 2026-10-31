@@ -63,6 +63,9 @@ class SessionRequest(_Frozen):
     #: Whether the session is told how to dispute a value of a cross node: a role that may, in a
     #: plan that holds the work of the role that writes those values.
     disputes: bool = False
+    #: How often a person's choice reopened the merged subtask: its session runs in that
+    #: reopen's own worktree and branch.
+    reopened: Annotated[int, Field(ge=0)] = 0
 
     @model_validator(mode="after")
     def _a_fix_is_told_what_to_fix(self) -> SessionRequest:
@@ -257,7 +260,9 @@ class ChangeChecker(Protocol):
 class Merger(Protocol):
     """Applies an accepted attempt and merges it into the run branch."""
 
-    def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
+    def merge(
+        self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+    ) -> str:
         """Merge exactly ``attempt_commit`` and return the merge commit.
 
         Idempotent: a merge already made is returned, not redone. Refuses a commit
@@ -283,8 +288,11 @@ class Merger(Protocol):
         """
         ...
 
-    def remove_worktree(self, subtask_id: str) -> WorktreeRemoval:
-        """Remove a subtask's worktree without force; never its branch. Never raises."""
+    def remove_worktree(self, subtask_id: str, reopen: int = 0) -> WorktreeRemoval:
+        """Remove a subtask's worktree without force; never its branch. Never raises.
+
+        ``reopen`` is how often the subtask was reopened: each reopen has a worktree of its own.
+        """
         ...
 
 

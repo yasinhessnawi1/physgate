@@ -147,6 +147,7 @@ PersonOrderKind = Literal[
     "retry_after_arbitration",
     "fix_after_arbitration",
     "arbitration_value",
+    "contract_conform",
 ]
 
 

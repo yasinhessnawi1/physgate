@@ -118,11 +118,14 @@ class TaskLine(BaseModel):
     #: written exactly as before they existed.
     person_decision: Literal["approve", "reject", "choose"] | None = None
     queue_item: NonEmptyStr | None = None
+    #: The failed contract's item a person's choice on which reopened the merged subtask; left
+    #: out when absent, as above.
+    reopened_by: NonEmptyStr | None = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_decision(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for name in ("person_decision", "queue_item"):
+        for name in ("person_decision", "queue_item", "reopened_by"):
             if data.get(name) is None:
                 data.pop(name, None)
         return data

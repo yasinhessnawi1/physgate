@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Sequence
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -139,6 +139,9 @@ class Finding(BaseModel):
         """
         return f"{self.source}|{self.subject or '-'}|{self.failing_check or '-'}"
 
+
+if TYPE_CHECKING:
+    from physgate.orchestrator.events import ContractRuled
 
 #: The subtask and role whose write put a held revision, as the run's log gives them.
 Writer = tuple[str, str]
@@ -441,5 +444,85 @@ def arbitration_value_instruction(chosen: Sequence[ChosenValue], wrapped: str | 
     ]
     if wrapped is not None:
         lines += ["This attempt also starts from:", *quoted(wrapped)]
+    lines.append("The specification as issued otherwise still governs.")
+    return "\n".join(lines)
+
+
+def conform_clause(
+    ruling: ContractRuled,
+    nodes: Sequence[str],
+    unjoined: bool,
+    writers: dict[int, Writer | None],
+) -> str:
+    """One clause the reopened module fails, as the ruling held it, each part held to its form.
+
+    The interface's value, then each of the module's failing nodes, by revision and writer.
+
+    ``nodes`` are the module's joined nodes that fail the clause, ``unjoined`` whether the module
+    is not joined to the interface, and ``writers`` who wrote each found value's revision.
+    """
+    from physgate.orchestrator import integration_state as render
+
+    where = f"Interface {render.held(ruling.conflict.interface)}"
+    name, wanted = ruling.conflict.quantity, ruling.wanted
+    if name is None or wanted is None:
+        return f"{where} has no quantity, and this module is not joined to it."
+    named = render.q(name) if _quantity_name(name) else "a quantity name the dispute path refuses"
+    measure = render.measure(wanted.position.value, wanted.position.unit)
+    parts = [
+        f"{where}, quantity {named}: the interface holds {measure} (fixed at decomposition, "
+        f"revision {wanted.revision})"
+    ]
+    carried = {value.position.node_id: value for value in ruling.found}
+    for node in nodes:
+        found = carried.get(node)
+        if found is None:
+            parts.append(f"node {render.held(node)} does not carry it")
+            continue
+        writer = writers.get(found.revision)
+        by = (
+            "written before the run began"
+            if writer is None
+            else "written by subtask "
+            + render.held(
+                writer[0],
+                render.SUBTASK_PATTERN,
+                render.PLANNED_ID_MAX_LENGTH,
+                render.REFUSED_SUBTASK,
+            )
+            + " in role "
+            + render.held(
+                writer[1], render.ROLE_PATTERN, render.PLANNED_ID_MAX_LENGTH, render.REFUSED_ROLE
+            )
+        )
+        held = render.measure(found.position.value, found.position.unit)
+        parts.append(f"node {render.held(node)} holds {held} (revision {found.revision}, {by})")
+    if unjoined:
+        parts.append("this module is not joined to it")
+    return "; ".join(parts) + "."
+
+
+def contract_conform_instruction(
+    item_id: str, attempt: int, clauses: Sequence[str], note: str | None
+) -> str:
+    """The reopened attempt's instruction: each clause its module fails, and the person's note.
+
+    A fixed template, each part quoted as data; never a session's words, nor a node's free-text
+    provenance. ``attempt`` is the one the module merged at.
+    """
+    from physgate.orchestrator import integration_state as render
+
+    item = render.held(item_id, ITEM_PATTERN, 2 * 128 + 8, REFUSED_ITEM)
+    lines = [
+        "A person kept the other module's work on the failed interface contract of queue item "
+        f"{item}, and reopened this module, merged at attempt {attempt}, to conform to the "
+        "interface. The interfaces are fixed at decomposition. Write each value below into this "
+        "module's node, as the interface holds it.",
+        "",
+        "The clauses this module fails:",
+        *quoted("\n".join(clauses)),
+    ]
+    if note is not None:
+        lines += ["The person's note:", *quoted(note)]
     lines.append("The specification as issued otherwise still governs.")
     return "\n".join(lines)

@@ -76,6 +76,11 @@ def _safe(name: str, what: str) -> str:
     return name
 
 
+def _reopened(subtask_id: str, reopen: int) -> str:
+    name = _safe(subtask_id, "subtask id")
+    return f"{name}.reopen-{reopen}" if reopen else name
+
+
 @dataclass(frozen=True)
 class RunGit:
     """The git layout of one run."""
@@ -94,22 +99,26 @@ class RunGit:
         """The orchestrator's own worktree on the run branch."""
         return self.run_dir / "worktrees" / "_integration"
 
-    def subtask_branch(self, subtask_id: str) -> str:
-        """The branch a subtask's attempts are committed on."""
-        return f"physgate/{_safe(self.run_id, 'run id')}/{_safe(subtask_id, 'subtask id')}"
+    def subtask_branch(self, subtask_id: str, reopen: int = 0) -> str:
+        """The branch a subtask's attempts are committed on.
 
-    def subtask_worktree(self, subtask_id: str) -> Path:
-        """The worktree a subtask's sessions run in."""
-        return self.run_dir / "worktrees" / _safe(subtask_id, "subtask id")
+        After its ``reopen``-th reopen, a sibling of its own: ``.`` is outside a plain identifier,
+        so no subtask's own branch is named so.
+        """
+        return f"physgate/{_safe(self.run_id, 'run id')}/{_reopened(subtask_id, reopen)}"
+
+    def subtask_worktree(self, subtask_id: str, reopen: int = 0) -> Path:
+        """The worktree a subtask's sessions run in; a fresh one after each reopen."""
+        return self.run_dir / "worktrees" / _reopened(subtask_id, reopen)
 
     def open_run_branch(self, start: str) -> None:
         """Create the run branch at ``start`` and its integration worktree, once."""
         add_worktree(self.repo, self.integration, self.run_branch, start)
 
-    def open_subtask(self, subtask_id: str) -> Path:
+    def open_subtask(self, subtask_id: str, reopen: int = 0) -> Path:
         """The subtask's worktree, created from the run branch's head if new."""
-        path = self.subtask_worktree(subtask_id)
-        add_worktree(self.repo, path, self.subtask_branch(subtask_id), self.run_branch)
+        path = self.subtask_worktree(subtask_id, reopen)
+        add_worktree(self.repo, path, self.subtask_branch(subtask_id, reopen), self.run_branch)
         return path
 
 
@@ -215,7 +224,9 @@ class GitMerger:
         self._run = run
         self._removal_timeout_s = removal_timeout_s
 
-    def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
+    def merge(
+        self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+    ) -> str:
         """Merge exactly ``attempt_commit`` into the run branch and return the merge.
 
         The merge commit's parents are the run branch and ``attempt_commit``; its tree is the
@@ -227,7 +238,7 @@ class GitMerger:
             MergeConflictError: the merge did not apply cleanly; it was aborted.
         """
         run = self._run
-        branch = run.subtask_branch(subtask_id)
+        branch = run.subtask_branch(subtask_id, reopen)
         pinned = verified_git_dir(run.repo, linked=False)
         if (
             not branch_exists(run.repo, branch, git_dir=pinned)
@@ -292,14 +303,14 @@ class GitMerger:
             "where this run last left it"
         )
 
-    def remove_worktree(self, subtask_id: str) -> WorktreeRemoval:
+    def remove_worktree(self, subtask_id: str, reopen: int = 0) -> WorktreeRemoval:
         """Remove a subtask's worktree with ``git worktree remove``, never forced.
 
         The branch stays, and so does everything under the run directory but the
         worktree. A removal git refuses (a modified or untracked file, a lock) is
         reported and left as it is. Never raises.
         """
-        path = self._run.subtask_worktree(subtask_id)
+        path = self._run.subtask_worktree(subtask_id, reopen)
         if not path.exists():
             return WorktreeRemoval(path=str(path), outcome="absent", seconds=0.0, detail=None)
         try:

@@ -421,6 +421,8 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             step = {"step": "escalated", "subtask_id": e["subtask_id"]}
         elif kind == "attempt_returned":
             step = {"step": "returned", **at, "item_id": e["item_id"]}
+        elif kind == "subtask_reopened":
+            step = {"step": "reopened", **at, "item_id": e["item_id"]}
         elif kind == "session_ended" and e["outcome"] == "infrastructure":
             step = {"step": "infrastructure", **at, "cause": e["cause"]}
         elif kind == "incident":

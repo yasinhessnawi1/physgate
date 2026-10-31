@@ -42,6 +42,9 @@ from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decisions import (
     SCANNED_SOURCES,
     closing_order,
+    conform_order,
+    contract_choices,
+    contract_consequence,
     decision_effect,
     item_consequence,
     person_order,
@@ -97,6 +100,7 @@ from physgate.orchestrator.events import (
     Stage,
     StageEntered,
     SubtaskRejected,
+    SubtaskReopened,
     TokensUsed,
     WorktreeRemoved,
     WriteDone,
@@ -151,7 +155,6 @@ from physgate.orchestrator.protocols import (
     require_separate_models,
 )
 from physgate.orchestrator.queue import (
-    CONTRACT,
     INTEGRATION,
     ItemConsequence,
     QueueItem,
@@ -653,7 +656,7 @@ class Loop:
                 reason = "queue_resolved"
             else:
                 continue
-            removal = self._merger.remove_worktree(subtask_id)
+            removal = self._merger.remove_worktree(subtask_id, reopen=sub.reopens)
             self._emit(
                 WorktreeRemoved(
                     **self._env(),
@@ -682,6 +685,7 @@ class Loop:
             "complete",
             "halt",
             "wait",
+            "reopen",
         ):
             self._record_environment()
         while True:
@@ -705,6 +709,9 @@ class Loop:
                 continue
             if step.kind == "complete":
                 self._complete(step)
+                continue
+            if step.kind == "reopen":
+                self._reopen()
                 continue
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"
@@ -910,9 +917,29 @@ class Loop:
                 why_not=taken.why_not,
                 confirmed_by=confirmed_by,
                 order_too_long=taken.order_too_long,
+                reopens=taken.reopens,
             )
         )
         return True
+
+    def _reopen(self) -> None:
+        """Write the reopen the taken decision ordered: the subtask's next attempt, or its fix."""
+        taken = self.state.pending_reopen
+        sub = self.state.subtasks.get(taken.reopens or "") if taken is not None else None
+        merged = sub.attempts[-1].merged if sub is not None and sub.attempts else None
+        if taken is None or taken.shown_sha256 is None or sub is None or merged is None:
+            msg = "a reopen with no decision that orders it, or of a subtask with no merge"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        self._emit(
+            SubtaskReopened(
+                **self._env(),
+                subtask_id=sub.plan.subtask_id,
+                item_id=taken.item_id,
+                shown_sha256=taken.shown_sha256,
+                merge_commit=merged.merge_commit,
+                attempt=sub.attempts[-1].number + 1,
+            )
+        )
 
     def _scan_hits(self, subtask_id: str, *, where: str | None) -> tuple[ScanHit, ...] | None:
         """What the scan before review finds in the unjudged attempts' streams; None if it halted.
@@ -1052,6 +1079,12 @@ class Loop:
         previous = sub.attempts[-2] if attempt > 1 and len(sub.attempts) > 1 else None
         if previous is None:
             return None, None
+        reopened = sub.reopened
+        if previous.merged is not None and reopened is not None and reopened.attempt == attempt:
+            # The reopened attempt alone: a later one follows the repair rules.
+            note = self.state.taken[reopened.item_id].note
+            conform = conform_order(self.state, reopened.item_id, subtask_id, previous.number, note)
+            return conform.instruction, conform
         before = previous.rejected
         ordered = previous.person_rejected
         if ordered is not None and ordered.effect in ("fix", "retry"):
@@ -1088,7 +1121,12 @@ class Loop:
         """
         if order.kind == "arbitration_value":
             return arbitration_value_instruction(order.chosen, None)
-        if order.kind in ("fix_after_block", "retry_after_arbitration", "fix_after_arbitration"):
+        if order.kind in (
+            "fix_after_block",
+            "retry_after_arbitration",
+            "fix_after_arbitration",
+            "contract_conform",
+        ):
             return order.instruction
         attempts = self.state.subtasks[subtask_id].attempts
         spent = next((a.person_rejected for a in attempts if a.number == order.of_attempt), None)
@@ -1151,11 +1189,20 @@ class Loop:
         # Integration's state quotes the contract results and the system-scope result on the
         # record: each is taken again first, so one the stores do not give halts the run before
         # its window opens.
-        if subtask_id == self.state.completion_subtask and not self._record_holds():
+        if subtask_id == self.state.completion_subtask and not (
+            self._record_holds() and self._no_declaration_at_head(subtask_id)
+        ):
             return False
         self._environment_before_a_spawn()
         sub = self.state.subtasks[subtask_id]
         self._stage(subtask_id, attempt, "resolve")
+        reopened = sub.reopened
+        if (
+            reopened is not None
+            and reopened.attempt == attempt
+            and not self._rulings_hold(self.state.contract_items[reopened.item_id])
+        ):
+            return False  # the rulings its order quotes are the journal's, or the run halts
         before = sub.attempts[-2] if attempt > 1 and len(sub.attempts) > 1 else None
         if before is not None and before.rejected is not None:
             # A ruling is used again here, in the finding the session is told: held first.
@@ -1223,7 +1270,11 @@ class Loop:
             bounds=self.config.bounds,
             spec_commit=self._spec_commit(),
             kind="fix"
-            if inner is not None and inner.kind in ("fix_after_block", "fix_after_arbitration")
+            if inner is not None
+            and (
+                inner.kind in ("fix_after_block", "fix_after_arbitration")
+                or (inner.kind == "contract_conform" and sub.attempts[-1].fix)
+            )
             else "attempt",
             issued_state=held,
             disputes=disputer_problem(sub.plan.assigned_role) is None
@@ -1231,6 +1282,7 @@ class Loop:
                 s.plan.assigned_role in owners_of("cross_nodes")
                 for s in self.state.subtasks.values()
             ),
+            reopened=sub.reopens,
         )
         try:
             report = self._dispatcher.run(request, on_spawn=self._spawned)
@@ -1860,7 +1912,9 @@ class Loop:
         if not self._run_branch_holds(subtask_id, checked):
             return False
         try:
-            merge_commit = self._merger.merge(subtask_id, attempt, checked, merge_text)
+            merge_commit = self._merger.merge(
+                subtask_id, attempt, checked, merge_text, reopen=sub.reopens
+            )
         except (MergeConflictError, MergeRefusedError) as exc:
             cause: IncidentCause = (
                 "merge_conflict" if isinstance(exc, MergeConflictError) else "merge_refused"
@@ -2187,7 +2241,8 @@ class Loop:
             run_span=(start or tested.commit, tested.commit),
             trajectories=trajectories,
             ts=ts,
-            consequence=self._consequence(CONTRACT, "contract"),
+            consequence=contract_consequence(self.state, tested) if self._acts() else None,
+            choices=contract_choices(self.state, tested) if self._acts() else None,
         )
 
     def _contract_item_holds(self, item: QueueItem) -> bool:
@@ -2243,6 +2298,25 @@ class Loop:
         if declaring is not None and not self._declaration_holds(declaring):
             return False
         return self._results_hold() and self._scope_holds()
+
+    def _no_declaration_at_head(self, declaring: str) -> bool:
+        """The run head integration's window would start from holds no declaration; else halted.
+
+        Only integration's own accepted attempt puts one on the run branch, and it is its last:
+        one there before its window (in the run's start commit, say) is no attempt's of this run.
+        """
+        head = self.state.run_head
+        try:
+            found = head is not None and self._changes.declaration_at(head, declaring) is not None
+        except (DeclarationError, GitError):
+            found = True
+        if found:
+            detail = (
+                "a completion declaration was on the run branch before integration's window; no "
+                "attempt of this run wrote it"
+            )
+            self._incident(None, "declaration_mismatch", detail)
+        return not found
 
     def _declaration_holds(self, declaring: str) -> bool:
         """The merged attempt's declaration line is what its merged commit holds, read again.
@@ -2611,6 +2685,7 @@ class Loop:
                 1 for a in attempts if a.person_rejected is not None and a.rejected is None
             ),
             consequence=self._consequence(subtask_id, "repair_budget_exhausted", scan),
+            merged=sum(1 for a in attempts if a.merged is not None),
         )
 
     def _next_item_id(self, subtask_id: str) -> str:

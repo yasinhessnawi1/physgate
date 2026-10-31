@@ -673,6 +673,11 @@ def person_order_text(order: PersonOrder) -> bytes:
             "This attempt is sizing's closing pass, ordered to write the values a person chose on "
             f"queue item{'' if len(ids) == 1 else 's'} {', '.join(ids)}."
         )
+    elif order.kind == "contract_conform":
+        head = (
+            "This attempt reopens a merged module, ordered by a person on queue item "
+            f"{order.item_id} to conform to the interface's values."
+        )
     elif order.kind == "fix_after_arbitration":
         head = (
             "This attempt is the single fix a person ordered by choosing sizing's value on the "

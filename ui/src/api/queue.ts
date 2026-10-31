@@ -178,7 +178,15 @@ export function queueItem(value: unknown): QueueItem {
   };
 }
 
-export const EFFECTS = ["merge", "retry", "fix", "end_subtask", "resize", "none"] as const;
+export const EFFECTS = [
+  "merge",
+  "retry",
+  "fix",
+  "end_subtask",
+  "resize",
+  "reopen",
+  "none",
+] as const;
 export type Effect = (typeof EFFECTS)[number];
 
 /** What the run did with a decision, from its own record; absent until it takes it. */
