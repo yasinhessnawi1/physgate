@@ -4,9 +4,9 @@ A module in two failed pairs has two items. A choice on one that reopens the mod
 the other said: its attempt numbers, which side can reopen. So at the reopen the other item is
 superseded. It no longer holds the waits or completion, and a decision written on it later is
 taken record-only, as ``superseded``, still bound to the line the person saw, and never acts.
-While either module of its pair runs, the pair owes nothing; once the module settles, the retest
-the reopened merge owes decides, and a pair that still fails is listed again as a new round, made
-from what is true then. The status route names each superseded item and the item whose reopen
+While either module of its pair is neither merged nor ended rejected, sent to a person included,
+the pair owes nothing; once the module settles, the retest the reopened merge owes decides, and a
+pair that still fails is listed again as a new round, made from what is true then. The status route names each superseded item and the item whose reopen
 superseded it.
 """
 
