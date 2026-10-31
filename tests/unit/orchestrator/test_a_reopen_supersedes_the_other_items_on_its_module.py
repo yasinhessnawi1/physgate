@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loop_fakes import Rig
+from loop_fakes import FakeReviewer, Rig
 from test_a_choice_on_a_failed_contract_reopens_the_other_module import (
     BOTH,
     MENDED_FW,
@@ -173,4 +173,29 @@ def test_a_kill_at_the_reopen_resumes_to_exactly_one_new_round(
     assert len(of(rows, "subtask_reopened")) == 1
     assert [r["item_id"] for r in of(rows, "contract_item_raised")] == [ITEM, OTHER, AGAIN]
     assert replay(read_events(rig.run_dir / "events.jsonl")).superseded == {OTHER: ITEM}
+    assert refusal(rows) is None
+
+
+def test_a_superseded_item_is_listed_again_once_its_module_ends_without_merging_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Merged at 1 and reopened, fw's attempts 2 and 3 are refused by review: it goes to a person
+    # unmerged, so no retest is owed and the old failed result is the pair's latest. Once fw
+    # settles, that result is listed again, saying what is true then: fw cannot be reopened.
+    rig = opened(
+        tmp_path,
+        monkeypatch,
+        writes={FW: [BOTH_LOW]},
+        mended={FW: HALF},
+        reviewer=FakeReviewer(verdicts=["pass", "pass", "fail", "fail"]),
+    )
+    choose(rig.run_dir, "producer")
+    assert escaped(lambda: again(rig, monkeypatch)) is None
+    rows = lines(rig)
+    assert [r["attempt"] for r in of(rows, "attempt_rejected", subtask_id=FW)] == [2, 3]
+    assert len(of(rows, "contract_tested")) == 2  # no retest: fw never merged again
+    assert [r["item_id"] for r in of(rows, "contract_item_raised")] == [ITEM, OTHER, AGAIN]
+    item = next(i for i in read_queue(rig.run_dir).items if i.item_id == AGAIN)
+    assert item.consequence is not None
+    assert item.consequence.on_choose == {"producer": "record_only", "consumer": "record_only"}
     assert refusal(rows) is None
