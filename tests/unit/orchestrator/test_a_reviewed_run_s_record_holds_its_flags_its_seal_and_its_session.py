@@ -27,8 +27,8 @@ from test_decompose_reviews_the_plan_before_it_writes_anything import (
     _exit,
     _nothing_recorded,
     _verdict,
-    fake_binary,
 )
+from test_the_physgate_command_starts_and_decides import fake_binary
 
 import physgate.orchestrator.cli as orchestrator_cli
 from physgate.evaluation.requirements import observed_design_review_for_reportable_runs
