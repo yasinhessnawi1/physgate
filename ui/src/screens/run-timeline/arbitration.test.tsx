@@ -288,7 +288,10 @@ describe("a return, a reopen and an end say what a person's decision ordered", (
 });
 
 describe("no held or contract value, source or writer reaches a screen", () => {
-  const canaries = /SOURCECANARY|WRITERCANARY|UNITCANARY|VALUECANARY/;
+  // A value no fixture uses, planted in every held, wanted and found value: written as a number,
+  // or with a thousands separator, it never appears.
+  const value = 271828.183;
+  const canaries = /SOURCECANARY|WRITERCANARY|UNITCANARY|271[^0-9]?828/;
   const marked = [
     ...PLANNED,
     written({
@@ -299,7 +302,7 @@ describe("no held or contract value, source or writer reaches a screen", () => {
       standing: STANDING,
       level: "sizing",
       held: {
-        position: { ...POSITION, value: 2.5, unit: "UNITCANARY" },
+        position: { ...POSITION, value, unit: "UNITCANARY" },
         source: "SOURCECANARY",
         written_by: "WRITERCANARY",
         revision: 12,
@@ -311,12 +314,12 @@ describe("no held or contract value, source or writer reaches a screen", () => {
       standing: STANDING,
       level: "queue",
       wanted: {
-        position: { node_id: "power_bus", name: "current_draw", value: 2, unit: "UNITCANARY" },
+        position: { node_id: "power_bus", name: "current_draw", value, unit: "UNITCANARY" },
         revision: 3,
       },
       found: [
         {
-          position: { node_id: "node_0", name: "current_draw", value: 3, unit: "UNITCANARY" },
+          position: { node_id: "node_0", name: "current_draw", value, unit: "UNITCANARY" },
           revision: 4,
         },
       ],
