@@ -269,18 +269,25 @@ def test_the_store_is_installed_package_by_package_without_their_own_dependencie
     ]  # fmt: skip
 
 
-def test_an_archive_member_that_leaves_its_directory_is_refused(tmp_path: Path) -> None:
+@pytest.mark.parametrize("kind", ["file", "link"])
+def test_an_archive_member_that_leaves_its_directory_is_refused(tmp_path: Path, kind: str) -> None:
     provision = _provision()
     archive = tmp_path / "bad.tar.gz"
     payload = tmp_path / "payload"
     payload.write_text("x")
     with tarfile.open(archive, "w:gz") as tar:
-        tar.add(payload, arcname="node-v1/../../escaped")
+        if kind == "file":
+            tar.add(payload, arcname="../escaped")
+        else:
+            member = tarfile.TarInfo("node-v1/bin/escaped")
+            member.type, member.linkname = tarfile.SYMTYPE, str(tmp_path / "payload")
+            tar.addfile(member)
     into = tmp_path / "into"
     into.mkdir()
     with pytest.raises(provision.ProvisionError, match="archive"):
         provision.extract(archive, into)
     assert not (tmp_path / "escaped").exists()
+    assert not (into / "node-v1" / "bin" / "escaped").is_symlink()
 
 
 def test_a_file_with_a_second_name_is_refused(tmp_path: Path) -> None:

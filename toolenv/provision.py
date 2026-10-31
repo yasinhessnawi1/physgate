@@ -506,7 +506,12 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
         )  # fmt: skip
         # The interpreter's own library is compiled as well, so no first import writes a
         # cache file into the environment after it was measured.
-        run([str(python), "-I", "-m", "compileall", "-q", "-j0", str(dest / "python")], env)
+        # Its standard library only: the installation also carries Tcl's own files, one of
+        # them a Python file that does not compile (measured on Linux).
+        stdlib = run(
+            [str(python), "-I", "-c", "import sysconfig; print(sysconfig.get_path('stdlib'))"], env
+        )
+        run([str(python), "-I", "-m", "compileall", "-q", "-j0", stdlib.strip()], env)
         _platformio(dest, pins, work)
         _server(dest, cache, work)
         servers = _own_servers(dest)
