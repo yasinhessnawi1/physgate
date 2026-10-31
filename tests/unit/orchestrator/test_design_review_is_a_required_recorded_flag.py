@@ -1,7 +1,7 @@
 """Whether a run reviews its plan is a flag of the register, required and recorded.
 
-``design_review`` is ``off``, ``observe``, ``on`` or ``repair:N`` (ARCH-060). A new run names it, or the command refuses
-it before anything is written; it is never read from the environment. A run recorded before the
+``design_review`` is ``off``, ``observe``, ``on`` or ``repair:N`` (ARCH-060). A new run names it,
+or the command refuses it before anything is written; it is never read from the environment. A run recorded before the
 flag existed reads as ``off``, with exactly the digest its first line carries, and so does every
 ``off`` run, whose recorded form leaves the field out; an ``observe`` run records it, and names a
 design reviewer. A reportable run reviews its plan: under ``observe``, where its review is recorded
