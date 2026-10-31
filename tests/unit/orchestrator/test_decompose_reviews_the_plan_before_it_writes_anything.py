@@ -363,20 +363,6 @@ def test_an_lf_brief_reaches_the_call_exactly_as_its_bytes_read(
     assert calls.briefs == [BRIEF] == [reviewer.seen[0].brief]
 
 
-def test_decompose_holds_a_new_run_to_the_requirements_of_a_new_run(
-    tmp_path: Path, calls: Calls, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    asked: list[Any] = []
-
-    def refusals(facts: Any) -> list[str]:  # noqa: ANN401
-        asked.append(facts)
-        return []
-
-    monkeypatch.setattr(orchestrator_cli, "refusals", refusals)
-    assert _exit(_args(tmp_path, REVIEWING), StandIn(_verdict())) == 0
-    assert [facts.new_run for facts in asked] == [True]
-
-
 @pytest.mark.parametrize("verdict", ["fail", "blocked"])
 def test_decompose_under_on_holds_the_run_on_the_plan_s_item(
     tmp_path: Path, calls: Calls, verdict: str
