@@ -1190,7 +1190,7 @@ class Loop:
         # record: each is taken again first, so one the stores do not give halts the run before
         # its window opens.
         if subtask_id == self.state.completion_subtask and not (
-            self._record_holds() and self._no_declaration_at_head(subtask_id)
+            self._record_holds() and (attempt > 1 or self._no_declaration_at_head(subtask_id))
         ):
             return False
         self._environment_before_a_spawn()
@@ -2305,6 +2305,8 @@ class Loop:
 
         Only integration's own accepted attempt puts one on the run branch, and it is its last:
         one there before its window (in the run's start commit, say) is no attempt's of this run.
+        Read before its first window: no line but integration's follows the integration call, so
+        the run head does not move between its attempts, and a foreign move halts the run anyway.
         """
         head = self.state.run_head
         try:
