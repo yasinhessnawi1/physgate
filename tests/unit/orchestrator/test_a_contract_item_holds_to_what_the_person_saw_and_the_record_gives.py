@@ -404,7 +404,7 @@ def test_an_interface_quantity_named_as_no_dispute_names_one_is_not_quoted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def named(payload: dict[str, Any]) -> dict[str, Any]:
-        out = json.loads(json.dumps(payload))
+        out: dict[str, Any] = json.loads(json.dumps(payload))
         out["quantities"]["Vmax"] = out["quantities"].pop("v")
         return out
 

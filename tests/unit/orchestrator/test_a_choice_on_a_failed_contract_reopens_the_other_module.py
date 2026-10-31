@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loop_fakes import FakeDispatcher, KilledError, Rig, seal
+from loop_fakes import FakeDispatcher, KilledError, Rig
 from test_a_blocked_review_is_a_review_that_goes_to_a_person import blocked_review
 from test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item import (
     ITEM,
@@ -53,7 +53,7 @@ from physgate.evaluation.observe.sequence import decisions
 from physgate.orchestrator import decisions as deciding
 from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.dispatch import role_prompt
-from physgate.orchestrator.events import Event, read_events
+from physgate.orchestrator.events import Event, IntegrationGateRan, read_events
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt
 from physgate.orchestrator.queue import (
     PersonDecision,
@@ -63,6 +63,7 @@ from physgate.orchestrator.queue import (
     statuses_now,
 )
 from physgate.orchestrator.replay import replay
+from physgate.orchestrator.trajectory import seal
 from physgate.oslayer.probe import Present
 from physgate.reviewers.packet import person_order_text
 
@@ -92,7 +93,7 @@ def mend(rig: Rig, payloads: dict[str, dict[str, Any]]) -> None:
     """Each subtask in ``payloads`` writes its payload from its second attempt's commit on."""
     graph = rig.diff
     first: dict[str, str] = {}
-    original = graph.proposals  # type: ignore[attr-defined]
+    original = graph.proposals
 
     def proposals(subtask_id: str, attempt_commit: str, role: str) -> list[dict[str, Any]]:
         seen = first.setdefault(subtask_id, attempt_commit)
@@ -100,7 +101,7 @@ def mend(rig: Rig, payloads: dict[str, dict[str, Any]]) -> None:
             return [payloads[subtask_id]]
         return list(original(subtask_id, attempt_commit, role))
 
-    graph.proposals = proposals  # type: ignore[attr-defined]
+    graph.proposals = proposals  # type: ignore[method-assign]
 
 
 def opened(
@@ -408,16 +409,17 @@ def test_a_reopen_spends_the_subtasks_own_budget_and_never_a_fresh_one(
         )
         again(rig, monkeypatch)
     item = item_of(rig)
-    assert item.consequence is not None
+    assert item.consequence is not None and item.consequence.on_choose is not None
+    on_choose = item.consequence.on_choose
     words = item.decision_required
     if merged_at == 1:
-        assert item.consequence.on_choose["producer"] == "reopen"
+        assert on_choose["producer"] == "reopen"
         assert 'reopens module "fw" for one more attempt (attempt 2)' in words
     elif merged_at == 3:
-        assert item.consequence.on_choose["producer"] == "reopen"
+        assert on_choose["producer"] == "reopen"
         assert 'reopens module "fw" for one more attempt (its one fix)' in words
     else:
-        assert item.consequence.on_choose["producer"] == "record_only"
+        assert on_choose["producer"] == "record_only"
         assert 'Choosing the producer records only: module "fw" has no attempt left.' in words
     choose(rig.run_dir, "producer")
     said = escaped(lambda: again(rig, monkeypatch))
@@ -607,7 +609,7 @@ def test_a_reopened_attempt_starts_in_a_fresh_worktree_from_the_run_head(
     assert old.exists() and (old / "left.txt").exists()
     branch = "physgate/r1/m1.reopen-1"
     assert escaped(lambda: run.subtask_branch("m1", reopen=1)) is None
-    assert run.subtask_branch("m1", reopen=1) == branch  # type: ignore[call-arg]
+    assert run.subtask_branch("m1", reopen=1) == branch
     assert _git(repo, "rev-parse", branch) == head
     assert _git(repo, "rev-parse", run.subtask_branch("m1")) == first
     (fresh[0] / "m1" / "a.txt").write_text("2\n")
@@ -772,9 +774,10 @@ def test_a_reopen_is_refused_once_the_integration_call_is_on_the_record(
     calls = [e for e in whole if e.kind == "integration_gate_ran"]
     reopening = [e for e in whole if e.kind == "decision_taken"]
     assert len(calls) == 1 and len(reopening) == 1
-    state.integration = calls[0]  # type: ignore[assignment]
+    assert isinstance(calls[0], IntegrationGateRan)
+    state.integration = calls[0]
     said: list[Any] = []
-    assert escaped(lambda: said.append(deciding.contract_consequence(state, tested))) is None  # type: ignore[call-arg]
+    assert escaped(lambda: said.append(deciding.contract_consequence(state, tested))) is None
     assert said[0].on_choose == {"producer": "record_only", "consumer": "record_only"}
     forged = reopening[0].model_copy(update={"seq": len(events)})
     why = escaped(lambda: state.check(forged))
