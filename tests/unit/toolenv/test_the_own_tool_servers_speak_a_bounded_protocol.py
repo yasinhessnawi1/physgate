@@ -333,3 +333,10 @@ def test_a_library_s_error_is_shown_as_one_bounded_line_with_its_paths_replaced(
     shown = simulation._redacted(error)
     assert shown == "cannot read <worktree>/models/a.xml or <path>"
     assert len(simulation._redacted(RuntimeError("x" * 10_000))) == module.MAX_ERROR
+
+
+def test_an_include_is_refused_as_an_element_whatever_it_names(mujoco: Server) -> None:
+    # Refused for what it is, before its attributes are read: an include need not name its
+    # file in the one attribute the attribute rule looks at.
+    text = _refused(mujoco.call("load_model", {"xml": "<mujoco><include/></mujoco>"}))
+    assert "may not use <include>" in text
