@@ -124,7 +124,7 @@ def test_a_link_on_the_way_to_the_library_is_refused(tmp_path: Path) -> None:
 
 
 #: The roles the real library carries curated content for.
-CURATED = ("control", "firmware", "electrical", "mechanical", "design", "integration")
+CURATED = ("control", "firmware", "electrical", "mechanical", "design", "integration", "sizing")
 #: The always-loaded ceiling every role's set is held to, in bytes.
 CEILING = 40_960
 
