@@ -232,3 +232,12 @@ def test_more_failing_items_than_the_cap_are_counted_not_listed(tmp_path: Path) 
     assert "DS-1 " in said or 'DS-1"' in said or '"DS-1"' in said, said
     assert '"DS-20"' not in said and "DS-20 " not in said, said
     assert "12 more left out" in said, said
+
+
+def test_the_whole_account_is_capped_and_says_how_many_modules_it_left_out() -> None:
+    from physgate.orchestrator.loop import TOLD_AT_MOST, _account  # noqa: PLC0415
+
+    said = _account(["x" * 3_000, "y" * 3_000, "z" * 10])
+    assert len(said) <= TOLD_AT_MOST + 200, len(said)
+    assert "x" * 3_000 in said and "y" * 10 not in said, said[-200:]
+    assert "and 2 more modules left out" in said, said[-200:]

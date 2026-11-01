@@ -328,6 +328,16 @@ def _listed(values: list[str]) -> str:
     return ", ".join(values[:LISTED_AT_MOST]) + (f", and {left} more left out" if left > 0 else "")
 
 
+def _account(told: list[str]) -> str:
+    """Each module's account, in order, as long as the whole stays within its cap; then a count."""
+    kept = [one for k, one in enumerate(told) if len("; ".join(told[: k + 1])) <= TOLD_AT_MOST]
+    left = len(told) - len(kept)
+    return (
+        "Sizing's closing pass changed values nodes of these modules depend on: "
+        f"{'; '.join(kept)}{f'; and {left} more modules left out' if left else ''}."
+    )
+
+
 def _follow_up_end(now: AttemptState | None) -> str:
     """How a module's follow-up ended, in the record's structured fields; ``now`` is its attempt."""
     if now is None:
@@ -2617,14 +2627,7 @@ class Loop:
                 subtask_id, SUBTASK_PATTERN, PLANNED_ID_MAX_LENGTH, render.REFUSED_SUBTASK
             )
             told.append(f"{who} (owed {named}): {_follow_up_end(now)}")
-        kept = [one for k, one in enumerate(told) if len("; ".join(told[: k + 1])) <= TOLD_AT_MOST]
-        more = (
-            f"; and {len(told) - len(kept)} more modules left out" if len(kept) < len(told) else ""
-        )
-        return (
-            "Sizing's closing pass changed values nodes of these modules depend on: "
-            f"{'; '.join(kept)}{more}."
-        )
+        return _account(told)
 
     def _follow_up_order(self, followed: SubtaskReopened) -> PersonOrder:
         """The follow-up's order, from the journal and the history where it was written."""
