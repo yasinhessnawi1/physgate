@@ -51,9 +51,48 @@ The analyst's clone holds the run tag alone and does not carry them.
 | Run commit and tag, round 2 | `2341e651930d1afa36a843581be4e22778f3be22`, tag `r-pg-01b-run` |
 | "numbers final" | `a73a7892110d2b335073ba813f44e6d6b63c7e82` on `exp/r-pg-01b-numbers` |
 
-Every pin of `CRITERIA.md` §2.2 was checked at each launch (L3, §2 below). The digests of §2.5,
-the R6.05 edit's included, are those `CRITERIA.md` gives; L4 held arm F's manifest and sheet to
-them at each launch.
+**The pins of §2.2 and the digests of §2.5 (added 01.11.2026, after "numbers final", §13).**
+- L3 checked every pin of `CRITERIA.md` §2.2 at each of the three launches, and L4 held both arms'
+  manifests and arm F's sheet to §2.5. `launch.sh` stops before any review when a check fails
+  (§14), and reviews ran at all three launches, so both checks passed each time.
+- The checks' own records (`L3.json`, `L4.json`) stay on Oracle and are not published. Each value
+  below is therefore given again as git gives it, recomputed on 01.11.2026 at both run commits:
+  `4c98383` (round 1) and `2341e651` (round 2, both attempts). At both commits every value equals
+  the pin.
+- `<c>` stands for either run commit, and `sha256sum` takes the sha256 of the blob's bytes.
+
+| Pin | Value at `4c98383` and at `2341e651` | Checked at launch by | How it is got from git |
+|---|---|---|---|
+| Gate tree | `29e7c8061e4f5e54b815afd41bf98f9e6455a7c3` | L3 | `git rev-parse <c>:src/physgate/gate` |
+| Bounds blob | `cdeb9736d93362120f8f08f0244ab449b7bd5f90`; sha256 `b75d14d541243108d02f0afc1414a8cd61493f694325c9c2e4f09e30cfa27071` | L3 | `git rev-parse <c>:knowledge/electrical/bounds.toml`; `git cat-file blob <c>:knowledge/electrical/bounds.toml \| sha256sum` |
+| Spelling blob | `eaa4ce697092d27545a19c87c6d92fc6f1e966fc` | L3 | `git rev-parse <c>:src/physgate/unit_spelling.py` |
+| Catalogue digest | `171b054b61f703fee2aaf750b4ff107754bbf0726882e18531cb92db0028d69f` | L3 | **Not a git value.** L3 computes it with `catalogue_digest()` over the catalogue's content, and its record is not published. Its source, `src/physgate/gate/catalogue.py` (blob `b2ff867a2d2fd2f1ea95b03c9dea2881631d9df1` at both commits), lies inside the gate tree above. |
+| Reviewers tree | `7df979eecb5b9acba572c5687747ea33586a87e1` | L3 | `git rev-parse <c>:src/physgate/reviewers` |
+| Rubrics tree | `dd203340de8cee2f42878bb09ee72e64dfe1465b` | L3 | `git rev-parse <c>:knowledge/reviewers` |
+| Rubric, control | `18be8569a3743d6f9f5ff554ac6fd7e7c86b082ffaad4c08d0a40a00bac111f5` | L3 | `git cat-file blob <c>:knowledge/reviewers/control/rubric.md \| sha256sum` |
+| Rubric, electrical | `a1b78302cf116ce471bf24a484de24a1e98e8679256e41d5f36b3dd4f48219b3` | L3 | the same, for `electrical/rubric.md` |
+| Rubric, firmware | `e265ef4733443d1af8a8152a8831fa97f999c3fcae0acc8f12f48fe1faed5f8a` | L3 | the same, for `firmware/rubric.md` |
+| Rubric, mechanical | `3ca83fe1099481ff4c32681b7e63a594e907dd01bcd6a56a8160ed0a8e0783fa` | L3 | the same, for `mechanical/rubric.md` |
+| Instrument tree (§2.4) | `dcb84fdbcc036de47e3f8aa96afc5b789ae1dd42` | L3 | `git rev-parse <c>:src/physgate/evaluation/inject` |
+| Run parameters | `experiments/R-PG-01/params.json`, blob `f32da7e47303ee168cc9671edb2a8b40e72b024e` | L3 | `git rev-parse <c>:experiments/R-PG-01/params.json` |
+| Scoring scripts | `tally_rows.py` `0f138e7fa353e545cfab749ce73c7ca2e063f0f4`, `read_catches.py` `d311b76e7492f81a54cba5e51dccdbc103505fad`, `regate_r6.py` `39c33c98e0f6da328383020d14cbcbe1d08b44b3`, `r4_twins.py` `a30afd3d4fecb742085c6d5d569710a528a1f58a`, `r3_scan.py` `dfcddf2c34da27337cd956b9548c0d0c3aa706e8` | L3 | `git rev-parse <c>:experiments/R-PG-01/<script>` |
+| The rest of the repository | `8bc03fc` plus §2.4's paths. `git diff --name-only 8bc03fc <c>` lists 82 files, all under those paths: the 4 named source and test files, 45 under `corpora/injected-errors/v1-fullsheet/` and 33 under `experiments/R-PG-01b/`. `uv.lock` is blob `df5c97af2fd3dd851846b841d9f9f232751780c2`, the same as at `8bc03fc`. | L2 | `git diff --name-only 8bc03fc <c>`; `git rev-parse <c>:uv.lock` |
+| The invocation | R-PG-01's, as its `launch.sh` (blob `63efe5ac3f182d9b99c5870ae318caf871bc9c8e`) runs it, without the keep-awake wrapper | — | Not a digest. The diff of this experiment's `launch.sh` against that file is published as `diffs/launch.sh.diff`. |
+| Binary | 2.1.301, sha256 `1e119036a802d359ba5f9886428e031586e8796f7a858d5a8ee179ac7b8604f0` | L3 | **Not in git.** L3 read the binary at `~/pinned/claude-2.1.301` on Oracle, and its record is not published. The version is also in each published smoke record (`records/launch-<r>-<a>/smoke/smoke.json`, `binary_version`). |
+| Arm I's manifest | `41553301d5b036f84df289ee6d8c87ecce4504d5a09969e05291e23c9ebc026a` | L4 | `git cat-file blob <c>:corpora/injected-errors/v1/MANIFEST.json \| sha256sum` |
+| Arm I's `sources.json` | `bc1e5ec15c6f1df823f5a39207b0656b6a2b388eca4d3414db007b4d7999ca91` | through arm I's manifest (L4) | `git cat-file blob <c>:corpora/injected-errors/v1/sources.json \| sha256sum` |
+| Arm F's manifest (§2.5) | `8c9ceb11ffe91afd28b79dd1d206507b463bb1bf8bb8bb8f33a0a27b84e3ba57` | L4 | `git cat-file blob <c>:corpora/injected-errors/v1-fullsheet/MANIFEST.json \| sha256sum` |
+| Arm F's sheet (§2.5) | `2efbb6a8ab889ceac54d8ebdba15c8530274d8524c9eaf6181d22abf5ccbef90` | L4; each published smoke record also gives it (`sheet_sha256`) | `git cat-file blob <c>:corpora/injected-errors/v1-fullsheet/sources.json \| sha256sum` |
+| The table, unedited (§2.5) | `29f9568ce8465112ef0b0b164f05f3ba76f9702e3ccbc7a1dea96fbc3d057b3f`, 30,998 bytes; blob `9d597b8d988a226b186e7b38ae734607210d062e` | through arm F's manifest (L4) | `git cat-file blob <c>:corpora/injected-errors/v1-fullsheet/parts_sheet.md \| sha256sum` (`v1`'s copy is the same) |
+
+The R6.05 edit's digests are not launch checks. They are `make_sheet.sh`'s output at the "sheet"
+commit, and the edited copy lives on `master` only (§2.4), so they are computed from that copy:
+
+| §2.5 digest | Before | After | How it is got from git |
+|---|---|---|---|
+| The table | `29f9568ce8465112ef0b0b164f05f3ba76f9702e3ccbc7a1dea96fbc3d057b3f` (30,998 bytes) | `0573ef044ebdcee9ff184eec2789e1a10b31fef6f32947735f9005ea8b0daedc` (30,999 bytes) | After: `git cat-file blob bab905c3:experiments/R-PG-01b/sheet/parts_sheet.md \| sha256sum` (blob `c7a5b003bd58db26353877836dbbd23c17c7091f`, the same on `master` now). Before: that copy with its one "responded" put back as "answered". The result has git blob `9d597b8d…`, arm F's `parts_sheet.md` at both run commits. |
+| Row R6.05's table line | `e2a58b268972a03fbd710be37df6ce3992209f336c03238efd3c405089bb0368` | `9976c090b279fa6d74c3a49dac455bed9d25cea40d3a3d59adc49a26b39e13de` | The row's one line in each table, without its newline, cut as `fullsheet.py`'s `edit_table` cuts it |
+| Row R6.05's note | `7aa9c88bbf959fb64e136e8abe9e6007e6d4faf365d7eb1f1671d85820612af2` | `46a0698bb1dc51349623245a2f01a4af34995b21e5b1147d6f6e7e119d16c56d` | That line's seventh cell, split as `edit_table` splits it |
 
 **The run records §13 publishes** are in `records/`, copied byte for byte from `~/runs/rpg01b/` on
 Oracle, with their sha256 in `records/SHA256SUMS`:
@@ -62,7 +101,9 @@ Oracle, with their sha256 in `records/SHA256SUMS`:
 - each attempt's smoke record and stream-check verdict (`launch-<r>-<a>/smoke/smoke.json`,
   `L10.json`), and its end record with counts and void causes (`after.json`);
 - the slot draw (`slots.json`), the owner's launch statements (`owner-*.json`) and the quota
-  ledger (`ledger-round-*`).
+  ledger (`ledger-round-*`). `launch.sh` reads only `owner-<r>.json`, so attempt 1's
+  `owner-2.json` was renamed `owner-2.attempt-1.json` before attempt 2, and kept under that name.
+  The orchestrator wrote both of round 2's owner files on the owner's word.
 
 ## 2. Runs, attempts and slots
 
@@ -277,8 +318,9 @@ was not changed.
    and lag), as §5.3 and §14 require, and did not open them otherwise.
 
 **Added 01.11.2026, after the comparison.** Items 1 to 5 are the analyst's, as committed at
-"numbers final". Items 6 to 13 complete them from the run's records and the orchestrator's log,
-which the analyst could not read. None of them changes a number.
+"numbers final". Items 6 to 13 complete them with what the analyst could not know from its
+clone: what happened on the account during the run, the owner's decisions, and the steps after
+"numbers final". None of them changes a number.
 
 6. **Round 1 did not run on an idle account, and the owner waived the rule after the fact.**
    - The run account was also the account of the orchestrator session that ran the project. From
@@ -296,12 +338,18 @@ which the analyst could not read. None of them changes a number.
    sessions had used most of it.**
    - The attempt ran under the owner's recorded waiver (item 2), so the orchestrator and its agents
      kept working on the same account.
-   - At 07:42:51Z on 31.10.2026 the watcher found 4 usage-limit files and 4 HTTP 429 responses. It
-     stopped both arms, which therefore ended killed (exit 143). That is why both causes are
-     listed.
+   - At 07:42:51Z on 31.10.2026 the watcher stopped both arms on the usage limit, so they ended
+     killed (exit 143). That is why both causes are listed.
+   - The two sources give different usage-limit counts, and both are given as they stand. The
+     run's log at the watcher's stop, which is not published, gives 4 sessions ended on a usage
+     limit and 4 HTTP 429 responses. The attempt's end record, `records/launch-2-1/after.json`,
+     written by the `after` check once the watcher had stopped the arms, gives
+     `"usage_limit_files": 2` and `"status_429s": 4`. No published record explains the difference.
    - The limit was the account's weekly allowance. The attempt itself had used 67,239,573 review
-     tokens in 118 sessions, plus 376,252 in its smoke. The rest of the week's use was the
-     project's other work on the same account.
+     tokens in 118 sessions, plus 376,252 in its smoke. The rest of the week's use was other work on
+     the same account: during that week the account was shared by this project and four other
+     projects of the owner, as the owner states. The owner's waiver covered only the orchestrator
+     and its agents.
    - The waiver did not raise the limit. §11 has no weekly gate, since the owner set no weekly cap,
      but the account still had one.
    - It counts as attempt 1 of 3 for round 2. Nothing of it was read but its causes and counts.
@@ -327,10 +375,11 @@ which the analyst could not read. None of them changes a number.
    - The owner moved the run to it because the shared account's weekly limit had voided attempt 1.
      On the owner's word nothing else used the new account until the run was done, and
      `owner-2.json` records that.
-   - Model, binary, pins, run code and the machine were the same as in round 1. An account carries
-     quota, not a model.
+   - The model, the binary, the instrument, gate, reviewer and rubric code (every pin) and the
+     machine were the same as in round 1. The run commit differed only in L1's owner check (item 8).
+     An account carries quota, not a model.
    - The analyst's session and the reason reading's 294 sessions also ran on the fresh account. It
-     was the only credential on Oracle from 31.10.2026 on.
+     was the only credential the run's scripts read from 31.10.2026 on.
    - Round 2's ledger line (`records/ledger-round-2.*`) gives the fresh account's label and prefix
      for both attempts. Attempt 1's 118 sessions in fact ran on the original account (item 7). The
      record is published as written.
@@ -374,8 +423,8 @@ which the analyst could not read. None of them changes a number.
     - For reference, the token now in that `.env` has sha256 prefix `4389780d`, the same as round 2's
       valid attempt (item 9). The orchestrator computed that prefix by digest alone on 31.10.2026,
       without reading the token.
-    - Whether R-PG-01 used that same token cannot be checked from its records. Under §1's rule the
-      comparison is impossible as specified, and only the owner's statement stands in for it. No
+    - Whether R-PG-01 used that same token cannot be checked from its records. Under the rule of `CRITERIA.md`'s
+      preamble and §12's last bullet, the comparison is impossible as specified, and only the owner's statement stands in for it. No
       step of §8 and no decision of §7 rests on it.
 
 ---
@@ -12480,8 +12529,9 @@ run once on 01.11.2026 at the run tag `2341e65`, as `uv run --frozen python -I`.
 ## The comparison with R-PG-01 (§8, step 3)
 
 **Added 01.11.2026, after "numbers final"** (`a73a7892`, pushed on `exp/r-pg-01b-numbers`). Every
-section above was written before anyone who has read R-PG-01's results saw a number of this
-experiment. This section changes no number above and no decision of §7 beyond D1's sentence.
+section the analyst wrote above was written before anyone who has read R-PG-01's results saw a
+number of this experiment. §1's citations and §10 items 6 to 13 were added later by the
+orchestrator, as the status note at the top says. This section changes no number above and no decision of §7 beyond D1's sentence.
 
 **How it ran.**
 - `compare_r_pg_01.py`, blob `d095335e6d2d2698b348747fe5b8a14e19b7ec55`, the same at the run tag,
