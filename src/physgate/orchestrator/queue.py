@@ -2037,13 +2037,22 @@ class ApprovalQueue:
     wrong for anything that only reads: a reader goes through :func:`read_queue`.
     """
 
-    def __init__(self, path: Path, *, clock: Callable[[], datetime] = utc_now) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        clock: Callable[[], datetime] = utc_now,
+        decisions_refused_later: bool = False,
+    ) -> None:
         """Open or create the queue at ``path``.
 
+        ``decisions_refused_later`` is the run's own opener's: a decisions line the reader refuses
+        is then refused by the next :meth:`refresh`, where the loop records it, and does not stop
+        the run from opening.
+
         Raises:
-            QueueError: a complete line of the items file is not a record, or does not follow
-                from the lines before it (an item listed twice). The decisions file's refusal is
-                raised by the next :meth:`refresh`.
+            QueueError: a complete line is not a record, or does not follow from the lines
+                before it (an item listed twice, a decision on no open item).
         """
         self.path = Path(path)
         if self.path.name != QUEUE_NAME:
@@ -2060,7 +2069,8 @@ class ApprovalQueue:
             # A person writes the decisions file: a line of it that does not read is recorded by
             # the loop as an incident at its first read of the decisions, never a run that cannot
             # open. Every item is read by then; the refusal is read again there.
-            if Path(exc.context.get("queue", "")) != self.decisions_path:
+            named = exc.context.get("queue", "")
+            if not decisions_refused_later or Path(named) != self.decisions_path:
                 raise
 
     def refresh(self) -> None:

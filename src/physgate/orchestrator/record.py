@@ -270,7 +270,9 @@ class RunRecord:
             msg = "the run has events but no recorded configuration"
             raise RunConfigError(msg, run_dir=str(self.run_dir))
         self.ledger = TaskLedger(self.run_dir / "ledger.jsonl")
-        self.queue = ApprovalQueue(self.run_dir / "queue.jsonl", clock=clock)
+        self.queue = ApprovalQueue(
+            self.run_dir / "queue.jsonl", clock=clock, decisions_refused_later=True
+        )
         project_ledger(self.state, self.ledger)
         if (
             self.state.reviews_plan
