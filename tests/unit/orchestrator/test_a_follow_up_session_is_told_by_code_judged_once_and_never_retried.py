@@ -21,8 +21,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as pairs
 from arbitration_runs import CLOSING, PerAttempt, events_of, refusal, resume
-from loop_fakes import FakeReviewer, Rig
+from loop_fakes import FakeReviewer, KilledError, Rig
 from pydantic import ValidationError
 from test_a_blocked_review_is_a_review_that_goes_to_a_person import blocked_review
 from test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_record_owes import (
@@ -254,6 +255,22 @@ def _taken_over(events: list[Event]) -> list[tuple[str, str | None, int | None]]
     ]
 
 
+def _decided(events: list[Event]) -> list[Any]:
+    """What the run decided about its follow-ups, and where each subtask ended.
+
+    A resumed attempt enters its stages again, and judges again, where it restarts (the resume
+    path of every attempt); what it owed, merged and ended is the same.
+    """
+    kept = ("subtask_reopened", "follow_up_ended", "merged", "integration_gate_ran")
+    steps = [
+        {k: v for k, v in d.items() if k not in ("seq", "ts", "merge_commit", "attempt_commit")}
+        for e in events
+        if e.kind in kept and (d := e.model_dump(mode="json"))
+    ]
+    state = replay(events)
+    return [*steps, {s: state.subtasks[s].status for s in state.order}]
+
+
 def test_a_kill_between_two_follow_up_lines_writes_the_rest_on_resume(tmp_path: Path) -> None:
     whole = slice_rig(tmp_path / "whole", loop=True)
     assert ended(whole, plan=TWO_MODULES) == "done"
@@ -295,3 +312,153 @@ def test_the_decision_sequence_reads_a_follow_up_as_a_reopen_with_its_cause_and_
     assert step["cause"] == "follow_up"
     assert step["owed"] == [{"source": BUS, "target": DRIVER}]
     assert "item_id" not in step
+
+
+def test_a_follow_up_of_a_module_with_no_attempt_left_is_refused(tmp_path: Path) -> None:
+    # s1 merged on the fix a person ordered after its first review blocked: a follow-up line
+    # written for it anyway, before the integration call, is not one the record can owe.
+    owed_run = slice_rig(tmp_path / "owed")
+    assert ended(owed_run, plan=CLOSING) == "done"
+    (line,) = [e for e in events_of(owed_run) if e.kind == "subtask_reopened"]
+    rig = slice_rig(tmp_path / "fixed")
+    rig.reviewer = FakeReviewer(verdicts=["pass"], results={2: blocked_review()})
+    starts_zc = lambda e: e.kind == "stage_entered" and e.model_dump()["subtask_id"] == "zc"  # noqa: E731
+    assert ended(rig, plan=CLOSING, kill=starts_zc) == "killed"
+    decide(rig.run_dir, "reject", "the pole is the one the linearisation gives")
+    assert ended(rig, how=resume) == "done"
+    events = events_of(rig)
+    merged = at(events, "merged", "s1", 2)
+    assert merged, "the fix did not merge"
+    forged = type(line).model_validate(
+        {**line.model_dump(), "merge_commit": merged[-1]["merge_commit"], "attempt": 3}
+    )
+    call = kinds(events).index("integration_gate_ran")
+    assert "no attempt left" in (refusal([*events[:call], forged]) or "")
+
+
+# --- an order no read shows whole ----------------------------------------------------------
+
+
+def test_a_follow_up_whose_order_no_read_shows_whole_is_owed_none(tmp_path: Path) -> None:
+    # The closing pass writes the bus with so many values that the order would not fit one read
+    # of its reviewer: no follow-up is written, and the propagation check judges the edge as is.
+    rig = slice_rig(tmp_path)
+    bus = node(BUS, "sizing", constrains=[DRIVER], amps=3.0)
+    one = bus["quantities"]["peak_current"]
+    bus["quantities"] |= {f"rail_current_{k}": one for k in range(700)}
+    rig.diff.writes["zc"] = [bus]  # type: ignore[attr-defined]
+    assert ended(rig, plan=CLOSING) == "done"
+    events = events_of(rig)
+    assert follow_ups(events) == []
+    assert "integration_gate_ran" in kinds(events)
+
+
+# --- every kill resumes to the uninterrupted run ---------------------------------------------
+
+
+def test_a_kill_at_any_line_from_the_closing_pass_s_merge_resumes_to_the_same_log(
+    tmp_path: Path,
+) -> None:
+    # Before the first follow-up line, between the two, mid follow-up session, between a merge
+    # and the next follow-up, and before the integration call: each resumes to the same
+    # decisions and the same ends (the lines exactly where no attempt restarts: the row above).
+    whole = slice_rig(tmp_path / "whole", loop=True)
+    assert ended(whole, plan=TWO_MODULES) == "done"
+    lines = events_of(whole)
+    first = kinds(lines).index("subtask_reopened") - 1
+    differ = []
+    for cut in range(first, kinds(lines).index("integration_gate_ran") + 1):
+        if isinstance(lines[cut], EnvironmentRecorded | OsLayerChecked | Resumed):
+            continue
+        rig = slice_rig(tmp_path / f"cut{cut}", loop=True)
+        key = _taken_over([lines[cut]])[0]
+        nth = sum(1 for k in _taken_over(lines[:cut]) if k == key)
+        seen: list[tuple[str, str | None, int | None]] = []
+
+        def at_cut(line: Event, seen: list[Any] = seen, key: Any = key, nth: int = nth) -> bool:  # noqa: ANN401
+            here = _taken_over([line])
+            seen.extend(here)
+            return bool(here) and here[0] == key and seen.count(key) == nth + 1
+
+        assert ended(rig, plan=TWO_MODULES, kill=at_cut) == "killed", cut
+        outcome = ended(rig, how=resume)
+        if outcome != "done" or _decided(events_of(rig)) != _decided(lines):
+            differ.append((cut, lines[cut].kind, outcome))
+    assert differ == [], differ
+
+
+# --- contracts and integration's record ----------------------------------------------------
+
+
+def _pairs_rig(tmp_path: Path) -> Rig:
+    """The pairs runner's slice, its budget constraining control's node: a follow-up is owed."""
+    rig = pairs.rig_for(tmp_path, closing_volts=11)
+    graph = rig.diff
+    assert isinstance(graph, pairs.StoreGraph)
+    supply = ("budget.supply", "sizing", "iface.drive", "drive.motor")
+    graph.writes[pairs.BUDGET] = [pairs.node(*supply, v=12)]
+    graph.writes[pairs.CLOSING] = [pairs.node(*supply, v=11)]
+    return rig
+
+
+def _pairs_run(rig: Rig, mp: pytest.MonkeyPatch, kill: Any = None, how: str = "run") -> str:  # noqa: ANN401
+    loop = rig.open()
+    pairs.hooked(mp, loop, declared=(pairs.BUDGET, pairs.DRIVE, pairs.FW), kill=kill)
+    try:
+        if how == "run":
+            pairs.start(loop, sizing=True)
+            return str(loop.run().kind)
+        return str(loop.resume().kind)
+    except KilledError:
+        return "killed"
+    finally:
+        loop.close()
+
+
+def test_a_follow_up_merge_retests_its_module_s_pairs_never_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = _pairs_rig(tmp_path)
+    assert _pairs_run(rig, monkeypatch) == "done"
+    events = events_of(rig)
+    assert [(f["subtask_id"], f["owed"]) for f in follow_ups(events)] == [
+        (pairs.DRIVE, [{"source": "budget.supply", "target": "drive.motor"}])
+    ]
+    merged = max(i for i, e in enumerate(events) if e.kind == "diff_checked")
+    after = [e for e in pairs.contracts(events) if e.seq > events[at_line(events, merged)].seq]
+    assert {e.result.pair for e in after} == {pairs.P_BUDGET, pairs.P_FW, pairs.P_BACK}
+    assert not any(e.first for e in after)
+
+
+def at_line(events: list[Event], index: int) -> int:
+    """The follow-up's own diff line: the last diff of the drive module."""
+    return max(
+        i
+        for i, e in enumerate(events[: index + 1])
+        if e.kind == "diff_checked" and e.model_dump()["subtask_id"] == pairs.DRIVE
+    )
+
+
+def test_a_follow_up_rewritten_before_integration_s_session_halts_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Killed after the integration call, before integration's own session: the follow-up's
+    # edges rewritten on disk. Only the record's holds before the session can find it.
+    rig = _pairs_rig(tmp_path)
+    integ = pairs.INTEG
+    starts = lambda e, _: e.kind == "stage_entered" and e.subtask_id == integ  # noqa: E731
+    assert _pairs_run(rig, monkeypatch, kill=starts) == "killed"
+    path = rig.run_dir / "events.jsonl"
+    raw = path.read_text().splitlines()
+    (place,) = [i for i, ln in enumerate(raw) if '"follow_up"' in ln]
+    data = json.loads(raw[place])
+    data["owed"] = [{"source": "budget.supply", "target": "drive.other"}]
+    raw[place] = json.dumps(data, separators=(",", ":"))
+    path.write_text("\n".join(raw) + "\n")
+    outcome = _pairs_run(rig, monkeypatch, how="resume")
+    events = events_of(rig)
+    assert outcome == "halted", outcome
+    assert [e.model_dump()["cause"] for e in events if e.kind == "incident"] == [
+        "foreign_journal_line"
+    ]
+    assert "integration_state_issued" not in kinds(events)
