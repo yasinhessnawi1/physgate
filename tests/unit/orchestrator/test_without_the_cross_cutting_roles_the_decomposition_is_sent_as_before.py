@@ -7,8 +7,10 @@ prompt and the same schema the binary holds the answer to. Recorded runs, and th
 experiments that compare against them, stay comparable with every run made since.
 
 The digests below are of the prompt and the schema as the code sent them before the
-two roles were planned for. A change to either for such a run is a change to what
-every ordinary run sends, and turns this red.
+two roles were planned for, with what every run has been sent since: the store's pattern
+on an interface node's id in the schema, and the sentence giving that form in the
+prompt. A change to either for such a run is a change to what every ordinary run sends,
+and turns this red.
 """
 
 from __future__ import annotations
@@ -23,19 +25,19 @@ from physgate.orchestrator.decompose import Plan, plan_model, plan_schema, promp
 BRIEF = "Build a robot."
 
 #: The schema every run was sent before the two roles were planned for.
-SCHEMA_LENGTH = 3761
-SCHEMA_SHA256 = "106e1e35f5498b1c22c2fe33d6e3c06946a33aea7f2d7f0c9c7f3fc296080ebc"
+SCHEMA_LENGTH = 3807
+SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f3357"
 
 #: The prompt for ``BRIEF`` and each set of roles, as it was sent before.
 PROMPT_SHA256 = {
-    ("control", "firmware"): "96ae5cfd3d70b553d89800fd4407a51fca4c47c470e278b64233fca69fb5d192",
-    ("electrical",): "94e8db6b95490d1824ac687a5c4e88b78c826b2fab35ce09d9674c1cffea9420",
+    ("control", "firmware"): "1b0030bb325ecbb6008de61dd19842a371a8ff7860dfe07b5d1f2088e5c0ef01",
+    ("electrical",): "654fc5056c641b36a0c96ae007295734efa44ee7188f820ec52430791db90282",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "0f3fa7d3342d27c3ed6d6adf01550a3fa757bc0ad6f984b3ba3fee31576c2c44",
+    ): "150717973d2d86b4910602ed1791005948e4d1aa466a7781b1dd1cde61b91621",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -47,7 +49,9 @@ PROMPT = (
     "modules/ that no other module's directory contains, and a specification an implementer "
     'can work from. For each interface give one graph node of kind "interface", owned by '
     "the role that produces it, with every quantity as a value, a unit, a source and the role "
-    "that wrote it.\n\n"
+    "that wrote it. Each node's id is two or more parts joined by dots, each of lowercase "
+    "letters, digits and underscores only, the first beginning with a letter, such as "
+    '"pump.flow_rate".\n\n'
     "Answer by calling StructuredOutput once.\n\n"
     "Brief:\nBuild a robot.\n"
 )

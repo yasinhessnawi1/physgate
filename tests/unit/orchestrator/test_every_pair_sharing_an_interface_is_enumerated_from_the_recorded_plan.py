@@ -59,13 +59,14 @@ RUN_ID = "run-1"
 BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 
 #: The prompt and the schema of a run with integration as they were sent before the pairing
-#: rule: the rule is a check on the answer and changes neither.
-INTEGRATED_SCHEMA_SHA256 = "3eec10e96f3662df89989d4631da7fe7f1c2a6e5d973563551ecc8154ccb90fd"
+#: rule: the rule is a check on the answer and changes neither. Both carry the form of an
+#: interface node's id, which every run is told: the store's pattern, and its sentence.
+INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "65026b5313078a25c905d9f1a5b9c4bc99b19a57025641ec965aeb1ab520e9ae"
+        "704cd450755292603524370003f8c02ef688c2130b0b3a23120cb05d11f1dae2"
     ),
-    BOTH: "7f6bc346dff9f1a870646845d79451cc0672a0c796d0b32b0925de421faeffde",
+    BOTH: "ab462602b962bebd9847e6c00cb29afcf9af1f88d32feaef77cf6657c6ca2814",
 }
 
 

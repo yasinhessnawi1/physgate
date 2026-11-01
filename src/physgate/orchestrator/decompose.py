@@ -479,6 +479,16 @@ NUMBERING_SENTENCE = (
 )
 
 
+#: The form of a node's id, as the store holds it (``NODE_ID_PATTERN``), in words: what the
+#: prompt tells the decomposition and what a plan that missed it is refused with.
+NODE_ID_FORM = (
+    "two or more parts joined by dots, each of lowercase letters, digits and underscores only, "
+    "the first beginning with a letter"
+)
+#: The sentence every decomposition prompt gives the form in, with one example of it.
+NODE_ID_SENTENCE = f'Each node\'s id is {NODE_ID_FORM}, such as "pump.flow_rate".'
+
+
 def _one_module_sentence(role: str) -> str:
     """The one sentence the prompt gains for the role that owns the cross nodes."""
     return (
@@ -510,7 +520,8 @@ def prompt_for(brief: str, roles: Sequence[str]) -> str:
         "under modules/ that no other module's directory contains, and a specification "
         "an implementer can work from. For each interface give one graph node of kind "
         '"interface", owned by the role that produces it, with every quantity as a value, a '
-        "unit, a source and the role that wrote it.\n\n"
+        "unit, a source and the role that wrote it. "
+        f"{NODE_ID_SENTENCE}\n\n"
         f"{added}"
         "Answer by calling StructuredOutput once.\n\n"
         f"Brief:\n{brief}\n"
@@ -1480,7 +1491,7 @@ def require_startable(
         try:
             validate_node_id(node.id)
         except MalformedNodeIdError as exc:
-            msg = "an interface node's id is not a node id"
+            msg = f"an interface node's id is not a node id; a node id is {NODE_ID_FORM}"
             raise PlanRefusedError(msg, node=node.id[:64], reason=str(exc)) from None
     try:
         curated = read_library(library, (one.entry.assigned_role for one in planned))
