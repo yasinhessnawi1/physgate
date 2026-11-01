@@ -29,7 +29,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from physgate.orchestrator.canaries import canary_seen
-from physgate.orchestrator.dispatch import read_stream_file, review_streams
+from physgate.orchestrator.credentials import remove_secrets
+from physgate.orchestrator.dispatch import read_stream_file, redact, review_streams
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.ports import SpawnHook
 from physgate.orchestrator.processes import is_session, stop_tree
@@ -96,15 +97,17 @@ class LeftReview:
     exposed: bool
 
 
-def stop_left_review(run_dir: Path) -> LeftReview:
+def stop_left_review(run_dir: Path, secrets: Iterable[str] = ()) -> LeftReview:
     """Stop the review session a killed ``decompose`` left, scan its streams, and say so.
 
     The record is removed once the session is stopped, or once its pid is not that session's, and
     its streams are scanned for the held-out canaries the record names. An exposure is written to
     its own file first, synced, so every later command names it again. An unreadable record, a
-    process table that cannot be read, or a stream that cannot be read keeps the record.
+    process table that cannot be read, or a stream that cannot be read keeps the record. Once
+    nothing of it runs, its credential files are removed and its streams redacted of ``secrets``,
+    as a resume does for its own leftovers, before they are read.
     """
-    found = _stop_and_scan(run_dir)
+    found = _stop_and_scan(run_dir, tuple(secrets))
     # Read once the scan is done: an exposure this command found, or an earlier one recorded.
     exposed = (run_dir / REVIEW_EXPOSED).is_file()
     if exposed:
@@ -124,7 +127,7 @@ def _exposed_session(run_dir: Path) -> str:
         return "(its record cannot be read)"
 
 
-def _stop_and_scan(run_dir: Path) -> str | None:
+def _stop_and_scan(run_dir: Path, secrets: tuple[str, ...]) -> str | None:
     path = run_dir / REVIEW_SESSION
     if not path.is_file():
         return None
@@ -160,14 +163,20 @@ def _stop_and_scan(run_dir: Path) -> str | None:
             f"the design review session {session_id} (pid {pid}) a killed decompose left could "
             f"not be checked: {exc!r}; nothing was signalled"
         )
-    # Nothing of it runs now: every stream its spawns wrote is final, and scanned once.
+    # Nothing of it runs now, so it needs no credential: a killed decompose never removed it, and
+    # its streams were never redacted. Every stream its spawns wrote is final, and scanned once.
+    session = Path(where)
     try:
+        remove_secrets(session / "state", session / "config")
+        for name in review_streams(spawns):
+            for secret in secrets:
+                redact(session / name, secret)
         shown = any(
             canary_seen(read_stream_file(Path(where) / name), canaries) is not None
             for name in review_streams(spawns)
         )
     except InvocationError as exc:
-        return f"{said}; its streams cannot be read ({exc}), so the record is kept"
+        return f"{said}; its directory cannot be read ({exc}), so the record is kept"
     if shown:
         _synced(run_dir / REVIEW_EXPOSED, json.dumps({"session_id": session_id}).encode())
     path.unlink(missing_ok=True)

@@ -507,7 +507,9 @@ def _stop_left_review(run_dir: Path) -> int | None:
     streams showed held-out material refuses the command here, this time and every later one:
     the exit status to return, or ``None`` to go on.
     """
-    left = stop_left_review(run_dir)
+    # Every credential this command could hold: a run with no opening names no mode yet.
+    held = (os.environ.get(name, "") for name in SECRET_VARIABLE.values())
+    left = stop_left_review(run_dir, secrets=tuple(secret for secret in held if secret))
     if left.said is not None:
         print(f"physgate: {left.said}", file=sys.stderr)
     if left.exposed:
