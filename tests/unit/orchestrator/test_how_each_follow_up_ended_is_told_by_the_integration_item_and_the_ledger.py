@@ -77,7 +77,7 @@ def _blocked() -> ReviewResult:
 #: How s1's follow-up ends (the reviews are z0, s1, the closing pass, then the follow-up), why,
 #: and what the item names of it.
 ENDINGS: dict[str, tuple[str, dict[str, Any], tuple[str, ...]]] = {
-    "gate": ("rejected", {"gate": ["pass", "fail"]}, ("magnitude",)),
+    "gate": ("rejected", {"gate": ["pass", "fail"]}, ('gate check "magnitude"',)),
     "review": ("rejected", {"results": {4: _failing()}}, ("DS-2", "unmet")),
     "blocked": ("blocked", {"results": {4: _blocked()}}, ("DS-4", 'criterion "2"')),
 }
