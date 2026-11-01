@@ -207,8 +207,9 @@ def test_a_run_recorded_before_the_record_goes_on_and_records_the_root_it_names(
     capsys.readouterr()
     first = (tmp_path / "review-scratch").resolve()
     again = outcome(lambda: main(_args_with_root(tmp_path, "resume", str(first)), _registrations()))
+    said = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
     assert again == 2
-    assert json.loads(capsys.readouterr().err.strip().splitlines()[-1])["named"] == str(first)
+    assert (said.get("recorded"), said.get("named")) == (str(named), str(first)), said
 
 
 def test_a_record_that_cannot_be_read_refuses(
