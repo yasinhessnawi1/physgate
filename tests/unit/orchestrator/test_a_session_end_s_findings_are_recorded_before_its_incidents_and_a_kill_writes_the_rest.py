@@ -8,9 +8,9 @@ the incidents are written) and the halt's cause comes first. A process killed af
 two of the incidents or before the halt, leaves the rest owed: the process that takes over writes
 the missing incidents and then that halt, so the run reads as it would have uninterrupted. Replay
 holds the incidents and the halt to the line. A session end with one incident writes no such line,
-so its log keeps its bytes. The leftovers a resume finds are recorded the same way: every
-leftover's own lines, then the findings line, then every incident, then one halt. A log written
-before the line existed replays as it did.
+so its log keeps its bytes. The line, or a lone incident, comes before the session's end line.
+The leftovers a resume finds are recorded the same way: the findings line, every leftover's own
+lines, then every incident, then one halt. A log written before the line existed replays as it did.
 """
 
 from __future__ import annotations
@@ -76,13 +76,15 @@ def dies_at(loop: Loop, n: int, kind: str) -> None:
 
 @dataclass
 class LeftBehind(FakeDispatcher):
-    """A dispatcher whose first stop finds the given leftovers; it ended them, so none after."""
+    """A dispatcher whose stop finds the given leftovers until the loop has them ended."""
 
     left: list[Leftover] = field(default_factory=list)
 
     def stop_leftovers(self) -> list[Leftover]:
-        found, self.left = self.left, []
-        return found
+        return list(self.left)
+
+    def end_leftovers(self) -> None:
+        self.left = []
 
 
 def leftover(sid: str, **seen: Any) -> Leftover:  # noqa: ANN401 - the model's own fields
@@ -188,8 +190,9 @@ def _findings_then_incidents(rows: list[dict[str, Any]], incidents: list[str], h
     (record,) = [r for r in rows if r["kind"] == "findings_recorded"]
     assert [f["cause"] for f in record["findings"]] == incidents
     assert record["halt"] == halt
-    # The leftovers' own lines may come between: recorded at any time, they say nothing found.
-    after = [r for r in rows[at + 1 :] if r["kind"] not in LEFTOVER_LINES]
+    # The leftovers' own lines may come between: recorded at any time, they say nothing found. So
+    # may the session's end line, which follows the line that records what its end showed.
+    after = [r for r in rows[at + 1 :] if r["kind"] not in (*LEFTOVER_LINES, "session_ended")]
     assert kinds(after)[: len(incidents) + 1] == ["incident"] * len(incidents) + ["halted"]
     written = after[: len(incidents)]
     assert [(r["cause"], r["detail"]) for r in written] == [
@@ -208,7 +211,7 @@ def test_a_session_end_with_several_findings_records_them_before_its_incidents(
     shown, incidents, halt = ENDS[shape]
     rows = lines(ended_session(tmp_path, shown, kill=None))
     assert "findings_recorded" in kinds(rows), "no line records the findings first"
-    assert kinds(rows).index("session_ended") < kinds(rows).index("findings_recorded")
+    assert kinds(rows).index("findings_recorded") < kinds(rows).index("session_ended")
     _findings_then_incidents(rows, incidents, halt)
 
 
@@ -240,11 +243,14 @@ def test_a_lone_leftover_finding_is_its_incident_before_the_leftover_s_own_lines
 
 
 def test_a_session_end_with_one_finding_writes_no_findings_line(tmp_path: Path) -> None:
+    # Its incident is the line that records it, before the session's end line; its halt follows.
     rows = lines(ended_session(tmp_path, {"held_out": {1: CANARY}}, kill=None))
+    assert "findings_recorded" not in kinds(rows)
     at = kinds(rows).index("session_ended")
-    assert kinds(rows)[at + 1 :] == ["incident", "halted"]
-    assert rows[at + 1]["cause"] == "held_out_read"
-    assert rows[at + 2]["detail"] == "held_out_read in s1"
+    assert kinds(rows)[at + 1 :] == ["halted"]
+    assert kinds(rows).index("incident") < at
+    assert rows[kinds(rows).index("incident")]["cause"] == "held_out_read"
+    assert rows[at + 1]["detail"] == "held_out_read in s1"
 
 
 # --- a kill between them -----------------------------------------------------------------------

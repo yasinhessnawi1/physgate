@@ -35,7 +35,7 @@ import subprocess
 import sysconfig
 import time
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
@@ -64,7 +64,16 @@ from physgate.orchestrator.credentials import (
 )
 from physgate.orchestrator.declaration import DECLARATION_PATH
 from physgate.orchestrator.decompose import binary_version, interface_contracts, read_stream
-from physgate.orchestrator.events import Decomposed, SessionSpawned, read_events
+from physgate.orchestrator.events import (
+    Decomposed,
+    Event,
+    FindingsRecorded,
+    Incident,
+    LeftoverRead,
+    SessionEnded,
+    SessionSpawned,
+    read_events,
+)
 from physgate.orchestrator.exceptions import (
     AccountingError,
     InvocationError,
@@ -726,6 +735,25 @@ def end_check_at_resume(sdir: Path, session_id: str, install_bin: Path) -> EndCh
     return EndCheck(argv, 30.0)
 
 
+def _unended(sdir: Path, events: Sequence[Event]) -> bool:
+    """Whether the role session ``sdir`` holds was spawned, and nothing on the log came after.
+
+    Neither its end line nor a leftover's read names it, and no finding follows its spawn. A
+    review's session is ended by its review's own lines, so it is never one.
+    """
+    if sdir.parent.name != "sessions":
+        return False
+    spawn = next(
+        (e.seq for e in events if isinstance(e, SessionSpawned) and e.session_id == sdir.name),
+        None,
+    )
+    return spawn is not None and not any(
+        (isinstance(e, SessionEnded | LeftoverRead) and e.session_id == sdir.name)
+        or (isinstance(e, Incident | FindingsRecorded) and e.seq > spawn)
+        for e in events
+    )
+
+
 def write_record(parent: Path, name: str, record: dict[str, Any], file: str) -> None:
     """Write ``parent/name/file`` as a new file, never through a link a session could plant.
 
@@ -1054,6 +1082,8 @@ class ClaudeDispatcher:
         self._review_root = Path(review_root)
         self._facts: InstallFacts | None = None
         self._os_layer: Present | Absent | None = None
+        #: The last stop's leftovers, each with the end it writes once the loop has their findings.
+        self._ending: list[tuple[Path, dict[str, Any]]] = []
         harness = harness_root()
         #: Every canary the harness's rubric promotions recorded, read once.
         self._canaries = (
@@ -1589,13 +1619,21 @@ class ClaudeDispatcher:
         session left without an end is returned, stopped or not, with what its
         captured stream shows it spent: its orchestrator died before recording
         that, and nothing else will. Every session's credential files are then
-        removed and its stream redacted, before the stream is read.
+        removed and its stream redacted, before the stream is read. None is ended here: the loop
+        ends them (:meth:`end_leftovers`) once their findings are on the record, so a process
+        killed in between finds them again.
+
+        A role session this dispatcher ended whose end the event log does not hold is a leftover
+        too: its orchestrator died after the end and before its first line, so what its stream
+        shows is on no record. Unless a finding follows its spawn: then the record holds what
+        its end showed, and it is not read twice.
         """
         session_dirs = self._session_dirs()
+        events = self._logged()
         records: list[tuple[Path, dict[str, Any]]] = []
         for sdir in session_dirs:
             record_path, ended = sdir / "process.json", sdir / "ended.json"
-            if ended.exists() or not record_path.exists():
+            if not record_path.exists() or (ended.exists() and not _unended(sdir, events)):
                 continue
             try:
                 record = json.loads(read_session_file(record_path))
@@ -1605,7 +1643,7 @@ class ClaudeDispatcher:
                 record = {"unreadable": repr(exc)}
             records.append((sdir, record))
         # Every session's record is held to the event log before anything is signalled.
-        self._honoured(records)
+        self._honoured(records, events)
         # Phase 1: stop every session. Nothing is ended yet.
         found: list[tuple[Path, str, int, int, bool, SessionKind, dict[str, Any]]] = []
         for sdir, record in records:
@@ -1659,10 +1697,18 @@ class ClaudeDispatcher:
                     "a stream that is there is read, never set aside"
                 )
                 raise InvocationError(msg, session_id=target)
-        # Phase 4: only now, with every stream read, is any session ended.
-        for sdir, _sid, _pid, _killed, _stopped, _kind, written in found:
-            write_record(sdir.parent, sdir.name, written, "ended.json")
+        self._ending = [(sdir, written) for sdir, *_, written in found]
         return leftovers
+
+    def end_leftovers(self) -> None:
+        """End the leftovers the last stop read, now that the loop has recorded their findings.
+
+        A session this dispatcher had ended already keeps the end its own run wrote.
+        """
+        for sdir, written in self._ending:
+            if not (sdir / "ended.json").exists():
+                write_record(sdir.parent, sdir.name, written, "ended.json")
+        self._ending = []
 
     def _read_leftover(
         self, sdir: Path, session_id: str, pid: int, killed: int, stopped: bool, kind: SessionKind
@@ -1726,7 +1772,20 @@ class ClaudeDispatcher:
         _target, by, why = self._quarantine
         return f"{by}: {why}" if by.strip() and why.strip() else None
 
-    def _honoured(self, records: list[tuple[Path, dict[str, Any]]]) -> None:
+    def _logged(self) -> list[Event]:
+        """The run's event log, as the stop holds every session to it.
+
+        Raises:
+            InvocationError: the log cannot be read; nothing has been signalled.
+        """
+        log = self._run.run_dir / "events.jsonl"
+        try:
+            return read_events(log) if log.exists() else []
+        except (OSError, ValueError, OrchestratorError) as exc:
+            msg = "the event log could not be read, so no process record can be held to it"
+            raise InvocationError(msg, error=repr(exc)) from exc
+
+    def _honoured(self, records: list[tuple[Path, dict[str, Any]]], events: list[Event]) -> None:
         """Refuse the resume unless every session's process record is the one spawned.
 
         A role session's record and a review's alike. A record is honoured only if it names its
@@ -1740,18 +1799,9 @@ class ClaudeDispatcher:
             InvocationError: a record is unreadable, names another session, or disagrees with
                 the event log; the resume goes no further, and nothing has been signalled.
         """
-        if not records:
-            return
-        log = self._run.run_dir / "events.jsonl"
-        try:
-            spawned = {
-                e.session_id: (e.pid, e.started)
-                for e in (read_events(log) if log.exists() else [])
-                if isinstance(e, SessionSpawned)
-            }
-        except (OSError, ValueError, OrchestratorError) as exc:
-            msg = "the event log could not be read, so no process record can be held to it"
-            raise InvocationError(msg, error=repr(exc)) from exc
+        spawned = {
+            e.session_id: (e.pid, e.started) for e in events if isinstance(e, SessionSpawned)
+        }
         for sdir, record in records:
             # A role session's directory is named by its session id; a review's session
             # directory sits in its review's, which is.

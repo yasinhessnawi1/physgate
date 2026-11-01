@@ -511,10 +511,19 @@ class RunState:
         if isinstance(event, FindingsRecorded):
             if self.findings is not None or self.owed_halt() is not None:
                 _refuse("a findings line comes before its incidents, with no halt owed before it")
+            held = self.subtasks.get(event.subtask_id or "")
+            now = held.attempts[-1] if held is not None and held.attempts else None
+            if event.subtask_id is not None and (
+                now is None or now.cursor != "spawn" or now.session is not None
+            ):
+                _refuse("a session end's findings line comes before the session's end line")
             self.findings, self.findings_written = event, 0
             return
-        if self.findings is not None:
-            listed, n = self.findings, self.findings_written
+        listed, n = self.findings, self.findings_written
+        # A session end's findings line is followed by the session's own end line, then the rest.
+        if listed is not None and not (
+            isinstance(event, SessionEnded) and n == 0 and event.subtask_id == listed.subtask_id
+        ):
             if not isinstance(event, Incident) or n == len(listed.findings):
                 _refuse("nothing comes between a findings line and its incidents and halt")
             found = listed.findings[n]

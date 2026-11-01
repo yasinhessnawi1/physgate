@@ -583,8 +583,8 @@ class Loop:
     def _stop_leftovers(self) -> None:
         """Stop what a previous process left running, before anything reads or writes.
 
-        The dispatcher ends each leftover as it hands it over, so a process killed after that finds
-        none of them again: what they showed is on the record before any of their own lines. Two
+        The dispatcher ends the leftovers once what they showed is on the record, before any of
+        their own lines, so a process killed before that finds them again. Two
         or more findings are one findings line first, then each leftover's lines, then each
         incident and one halt; a lone finding is its incident first, then the lines and the halt.
         In order: every exposure, reviewer material and set-aside stream, leftover by leftover,
@@ -624,6 +624,9 @@ class Loop:
             self._emit(FindingsRecorded(**self._env(), subtask_id=None, findings=listed, halt=halt))
         for cause, detail in found[:1] if len(found) == 1 else ():
             self._emit(Incident(**self._env(), subtask_id=None, cause=cause, detail=detail))
+        # Only now, with what they showed on the record, are they ended: a process killed before
+        # this finds them again.
+        self._dispatcher.end_leftovers()
         for left in leftovers:
             if left.stopped:
                 self._emit(
@@ -1447,6 +1450,11 @@ class Loop:
             # other's commands, and a person moves it.
             self._incident(subtask_id, "os_layer_misplaced", str(exc))
             return False
+        found = self._session_findings(report)
+        if found is not None:
+            # Before anything says the session ended: a process killed after this line owes the
+            # halt, and one killed before it finds the session again (``stop_leftovers``).
+            self._findings(subtask_id, *found, first=True)
         for message in report.usage:
             self._emit(
                 TokensUsed(
@@ -1475,9 +1483,8 @@ class Loop:
                 series=report.series,
             )
         )
-        found = self._session_findings(report)
         if found is not None:
-            self._findings(subtask_id, *found)
+            self._findings(subtask_id, *found, first=False)
             return False
         if report.end.outcome != "completed":
             return False
@@ -1563,19 +1570,30 @@ class Loop:
         return found, halt
 
     def _findings(
-        self, subtask_id: str | None, found: list[tuple[IncidentCause, str]], halt: IncidentCause
+        self,
+        subtask_id: str | None,
+        found: list[tuple[IncidentCause, str]],
+        halt: IncidentCause,
+        *,
+        first: bool,
     ) -> None:
-        """Write a site's incidents, then its one halt; two or more are recorded in one line first.
+        """A site's findings: with ``first`` the line that records them, else the rest and the halt.
 
-        That line is what a process taking over after a kill between them writes the rest from.
-        One incident needs none: its halt is its own cause, which the record already owes.
+        Two or more are recorded in one line first, which a process taking over after a kill
+        writes the rest from: each incident, then the one halt. One is its own incident first;
+        its halt is its own cause, which the record then owes.
         """
-        if len(found) > 1:
+        if first:
             listed = tuple(SessionFinding(cause=cause, detail=detail) for cause, detail in found)
             self._emit(
                 FindingsRecorded(**self._env(), subtask_id=subtask_id, findings=listed, halt=halt)
+                if len(found) > 1
+                else Incident(
+                    **self._env(), subtask_id=subtask_id, cause=found[0][0], detail=found[0][1]
+                )
             )
-        for cause, detail in found:
+            return
+        for cause, detail in found if len(found) > 1 else ():
             self._emit(Incident(**self._env(), subtask_id=subtask_id, cause=cause, detail=detail))
         self._halt_for(subtask_id, halt)
 

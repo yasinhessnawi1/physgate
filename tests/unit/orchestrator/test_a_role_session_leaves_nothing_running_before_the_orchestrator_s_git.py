@@ -627,7 +627,9 @@ def test_a_resume_stops_what_a_running_role_session_left_in_its_own_group(
     try:
         assert _settle(lambda: bool(session.pids()), 20.0)
         (grandchild,) = session.pids()
-        (left,) = _resumed(session, dispatcher).stop_leftovers()
+        resumed = _resumed(session, dispatcher)
+        (left,) = resumed.stop_leftovers()
+        resumed.end_leftovers()
     finally:
         leftovers += session.pids()
     assert left.stopped
@@ -666,7 +668,9 @@ def test_a_resume_stops_what_an_exited_session_left_in_its_group_and_puts_its_wr
 ) -> None:
     """Its record agrees with the spawn the event log holds: its group is the session's."""
     session, dispatcher, child = _left_exited(tmp_path, monkeypatch, leftovers)
-    (left,) = _resumed(session, dispatcher).stop_leftovers()
+    resumed = _resumed(session, dispatcher)
+    (left,) = resumed.stop_leftovers()
+    resumed.end_leftovers()
     assert not left.stopped  # the session itself had exited
     assert started_at(child) is None
     ended = json.loads(_process_record(session).with_name("ended.json").read_text())

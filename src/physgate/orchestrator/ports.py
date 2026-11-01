@@ -220,7 +220,14 @@ class Dispatcher(Protocol):
         ...
 
     def stop_leftovers(self) -> list[Leftover]:
-        """Stop every session a previous orchestrator left running; say which, and what it spent."""
+        """Stop every session a previous orchestrator left running; say which, and what it spent.
+
+        None is ended: one the loop has not recorded is found again by the next process.
+        """
+        ...
+
+    def end_leftovers(self) -> None:
+        """End the leftovers the last stop found, once the loop has recorded their findings."""
         ...
 
     def environment(self) -> InstallFacts | None:

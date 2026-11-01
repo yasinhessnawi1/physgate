@@ -86,6 +86,8 @@ class EndedBySession(FakeDispatcher):
     """
 
     real_dir: Path | None = None
+    #: What the first session's stream shows.
+    stream: str = f"the task reads: <!-- {CANARY} -->"
 
     def _dispatcher(self) -> ClaudeDispatcher:
         assert self.real_dir is not None
@@ -93,7 +95,7 @@ class EndedBySession(FakeDispatcher):
 
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         if not self.requests and self.real_dir is not None:
-            sdir = _session_dir(self.real_dir, "sess-1", f"the task reads: <!-- {CANARY} -->")
+            sdir = _session_dir(self.real_dir, "sess-1", self.stream)
             assert on_spawn is not None
             on_spawn("sess-1", 999_999, STARTED)
             report = super().run(request, on_spawn)
@@ -191,9 +193,9 @@ def test_a_kill_after_the_session_was_ended_and_before_any_line_resumes_halted_o
     loop.close()
     assert (tmp_path / "run" / "sessions" / "sess-1" / "ended.json").exists()
     assert "session_ended" not in kinds(lines(rig))
-    said = taken_over(rig)
-    assert said == "halted", said
+    taken_over(rig)  # a resume that halts on what it found says so by refusing to go on
     rows = lines(rig)
+    assert kinds(rows)[-1] == "halted", kinds(rows)
     incidents = [r for r in rows if r["kind"] == "incident"]
     assert [r["cause"] for r in incidents] == ["held_out_read"]
     assert "sess-1" in incidents[0]["detail"]
