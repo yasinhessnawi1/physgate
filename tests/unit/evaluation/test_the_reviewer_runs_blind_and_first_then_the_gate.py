@@ -330,7 +330,7 @@ def test_the_base_alone_is_gated_as_one_change_over_nothing(corpus: Corpus, tmp_
     assert {r.scope for r in result.checks} == {"subtask", "module", "system"}
 
 
-@pytest.mark.parametrize("spelling", [f"{AUTHOR}-20261001", f"us.anthropic.{AUTHOR}-v1:0"])
+@pytest.mark.parametrize("spelling", [f"{AUTHOR}-20261001", f"global.anthropic.{AUTHOR}"])
 def test_another_spelling_of_the_author_s_model_is_refused_before_anything(
     corpus: Corpus, tmp_path: Path, spelling: str
 ) -> None:
