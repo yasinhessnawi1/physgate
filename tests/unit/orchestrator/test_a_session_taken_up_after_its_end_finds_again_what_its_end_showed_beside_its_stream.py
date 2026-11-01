@@ -301,3 +301,29 @@ def test_policy_limits_are_held_to_the_run_s_first_only_for_a_session_taken_up(
     )
     rows = _resumed_with(tmp_path / "run", left)
     assert [r["cause"] for r in rows if r["kind"] == "incident"] == found
+
+
+# --- an end record that does not say what the end found fails closed ---------------------------
+
+
+@pytest.mark.parametrize("record", ["written before it held them", "not JSON", "malformed"])
+def test_a_taken_up_end_record_that_does_not_say_what_it_found_halts_on_each_it_cannot_read(
+    tmp_path: Path, record: str
+) -> None:
+    rig = _killed_after_its_end(tmp_path / "run", set(), PRESENT)
+    ended = tmp_path / "run" / "sessions" / "sess-1" / "ended.json"
+    ended.write_text(
+        {
+            "written before it held them": json.dumps({"exit": 0, "timed_out": False}),
+            "not JSON": '{"exit": 0, "timed',
+            "malformed": json.dumps(
+                {"exit": 0, "timed_out": False, "findings": {"reaper_unverified": "make"}}
+            ),
+        }[record]
+    )
+    incidents = _halted_with(
+        rig,
+        ["placeholder_refused", "managed_settings_changed", "reaper_unverified"],
+        "placeholder_refused",
+    )
+    assert all("cannot be read" in r["detail"] for r in incidents), incidents

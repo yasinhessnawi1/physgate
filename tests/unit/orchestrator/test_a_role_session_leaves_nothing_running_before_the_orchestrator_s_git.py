@@ -219,6 +219,17 @@ elif MODE == "tamper":
     note(pid)
 time.sleep(PAUSE)
 hook("SessionEnd")
+if MODE.startswith("log-"):
+    # A line no hook writes, in the hook layer's log: cut short, not an object, or a field of the
+    # wrong type. What the log says of the session's reaping can then not be read.
+    sdir = os.path.dirname(os.path.dirname(argv[argv.index("--settings") + 1]))
+    bad = {
+        "log-truncated": '{"session": "%s", "decision": "reaper_unver' % session_id,
+        "log-not-object": '["reaper_unverified"]',
+        "log-wrong-type": json.dumps({"session": session_id, "decision": ["reaper_unverified"]}),
+    }[MODE]
+    with open(os.path.join(sdir, "state", "hooks.log.jsonl"), "a") as out:
+        out.write(bad + "\n")
 open(os.path.join(FLAGS, "session-end-ran"), "w").close()
 if MODE in ("between", "tamper", "halted", "forget", "erase", "corrupt", "link"):
     while not os.path.exists(os.path.join(FLAGS, "written")):
@@ -1083,3 +1094,24 @@ def test_a_stop_that_fails_kills_the_session_s_whole_group_not_only_the_session(
     assert _settle(lambda: started_at(child) is None, 2.0), "the session's group outlived it"
     time.sleep(2.0)
     assert sorted(p.name for p in session.root.iterdir()) == ["kept.txt"]
+
+
+@pytest.mark.parametrize("mode", ["log-truncated", "log-not-object", "log-wrong-type"])
+def test_a_hook_log_that_cannot_be_read_is_an_unverified_reaping_on_the_end_s_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int], mode: str
+) -> None:
+    """Fails closed: nothing the log says of the session's reaping can be taken as none."""
+    session = Session(tmp_path, mode, pause=0.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    try:
+        report: Any = dispatcher.run(session.request(), session.spawned)
+    except Exception as exc:  # noqa: BLE001 - an escape is the finding
+        report = exc
+    finally:
+        leftovers += session.pids()
+    assert not isinstance(report, Exception), f"the session's end raised {report!r}"
+    assert report.end.outcome == "completed", report
+    assert [why for why in report.reaper_unverified if "the hook log cannot be read" in why]
+    (ended,) = session.run.run_dir.glob("sessions/*/ended.json")
+    recorded = json.loads(ended.read_text()).get("findings") or {}
+    assert recorded.get("reaper_unverified") == list(report.reaper_unverified)
