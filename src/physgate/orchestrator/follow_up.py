@@ -33,34 +33,48 @@ def owed(
 ) -> Mapping[str, tuple[OwedEdge, ...]]:
     """Each candidate module the closing pass reached, by subtask id, with its edges, sorted.
 
-    An edge is owed from a node the closing pass created or wrote with other quantities, before
-    or after its write (a dropped edge still owes), into a node that exists, is not an interface
-    node, was last written before the closing pass, and was last written by a candidate: one of
-    the domain modules that merged. ``lines`` is the journal up to the change history's end.
+    Each change set of the closing pass is judged on its own, as the propagation check judges
+    them: a set that created a node, or wrote it with other quantities than it had before the set,
+    changed it. An edge is owed from a node a closing set changed, from its constrains before or
+    after any such set (a dropped edge still owes), into a node that exists, is not an interface
+    node, was last written before the last closing set that changed the source, and was last
+    written by a candidate: one of the domain modules that merged. So a closing pass that merges
+    twice owes from its later set too, a value changed and then changed back included. ``lines``
+    is the journal up to the change history's end.
     """
     writer = {r: c.subtask_id for c in change_sets for r in c.revisions}
-    ours = sorted(r for r, subtask_id in writer.items() if subtask_id == closing)
-    if not ours:
+    sets = sorted(
+        (c.revisions for c in change_sets if c.subtask_id == closing and c.revisions), key=min
+    )
+    if not sets:
         return {}
     timeline: dict[str, list[tuple[int, Node]]] = {}
     for line in lines:
         timeline.setdefault(line.node_id, []).append((line.rev, validate_node(line.payload)))
     found: dict[str, set[tuple[str, str]]] = {}
     for source, revisions in timeline.items():
-        before = _at(revisions, ours[0] - 1)
-        after = _at(revisions, ours[-1])
-        if after is None or not any(r in ours for r, _ in revisions):
+        written = {r for r, _ in revisions}
+        since: int | None = None
+        targets: set[str] = set()
+        for revs in sets:
+            if not written & set(revs):
+                continue
+            before = _at(revisions, min(revs) - 1)
+            after = _at(revisions, max(revs))
+            if after is None or (before is not None and before.quantities == after.quantities):
+                continue
+            since = min(revs)
+            targets |= set(after.constrains) | set(before.constrains if before else ())
+        if since is None:
             continue
-        if before is not None and before.quantities == after.quantities:
-            continue
-        for target in set(after.constrains) | set(before.constrains if before else ()):
+        for target in targets:
             if target == source or target not in timeline:
                 continue
             rev, node = timeline[target][-1]
             subtask_id = writer.get(rev)
             if subtask_id is None or subtask_id not in candidates:
                 continue
-            if node.kind == "interface" or rev >= ours[0]:
+            if node.kind == "interface" or rev >= since:
                 continue
             found.setdefault(subtask_id, set()).add((source, target))
     return {

@@ -72,8 +72,11 @@ from physgate.orchestrator.events import (
     Incident,
     LeftoverRead,
     OsLayerChecked,
+    ReviewRan,
+    ReviewUnavailable,
     SessionEnded,
     SessionSpawned,
+    TokensUsed,
     read_events,
 )
 from physgate.orchestrator.exceptions import (
@@ -738,21 +741,48 @@ def end_check_at_resume(sdir: Path, session_id: str, install_bin: Path) -> EndCh
     return EndCheck(argv, 30.0)
 
 
-def _unended(sdir: Path, events: Sequence[Event]) -> bool:
-    """Whether the role session ``sdir`` holds was spawned, and nothing on the log came after.
+def _unended(session_id: str, events: Sequence[Event], *, review: bool = False) -> bool:
+    """Whether the session ``session_id`` was spawned, and nothing on the log came after.
 
-    Neither its end line nor a leftover's read names it, and no finding follows its spawn. A
-    review's session directory is named for its review, never by a spawned session's id.
+    Neither its end line nor a leftover's read names it, and no finding follows its first spawn.
+    A review has no end line of its own: what the loop writes once the review is back names it
+    (its tokens, its verdict or why there is none), and an exposure's incident comes first. A
+    review's repair resume is spawned again under the same id, so one ended on disk and resumed
+    is unended still.
     """
     spawn = next(
-        (e.seq for e in events if isinstance(e, SessionSpawned) and e.session_id == sdir.name),
+        (e.seq for e in events if isinstance(e, SessionSpawned) and e.session_id == session_id),
         None,
     )
     return spawn is not None and not any(
-        (isinstance(e, SessionEnded | LeftoverRead) and e.session_id == sdir.name)
+        (isinstance(e, SessionEnded | LeftoverRead) and e.session_id == session_id)
         or (isinstance(e, Incident | FindingsRecorded) and e.seq > spawn)
+        or (review and _names_review_end(e, session_id))
         for e in events
     )
+
+
+def _names_review_end(event: Event, session_id: str) -> bool:
+    """Whether ``event`` is one the loop writes once the review ``session_id`` is back."""
+    return (
+        (isinstance(event, TokensUsed) and event.attribution == f"reviewer:{session_id}")
+        or (isinstance(event, ReviewRan) and event.result.session_id == session_id)
+        or (isinstance(event, ReviewUnavailable) and event.session_id == session_id)
+    )
+
+
+def _spawns(session_id: str, events: Sequence[Event]) -> list[tuple[int, str]]:
+    """The pid and start time of every spawn of ``session_id`` the log records, in order."""
+    return [
+        (e.pid, e.started)
+        for e in events
+        if isinstance(e, SessionSpawned) and e.session_id == session_id
+    ]
+
+
+def review_streams(spawns: int) -> tuple[str, ...]:
+    """The streams a review spawned ``spawns`` times wrote: its first, then each repair's."""
+    return ("stdout.jsonl", *(f"stdout-repair-{n}.jsonl" for n in range(1, spawns)))
 
 
 #: What only a resume's end of a leftover holds: a session's own run never writes these.
@@ -1194,7 +1224,7 @@ class ClaudeDispatcher:
         self._facts: InstallFacts | None = None
         self._os_layer: Present | Absent | None = None
         #: The last stop's leftovers, each with the end it writes once the loop has their findings.
-        self._ending: list[tuple[Path, dict[str, Any]]] = []
+        self._ending: list[tuple[Path, dict[str, Any], bool]] = []
         harness = harness_root()
         #: Every canary the harness's rubric promotions recorded, read once.
         self._canaries = (
@@ -1746,14 +1776,22 @@ class ClaudeDispatcher:
         A role session this dispatcher ended whose end the event log does not hold is a leftover
         too: its orchestrator died after the end and before its first line, so what its stream
         shows is on no record. Unless a finding follows its spawn: then the record holds what
-        its end showed, and it is not read twice.
+        its end showed, and it is not read twice. So is a review whose end the loop has not
+        written (:func:`_unended`): its reviewer writes its end before the loop reads its stream,
+        and a review in its repair resume keeps its first invocation's end while it runs again.
+        Every stream a review's spawns wrote is read.
         """
+        reviews = set(self._review_dirs())
         session_dirs = self._session_dirs()
         events = self._logged()
         records: list[tuple[Path, dict[str, Any]]] = []
         for sdir in session_dirs:
             record_path, ended = sdir / "process.json", sdir / "ended.json"
-            if not record_path.exists() or (ended.exists() and not _unended(sdir, events)):
+            review = sdir in reviews
+            own = sdir.parent.name if review else sdir.name
+            if not record_path.exists() or (
+                ended.exists() and not _unended(own, events, review=review)
+            ):
                 continue
             try:
                 record = json.loads(read_session_file(record_path))
@@ -1787,7 +1825,8 @@ class ClaudeDispatcher:
         # credential. A killed orchestrator never removed it; its stream was never redacted.
         for sdir in session_dirs:
             remove_secrets(sdir / "state", sdir / "config")
-            redact(sdir / "stdout.jsonl", self._credential.secret)
+            for name in self._streams_of(sdir, reviews, events):
+                redact(sdir / name, self._credential.secret)
         # Phase 3: read and scan every stream, from one read each. Every failure is collected,
         # none stops at the first: a stream that is gone is no stream that showed nothing.
         leftovers: list[Leftover] = []
@@ -1797,10 +1836,19 @@ class ClaudeDispatcher:
             # own run ended, never one left running.
             again = kind == "session" and (sdir / "ended.json").exists() and _taken_up(sdir)
             layered = _spawned_under_the_layer(session_id, events)
+            streams = self._streams_of(sdir, reviews, events)
             try:
                 leftovers.append(
                     self._read_leftover(
-                        sdir, session_id, pid, killed, stopped, kind, again=again, layered=layered
+                        sdir,
+                        session_id,
+                        pid,
+                        killed,
+                        stopped,
+                        kind,
+                        again=again,
+                        layered=layered,
+                        streams=streams,
                     )
                 )
             except InvocationError as exc:
@@ -1825,18 +1873,31 @@ class ClaudeDispatcher:
                     "a stream that is there is read, never set aside"
                 )
                 raise InvocationError(msg, session_id=target)
-        self._ending = [(sdir, written) for sdir, *_, written in found]
+        # A review stopped running here ends here: an end on disk is its earlier invocation's.
+        self._ending = [
+            (sdir, written, kind == "reviewer" and stopped)
+            for sdir, _, _, _, stopped, kind, written in found
+        ]
         return leftovers
 
     def end_leftovers(self) -> None:
         """End the leftovers the last stop read, now that the loop has recorded their findings.
 
-        A session this dispatcher had ended already keeps the end its own run wrote.
+        A session this dispatcher had ended already keeps the end its own run wrote, but a review
+        found running: the end on disk is its first invocation's, before its repair resume.
         """
-        for sdir, written in self._ending:
-            if not (sdir / "ended.json").exists():
+        for sdir, written, running in self._ending:
+            if running or not (sdir / "ended.json").exists():
                 write_record(sdir.parent, sdir.name, written, "ended.json")
         self._ending = []
+
+    def _streams_of(
+        self, sdir: Path, reviews: set[Path], events: Sequence[Event]
+    ) -> tuple[str, ...]:
+        """The streams a session's directory holds: a review's, one for each spawn on the log."""
+        if sdir not in reviews:
+            return ("stdout.jsonl",)
+        return review_streams(max(1, len(_spawns(sdir.parent.name, events))))
 
     def _read_leftover(  # noqa: PLR0913 - one leftover's facts, as the stop found them
         self,
@@ -1849,59 +1910,81 @@ class ClaudeDispatcher:
         *,
         again: bool = False,
         layered: bool = False,
+        streams: tuple[str, ...] = ("stdout.jsonl",),
     ) -> Leftover:
-        """One leftover's stream, read once: sealed, scanned, or set aside by a person's marker.
+        """A leftover's streams, each read once: sealed, scanned, or set aside by a person's marker.
 
         With ``again``, a session its own run ended: what that end showed beside the stream is
         read again as the end read it (:meth:`_end_again`); ``layered`` is whether the record
-        shows it spawned under the OS layer.
+        shows it spawned under the OS layer. ``streams`` are the files its spawns wrote, the first
+        the one sealed: a review resumed to repair its verdict wrote one for each invocation.
 
         Raises:
-            InvocationError: the stream is gone with no valid quarantine marker, or is a link
+            InvocationError: a stream is gone with no valid quarantine marker, or is a link
                 or not a regular file.
         """
-        stream = sdir / "stdout.jsonl"
-        try:
-            data = read_stream_file(stream)
-        except InvocationError:
-            if os.path.lexists(stream):
-                raise
-            quarantine = self._quarantine_of(session_id)
-            if quarantine is None:
-                raise
-            return Leftover(
-                session_id=session_id,
-                pid=pid,
-                killed=killed,
-                stopped=stopped,
-                kind=kind,
-                quarantine=quarantine,
-                scan="unscanned (stream gone)",
-                **(self._end_again(sdir, session_id, b"", layered=layered) if again else {}),
-            )
+        held_out = frozenset(self._config.held_out_canaries)
+        read: list[bytes] = []
+        for name in streams:
+            stream = sdir / name
+            try:
+                read.append(read_stream_file(stream))
+            except InvocationError:
+                if os.path.lexists(stream):
+                    raise
+                quarantine = self._quarantine_of(session_id)
+                if quarantine is None:
+                    raise
+                # The streams that are there are scanned all the same: a gone one hides nothing
+                # another showed.
+                shown = next(filter(None, (canary_seen(d, held_out) for d in read)), None)
+                return Leftover(
+                    session_id=session_id,
+                    pid=pid,
+                    killed=killed,
+                    stopped=stopped,
+                    kind=kind,
+                    quarantine=quarantine,
+                    scan="unscanned (stream gone)",
+                    held_out_seen=shown if held_out else None,
+                    **(self._end_again(sdir, session_id, b"", layered=layered) if again else {}),
+                )
+        data = read[0]
         # The same read as a session that ended under its orchestrator: sealed as read, a
         # tail after the runtime's result not taken, and a stream with a result held to the
-        # runtime's own totals.
-        captured = captured_from(data)
-        tampered = captured.tampered
-        if tampered is None:
-            try:
-                require_matching_totals(captured.result, captured.usage)
-            except AccountingError as exc:
-                tampered = f"{exc}: {exc.context}"
-        held_out = frozenset(self._config.held_out_canaries)
+        # runtime's own totals. A repair resume's totals are the whole session's, so each
+        # stream's result is held to the usage of every stream up to it.
+        usage: tuple[MessageUsage, ...] = ()
+        tampered: str | None = None
+        complete = True
+        for each in read:
+            captured = captured_from(each)
+            usage = (*usage, *captured.usage)
+            complete = complete and captured.result is not None
+            why = captured.tampered
+            if why is None:
+                try:
+                    require_matching_totals(captured.result, usage)
+                except AccountingError as exc:
+                    why = f"{exc}: {exc.context}"
+            tampered = tampered or why
+        first = captured_from(data)
         return Leftover(
             session_id=session_id,
             pid=pid,
             killed=killed,
             stopped=stopped,
-            usage=captured.usage,
-            complete=captured.result is not None,
-            seal=captured.seal,
+            usage=usage,
+            complete=complete,
+            seal=first.seal,
             tampered=tampered,
             kind=kind,
-            # Scanned as a session that ended under its orchestrator is.
-            held_out_seen=canary_seen(data, held_out) if held_out else None,
+            # Scanned as a session that ended under its orchestrator is: every stream it wrote.
+            held_out_seen=(
+                next(filter(None, (canary_seen(d, held_out) for d in read)), None)
+                if held_out
+                else None
+            ),
             review_material_seen=(
                 canary_seen(data, self._canaries) if kind == "session" and self._canaries else None
             ),
@@ -1987,6 +2070,7 @@ class ClaudeDispatcher:
             e.session_id: (e.pid, e.started) for e in events if isinstance(e, SessionSpawned)
         }
         for sdir, record in records:
+            ours = (record.get("pid"), record.get("started"))
             # A role session's directory is named by its session id; a review's session
             # directory sits in its review's, which is.
             own = sdir.parent.name if record.get("kind") == "reviewer" else sdir.name
@@ -1997,7 +2081,11 @@ class ClaudeDispatcher:
                 why = "the process record names another session than its directory's"
             elif own not in spawned:
                 why = "the event log records no spawn of this session"
-            elif spawned[own] != (record.get("pid"), record.get("started")):
+            elif spawned[own] != ours and not (
+                # A review's repair resume is spawned again under its id: until its record is
+                # written, the record on disk is an earlier spawn's, which is the review's too.
+                record.get("kind") == "reviewer" and ours in _spawns(own, events)
+            ):
                 why = "the process record's pid or start time is not the one the event log records"
             if why is not None:
                 write_record(sdir.parent, sdir.name, {"record_refused": why}, "after_stop.json")
@@ -2080,6 +2168,11 @@ class ClaudeDispatcher:
         reach, and is this run's if its owner record names this run.
         """
         dirs = sorted(p for p in (self._run.run_dir / "sessions").glob("*") if p.is_dir())
+        return [*dirs, *self._review_dirs()]
+
+    def _review_dirs(self) -> list[Path]:
+        """Every review session directory of this run, beneath the review root."""
+        dirs: list[Path] = []
         for owner in sorted(self._review_root.glob(f"*/{SESSION_DIRNAME}/{OWNER_NAME}")):
             try:
                 run_id = json.loads(owner.read_text()).get("run_id")

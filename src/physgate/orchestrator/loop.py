@@ -898,6 +898,8 @@ class Loop:
             if self._at_a_boundary(step) and self._take_decisions():
                 continue  # what a decision did changes what comes next
             if step.kind in ("done", "halted", "escalated", "wait"):
+                if self._decisions_refused_at_the_end():
+                    continue  # the run halts on it: that is the step it ends on
                 self.record.hold_plan()  # a decompose killed before it listed the plan's item
                 self._clean_up_worktrees()
                 return step
@@ -1040,6 +1042,23 @@ class Loop:
                 # and the next decision waits for the next boundary.
                 return True
         return took
+
+    def _decisions_refused_at_the_end(self) -> bool:
+        """Whether the decisions file, read before the drive returns, holds a line it refuses.
+
+        Read before the run is ended, so a run never ends on a step its log does not: a person's
+        line that does not read is the incident and the halt (:meth:`_decisions_unreadable`), and
+        the drive goes on to that halt. A run already halted has its incident, and is not read here.
+        """
+        if self.state.halted is not None:
+            return False
+        try:
+            self.queue.refresh()
+        except QueueError as exc:
+            if not self._decisions_unreadable(exc):
+                raise
+            return True
+        return False
 
     def _decisions_unreadable(self, exc: QueueError, *, write: bool = True) -> bool:
         """Whether ``exc`` is the decisions file's reader refusing it; then, with ``write``, halt.
@@ -2271,8 +2290,16 @@ class Loop:
                 return reviewer.review(artefact)
             except HeldOutExposedError as exc:
                 # The review session showed held-out material: the tier counts as exposed
-                # (ARCH-141). What it spent is recorded, then the exposure, then one halt;
-                # no verdict is taken and nothing is retried. The canary is not recorded.
+                # (ARCH-141). The exposure is recorded first, then what it spent, then one halt;
+                # no verdict is taken and nothing is retried. The canary is not recorded. A
+                # process killed before the exposure's line finds the review again at the resume
+                # (its tokens are the loop's word that the review is back, so none come first).
+                detail = f"held-out material in the stream of review session {exc.session_id}"
+                self._emit(
+                    Incident(
+                        **self._env(), subtask_id=subtask_id, cause="held_out_read", detail=detail
+                    )
+                )
                 for message in exc.usage:
                     self._emit(
                         TokensUsed(
@@ -2282,12 +2309,6 @@ class Loop:
                             usage=message.usage,
                         )
                     )
-                detail = f"held-out material in the stream of review session {exc.session_id}"
-                self._emit(
-                    Incident(
-                        **self._env(), subtask_id=subtask_id, cause="held_out_read", detail=detail
-                    )
-                )
                 self._halt_for(subtask_id, "held_out_read")
                 return None
             except ReviewUnavailableError as exc:

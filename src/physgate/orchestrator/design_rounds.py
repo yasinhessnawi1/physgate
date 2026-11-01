@@ -455,9 +455,6 @@ def _one_round(
             review_cause, detail = "invocation_error", str(exc)
         except ModelSeparationError as exc:
             review_cause, detail = "model_separation", str(exc)
-        except Exception:
-            review_over(loop.run_dir)  # raised past the review: its session is over all the same
-            raise
         else:
             result, why = reviewed.result, reviewed.unavailable
             review_cause = result.verdict if result else why.cause if why else "held_out_exposed"
@@ -465,10 +462,8 @@ def _one_round(
                 # Looked for in every reviewing mode, so a round's record names no budget.
                 findings = replan_findings(result)
                 canary = canary_in_findings(findings, loop.check)
-        # The review is over, and nothing of its session runs: the reviewer stops what its session
-        # left before it returns or raises. A process stopped mid-review raises no exception the
-        # rounds go on from, and keeps the record for the next command on the directory.
-        review_over(loop.run_dir)
+    # The review's record is removed by the rounds once this round's end is journalled: what the
+    # review came to is on no record before that line.
     # No budget is set on the designer's call (its argv names none), so a spent one is never its.
     ending = round_ending(cause, review_cause, budget_set=False, canary=canary)
     return _Ran(outcome, ending, detail, reviewed, findings, call_ended, review_started)
@@ -525,8 +520,12 @@ def decompose_in_rounds(
     reviewing: tuple[PlanReviewer, ReviewInstall] | None,
     check: CanaryCheck,
     make_call: MakeCall,
+    review_root: Path | None = None,
 ) -> RoundsOutcome:
     """Decompose in rounds and start the run the last round leads to.
+
+    ``review_root`` is where the plan reviewer's sessions run: the record of a review's spawn
+    names its session directory there, so a command after a kill can scan its streams.
 
     Raises:
         DecompositionError: the rounds ended void: no run is started, and the journal says why.
@@ -552,7 +551,9 @@ def decompose_in_rounds(
     if isinstance(reviewing[0], RecordsSpawns):
         # The review's spawn is on no run record before the opening: it is written beside the
         # rounds, so a command after a kill during the review finds the session and stops it.
-        reviewing[0].record_spawns(review_spawned(run_dir))
+        reviewing[0].record_spawns(
+            review_spawned(run_dir, review_root=review_root, canaries=config.held_out_canaries)
+        )
     last = replans(config.design_review) + 1
     earlier: list[EarlierRound] = []
     proposals: list[Proposal] = []
@@ -577,6 +578,8 @@ def decompose_in_rounds(
             ran = _one_round(brief, k, loop=loop, prompt=prompt, session=session)
         except (OrchestratorError, ReviewError) as exc:
             loop.end(k, "void", "infrastructure", _cause(exc), str(exc))
+            # The void line is journalled: the review, if one ran, is over on the record.
+            review_over(run_dir)
             raise
         outcome, ending, plan = ran.outcome, ran.ending, ran.outcome.plan
         digest = plan_sha256(plan) if plan is not None and ending.plan_class == "plan" else None
@@ -615,6 +618,8 @@ def decompose_in_rounds(
                 ),
             ),
         )
+        # The round's end is journalled with what its review came to: its record goes now.
+        review_over(run_dir)
         proposals.append(
             Proposal(
                 round=k,

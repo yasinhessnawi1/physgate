@@ -499,15 +499,24 @@ def _say_listeners(network: Network, found: tuple[int, ...] | None) -> None:
         )
 
 
-def _stop_left_review(run_dir: Path) -> None:
+def _stop_left_review(run_dir: Path) -> int | None:
     """Stop the design review session a killed ``decompose`` left on ``run_dir``, and say so.
 
     First, whatever the command goes on to do with the directory: a ``decompose`` still refuses
-    it, and a ``run`` of a directory with no opening still finds no run in it.
+    it, and a ``run`` of a directory with no opening still finds no run in it. A review whose
+    streams showed held-out material refuses the command here, this time and every later one:
+    the exit status to return, or ``None`` to go on.
     """
-    said = stop_left_review(run_dir)
-    if said is not None:
-        print(f"physgate: {said}", file=sys.stderr)
+    left = stop_left_review(run_dir)
+    if left.said is not None:
+        print(f"physgate: {left.said}", file=sys.stderr)
+    if left.exposed:
+        return _fail(
+            "a design review a killed decompose left in this run directory showed held-out "
+            "material; nothing runs in it",
+            run_dir=str(run_dir),
+        )
+    return None
 
 
 def _fail(message: str, **context: str) -> int:
@@ -686,7 +695,8 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
     if refused:
         return _fail("the run may not start", requirements="; ".join(refused))
     run_dir = args.run_dir.resolve()
-    _stop_left_review(run_dir)
+    if (left_exposed := _stop_left_review(run_dir)) is not None:
+        return left_exposed
     try:
         # Every role the run can plan must be in the role register and have its curated
         # content, before the one model call is spent: without either it could never be
@@ -714,6 +724,8 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
                 base_url=os.environ.get("ANTHROPIC_BASE_URL"),
                 credential=credential,
             ),
+            # The reviewer's own root, as it named it: a review's record names its session there.
+            review_root=args.review_root.resolve() if reviewing is not None else None,
         )
     except (OrchestratorError, ReviewError) as exc:
         return _fail(str(exc), **exc.context)
@@ -802,7 +814,8 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         except GateError as exc:  # a gate that cannot be built stops the run here
             return _fail(str(exc), **exc.context)
     run_dir = args.run_dir.resolve()
-    _stop_left_review(run_dir)
+    if (left_exposed := _stop_left_review(run_dir)) is not None:
+        return left_exposed
     try:
         config = load_run_config(run_dir / "run.json")
         # The recorded mode decides which secret the run needs; a resume cannot change it.
