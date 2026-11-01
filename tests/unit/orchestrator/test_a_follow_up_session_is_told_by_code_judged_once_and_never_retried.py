@@ -40,7 +40,15 @@ from test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_rec
 from test_a_queue_decision_acts_at_a_boundary import decide
 
 from physgate.evaluation.observe.sequence import decisions
-from physgate.orchestrator.events import EnvironmentRecorded, Event, OsLayerChecked, Resumed
+from physgate.orchestrator.escalation import TO_THE_QUEUE, bind
+from physgate.orchestrator.escalation_state import escalation_state
+from physgate.orchestrator.events import (
+    EnvironmentRecorded,
+    EscalationDecided,
+    Event,
+    OsLayerChecked,
+    Resumed,
+)
 from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.protocols import Artefact, PersonOrder
 from physgate.orchestrator.replay import replay
@@ -208,12 +216,54 @@ def test_a_follow_up_end_replay_cannot_place_is_refused(tmp_path: Path) -> None:
     line = events[place]
     wrong = type(line).model_validate({**line.model_dump(), "why": "blocked"})
     assert refusal([*events[:place], wrong, *events[place + 1 :]]) is not None
-    # And on an attempt that merged: the line is the follow-up's, only where it did not.
+    # And on an attempt still being judged: the line is the follow-up's, only once it ended.
     merged = slice_rig(tmp_path / "merged")
     assert ended(merged, plan=CLOSING) == "done"
     kept = events_of(merged)
-    after = kinds(kept).index("diff_checked", kinds(kept).index("subtask_reopened"))
-    assert refusal([*kept[: after + 1], line, *kept[after + 1 :]]) is not None
+    after = kinds(kept).index("session_ended", kinds(kept).index("subtask_reopened"))
+    assert "a follow-up's end" in (refusal([*kept[: after + 1], line, *kept[after + 1 :]]) or "")
+    # Nor is its end asked about: an escalation decision there is refused, built as the loop
+    # builds one for any other attempt that did not merge.
+    before = events[:place]
+    state = escalation_state(replay(before), "s1")
+    envelope = {k: getattr(line, k) for k in ("seq", "ts", "run_id", "gate_mode")}
+    asked = EscalationDecided(
+        **envelope,
+        subtask_id="s1",
+        attempt=2,
+        decision=bind("rules").decide(TO_THE_QUEUE, state),
+        state=state,
+    )
+    assert "an escalation decision" in (refusal([*before, asked]) or "")
+
+
+def test_a_follow_up_rewritten_before_any_of_its_attempts_halts_before_one_begins(
+    tmp_path: Path,
+) -> None:
+    # Killed right after the follow-up line, its edges rewritten: the resumed process halts at
+    # once, and the follow-up's session never runs.
+    rig = slice_rig(tmp_path)
+    killed = ended(
+        rig,
+        plan=CLOSING,
+        kill=lambda e: (
+            e.kind == "stage_entered" and follow_ups([e]) == [] and e.model_dump()["attempt"] == 2
+        ),
+    )
+    assert killed == "killed"
+    path = rig.run_dir / "events.jsonl"
+    raw = path.read_text().splitlines()
+    (place,) = [i for i, ln in enumerate(raw) if '"follow_up"' in ln]
+    data = json.loads(raw[place])
+    data["owed"] = [{"source": BUS, "target": "electrical.other"}]
+    raw[place] = json.dumps(data, separators=(",", ":"))
+    path.write_text("\n".join(raw) + "\n")
+    assert ended(rig, how=resume) == "halted"
+    events = events_of(rig)
+    assert not at(events, "stage_entered", "s1", 2), "the follow-up began on a rewritten record"
+    assert [e.model_dump()["cause"] for e in events if e.kind == "incident"] == [
+        "foreign_journal_line"
+    ]
 
 
 # --- what is owed, and to whom -------------------------------------------------------------
