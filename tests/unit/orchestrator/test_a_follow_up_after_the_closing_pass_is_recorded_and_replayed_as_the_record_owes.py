@@ -217,11 +217,15 @@ def test_a_recorded_follow_up_the_journal_does_not_owe_halts_the_run(tmp_path: P
 
 
 def test_a_follow_up_after_the_integration_call_is_refused(tmp_path: Path) -> None:
-    events = recorded(tmp_path)
-    lines = moved(
-        events, at(events, "subtask_reopened"), kinds(events).index("integration_gate_ran")
-    )
-    assert "before the integration call" in (refusal(lines) or "")
+    # A run that owed none, its call made, and a follow-up of s1's merge written after it.
+    line = next(e for e in recorded(tmp_path / "owed") if _is_follow_up(e, "subtask_reopened"))
+    rig = slice_rig(tmp_path / "kept", closing_amps=2.0)
+    assert ended(rig, plan=CLOSING) == "done"
+    events = events_of(rig)
+    merged = next(e for e in events if e.kind == "merged" and e.model_dump()["subtask_id"] == "s1")
+    late = rewritten(line, merge_commit=merged.model_dump()["merge_commit"])
+    call = kinds(events).index("integration_gate_ran")
+    assert "before the integration call" in (refusal([*events[: call + 1], late]) or "")
 
 
 @pytest.mark.parametrize("subtask_id", ["z0", "zc"])
