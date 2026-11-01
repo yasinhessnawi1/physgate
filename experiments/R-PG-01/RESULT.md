@@ -20,6 +20,15 @@
 >   R-PG-01b, will re-run the reviewer arm on the same corpus with the complete sheet. No
 >   number in this file changes.
 
+> **Preface, 1 November 2026: R-PG-01b has measured the parts-sheet question. It changes no
+> number; everything below it is as first committed.** With the complete parts sheet, the
+> reviewers approved 0 and 1 of the 40 injected artefacts in two rounds, so the kill reading still
+> fires. R-PG-01b's pre-registered sentence is "The complete sheet did not change the kill
+> reading." How much the incomplete sheet favoured the gate is "not measurable at this approval
+> rate", since C was 0 under either sheet. R-PG-01b's replication arm reproduced this file's
+> reading, and its gate records are byte-identical to this run's
+> (`experiments/R-PG-01b/RESULT.md`).
+
 **Pre-registration:** `CRITERIA.md` frozen at commit `8bc03fc` (2026-10-18), sha256
 `c7a7da47505988fd06ca7b613b7ecacd4395d87aa67052272464d774936f53a4`. Nothing under this
 directory changed after the freeze; this file is added beside it.
