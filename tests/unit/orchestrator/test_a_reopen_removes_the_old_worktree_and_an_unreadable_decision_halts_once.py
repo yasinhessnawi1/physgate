@@ -129,7 +129,10 @@ def test_no_resume_continues_from_an_unreadable_decisions_line_s_halt(
     before = lines(rig)
     said = resumed(rig, monkeypatch)
     assert "RunStateError" in said and "halted for incident" in said, said
-    assert lines(rig) == before
+    # Each process taking over records the OS layer it runs under, before it is refused.
+    later = lines(rig)[len(before) :]
+    assert kinds(later) in ([], ["os_layer_checked"]), kinds(later)
+    assert lines(rig)[: len(before)] == before
 
 
 def test_a_kill_between_that_incident_and_its_halt_writes_the_halt_alone(
