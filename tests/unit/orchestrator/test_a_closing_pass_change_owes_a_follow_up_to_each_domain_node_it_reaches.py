@@ -186,3 +186,32 @@ def test_each_module_reached_is_owed_once_with_every_edge_in_order() -> None:
 def test_without_a_closing_pass_merge_nothing_is_owed() -> None:
     journal = slice_journal()
     assert owed(journal, closing="zz") == {}
+
+
+# --- a closing pass that merges twice: each change set judged as the propagation check does -----
+
+
+def _two_closing_merges(between: str) -> Journal:
+    """Sizing's closing pass merges, is reopened and merges again."""
+    journal = Journal()
+    journal.merge("z0", node(BUS, "sizing", constrains=[DRIVER], amps=2.0))
+    journal.merge("s1", node(DRIVER, "electrical", amps=2.0))
+    journal.merge("zc", node(BUS, "sizing", constrains=[DRIVER], amps=3.0))
+    if between == "changed back":
+        journal.merge("zc", node(BUS, "sizing", constrains=[DRIVER], amps=2.0), attempt=2)
+    elif between == "target rewritten, changed again":
+        journal.merge("s1", node(DRIVER, "electrical", amps=2.0), attempt=2)
+        journal.merge("zc", node(BUS, "sizing", constrains=[DRIVER], amps=4.0), attempt=2)
+    elif between == "target rewritten, kept":
+        journal.merge("s1", node(DRIVER, "electrical", amps=2.0), attempt=2)
+        journal.merge("zc", node(BUS, "sizing", constrains=[DRIVER], amps=3.0), attempt=2)
+    return journal
+
+
+@pytest.mark.parametrize("between", ["changed back", "target rewritten, changed again"])
+def test_a_second_closing_merge_that_changes_the_source_owes_its_edges(between: str) -> None:
+    assert owed(_two_closing_merges(between)) == {"s1": [(BUS, DRIVER)]}
+
+
+def test_a_second_closing_merge_that_keeps_the_source_owes_nothing_rewritten_since() -> None:
+    assert owed(_two_closing_merges("target rewritten, kept")) == {}

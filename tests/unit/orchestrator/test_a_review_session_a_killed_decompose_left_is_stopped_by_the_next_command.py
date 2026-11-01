@@ -5,7 +5,9 @@ record. When the review's session is spawned, its id, pid and start time are wri
 decomposition's rounds, and removed once the review is over. A ``decompose`` killed during the
 review leaves that file: the next ``decompose`` or ``run`` on the directory stops the session, by
 its pid and only while that pid is the session's (its start time and its own command line), says
-so, and then refuses the directory as before.
+so, and then refuses the directory as before. It scans every stream the review's spawns wrote for
+the held-out canaries the file names: an exposure is written to a file of its own, and every later
+command on the directory names it and refuses. The file stays until the round's end is journalled.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from test_decompose_reviews_the_plan_before_it_writes_anything import (
 from test_the_physgate_command_starts_and_decides import _run_args
 
 from physgate.cli import main
+from physgate.orchestrator import design_rounds
 from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.processes import started_at
 from physgate.orchestrator.protocols import ReviewResult
@@ -42,7 +45,12 @@ __all__ = ["calls"]  # the fixture, used by name
 
 SESSION = "11111111-2222-4333-8444-555555555555"
 SIDE_FILE = Path("decomposition", "review_session.json")
+EXPOSED_FILE = Path("decomposition", "review_exposed.json")
 OTHER_START = "Mon Jan  1 00:00:00 2001"
+CANARY = "9d3a7c51e08b46f2a1c7d4e95b0f3a68"
+WITH_CANARY = {**REVIEWING, "held_out_canaries": [CANARY]}
+SHOWN = json.dumps({"type": "user", "message": {"content": f"x <!-- {CANARY} -->"}}) + "\n"
+CLEAN = json.dumps({"type": "user", "message": {"content": "x"}}) + "\n"
 
 
 @pytest.fixture
@@ -73,9 +81,17 @@ def _settled(check: Callable[[], bool], seconds: float) -> bool:
 class Recording(StandIn):
     """A plan reviewer that tells the hook it is given its session's spawn, then answers."""
 
-    def __init__(self, answer: ReviewResult | BaseException, spawned: tuple[str, int, str]) -> None:
+    def __init__(
+        self,
+        answer: ReviewResult | BaseException,
+        spawned: tuple[str, int, str],
+        stream: str | None = CLEAN,
+        root: Path | None = None,
+    ) -> None:
         super().__init__(answer)
         self.spawned = spawned
+        self.stream = stream
+        self.root = root
         self.hook: Callable[[str, int, str], None] | None = None
 
     def record_spawns(self, hook: Callable[[str, int, str], None]) -> None:
@@ -84,14 +100,26 @@ class Recording(StandIn):
     def review_plan(self, under: Any) -> ReviewResult:  # noqa: ANN401
         if self.hook is not None:
             self.hook(*self.spawned)
+        if self.root is not None and self.stream is not None:
+            # Its stream, where the reviewer writes it: beneath the review root, by its id.
+            sdir = self.root / self.spawned[0] / "session"
+            sdir.mkdir(parents=True, exist_ok=True)
+            (sdir / "stdout.jsonl").write_text(self.stream)
         return super().review_plan(under)
 
 
-def _killed_in_the_review(tmp_path: Path, spawned: tuple[str, int, str]) -> list[str]:
+def _killed_in_the_review(
+    tmp_path: Path,
+    spawned: tuple[str, int, str],
+    *,
+    stream: str | None = CLEAN,
+    params: dict[str, Any] | None = None,
+) -> list[str]:
     """A ``decompose`` killed during its review; the arguments it ran with."""
-    args = _args(tmp_path, REVIEWING)
+    args = _args(tmp_path, REVIEWING if params is None else params)
+    root = (tmp_path / "review-scratch").resolve()
     with pytest.raises(BaseException) as stopped:  # noqa: PT011 - the stop is the point
-        _exit(args, Recording(Stopped(), spawned))
+        _exit(args, Recording(Stopped(), spawned, stream=stream, root=root))
     assert stopped.type is Stopped
     return args
 
@@ -109,7 +137,14 @@ def test_a_review_s_spawn_is_written_beside_the_rounds_and_left_by_a_kill(
     _killed_in_the_review(tmp_path, (SESSION, 4242, OTHER_START))
     assert _side_file(tmp_path).exists(), "the review's spawn is on no record a later command reads"
     recorded = json.loads(_side_file(tmp_path).read_text())
-    assert recorded == {"session_id": SESSION, "pid": 4242, "started": OTHER_START}
+    assert recorded == {
+        "session_id": SESSION,
+        "pid": 4242,
+        "started": OTHER_START,
+        "spawns": 1,
+        "session_dir": str((tmp_path / "review-scratch").resolve() / SESSION / "session"),
+        "held_out_canaries": [],
+    }
 
 
 @pytest.mark.parametrize("ending", ["verdict", "unavailable"])
@@ -199,3 +234,84 @@ def test_with_no_side_file_decompose_refuses_as_before_and_stops_nothing(
     assert "a decomposition is never resumed" in err
     assert SESSION not in err
     assert review.poll() is None
+
+
+# --- the next command scans what the review showed ---------------------------------------------
+
+
+def test_an_exposure_in_a_killed_review_is_recorded_and_refused_by_the_next_decompose(
+    tmp_path: Path, calls: Calls, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = _killed_in_the_review(
+        tmp_path, (SESSION, 4242, OTHER_START), stream=SHOWN, params=WITH_CANARY
+    )
+    capsys.readouterr()
+    assert _exit(args, StandIn(_verdict())) == 2
+    err = capsys.readouterr().err
+    assert "held-out" in err, "the review's exposure is on no record"
+    assert CANARY not in err, "the canary itself is named"
+    assert (tmp_path / "run" / EXPOSED_FILE).is_file()
+    assert json.loads((tmp_path / "run" / EXPOSED_FILE).read_text()) == {"session_id": SESSION}
+    assert not _side_file(tmp_path).exists()
+
+
+@pytest.mark.parametrize("second", ["decompose", "run"])
+def test_every_later_command_names_the_exposure_and_refuses(
+    tmp_path: Path, calls: Calls, capsys: pytest.CaptureFixture[str], second: str
+) -> None:
+    args = _killed_in_the_review(
+        tmp_path, (SESSION, 4242, OTHER_START), stream=SHOWN, params=WITH_CANARY
+    )
+    assert _exit(args, StandIn(_verdict())) == 2
+    capsys.readouterr()
+    again = _exit(args, StandIn(_verdict())) if second == "decompose" else main(_run_args(tmp_path))
+    err = capsys.readouterr().err
+    assert again == 2
+    assert "held-out" in err and SESSION in err, "a later command does not name the exposure"
+    assert calls.made == 1
+
+
+def test_a_clean_stream_records_no_exposure(
+    tmp_path: Path, calls: Calls, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = _killed_in_the_review(
+        tmp_path, (SESSION, 4242, OTHER_START), stream=CLEAN, params=WITH_CANARY
+    )
+    capsys.readouterr()
+    assert _exit(args, StandIn(_verdict())) == 2
+    err = capsys.readouterr().err
+    assert "held-out" not in err
+    assert "a decomposition is never resumed" in err
+    assert not (tmp_path / "run" / EXPOSED_FILE).exists()
+    assert not _side_file(tmp_path).exists()
+
+
+def test_a_stream_that_cannot_be_read_keeps_the_record(
+    tmp_path: Path, calls: Calls, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = _killed_in_the_review(
+        tmp_path, (SESSION, 4242, OTHER_START), stream=None, params=WITH_CANARY
+    )
+    capsys.readouterr()
+    assert _exit(args, StandIn(_verdict())) == 2
+    assert "cannot be read" in capsys.readouterr().err
+    assert _side_file(tmp_path).exists(), "an unscanned review's record was removed"
+
+
+def test_a_kill_between_the_review_s_end_and_its_round_s_end_line_keeps_the_record(
+    tmp_path: Path, calls: Calls, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    append = design_rounds._append  # noqa: SLF001 - the journal's own writer
+
+    def dies_at_the_round_s_end(journal: Path, line: Any) -> None:  # noqa: ANN401
+        if isinstance(line, design_rounds.RoundEnded):
+            raise Stopped
+        append(journal, line)
+
+    monkeypatch.setattr(design_rounds, "_append", dies_at_the_round_s_end)
+    root = (tmp_path / "review-scratch").resolve()
+    reviewer = Recording(_verdict(), (SESSION, 4242, OTHER_START), stream=SHOWN, root=root)
+    with pytest.raises(BaseException) as stopped:  # noqa: PT011 - the stop is the point
+        _exit(_args(tmp_path, WITH_CANARY), reviewer)
+    assert stopped.type is Stopped
+    assert _side_file(tmp_path).exists(), "the review's record went before its round's end line"

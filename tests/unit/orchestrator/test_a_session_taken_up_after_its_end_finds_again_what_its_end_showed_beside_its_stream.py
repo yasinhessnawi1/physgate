@@ -341,17 +341,34 @@ def test_an_end_record_that_says_less_takes_no_finding_away_from_what_is_derived
     )
 
 
-@pytest.mark.parametrize("more", ["reaping", "policy limits"])
+#: What an end record says beyond what the directory shows, the finding it gives, and its mark.
+SAYS_MORE: dict[str, tuple[str, str, str]] = {
+    "reaping": (
+        _findings(reaper_unverified=['{"command": "forged"}']),
+        "reaper_unverified",
+        "forged",
+    ),
+    "policy limits": (
+        _findings(policy_limits_sha256="b" * 64),
+        "managed_settings_changed",
+        "b" * 64,
+    ),
+    "abort": (_findings(os_layer_aborted=["toolu_forged"]), "os_layer_aborted", "toolu_forged"),
+    "placeholder": (
+        _findings(placeholders_refused="modules/s1/.forged: a link stands there"),
+        "placeholder_refused",
+        "modules/s1/.forged",
+    ),
+}
+
+
+@pytest.mark.parametrize("more", list(SAYS_MORE))
 def test_an_end_record_that_says_more_is_recorded(tmp_path: Path, more: str) -> None:
     rig = _killed_after_its_end(tmp_path / "run", set(), PRESENT)
-    said, cause = (
-        (_findings(reaper_unverified=['{"command": "forged"}']), "reaper_unverified")
-        if more == "reaping"
-        else (_findings(policy_limits_sha256="b" * 64), "managed_settings_changed")
-    )
+    said, cause, mark = SAYS_MORE[more]
     _end_record(tmp_path / "run", said)
     (found,) = _halted_with(rig, [cause], cause)
-    assert ("forged" if more == "reaping" else "b" * 64) in found["detail"]
+    assert mark in found["detail"]
 
 
 @pytest.mark.parametrize("record", ["missing", "not JSON", "malformed"])

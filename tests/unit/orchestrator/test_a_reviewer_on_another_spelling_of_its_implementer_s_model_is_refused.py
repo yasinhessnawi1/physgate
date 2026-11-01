@@ -100,3 +100,51 @@ def test_the_configuration_refuses_a_design_reviewer_on_a_dated_spelling_of_the_
             roles={"control": "claude-sonnet-5"},
             reviewers={"control": "claude-fable-5", "design": spelling},
         )
+
+
+# --- every spelling the configuration's model strings admit -------------------------------------
+
+#: The decorations a model string can carry that name the same model, each in the alphabet the
+#: configuration admits (``[a-z0-9._/-]``): a provider's path, a region and vendor prefix, the
+#: version written with dots, and a release, alias or provider's version suffix.
+PATHS = ["", "anthropic/", "bedrock/", "bedrock/converse/", "vertex_ai/", "openrouter/anthropic/"]
+PREFIXES = ["", "anthropic.", "us.anthropic.", "global.anthropic."]
+VERSIONS = ["claude-opus-5-5", "claude-opus-5.5"]
+SUFFIXES = ["", "-20261001", "_20261001", ".20261001", "-latest", "-v1", "-20261001-v1"]
+ADMITTED = [
+    f"{path}{prefix}{version}{suffix}"
+    for path in PATHS
+    for prefix in PREFIXES
+    for version in VERSIONS
+    for suffix in SUFFIXES
+]
+
+
+def _admitted(spelling: str) -> bool:
+    try:
+        ModelStrings.model_validate(
+            {
+                "decomposition": spelling,
+                "roles": {},
+                "reviewers": {},
+            }
+        )
+    except ValidationError:
+        return False
+    return True
+
+
+def test_every_decorated_spelling_is_one_the_configuration_admits() -> None:
+    refused = [s for s in ADMITTED if not _admitted(s)]
+    assert refused == [], f"not model strings, so not this set: {refused}"
+
+
+@pytest.mark.parametrize("spelling", ADMITTED)
+def test_the_check_refuses_every_admitted_spelling_of_one_model(spelling: str) -> None:
+    for implementer, reviewer in ((MODEL, spelling), (spelling, MODEL)):
+        try:
+            require_separate_models(implementer=implementer, reviewer=reviewer)
+        except ModelSeparationError:
+            continue
+        msg = f"{reviewer} judged {implementer}"
+        raise AssertionError(msg)
