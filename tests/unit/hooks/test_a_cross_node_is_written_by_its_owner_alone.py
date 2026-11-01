@@ -154,8 +154,9 @@ def test_the_owner_is_found_in_the_register_by_what_it_owns_not_by_its_name(
 
 
 def test_as_shipped_sizing_owns_the_cross_nodes_and_writes_them_alone(tmp_path: Path) -> None:
-    # The register as it ships names sizing as the owner of the cross nodes.
-    assert roles.owner_of("cross_nodes") == "sizing"
+    # The register as it ships names sizing as the owner of the cross nodes. Read through the
+    # count, which never raises, so a register without the owner fails here on the assertion.
+    assert roles.owners_of("cross_nodes") == ("sizing",)
     assert _write(_session(tmp_path, "sizing"), node("sizing.motor_right", "sizing")) == "allow"
     told = _write(
         _session(tmp_path, "control"), node("control.motor_right", "control", domain="cross")
