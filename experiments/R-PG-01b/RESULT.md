@@ -12342,3 +12342,124 @@ run once on 01.11.2026 at the run tag `2341e65`, as `uv run --frozen python -I`.
  }
 }
 ```
+
+---
+
+## The comparison with R-PG-01 (§8, step 3)
+
+**Added 01.11.2026, after "numbers final"** (`a73a7892`, pushed on `exp/r-pg-01b-numbers`). Every
+section above was written before anyone who has read R-PG-01's results saw a number of this
+experiment. This section changes no number above and no decision of §7 beyond D1's sentence.
+
+**How it ran.**
+- `compare_r_pg_01.py`, blob `d095335e6d2d2698b348747fe5b8a14e19b7ec55`, the same at the run tag,
+  at both "scripts" commits and on `master`; run once, as `uv run --frozen python -I`.
+- On Oracle, 01.11.2026 at 11:30:36Z, in a fresh clone of `exp/r-pg-01b-numbers` at `a73a7892`
+  (`git clone --single-branch --no-tags`), not in the run checkout (deviation 11 of §10).
+- Its refusal check passed: the remote held `a73a7892`, `numbers/tally.json` is in that commit, and
+  that file's sha256 `719602a0…` is the one this file gives.
+- **R-PG-01's run directory** is attempt 1's (`rp1-1`), kept on the macOS laptop where R-PG-01 ran.
+  It was copied to Oracle for this step alone. Its listing digest (sha256 over the sorted
+  `sha256sum` lines of its 8,364 files) is
+  `f57fb7f6e3498782c6bfa05d8387d0dd1a6f311dd0a2c984a7b17d639ddfeaf3` before and after the copy. Its
+  four run files' sha256 equal those R-PG-01's `RESULT.md` gives.
+
+```
+compare_r_pg_01.py --numbers-ref origin/exp/r-pg-01b-numbers
+  --output experiments/R-PG-01b/numbers/tally.json
+  --r-pg-01-run <copy of R-PG-01's run-1>
+  --run I1=~/runs/rpg01b/run-4 --run F1=~/runs/rpg01b/run-3
+  --run I2=~/runs/rpg01b/run-6 --run F2=~/runs/rpg01b/run-5
+  --out <new file>
+```
+
+**R-PG-01's reading**, as its own `tally_rows.py` reads its run directory: A = 0, C = 0, the kill
+reading fires.
+
+**1. Replication, against the same-day noise floor.**
+
+| Side | D_cross | D_same | D_cross − D_same (95 % bootstrap) | Discordant (arm I approved, R-PG-01 not / R-PG-01 approved, arm I not) | Exact p | Reading |
+|---|--:|--:|---|---|--:|---|
+| Injected | 0.0 | 0.0 | 0.0 (0.0 to 0.0) | 0 / 0 | 1.0 | **replicated** |
+| Twins | 4.0 | 6.0 | −2.0 (−5.0 to 1.5) | 6 / 2 | 0.289 | **replicated** |
+
+Arm I approved no injected artefact in either round, as R-PG-01 did. On the twins, arm I differs
+from R-PG-01 on fewer artefacts (4.0 a round) than its own two rounds differ from each other (6),
+and the test finds no systematic shift.
+
+**2. The sheet's share of R-PG-01's advantage:** not computed. The floor of §7 holds (§5), and
+R-PG-01's C is 0, below 1.
+
+**3. The gate across time:** R-PG-01's gate records are byte-identical to each of the four runs'
+(I1, F1, I2, F2). The gate's determinism holds across the two experiments.
+
+**4. D1's sentence.** Arm I's two rounds agree on the kill reading, so row 1 does not hold. R-PG-01's
+reading fires, arm I's fires on its means (Ā = 0.0, C̄ = 0.0), and arm F's fires on its means
+(Ā = 0.5, C̄ = 0.0), so row 2 holds:
+
+> **"The complete sheet did not change the kill reading."**
+
+**The corrected headline (D1), complete:** arm F's kill reading fires, both rounds agree, and the
+complete sheet did not change it. R-PG-01's published reading stands beside it, with its preface.
+
+**The output**, `numbers/comparison.json`, sha256
+`fd94c7f7c738d3e4cb273df33d8347d71d1aa6d8ba87ca80d78bf18a1c016ebb` over the bytes below:
+
+```json
+{
+ "numbers_final": {
+  "commit": "a73a7892110d2b335073ba813f44e6d6b63c7e82",
+  "sha256": "719602a055ebf2fdb40b2af3bcc17563da541ee47d41dba3dbda0f4d5837d832"
+ },
+ "r_pg_01": {
+  "A": 0,
+  "C": 0,
+  "kill": true
+ },
+ "step_1_replication": {
+  "injected": {
+   "D_cross": 0.0,
+   "D_cross_minus_D_same": {
+    "high": 0.0,
+    "low": 0.0,
+    "undefined_draws": 0,
+    "value": 0.0
+   },
+   "D_same": 0.0,
+   "discordant": [
+    0,
+    0
+   ],
+   "exact_p": 1.0,
+   "replicated": true
+  },
+  "twins": {
+   "D_cross": 4.0,
+   "D_cross_minus_D_same": {
+    "high": 1.5,
+    "low": -5.0,
+    "undefined_draws": 0,
+    "value": -2.0
+   },
+   "D_same": 6.0,
+   "discordant": [
+    6,
+    2
+   ],
+   "exact_p": 0.2890625,
+   "replicated": true
+  }
+ },
+ "step_2_share_of_r_pg_01_advantage": null,
+ "step_3_gate_records_identical_to_r_pg_01": {
+  "F1": true,
+  "F2": true,
+  "I1": true,
+  "I2": true
+ },
+ "step_4_D1": {
+  "row": 2,
+  "sentence": "The complete sheet did not change the kill reading."
+ }
+}
+```
