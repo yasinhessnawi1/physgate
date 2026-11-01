@@ -108,7 +108,7 @@ class EndedBySession(FakeDispatcher):
         return self._held.stop_leftovers()
 
     def end_leftovers(self) -> None:
-        self._held.end_leftovers()  # type: ignore[attr-defined]
+        self._held.end_leftovers()
 
 
 def _rig(path: Path, **shown: Any) -> Rig:  # noqa: ANN401 - the fake's own fields
@@ -265,7 +265,7 @@ def test_the_stop_of_a_leftover_writes_no_end_and_its_end_is_written_after(
     (left,) = real.stop_leftovers()
     assert left.session_id == "left-1"
     assert not (sdir / "ended.json").exists(), "the stop ended the leftover"
-    real.end_leftovers()  # type: ignore[attr-defined]
+    real.end_leftovers()
     assert (sdir / "ended.json").exists()
 
 
