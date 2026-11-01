@@ -1808,6 +1808,11 @@ class ClaudeDispatcher:
             pid, started = int(record["pid"]), record.get("started")
             kind: SessionKind = "reviewer" if record.get("kind") == "reviewer" else "session"
             session_id = str(record["session_id"])
+            if kind == "reviewer":
+                # The review's latest spawn, as the log holds it: a repair resume is spawned again
+                # under its id, and its record may still be an earlier spawn's when it is honoured.
+                # Held to the same start-time guard below, so a pid now another's is not signalled.
+                pid, started = _spawns(session_id, events)[-1]
             if is_session(pid, started, session_id):
                 # The group the harness created for it: the proven session leads it.
                 leads = process_group_of(pid) == pid
