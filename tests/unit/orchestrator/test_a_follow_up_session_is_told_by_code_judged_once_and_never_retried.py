@@ -108,7 +108,7 @@ def test_the_follow_up_s_reviewer_is_told_it_reviews_a_follow_up_and_what_was_to
 
 def test_a_follow_up_order_carries_no_item_and_every_other_order_carries_one() -> None:
     try:
-        order = PersonOrder(kind="follow_up", of_attempt=1, instruction="told")  # type: ignore[call-arg]
+        order = PersonOrder(kind="follow_up", of_attempt=1, instruction="told")
     except ValidationError as exc:
         pytest.fail(f"a follow-up's order does not read: {exc}")
     assert json.loads(order.model_dump_json()) == {
@@ -119,7 +119,7 @@ def test_a_follow_up_order_carries_no_item_and_every_other_order_carries_one() -
     with pytest.raises(ValidationError):
         PersonOrder(kind="follow_up", item_id="r1-s1-1", of_attempt=1, instruction="told")
     with pytest.raises(ValidationError):
-        PersonOrder(kind="fix_after_block", of_attempt=1, instruction="told")  # type: ignore[call-arg]
+        PersonOrder(kind="fix_after_block", of_attempt=1, instruction="told")
     kept = PersonOrder(kind="fix_after_block", item_id="r1-s1-1", of_attempt=1, instruction="t")
     assert set(json.loads(kept.model_dump_json())) == {
         "kind",
