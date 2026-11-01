@@ -1,0 +1,43 @@
+{
+ "exit": 0,
+ "first_started_utc": "2026-10-31T11:44:29Z",
+ "l10": "passed",
+ "last_ended_utc": "2026-10-31T11:49:50Z",
+ "sessions": [
+  {
+   "binary_usd": 0.8966568000000001,
+   "binary_version": "2.1.301",
+   "cause": null,
+   "duration_ms": 314929,
+   "ended_as": "verdict",
+   "ended_utc": "2026-10-31T11:49:50Z",
+   "kind": "smoke",
+   "label": "smoke-1",
+   "reads": {
+    "covered_every_line": true,
+    "cut": 0,
+    "error": 0,
+    "missing": false,
+    "no_result": 0,
+    "part": 0,
+    "reads": 1,
+    "unchanged": 0,
+    "whole": 1
+   },
+   "result_line": true,
+   "session_id": "5cffba01-b165-480b-9e7a-ab6d1aab756b",
+   "sheet_sha256": "2efbb6a8ab889ceac54d8ebdba15c8530274d8524c9eaf6181d22abf5ccbef90",
+   "started_utc": "2026-10-31T11:44:29Z",
+   "tokens": {
+    "cache_creation_input_tokens": 131317,
+    "cache_read_input_tokens": 228664,
+    "input_tokens": 8,
+    "output_tokens": 32564
+   },
+   "tokens_total": 392553,
+   "turns": 17
+  }
+ ],
+ "smoke_tokens_max": 392553,
+ "tokens_all_sessions": 392553
+}

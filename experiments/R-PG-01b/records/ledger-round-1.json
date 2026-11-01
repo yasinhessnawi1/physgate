@@ -1,0 +1,29 @@
+{
+ "account": {
+  "label": "run account",
+  "token": "af24827d"
+ },
+ "attempts": 1,
+ "ended_utc": "2026-10-30T04:29:34Z",
+ "l11": {
+  "T": 454435,
+  "carried_in_5h": 80000000,
+  "projected_5h": 54532200
+ },
+ "line": "| R-PG-01b round 1 (attempts 1; slots 1: 4+3) | run account (token sha256 af24827d\u2026) | no weekly gate (\u00a711) | 2026-10-29T13:12:22Z\u20132026-10-30T04:29:34Z | 160 sessions (0 without a result line) | **96,893,460** reviews + 454,435 in 1 non-evaluation smokes (L10) | 605,584 | `result` lines of every session under the round's review roots; L11: T = 454435, 120 \u00d7 T = 54532200 beside 80000000 |",
+ "per_review": 605584,
+ "review_sessions": 160,
+ "review_sessions_without_result": 0,
+ "review_tokens": 96893460,
+ "round": 1,
+ "slots": [
+  {
+   "F": 3,
+   "I": 4
+  }
+ ],
+ "smoke_sessions": 1,
+ "smoke_tokens": 454435,
+ "started_utc": "2026-10-29T13:12:22Z",
+ "valid_attempt": 1
+}
