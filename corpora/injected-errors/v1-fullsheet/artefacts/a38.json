@@ -1,0 +1,258 @@
+{
+ "id": "a38",
+ "error_class": "magnitude",
+ "expected_check": "magnitude",
+ "assigned_role": "control",
+ "description": "Wheel odometry's wheel_diameter is written as 800 mm, with an extra zero; it should be 80 mm (R9.01). An 800 mm wheel is almost seven times the robot's whole 118.2 mm height and cannot be on this chassis. Every computed distance and speed would be ten times too large.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "control.wheel_odometry",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: odometry update rate, twice the balance loop rate",
+      "written_by": "control"
+     },
+     "encoder_counts_per_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "control"
+     },
+     "overall_gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     },
+     "wheel_diameter": {
+      "value": 80,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop",
+     "firmware.encoder_counter"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: balance loop update rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 1.2,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt to normalised motor command",
+      "written_by": "control"
+     },
+     "actuator_stall_torque": {
+      "value": 0.74,
+      "unit": "kgf*cm",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "overall_gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     },
+     "plant_mass": {
+      "value": 365,
+      "unit": "g",
+      "source": "derived: [R11.01] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.main_loop",
+     "firmware.motor_pwm"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.wheel_odometry": "The balance loop uses the latest odometry value at its own rate; its rate, gain and plant parameters are unchanged."
+    }
+   },
+   {
+    "id": "firmware.encoder_counter",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "encoder_counts_per_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "overall_gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.wheel_odometry": "Encoder edges are accumulated in interrupts whatever the odometry rate; counts per revolution and gear ratio are unchanged."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "control.wheel_odometry",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: odometry update rate, twice the balance loop rate",
+      "written_by": "control"
+     },
+     "encoder_counts_per_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "control"
+     },
+     "overall_gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     },
+     "wheel_diameter": {
+      "value": 800,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop",
+     "firmware.encoder_counter"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: balance loop update rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 1.2,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt to normalised motor command",
+      "written_by": "control"
+     },
+     "actuator_stall_torque": {
+      "value": 0.74,
+      "unit": "kgf*cm",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "overall_gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     },
+     "plant_mass": {
+      "value": 365,
+      "unit": "g",
+      "source": "derived: [R11.01] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.main_loop",
+     "firmware.motor_pwm"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.wheel_odometry": "The balance loop uses the latest odometry value at its own rate; its rate, gain and plant parameters are unchanged."
+    }
+   },
+   {
+    "id": "firmware.encoder_counter",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "encoder_counts_per_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "overall_gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.wheel_odometry": "Encoder edges are accumulated in interrupts whatever the odometry rate; counts per revolution and gear ratio are unchanged."
+    }
+   }
+  ]
+ }
+}

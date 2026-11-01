@@ -1,11 +1,12 @@
-"""A corpus is fixed by its manifest, and each artefact holds exactly one error of four classes.
+"""A corpus is fixed by its manifest, and each artefact holds exactly one error of one class.
 
 The measurement counts errors a reviewer approved and the gate then caught, and
 the person who built the gate cannot be the one who chooses them after seeing
 which it catches. So the corpus loads only as committed: a byte changed, a file
 added or a file removed is a different corpus and is refused. Each artefact is
-a clean patch and the same patch with one error, of exactly one of four
-classes; a propagation artefact names its one edge, and ten of them name ten
+a clean patch and the same patch with one error, of exactly one of the four
+classes of risk row 1 (or of the domain-standard class, whose corpus holds it
+alone); a propagation artefact names its one edge, and ten of them name ten
 edges. And nothing a reviewer will be shown may say what the corpus is.
 """
 
@@ -120,8 +121,8 @@ def test_the_manifest_names_a_full_model_string_for_its_author() -> None:
         Manifest(format=1, label="x", author_model="sonnet", files={})
 
 
-@pytest.mark.parametrize("error_class", ["units", "arithmetic", "", "Unit"])
-def test_there_are_exactly_four_classes(error_class: str) -> None:
+@pytest.mark.parametrize("error_class", ["units", "arithmetic", "", "Unit", "standards"])
+def test_a_class_is_one_of_the_named_ones_spelt_exactly(error_class: str) -> None:
     with pytest.raises(ValidationError):
         _artefact(error_class=error_class)
 

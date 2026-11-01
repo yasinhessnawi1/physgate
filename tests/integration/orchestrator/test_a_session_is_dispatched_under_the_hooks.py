@@ -40,7 +40,7 @@ from physgate.orchestrator.invocation import claude_binary  # noqa: E402
 from physgate.orchestrator.managed import system_managed_paths  # noqa: E402
 from physgate.orchestrator.merge import RunGit  # noqa: E402
 from physgate.orchestrator.ports import SessionRequest  # noqa: E402
-from physgate.orchestrator.run_config import RunConfig  # noqa: E402
+from physgate.orchestrator.run_config import RunConfig, write_run_config  # noqa: E402
 from physgate.state.store import Store  # noqa: E402
 
 pytestmark = [
@@ -128,6 +128,10 @@ def dispatch(
     if before is not None:
         before(run)
     cfg = cfg or config()
+    # Recorded as a run records it, where the test has not put its own record there: an
+    # install without the OS layer reads it.
+    if not (run.run_dir / "run.json").exists():
+        write_run_config(run.run_dir / "run.json", cfg)
     with serving(Script(main=steps, answer_as=answer_as)) as (api, url):
         dispatcher = ClaudeDispatcher(
             config=cfg,

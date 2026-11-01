@@ -15,10 +15,15 @@ cell out:
 - a source cell is an address, or ``same URL``, ``same supply URL`` or ``same URL as above``
   for the address of the nearest row above;
 - the retrieval date is one date for the whole sheet, so no row's date is dropped;
-- a line of prose outside the tables is carried as a remark of the sheet or dropped and
-  counted, as the command is told; one that holds a pipe or starts with a row id, or a code
-  fence, is refused, since a row written there would be lost; one that names a row in
-  passing is prose;
+- a line is what a newline ends; a line of prose outside the tables, a line led by a ``#``
+  that is no heading among them, is carried as a remark of the sheet or dropped and counted,
+  as the command is told; one that holds a pipe or starts with a row id, a code fence, or a
+  heading that holds a pipe or a row id, is refused, since a row written there would be
+  lost; one that names a row in passing is prose, carried, and refused rather than dropped,
+  however its row id is written, unless it is named, alone, by its digest;
+- no refusal prints a name it was given or any text of the table but a row's id;
+- a number kept from an earlier sheet is read from the table's cell only where the cell
+  writes it one way;
 - no value, note or remark it writes holds a word that would give the corpus away;
 - a column, a line or a cell it does not know how to carry stops it, and nothing is written.
 
@@ -27,6 +32,7 @@ Running it twice gives the same bytes.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -469,10 +475,375 @@ def test_prose_that_mentions_a_row_in_passing_is_carried(line: str) -> None:
     assert carried["remarks"] == [line]
 
 
-def test_a_code_fence_is_refused_since_a_row_inside_it_is_no_table_row() -> None:
-    fenced = SHEET + f"\n```\n| R1.08 | voltage | 5 | V | {MOTOR} | {DAY} | — |\n```\n"
+@pytest.mark.parametrize(
+    "fence", ["```", "~~~", "  ~~~python"], ids=["backticks", "tildes", "tildes-indented"]
+)
+def test_a_code_fence_is_refused_since_a_row_inside_it_is_no_table_row(fence: str) -> None:
+    fenced = SHEET + f"\n{fence}\n| R1.08 | voltage | 5 | V | {MOTOR} | {DAY} | — |\n{fence}\n"
     with pytest.raises(converter.SheetRefusedError, match="fence"):
         converter.convert(fenced, label=LABEL, prose="carry")
+
+
+#: Lines that hold a row id, however it is written: in code, emphasis or brackets, split by
+#: emphasis or code markers, in a cell of HTML or a comment, after a word, misspelt, in another
+#: case, with a full-width digit, behind a character that prints as nothing or as a blank, or
+#: with an accent on its R.
+ROW_LIKE = [
+    f"`R1.08` voltage 5 V {MOTOR}",
+    f"**R1.08** voltage 5 V {MOTOR}",
+    f"• R1.08 voltage 5 V {MOTOR}",
+    f"[R1.08] voltage 5 V {MOTOR}",
+    f"Row R1.08: voltage 5 V {MOTOR}",
+    "<td>R1.08</td><td>voltage</td><td>5</td>",
+    "<!-- R1.08 voltage 5 V -->",
+    f"_R1.08_ voltage 5 V {MOTOR}",
+    "R1.8 voltage 5 V",
+    "r1.08 voltage 5 V",
+    "R\uff11.08 voltage 5 V",
+    "\u200bR1.08 voltage 5 V",
+    "the row R1\u200b.08 at 5 V",
+    "R1.08\tvoltage\t5\tV",
+    "the part TR1.08 at 5 V",
+    "The pack is R1a.01 in passing.",
+    "The driver's limit is R1.07 above.",
+    "See R1 .08 for the voltage.",
+    "See R1. 08 for the voltage.",
+    "See R 1.08 for the voltage.",
+    "See R1-08 for the voltage.",
+    "See R1,08 for the voltage.",
+    "See R1_08 for the voltage.",
+    "See R1\u00b708 for the voltage.",
+    "See R1\u201308 for the voltage.",
+    "See R1\u00a0.08 for the voltage.",
+    "See R1\u034f.08 for the voltage.",
+    "See R1\ufe0f.08 for the voltage.",
+    "See R1\u3164.08 for the voltage.",
+    "See R1\u0301.08 for the voltage.",
+    "See R1\u20dd.08 for the voltage.",
+    "See R\u0661.\u0660\u0668 for the voltage.",
+    "See row 1.08 for the voltage.",
+    "See Row1.08 for the voltage.",
+    "See \U0001d411\U0001d7cf.08 for the voltage.",
+    "See **R1**.08 for the voltage.",
+    "See R1.**08** for the voltage.",
+    "See `R1`.08 for the voltage.",
+    "See __R1__.08 for the voltage.",
+    "See R\u28001.08 for the voltage.",
+    "See R1\u2800.08 for the voltage.",
+    "See R1\u30fb08 for the voltage.",
+    "See R1\u2e3108 for the voltage.",
+    "See R1\u066b08 for the voltage.",
+    "See \u01541.08 for the voltage.",
+    "See R\u03011.08 for the voltage.",
+    "See R1a-01 for the pack.",
+]
+ROW_LIKE_IDS = [
+    "in-code",
+    "in-emphasis",
+    "after-a-bullet-sign",
+    "in-brackets",
+    "after-a-word",
+    "in-an-html-cell",
+    "in-an-html-comment",
+    "in-underscores",
+    "one-digit-after-the-point",
+    "lower-case",
+    "a-full-width-digit",
+    "behind-a-zero-width-space",
+    "split-by-a-zero-width-space",
+    "tab-separated",
+    "inside-a-word",
+    "a-lettered-row-in-passing",
+    "in-passing",
+    "a-space-before-the-point",
+    "a-space-after-the-point",
+    "a-space-after-the-r",
+    "a-hyphen",
+    "a-comma",
+    "an-underscore",
+    "a-middle-dot",
+    "an-en-dash",
+    "a-no-break-space",
+    "a-combining-grapheme-joiner",
+    "a-variation-selector",
+    "a-hangul-filler",
+    "a-combining-accent",
+    "an-enclosing-mark",
+    "arabic-indic-digits",
+    "the-word-row",
+    "the-word-row-joined",
+    "mathematical-letters",
+    "split-by-emphasis",
+    "split-by-emphasis-after-the-point",
+    "split-by-code",
+    "split-by-underscores",
+    "a-braille-blank-after-the-r",
+    "a-braille-blank-before-the-point",
+    "a-katakana-middle-dot",
+    "a-word-separator-middle-dot",
+    "an-arabic-decimal-separator",
+    "an-r-with-an-accent",
+    "an-r-with-a-combining-accent",
+    "a-lettered-row-id-with-a-hyphen",
+]
+#: Those of them that start with a row id: refused whatever is done with prose.
+ROW_LEADS = frozenset({f"**R1.08** voltage 5 V {MOTOR}", "R1.08\tvoltage\t5\tV"})
+
+
+@pytest.mark.parametrize("line", ROW_LIKE, ids=ROW_LIKE_IDS)
+def test_prose_that_holds_a_row_id_anywhere_is_refused_rather_than_dropped(line: str) -> None:
+    """Dropped, the line would be counted and gone; a row written in it would be lost."""
+    said = r"line \d+: .*row id" + ("" if line in ROW_LEADS else r".*--prose carry")
+    with pytest.raises(converter.SheetRefusedError, match=said):
+        converter.convert(SHEET + f"\n{line}\n", label=LABEL, prose="drop")
+    with pytest.raises(converter.SheetRefusedError, match="row id"):
+        converter.convert(SHEET + f"\n{line}\n", keep=_old(), prose="drop")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Every address read on one day.",
+        "Rated for 1.5 A at 25 °C, per the R1 section.",
+        "Rev 2.1 of the datasheet; see section 4.02.",
+        "Under 2 - 3 V for 1.02 s, per 0.5 A, after 1, 2 tries.",
+        "The arrow 1.02 and the rows 1.02 to 1.05, and R1:02 or R1/02.",
+        "See \u04201.08, the Cyrillic look-alike of a P.",
+    ],
+    ids=[
+        "no-number",
+        "a-number-after-a-word-ending-in-r",
+        "a-version",
+        "spaced-numbers-after-words-ending-in-r",
+        "words-holding-row-and-separators-not-read",
+        "a-cyrillic-er",
+    ],
+)
+def test_prose_that_holds_no_row_id_is_still_dropped_and_counted(line: str) -> None:
+    dropped = json.loads(converter.convert(SHEET + f"\n{line}\n", label=LABEL, prose="drop"))
+    assert "remarks" not in dropped
+    assert converter.read_table(SHEET + f"\n{line}\n").prose == (
+        (len(SHEET.splitlines()) + 2, line),
+    )
+
+
+#: Part names that hold an R, digits, a separator and digits, and are no row id: an R inside a
+#: part number, after a letter, a digit or a hyphen, and a board's revision with a comma and a
+#: space after it. The last three are no row id by one of those alone.
+PART_NAMES = {
+    "an-ultrasonic-sensor": "Distance: HC-SR04, 2-400 cm.",
+    "a-motion-sensor": "PIR: HC-SR501, 3-7 m.",
+    "a-touch-controller": "Touch: MPR121, 12 electrodes.",
+    "a-board-revision": "Arduino Uno R3, 5 V logic.",
+    "a-board-revision-and-its-clock": "Controller: Arduino Uno R3, 16 MHz",
+    "a-function-generator": "Function generator XR2206, 1 Hz to 1 MHz.",
+    "resistor-value-codes": "Use 4R7, 10R and 1k resistors.",
+    "a-shunt-value-code": "Shunt 0R1, 1 %.",
+    "a-sensor-and-its-range": "HC-SR04 \u2013 2 to 400 cm.",
+    "a-range-of-resistor-codes": "Use 4R7\u201310R gate resistors.",
+    "a-hyphenated-part-code": "Fuse holder FH-R5-20, panel mount.",
+}
+
+
+@pytest.mark.parametrize("line", PART_NAMES.values(), ids=PART_NAMES.keys())
+def test_a_part_name_in_prose_is_no_row_id_and_is_dropped_and_counted(line: str) -> None:
+    assert not converter._names_a_row(line)
+    dropped = json.loads(converter.convert(_with(line), label=LABEL, prose="drop"))
+    assert dropped == json.loads(converter.convert(SHEET, label=LABEL))
+    assert converter.read_table(_with(line)).prose == ((len(SHEET.splitlines()) + 2, line),)
+
+
+@pytest.mark.parametrize("line", PART_NAMES.values(), ids=PART_NAMES.keys())
+@pytest.mark.parametrize("prose", [None, "carry", "drop"])
+def test_a_heading_that_names_a_part_is_the_table_s_structure_in_every_mode(
+    line: str, prose: str | None
+) -> None:
+    """A heading is never named to be dropped: one read as holding a row id has no way out."""
+    heading = f"## {line}"
+    assert converter.convert(_with(heading), label=LABEL, prose=prose) == (
+        converter.convert(SHEET, label=LABEL)
+    )
+    assert converter.read_table(_with(heading)).prose == ()
+
+
+#: The lines above that do not start with a row id, after any indent, quote or list marker.
+NOT_LEADING = {
+    i: line for i, line in zip(ROW_LIKE_IDS, ROW_LIKE, strict=True) if line not in ROW_LEADS
+}
+
+
+@pytest.mark.parametrize("line", NOT_LEADING.values(), ids=NOT_LEADING.keys())
+def test_carried_prose_that_holds_a_row_id_is_kept_as_written(line: str) -> None:
+    """Carried, nothing is lost: a line that does not start with a row id is kept, as written."""
+    carried = json.loads(converter.convert(SHEET + f"\n{line}\n", label=LABEL, prose="carry"))
+    assert carried["remarks"] == [line]
+
+
+# --- Dropping, by name, a line of prose that holds a row id ------------------------------------
+#
+# A sheet whose prose is dropped by decision may name, by digest, the lines of it that hold a row
+# id and may go: exactly those, and only while each still is such a line in the table.
+
+#: Two lines of prose that name a row in passing.
+NAMING = ("The driver's limit is R1.07 above.", "See `R1.03` for the supply's range.")
+
+
+def _digest(line: str) -> str:
+    return hashlib.sha256(line.encode("utf-8")).hexdigest()
+
+
+def _with(*lines: str) -> str:
+    return SHEET + "\n" + "".join(f"{line}\n" for line in lines)
+
+
+@pytest.mark.parametrize("keep", [False, True], ids=["from-the-table", "keeping-an-earlier-sheet"])
+def test_a_named_line_of_prose_that_holds_a_row_id_is_dropped_and_nothing_else_changes(
+    keep: bool,  # noqa: FBT001
+) -> None:
+    text = _with("Every address read on one day.", *NAMING)
+    named = [_digest(line) for line in NAMING]
+    if keep:
+        dropped = converter.convert(text, keep=_old(), prose="drop", drop_named=named)
+        assert dropped == converter.convert(SHEET, keep=_old())
+    else:
+        dropped = converter.convert(text, label=LABEL, prose="drop", drop_named=named)
+        assert dropped == converter.convert(SHEET, label=LABEL)
+
+
+def test_a_line_of_prose_that_holds_a_row_id_and_is_not_named_is_still_refused() -> None:
+    with pytest.raises(converter.SheetRefusedError, match=rf"row id.*{_digest(NAMING[1])}"):
+        converter.convert(
+            _with(*NAMING), label=LABEL, prose="drop", drop_named=[_digest(NAMING[0])]
+        )
+
+
+@pytest.mark.parametrize(
+    "named",
+    [
+        "0" * 64,
+        _digest("Every address read on one day."),
+        _digest(NAMING[0].lower()),
+        _digest(NAMING[0] + " "),
+    ],
+    ids=["no-line", "a-line-that-holds-no-row-id", "another-case", "a-trailing-space"],
+)
+def test_a_named_digest_of_no_line_of_prose_that_holds_a_row_id_is_refused(named: str) -> None:
+    """A stale or wrong name never passes: it names no line the drop would otherwise refuse."""
+    text = _with("Every address read on one day.", *NAMING)
+    every = [_digest(line) for line in NAMING]
+    with pytest.raises(converter.SheetRefusedError, match="name 3 of 3 matches no line") as no:
+        converter.convert(text, label=LABEL, prose="drop", drop_named=[*every, named])
+    assert named not in str(no.value)
+
+
+def test_a_line_is_named_by_its_bytes_as_written() -> None:
+    """Spaces after the words are the line's: named without them, it is not that line."""
+    line = NAMING[0] + "  "
+    named = converter.convert(_with(line), label=LABEL, prose="drop", drop_named=[_digest(line)])
+    assert named == converter.convert(SHEET, label=LABEL)
+    with pytest.raises(converter.SheetRefusedError, match="row id"):
+        converter.convert(_with(line), label=LABEL, prose="drop", drop_named=[_digest(NAMING[0])])
+
+
+@pytest.mark.parametrize("prose", [None, "carry"])
+def test_a_line_is_named_for_dropping_only_where_the_prose_is_dropped(prose: str | None) -> None:
+    with pytest.raises(converter.SheetRefusedError, match="--prose drop"):
+        converter.convert(_with(*NAMING), label=LABEL, prose=prose, drop_named=[_digest(NAMING[0])])
+
+
+@pytest.mark.parametrize(
+    "named",
+    ["abc", "g" * 64, "0" * 63, "A" * 64, NAMING[0]],
+    ids=["short", "not-hex", "63", "upper-case", "the-line-itself"],
+)
+def test_a_name_that_is_no_sha256_is_refused_and_not_printed(named: str) -> None:
+    every = [_digest(line) for line in NAMING]
+    with pytest.raises(converter.SheetRefusedError, match="name 3 of 3 .*not 64") as no:
+        converter.convert(_with(*NAMING), label=LABEL, prose="drop", drop_named=[*every, named])
+    assert named not in str(no.value)
+
+
+def test_a_name_that_two_lines_written_alike_share_is_refused() -> None:
+    """A name lets one line go: of two lines written alike, it cannot say which."""
+    twice = _with(NAMING[0], "Every address read on one day.", NAMING[0])
+    with pytest.raises(converter.SheetRefusedError, match="name 1 of 1 matches 2 lines"):
+        converter.convert(twice, label=LABEL, prose="drop", drop_named=[_digest(NAMING[0])])
+
+
+def test_a_name_given_twice_is_refused() -> None:
+    named = [_digest(NAMING[0]), _digest(NAMING[1]), _digest(NAMING[0])]
+    with pytest.raises(converter.SheetRefusedError, match="name 3 of 3 is name 1 given again"):
+        converter.convert(_with(*NAMING), label=LABEL, prose="drop", drop_named=named)
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["R1.08 | voltage | 5 | V", "### R1.08 voltage 5 V", "- R1.08 voltage 5 V"],
+    ids=["a-row-without-its-leading-pipe", "a-heading", "a-row-in-a-list"],
+)
+def test_naming_a_line_never_lets_a_row_or_a_heading_be_dropped(line: str) -> None:
+    with pytest.raises(converter.SheetRefusedError, match=r"line \d+"):
+        converter.convert(_with(line), label=LABEL, prose="drop", drop_named=[_digest(line)])
+
+
+def test_the_command_drops_the_lines_it_is_told_to_by_digest_and_says_how_many(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    table, out = tmp_path / "parts_sheet.md", tmp_path / "sources.json"
+    table.write_text(_with("Every address read on one day.", *NAMING))
+    named = [arg for line in NAMING for arg in ("--drop-prose-line-sha256", _digest(line))]
+    argv = [str(table), str(out), "--label", LABEL, "--prose", "drop", *named]
+    assert converter.main(argv) == 0
+    assert out.read_bytes() == converter.convert(SHEET, label=LABEL)
+    said = capsys.readouterr().out.split()
+    assert said[said.index("prose-dropped") + 1] == "3"
+    assert said[said.index("named-dropped") + 1] == "2"  # lines, each named alone
+    assert converter.main([*argv[:1], str(tmp_path / "x.json"), *argv[2:-2]]) == 1
+    assert "row id" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "### R1.08 | voltage | 5 | V",
+        "## Motor | supply",
+        "## Rows R1.01 to R1.07",
+        "## r1.2: the motor",
+        "### \u200bR1.08",
+        "### `R1`.08 voltage",
+    ],
+    ids=[
+        "a-row-as-a-heading",
+        "a-pipe",
+        "a-row-id",
+        "a-misspelt-row-id",
+        "a-hidden-row-id",
+        "a-row-id-split-by-code",
+    ],
+)
+@pytest.mark.parametrize("prose", [None, "carry", "drop"])
+def test_a_heading_that_holds_a_pipe_or_a_row_id_is_refused(
+    heading: str, prose: str | None
+) -> None:
+    """A heading is never carried, so a row written in one would be lost, counted or not."""
+    with pytest.raises(converter.SheetRefusedError, match=r"line \d+: a heading"):
+        converter.convert(SHEET + f"\n{heading}\n", label=LABEL, prose=prose)
+
+
+def test_a_heading_that_names_a_section_is_still_the_table_s_structure() -> None:
+    sections = SHEET.replace("## R1a: pack", "## R1a: pack, 6 cells (see section 4.2)")
+    assert converter.convert(sections, label=LABEL) != b""
+    assert converter.read_table(sections).prose == ()
+
+
+@pytest.mark.parametrize(
+    "line", ["\u200b", "\ufeff", " \u200d\u2060 "], ids=["zero-width-space", "bom", "joiners"]
+)
+def test_a_line_of_characters_that_print_as_nothing_is_no_prose(line: str) -> None:
+    assert converter.read_table(SHEET + f"\n{line}\n").prose == ()
+    assert "remarks" not in json.loads(
+        converter.convert(SHEET + f"\n{line}\n", label=LABEL, prose="carry")
+    )
 
 
 def test_prose_must_be_carried_or_dropped_by_name() -> None:
@@ -605,6 +976,136 @@ def test_a_kept_number_the_cell_writes_one_way_is_kept(cell: str, unit: str, kep
     assert row["R1.01"]["value"] == kept and row["R1.01"]["given"] == f"{cell} {unit}"
 
 
+@pytest.mark.parametrize(
+    ("cell", "unit", "kept", "said"),
+    [
+        ("1 500", "mA", 500, "thousands"),
+        ("1 500", "mA", 1, "thousands"),
+        ("1 500.5", "mA", 500.5, "thousands"),
+        ("1\u2009500", "mA", 500, "thousands"),
+        ("1\u202f500", "mA", 1, "thousands"),
+        ("1\u00a0500", "mA", 500, "thousands"),
+        ("100 k", "ohm", 100, "prefix"),
+        ("4.7 M", "ohm", 4.7, "prefix"),
+        ("1.5 thousand", "Hz", 1.5, "prefix"),
+        ("2 Million", "Hz", 2, "prefix"),
+        ("2 x 1.5", "V", 2, "product"),
+        ("2 x 1.5", "V", 1.5, "product"),
+        ("2*1.5", "V", 2, "product"),
+        ("3 · 2", "V", 2, "product"),
+        ("1:2", "dimensionless", 1, "ratio"),
+        ("1:2", "dimensionless", 2, "ratio"),
+        ("30:1", "dimensionless", 1, "ratio"),
+        ("about 30:1", "dimensionless", 30, "ratio"),
+        ("30:1, 50:1", "dimensionless", 30, "ratio"),
+        ("30:2", "dimensionless", 30, "ratio"),
+        ("QFN24", "dimensionless", 24, "name"),
+        ("1/2", "A", 2, "fraction"),
+        ("10\u207b\u00b3", "A", 10, "power of ten"),
+        ("1.5 x 10", "Hz", 1.5, "power of ten"),
+        ("10**3", "Hz", 10, "power of ten"),
+        ("1.2.3", "dimensionless", 0.3, "not among"),
+        ("\u201440 to 85", "degC", 40, "dash"),
+        ("4.5\u22125.5", "V", 4.5, "hyphenated"),
+        ("2 mA", "A", 2, "unit"),
+        ("100 kHz", "Hz", 100, "unit"),
+        ("2 min", "s", 2, "unit"),
+    ],
+    ids=[
+        "a-plain-space-thousands-right",
+        "a-plain-space-thousands-left",
+        "a-plain-space-thousands-before-a-fraction",
+        "a-thin-space-thousands",
+        "a-narrow-no-break-space-thousands",
+        "a-no-break-space-thousands",
+        "a-spaced-si-prefix",
+        "a-spaced-capital-si-prefix",
+        "a-word-multiplier",
+        "a-capitalised-word-multiplier",
+        "a-spaced-product-left",
+        "a-spaced-product-right",
+        "a-product-with-a-star",
+        "a-product-with-a-dot",
+        "a-ratio-left",
+        "a-ratio-right",
+        "a-whole-cell-ratio-read-for-its-one",
+        "a-ratio-with-a-word",
+        "two-ratios",
+        "a-whole-cell-ratio-to-another-number",
+        "a-number-after-a-name",
+        "a-fraction-s-denominator",
+        "a-superscript-minus",
+        "times-ten",
+        "a-double-star-power",
+        "a-number-inside-a-dotted-version",
+        "an-em-dash-that-may-be-a-minus",
+        "a-range-with-a-true-minus",
+        "a-spaced-unit-of-another-scale",
+        "a-spaced-prefixed-unit-of-another-scale",
+        "a-spaced-unit-of-the-same-dimension",
+    ],
+)
+def test_a_kept_number_in_a_spelling_that_reads_two_ways_is_refused_with_the_reason(
+    cell: str, unit: str, kept: float, said: str
+) -> None:
+    with pytest.raises(converter.SheetRefusedError, match=rf"R1\.01.*{said}"):
+        converter.convert(_one(cell, unit), keep=_one_old(kept, unit))
+
+
+@pytest.mark.parametrize(
+    ("cell", "unit", "kept"),
+    [
+        ("30:1", "dimensionless", 30),
+        ("30 : 1", "dimensionless", 30),
+        ("3.5:1", "dimensionless", 3.5),
+        ("100 mA", "mA", 100),
+        ("100 m", "m", 100),
+        ("12.5 26 52", "Hz", 26),
+        ("1 5000", "mA", 5000),
+        ("2 typ", "A", 2),
+        ("max 2", "A", 2),
+        ("2 x AA", "dimensionless", 2),
+        ("\u22125", "V", -5),
+        ("\u00b10.5", "V", -0.5),
+        ("10%\u201390%", "%", 90),
+        ("20\u00b0\u201380\u00b0", "degC", 80),
+        ("max: 2", "A", 2),
+        ("3.3: typ", "V", 3.3),
+        ("2 min", "A", 2),
+    ],
+    ids=[
+        "a-whole-cell-ratio-to-one",
+        "a-spaced-whole-cell-ratio-to-one",
+        "a-fractional-whole-cell-ratio-to-one",
+        "a-spaced-unit",
+        "a-spaced-unit-that-is-also-a-prefix",
+        "a-list-written-with-spaces",
+        "a-spaced-group-of-four-digits-is-no-thousands",
+        "a-spaced-word-that-multiplies-nothing",
+        "a-word-ending-in-x-before-it",
+        "a-letter-x-before-no-number",
+        "a-true-minus",
+        "a-plus-or-minus-read-minus",
+        "a-percent-range",
+        "a-degree-range",
+        "a-label-and-a-colon-before-it",
+        "a-colon-after-it-before-a-word",
+        "a-spaced-word-that-reads-as-a-unit-of-another-dimension",
+    ],
+)
+def test_a_kept_number_in_a_spelling_that_reads_one_way_is_kept(
+    cell: str, unit: str, kept: float
+) -> None:
+    row = json.loads(converter.convert(_one(cell, unit), keep=_one_old(kept, unit)))["rows"]
+    assert row["R1.01"]["value"] == kept and row["R1.01"]["given"] == f"{cell} {unit}"
+
+
+def test_a_cell_of_characters_that_print_as_nothing_is_empty() -> None:
+    assert "note" not in _rows(_row(SHEET, "R1.02", 6, "\u200b\ufeff |"))["R1.02"]
+    with pytest.raises(converter.SheetRefusedError, match="no value"):
+        converter.convert(_row(SHEET, "R1.03", 2, "\u200b"), label=LABEL)
+
+
 # --- A kept number keeps its unit's dimension and scale ----------------------------------------
 
 
@@ -673,3 +1174,475 @@ def test_the_additive_check_compares_quantity_address_and_the_sheet_s_own_fields
     change(kept)
     with pytest.raises(converter.SheetRefusedError, match="not the earlier sheet"):
         converter._additive(earlier, kept)
+
+
+# --- No refusal prints a name or the text of the table ------------------------------------------
+#
+# A blind conversion may be scripted by an agent that is never to read the corpus. A refusal
+# names a line by its number (and a line that may be named, by its digest), a row by its id, a
+# telltale by the list's own word, a name by its place among those given, an earlier sheet's
+# key by its place unless it is a row id or a field's name, a file by what it is, an argument
+# by what is wrong with it, and a byte that is not UTF-8 by its offset: never a name, a path or
+# an argument, and never any other text of the table or the earlier sheet.
+
+#: A word no refusal may print: written into what each refusal is about, or passed as a name.
+WORD = "Quokkazanzibar"
+#: A line of prose that names a row, holding the word.
+SAYING = f"The {WORD} limit is R1.07 above."
+#: The arguments that give a sheet converted from the table alone its label.
+LABELLED = ["--label", LABEL]
+
+
+def _keeping(old: str | bytes | None = None, /, **rows: dict[str, Any]) -> list[str]:
+    """Keep ``old``, or ``OLD`` with ``rows`` changed; the test writes it to a file of its own."""
+    earlier = _old(**rows) if old is None else old
+    return ["--keep-values-from", earlier.decode() if isinstance(earlier, bytes) else earlier]
+
+
+#: Each refusal of the converter, as the command is run: the table, and the arguments after the
+#: two paths. The command exits 1.
+REFUSALS: dict[str, tuple[str | bytes, list[str]]] = {
+    "an-unnamed-line-that-holds-a-row-id": (_with(SAYING), [*LABELLED, "--prose", "drop"]),
+    "the-line-passed-as-its-own-name": (
+        _with(SAYING),
+        [*LABELLED, "--prose", "drop", "--drop-prose-line-sha256", SAYING],
+    ),
+    "a-line-with-no-row-id-passed-as-a-name": (
+        _with(SAYING, f"The {WORD} part."),
+        [*LABELLED, "--prose", "drop", "--drop-prose-line-sha256", f"The {WORD} part."],
+    ),
+    "a-stale-name": (
+        _with(SAYING),
+        [
+            *LABELLED,
+            "--prose",
+            "drop",
+            "--drop-prose-line-sha256",
+            _digest(SAYING),
+            "--drop-prose-line-sha256",
+            _digest(SAYING + " "),
+        ],
+    ),
+    "a-name-given-twice": (
+        _with(SAYING),
+        [*LABELLED, "--prose", "drop", *(["--drop-prose-line-sha256", _digest(SAYING)] * 2)],
+    ),
+    "a-name-two-lines-share": (
+        _with(SAYING, SAYING),
+        [*LABELLED, "--prose", "drop", "--drop-prose-line-sha256", _digest(SAYING)],
+    ),
+    "a-name-where-the-prose-is-carried": (
+        _with(SAYING),
+        [*LABELLED, "--prose", "carry", "--drop-prose-line-sha256", _digest(SAYING)],
+    ),
+    "prose-told-nothing": (_with(SAYING), LABELLED),
+    "a-heading-that-holds-a-row-id": (_with(f"## {WORD} R1.08"), [*LABELLED, "--prose", "drop"]),
+    "a-heading-that-holds-a-pipe": (_with(f"## {WORD} | b"), [*LABELLED, "--prose", "drop"]),
+    "a-row-without-its-leading-pipe": (
+        _with(f"R1.08 | {WORD} | 5 | V"),
+        [*LABELLED, "--prose", "drop"],
+    ),
+    "a-line-that-holds-a-pipe": (_with(f"{WORD} | b"), [*LABELLED, "--prose", "carry"]),
+    "a-code-fence": (_with(f"```{WORD}", "```"), [*LABELLED, "--prose", "carry"]),
+    "a-carriage-return-in-a-line": (_with(f"{WORD}\rR1.07"), [*LABELLED, "--prose", "carry"]),
+    "a-carriage-return-at-the-text-s-end": (
+        SHEET + f"\n{SAYING}\r",
+        [*LABELLED, "--prose", "carry"],
+    ),
+    "a-telltale-in-carried-prose": (
+        _with(f"The planted {WORD} part."),
+        [*LABELLED, "--prose", "carry"],
+    ),
+    "a-telltale-in-a-note": (_row(SHEET, "R1.03", 6, f"the {WORD} answer"), LABELLED),
+    "a-table-line-that-is-no-row": (SHEET + f"| {WORD} | b |\n", LABELLED),
+    "a-separator-with-no-header": (
+        "# Parts\n\n|---|---|\n" + HEADER + f"| R1.01 | {WORD} | 1 | A | {MOTOR} | {DAY} | — |\n",
+        LABELLED,
+    ),
+    "a-row-before-any-header": (
+        f"# Parts\n\n| R1.01 | {WORD} | 1 | A | {MOTOR} | {DAY} | — |\n",
+        LABELLED,
+    ),
+    "a-row-with-another-number-of-cells": (_row(SHEET, "R1.03", 6, f"{WORD} | b"), LABELLED),
+    "a-row-written-twice": (
+        SHEET + f"| R1.01 | {WORD} | 1 | A | {MOTOR} | {DAY} | — |\n",
+        LABELLED,
+    ),
+    "a-row-with-no-quantity": (_row(_row(SHEET, "R1.03", 1, "-"), "R1.03", 6, WORD), LABELLED),
+    "a-row-with-no-value": (_row(_row(SHEET, "R1.03", 2, "—"), "R1.03", 6, WORD), LABELLED),
+    "a-source-that-is-no-address": (_row(SHEET, "R1.03", 4, f"the {WORD} datasheet"), LABELLED),
+    "a-second-retrieval-date": (_row(SHEET, "R1.03", 5, WORD), LABELLED),
+    "no-row": (f"# Parts\n\n{WORD} said.\n", [*LABELLED, "--prose", "carry"]),
+    "no-label": (_with(f"The {WORD} part."), ["--prose", "carry"]),
+    "another-label-than-the-earlier-sheet-s": (SHEET, [*_keeping(), "--label", WORD]),
+    "an-earlier-sheet-that-is-no-json": (SHEET, _keeping(f"{WORD} {{")),
+    "an-earlier-sheet-that-writes-a-key-twice": (
+        SHEET,
+        _keeping(f'{{"label": "L", "rows": {{"R1.01": {{"{WORD}": 1, "{WORD}": 2}}}}}}'),
+    ),
+    "an-earlier-sheet-that-already-gives-a-value": (
+        SHEET,
+        _keeping(**{WORD: {**OLD["rows"]["R1.05"], "given": "QFN-24"}}),
+    ),
+    "an-earlier-sheet-that-is-no-parts-sheet": (
+        SHEET,
+        _keeping(**{"R1.03": {**OLD["rows"]["R1.03"], "value": WORD}}),
+    ),
+    "an-earlier-sheet-with-a-row-that-is-no-row-id": (
+        SHEET,
+        _keeping(**{WORD: {**OLD["rows"]["R1.05"]}}),
+    ),
+    "an-earlier-sheet-with-a-field-of-its-own": (SHEET, _keeping(json.dumps({**OLD, WORD: 1}))),
+    "an-earlier-sheet-whose-row-has-a-field-of-its-own": (
+        SHEET,
+        _keeping(**{"R1.05": {**OLD["rows"]["R1.05"], WORD: 1}}),
+    ),
+    "an-earlier-sheet-with-other-rows": (
+        SHEET,
+        _keeping(**{"R2.01": {**OLD["rows"]["R1.05"], "quantity": WORD}}),
+    ),
+    "an-earlier-sheet-in-another-order": (
+        SHEET,
+        _keeping(_reorder(json.dumps({**OLD, "label": WORD}).encode())),
+    ),
+    "another-quantity-than-the-earlier-sheet-s": (_row(SHEET, "R1.03", 1, WORD), _keeping()),
+    "another-address-than-the-earlier-sheet-s": (
+        _row(SHEET, "R1.03", 4, f"{SUPPLY}/{WORD}"),
+        _keeping(),
+    ),
+    "a-kept-number-the-cell-does-not-write": (
+        _row(SHEET, "R1.03", 2, f"2.7–5.5 {WORD}"),
+        _keeping(**{"R1.03": {**OLD["rows"]["R1.03"], "value": 4.0}}),
+    ),
+    "a-unit-of-another-scale-than-the-earlier-sheet-s": (
+        _row(_row(SHEET, "R1.03", 3, "mV"), "R1.03", 6, WORD),
+        _keeping(),
+    ),
+    "a-table-that-is-not-utf-8": (
+        (SHEET + f"\nThe limit is {WORD}").encode() + b"\xff\n",
+        [*LABELLED, "--prose", "carry"],
+    ),
+}
+
+#: Each refusal of the command's arguments: argparse refuses before the command runs, and its
+#: own refusals print the arguments they refuse. The command exits 2.
+ARGUMENT_REFUSALS: dict[str, tuple[str, list[str]]] = {
+    "the-line-split-into-words-after-its-option": (
+        _with(SAYING),
+        [*LABELLED, "--prose", "drop", "--drop-prose-line-sha256", *SAYING.split()],
+    ),
+    "the-line-given-to-prose": (_with(SAYING), [*LABELLED, "--prose", SAYING]),
+    "a-name-that-starts-with-a-dash": (
+        _with(SAYING),
+        [*LABELLED, "--prose", "drop", "--drop-prose-line-sha256", f"-{WORD}"],
+    ),
+    "an-option-it-does-not-know": (_with(SAYING), [*LABELLED, f"--{WORD}", "drop"]),
+}
+
+
+def _exit(argv: list[str]) -> int:
+    """What the command exits with, argparse's refusals (which raise ``SystemExit``) among it."""
+    try:
+        return converter.main(argv)
+    except SystemExit as stopped:
+        return stopped.code if isinstance(stopped.code, int) else -1
+
+
+@pytest.mark.parametrize(
+    ("table", "args", "code"),
+    [
+        *((table, args, 1) for table, args in REFUSALS.values()),
+        *((table, args, 2) for table, args in ARGUMENT_REFUSALS.values()),
+    ],
+    ids=[*REFUSALS, *ARGUMENT_REFUSALS],
+)
+def test_no_refusal_prints_a_name_or_the_text_of_the_table(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    table: str | bytes,
+    args: list[str],
+    code: int,
+) -> None:
+    path, out = tmp_path / "parts_sheet.md", tmp_path / "sources.json"
+    path.write_bytes(table if isinstance(table, bytes) else table.encode("utf-8"))
+    args = list(args)
+    if "--keep-values-from" in args:
+        at = args.index("--keep-values-from") + 1
+        (tmp_path / "old.json").write_text(args[at])
+        args[at] = str(tmp_path / "old.json")
+    assert _exit([str(path), str(out), *args]) == code
+    assert not out.exists()
+    said = capsys.readouterr()
+    printed = (said.out + said.err).casefold()
+    assert "refused" in printed
+    assert WORD.casefold() not in printed
+    if code == 1:
+        named = [args[i + 1] for i, a in enumerate(args) if a == "--drop-prose-line-sha256"]
+        assert not [n for n in named if n.casefold() in printed], "a name given was printed"
+
+
+@pytest.mark.parametrize(
+    "place",
+    ["the-table", "the-earlier-sheet", "the-sheet-to-write", "the-sheet-s-folder"],
+)
+def test_no_refusal_prints_a_path_it_was_given(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], place: str
+) -> None:
+    """A path may be a line of the table too, passed in place of a file."""
+    table, out, old = tmp_path / "parts_sheet.md", tmp_path / "sources.json", tmp_path / "old.json"
+    table.write_text(SHEET)
+    old.write_bytes(_old())
+    missing = tmp_path / f"The {WORD} limit"
+    if place == "the-table":
+        argv = [str(missing), str(out), *LABELLED]
+    elif place == "the-earlier-sheet":
+        argv = [str(table), str(out), "--keep-values-from", str(missing)]
+    elif place == "the-sheet-to-write":
+        missing.write_text("kept")
+        argv = [str(table), str(missing), *LABELLED]
+    else:
+        argv = [str(table), str(missing / "sources.json"), *LABELLED]
+    assert _exit(argv) == 1
+    said = capsys.readouterr()
+    printed = (said.out + said.err).casefold()
+    assert "refused" in printed
+    assert WORD.casefold() not in printed
+    assert not out.exists() and not (missing / "sources.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("old", "said"),
+    [
+        (
+            f'{{"label": "L", "rows": {{"R1.01": {{"quantity": "q", "{WORD}": 1, "{WORD}": 2}}}}}}',
+            r"a key twice in one object, as its keys 2 and 3 of 3",
+        ),
+        (
+            json.dumps({**OLD, "rows": {**OLD["rows"], WORD: {**OLD["rows"]["R1.05"]}}}),
+            r"rows\.<key 9 of 9>\.\[key\]: String should match pattern",
+        ),
+        (
+            json.dumps({**OLD, WORD: 1}),
+            r"not a parts sheet: <key 3 of 3>: Extra inputs",
+        ),
+        (
+            json.dumps(
+                {**OLD, "rows": {**OLD["rows"], "R1.05": {**OLD["rows"]["R1.05"], WORD: 1}}}
+            ),
+            r"rows\.R1\.05\.<key 5 of 5>: Extra inputs",
+        ),
+        (
+            json.dumps(
+                {**OLD, "rows": {**OLD["rows"], WORD: {**OLD["rows"]["R1.05"], "note": "n"}}}
+            ),
+            r"already gives values, notes or remarks, at rows <key 9 of 9>$",
+        ),
+        (
+            json.dumps(
+                {**OLD, "rows": {**OLD["rows"], "R1.03": {**OLD["rows"]["R1.03"], "value": WORD}}}
+            ),
+            r"not a parts sheet: rows\.R1\.03\.value: Input should be a valid number$",
+        ),
+    ],
+    ids=[
+        "a-key-twice",
+        "a-row-keyed-by-no-row-id",
+        "a-field-of-its-own",
+        "a-row-s-field-of-its-own",
+        "a-row-that-already-gives-a-note",
+        "a-value-that-is-no-number",
+    ],
+)
+def test_an_earlier_sheet_s_key_is_named_by_its_place_unless_it_is_a_row_id_or_a_field(
+    old: str, said: str
+) -> None:
+    """A key that is neither may be a line of the table; a row id or a field's name cannot."""
+    with pytest.raises(converter.SheetRefusedError, match=said) as refused:
+        converter.convert(SHEET, keep=old.encode())
+    assert WORD not in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    ("args", "said"),
+    [
+        ([], "the table and the sheet to write are both required"),
+        (["--prose"], "--prose takes a value"),
+        (["--prose", "sideways"], "--prose takes carry or drop"),
+        (["--sideways"], "an argument was not recognised"),
+        (["--label", LABEL, "sideways"], "an argument was not recognised"),
+    ],
+    ids=["a-path-missing", "no-value", "another-value", "an-unknown-option", "a-third-path"],
+)
+def test_arguments_it_cannot_take_are_refused_by_what_is_wrong(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], args: list[str], said: str
+) -> None:
+    paths = [str(tmp_path / "parts_sheet.md")] + ([str(tmp_path / "s.json")] if args else [])
+    assert _exit([*paths, *args]) == 2
+    printed = capsys.readouterr().err
+    assert printed.startswith("usage: ")
+    assert f"refused: {said}; no argument is printed" in printed
+    assert "sideways" not in printed
+
+
+def test_prose_told_neither_carry_nor_drop_is_refused_and_what_it_was_told_is_not_printed() -> None:
+    """The command's parser refuses it first; a script calling the converter may not."""
+    with pytest.raises(converter.SheetRefusedError, match="carry or drop") as refused:
+        converter.convert(_with(SAYING), label=LABEL, prose=SAYING)
+    assert WORD not in str(refused.value)
+
+
+def test_a_sheet_that_would_not_load_is_refused_by_where_and_not_by_what(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The written sheet is held to the parts sheet's schema; the refusal says where it fails."""
+    built = converter._row
+
+    def unloadable(cells: list[str], address: str | None) -> dict[str, object]:
+        row = built(cells, address)
+        return {**row, "quantity": f"the {WORD} current", "unit": None} if row["unit"] else row
+
+    monkeypatch.setattr(converter, "_row", unloadable)
+    with pytest.raises(converter.SheetRefusedError, match=r"would not load.*R1\.01") as refused:
+        converter.convert(SHEET, label=LABEL)
+    assert WORD not in str(refused.value)
+
+
+def test_a_cell_s_unit_is_not_printed_where_it_is_refused(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(converter.SheetRefusedError, match=r"R1\.01.*unit") as refused:
+        converter.convert(_one("2", "kHz"), keep=_one_old(2, "Hz"))
+    assert "kHz" not in str(refused.value)
+
+
+# --- A line is what a newline ends ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "inside",
+    ["\u2028", "\u2029", "\x0c", "\x0b", "\x85", "\x1c"],
+    ids=["line-separator", "paragraph-separator", "form-feed", "vertical-tab", "nel", "fs"],
+)
+def test_a_line_is_named_whole_whatever_other_line_break_it_holds(inside: str) -> None:
+    line = f"The driver's limit is R1.07{inside}above."
+    whole = converter.convert(_with(line), label=LABEL, prose="drop", drop_named=[_digest(line)])
+    assert whole == converter.convert(SHEET, label=LABEL)
+    first = line.split(inside)[0]
+    with pytest.raises(converter.SheetRefusedError, match="row id"):
+        converter.convert(_with(line), label=LABEL, prose="drop", drop_named=[_digest(first)])
+    carried = json.loads(converter.convert(_with(line), label=LABEL, prose="carry"))
+    assert carried["remarks"] == [line]
+
+
+def test_a_row_after_another_line_break_is_no_row_but_a_line_that_holds_a_pipe() -> None:
+    hidden = f"A remark\u2028| R1.08 | voltage | 5 | V | {MOTOR} | {DAY} | — |"
+    with pytest.raises(converter.SheetRefusedError, match="outside the tables holds a pipe"):
+        converter.convert(_with(hidden), label=LABEL, prose="carry")
+
+
+def test_a_table_whose_lines_end_in_a_carriage_return_and_a_newline_reads_as_one_with_newlines(
+    tmp_path: Path,
+) -> None:
+    text = _with("Every address read on one day.", *NAMING)
+    named = [_digest(line) for line in NAMING]
+    crlf = text.replace("\n", "\r\n")
+    for prose in ("carry", "drop"):
+        drop = named if prose == "drop" else []
+        assert converter.convert(crlf, label=LABEL, prose=prose, drop_named=drop) == (
+            converter.convert(text, label=LABEL, prose=prose, drop_named=drop)
+        )
+    table, out = tmp_path / "parts_sheet.md", tmp_path / "sources.json"
+    table.write_bytes(crlf.encode())
+    names = [a for d in named for a in ("--drop-prose-line-sha256", d)]
+    assert converter.main([str(table), str(out), "--label", LABEL, "--prose", "drop", *names]) == 0
+    assert out.read_bytes() == converter.convert(text, label=LABEL, prose="drop", drop_named=named)
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["Every address\rread on one day.", "Every address read on one day.\r\r"],
+    ids=["inside-a-line", "two-before-the-newline"],
+)
+def test_a_carriage_return_that_ends_no_line_is_refused(line: str) -> None:
+    with pytest.raises(converter.SheetRefusedError, match=r"line \d+ holds a carriage return"):
+        converter.convert(_with(line), label=LABEL, prose="carry")
+
+
+@pytest.mark.parametrize(
+    "end", ["Every address read on one day.\r", "\r"], ids=["after-a-line", "alone"]
+)
+def test_a_carriage_return_at_the_text_s_very_end_is_refused(end: str) -> None:
+    """No newline follows it, so it ends no line."""
+    text = SHEET + "\n" + end
+    with pytest.raises(converter.SheetRefusedError, match=r"line \d+ holds a carriage return"):
+        converter.read_table(text)
+    with pytest.raises(converter.SheetRefusedError, match=r"line \d+ holds a carriage return"):
+        converter.convert(text, label=LABEL, prose="carry")
+
+
+def test_the_command_reads_the_table_s_bytes_and_translates_no_line_end(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Read as text with newlines translated, a lone carriage return would end a line."""
+    table, out = tmp_path / "parts_sheet.md", tmp_path / "sources.json"
+    table.write_bytes(_with("Every address\rread on one day.").encode())
+    assert converter.main([str(table), str(out), "--label", LABEL, "--prose", "carry"]) == 1
+    assert "carriage return" in capsys.readouterr().err
+    table.write_bytes(b"\xff" + SHEET.encode())
+    assert converter.main([str(table), str(out), "--label", LABEL]) == 1
+    assert "not UTF-8" in capsys.readouterr().err
+    assert not out.exists()
+
+
+# --- A line led by a # that is no heading is prose ------------------------------------------------
+
+#: Lines led by a ``#`` that CommonMark reads as a paragraph's, not a heading.
+NOT_HEADINGS = [
+    "#tag and a remark",
+    "####### seven of them",
+    "    # four spaces before it",
+    "\t# a tab before it",
+]
+
+
+@pytest.mark.parametrize(
+    "line", NOT_HEADINGS, ids=["no-space", "seven", "indented-four", "a-tab-before-it"]
+)
+def test_a_line_led_by_a_hash_that_is_no_heading_is_prose_carried_or_counted(
+    line: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert converter.read_table(_with(line)).prose == ((len(SHEET.splitlines()) + 2, line),)
+    carried = json.loads(converter.convert(_with(line), label=LABEL, prose="carry"))
+    assert carried["remarks"] == [line]
+    table = tmp_path / "parts_sheet.md"
+    table.write_text(_with(line))
+    argv = [str(table), str(tmp_path / "s.json"), "--label", LABEL, "--prose", "drop"]
+    assert converter.main(argv) == 0
+    assert "prose-dropped 1" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "lead", ["#tag", "#######", "    #", "\t#"], ids=["no-space", "seven", "indented", "a-tab"]
+)
+def test_a_line_led_by_a_hash_that_is_no_heading_and_holds_a_row_id_is_not_dropped_unnamed(
+    lead: str,
+) -> None:
+    line = f"{lead} The driver's limit is R1.07 above."
+    with pytest.raises(converter.SheetRefusedError, match=r"line \d+: a line of prose holds a row"):
+        converter.convert(_with(line), label=LABEL, prose="drop")
+    named = converter.convert(_with(line), label=LABEL, prose="drop", drop_named=[_digest(line)])
+    assert named == converter.convert(SHEET, label=LABEL)
+
+
+@pytest.mark.parametrize(
+    "heading",
+    ["# Parts", "   ### Indented three", "######", "##\tTabbed", "## "],
+    ids=["one", "indented-three", "six-alone", "a-tab", "empty"],
+)
+def test_a_heading_is_the_table_s_structure_and_is_neither_carried_nor_counted(
+    heading: str,
+) -> None:
+    assert converter.read_table(_with(heading)).prose == ()
+    assert "remarks" not in json.loads(
+        converter.convert(_with(heading), label=LABEL, prose="carry")
+    )

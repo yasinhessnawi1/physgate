@@ -2,6 +2,11 @@
 
 The spawner runs this before every session and starts the session with the
 arguments it prints. It never writes into a worktree's own ``.claude/``.
+
+A role session's settings carry the OS layer's sandbox (``--os-layer-temp``). Without it they
+are written only for a run whose recorded configuration (``--run-config``) passes the check
+the run itself is held to: one that allows the layer's absence, and never one that acts on
+queue decisions.
 """
 
 from __future__ import annotations
@@ -85,6 +90,11 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         "layer (Claude Code's sandbox), writing only there, in the worktree and in its home",
     )
     p.add_argument(
+        "--run-config",
+        help="the run's recorded configuration (run.json): a role session's settings without "
+        "the OS layer (no --os-layer-temp) are written only where it allows the layer's absence",
+    )
+    p.add_argument(
         "--os-layer-network",
         choices=["open", "none"],
         default="open",
@@ -106,7 +116,39 @@ def _abs(path: str) -> str:
     return str(Path(path).expanduser().resolve())
 
 
+def _os_layer_refusal(args: argparse.Namespace) -> str | None:
+    """Why a role session's settings may not be written without the sandbox, or ``None``.
+
+    Without ``--os-layer-temp`` the settings carry no sandbox, so the OS layer is absent for
+    that session. They are written only for a run whose recorded configuration passes the
+    check the run itself is held to at its configuration, run and resume.
+    """
+    if args.profile != "role" or args.os_layer_temp:
+        return None
+    # Only here: the hook layer's own modules import nothing of the orchestrator.
+    from physgate.orchestrator.exceptions import RunConfigError  # noqa: PLC0415
+    from physgate.orchestrator.run_config import load_run_config, os_layer_refusal  # noqa: PLC0415
+    from physgate.oslayer.probe import Absent  # noqa: PLC0415
+
+    if args.run_config is None:
+        return (
+            "a role session's settings are written only with the OS layer (--os-layer-temp), or "
+            "for a run whose recorded configuration (--run-config) allows the layer's absence "
+            "(os_layer_absent: allow, for development only)"
+        )
+    try:
+        config = load_run_config(Path(args.run_config))
+    except (RunConfigError, OSError) as exc:
+        return f"the run configuration named cannot be read, so nothing is written: {exc}"
+    absent = Absent(reason="the settings carry no sandbox: no --os-layer-temp was given")
+    return os_layer_refusal(config, absent)
+
+
 def _install(args: argparse.Namespace) -> int:
+    refused = _os_layer_refusal(args)
+    if refused is not None:
+        print(json.dumps({"error": refused}), file=sys.stderr)
+        return 2
     request = InstallRequest(
         profile=args.profile,
         role=args.role,

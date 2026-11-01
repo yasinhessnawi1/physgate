@@ -1,0 +1,12 @@
+{
+ "auth": "subscription",
+ "reviewers": {"control": "claude-sonnet-5", "electrical": "claude-sonnet-5", "firmware": "claude-sonnet-5", "mechanical": "claude-sonnet-5"},
+ "bounds": {"binary_max_retries": 0, "session_wall_clock_s": 4500.0, "session_max_turns": 80, "infra_retry_delays_s": [60.0, 900.0, 2700.0]},
+ "effort": "high",
+ "max_output_tokens": 64000,
+ "token_ceiling": 400000,
+ "lanes": 2,
+ "pause_after_failures": 3,
+ "pause_s": 900.0,
+ "repair_resumes": 1
+}

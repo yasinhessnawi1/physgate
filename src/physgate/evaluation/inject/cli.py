@@ -18,7 +18,8 @@ command prints how many reviews came to each, and exits 1 if any came to neither
 pass nor a fail.
 
 It refuses a corpus that is not complete (ten artefacts of each class, ten distinct
-cross-domain propagation edges), so the measurement never runs on a partial one.
+cross-domain propagation edges; for a corpus of the domain-standard class, that class
+alone), so the measurement never runs on a partial one.
 """
 
 from __future__ import annotations

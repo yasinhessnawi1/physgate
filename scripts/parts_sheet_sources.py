@@ -14,14 +14,40 @@ Row, Quantity, Value, Unit, Source URL, Retrieved and Note. A review is given
   or ``same driver URL as above``, which is the address of the nearest row above it;
 - the Retrieved column must hold one date for every row, because a row has no field for it.
 
-**Lines outside the tables.** A heading is the table's structure and is not carried. A line
-that holds a pipe, or starts with a row id (after any indent, quote or list marker), is
-refused: a row written there, without its leading pipe or inside a quote or a list, would
-otherwise be lost. A code fence is refused, since a table written inside one is no table.
-Every other line is prose, a row id later in it naming a row in passing, and the command is
-told what to do with it by name: ``--prose carry`` writes each line, as written, to the
-sheet's ``remarks``; ``--prose drop`` leaves them out and counts them. A text with prose and
-neither is refused.
+**Lines.** The text is read as lines that a newline (``\n``) ends, a carriage return just
+before the newline being part of the line's end. A carriage return anywhere else is refused,
+one at the text's very end, which no newline follows, among them.
+A vertical tab, a form feed, a file, group or record separator, a next line (U+0085), or a
+Unicode line or paragraph separator ends no line: it is a character of the line it is in.
+
+**Lines outside the tables.** A heading (up to three spaces, one to six ``#``, then a space,
+a tab or the line's end) is the table's structure and is not carried, so one that holds a
+pipe or a row id is refused. A line that holds a pipe, or starts with a row id (after any
+indent, quote or list marker), is refused: a row written there, without its leading pipe or
+inside a quote or a list, would otherwise be lost. A code fence, of backticks or tildes, is
+refused, since a table written inside one is no table. Every other line is prose, a line led
+by a ``#`` that is no heading among them (``#tag``, seven ``#``, four spaces before it), a row
+id later in a line naming a row in passing, and the command is told what to do with it by
+name: ``--prose carry`` writes each line, as written, to the sheet's ``remarks``; ``--prose
+drop`` leaves them out and counts them, and refuses a line that holds a row id anywhere,
+since dropped, a row written there would be gone (what counts as a row id there is said at
+:func:`_names_a_row`). Such a text is carried, or each such line is named to be dropped all
+the same (``--drop-prose-line-sha256``, repeated) by its digest: the sha256 of the line's
+UTF-8 bytes, its line end left out. Each name must match exactly one such line of the table:
+a stale name, a name of a line that needs none, a name given twice, or one that two lines
+written alike share, refuses. Naming changes nothing that is kept. A text with prose and
+neither is refused. A line of whitespace and characters that print as nothing is blank, and
+every cell is read without them around it.
+
+**What a refusal prints.** A line by its number, and a line that may be named by its digest;
+a row by its id; a telltale by the list's own word; a name by its place among the names given;
+a key of the earlier sheet as written where it is a row id or a parts sheet's field, and
+otherwise by its place in its object; a file by what it is (the table, the earlier sheet, the
+sheet to write), never by its path; an argument the command cannot take by what is wrong with
+it, never the argument; a table that is not UTF-8 by the offset of its first byte that is not.
+Never a name, a path or an argument, and never any other text of the table or of the earlier
+sheet but the earlier sheet's numbers and units, so a refusal can be read where the table may
+not be: an argument may be a line of it, passed by mistake, or split into words by the shell.
 
 **What a review is given holds no telltale word.** Every ``given``, ``note`` and remark the
 converter writes is held to the corpus's telltale words, the same list the instrument holds a
@@ -39,11 +65,14 @@ every field of it byte for byte, its label included, and adds only what it lacke
 
 It refuses, naming the row, when the two disagree: another set or order of rows, another
 quantity or address; a kept number that the table's value cell does not write, or writes in
-a way that reads more than one way (inside a thousands separator, with a prefix or a word on
-it, in a power of ten, a fraction or a hyphenated range, or with the other sign); a unit cell
-the gate reads as another dimension or scale than the kept unit (a unit it cannot read passes,
-and is given); an earlier sheet that already gives values, notes or remarks; or one that
-writes any key twice, which plain JSON reading would settle silently by keeping the last.
+a way that reads more than one way (inside a thousands separator, a plain space's included;
+with a prefix or a word on it, or a prefix, a multiplying word or a unit of another scale set
+apart from it; in a power of ten, a product, a ratio, a fraction or a hyphenated range; or with
+the other sign), a whole cell that is a ratio to one, ``30:1``, being read as its first number;
+a unit cell the gate reads as another dimension or scale than the kept unit (a unit it cannot
+read passes, and is given); an earlier sheet that already gives values, notes or remarks; or
+one that writes any key twice, which plain JSON reading would settle silently by keeping the
+last.
 
 A table whose columns are not those seven, a table line that is not a header, separator or
 row, a row with another number of cells, an empty value or quantity, a row id given twice or
@@ -57,25 +86,32 @@ Usage::
         [--prose carry|drop]
     uv run python scripts/parts_sheet_sources.py <parts_sheet.md> <sources.json> \
         --keep-values-from <earlier sources.json> [--prose carry|drop]
+        [--drop-prose-line-sha256 SHA256 ...]
 
 It prints counts only: rows, rows with a number, rows with a given value, rows with neither
-(always 0), notes, followed references and prose lines carried or dropped; when keeping, the
-numbers kept and the rows whose earlier fields changed (always 0).
+(always 0), notes, followed references, prose lines carried or dropped, and the lines dropped
+by name; when keeping, the numbers kept and the rows whose earlier fields changed (always 0).
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
 import sys
+import unicodedata
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
-from physgate.evaluation.inject.corpus import Sources, telltales
+from pydantic import ValidationError
+
+from physgate.evaluation.inject.corpus import SourceRow, Sources, telltales, visible
 from physgate.gate.units import UnitRefusedError, parse
+from physgate.orchestrator.common import first_problem
 
 #: The table's columns, in order, as the authors' sheet heads them (case aside).
 COLUMNS = ("row", "quantity", "value", "unit", "source url", "retrieved", "note")
@@ -92,6 +128,9 @@ _ROW_ID = re.compile(r"R[0-9]+[a-z]?\.[0-9]{2}")
 #: written outside a table. A row id later in a line names a row in passing.
 _ROW_LEAD = re.compile(r"\s*(?:(?:[>*+-]|[0-9]+[.)])\s*)*R[0-9]+[a-z]?\.[0-9]{2}(?![0-9])")
 _FENCE = re.compile(r"\s*(```|~~~)")
+#: A heading, as CommonMark reads one: up to three spaces, one to six ``#``, then a space, a
+#: tab or the line's end. A line led by a ``#`` otherwise is a paragraph's.
+_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
 _NUMBER = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 _WHOLE = re.compile(r"[+-]?[0-9]+")
 _SEPARATOR = re.compile(r"\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?")
@@ -111,6 +150,66 @@ _DASH = "–—"
 _GROUPING = ",.   "
 _LETTERS = re.compile(r"[^\W\d_]+")
 _HYPHEN_AFTER = re.compile(r"\s*[-−]\s*[0-9.]")
+#: What may stand between a row id's two numbers, besides a comma: a point, an underscore, a
+#: middle dot or another dot, an Arabic decimal separator, a hyphen, a dash or a minus.
+_ROW_ID_SEPARATORS = (
+    "._\u00b7\u2022\u2027\u2219\u22c5\u2e31\u3002\u30fb\u066b"
+    "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212"
+)
+#: A comma between a row id's two numbers: a plain or an ideographic one.
+_ROW_ID_COMMAS = ",\u3001"
+#: Emphasis and code markers, which may split a row id (``**R1**.02``), and spaces.
+_MARKERS = "*_`"
+_GAP = rf"[{re.escape(_MARKERS)}\s]*"
+#: A row id however it is written (see :func:`_names_a_row`), in a line read as
+#: :func:`_plain` gives it: ``R`` or ``row`` after no letter, digit or hyphen; digits, an
+#: optional letter, a separator and digits, with markers and spaces between them, and no space
+#: after a comma.
+_ROW_ID_LOOSE = re.compile(
+    rf"(?<![^\W_]|[-\u2010])(?:R|row){_GAP}\d+[A-Z]?{_GAP}"
+    rf"(?:[{re.escape(_ROW_ID_SEPARATORS)}]{_GAP}"
+    rf"|[{_ROW_ID_COMMAS}](?![{re.escape(_MARKERS)}]*\s)[{re.escape(_MARKERS)}]*)\d+",
+    re.IGNORECASE,
+)
+#: A row id written as the table writes one (``R1.08``, ``R1a.01``), read after a letter, a
+#: digit or a hyphen too (``TR1.08``).
+_ROW_ID_WRITTEN = re.compile(r"R\d+[A-Za-z]?\.\d{2}(?!\d)")
+#: A character that prints as a blank but is no space to Unicode: the Braille pattern blank.
+_BLANKS = frozenset("\u2800")
+#: Unicode's Default_Ignorable_Code_Point ranges (DerivedCoreProperties): characters a reader
+#: is shown as nothing, the Hangul fillers and the variation selectors among them.
+_IGNORABLE = (
+    (0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160),
+    (0x17B4, 0x17B5), (0x180B, 0x180F), (0x200B, 0x200F), (0x202A, 0x202E),
+    (0x2060, 0x206F), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8), (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+)  # fmt: skip
+#: A line of prose named to be dropped, by its sha256.
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+#: A plain space between digits whose right-hand group is three digits: ``1 500``.
+_SPACED_LEFT = re.compile(r"[0-9] $")
+_SPACED_RIGHT = re.compile(r" [0-9]{3}(?![0-9])")
+_THREE_DIGITS = re.compile(r"[0-9]{3}(?![0-9])")
+#: An SI prefix, or a letter read as thousands, millions or billions, written on its own.
+_PREFIXES = frozenset("yzafpnuµμmcdhkKMGTPEZYB") | {"da"}
+#: Words that multiply the number they follow.
+_MULTIPLIERS = frozenset(
+    {
+        "hundred", "hundreds", "thousand", "thousands", "million", "millions",
+        "billion", "billions", "trillion", "trillions", "dozen", "dozens", "lakh", "crore",
+        "bn", "mn", "kilo", "mega", "giga", "tera", "milli", "micro", "nano", "pico",
+    }
+)  # fmt: skip
+#: A sign of multiplication with a number on its far side: the number beside it is a factor.
+_TIMES_BEFORE = re.compile(r"[0-9]\s*[xX×*·⋅]\s*$")
+_TIMES_AFTER = re.compile(r"\s*[xX×*·⋅]\s*[0-9]")
+#: A colon with a number on its far side: the number beside it is one side of a ratio. A colon
+#: after a word (``max: 2``) is a label's.
+_RATIO_BEFORE = re.compile(r"[0-9]\s*:\s*$")
+_RATIO_AFTER = re.compile(r"\s*:\s*[0-9]")
+#: A whole cell that is a ratio to one, ``30:1``: the number before the colon is its reading.
+_TO_ONE = re.compile(r"(?P<n>[0-9]+(?:\.[0-9]+)?)\s*:\s*(?P<m>[0-9]+(?:\.[0-9]+)?)")
 
 
 class SheetRefusedError(ValueError):
@@ -135,7 +234,60 @@ def _cells(line: str) -> list[str]:
     inner = line.strip()
     inner = inner.removeprefix("|")
     inner = inner[:-1] if inner.endswith("|") and not inner.endswith("\\|") else inner
-    return [c.strip().replace("\\|", "|") for c in _UNESCAPED_PIPE.split(inner)]
+    return [visible(c).replace("\\|", "|") for c in _UNESCAPED_PIPE.split(inner)]
+
+
+def _unprinted(char: str) -> bool:
+    """Whether ``char`` prints as nothing, or only as a mark on the character before it."""
+    point = ord(char)
+    return unicodedata.category(char) in {"Cf", "Mn", "Me"} or any(
+        low <= point <= high for low, high in _IGNORABLE
+    )
+
+
+def _plain(line: str) -> str:
+    """``line`` as a row id is looked for in: compatibility forms folded, nothing unprinted.
+
+    A character that prints as a blank is read as the space it looks like.
+    """
+    folded = unicodedata.normalize("NFKD", line)
+    return "".join(" " if c in _BLANKS else c for c in folded if not _unprinted(c))
+
+
+def _names_a_row(line: str) -> bool:
+    """Whether ``line`` holds a row id anywhere, however it is written.
+
+    The line is read with its compatibility forms decomposed and folded (NFKD: full-width
+    letters and digits, a no-break space, a mathematical R, and an accented R as an R and its
+    accent, where NFKC would compose them into a letter that is no R), with every character
+    removed that prints as nothing or only as a mark on another: format characters (a
+    zero-width space, a joiner, a byte-order mark), combining marks (an accent, the combining
+    grapheme joiner, the variation selectors) and every other default-ignorable code point
+    (the Hangul fillers), and with a Braille pattern blank read as a space. In that, a row id
+    is, in any case:
+
+    - ``R`` or the word ``row``, after no letter, digit or hyphen, with or without spaces
+      after it; then digits of any script and an optional letter; then one of ``. _``, a
+      middle or other dot (the katakana and the word-separator middle dots among them), an
+      Arabic decimal separator, a hyphen, a dash or a minus, with spaces on either side or
+      none, or a comma with no space after it; then digits. Emphasis and code markers (``*``,
+      ``_``, a backtick) between those parts are read as nothing (``**R1**.02``, ``R1.**02**``);
+    - or, after a letter, a digit or a hyphen too, a row id as the table writes it: ``R``,
+      digits, an optional letter, a point and two digits (``TR1.08``).
+
+    So a part name is no row id: an ``R`` inside a part number (``HC-SR04, 2-400 cm``,
+    ``MPR121, 12``), a resistor's value code (``4R7, 10R``), or a board's revision with a
+    comma and a space after it (``Uno R3, 5 V``). A reference designator before a dash and a
+    number (``R1 - 10 kΩ``), a revision written with a point (``R2.1``) and an amount after
+    the currency sign R (``R 1,500``) still read as row ids.
+
+    Not caught: a letter of another script that looks like R (a Cyrillic ``Р`` is the look-alike
+    of a Latin P, not of R), a separator other than those (``R1:02``, ``R1/02``), none
+    (``R102``, ``R1 02``), a comma with a space after it (``R1, 02``), a letter in place of a
+    digit (``R1.O2``, with the letter O), or an id split by HTML tags (``<b>R</b>1.02``).
+    """
+    plain = _plain(line)
+    return _ROW_ID_LOOSE.search(plain) is not None or _ROW_ID_WRITTEN.search(plain) is not None
 
 
 def _number(cell: str, unit: str) -> float | int | None:
@@ -184,6 +336,25 @@ def _row(cells: list[str], address: str | None) -> dict[str, object]:
     return row
 
 
+def lines(markdown: str) -> list[str]:
+    """``markdown``'s lines: what a newline ends, a carriage return just before it left out.
+
+    Raises:
+        SheetRefusedError: a carriage return stands anywhere else, at the text's very end
+            among them, where no newline follows it; the line is named.
+    """
+    pieces = markdown.split("\n")
+    split = [piece.removesuffix("\r") for piece in pieces[:-1]] + pieces[-1:]
+    for number, line in enumerate(split, start=1):
+        if "\r" in line:
+            msg = (
+                f"line {number} holds a carriage return that ends no line; a line is what a "
+                "newline ends, so write the table's line ends as newlines"
+            )
+            raise SheetRefusedError(msg)
+    return split
+
+
 def read_table(markdown: str) -> Table:
     """The authors' table in ``markdown``, every line accounted for.
 
@@ -196,14 +367,20 @@ def read_table(markdown: str) -> Table:
     dates: set[str] = set()
     address: str | None = None
     headed = False
-    for number, line in enumerate(markdown.splitlines(), start=1):
-        if not line.strip():
+    for number, line in enumerate(lines(markdown), start=1):
+        if not visible(line):
             continue
         if _FENCE.match(line):
             msg = f"line {number}: a code fence; a table written inside one is not read as one"
             raise SheetRefusedError(msg)
         if not line.lstrip().startswith("|"):
-            if line.lstrip().startswith("#"):
+            if _HEADING.match(line):
+                if "|" in line or _names_a_row(line):
+                    msg = (
+                        f"line {number}: a heading holds a pipe or a row id; a heading is never "
+                        "carried, and a row written there would be lost"
+                    )
+                    raise SheetRefusedError(msg)
                 continue
             if "|" in line or _ROW_LEAD.match(line):
                 msg = (
@@ -261,9 +438,28 @@ def _reading(
         after[:1] and after[0] in _GROUPING and after[1:2].isdigit()
     ):
         return (), "written inside a thousands separator"
+    if (_SPACED_LEFT.search(before) and _THREE_DIGITS.match(cell[start:end])) or (
+        _SPACED_RIGHT.match(after)
+    ):
+        return (), "written inside a thousands separator (a plain space)"
     suffix = _LETTERS.match(after)
     if suffix and suffix.group(0) not in units:
         return (), "written with a prefix or a word on it, so it may be another number"
+    apart = _LETTERS.match(after.lstrip())
+    word = apart.group(0) if apart else ""
+    if word and word not in units:
+        if word in _PREFIXES or word.casefold() in _MULTIPLIERS:
+            return (), (
+                "written with a prefix or a word set apart from it, so it may be another number"
+            )
+        # A unit of the row's dimension at another scale (2 mA where the row is in A) names
+        # another number; a word of another dimension (2 min, for a minimum) only qualifies it.
+        if any(_other_quantity(word, unit) == "of another scale" for unit in units):
+            return (), "written with a unit of another scale set apart from it"
+    if _TIMES_BEFORE.search(before) or _TIMES_AFTER.match(after):
+        return (), "written in a product, so it may be another number"
+    if _RATIO_BEFORE.search(before) or _RATIO_AFTER.match(after):
+        return (), "written in a ratio, so it may be another number"
     if before[-1:].isalpha():
         return (), "written inside a name"
     if before.rstrip().endswith("/") or after.lstrip().startswith("/"):
@@ -292,6 +488,10 @@ def _unread(cell: str, number: float, units: tuple[str, ...]) -> str:
     """Why ``cell`` does not write ``number`` one way, or an empty string when it does."""
     if _POWER.search(cell):
         return "in a cell that writes a power of ten"
+    to_one = _TO_ONE.fullmatch(cell)
+    if to_one and float(to_one["m"]) == 1 and float(to_one["n"]) == number:
+        # A ratio to one, the whole cell: its number is the one before the colon.
+        return ""
     why = ""
     for found in _TOKEN.finditer(cell):
         read = float(found.group(0))
@@ -340,8 +540,8 @@ def _kept(
         other = _other_quantity(unit, str(before["unit"]))
         if other:
             msg = (
-                f"row {row_id}: the table's unit {unit!r} is {other} than the earlier "
-                f"sheet's unit {before['unit']!r}"
+                f"row {row_id}: the table's unit cell is {other} than the earlier sheet's "
+                f"unit {before['unit']!r}"
             )
             raise SheetRefusedError(msg)
         if json.dumps(before["value"]) != value or unit != before["unit"]:
@@ -351,13 +551,57 @@ def _kept(
     return row
 
 
+#: The names a parts sheet gives its fields, and a validator's name for a key itself.
+_FIELD_NAMES = frozenset({*Sources.model_fields, *SourceRow.model_fields, "[key]"})
+
+
+def _printable(key: object) -> bool:
+    """Whether a key of the earlier sheet may be printed: a row id, or a parts sheet's field.
+
+    Neither can hold the table's text. Any other key may: an earlier sheet is a file the
+    command is given, and a line of the table may stand in it.
+    """
+    return isinstance(key, str) and (key in _FIELD_NAMES or _ROW_ID.fullmatch(key) is not None)
+
+
+def _key(key: object, keys: Sequence[object]) -> str:
+    """A key of the earlier sheet as a refusal names it: as written, or by its place."""
+    return str(key) if _printable(key) else f"<key {list(keys).index(key) + 1} of {len(keys)}>"
+
+
+def _where(loc: Sequence[int | str], earlier: object) -> str:
+    """Where in the earlier sheet a validator's problem is, each key named as :func:`_key` does.
+
+    A validator's own words for a branch of a type (``float``, ``tuple[…]``) name no place in
+    the sheet and are left out.
+    """
+    parts: list[str] = []
+    node = earlier
+    for part in loc:
+        if isinstance(node, dict) and part in node:
+            parts.append(_key(part, list(node)))
+            node = node[part]
+        elif isinstance(part, int):
+            parts.append(str(part))
+            node = node[part] if isinstance(node, list) and -len(node) <= part < len(node) else None
+        elif _printable(part):
+            parts.append(str(part))
+            node = None
+    return ".".join(parts) or "the sheet"
+
+
 def _once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     """A JSON object whose every key is written once."""
     keys = [k for k, _ in pairs]
-    twice = sorted({k for k in keys if keys.count(k) > 1})
-    if twice:
-        msg = f"the earlier sheet writes {twice} twice in one object"
-        raise SheetRefusedError(msg)
+    for place, key in enumerate(keys, start=1):
+        first = keys.index(key) + 1
+        if first != place:
+            named = key if _printable(key) else "a key"
+            msg = (
+                f"the earlier sheet writes {named} twice in one object, as its keys {first} and "
+                f"{place} of {len(keys)}"
+            )
+            raise SheetRefusedError(msg)
     return dict(pairs)
 
 
@@ -371,19 +615,25 @@ def _earlier(keep: bytes, ids: list[str]) -> dict[str, Any]:
     try:
         earlier: dict[str, Any] = json.loads(keep, object_pairs_hook=_once)
         rows: dict[str, dict[str, Any]] = earlier["rows"]
-        given = sorted(k for k, r in rows.items() if any(f in r for f in ADDED))
+        given = [k for k, r in rows.items() if any(f in r for f in ADDED)]
     except SheetRefusedError:
         raise
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         msg = f"the earlier sheet is not a parts sheet: {exc}"
         raise SheetRefusedError(msg) from exc
-    if given or any(f in earlier for f in SHEET_ADDED):
-        msg = f"the earlier sheet already gives values, notes or remarks, at {given[:5]}"
+    remarked = any(f in earlier for f in SHEET_ADDED)
+    if given or remarked:
+        at = [f"at rows {', '.join(_key(k, list(rows)) for k in given[:5])}"] if given else []
+        msg = "the earlier sheet already gives values, notes or remarks, " + " and ".join(
+            [*at, *(["in its remarks"] if remarked else [])]
+        )
         raise SheetRefusedError(msg)
     try:
         Sources.model_validate_json(keep)
-    except ValueError as exc:
-        msg = f"the earlier sheet is not a parts sheet: {exc}"
+    except ValidationError as exc:
+        problems = exc.errors()
+        where = f": {_where(problems[0]['loc'], earlier)}: {problems[0]['msg']}" if problems else ""
+        msg = f"the earlier sheet is not a parts sheet{where}"
         raise SheetRefusedError(msg) from exc
     if set(rows) != set(ids):
         odd = sorted(set(rows) ^ set(ids))
@@ -403,29 +653,100 @@ def _held_blind(where: str, text: str) -> None:
         raise SheetRefusedError(msg)
 
 
+def prose_line_sha256(line: str) -> str:
+    """The digest a line of prose is named by: the sha256 of its UTF-8 bytes, line end left out.
+
+    ``line`` is one of :func:`lines`: what a newline ends, without the newline or a carriage
+    return just before it.
+    """
+    return hashlib.sha256(line.encode("utf-8")).hexdigest()
+
+
+def _dropped_by_name(table: Table, named: Sequence[str]) -> tuple[int, ...]:
+    """The numbers of the lines of prose dropped by name; refuse what may not be dropped so.
+
+    Dropped, a line that holds a row id would be gone with whatever row it writes, so it is
+    dropped only where its digest is named. Each name must be a sha256, given once, and match
+    exactly one such line of this table: a stale name, from another version of it, a name of
+    a line that needs none, or one that two lines written alike share (a name lets one line
+    go) refuses, so a name never passes silently. Naming changes nothing that is kept.
+
+    No refusal prints a name: one that is not a sha256 may be the line itself, passed in place
+    of its digest. A name is told by its place among those given.
+    """
+    given = len(named)
+    for place, digest in enumerate(named, start=1):
+        if _SHA256.fullmatch(digest) is None:
+            msg = (
+                f"name {place} of {given} (--drop-prose-line-sha256) is not 64 lower-case hex "
+                "digits, a line's sha256; it is not printed, since it may be the line itself"
+            )
+            raise SheetRefusedError(msg)
+    for place, digest in enumerate(named, start=1):
+        first = named.index(digest) + 1
+        if first != place:
+            msg = f"name {place} of {given} is name {first} given again; a name lets one line go"
+            raise SheetRefusedError(msg)
+    holding: dict[str, list[int]] = {}
+    for number, line in table.prose:
+        if _names_a_row(line):
+            holding.setdefault(prose_line_sha256(line), []).append(number)
+    for digest, numbers in holding.items():
+        if digest not in named:
+            msg = (
+                f"line {numbers[0]}: a line of prose holds a row id, and dropped it would be "
+                "gone with whatever row it writes; carry the prose (--prose carry), or name the "
+                f"line to drop it all the same (--drop-prose-line-sha256 {digest})"
+            )
+            raise SheetRefusedError(msg)
+    for place, digest in enumerate(named, start=1):
+        numbers = holding.get(digest, [])
+        if not numbers:
+            msg = (
+                f"name {place} of {given} matches no line of prose of this table that holds "
+                "a row id: a stale name, or one of a line that needs none"
+            )
+            raise SheetRefusedError(msg)
+        if len(numbers) > 1:
+            msg = (
+                f"name {place} of {given} matches {len(numbers)} lines of prose, lines "
+                f"{', '.join(map(str, numbers))}; a name lets one line go, and lines written "
+                "alike cannot be told apart, so carry the prose (--prose carry)"
+            )
+            raise SheetRefusedError(msg)
+    return tuple(sorted(n for numbers in holding.values() for n in numbers))
+
+
 def convert(
     markdown: str,
     *,
     label: str | None = None,
     keep: bytes | None = None,
     prose: str | None = None,
+    drop_named: Collection[str] = (),
 ) -> bytes:
     """The parts sheet the table in ``markdown`` gives, as the bytes of ``sources.json``.
 
     With ``keep``, an earlier sheet's bytes, every field of that sheet is kept as it was and
     the table adds only ``given``, ``note`` and carried ``remarks``; the label is the earlier
     sheet's. ``prose`` says what to do with lines of prose beside the tables: ``carry`` or
-    ``drop``; a text that has some needs it.
+    ``drop``; a text that has some needs it. ``drop_named`` are the digests
+    (:func:`prose_line_sha256`) of the lines of prose that hold a row id and are dropped all
+    the same, with ``drop`` only; each must name exactly one such line of this table, once.
 
     Raises:
         SheetRefusedError: the table holds something the sheet cannot carry whole; it and
             the earlier sheet disagree; prose is there and ``prose`` does not say what to do
-            with it; what would be written holds a telltale word; or no label is given and
-            none is kept.
+            with it; dropped prose holds a row id on a line not named, or a name is not one
+            such line's alone; what would be written holds a telltale word, or would not load
+            as a parts sheet; or no label is given and none is kept.
     """
     table = read_table(markdown)
     if prose is not None and prose not in PROSE:
-        msg = f"prose is carried or dropped, {PROSE}, not {prose!r}"
+        msg = (
+            f"prose is carried or dropped ({' or '.join(PROSE)}); what was given is neither, and "
+            "is not printed, since it may be a line of the table"
+        )
         raise SheetRefusedError(msg)
     if table.prose and prose is None:
         msg = (
@@ -433,6 +754,14 @@ def convert(
             "as the sheet's remarks or drop them, by name (--prose carry or --prose drop)"
         )
         raise SheetRefusedError(msg)
+    if drop_named and prose != "drop":
+        msg = (
+            "lines of prose are named to be dropped (--drop-prose-line-sha256) where the prose "
+            "is not dropped; they are named only with --prose drop"
+        )
+        raise SheetRefusedError(msg)
+    if prose == "drop":
+        _dropped_by_name(table, tuple(drop_named))
     sheet: dict[str, Any] = {"label": label, "rows": table.rows}
     earlier: dict[str, Any] | None = None
     if keep is not None:
@@ -460,7 +789,11 @@ def convert(
     if earlier is not None:
         _additive(earlier, sheet)
     written = (json.dumps(sheet, indent=1, ensure_ascii=False) + "\n").encode()
-    Sources.model_validate_json(written)  # the sheet the corpus loader will read
+    try:
+        Sources.model_validate_json(written)  # the sheet the corpus loader will read
+    except ValidationError as exc:
+        msg = f"the sheet would not load as a parts sheet: {first_problem(exc)}"
+        raise SheetRefusedError(msg) from exc
     return written
 
 
@@ -478,9 +811,59 @@ def _additive(earlier: dict[str, Any], sheet: dict[str, Any]) -> None:
         raise SheetRefusedError(msg)
 
 
+#: The command's options: an argument's refusal may name one, being the command's own word.
+_OPTIONS = ("--label", "--keep-values-from", "--prose", "--drop-prose-line-sha256")
+_OPTION_REFUSED = re.compile(r"argument (--[a-z0-9-]+)(?:/\S+)?: ")
+
+
+def _argument_fault(message: str) -> str:
+    """What is wrong with the arguments, from argparse's message, with no argument in it."""
+    if message.startswith("unrecognized arguments"):
+        return "an argument was not recognised"
+    if message.startswith("the following arguments are required"):
+        return "the table and the sheet to write are both required"
+    option = _OPTION_REFUSED.match(message)
+    if option is not None and option.group(1) in _OPTIONS:
+        name = option.group(1)
+        if name == "--prose" and "invalid choice" in message:
+            return f"--prose takes {' or '.join(PROSE)}"
+        if "expected one argument" in message:
+            return f"{name} takes a value"
+        return f"{name} was given a value it does not take"
+    return "the arguments do not parse"
+
+
+class _Parser(argparse.ArgumentParser):
+    """The command's parser, whose refusal names what is wrong and never an argument.
+
+    argparse's own refusal prints the arguments it refuses ("unrecognized arguments: …",
+    "invalid choice: '…'"), and an argument may be a line of the table: passed in place of its
+    digest, or split into words by the shell where a command substitution is left unquoted.
+    """
+
+    def error(self, message: str) -> NoReturn:
+        """Print the usage, which holds no argument, and the fault; exit 2."""
+        self.print_usage(sys.stderr)
+        self.exit(
+            2,
+            f"refused: {_argument_fault(message)}; no argument is printed, since one may be a "
+            "line of the table\n",
+        )
+
+
+def _refused(why: str) -> int:
+    print(f"refused: {why}", file=sys.stderr)
+    return 1
+
+
+def _cannot(what: str, exc: OSError) -> int:
+    """Refuse a file by what it is: its path is an argument, and is not printed."""
+    return _refused(f"{what} {exc.strerror or type(exc).__name__}; its path is not printed")
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Write the sheet; print counts; 0 when written, 1 when refused."""
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
+    """Write the sheet; print counts; 0 when written, 1 when refused, 2 when the arguments are."""
+    parser = _Parser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("table", type=Path, help="the authors' parts_sheet.md")
     parser.add_argument("out", type=Path, help="the sources.json to write; must not exist")
     parser.add_argument("--label", help="the sheet's label; when keeping, the earlier sheet's")
@@ -494,22 +877,45 @@ def main(argv: list[str] | None = None) -> int:
         choices=PROSE,
         help="carry the prose beside the tables as the sheet's remarks, or drop it",
     )
+    parser.add_argument(
+        "--drop-prose-line-sha256",
+        action="append",
+        default=[],
+        metavar="SHA256",
+        help="with --prose drop: a line of prose that holds a row id and is dropped all the "
+        "same, named by the sha256 of its UTF-8 bytes, its line end left out; repeat for each "
+        "such line",
+    )
     args = parser.parse_args(argv)
+    named: list[str] = args.drop_prose_line_sha256
     out: Path = args.out
     earlier: Path | None = args.keep_values_from
-    keep = earlier.read_bytes() if earlier is not None else None
-    text = args.table.read_text(encoding="utf-8")
     try:
-        written = convert(text, label=args.label, keep=keep, prose=args.prose)
+        keep = earlier.read_bytes() if earlier is not None else None
+    except OSError as exc:
+        return _cannot("the earlier sheet cannot be read:", exc)
+    try:
+        # The bytes as written: no newline is translated, so a line is what a newline ends.
+        raw = args.table.read_bytes()
+    except OSError as exc:
+        return _cannot("the table cannot be read:", exc)
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return _refused(
+            f"the table is not UTF-8 text; its first byte that is not is at offset {exc.start}"
+        )
+    try:
+        written = convert(text, label=args.label, keep=keep, prose=args.prose, drop_named=named)
     except SheetRefusedError as exc:
-        print(f"refused: {exc}", file=sys.stderr)
-        return 1
+        return _refused(str(exc))
     try:
         with out.open("xb") as handle:
             handle.write(written)
     except FileExistsError:
-        print(f"refused: {out} exists, and is never written over", file=sys.stderr)
-        return 1
+        return _refused("the sheet to write exists, and is never written over")
+    except OSError as exc:
+        return _cannot("the sheet cannot be written:", exc)
     table = read_table(text)
     rows = json.loads(written)["rows"].values()
     print(
@@ -521,6 +927,7 @@ def main(argv: list[str] | None = None) -> int:
         f" notes {sum('note' in r for r in rows)}"
         f" references {table.references}"
         + (f" prose-{_DONE[args.prose]} {len(table.prose)}" if table.prose else "")
+        + (f" named-dropped {len(_dropped_by_name(table, named))}" if named else "")
     )
     if keep is not None:
         before = json.loads(keep)["rows"]

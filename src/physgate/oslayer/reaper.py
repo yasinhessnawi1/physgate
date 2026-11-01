@@ -62,10 +62,32 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-#: The shell the command string is written for. Claude Code picks zsh where neither
-#: ``CLAUDE_CODE_SHELL`` nor ``SHELL`` names another, as for a role session (which has no
-#: ``SHELL``); the installer pins it, so a command runs in the shell it did before.
-SHELL = "/bin/zsh"
+#: Off macOS, the shells a command string is run with, in the order they are looked for. The
+#: last is every POSIX system's, taken when no other is found.
+_ELSEWHERE = ("/bin/bash", "/usr/bin/bash", "/bin/sh")
+
+
+def _executable(path: str) -> bool:
+    return os.access(path, os.X_OK)
+
+
+def command_shell(platform: str = sys.platform, usable: Callable[[str], bool] = _executable) -> str:
+    """The shell a command string is written for and run with, on ``platform``.
+
+    On macOS, zsh: Claude Code picks it where neither ``CLAUDE_CODE_SHELL`` nor ``SHELL``
+    names another, as for a role session (which has no ``SHELL``), and the installer pins it,
+    so a command runs in the shell it did before. Elsewhere the reaper is never installed and
+    only runs a command given to it by hand; a Linux host may have no zsh, so it is bash
+    where there is one, else sh.
+    """
+    if platform == "darwin":
+        return "/bin/zsh"
+    return next((shell for shell in _ELSEWHERE[:-1] if usable(shell)), _ELSEWHERE[-1])
+
+
+#: This machine's command shell, chosen once. The installer pins it in a session's
+#: environment, and the dispatcher records it in the session's spawn record.
+SHELL = command_shell()
 #: Where the harness puts the session's Claude Code pid, the canary.
 CANARY_ENV = "PHYSGATE_REAPER_CANARY"
 #: The prefix of every line this program writes on the command's standard error.

@@ -19,7 +19,7 @@ import pytest
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import InstallRequest, install
 from physgate.orchestrator.dispatch import HELD
-from physgate.oslayer import reaper_install
+from physgate.oslayer import reaper, reaper_install
 from physgate.oslayer.reaper import CANARY_ENV, SHELL
 
 
@@ -52,7 +52,7 @@ def test_on_macos_with_the_layer_the_prefix_names_a_readable_reaper(
     done = install(_request(outside_tmp, "/tmp/pg-0123456789ab"), REGISTRY)
     front = Path(done.spawn_env["CLAUDE_CODE_SHELL_PREFIX"])
     assert front == outside_tmp / "outside" / "session" / "reaper" / "reaper"
-    assert done.spawn_env["CLAUDE_CODE_SHELL"] == "/bin/zsh"
+    assert done.spawn_env["CLAUDE_CODE_SHELL"] == SHELL
     assert os.access(front, os.X_OK)
     program = front.with_name("reaper.py")
     assert program.read_bytes() == Path(reaper_install.__file__).with_name("reaper.py").read_bytes()
@@ -88,6 +88,63 @@ def test_without_the_layer_or_off_macos_nothing_is_named(
     done = install(_request(outside_tmp / "b", "/tmp/pg-0123456789ab"), REGISTRY)
     assert "CLAUDE_CODE_SHELL_PREFIX" not in done.spawn_env
     assert not (outside_tmp / "b" / "outside" / "session" / "reaper").exists()
+
+
+@pytest.mark.parametrize(
+    ("platform", "present", "shell"),
+    [
+        ("darwin", set(), "/bin/zsh"),
+        ("darwin", {"/bin/bash", "/bin/sh"}, "/bin/zsh"),
+        ("linux", {"/bin/bash", "/bin/sh", "/bin/zsh"}, "/bin/bash"),
+        ("linux", {"/usr/bin/bash", "/bin/sh"}, "/usr/bin/bash"),
+        ("linux", {"/bin/sh"}, "/bin/sh"),
+        ("linux", set(), "/bin/sh"),
+    ],
+    ids=[
+        "macos",
+        "macos-with-bash",
+        "linux-with-bash-and-zsh",
+        "linux-with-bash-elsewhere",
+        "linux-without-bash",
+        "linux-with-nothing-found",
+    ],
+)
+def test_the_command_shell_is_zsh_on_macos_and_bash_or_sh_elsewhere(
+    platform: str, present: set[str], shell: str
+) -> None:
+    """Never a shell the machine may not have: zsh is macOS's, and Linux hosts may lack it."""
+    assert reaper.command_shell(platform, usable=present.__contains__) == shell
+
+
+def test_this_machine_s_command_shell_is_there_and_runs_a_command() -> None:
+    assert reaper.command_shell() == SHELL
+    done = subprocess.run([SHELL, "-c", 'echo "$0"; exit 7'], capture_output=True, text=True)
+    assert (done.returncode, done.stdout.strip()) == (7, SHELL)
+
+
+@pytest.mark.parametrize(
+    ("platform", "usable", "shell"),
+    [
+        ("darwin", "", "/bin/zsh"),
+        ("linux", "/bin/sh", "/bin/sh"),
+        ("linux", "/bin/bash", "/bin/bash"),
+    ],
+)
+def test_the_reaper_s_own_copy_chooses_its_shell_where_it_runs(
+    tmp_path: Path, platform: str, usable: str, shell: str
+) -> None:
+    """As a session runs it: a copy, alone, under the base interpreter, choosing on import."""
+    copy = tmp_path / "reaper.py"
+    copy.write_bytes(Path(reaper.__file__).read_bytes())
+    script = (
+        f"import os, sys; sys.platform = {platform!r}; "
+        f"os.access = lambda path, mode: path == {usable!r}; "
+        f"sys.path.insert(0, {str(tmp_path)!r}); import reaper; print(reaper.SHELL)"
+    )
+    done = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", script], capture_output=True, text=True, check=True
+    )
+    assert done.stdout.strip() == shell
 
 
 def test_only_macos_is_wanted() -> None:

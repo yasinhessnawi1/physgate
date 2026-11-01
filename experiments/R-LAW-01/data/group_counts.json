@@ -1,0 +1,16 @@
+{
+ "absorbed_by_step_a": 214,
+ "after_b": 427,
+ "after_c": 367,
+ "after_d": 348,
+ "after_d_by_set": {
+  "fresh": 161,
+  "practice": 187
+ },
+ "base_flaws_after_merge": 17,
+ "base_flaws_before_merge": 36,
+ "base_spanning_more_than_one_pair": 8,
+ "largest_base_span": 3,
+ "s1_lines": 258,
+ "wide_merge_s6": 338
+}

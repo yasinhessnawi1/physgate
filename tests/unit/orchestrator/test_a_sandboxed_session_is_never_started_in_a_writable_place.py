@@ -30,8 +30,12 @@ ABSENT = Absent(reason="stand-in: no layer")
 def _attempt(
     monkeypatch: pytest.MonkeyPatch, worktree: Path, run_dir: Path, layer: Present | Absent
 ) -> list[Path]:
-    """Dispatch one attempt in ``worktree``; return the session directories it reached."""
-    config = make_config()
+    """Dispatch one attempt in ``worktree``; return the session directories it reached.
+
+    The run allows the layer's absence, so a session without the layer is not refused for that:
+    what is held here is where its worktree lies.
+    """
+    config = make_config(os_layer_absent="allow")
     started: list[Path] = []
 
     def run_session(  # noqa: ANN401

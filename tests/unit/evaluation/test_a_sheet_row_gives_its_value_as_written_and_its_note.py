@@ -152,3 +152,47 @@ def test_remarks_are_lines_of_words(remarks: list[object]) -> None:
         Sources.model_validate_json(
             json.dumps({"label": "a sheet", "rows": {"R1.01": RANGE}, "remarks": remarks})
         )
+
+
+# --- What the account says of the sheet is what its bytes hold ---------------------------------
+#
+# A packet's account says the sheet gives values as written, notes or remarks exactly when a row
+# or the sheet holds one. A field written as null, or holding only characters that print as
+# nothing, would put the key in the bytes a review reads while the account says nothing of it.
+
+
+@pytest.mark.parametrize(
+    "row",
+    [{**SOURCE_ROWS["R1.01"], "given": None}, {**SOURCE_ROWS["R1.01"], "note": None}],
+    ids=["a-null-given", "a-null-note"],
+)
+def test_an_optional_field_written_as_null_is_refused(row: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError, match="null"):
+        _sheet(**{"R1.01": row})
+
+
+def test_remarks_written_as_null_are_refused() -> None:
+    with pytest.raises(ValidationError, match="null"):
+        Sources.model_validate_json(
+            json.dumps({"label": "a sheet", "rows": {"R1.01": RANGE}, "remarks": None})
+        )
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["​", "﻿", " ​‍\t", "⁠ ‌"],
+    ids=["a-zero-width-space", "a-byte-order-mark", "joiners-and-whitespace", "a-word-joiner"],
+)
+def test_a_field_of_characters_that_print_as_nothing_holds_no_words(text: str) -> None:
+    for row in ({**RANGE, "note": text}, {**RANGE, "given": text}):
+        with pytest.raises(ValidationError):
+            _sheet(**{"R1.01": row})
+    with pytest.raises(ValidationError):
+        Sources.model_validate_json(
+            json.dumps({"label": "a sheet", "rows": {"R1.01": RANGE}, "remarks": [text]})
+        )
+
+
+def test_words_beside_a_zero_width_character_are_still_words() -> None:
+    sheet = _sheet(**{"R1.01": {**RANGE, "note": "​min and max﻿ "}})
+    assert sheet.rows["R1.01"].note == "min and max"

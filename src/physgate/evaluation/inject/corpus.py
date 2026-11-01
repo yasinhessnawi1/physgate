@@ -6,9 +6,11 @@ A corpus is one directory:
   the given design every artefact is a revision of.
 - ``artefacts/<id>.json``: one artefact each. It holds the clean patch and the
   injected patch, both whole node payloads, written over the base as one
-  revision; the error class, exactly one of four; the check expected to catch
-  it; and a description of the error in physics terms. A propagation artefact
-  also names the one edge whose target the change did not reach.
+  revision; the error class, exactly one of risk row 1's four, or the
+  domain-standard class (a number that breaks a rule its domain's standards
+  state), which a corpus holds alone; the check expected to catch it; and a
+  description of the error in physics terms. A propagation artefact also names
+  the one edge whose target the change did not reach.
 - ``sources.json``: the parts sheet the numbers cite, by row id, each row that
   is one number with its unit and the URL it was read from, and, where its authors'
   table gives more, the value as written there and their note, and the remarks they
@@ -44,6 +46,7 @@ import ast
 import hashlib
 import json
 import re
+import unicodedata
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,10 +55,12 @@ from typing import Annotated, Any, Literal, cast
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     StringConstraints,
     ValidationError,
+    field_validator,
     model_validator,
 )
 
@@ -66,9 +71,14 @@ from physgate.orchestrator.protocols import CheckName
 from physgate.state.exceptions import DesignStateError
 from physgate.state.schema import NODE_ID_PATTERN, validate_node
 
+#: An artefact's class: one of the four of risk row 1, or the domain-standard class.
+ErrorClass = Literal["unit", "magnitude", "equilibrium", "propagation", "standard"]
 #: The four error classes of risk row 1, fixed in advance.
-ErrorClass = Literal["unit", "magnitude", "equilibrium", "propagation"]
 ERROR_CLASSES: tuple[ErrorClass, ...] = ("unit", "magnitude", "equilibrium", "propagation")
+#: The domain-standard class: a number that breaks a rule its domain's standards file states (a
+#: rating exceeded, a derating not applied, a margin below the standard's minimum, a timing or
+#: rate budget overrun). It is not one of risk row 1's four, and a corpus of it holds it alone.
+STANDARD: Literal["standard"] = "standard"
 #: Artefacts per class in a complete corpus.
 PER_CLASS = 10
 
@@ -388,8 +398,46 @@ class Manifest(_Frozen):
 RowId = Annotated[str, StringConstraints(pattern=rf"^{_ROW}$")]
 
 
-#: Words, read without the whitespace around them, so a cell of spaces is no value.
-_Words = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+def visible(text: str) -> str:
+    """``text`` without the whitespace, or the characters that print as nothing, around it.
+
+    A zero-width space, a joiner, a byte-order mark: format characters (Unicode category Cf),
+    which no reader sees. A field of them and whitespace holds no words.
+    """
+    start, end = 0, len(text)
+    while start < end and _unseen(text[start]):
+        start += 1
+    while end > start and _unseen(text[end - 1]):
+        end -= 1
+    return text[start:end]
+
+
+def _unseen(char: str) -> bool:
+    return char.isspace() or unicodedata.category(char) == "Cf"
+
+
+def _visible_words(value: object) -> object:
+    return visible(value) if isinstance(value, str) else value
+
+
+#: Words, read without the whitespace or the characters that print as nothing around them, so a
+#: cell of spaces, or of zero-width characters, is no value.
+_Words = Annotated[
+    str, BeforeValidator(_visible_words), StringConstraints(strip_whitespace=True, min_length=1)
+]
+
+
+def _left_out_not_null(value: object) -> object:
+    """Refuse an optional field written as null: a sheet without it leaves the key out.
+
+    Run only on a field the bytes hold, never on its default. The account a review is given
+    names these fields exactly where the sheet holds one, and a null key in the bytes would be
+    a field the account does not name.
+    """
+    if value is None:
+        msg = "written as null; a sheet without the field leaves the key out"
+        raise ValueError(msg)
+    return value
 
 
 class SourceRow(_Frozen):
@@ -411,6 +459,8 @@ class SourceRow(_Frozen):
     given: _Words | None = None
     note: _Words | None = None
 
+    _given_and_note_left_out = field_validator("given", "note")(_left_out_not_null)
+
     @model_validator(mode="after")
     def _a_number_has_its_unit(self) -> SourceRow:
         if (self.value is None) != (self.unit is None):
@@ -426,6 +476,8 @@ class Sources(_Frozen):
     rows: dict[RowId, SourceRow]
     #: Lines the authors wrote beside the sheet's tables, each as they wrote it.
     remarks: Annotated[tuple[_Words, ...], Field(min_length=1)] | None = None
+
+    _remarks_left_out = field_validator("remarks")(_left_out_not_null)
 
     @model_validator(mode="after")
     def _no_row_is_empty_once_values_are_given(self) -> Sources:
@@ -712,14 +764,30 @@ def require_complete(corpus: Corpus, per_class: int = PER_CLASS) -> None:
     one (ARCH-080, row 7), so each propagation artefact's edge joins two nodes of
     different domains.
 
+    A corpus of the domain-standard class is complete with ``per_class`` artefacts of
+    that class and no other; none of them names an edge. A corpus with no artefact of
+    that class is held to the four classes' rule, as it was before the class existed.
+    One that mixes the class with the four is refused: neither rule counts it.
+
     Raises:
         CorpusError: ``per_class`` is not positive; a class has another count; two
             propagation artefacts name the same edge, so the errors would be fewer
-            than they read; or an edge stays within one domain.
+            than they read; an edge stays within one domain; or the domain-standard
+            class is mixed with the four, or is not ``per_class`` strong.
     """
     if per_class < 1:
         msg = "a complete corpus has at least one artefact of each class"
         raise CorpusError(msg, per_class=str(per_class))
+    standard = sum(a.error_class == STANDARD for a in corpus.artefacts)
+    if standard:
+        others = len(corpus.artefacts) - standard
+        if others:
+            msg = "a corpus of the standard class holds that class alone"
+            raise CorpusError(msg, standard=str(standard), others=str(others))
+        if standard != per_class:
+            msg = f"a complete corpus has {per_class} artefacts of the standard class"
+            raise CorpusError(msg, standard=str(standard))
+        return
     counts = {c: sum(a.error_class == c for a in corpus.artefacts) for c in ERROR_CLASSES}
     if any(n != per_class for n in counts.values()):
         msg = f"a complete corpus has {per_class} artefacts of each class"

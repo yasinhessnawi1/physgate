@@ -7,6 +7,10 @@ off now, so the layer keeps an offline session from them; this record says what 
 listening for it to keep the session from, so a run on a machine full of local services
 is visibly that. A listing that cannot be read is ``None``, never an empty tuple: "nothing
 listens" is concluded only from a listing that was read.
+
+macOS is read with ``netstat``, Linux with ``ss``. A Linux host without a working ``ss`` (a
+minimal image carries none) is read from the kernel's own listing, ``/proc/net/tcp`` and
+``tcp6``, which every Linux kernel with a ``/proc`` has.
 """
 
 from __future__ import annotations
@@ -14,12 +18,17 @@ from __future__ import annotations
 import ipaddress
 import subprocess
 import sys
+from pathlib import Path
 
 #: How long the listing program has to answer.
 LISTING_TIMEOUT_S = 10.0
 
 _ANY = frozenset({"*", "0.0.0.0", "::", "[::]"})  # noqa: S104 - parsed, never bound
 _SEARCH_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
+#: Where a Linux kernel lists its TCP sockets.
+PROC_NET = Path("/proc/net")
+#: A socket's state in the kernel's listing: ``0A`` is listening.
+_LISTEN = "0A"
 
 
 def _reachable_at_loopback(host: str) -> bool:
@@ -61,18 +70,57 @@ def parse_ss(text: str) -> tuple[int, ...]:
     return _ports(pairs)
 
 
-def loopback_listeners(system: str | None = None) -> tuple[int, ...] | None:
-    """The TCP ports listening where loopback reaches them, or ``None`` if not read.
+def _address(hexed: str, byteorder: str) -> str:
+    """An address as the kernel's listing writes it: each 32-bit word in the host's order.
 
-    ``system`` is ``sys.platform`` unless given. Other platforms are not read.
+    Raises:
+        ValueError: not the hexadecimal of an IPv4 or IPv6 address.
     """
-    system = system or sys.platform
-    if system == "darwin":
-        argv, parse = ["netstat", "-an", "-p", "tcp"], parse_netstat
-    elif system.startswith("linux"):
-        argv, parse = ["ss", "-Hltn"], parse_ss
-    else:
+    raw = bytes.fromhex(hexed)
+    words = [raw[i : i + 4] for i in range(0, len(raw), 4)]
+    if byteorder == "little":
+        words = [word[::-1] for word in words]
+    address = ipaddress.ip_address(b"".join(words))
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return str(address.ipv4_mapped)
+    return str(address)
+
+
+def parse_proc_net(text: str, *, byteorder: str) -> tuple[int, ...]:
+    """The ports in a ``/proc/net/tcp`` or ``tcp6`` listing that listen where loopback reaches.
+
+    Raises:
+        ValueError: a listening line whose address or port cannot be read.
+    """
+    pairs = []
+    for line in text.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) < 4 or parts[3] != _LISTEN:  # noqa: PLR2004 - the state is the fourth
+            continue
+        hexed, _, port = parts[1].partition(":")
+        pairs.append((_address(hexed, byteorder), str(int(port, 16))))
+    return _ports(pairs)
+
+
+def _kernel_listing() -> tuple[int, ...] | None:
+    """The kernel's listing, IPv4 and IPv6, or ``None`` unless every part there was read.
+
+    No IPv6 listing (a kernel without IPv6) leaves the IPv4 one whole; one that is there and
+    cannot be read leaves the listing unread.
+    """
+    try:
+        found = parse_proc_net((PROC_NET / "tcp").read_text(), byteorder=sys.byteorder)
+        try:
+            six = (PROC_NET / "tcp6").read_text()
+        except FileNotFoundError:
+            return found
+        return tuple(sorted({*found, *parse_proc_net(six, byteorder=sys.byteorder)}))
+    except (OSError, ValueError):
         return None
+
+
+def _listed(argv: list[str]) -> str | None:
+    """What the listing program printed, or ``None`` if it did not run or failed."""
     try:
         done = subprocess.run(
             argv,
@@ -84,6 +132,19 @@ def loopback_listeners(system: str | None = None) -> tuple[int, ...] | None:
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    if done.returncode != 0:
-        return None
-    return parse(done.stdout)
+    return done.stdout if done.returncode == 0 else None
+
+
+def loopback_listeners(system: str | None = None) -> tuple[int, ...] | None:
+    """The TCP ports listening where loopback reaches them, or ``None`` if not read.
+
+    ``system`` is ``sys.platform`` unless given. Other platforms are not read.
+    """
+    system = system or sys.platform
+    if system == "darwin":
+        listed = _listed(["netstat", "-an", "-p", "tcp"])
+        return parse_netstat(listed) if listed is not None else None
+    if system.startswith("linux"):
+        listed = _listed(["ss", "-Hltn"])
+        return parse_ss(listed) if listed is not None else _kernel_listing()
+    return None

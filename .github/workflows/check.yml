@@ -54,8 +54,9 @@ jobs:
         run: uv sync --frozen
 
       - name: Install zsh
-        # The reaper's tests run the shell Claude Code uses for a role session
-        # (/bin/zsh), which the runner image does not carry.
+        # The splitter's tests read each word as every installed shell does, zsh
+        # among them, which the runner image does not carry. The reaper's tests no
+        # longer need it: off macOS its command shell is bash, or sh.
         run: sudo apt-get install -y --no-install-recommends zsh
 
       - name: Install Node

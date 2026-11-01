@@ -42,7 +42,7 @@ from physgate.orchestrator.install import prepare_install
 from physgate.orchestrator.invocation import claude_binary
 from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.ports import SessionRequest
-from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.run_config import RunConfig, write_run_config
 from physgate.state.schema import Node
 from physgate.state.store import Store
 
@@ -286,6 +286,8 @@ def test_where_no_contract_was_issued_the_installer_gets_the_reading_it_always_g
 ) -> None:
     run, issued = _no_contract_layout(tmp_path)
     cfg = config()
+    # Installed without the OS layer, as the run's recorded configuration allows.
+    write_run_config(run.run_dir / "run.json", cfg)
     worktree = run.open_subtask("s1")
     seen: list[list[str]] = []
     real_run = subprocess.run

@@ -24,10 +24,11 @@ from physgate.hooks.token_ceiling import measure, session_start
 from physgate.knowledge import loader
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
+from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.git import commit_all
 from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.ports import SessionRequest
-from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.run_config import RunConfig, write_run_config
 from physgate.state.store import Store
 
 pytestmark = pytest.mark.integration
@@ -85,6 +86,8 @@ class _Input:
 def test_the_installed_session_config_carries_loaders_full_reading_set(tmp_path: Path) -> None:
     run, store_root = _layout(tmp_path)
     cfg = config()
+    # Installed without the OS layer, as the run's recorded configuration allows.
+    write_run_config(run.run_dir / "run.json", cfg)
     dispatcher = ClaudeDispatcher(
         config=cfg,
         run=run,
@@ -120,6 +123,32 @@ def test_the_installed_session_config_carries_loaders_full_reading_set(tmp_path:
     assert set(outstanding(written, hook_input)) == expected_reading
 
 
+def test_an_install_without_the_layer_for_a_run_that_does_not_allow_it_is_refused(
+    tmp_path: Path,
+) -> None:
+    """The real installer, named the run's configuration, holds it to the run's own check."""
+    run, store_root = _layout(tmp_path)
+    cfg = config().model_copy(update={"os_layer_absent": "refuse"})
+    write_run_config(run.run_dir / "run.json", cfg)
+    dispatcher = ClaudeDispatcher(
+        config=cfg,
+        run=run,
+        store_root=store_root,
+        install_bin=_dev_physgate_binary(),
+        binary="unused-by-install",
+        base_url=None,
+        credential=Credential("api_key", "sk-ant-test-dummy"),
+        review_root=Path("/nonexistent/review-scratch"),
+    )
+    request = _request(cfg)
+    worktree = run.open_subtask(request.subtask_id)
+    sdir = run.run_dir / "sessions" / "probe-refused"
+    with pytest.raises(InvocationError, match="installer refused") as refused:
+        dispatcher._install(request, worktree, sdir, None)  # noqa: SLF001 - the thing under test
+    assert "runs only inside the OS layer" in refused.value.context["stderr"]
+    assert not (sdir / "session").exists()
+
+
 def test_a_role_whose_always_loaded_set_is_over_the_ceiling_fails_a_session_start_naming_the_file(
     tmp_path: Path,
 ) -> None:
@@ -141,6 +170,7 @@ def test_a_role_whose_always_loaded_set_is_over_the_ceiling_fails_a_session_star
     Store(store_root).close()
 
     cfg = config().model_copy(update={"token_ceiling": 1000})  # far below the 5000-byte skill file
+    write_run_config(run.run_dir / "run.json", cfg)
     dispatcher = ClaudeDispatcher(
         config=cfg,
         run=run,
