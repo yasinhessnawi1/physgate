@@ -61,6 +61,7 @@ from physgate.reviewers.packet import (
     WORKTREE_NAME,
     PacketError,
     Part,
+    cut_lines,
     file_listing,
     split_parts,
 )
@@ -198,7 +199,7 @@ def _write_parts(read: Path, parts: list[tuple[str, bytes]]) -> tuple[PlanPart, 
 
 def _cut(text: str) -> str:
     """``text`` with every line cut to what one read shows (``transcript.cut_line``)."""
-    return "\n".join(piece for line in text.split("\n") for piece in cut_line(line))
+    return cut_lines(text.encode("utf-8")).decode("utf-8")
 
 
 def _held(under: PlanUnderReview) -> tuple[bytes, str, tuple[str, ...]]:

@@ -40,6 +40,31 @@ def _full_model_string(value: str) -> str:
 
 ModelString = Annotated[str, AfterValidator(_full_model_string)]
 
+#: What names one model in several ways: a provider's region and vendor prefix.
+_PROVIDER_PREFIX = re.compile(r"^(?:[a-z]+\.)?anthropic\.")
+#: And at the end: the long-context variant, a provider's version suffix, a release date.
+_SPELLING_SUFFIX = re.compile(r"(?:\[1m\]|-v[0-9]+:[0-9]+|[-@][0-9]{8})$")
+
+
+def model_named(name: str) -> str:
+    """The model ``name`` names, with every spelling of the same model taken off.
+
+    ``us.anthropic.claude-opus-5-5-20261001-v1:0``, ``claude-opus-5-5@20261001`` and
+    ``claude-opus-5-5[1m]`` all name ``claude-opus-5-5``.
+    """
+    named = _PROVIDER_PREFIX.sub("", name)
+    while (shorter := _SPELLING_SUFFIX.sub("", named)) != named:
+        named = shorter
+    return named
+
+
+#: A role as the register names one, and a subtask id as the harness writes one (a plan's module
+#: name, or an id minted from a name); each held to its pattern and to
+#: :data:`PLANNED_ID_MAX_LENGTH` where the log is replayed and where it is rendered.
+ROLE_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
+SUBTASK_PATTERN = re.compile(r"[a-z][a-z0-9_-]*")
+PLANNED_ID_MAX_LENGTH = 64
+
 
 def first_problem(exc: ValidationError) -> str:
     """The first thing wrong with a record, as a sentence rather than a report."""

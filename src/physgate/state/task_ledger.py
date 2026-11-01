@@ -121,11 +121,16 @@ class TaskLine(BaseModel):
     #: The failed contract's item a person's choice on which reopened the merged subtask; left
     #: out when absent, as above.
     reopened_by: NonEmptyStr | None = None
+    #: A follow-up's own gate and review results, once it ended without a merge: the line's
+    #: own results and merge are the standing merge's again. Left out when absent, as above.
+    follow_up_gate_result: Outcome | None = None
+    follow_up_review_result: Outcome | None = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_decision(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for name in ("person_decision", "queue_item", "reopened_by"):
+        absent = ("person_decision", "queue_item", "reopened_by")
+        for name in (*absent, "follow_up_gate_result", "follow_up_review_result"):
             if data.get(name) is None:
                 data.pop(name, None)
         return data

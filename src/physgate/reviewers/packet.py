@@ -109,7 +109,7 @@ from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.places import READ_DIRNAME
 from physgate.reviewers.rubric import Rubric
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError, scan
-from physgate.reviewers.transcript import render
+from physgate.reviewers.transcript import cut_line, render
 from physgate.series.exceptions import SeriesError
 from physgate.series.summary import SERIES_PART, listing
 
@@ -762,7 +762,9 @@ def build_packet(
         if _digest(issued) != spec.sha256:
             msg = "the issued specification is not the one recorded before dispatch"
             raise PacketError(msg, path=spec.path, recorded=spec.sha256, found=_digest(issued))
-        (read / SPEC_AS_ISSUED_NAME).write_bytes(issued)
+        # Every line cut to what one read shows, as the plan's brief is: the Read tool would
+        # truncate a longer one, and one longer than a part could not be issued at all.
+        (read / SPEC_AS_ISSUED_NAME).write_bytes(cut_lines(issued))
         issued_digest = spec.sha256
         reading.append(read / SPEC_AS_ISSUED_NAME)
     state_digest = None
@@ -844,6 +846,20 @@ def _series_listing(artefact: Artefact) -> bytes | None:
         raise PacketError(str(exc), **exc.context) from None
 
 
+def cut_lines(data: bytes) -> bytes:
+    """``data`` with every line cut to what one read shows (``transcript.cut_line``).
+
+    Raises:
+        PacketError: ``data`` is not UTF-8 text, so no line of it can be cut.
+    """
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        msg = "the issued specification is not UTF-8 text, so its lines cannot be cut"
+        raise PacketError(msg, bytes=str(len(data))) from None
+    return "\n".join(piece for line in text.split("\n") for piece in cut_line(line)).encode()
+
+
 def joined_parts(read: Path, parts: tuple[Part, ...]) -> bytes:
     """The parts as written under ``read``, joined in their order."""
     return b"".join((Path(read) / part.name).read_bytes() for part in parts)
@@ -897,10 +913,31 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
     _check_series_parts(packet, artefact, read)
     _check_person_order(packet, artefact, read)
     _check_integration_state(packet, artefact, read)
+    _check_copies(packet, artefact, read, Path(repo))
     # The listing names every file under ``read/`` as it stands now, and nothing else.
     if joined["listing"] != file_listing(read, {part.name for part in packet.files_parts}):
         msg = "the listing's parts joined are not the files under the read directory"
         raise PacketError(msg, read=str(read))
+
+
+def _check_copies(packet: Packet, artefact: Artefact, read: Path, repo: Path) -> None:
+    """Hold the rubric and every library copy to their digests, and the specification to its cut.
+
+    The listing records sizes only, so a same-size edit after the build is caught here.
+    """
+    held = {read / RUBRIC_NAME: packet.rubric_sha256} | {
+        read / KNOWLEDGE_NAME / Path(name).relative_to(loader.DEFAULT_ROOT): digest
+        for name, digest in packet.knowledge_sha256.items()
+    }
+    spec = artefact.issued_spec
+    if spec is not None:
+        blob = _git_bytes(_git_dir(repo), "cat-file", "blob", f"{spec.commit}:{spec.path}")
+        held[read / SPEC_AS_ISSUED_NAME] = _digest(cut_lines(blob))
+    for path, digest in held.items():
+        body = path.read_bytes() if path.is_file() else None
+        if body is None or _digest(body) != digest:
+            msg = "a copy is missing or is not what was issued"
+            raise PacketError(msg, copy=str(path.relative_to(read)))
 
 
 def _check_series_parts(packet: Packet, artefact: Artefact, read: Path) -> None:

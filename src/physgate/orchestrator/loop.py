@@ -147,6 +147,7 @@ from physgate.orchestrator.ports import (
     SessionRequest,
 )
 from physgate.orchestrator.protocols import (
+    REJECTING_RESULTS,
     Artefact,
     AttemptScope,
     Gate,
@@ -305,6 +306,27 @@ LEFTOVER_HALTS: tuple[IncidentCause, ...] = (
     "review_material_read",
     "stream_quarantined",
 )
+
+
+def _follow_up_end(now: AttemptState | None) -> str:
+    """How a module's follow-up ended, in the record's structured fields; ``now`` is its attempt."""
+    if now is None:
+        return "none owed (merged on its fix, or its order no read shows whole)"
+    if now.merged is not None:
+        return f"its follow-up merged at attempt {now.number}"
+    said = [f"its follow-up ended {why_not_merged(now)}"]
+    if isinstance(now.gate, GateRan) and now.gate.result.verdict == "fail":
+        said.append(f"gate check {now.gate.result.failing_check}")
+    review = now.review.result if now.review is not None else None
+    if review is not None:
+        failing = [f"{i.item} ({i.result})" for i in review.items if i.result in REJECTING_RESULTS]
+        blocking = [
+            f"criterion {c.criterion}" for c in review.criteria if c.defect and c.defect.blocking
+        ]
+        blocking += [f"item {d.item}" for d in review.spec_defects if d.blocking and d.item]
+        said += [f"failing items {', '.join(failing)}"] if failing else []
+        said += [f"blocking {', '.join(blocking)}"] if blocking else []
+    return "; ".join(said)
 
 
 class Loop:
@@ -2290,6 +2312,7 @@ class Loop:
                     trajectories=tuple(s.trajectory for s in sessions if s.trajectory),
                     ts=self.log.events[-1].ts,
                     consequence=self._consequence(INTEGRATION, "gate_escalation"),
+                    follow_ups=self._follow_ups_told(),
                 )
             )
         self._emit(IntegrationEscalated(**self._env(), item_id=item_id))
@@ -2497,13 +2520,16 @@ class Loop:
             return False
         return self._results_hold() and self._follow_ups(write=False) and self._scope_holds()
 
-    def _owed(self, events: Sequence[Event]) -> Mapping[str, tuple[OwedEdge, ...]]:
+    def _owed(
+        self, events: Sequence[Event], *, every: bool = False
+    ) -> Mapping[str, tuple[OwedEdge, ...]]:
         """What sizing's closing pass owed the domain modules on the record up to ``events``.
 
         Candidates are the domain modules that merged with an attempt left to reopen at: one
         that merged on its fix has none, and the propagation check judges its nodes as written.
         A module whose order its reviewer could not read whole is owed none either: the check
-        judges its edges as they stand.
+        judges its edges as they stand. With ``every``, each done domain module's edges, owed or
+        not: what the integration item names.
         """
         state = replay(events)
         closing = state.closing_pass()
@@ -2515,13 +2541,15 @@ class Loop:
             for s in state.integrated()
             if (sub := state.subtasks[s]).status == "done"
             and sub.plan.module_dir != directory
-            and sub.attempts[-1].merged is not None
-            and not any(a.fix for a in sub.attempts)
+            and (every or sub.attempts[-1].merged is not None)
+            and (every or not any(a.fix for a in sub.attempts))
         }
         _, change_sets = change_history(events)
         head = max((r for c in change_sets for r in c.revisions), default=0)
         lines = [line for line in self._graph.records_after(0) if line.rev <= head]
         found = owed(lines, change_sets, closing, candidates)
+        if every:
+            return found
         return {
             s: edges
             for s, edges in found.items()
@@ -2533,6 +2561,31 @@ class Loop:
                 )
             )
         }
+
+    def _follow_ups_told(self) -> str | None:
+        """Each module sizing's closing pass reached, its edges, and how its follow-up ended.
+
+        From the record's structured fields alone: why it did not merge, the gate's failing
+        check, the review's rejecting rubric items with their results, and its blocking criteria
+        and items. Never the gate's, a reviewer's or a session's own words. ``None`` when no edge
+        was reached, so the item keeps its words.
+        """
+        events = self.log.events
+        taken = [e for e in events if isinstance(e, SubtaskReopened) and e.cause is not None]
+        reached = self._owed(events[: taken[0].seq] if taken else events, every=True)
+        if not reached:
+            return None
+        at = {e.subtask_id: e.attempt for e in taken}
+        told = []
+        for subtask_id, edges in reached.items():
+            named = ", ".join(f"{edge.source} -> {edge.target}" for edge in edges)
+            sub = self.state.subtasks[subtask_id]
+            now = next((a for a in sub.attempts if a.number == at.get(subtask_id)), None)
+            told.append(f"{subtask_id} (owed {named}): {_follow_up_end(now)}")
+        return (
+            "Sizing's closing pass changed values nodes of these modules depend on: "
+            f"{'; '.join(told)}."
+        )
 
     def _follow_up_order(self, followed: SubtaskReopened) -> PersonOrder:
         """The follow-up's order, from the journal and the history where it was written."""

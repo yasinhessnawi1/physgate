@@ -791,12 +791,14 @@ def integration_item(
     trajectories: tuple[str, ...],
     ts: str,
     consequence: ItemConsequence | None = None,
+    follow_ups: str | None = None,
 ) -> QueueItem:
     """The item for an integrated design the gate refused (a physics-gate escalation).
 
     No subtask owns a whole-system failure, so it goes to a person rather than to
     a repair session. ``run_span`` is the run branch's start and head, the design
-    that was judged.
+    that was judged. ``follow_ups`` says how each module sizing's closing pass reached was
+    followed up, where any was owed; an item with none keeps its words.
 
     Raises:
         QueueError: the refusal did not block, or no attempt left a trajectory.
@@ -818,6 +820,7 @@ def integration_item(
             f"The integrated design failed the physics gate's {result.failing_check} check at "
             "system scope, after every subtask had merged. No one subtask owns this. Decide "
             "which module changes, or whether to accept the design as it stands."
+            + (f" {follow_ups}" if follow_ups else "")
         ),
         artefact_diff=(
             f"The run branch from {start} to {head}: see `git diff {start} {head}` in the "

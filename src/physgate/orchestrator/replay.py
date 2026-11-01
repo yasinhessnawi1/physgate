@@ -35,7 +35,12 @@ from physgate.orchestrator.arbitration import (
     dispute_standing,
 )
 from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
-from physgate.orchestrator.common import GateMode
+from physgate.orchestrator.common import (
+    PLANNED_ID_MAX_LENGTH,
+    ROLE_PATTERN,
+    SUBTASK_PATTERN,
+    GateMode,
+)
 from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.decisions import require_taken, values_chosen
 from physgate.orchestrator.escalation import (
@@ -121,7 +126,7 @@ from physgate.orchestrator.protocols import ChosenValue, QuantityRef
 from physgate.orchestrator.queue import DECOMPOSITION_NAME, PLAN, contract_item_id, item_id_for
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
-from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
+from physgate.state.task_ledger import Outcome, TaskLedger, TaskLine, read_ledger
 
 
 @dataclass
@@ -280,6 +285,13 @@ def following_up(sub: SubtaskState, attempt: int | None = None) -> bool:
     """Whether ``attempt`` (by default the subtask's last) is the follow-up the record owes it."""
     number = attempt if attempt is not None else sub.attempts[-1].number if sub.attempts else 0
     return sub.followed_up is not None and sub.followed_up.attempt == number
+
+
+def _verdict(gate: GateRan | GateSkipped | None) -> Outcome | None:
+    """A gate line's result as the ledger records it."""
+    if gate is None:
+        return None
+    return gate.result.verdict if isinstance(gate, GateRan) else "skipped"
 
 
 def why_not_merged(now: AttemptState) -> FollowUpWhy:
@@ -753,6 +765,17 @@ class RunState:
             ended = following_up(sub) and self._ended_without_merge(now)
             self._expect(ended and event.why == why_not_merged(now), "a follow-up's end")
             sub.status = "done"
+            # The merge the reopen named stands again, with its results; the follow-up's beside.
+            standing = sub.followed_up.merge_commit if sub.followed_up else None
+            stands = next(a for a in sub.attempts if a.merged and a.merged.merge_commit == standing)
+            self._ledger(
+                sub.plan.subtask_id,
+                merge_commit=standing,
+                gate_result=_verdict(stands.gate),
+                review_result=stands.review.result.verdict if stands.review else None,
+                follow_up_gate_result=_verdict(now.gate),
+                follow_up_review_result=now.review.result.verdict if now.review else None,
+            )
         elif isinstance(event, EscalationDecided):
             self._decided(sub, now, event)
         elif isinstance(event, Escalated):
@@ -899,6 +922,14 @@ class RunState:
         of its role. A second marked line, a line after it, or a second subtask of its role
         would run before the call as an ordinary subtask or after it as a second exception.
         """
+        # Both reach every session's prompt: each is held to what the harness writes, a plan's
+        # module name or an id minted from a name, and a role the register names, as rendered.
+        for value, pattern, what in (
+            (event.subtask_id, SUBTASK_PATTERN, "subtask id"),
+            (event.assigned_role, ROLE_PATTERN, "role"),
+        ):
+            if len(value) > PLANNED_ID_MAX_LENGTH or not pattern.fullmatch(value):
+                _refuse(f"a planned {what} the harness's name pattern refuses: {value[:80]!r}")
         marked = self.completion_subtask
         if event.owns_completion and marked is not None:
             _refuse(

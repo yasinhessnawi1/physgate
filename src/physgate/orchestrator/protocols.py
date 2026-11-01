@@ -28,7 +28,7 @@ from pydantic import (
 )
 
 from physgate.orchestrator.budget import ATTEMPT_LIMIT
-from physgate.orchestrator.common import ModelString, NonEmptyStr
+from physgate.orchestrator.common import ModelString, NonEmptyStr, model_named
 from physgate.orchestrator.exceptions import GateContractError, ModelSeparationError
 from physgate.orchestrator.plan import IntegratedPlan, Plan
 from physgate.orchestrator.trajectory import Seal
@@ -765,16 +765,17 @@ class PlanReviewer(Protocol):
 
 
 def require_separate_models(*, implementer: str, reviewer: str) -> None:
-    """Refuse to run a reviewer on the implementer's model string.
+    """Refuse to run a reviewer on the implementer's model, however either is spelled.
 
     Enforced here, at invocation, rather than trusted to configuration: a judge
     that shares a model with what it judges is the self-preference the
-    architecture separates them to avoid.
+    architecture separates them to avoid. A dated or a provider's spelling of the
+    same model is the same model (:func:`model_named`).
 
     Raises:
-        ModelSeparationError: the two strings are equal.
+        ModelSeparationError: the two strings name the same model.
     """
-    if implementer == reviewer:
+    if model_named(implementer) == model_named(reviewer):
         msg = "a reviewer may not run on the implementer's model"
         raise ModelSeparationError(msg, implementer=implementer, reviewer=reviewer)
 

@@ -34,6 +34,7 @@ from physgate.orchestrator.common import (
     ModelString,
     NonEmptyStr,
     first_problem,
+    model_named,
 )
 from physgate.orchestrator.escalation import REGISTER, BackendName
 from physgate.orchestrator.exceptions import EscalationBackendError, GitError, RunConfigError
@@ -68,7 +69,9 @@ class ModelStrings(_Frozen):
         # The design reviewer judges the plan, so the decomposition is its implementer:
         # a judge on the model it judges is the self-preference reviewers are paired on
         # another model to avoid (ARCH-060). Refused here, before any call is made.
-        if self.design_reviewer == self.decomposition:
+        if self.design_reviewer is not None and model_named(self.design_reviewer) == model_named(
+            self.decomposition
+        ):
             msg = "the design reviewer may not run on the decomposition's model"
             raise ValueError(msg)
         return self

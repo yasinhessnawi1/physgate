@@ -55,6 +55,11 @@ from typing import TYPE_CHECKING
 
 from physgate.gate.catalogue import QUANTITIES
 from physgate.gate.units import UnitRefusedError, parse
+
+# Named here as well, where the rendering's other holds are: the replay holds the same.
+from physgate.orchestrator.common import PLANNED_ID_MAX_LENGTH as PLANNED_ID_MAX_LENGTH
+from physgate.orchestrator.common import ROLE_PATTERN as ROLE_PATTERN
+from physgate.orchestrator.common import SUBTASK_PATTERN as SUBTASK_PATTERN
 from physgate.orchestrator.decompose import GATE_MODE_SENTENCES
 from physgate.orchestrator.events import IntegrationGateRan
 from physgate.reviewers.transcript import cut_line
@@ -82,11 +87,6 @@ HEAD = (
 )
 #: What stands where a node id the store's id pattern or bound would refuse is on the record.
 REFUSED_ID = "(a node id the store's id pattern refuses)"
-#: A role as the register names one, and integration's subtask id as minted from its role's name;
-#: each held to its pattern and to :data:`PLANNED_ID_MAX_LENGTH` where it is rendered.
-ROLE_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
-SUBTASK_PATTERN = re.compile(r"[a-z][a-z0-9_-]*")
-PLANNED_ID_MAX_LENGTH = 64
 REFUSED_ROLE = "(a role the register's name pattern refuses)"
 REFUSED_SUBTASK = "(a subtask id the harness's id pattern refuses)"
 SCOPE_HEAD = (
