@@ -221,7 +221,9 @@ def test_a_follow_up_end_replay_cannot_place_is_refused(tmp_path: Path) -> None:
     assert ended(merged, plan=CLOSING) == "done"
     kept = events_of(merged)
     after = kinds(kept).index("session_ended", kinds(kept).index("subtask_reopened"))
-    assert "a follow-up's end" in (refusal([*kept[: after + 1], line, *kept[after + 1 :]]) or "")
+    # With the reason an attempt still in progress would give, so only the placement refuses it.
+    early = type(line).model_validate({**line.model_dump(), "why": "for_a_person"})
+    assert "a follow-up's end" in (refusal([*kept[: after + 1], early, *kept[after + 1 :]]) or "")
     # Nor is its end asked about: an escalation decision there is refused, built as the loop
     # builds one for any other attempt that did not merge.
     before = events[:place]
