@@ -7,9 +7,9 @@ never be scanned, and one left running in its repair would never be stopped. So 
 recorded, resolved and absolute, by the first command that names one for the run directory,
 before anything runs under it: ``decompose`` when it reviews the plan, else the first ``run`` or
 ``resume``. Every later ``run`` or ``resume`` that names another root is refused, before it stops
-or spawns anything, and the refusal names both. ``decompose`` writes it, over any earlier one, only into
-a directory it has found fresh, once a review a killed decomposition left there has been stopped
-and scanned through that review's own record, which names its directory in full.
+or spawns anything, and the refusal names both. ``decompose`` writes it, over any earlier one,
+only into a directory it has found fresh, once a review a killed decomposition left there has been
+stopped and scanned through that review's own record, which names its directory in full.
 
 A run directory written before the record existed holds none, and nothing tells it apart from a
 run whose first ``run`` is still to come. Its next ``run`` or ``resume`` goes on as it always did,
