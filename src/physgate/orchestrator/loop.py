@@ -142,6 +142,7 @@ from physgate.orchestrator.ports import (
     ChangeChecker,
     Dispatcher,
     GraphPort,
+    Leftover,
     MaterialCheck,
     Merger,
     RecordsSpawns,
@@ -301,13 +302,35 @@ def refuse_unregistered(
 
 
 #: Which of a resume's leftover findings names its one halt, first found first: a stream something
-#: else wrote, then an exposure, then reviewer material, then a stream set aside.
+#: else wrote, then an exposure, then reviewer material, then a stream set aside; then, last, what a
+#: session taken up after its own end showed beside its stream: a refused placeholder, other policy
+#: limits, a possible abort, an unverified reaping.
 LEFTOVER_HALTS: tuple[IncidentCause, ...] = (
     "trajectory_tampered",
     "held_out_read",
     "review_material_read",
     "stream_quarantined",
+    "placeholder_refused",
+    "managed_settings_changed",
+    "os_layer_aborted",
+    "reaper_unverified",
 )
+
+
+def _possible_abort(session_id: str, tool_uses: tuple[str, ...]) -> str:
+    """The detail of a possible abort: the results of a session that carry bubblewrap's line."""
+    return (
+        f"possible abort: {len(tool_uses)} result(s) of session {session_id} carry bubblewrap's "
+        f"own line, which the command may have printed itself: {', '.join(tool_uses)}"
+    )
+
+
+def _unverified_reaping(session_id: str, commands: tuple[str, ...]) -> str:
+    """The detail of an unverified reaping: the commands whose reaper's done line was cut off."""
+    return (
+        f"{len(commands)} shell command(s) of session {session_id} gave output longer than Claude "
+        f"Code keeps, so the survivor reaper's done line could not be read: {'; '.join(commands)}"
+    )
 
 
 #: What the integration item names of a review is a reviewer's output, read back from the log: each
@@ -652,8 +675,8 @@ class Loop:
         or more findings are one findings line first, then each leftover's lines, then each
         incident and one halt; a lone finding is its incident first, then the lines and the halt.
         In order: every exposure, reviewer material and set-aside stream, leftover by leftover,
-        then every tampered stream. The halt is the tampering's, else the exposure's, else the
-        material's, else the set-aside stream's.
+        then every tampered stream, then what each session taken up after its own end showed beside
+        its stream. The halt is the first cause :data:`LEFTOVER_HALTS` names.
         """
         if not self.log.events:
             return
@@ -681,6 +704,8 @@ class Loop:
             for left in leftovers
             if (why := left.tampered) is not None
         ]
+        for left in leftovers:
+            found += self._taken_up_findings(left)
         causes = {cause for cause, _ in found}
         halt = next((c for c in LEFTOVER_HALTS if c in causes), None)
         if len(found) > 1 and halt is not None:
@@ -726,6 +751,31 @@ class Loop:
             self._emit(Incident(**self._env(), subtask_id=None, cause=cause, detail=detail))
         if halt is not None:
             self._halt_for(None, halt)
+
+    def _taken_up_findings(self, left: Leftover) -> list[tuple[IncidentCause, str]]:
+        """What a session taken up after its own end showed beside its stream, as that end would.
+
+        The dispatcher read them again only for such a session. The policy limits are held to the
+        run's first only there: for a session left running nothing was read, and no digest is no
+        finding of its own.
+        """
+        sid = left.session_id
+        found: list[tuple[IncidentCause, str]] = []
+        if left.placeholders_refused is not None:
+            found.append(("placeholder_refused", f"leftover session {sid}: "
+                          f"{left.placeholders_refused}"))  # fmt: skip
+        changed = (
+            policy_limits_change(self._policy_baseline(), left.policy_limits_sha256)
+            if left.taken_up
+            else None
+        )
+        if changed is not None:
+            found.append(("managed_settings_changed", f"leftover session {sid}: {changed}"))
+        if left.os_layer_aborted:
+            found.append(("os_layer_aborted", _possible_abort(sid, left.os_layer_aborted)))
+        if left.reaper_unverified:
+            found.append(("reaper_unverified", _unverified_reaping(sid, left.reaper_unverified)))
+        return found
 
     def _clean_up_worktrees(self) -> None:
         """Remove the worktrees the rules allow, recording each; never stall or fail the run.
@@ -1614,19 +1664,18 @@ class Loop:
         if other is not None:
             found.append(other)
         if report.os_layer_aborted:
-            found.append(("os_layer_aborted", (
-                f"possible abort: {len(report.os_layer_aborted)} result(s) of session "
-                f"{report.session_id} carry bubblewrap's own line, which the command may have "
-                f"printed itself: {', '.join(report.os_layer_aborted)}"
-            )))  # fmt: skip
+            found.append(
+                ("os_layer_aborted", _possible_abort(report.session_id, report.os_layer_aborted))
+            )
         if report.reaper_unverified:
             # A command's output was cut where its survivor reaper's last word stands: what it
             # started may have lived on. Its work is not taken, and a person looks first.
-            found.append(("reaper_unverified", (
-                f"{len(report.reaper_unverified)} shell command(s) of session {report.session_id} "
-                "gave output longer than Claude Code keeps, so the survivor reaper's done line "
-                f"could not be read: {'; '.join(report.reaper_unverified)}"
-            )))  # fmt: skip
+            found.append(
+                (
+                    "reaper_unverified",
+                    _unverified_reaping(report.session_id, report.reaper_unverified),
+                )
+            )
         if not found:
             return None
         # The halt: the other incident's cause, else the exposure's, else the first found.

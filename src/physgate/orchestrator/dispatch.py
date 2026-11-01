@@ -70,6 +70,7 @@ from physgate.orchestrator.events import (
     FindingsRecorded,
     Incident,
     LeftoverRead,
+    OsLayerChecked,
     SessionEnded,
     SessionSpawned,
     read_events,
@@ -750,6 +751,52 @@ def _unended(sdir: Path, events: Sequence[Event]) -> bool:
         or (isinstance(e, Incident | FindingsRecorded) and e.seq > spawn)
         for e in events
     )
+
+
+#: What only a resume's end of a leftover holds: a session's own run never writes these.
+_RESUME_ENDS = ("stopped_at_resume", "not_running_at_resume")
+#: Where the placeholder sweep at a session's end records what it removed and refused.
+PLACEHOLDERS_NAME = "sandbox_placeholders.json"
+
+
+def _taken_up(sdir: Path) -> bool:
+    """Whether the end on disk of a session read again is its own run's, not a resume's.
+
+    Only that end ran the session's end in full: its stream's abort scan, the hook log's read, the
+    placeholder sweep and the policy limits' digest. An end no one can read is taken as its own
+    run's, so what the directory shows is read rather than passed over.
+    """
+    try:
+        record = json.loads(read_session_file(sdir / "ended.json"))
+    except (InvocationError, ValueError):
+        return True
+    return not (isinstance(record, dict) and any(key in record for key in _RESUME_ENDS))
+
+
+def _spawned_under_the_layer(session_id: str, events: Sequence[Event]) -> bool:
+    """Whether the record shows the session spawned under the OS layer.
+
+    The last layer line before its spawn: the process that spawned it wrote it before driving,
+    from the one judgement its sessions were made under. Never the machine at the resume, which
+    can be another, and never a line after the spawn.
+    """
+    layer: Present | Absent | None = None
+    for event in events:
+        if isinstance(event, OsLayerChecked):
+            layer = event.state
+        elif isinstance(event, SessionSpawned) and event.session_id == session_id:
+            return isinstance(layer, Present)
+    return False
+
+
+def _refused_placeholders(sdir: Path) -> str | None:
+    """What the placeholder sweep at a session's end recorded it refused, as that end said it."""
+    try:
+        data = read_session_file(sdir / PLACEHOLDERS_NAME)
+        refused = json.loads(data)["refused"] if data else []
+        return "; ".join(f"{path}: {why}" for path, why in refused) or None
+    except (InvocationError, ValueError, KeyError, TypeError):
+        return "the placeholder sweep's record of the session cannot be read"
 
 
 def write_record(parent: Path, name: str, record: dict[str, Any], file: str) -> None:
@@ -1604,7 +1651,7 @@ class ClaudeDispatcher:
             swept = placeholders.Swept(refused=[(".", f"the sweep failed: {exc}")])
         if swept.removed or swept.refused:
             kept = {"removed": swept.removed, "refused": swept.refused}
-            (sdir / "sandbox_placeholders.json").write_text(json.dumps(kept))
+            (sdir / PLACEHOLDERS_NAME).write_text(json.dumps(kept))
         if not swept.refused:
             return None
         return "; ".join(f"{path}: {why}" for path, why in swept.refused)
@@ -1671,8 +1718,16 @@ class ClaudeDispatcher:
         leftovers: list[Leftover] = []
         failures: list[tuple[str, str]] = []
         for sdir, session_id, pid, killed, stopped, kind, _written in found:
+            # Read again for what its own end showed beside the stream: only a role session its
+            # own run ended, never one left running.
+            again = kind == "session" and (sdir / "ended.json").exists() and _taken_up(sdir)
+            layered = _spawned_under_the_layer(session_id, events)
             try:
-                leftovers.append(self._read_leftover(sdir, session_id, pid, killed, stopped, kind))
+                leftovers.append(
+                    self._read_leftover(
+                        sdir, session_id, pid, killed, stopped, kind, again=again, layered=layered
+                    )
+                )
             except InvocationError as exc:
                 failures.append((session_id, str(exc)))
         if failures:
@@ -1708,10 +1763,23 @@ class ClaudeDispatcher:
                 write_record(sdir.parent, sdir.name, written, "ended.json")
         self._ending = []
 
-    def _read_leftover(
-        self, sdir: Path, session_id: str, pid: int, killed: int, stopped: bool, kind: SessionKind
+    def _read_leftover(  # noqa: PLR0913 - one leftover's facts, as the stop found them
+        self,
+        sdir: Path,
+        session_id: str,
+        pid: int,
+        killed: int,
+        stopped: bool,
+        kind: SessionKind,
+        *,
+        again: bool = False,
+        layered: bool = False,
     ) -> Leftover:
         """One leftover's stream, read once: sealed, scanned, or set aside by a person's marker.
+
+        With ``again``, a session its own run ended: what that end showed beside the stream is
+        read again as the end read it (:meth:`_end_again`); ``layered`` is whether the record
+        shows it spawned under the OS layer.
 
         Raises:
             InvocationError: the stream is gone with no valid quarantine marker, or is a link
@@ -1734,6 +1802,7 @@ class ClaudeDispatcher:
                 kind=kind,
                 quarantine=quarantine,
                 scan="unscanned (stream gone)",
+                **(self._end_again(sdir, session_id, b"", layered=layered) if again else {}),
             )
         # The same read as a session that ended under its orchestrator: sealed as read, a
         # tail after the runtime's result not taken, and a stream with a result held to the
@@ -1761,7 +1830,28 @@ class ClaudeDispatcher:
             review_material_seen=(
                 canary_seen(data, self._canaries) if kind == "session" and self._canaries else None
             ),
+            **(self._end_again(sdir, session_id, data, layered=layered) if again else {}),
         )
+
+    def _end_again(
+        self, sdir: Path, session_id: str, data: bytes, *, layered: bool
+    ) -> dict[str, Any]:
+        """What a session's own end showed beside its stream, read again from its directory.
+
+        As :meth:`_run_session` read it, from what the directory keeps: the possible abort from
+        the stream and the refused placeholders from the sweep's record, both only under the OS
+        layer (without it a ``bwrap:`` line is the session's own output, and no sweep ran); the
+        unverified reaping from the hook layer's log; the policy limits' digest from the
+        configuration directory. The withheld files' check and the managed tier's are taken live
+        at the end, against what only that process held, and are not read again.
+        """
+        return {
+            "taken_up": True,
+            "os_layer_aborted": aborted_tool_uses(data.decode(errors="replace")) if layered else (),
+            "reaper_unverified": self._reaper_unverified(sdir / "state", session_id),
+            "placeholders_refused": _refused_placeholders(sdir) if layered else None,
+            "policy_limits_sha256": policy_limits_digest(sdir / "config"),
+        }
 
     def _quarantine_of(self, session_id: str) -> str | None:
         """Who set this session's gone stream aside and why, if the operator asked; else None."""

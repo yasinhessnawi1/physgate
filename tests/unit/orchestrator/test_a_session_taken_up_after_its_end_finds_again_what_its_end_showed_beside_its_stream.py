@@ -23,6 +23,7 @@ from typing import Any
 import pytest
 from loop_fakes import KilledError, Rig, plan
 from test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_writes_the_rest import (  # noqa: E501
+    LeftBehind,
     kinds,
     lines,
     outcome,
@@ -37,6 +38,7 @@ from test_a_session_s_findings_are_on_the_record_before_it_is_ended import (
 
 from physgate.orchestrator.events import OsLayerChecked
 from physgate.orchestrator.loop import Loop
+from physgate.orchestrator.ports import Leftover
 from physgate.oslayer.probe import Absent, Present
 
 PRESENT = Present(mechanism="bubblewrap", claude_version="2.1.301")
@@ -242,3 +244,60 @@ def test_a_session_left_running_gains_none_of_what_an_end_shows_beside_its_strea
     assert [r["cause"] for r in rows if r["kind"] == "incident"] == []
     assert said == "done", said
     assert kinds(rows).count("leftover_read") == 1
+
+
+# --- the loop: what a taken-up session's leftover carries, and in which order -------------------
+
+
+def _resumed_with(path: Path, left: Leftover) -> list[dict[str, Any]]:
+    rig = Rig(path, dispatcher=LeftBehind(left=[left]))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.close()
+    taken_over(rig)
+    return lines(rig)
+
+
+def test_a_taken_up_session_s_four_findings_come_in_their_order_and_the_first_names_the_halt(
+    tmp_path: Path,
+) -> None:
+    left = Leftover(
+        session_id="sess-9",
+        pid=4242,
+        killed=0,
+        stopped=False,
+        taken_up=True,
+        os_layer_aborted=("toolu_a",),
+        reaper_unverified=('{"command": "make all"}',),
+        placeholders_refused="modules/s1/.claude: a link",
+        policy_limits_sha256="a" * 64,
+    )
+    rows = _resumed_with(tmp_path / "run", left)
+    assert [r["cause"] for r in rows if r["kind"] == "incident"] == [
+        "placeholder_refused",
+        "managed_settings_changed",
+        "os_layer_aborted",
+        "reaper_unverified",
+    ]
+    (halted,) = [r for r in rows if r["kind"] == "halted"]
+    assert halted["detail"] == "placeholder_refused"
+
+
+@pytest.mark.parametrize(
+    ("taken_up", "digest", "found"),
+    [(False, "a" * 64, []), (True, None, []), (True, "a" * 64, ["managed_settings_changed"])],
+    ids=["not taken up, a digest", "taken up, none like the run's first", "taken up, another"],
+)
+def test_policy_limits_are_held_to_the_run_s_first_only_for_a_session_taken_up(
+    tmp_path: Path, taken_up: bool, digest: str | None, found: list[str]
+) -> None:
+    left = Leftover(
+        session_id="sess-9",
+        pid=4242,
+        killed=0,
+        stopped=False,
+        taken_up=taken_up,
+        policy_limits_sha256=digest,
+    )
+    rows = _resumed_with(tmp_path / "run", left)
+    assert [r["cause"] for r in rows if r["kind"] == "incident"] == found

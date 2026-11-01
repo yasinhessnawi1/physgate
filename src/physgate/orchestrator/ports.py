@@ -164,6 +164,20 @@ class Leftover(_Frozen):
     #: Whether the stream was read and scanned. A quarantined session's never was: its
     #: held-out and reviewer-material scans say nothing.
     scan: Literal["scanned", "unscanned (stream gone)"] = "scanned"
+    #: Whether its own run ended it, and died before the record said so: then what that end showed
+    #: beside the stream is read again from the session's directory (the four below). A session
+    #: left running, which its run never ended, has them at their defaults.
+    taken_up: bool = False
+    #: As at a session end: the tool calls whose result carries bubblewrap's own line, read only
+    #: where the record shows the session spawned under the OS layer.
+    os_layer_aborted: tuple[NonEmptyStr, ...] = ()
+    #: As at a session end: the shell commands whose survivor reaper was not heard from.
+    reaper_unverified: tuple[NonEmptyStr, ...] = ()
+    #: As at a session end: what the placeholder sweep recorded it refused, under the OS layer.
+    placeholders_refused: NonEmptyStr | None = None
+    #: As at a session end: the digest of the policy limits its invocation left, if any. Compared
+    #: with the run's first only for a session taken up: for one that is not, nothing was read.
+    policy_limits_sha256: NonEmptyStr | None = None
 
 
 class ChangeCheck(_Frozen):
