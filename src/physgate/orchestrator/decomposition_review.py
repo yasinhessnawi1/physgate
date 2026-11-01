@@ -104,9 +104,9 @@ def stop_left_review(run_dir: Path) -> LeftReview:
     its own file first, synced, so every later command names it again. An unreadable record, a
     process table that cannot be read, or a stream that cannot be read keeps the record.
     """
+    found = _stop_and_scan(run_dir)
+    # Read once the scan is done: an exposure this command found, or an earlier one recorded.
     exposed = (run_dir / REVIEW_EXPOSED).is_file()
-    found = _stop_and_scan(run_dir, exposed=exposed)
-    exposed = exposed or (run_dir / REVIEW_EXPOSED).is_file()
     if exposed:
         named = _exposed_session(run_dir)
         told = (
@@ -124,7 +124,7 @@ def _exposed_session(run_dir: Path) -> str:
         return "(its record cannot be read)"
 
 
-def _stop_and_scan(run_dir: Path, *, exposed: bool) -> str | None:
+def _stop_and_scan(run_dir: Path) -> str | None:
     path = run_dir / REVIEW_SESSION
     if not path.is_file():
         return None
@@ -168,7 +168,7 @@ def _stop_and_scan(run_dir: Path, *, exposed: bool) -> str | None:
         )
     except InvocationError as exc:
         return f"{said}; its streams cannot be read ({exc}), so the record is kept"
-    if shown and not exposed:
+    if shown:
         _synced(run_dir / REVIEW_EXPOSED, json.dumps({"session_id": session_id}).encode())
     path.unlink(missing_ok=True)
     return said
