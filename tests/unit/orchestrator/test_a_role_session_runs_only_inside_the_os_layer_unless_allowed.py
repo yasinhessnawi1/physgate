@@ -377,7 +377,7 @@ def _dispatched(
         started.append(temp)
         return "started"
 
-    def open_subtask(subtask_id: str) -> Path:
+    def open_subtask(subtask_id: str, reopen: int = 0) -> Path:
         opened.append(subtask_id)
         return run_dir / "worktrees" / subtask_id
 
