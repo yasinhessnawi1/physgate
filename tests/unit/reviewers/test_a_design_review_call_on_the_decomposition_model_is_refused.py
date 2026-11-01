@@ -259,3 +259,27 @@ def test_what_the_design_reviewer_is_told_says_nothing_of_being_evaluated(
     assert evaluation_words(prompt) == []
     assert "No search for the markers of a check switched off was run" in prompt
     assert "the brief exactly as the decomposition was given it" in prompt
+
+
+@pytest.mark.parametrize("spelling", [f"{DECOMPOSITION}-20261001", f"us.anthropic.{DECOMPOSITION}"])
+def test_a_design_review_call_on_another_spelling_of_the_decomposition_model_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spelling: str
+) -> None:
+    watched = _Watched(monkeypatch)
+    reviewer = _design(tmp_path, spelling)
+    with pytest.raises(ModelSeparationError):
+        _review_plan(reviewer, under_review(tmp_path))
+    assert watched.asked == []
+    assert watched.sessions == []
+
+
+@pytest.mark.parametrize("spelling", [f"{REVIEWER}-20261001", f"us.anthropic.{REVIEWER}-v1:0"])
+def test_a_design_review_of_a_stream_another_spelling_of_its_model_answered_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spelling: str
+) -> None:
+    watched = _Watched(monkeypatch)
+    reviewer = _design(tmp_path, REVIEWER)
+    under = under_review(tmp_path, stream_text=stream_text(model=spelling))
+    with pytest.raises(ModelSeparationError):
+        _review_plan(reviewer, under)
+    assert watched.sessions == []
