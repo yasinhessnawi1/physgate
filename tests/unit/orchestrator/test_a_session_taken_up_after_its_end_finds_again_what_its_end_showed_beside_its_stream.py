@@ -83,6 +83,13 @@ def _left_on_disk(sdir: Path, shown: set[str], *, exposed: bool = False) -> None
         (sdir / "sandbox_placeholders.json").write_text(
             json.dumps({"removed": [], "refused": REFUSED})
         )
+    if bad := {
+        "log-truncated": '{"session": "' + sdir.name + '", "decision": "reaper_unver',
+        "log-not-object": '["reaper_unverified"]',
+        "log-wrong-type": json.dumps({"session": sdir.name, "decision": ["reaper_unverified"]}),
+    }.get(next((name for name in shown if name.startswith("log-")), "")):
+        with (sdir / "state" / "hooks.log.jsonl").open("a") as log:
+            log.write(bad + "\n")
     if "limits" in shown:
         (sdir / "config").mkdir(exist_ok=True)
         (sdir / "config" / "policy-limits.json").write_bytes(LIMITS)
@@ -104,7 +111,7 @@ class LeftOnDisk(EndedBySession):
 
 
 #: What each shape's session showed, as its own end reports it to the loop.
-REPORTED: dict[str, dict[int, Any]] = {
+REPORTED: dict[str, dict[str, dict[int, Any]]] = {
     "abort": {"aborted": {1: ("toolu_a",)}},
     "reaping": {"unverified": {1: (json.dumps(UNHEARD["tool_input"]),)}},
     "placeholder": {"placeholders": {1: f"{REFUSED[0][0]}: {REFUSED[0][1]}"}},
@@ -118,7 +125,7 @@ def _killed_after_its_end(
     """A run whose first session ended showing ``shown``, killed before the loop's first line."""
     reported: dict[str, Any] = {}
     for name in shown:
-        reported |= REPORTED[name]
+        reported |= REPORTED.get(name, {})
     if exposed:
         reported["held_out"] = {1: CANARY}
     path.mkdir(parents=True)
@@ -138,7 +145,7 @@ def _killed_after_its_end(
             raise KilledError
         emit(event)
 
-    loop._emit = dying  # type: ignore[method-assign]  # noqa: SLF001
+    loop._emit = dying  # noqa: SLF001
     said = outcome(loop.run)
     loop.close()
     assert said == "killed", said
@@ -303,27 +310,66 @@ def test_policy_limits_are_held_to_the_run_s_first_only_for_a_session_taken_up(
     assert [r["cause"] for r in rows if r["kind"] == "incident"] == found
 
 
-# --- an end record that does not say what the end found fails closed ---------------------------
+# --- the end record only ever adds; every input it is derived from fails closed --------------
 
 
-@pytest.mark.parametrize("record", ["written before it held them", "not JSON", "malformed"])
-def test_a_taken_up_end_record_that_does_not_say_what_it_found_halts_on_each_it_cannot_read(
+def _end_record(path: Path, text: str) -> None:
+    """The session's end record, as something that writes the session's directory left it."""
+    (path / "sessions" / "sess-1" / "ended.json").write_text(text)
+
+
+def _findings(**given: Any) -> str:  # noqa: ANN401 - the record's own fields
+    found: dict[str, Any] = {
+        "os_layer_aborted": [],
+        "reaper_unverified": [],
+        "placeholders_refused": None,
+        "policy_limits_sha256": None,
+    }
+    return json.dumps({"exit": 0, "timed_out": False, "findings": found | given})
+
+
+@pytest.mark.parametrize("record", ["emptied", "not JSON"])
+def test_an_end_record_that_says_less_takes_no_finding_away_from_what_is_derived(
+    tmp_path: Path, record: str
+) -> None:
+    rig = _killed_after_its_end(tmp_path / "run", {"abort", "reaping"}, PRESENT)
+    _end_record(tmp_path / "run", _findings() if record == "emptied" else '{"exit": 0, "tim')
+    _halted_with(rig, ["os_layer_aborted", "reaper_unverified"], "os_layer_aborted")
+
+
+def test_an_end_record_that_says_more_is_recorded(tmp_path: Path) -> None:
+    rig = _killed_after_its_end(tmp_path / "run", set(), PRESENT)
+    _end_record(tmp_path / "run", _findings(reaper_unverified=['{"command": "forged"}']))
+    (reaping,) = _halted_with(rig, ["reaper_unverified"], "reaper_unverified")
+    assert "forged" in reaping["detail"]
+
+
+@pytest.mark.parametrize("record", ["missing", "not JSON", "malformed"])
+def test_a_placeholder_record_that_cannot_be_read_under_the_layer_is_a_finding(
     tmp_path: Path, record: str
 ) -> None:
     rig = _killed_after_its_end(tmp_path / "run", set(), PRESENT)
-    ended = tmp_path / "run" / "sessions" / "sess-1" / "ended.json"
-    ended.write_text(
-        {
-            "written before it held them": json.dumps({"exit": 0, "timed_out": False}),
-            "not JSON": '{"exit": 0, "timed',
-            "malformed": json.dumps(
-                {"exit": 0, "timed_out": False, "findings": {"reaper_unverified": "make"}}
-            ),
-        }[record]
-    )
-    incidents = _halted_with(
-        rig,
-        ["placeholder_refused", "managed_settings_changed", "reaper_unverified"],
-        "placeholder_refused",
-    )
-    assert all("cannot be read" in r["detail"] for r in incidents), incidents
+    kept = tmp_path / "run" / "sessions" / "sess-1" / "sandbox_placeholders.json"
+    if record == "missing":
+        kept.unlink(missing_ok=True)
+    else:
+        kept.write_text({"not JSON": '{"removed": [', "malformed": '{"refused": 3}'}[record])
+    (refused,) = _halted_with(rig, ["placeholder_refused"], "placeholder_refused")
+    assert "the placeholder record cannot be read" in refused["detail"]
+
+
+def test_without_the_layer_no_placeholder_record_is_looked_for(tmp_path: Path) -> None:
+    rig = _killed_after_its_end(tmp_path / "run", set(), ABSENT)
+    (tmp_path / "run" / "sessions" / "sess-1" / "sandbox_placeholders.json").unlink(missing_ok=True)
+    said = taken_over(rig)
+    assert [r["cause"] for r in lines(rig) if r["kind"] == "incident"] == []
+    assert said == "done", said
+
+
+@pytest.mark.parametrize("line", ["log-truncated", "log-not-object", "log-wrong-type"])
+def test_a_taken_up_hook_log_that_cannot_be_read_ends_halted_on_an_unverified_reaping(
+    tmp_path: Path, line: str
+) -> None:
+    rig = _killed_after_its_end(tmp_path / "run", {line}, PRESENT)
+    (reaping,) = _halted_with(rig, ["reaper_unverified"], "reaper_unverified")
+    assert "the hook log cannot be read" in reaping["detail"]

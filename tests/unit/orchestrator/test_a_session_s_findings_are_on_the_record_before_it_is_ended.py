@@ -99,6 +99,8 @@ class EndedBySession(FakeDispatcher):
             assert on_spawn is not None
             on_spawn("sess-1", 999_999, STARTED)
             report = super().run(request, on_spawn)
+            # The sweep's record, as the real dispatcher writes it under the OS layer.
+            (sdir / "sandbox_placeholders.json").write_text('{"removed": [], "refused": []}')
             write_record(sdir.parent, sdir.name, ended_record(report), "ended.json")
             return report
         return super().run(request, on_spawn)
