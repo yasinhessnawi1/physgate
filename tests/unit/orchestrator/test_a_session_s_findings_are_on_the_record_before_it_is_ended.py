@@ -248,7 +248,9 @@ def test_a_session_the_record_ended_is_never_read_again(tmp_path: Path) -> None:
     assert lines(rig) == before
 
 
-def test_a_review_session_ended_on_disk_is_not_taken_up(tmp_path: Path) -> None:
+def test_a_review_session_ended_on_disk_the_log_does_not_say_is_back_is_taken_up(
+    tmp_path: Path,
+) -> None:
     from left_session import spawn_logged  # noqa: PLC0415
 
     run_dir, root = tmp_path / "run", tmp_path / "rs"
@@ -264,7 +266,11 @@ def test_a_review_session_ended_on_disk_is_not_taken_up(tmp_path: Path) -> None:
     spawn_logged(run_dir, [(review, 999_999, STARTED)])
     real = _real(run_dir)
     real._review_root = root  # noqa: SLF001 - the review root the run names
-    assert real.stop_leftovers() == []
+    # Its reviewer ends it on disk before the stream is read: until the loop writes what the review
+    # came to, what its stream shows is on no record, and it is read again.
+    (left,) = real.stop_leftovers()
+    assert (left.session_id, left.kind) == (review, "reviewer")
+    assert left.held_out_seen is not None
 
 
 # --- the leftovers: stopped and read, then ended once their findings are on the record ---------

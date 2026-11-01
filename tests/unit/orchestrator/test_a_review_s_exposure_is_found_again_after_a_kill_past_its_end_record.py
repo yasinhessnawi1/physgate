@@ -60,7 +60,9 @@ CLEAN = (
 ENDED = {"exit": 0, "timed_out": False, "left_running": []}
 
 
-def _dispatcher(run_dir: Path, review_root: Path) -> ClaudeDispatcher:
+def _dispatcher(
+    run_dir: Path, review_root: Path, quarantine: tuple[str, str, str] | None = None
+) -> ClaudeDispatcher:
     return ClaudeDispatcher(
         config=make_config(held_out_canaries=(CANARY,)),
         run=RunGit(repo=run_dir, run_dir=run_dir, run_id="run-1"),
@@ -70,6 +72,7 @@ def _dispatcher(run_dir: Path, review_root: Path) -> ClaudeDispatcher:
         base_url=None,
         credential=Credential("api_key", "sk-ant-test-dummy-not-a-credential"),
         review_root=review_root,
+        quarantine=quarantine,
     )
 
 
@@ -96,7 +99,8 @@ class EndedReviewer(FakeReviewer):
 
     review_root: Path | None = None
     stream: str = SHOWN
-    #: "killed": the process dies after the end record; "raises": the exposure reaches the loop.
+    #: "killed": the process dies after the end record; "raises": the exposure reaches the loop;
+    #: "returns": the review answers, as an honest one does.
     mode: str = "killed"
     hook: Callable[[str, int, str], None] | None = None
 
@@ -116,6 +120,8 @@ class EndedReviewer(FakeReviewer):
         if self.mode == "killed":
             raise KilledError
         spent = (MessageUsage(message_id="rv1", usage=usage(3)),)
+        if self.mode == "returns":
+            return super().review(artefact).model_copy(update={"session_id": sid, "usage": spent})
         msg = "held-out material"
         raise HeldOutExposedError(msg, session_id=sid, reviewer_model=self.model, usage=spent)
 
@@ -161,10 +167,11 @@ def test_an_exposure_in_a_review_killed_after_its_end_record_halts_the_taken_ove
     loop.start(plan("s1"))
     assert outcome(loop.run) == "killed"
     loop.close()
-    over = taken_over(rig)
+    # A resume that halts on what its leftovers showed says so after writing its record: the
+    # outcome is the log's.
+    taken_over(rig)
     rows = lines(rig)
     assert _causes(rows) == ["held_out_read"], "the review's exposure is on no record"
-    assert over == "halted"
     assert "merged" not in kinds(rows), "the exposed attempt merged"
     assert kinds(rows)[-1] == "halted"
 
@@ -229,10 +236,10 @@ def test_a_kill_at_the_exposed_review_s_tokens_halts_the_taken_over_run_once(
     _dies_at_the_review_s_tokens(loop)
     assert outcome(loop.run) == "killed"
     loop.close()
-    over = taken_over(rig)
+    taken_over(rig)
     rows = lines(rig)
     assert _causes(rows) == ["held_out_read"], "the exposure is lost, or written twice"
-    assert over == "halted"
+    assert kinds(rows)[-1] == "halted"
     assert "merged" not in kinds(rows)
 
 
@@ -341,3 +348,67 @@ def test_a_repair_stream_the_log_says_was_spawned_and_is_gone_refuses_the_resume
     else:
         refused = ""
     assert "rev-repair" in refused, "a review stream the log says was spawned is gone, unread"
+
+
+def test_a_review_the_loop_recorded_is_not_read_at_a_later_resume(tmp_path: Path) -> None:
+    rig = _rig(tmp_path, EndedReviewer(stream=CLEAN, mode="returns"))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    assert outcome(loop.run) == "done"
+    loop.close()
+    fresh = rig.open()
+    assert outcome(fresh.run) == "done"
+    fresh.close()
+    assert "leftover_read" not in kinds(lines(rig)), "a review the loop recorded was read again"
+
+
+def test_a_quarantined_gone_repair_stream_still_has_the_others_scanned(tmp_path: Path) -> None:
+    run_dir, review_root = tmp_path / "run", tmp_path / "reviews"
+    run_dir.mkdir()
+    _spawned(run_dir, ("rev-repair", 4242, STARTED), ("rev-repair", 4243, STARTED))
+    sdir = _review_session(review_root, "rev-repair", 4243, STARTED, {"stdout.jsonl": SHOWN})
+    (sdir / "ended.json").write_text(json.dumps(ENDED))
+    marker = ("rev-repair", "operator", "the repair stream was lost with its disk")
+    left = {x.session_id: x for x in _dispatcher(run_dir, review_root, marker).stop_leftovers()}
+    assert "rev-repair" in left
+    assert left["rev-repair"].quarantine is not None
+    assert left["rev-repair"].held_out_seen is not None, "the stream that is there was not scanned"
+
+
+def test_a_live_repair_whose_record_is_still_the_first_spawn_s_is_stopped_and_read(
+    tmp_path: Path, live: subprocess.Popen[bytes]
+) -> None:
+    run_dir, review_root = tmp_path / "run", tmp_path / "reviews"
+    run_dir.mkdir()
+    started = started_at(live.pid)
+    assert started is not None
+    # The repair's spawn line is on the log and it runs; its record is still the first spawn's.
+    _spawned(run_dir, ("rev-repair", 4242, STARTED), ("rev-repair", live.pid, started))
+    streams = {"stdout.jsonl": CLEAN, "stdout-repair-1.jsonl": SHOWN}
+    sdir = _review_session(review_root, "rev-repair", 4242, STARTED, streams)
+    (sdir / "ended.json").write_text(json.dumps(ENDED))
+    left = {x.session_id: x for x in _dispatcher(run_dir, review_root).stop_leftovers()}
+    assert "rev-repair" in left
+    deadline = time.monotonic() + 10.0
+    while live.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert live.poll() is not None, "the repair the log spawned still runs"
+    assert left["rev-repair"].stopped
+    assert left["rev-repair"].held_out_seen is not None
+
+
+def test_a_repair_s_pid_now_held_with_another_start_time_is_not_signalled(
+    tmp_path: Path, live: subprocess.Popen[bytes]
+) -> None:
+    run_dir, review_root = tmp_path / "run", tmp_path / "reviews"
+    run_dir.mkdir()
+    # The log's repair spawn names a pid another process now holds, started at another time.
+    _spawned(run_dir, ("rev-repair", 4242, STARTED), ("rev-repair", live.pid, STARTED))
+    streams = {"stdout.jsonl": CLEAN, "stdout-repair-1.jsonl": CLEAN}
+    sdir = _review_session(review_root, "rev-repair", 4242, STARTED, streams)
+    (sdir / "ended.json").write_text(json.dumps(ENDED))
+    left = {x.session_id: x for x in _dispatcher(run_dir, review_root).stop_leftovers()}
+    assert "rev-repair" in left
+    assert not left["rev-repair"].stopped
+    time.sleep(0.5)
+    assert live.poll() is None, "a process the log does not name was stopped"

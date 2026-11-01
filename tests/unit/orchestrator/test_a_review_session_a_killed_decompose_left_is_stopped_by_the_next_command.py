@@ -315,3 +315,31 @@ def test_a_kill_between_the_review_s_end_and_its_round_s_end_line_keeps_the_reco
         _exit(_args(tmp_path, WITH_CANARY), reviewer)
     assert stopped.type is Stopped
     assert _side_file(tmp_path).exists(), "the review's record went before its round's end line"
+
+
+class Repaired(Recording):
+    """A review spawned again to repair its verdict, its repair stream showing the canary."""
+
+    def review_plan(self, under: Any) -> ReviewResult:  # noqa: ANN401
+        assert self.hook is not None and self.root is not None
+        sdir = self.root / self.spawned[0] / "session"
+        sdir.mkdir(parents=True, exist_ok=True)
+        self.hook(*self.spawned)
+        (sdir / "stdout.jsonl").write_text(CLEAN)
+        self.hook(*self.spawned)
+        (sdir / "stdout-repair-1.jsonl").write_text(SHOWN)
+        raise Stopped
+
+
+def test_a_killed_review_s_repair_stream_is_scanned(
+    tmp_path: Path, calls: Calls, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = _args(tmp_path, WITH_CANARY)
+    root = (tmp_path / "review-scratch").resolve()
+    with pytest.raises(BaseException) as stopped:  # noqa: PT011 - the stop is the point
+        _exit(args, Repaired(Stopped(), (SESSION, 4242, OTHER_START), root=root))
+    assert stopped.type is Stopped
+    assert json.loads(_side_file(tmp_path).read_text())["spawns"] == 2
+    capsys.readouterr()
+    assert _exit(args, StandIn(_verdict())) == 2
+    assert "held-out" in capsys.readouterr().err, "the repair stream's exposure is on no record"
