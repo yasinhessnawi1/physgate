@@ -725,7 +725,11 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
                 credential=credential,
             ),
             # The reviewer's own root, as it named it: a review's record names its session there.
-            review_root=args.review_root.resolve() if reviewing is not None else None,
+            review_root=(
+                args.review_root.resolve()
+                if reviewing is not None and args.review_root is not None
+                else None
+            ),
         )
     except (OrchestratorError, ReviewError) as exc:
         return _fail(str(exc), **exc.context)
