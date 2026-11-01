@@ -331,7 +331,7 @@ def test_the_base_alone_is_gated_as_one_change_over_nothing(corpus: Corpus, tmp_
 
 
 @pytest.mark.parametrize("spelling", [f"{AUTHOR}-20261001", f"us.anthropic.{AUTHOR}-v1:0"])
-def test_a_reviewer_on_another_spelling_of_the_author_s_model_is_refused_before_anything(
+def test_another_spelling_of_the_author_s_model_is_refused_before_anything(
     corpus: Corpus, tmp_path: Path, spelling: str
 ) -> None:
     with pytest.raises(ModelSeparationError):
@@ -339,8 +339,8 @@ def test_a_reviewer_on_another_spelling_of_the_author_s_model_is_refused_before_
     assert not (tmp_path / "out").exists()
 
 
-@pytest.mark.parametrize("spelling", [f"{AUTHOR}@20261001", f"{AUTHOR}[1m]"])
-def test_a_review_that_reports_another_spelling_of_the_author_s_model_stops_the_run(
+@pytest.mark.parametrize("spelling", [f"{AUTHOR}-20261001", f"us.anthropic.{AUTHOR}-20261001"])
+def test_another_spelling_of_the_author_s_model_reported_by_a_review_stops_the_run(
     corpus: Corpus, tmp_path: Path, spelling: str
 ) -> None:
     with pytest.raises(ModelSeparationError):
