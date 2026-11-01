@@ -227,10 +227,12 @@ class SubtaskState:
     #: The domain's values a person chose on the subtask's items, for sizing's closing pass to
     #: write: what the attempt's rulings are held to when it returns.
     chosen: list[ChosenValue] = field(default_factory=list)
-    #: How often a person's choice on a failed contract reopened the merged subtask, and the
-    #: last reopen: its worktree and branch are named by the count.
+    #: How often a person's choice on a failed contract, or a follow-up, reopened the merged
+    #: subtask, and the last decision's reopen: its worktree and branch are named by the count.
     reopens: int = 0
     reopened: SubtaskReopened | None = None
+    #: The follow-up sizing's closing pass owed the subtask, once taken.
+    followed_up: SubtaskReopened | None = None
 
 
 @dataclass(frozen=True)
@@ -1433,6 +1435,9 @@ class RunState:
         The subtask takes its next attempt, or its one fix after its last, in a fresh worktree;
         its earlier merge stays on the record.
         """
+        if event.cause is not None:
+            self._follow_up(event)
+            return
         pending = self.pending_reopen
         if pending is None:
             _refuse("a reopen that no taken decision explains")
@@ -1454,8 +1459,8 @@ class RunState:
         for item_id, tested in self.contract_items.items():
             pair = tested.result.pair
             sides = (pair.producer.subtask_id, pair.consumer.subtask_id)
-            if item_id != event.item_id and event.subtask_id in sides and self.undecided(item_id):
-                self.superseded[item_id] = event.item_id
+            if item_id != pending.item_id and event.subtask_id in sides and self.undecided(item_id):
+                self.superseded[item_id] = pending.item_id
         sub.status = "active"
         sub.next_resolve = event.attempt
         sub.fix_next = last.number == REPAIR_BUDGET
@@ -1464,6 +1469,44 @@ class RunState:
         sub.reopened = event
         self._ledger(event.subtask_id, reset=True, reopened_by=event.item_id)
         self.pending_reopen = None
+
+    def _follow_up(self, event: SubtaskReopened) -> None:
+        """Take a follow-up: of a domain module that merged, owed once the closing pass merged.
+
+        Only before the integration call, under a gate that runs, with no decision's reopen
+        pending, and all of a run's follow-ups together, before any of their attempts begins:
+        one round. What the edges are is held to the journal by the loop, which can read it.
+        """
+        closing = self.closing_pass()
+        sub = self.subtasks.get(event.subtask_id)
+        last = sub.attempts[-1] if sub is not None and sub.attempts else None
+        taken = [s for s in self.subtasks.values() if s.followed_up is not None]
+        if closing is None or self.subtasks[closing].status != "done":
+            _refuse("a follow-up is owed only after sizing's closing pass merged")
+        if self.integration is not None or event.gate_mode == "off" or self.pending_reopen:
+            _refuse("a follow-up comes before the integration call, under a gate that runs")
+        if sub is not None and sub.followed_up is not None:
+            _refuse("a module is followed up once")
+        directory = self.subtasks[closing].plan.module_dir
+        if (
+            sub is None
+            or event.subtask_id not in self.integrated()
+            or sub.plan.module_dir == directory
+            or sub.status != "done"
+            or last is None
+            or last.merged is None
+        ):
+            _refuse("a follow-up reopens a domain module that merged, never sizing's")
+        if any(s.attempts[-1].number >= (s.followed_up or event).attempt for s in taken):
+            _refuse("every follow-up is written together, before any of their attempts begins")
+        if event.merge_commit != last.merged.merge_commit or event.attempt != last.number + 1:
+            _refuse("a follow-up reopens the subtask's last merge at its next attempt")
+        sub.status = "active"
+        sub.next_resolve = event.attempt
+        self.worktrees_handled.discard(event.subtask_id)
+        sub.reopens += 1
+        sub.followed_up = event
+        self._ledger(event.subtask_id, reset=True, reopened_by=event.cause)
 
     def _contract_item_open(self) -> bool:
         """In a run that acts, a failed contract's item no decision has closed yet."""

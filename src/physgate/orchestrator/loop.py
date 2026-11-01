@@ -35,7 +35,7 @@ from physgate.orchestrator.arbitration import (
     arbitrate,
     dispute_standing,
 )
-from physgate.orchestrator.budget import infra_retry_delay
+from physgate.orchestrator.budget import ATTEMPT_LIMIT, infra_retry_delay
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
@@ -91,6 +91,7 @@ from physgate.orchestrator.events import (
     ModuleCompleted,
     NodeFilesRepaired,
     OsLayerChecked,
+    OwedEdge,
     PlanRejected,
     ProposalsChecked,
     Resumed,
@@ -125,6 +126,7 @@ from physgate.orchestrator.exceptions import (
     TrajectoryTamperedError,
     WorktreeMisplacedError,
 )
+from physgate.orchestrator.follow_up import owed
 from physgate.orchestrator.integration_state import issued_state
 from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.merge import merge_message
@@ -189,6 +191,7 @@ from physgate.orchestrator.replay import (
     SubtaskState,
     at_a_boundary,
     recorded_implementer,
+    replay,
     require_mergeable,
 )
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
@@ -1122,7 +1125,12 @@ class Loop:
         if previous is None:
             return None, None
         reopened = sub.reopened
-        if previous.merged is not None and reopened is not None and reopened.attempt == attempt:
+        if (
+            previous.merged is not None
+            and reopened is not None
+            and reopened.item_id is not None
+            and reopened.attempt == attempt
+        ):
             # The reopened attempt alone: a later one follows the repair rules.
             note = self.state.taken[reopened.item_id].note
             conform = conform_order(self.state, reopened.item_id, subtask_id, previous.number, note)
@@ -1241,6 +1249,7 @@ class Loop:
         reopened = sub.reopened
         if (
             reopened is not None
+            and reopened.item_id is not None
             and reopened.attempt == attempt
             and not self._rulings_hold(self.state.contract_items[reopened.item_id])
         ):
@@ -2107,6 +2116,8 @@ class Loop:
             if self._gate is None:
                 msg = f"the integration call cannot pass: gate mode is {mode!r} and no gate"
                 raise GateNotRegisteredError(msg, gate_mode=mode)
+            if not self._followed_up():
+                return
             head = self._expected_run_head()
             if head is None:
                 msg = "an integration call with no run branch head recorded"
@@ -2354,7 +2365,67 @@ class Loop:
         """
         if declaring is not None and not self._declaration_holds(declaring):
             return False
-        return self._results_hold() and self._scope_holds()
+        return self._results_hold() and self._follow_ups_hold() and self._scope_holds()
+
+    def _owed(self, events: Sequence[Event]) -> Mapping[str, tuple[OwedEdge, ...]]:
+        """What sizing's closing pass owed the domain modules on the record up to ``events``.
+
+        Candidates are the domain modules that merged with an attempt left to reopen at: one
+        that merged on its last has none, and the propagation check judges its nodes as written.
+        """
+        state = replay(events)
+        closing = state.closing_pass()
+        if closing is None or state.subtasks[closing].status != "done":
+            return {}
+        directory = state.subtasks[closing].plan.module_dir
+        candidates = {
+            s
+            for s in state.integrated()
+            if (sub := state.subtasks[s]).status == "done"
+            and sub.plan.module_dir != directory
+            and sub.attempts[-1].merged is not None
+            and sub.attempts[-1].number < ATTEMPT_LIMIT
+        }
+        _, change_sets = change_history(events)
+        head = max((r for c in change_sets for r in c.revisions), default=0)
+        lines = [line for line in self._graph.records_after(0) if line.rev <= head]
+        return owed(lines, change_sets, closing, candidates)
+
+    def _follow_ups_hold(self) -> bool:
+        """The follow-ups on the record are what the journal owed where they were written."""
+        events = self.log.events
+        taken = [e for e in events if isinstance(e, SubtaskReopened) and e.cause is not None]
+        if not taken or {e.subtask_id: e.owed for e in taken} == self._owed(events[: taken[0].seq]):
+            return True
+        detail = (
+            "the follow-ups on the record are not what the journal owed where they were written"
+        )
+        self._incident(None, "foreign_journal_line", detail)
+        return False
+
+    def _followed_up(self) -> bool:
+        """Whether the integration call may run: nothing more is owed before it, and none halted.
+
+        Writes the follow-ups the closing pass owes, in plan order, once: each reopens its domain
+        module at its next attempt, by code (ARCH-051). Once written, they are held to the journal.
+        """
+        if any(sub.followed_up is not None for sub in self.state.subtasks.values()):
+            return self._follow_ups_hold()
+        found = self._owed(self.log.events)
+        for subtask_id in [s for s in self.state.order if s in found]:
+            last = self.state.subtasks[subtask_id].attempts[-1]
+            merge_commit = last.merged.merge_commit if last.merged is not None else ""
+            self._emit(
+                SubtaskReopened(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    merge_commit=merge_commit,
+                    attempt=last.number + 1,
+                    cause="follow_up",
+                    owed=found[subtask_id],
+                )
+            )
+        return not found
 
     def _no_declaration_at_head(self, declaring: str) -> bool:
         """The run head integration's window would start from holds no declaration; else halted.

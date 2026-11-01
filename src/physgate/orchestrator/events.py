@@ -86,6 +86,7 @@ from physgate.orchestrator.trajectory import Seal
 from physgate.oslayer.probe import OsLayerState
 from physgate.roles import owner_of, owners_of
 from physgate.series.seal import SeriesCheck, SessionSeries
+from physgate.state.schema import NodeIdKey
 
 #: The eight stages of the per-subtask loop, in the architecture's order (ARCH-030).
 Stage = Literal[
@@ -721,20 +722,62 @@ class SubtaskRejected(_Event):
     item_id: NonEmptyStr | None
 
 
-class SubtaskReopened(_Event):
-    """A merged module's planning subtask reopens, as the taken decision on ``item_id`` ordered.
+#: The fields one kind of reopen carries and the other leaves out: a decision's, then code's.
+_REOPEN_EITHER = ("item_id", "shown_sha256", "cause", "owed")
 
-    The next line about any subtask after that decision: it names the decision's item and the
-    digest of the item line it was taken on, the subtask's last merge, and the attempt it reopens
-    at, its next one or its one fix. The earlier merge stays on the record.
+
+class OwedEdge(BaseModel):
+    """An edge a follow-up owes: a node sizing's closing pass changed, and one it constrains."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    source: NodeIdKey
+    target: NodeIdKey
+
+
+class SubtaskReopened(_Event):
+    """A merged module's planning subtask reopens, as a taken decision or the closing pass owes.
+
+    The decision's reopen is the next line about any subtask after the decision on ``item_id``:
+    it names that item and the digest of the item line it was taken on. A follow-up is code's
+    (``cause``), owed because sizing's closing pass changed a value whose edges reach a node of
+    the module that no session wrote after it; it names those edges, sorted, and no decision.
+    Either names the subtask's last merge and the attempt it reopens at, its next one or its one
+    fix. The earlier merge stays on the record. Each field one kind leaves out is left out of its
+    line, so a decision's keeps its bytes.
     """
 
     kind: Literal["subtask_reopened"] = "subtask_reopened"
     subtask_id: NonEmptyStr
-    item_id: NonEmptyStr
-    shown_sha256: Sha256
+    item_id: NonEmptyStr | None = None
+    shown_sha256: Sha256 | None = None
     merge_commit: Sha
     attempt: Attempt
+    cause: Literal["follow_up"] | None = None
+    owed: tuple[OwedEdge, ...] | None = None
+
+    @model_validator(mode="after")
+    def _a_decision_s_or_a_follow_up_s(self) -> SubtaskReopened:
+        if any(getattr(self, k) is None for k in self.model_fields_set & set(_REOPEN_EITHER)):
+            msg = "a field a reopen does not carry is left out of its line, never null"
+            raise ValueError(msg)
+        decided = (self.item_id, self.shown_sha256, self.cause, self.owed)
+        if None not in decided[:2] and decided[2:] == (None, None):
+            return self
+        owed = self.owed or ()
+        keys = [(e.source, e.target) for e in owed]
+        if decided[:2] == (None, None) and self.cause and keys and keys == sorted(set(keys)):
+            return self
+        msg = "a reopen is a decision's, with its item, or a follow-up's, with its edges sorted"
+        raise ValueError(msg)
+
+    @model_serializer(mode="wrap")
+    def _omit_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        for absent in _REOPEN_EITHER:
+            if getattr(self, absent) is None:
+                data.pop(absent, None)
+        return data
 
 
 class AttemptReturned(_Event):
