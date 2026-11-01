@@ -365,11 +365,18 @@ which the analyst could not read. None of them changes a number.
       Its digest was the same before and after the copy.
     - The script reads only the committed tally output and the run directories, so where it ran
       does not change what it computes.
-13. **§2.3 row 5's comparison of accounts with R-PG-01 cannot be made from the records.**
+13. **§2.3 row 5's comparison of accounts with R-PG-01 rests on the owner's statement, not on
+    records.**
     - R-PG-01's records hold no account label and no token digest prefix. Its launch script read
-      its credential from the laptop's local environment file.
-    - So which account R-PG-01 ran on can be stated only by the owner. Under §1's rule this is
-      impossible as specified. No step of §8 and no decision of §7 rests on it.
+      its credential from the laptop's local environment file (`.env`).
+    - The owner states that R-PG-01 ran on the credential in the laptop's `.env`, the Team account
+      (stated 01.11.2026).
+    - For reference, the token now in that `.env` has sha256 prefix `4389780d`, the same as round 2's
+      valid attempt (item 9). The orchestrator computed that prefix by digest alone on 31.10.2026,
+      without reading the token.
+    - Whether R-PG-01 used that same token cannot be checked from its records. Under §1's rule the
+      comparison is impossible as specified, and only the owner's statement stands in for it. No
+      step of §8 and no decision of §7 rests on it.
 
 ---
 
