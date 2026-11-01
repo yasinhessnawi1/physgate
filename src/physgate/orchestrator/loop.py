@@ -784,7 +784,7 @@ class Loop:
         if left.placeholders_refused is not None:
             found.append(("placeholder_refused", f"leftover session {sid}: "
                           f"{left.placeholders_refused}"))  # fmt: skip
-        changed = left.policy_limits_unread or (
+        changed = left.policy_limits_unsure or (
             policy_limits_change(self._policy_baseline(), left.policy_limits_sha256)
             if left.taken_up
             else None

@@ -332,16 +332,26 @@ def _findings(**given: Any) -> str:  # noqa: ANN401 - the record's own fields
 def test_an_end_record_that_says_less_takes_no_finding_away_from_what_is_derived(
     tmp_path: Path, record: str
 ) -> None:
-    rig = _killed_after_its_end(tmp_path / "run", {"abort", "reaping"}, PRESENT)
+    rig = _killed_after_its_end(tmp_path / "run", {"abort", "reaping", "limits"}, PRESENT)
     _end_record(tmp_path / "run", _findings() if record == "emptied" else '{"exit": 0, "tim')
-    _halted_with(rig, ["os_layer_aborted", "reaper_unverified"], "os_layer_aborted")
+    _halted_with(
+        rig,
+        ["managed_settings_changed", "os_layer_aborted", "reaper_unverified"],
+        "managed_settings_changed",
+    )
 
 
-def test_an_end_record_that_says_more_is_recorded(tmp_path: Path) -> None:
+@pytest.mark.parametrize("more", ["reaping", "policy limits"])
+def test_an_end_record_that_says_more_is_recorded(tmp_path: Path, more: str) -> None:
     rig = _killed_after_its_end(tmp_path / "run", set(), PRESENT)
-    _end_record(tmp_path / "run", _findings(reaper_unverified=['{"command": "forged"}']))
-    (reaping,) = _halted_with(rig, ["reaper_unverified"], "reaper_unverified")
-    assert "forged" in reaping["detail"]
+    said, cause = (
+        (_findings(reaper_unverified=['{"command": "forged"}']), "reaper_unverified")
+        if more == "reaping"
+        else (_findings(policy_limits_sha256="b" * 64), "managed_settings_changed")
+    )
+    _end_record(tmp_path / "run", said)
+    (found,) = _halted_with(rig, [cause], cause)
+    assert ("forged" if more == "reaping" else "b" * 64) in found["detail"]
 
 
 @pytest.mark.parametrize("record", ["missing", "not JSON", "malformed"])
@@ -373,3 +383,18 @@ def test_a_taken_up_hook_log_that_cannot_be_read_ends_halted_on_an_unverified_re
     rig = _killed_after_its_end(tmp_path / "run", {line}, PRESENT)
     (reaping,) = _halted_with(rig, ["reaper_unverified"], "reaper_unverified")
     assert "the hook log cannot be read" in reaping["detail"]
+
+
+def test_the_placeholder_sweep_records_what_it_did_even_when_it_found_nothing(
+    tmp_path: Path,
+) -> None:
+    from physgate.orchestrator.dispatch import ClaudeDispatcher  # noqa: PLC0415
+    from physgate.oslayer import placeholders  # noqa: PLC0415
+
+    worktree, sdir = tmp_path / "worktree", tmp_path / "session"
+    worktree.mkdir()
+    sdir.mkdir()
+    before = placeholders.snapshot(str(worktree), absent=())
+    assert ClaudeDispatcher._sweep(worktree, before, sdir) is None  # noqa: SLF001
+    kept = json.loads((sdir / "sandbox_placeholders.json").read_text())
+    assert kept == {"removed": [], "refused": []}

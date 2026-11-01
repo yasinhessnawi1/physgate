@@ -183,9 +183,9 @@ class Leftover(_Frozen):
     #: As at a session end: the digest of the policy limits its invocation left, if any. Compared
     #: with the run's first only for a session taken up: for one that is not, nothing was read.
     policy_limits_sha256: NonEmptyStr | None = None
-    #: For a session taken up whose end record does not say what its end found: why the policy
-    #: limits it ran under cannot be read, which is a finding of its own.
-    policy_limits_unread: NonEmptyStr | None = None
+    #: For a session taken up whose end record names other policy limits than its configuration
+    #: directory holds: what disagrees, which is a finding of its own.
+    policy_limits_unsure: NonEmptyStr | None = None
 
 
 class ChangeCheck(_Frozen):

@@ -791,6 +791,31 @@ def _spawned_under_the_layer(session_id: str, events: Sequence[Event]) -> bool:
     return False
 
 
+def _recorded_findings(sdir: Path) -> EndFindings | None:
+    """What the session's end record says its end found, if it says it; ``None`` otherwise."""
+    try:
+        record = json.loads(read_session_file(sdir / "ended.json"))
+        return EndFindings.model_validate_json(json.dumps(record["findings"]))
+    except (InvocationError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _refused_placeholders(sdir: Path) -> str | None:
+    """What the placeholder sweep at a session's end recorded it refused, as that end said it.
+
+    Under the OS layer the sweep always records what it did, so a record that is missing or cannot
+    be read is a finding, never "none refused".
+    """
+    try:
+        data = read_session_file(sdir / PLACEHOLDERS_NAME)
+        if not data:
+            return "the placeholder record cannot be read: it is missing or empty"
+        refused = json.loads(data)["refused"]
+        return "; ".join(f"{path}: {why}" for path, why in refused) or None
+    except (InvocationError, ValueError, KeyError, TypeError) as exc:
+        return f"the placeholder record cannot be read: {type(exc).__name__}"
+
+
 def _hook_records(state: Path) -> tuple[list[dict[str, Any]], str | None]:
     """Every record in the hook layer's log, and why the log cannot be read whole, if it cannot.
 
@@ -1699,9 +1724,9 @@ class ClaudeDispatcher:
             swept = placeholders.sweep(str(worktree), before)
         except OSError as exc:
             swept = placeholders.Swept(refused=[(".", f"the sweep failed: {exc}")])
-        if swept.removed or swept.refused:
-            kept = {"removed": swept.removed, "refused": swept.refused}
-            (sdir / PLACEHOLDERS_NAME).write_text(json.dumps(kept))
+        # Recorded whatever it found: a record a session taken up later lacks is a finding.
+        kept = {"removed": swept.removed, "refused": swept.refused}
+        (sdir / PLACEHOLDERS_NAME).write_text(json.dumps(kept))
         if not swept.refused:
             return None
         return "; ".join(f"{path}: {why}" for path, why in swept.refused)
@@ -1852,7 +1877,7 @@ class ClaudeDispatcher:
                 kind=kind,
                 quarantine=quarantine,
                 scan="unscanned (stream gone)",
-                **(self._end_again(sdir, b"", layered=layered) if again else {}),
+                **(self._end_again(sdir, session_id, b"", layered=layered) if again else {}),
             )
         # The same read as a session that ended under its orchestrator: sealed as read, a
         # tail after the runtime's result not taken, and a stream with a result held to the
@@ -1880,44 +1905,48 @@ class ClaudeDispatcher:
             review_material_seen=(
                 canary_seen(data, self._canaries) if kind == "session" and self._canaries else None
             ),
-            **(self._end_again(sdir, data, layered=layered) if again else {}),
+            **(self._end_again(sdir, session_id, data, layered=layered) if again else {}),
         )
 
-    @staticmethod
-    def _end_again(sdir: Path, data: bytes, *, layered: bool) -> dict[str, Any]:
-        """What a session's own end found beside its stream, from the end record it wrote.
+    def _end_again(
+        self, sdir: Path, session_id: str, data: bytes, *, layered: bool
+    ) -> dict[str, Any]:
+        """What a session's own end showed beside its stream, derived again, with what it recorded.
 
-        The record is the dispatcher's, written after the stop was confirmed: the session's own
-        files (its hook log, the sweep's record, its configuration) are not read again. The
-        possible abort and the refused placeholders count only where the record shows the session
-        spawned under the OS layer (without it a ``bwrap:`` line is the session's own output, and
-        no sweep ran). A record that does not say what the end found fails closed: each finding
-        it would hold is one that cannot be read, and the possible abort is read from the stream,
-        as the end read it. The withheld files' check and the managed tier's are taken live at the
-        end, against what only that process held, and are not on the record.
+        Derived as :meth:`_run_session` derived it, from what the session's directory keeps: the
+        possible abort from the stream and the refused placeholders from the sweep's record, both
+        only where the record shows the session spawned under the OS layer (without it a ``bwrap:``
+        line is the session's own output, and no sweep ran); the unverified reaping from the hook
+        layer's log; the policy limits' digest from the configuration directory. Each fails closed
+        where its input is missing or cannot be read. The end record the dispatcher wrote sits in
+        the session's directory too, so it only ever adds: what it names beside the derivations is
+        a finding, and nothing it leaves out takes one away. The withheld files' check and the
+        managed tier's are taken live at the end, against what only that process held.
         """
-        try:
-            record = json.loads(read_session_file(sdir / "ended.json"))
-            found = EndFindings.model_validate_json(json.dumps(record["findings"]))
-        except (InvocationError, ValueError, KeyError, TypeError):
-            why = "the session's end record cannot be read"
-            return {
-                "taken_up": True,
-                "os_layer_aborted": aborted_tool_uses(data.decode(errors="replace"))
-                if layered
-                else (),
-                "reaper_unverified": (f"{HOOK_LOG_UNREAD} as its end read it: {why}",),
-                "placeholders_refused": f"the placeholder record cannot be read: {why}"
-                if layered
-                else None,
-                "policy_limits_unread": f"the policy limits it ran under cannot be read: {why}",
-            }
+        recorded = _recorded_findings(sdir)
+        aborted = aborted_tool_uses(data.decode(errors="replace")) if layered else ()
+        unverified = self._reaper_unverified(sdir / "state", session_id)
+        refused = _refused_placeholders(sdir) if layered else None
+        digest = policy_limits_digest(sdir / "config")
+        unsure: str | None = None
+        if recorded is not None:
+            if layered:
+                aborted = tuple(dict.fromkeys((*aborted, *recorded.os_layer_aborted)))
+                if recorded.placeholders_refused not in (None, refused):
+                    refused = "; ".join(r for r in (refused, recorded.placeholders_refused) if r)
+            unverified = tuple(dict.fromkeys((*unverified, *recorded.reaper_unverified)))
+            if recorded.policy_limits_sha256 != digest:
+                unsure = (
+                    f"its end record names the policy limits {recorded.policy_limits_sha256} "
+                    f"where its configuration directory holds {digest}"
+                )
         return {
             "taken_up": True,
-            "os_layer_aborted": found.os_layer_aborted if layered else (),
-            "reaper_unverified": found.reaper_unverified,
-            "placeholders_refused": found.placeholders_refused if layered else None,
-            "policy_limits_sha256": found.policy_limits_sha256,
+            "os_layer_aborted": aborted,
+            "reaper_unverified": unverified,
+            "placeholders_refused": refused,
+            "policy_limits_sha256": digest,
+            "policy_limits_unsure": unsure,
         }
 
     def _quarantine_of(self, session_id: str) -> str | None:
