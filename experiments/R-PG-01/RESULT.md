@@ -24,9 +24,12 @@
 > number; everything below it is as first committed.** With the complete parts sheet, the
 > reviewers approved 0 and 1 of the 40 injected artefacts in two rounds, so the kill reading still
 > fires. R-PG-01b's pre-registered sentence is "The complete sheet did not change the kill
-> reading." How much the incomplete sheet favoured the gate is "not measurable at this approval
-> rate", since C was 0 under either sheet. R-PG-01b's replication arm reproduced this file's
-> reading, and its gate records are byte-identical to this run's
+> reading." How much the incomplete sheet changed the gate's added catches is "not measurable at
+> this approval rate", since C was 0 under either sheet. R-PG-01b's one shown contrast runs against
+> the expectation of the preface above, that on clean designs the incomplete sheet could only add
+> false rejects: with the complete sheet the reviewers approved fewer of the 40 clean twins, ΔT =
+> −3.0 a round (95 % bootstrap −5.5 to −1.0, exact p = 0.031). R-PG-01b's replication arm
+> reproduced this file's reading, and its gate records are byte-identical to this run's
 > (`experiments/R-PG-01b/RESULT.md`).
 
 **Pre-registration:** `CRITERIA.md` frozen at commit `8bc03fc` (2026-10-18), sha256
