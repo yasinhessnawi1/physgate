@@ -138,6 +138,18 @@ elif MODE == "setsid":
         time.sleep(0.8)
         os._exit(0)
     os.waitpid(pid, 0)
+elif MODE == "held":
+    # A child running when the session ends, which writes nothing: the stop's own failure is what
+    # refuses the attempt, never a write racing the check after it. The session ends once the
+    # child says it runs, not after a time.
+    pid = os.fork()
+    if pid == 0:
+        open(os.path.join(FLAGS, "ready"), "w").close()
+        time.sleep(120)
+        os._exit(0)
+    note(pid)
+    while not os.path.exists(os.path.join(FLAGS, "ready")):
+        time.sleep(0.02)
 elif MODE == "between":
     pid = os.fork()
     if pid == 0:
@@ -547,7 +559,7 @@ def test_a_stop_that_leaves_a_survivor_refuses_the_attempt_before_any_git_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
 ) -> None:
     """The stop exhausted (here it stops nothing): the table, read again, still shows the child."""
-    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    session = Session(tmp_path, "held", pause=0.0, wall_clock_s=60.0)
     dispatcher = session.dispatcher(monkeypatch)
     monkeypatch.setattr(ending, "stop_all", lambda procs: ())
     try:
@@ -561,7 +573,7 @@ def test_a_stop_that_leaves_a_survivor_refuses_the_attempt_before_any_git_call(
 def test_a_process_table_that_cannot_be_read_refuses_the_attempt_before_any_git_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
 ) -> None:
-    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    session = Session(tmp_path, "held", pause=0.0, wall_clock_s=60.0)
     dispatcher = session.dispatcher(monkeypatch)
     monkeypatch.setattr(dispatch, "process_rows", lambda: None, raising=False)
     try:
@@ -574,7 +586,7 @@ def test_a_process_table_that_cannot_be_read_refuses_the_attempt_before_any_git_
 def test_a_stop_denied_its_signal_refuses_the_attempt_before_any_git_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
 ) -> None:
-    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    session = Session(tmp_path, "held", pause=0.0, wall_clock_s=60.0)
     dispatcher = session.dispatcher(monkeypatch)
 
     def denied(pid: int, sig: int) -> None:
