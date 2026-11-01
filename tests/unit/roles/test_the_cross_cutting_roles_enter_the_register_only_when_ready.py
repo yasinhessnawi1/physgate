@@ -74,6 +74,17 @@ def test_sizing_and_integration_enter_the_register_only_with_reading_and_a_revie
             roles.require_registered([name])
 
 
+def test_sizing_ships_with_its_reading_and_its_reviewer_s_promoted_rubric(shipped: None) -> None:
+    # The library and the rubric are promoted, so the role is in the register as it ships: a
+    # plan may name it, a session of it may be dispatched, and it alone owns the cross nodes.
+    assert roles.SIZING in roles.SHIPPED
+    assert roles.ROLES["sizing"] is roles.SIZING
+    assert _missing(roles.SIZING) == []
+    assert roles.dispatchable("sizing")
+    roles.require_registered(["control", "firmware", "sizing", "integration"])
+    assert roles.owner_of("cross_nodes") == "sizing"
+
+
 def test_every_shipped_role_has_its_reading_and_a_promoted_reviewer(shipped: None) -> None:
     assert roles.SHIPPED, "the register ships no role"
     for role in roles.SHIPPED:
@@ -251,6 +262,8 @@ def test_the_owners_of_a_duty_are_every_registered_role_that_owns_it(
     # can be changed after the register refused a second owner, as a stand-in role is added.
     ballast = roles.CrossCuttingRole(name="ballast", architecture="ARCH-051", owns="cross_nodes")
     assert roles.owners_of("completion") == ("integration",)
+    assert roles.owners_of("cross_nodes") == ("sizing",)
+    monkeypatch.delitem(roles.ROLES, roles.SIZING.name, raising=False)
     assert roles.owners_of("cross_nodes") == ()
     monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
     assert roles.owners_of("cross_nodes") == ("sizing",)

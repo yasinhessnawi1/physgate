@@ -110,7 +110,12 @@ def shadowing(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _shipped(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The register as the harness ships it: no owner of the cross nodes yet."""
+    """The register as the harness ships it: sizing owns the cross nodes."""
+
+
+def _unowned(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A register in which no role owns the cross nodes."""
+    monkeypatch.delitem(roles.ROLES, roles.SIZING.name, raising=False)
 
 
 def _sizing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -118,12 +123,14 @@ def _sizing(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _ballast(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A register whose one owner of the cross nodes is not called sizing."""
+    _unowned(monkeypatch)
     monkeypatch.setitem(roles.ROLES, BALLAST.name, BALLAST)
 
 
 def _two_cross_owners(monkeypatch: pytest.MonkeyPatch) -> None:
     _sizing(monkeypatch)
-    _ballast(monkeypatch)
+    monkeypatch.setitem(roles.ROLES, BALLAST.name, BALLAST)
 
 
 def _closer(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -192,13 +199,13 @@ CROSS_CASES: dict[str, Case] = {
     ),
     "sizing's cross node where no registered role owns the cross nodes": (
         "sizing",
-        _shipped,
+        _unowned,
         node("sizing.motor_right", "sizing"),
         graph.CROSS_NODE,
     ),
     "a domain role's cross node where no registered role owns the cross nodes": (
         "control",
-        _shipped,
+        _unowned,
         node("control.motor_right", "control", domain="cross"),
         graph.CROSS_NODE,
     ),
@@ -348,7 +355,10 @@ ORDER_CASES: dict[str, Case] = {
             node("integration.mass", "integration", domain="cross"),
             graph.CROSS_NODE,
         )
-        for said, register in (("as shipped", _shipped), ("sizing registered", _sizing))
+        for said, register in (
+            ("as shipped", _shipped),
+            ("with no owner of the cross nodes", _unowned),
+        )
     },
     "the completion owner's new interface": (
         "integration",
@@ -420,6 +430,12 @@ LANDS: dict[str, Case] = {
         ALLOW,
     ),
     "sizing's new cross node": ("sizing", _sizing, node("sizing.motor_right", "sizing"), ALLOW),
+    "sizing's new cross node, as shipped": (
+        "sizing",
+        _shipped,
+        node("sizing.motor_right", "sizing"),
+        ALLOW,
+    ),
     "sizing's own cross node, rewritten": (
         "sizing",
         _sizing,
@@ -686,6 +702,7 @@ def test_the_owner_is_looked_up_at_apply_on_every_read_not_once(
     # The register as it stands when the proposals are read decides, not as it stood before.
     store = _store(tmp_path / "store")
     payload = node("sizing.motor_right", "sizing")
+    _unowned(monkeypatch)
     assert through_apply(tmp_path / "a", store, "sizing", payload) == graph.CROSS_NODE
     _sizing(monkeypatch)
     assert through_apply(tmp_path / "b", store, "sizing", payload) == ALLOW

@@ -142,6 +142,7 @@ def test_the_owner_is_found_in_the_register_by_what_it_owns_not_by_its_name(
 ) -> None:
     # A register whose owner of the cross nodes is not called sizing: the rule follows
     # the register, and the name sizing then carries nothing.
+    monkeypatch.delitem(roles.ROLES, roles.SIZING.name, raising=False)
     monkeypatch.setitem(roles.ROLES, BALLAST.name, BALLAST)
     assert roles.owner_of("cross_nodes") == "ballast"
     assert _write(_session(tmp_path, "ballast"), node("ballast.mass", "ballast")) == "allow"
@@ -152,9 +153,22 @@ def test_the_owner_is_found_in_the_register_by_what_it_owns_not_by_its_name(
 # --- an owner the register does not settle ------------------------------------------------
 
 
-def test_a_cross_node_with_no_registered_owner_is_refused(tmp_path: Path) -> None:
-    # As shipped, no registered role owns the cross nodes: a cross node then has no
-    # writer at all, and the hook fails closed for every session, sizing included.
+def test_as_shipped_sizing_owns_the_cross_nodes_and_writes_them_alone(tmp_path: Path) -> None:
+    # The register as it ships names sizing as the owner of the cross nodes.
+    assert roles.owner_of("cross_nodes") == "sizing"
+    assert _write(_session(tmp_path, "sizing"), node("sizing.motor_right", "sizing")) == "allow"
+    told = _write(
+        _session(tmp_path, "control"), node("control.motor_right", "control", domain="cross")
+    )
+    assert graph.CROSS_NODE in told and "only the sizing role writes" in told
+
+
+def test_a_cross_node_with_no_registered_owner_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A register in which no role owns the cross nodes: a cross node then has no writer at
+    # all, and the hook fails closed for every session, sizing included.
+    monkeypatch.delitem(roles.ROLES, roles.SIZING.name, raising=False)
     assert all(getattr(role, "owns", None) != "cross_nodes" for role in roles.ROLES.values())
     for role in ("sizing", "control"):
         told = _write(_session(tmp_path, role), node(f"{role}.motor_right", role, domain="cross"))
@@ -162,7 +176,10 @@ def test_a_cross_node_with_no_registered_owner_is_refused(tmp_path: Path) -> Non
         assert graph.CROSS_NODE in told and "no registered role owns the cross nodes" in told
 
 
-def test_with_no_owner_registered_a_domain_node_is_unaffected(tmp_path: Path) -> None:
+def test_with_no_owner_registered_a_domain_node_is_unaffected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delitem(roles.ROLES, roles.SIZING.name, raising=False)
     assert _write(_session(tmp_path, "control"), node("control.gain", "control")) == "allow"
 
 

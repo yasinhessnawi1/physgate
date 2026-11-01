@@ -59,7 +59,7 @@ def _sha(text: str) -> str:
 
 @pytest.fixture
 def sizing_registered(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The register as it will stand once sizing ships."""
+    """The register with sizing in it, as it ships."""
     monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
 
 
@@ -99,10 +99,13 @@ def test_with_sizing_alone_the_schema_is_as_before_and_the_prompt_gains_one_sent
     assert prompt.replace(sentence + "\n\n", "") == before
 
 
-def test_without_sizing_registered_a_role_of_that_name_changes_nothing() -> None:
-    # Sizing is found in the register by what it owns. Until it ships, nothing owns the
-    # cross nodes, so a run cannot name it (the register refuses that run before its call),
+def test_without_sizing_registered_a_role_of_that_name_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Sizing is found in the register by what it owns. In a register without it, nothing owns
+    # the cross nodes, so a run cannot name it (the register refuses that run before its call),
     # and the prompt has no sentence for it.
+    monkeypatch.delitem(roles.ROLES, roles.SIZING.name, raising=False)
     run_roles = ("control", "firmware", "sizing")
     assert roles.owners_of("cross_nodes") == ()
     prompt = prompt_for(BRIEF, run_roles)

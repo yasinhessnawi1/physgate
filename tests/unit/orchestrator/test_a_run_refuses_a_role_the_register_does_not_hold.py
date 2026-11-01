@@ -38,11 +38,11 @@ def shipped(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setitem(roles.ROLES, row.name, row)
 
 
-def test_the_register_ships_three_built_roles_and_two_for_planning_only(
+def test_the_register_ships_four_built_roles_and_two_for_planning_only(
     shipped: None,
 ) -> None:
     # Read from what the module ships, not from the register this suite has added to.
-    names = ["control", "firmware", "integration", "mechanical", "electrical"]
+    names = ["control", "firmware", "sizing", "integration", "mechanical", "electrical"]
     assert [role.name for role in roles.SHIPPED] == names
     assert set(roles.ROLES) == set(names)
     assert [n for n in names if not roles.dispatchable(n)] == ["mechanical", "electrical"]

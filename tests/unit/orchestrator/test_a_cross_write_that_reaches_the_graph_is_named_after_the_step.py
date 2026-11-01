@@ -76,9 +76,15 @@ def test_the_check_lets_the_owner_s_cross_write_stand(
     assert _after_a_step(tmp_path, "sizing", node("sizing.motor_right", "sizing", "cross")) == ()
 
 
-def test_as_shipped_no_role_owns_the_cross_nodes_and_every_cross_write_is_named(
-    tmp_path: Path,
+def test_as_shipped_sizing_owns_the_cross_nodes_and_its_cross_write_stands(tmp_path: Path) -> None:
+    assert roles.owners_of("cross_nodes") == ("sizing",)
+    assert _after_a_step(tmp_path, "sizing", node("sizing.motor_right", "sizing", "cross")) == ()
+
+
+def test_with_no_owner_of_the_cross_nodes_every_cross_write_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.delitem(roles.ROLES, roles.SIZING.name, raising=False)
     (found,) = _after_a_step(tmp_path, "sizing", node("sizing.motor_right", "sizing", "cross"))
     assert CROSS_NODE in found and "no registered role owns the cross nodes" in found
 
@@ -86,6 +92,7 @@ def test_as_shipped_no_role_owns_the_cross_nodes_and_every_cross_write_is_named(
 def test_the_owner_is_found_by_what_it_owns_not_by_its_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.delitem(roles.ROLES, roles.SIZING.name, raising=False)
     monkeypatch.setitem(roles.ROLES, BALLAST.name, BALLAST)
     assert _after_a_step(tmp_path / "a", "ballast", node("ballast.mass", "ballast", "cross")) == ()
     (found,) = _after_a_step(
@@ -182,6 +189,7 @@ def test_one_keeper_asks_the_register_again_on_every_check(
     assert store.write_node(node("sizing.motor_right", "sizing", "cross"), "sizing").accepted
     store.close()
     keeper = StoreKeeper(RunGit(repo=tmp_path, run_dir=tmp_path / "run", run_id="r1"), root)
+    monkeypatch.delitem(roles.ROLES, roles.SIZING.name, raising=False)
     try:
         (unowned,) = map(str, keeper.divergences(since, "sizing"))
         assert CROSS_NODE in unowned and "no registered role owns the cross nodes" in unowned

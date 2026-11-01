@@ -20,6 +20,7 @@ from physgate.roles import (
     MECHANICAL,
     ROLES,
     SHIPPED,
+    SIZING,
     Role,
 )
 
@@ -36,16 +37,17 @@ def test_firmware_is_the_firmware_domain_row() -> None:
     assert FIRMWARE.architecture == "ARCH-050"
 
 
-def test_the_register_holds_exactly_these_five_roles_so_far() -> None:
+def test_the_register_holds_exactly_these_six_roles_so_far() -> None:
     # What ships; the suite registers its dispatchable electrical and mechanical stand-ins over
-    # the shipped rows, which are registered for planning only. Integration, a cross-cutting
-    # role, ships with its reading and its reviewer's rubric; sizing waits for its own.
-    assert SHIPPED == (CONTROL, FIRMWARE, INTEGRATION, MECHANICAL, ELECTRICAL)
+    # the shipped rows, which are registered for planning only. Sizing and integration, the two
+    # cross-cutting roles, ship with their reading and their reviewers' promoted rubrics.
+    assert SHIPPED == (CONTROL, FIRMWARE, SIZING, INTEGRATION, MECHANICAL, ELECTRICAL)
     assert MECHANICAL.planning_only and ELECTRICAL.planning_only
     assert not (CONTROL.planning_only or FIRMWARE.planning_only)
     assert {k: v for k, v in ROLES.items() if v in SHIPPED} == {
         "control": CONTROL,
         "firmware": FIRMWARE,
+        "sizing": SIZING,
         "integration": INTEGRATION,
     }
 
