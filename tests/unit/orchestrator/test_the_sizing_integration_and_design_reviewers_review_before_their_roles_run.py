@@ -2,11 +2,11 @@
 
 Each of the three has a rubric rule (a criterion not evaluable always blocks) and its own
 item prefixes, distinct from every other role's, so an item id in a verdict names its
-rubric. None of that admits a session of the role: only the role register does. Integration
-is registered, with its reading and its reviewer's promoted rubric; sizing is not yet, and
-``design`` names the plan's reviewer, never a role. A run naming either is refused at the
-role register whatever reviewer it brings. The generic model separation check is exercised
-once, not per role.
+rubric. None of that admits a session of the role: only the role register does. Sizing and
+integration are registered, with their reading and their reviewers' promoted rubrics, and
+``design`` names the plan's reviewer, never a role: a run naming it is refused at the role
+register whatever reviewer it brings, and a run naming sizing passes it. The generic model
+separation check is exercised once, not per role.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from orch_helpers import make_config
 from physgate.orchestrator.exceptions import ModelSeparationError, RoleNotRegisteredError
 from physgate.orchestrator.loop import refuse_unregistered
 from physgate.orchestrator.protocols import require_separate_models
+from physgate.orchestrator.run_config import RunConfig
 from physgate.reviewers.rubric import ITEM_PREFIXES, SECTIONS, RubricItem, not_evaluable_needs
 
 NEW = ("sizing", "integration", "design")
@@ -47,7 +48,24 @@ def test_no_two_roles_share_a_prefix() -> None:
     assert len(every) == len(set(every)), sorted(p for p in every if every.count(p) > 1)
 
 
-@pytest.mark.parametrize("role", [r for r in NEW if r != "integration"])
+def _naming(role: str) -> RunConfig:
+    base = make_config(gate_mode="off")
+    models = base.models.model_copy(
+        update={
+            "roles": {**base.models.roles, role: IMPLEMENTER},
+            "reviewers": {**base.models.reviewers, role: REVIEWER},
+        }
+    )
+    return base.model_copy(update={"models": models})
+
+
+def test_a_run_naming_sizing_passes_the_role_register_with_its_reviewer() -> None:
+    config = _naming("sizing")
+    reviewers = {role: SimpleNamespace(model=m) for role, m in config.models.reviewers.items()}
+    refuse_unregistered(config, None, reviewers)
+
+
+@pytest.mark.parametrize("role", [r for r in NEW if r not in ("integration", "sizing")])
 def test_a_run_naming_an_unregistered_new_role_is_refused_whatever_reviewer_it_brings(
     role: str,
 ) -> None:
