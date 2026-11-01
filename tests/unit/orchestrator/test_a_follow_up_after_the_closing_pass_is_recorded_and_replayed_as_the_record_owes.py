@@ -267,6 +267,18 @@ def test_a_follow_up_at_another_attempt_or_of_another_merge_is_refused(tmp_path:
         assert said in (refusal(lines) or ""), change
 
 
+def test_a_change_reaching_sizing_s_own_node_owes_sizing_no_follow_up(tmp_path: Path) -> None:
+    # The bus also constrains a rail sizing's opening pass wrote: that edge is sizing's own work,
+    # judged by the check as written, and only the domain module is reopened.
+    rig = slice_rig(tmp_path)
+    rail = node("sizing.rail", "sizing")
+    rig.diff.writes["z0"] = [node(BUS, "sizing", constrains=[DRIVER, "sizing.rail"]), rail]  # type: ignore[attr-defined]
+    rig.diff.writes["zc"] = [node(BUS, "sizing", constrains=[DRIVER, "sizing.rail"], amps=3.0)]  # type: ignore[attr-defined]
+    assert ended(rig, plan=CLOSING) == "done"
+    owed = [(f["subtask_id"], f["owed"]) for f in follow_ups(events_of(rig))]
+    assert owed == [("s1", [{"source": BUS, "target": DRIVER}])]
+
+
 def test_two_modules_reached_are_each_owed_one_follow_up_written_together(
     tmp_path: Path,
 ) -> None:
