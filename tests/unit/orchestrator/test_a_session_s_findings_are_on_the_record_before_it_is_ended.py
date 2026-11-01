@@ -33,7 +33,7 @@ from test_a_session_end_s_findings_are_recorded_before_its_incidents_and_a_kill_
 )
 
 from physgate.orchestrator.credentials import Credential
-from physgate.orchestrator.dispatch import ClaudeDispatcher, write_record
+from physgate.orchestrator.dispatch import ClaudeDispatcher, EndFindings, write_record
 from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest, SpawnHook
 
@@ -99,7 +99,7 @@ class EndedBySession(FakeDispatcher):
             assert on_spawn is not None
             on_spawn("sess-1", 999_999, STARTED)
             report = super().run(request, on_spawn)
-            write_record(sdir.parent, sdir.name, {"exit": 0, "timed_out": False}, "ended.json")
+            write_record(sdir.parent, sdir.name, ended_record(report), "ended.json")
             return report
         return super().run(request, on_spawn)
 
@@ -109,6 +109,17 @@ class EndedBySession(FakeDispatcher):
 
     def end_leftovers(self) -> None:
         self._held.end_leftovers()
+
+
+def ended_record(report: SessionReport) -> dict[str, Any]:
+    """The end record the real dispatcher writes, with what the session's end found."""
+    found = EndFindings(
+        os_layer_aborted=report.os_layer_aborted,
+        reaper_unverified=report.reaper_unverified,
+        placeholders_refused=report.placeholders_refused,
+        policy_limits_sha256=report.policy_limits_sha256,
+    )
+    return {"exit": 0, "timed_out": False, "findings": found.model_dump(mode="json")}
 
 
 def _rig(path: Path, **shown: Any) -> Rig:  # noqa: ANN401 - the fake's own fields
@@ -203,7 +214,8 @@ def test_a_kill_after_the_session_was_ended_and_before_any_line_resumes_halted_o
     assert "merged" not in kinds(rows)
     # The end the session's own run wrote is kept.
     ended = json.loads((tmp_path / "run" / "sessions" / "sess-1" / "ended.json").read_text())
-    assert ended == {"exit": 0, "timed_out": False}
+    assert ended["exit"] == 0 and ended["timed_out"] is False
+    assert ended["findings"]["reaper_unverified"] == []
 
 
 def test_a_kill_after_a_session_s_finding_does_not_read_its_stream_again(tmp_path: Path) -> None:

@@ -125,6 +125,11 @@ class SessionReport(_Frozen):
     reaper_unverified: tuple[NonEmptyStr, ...] = ()
 
 
+#: How a reason a hook layer's log says nothing of a session's reaping begins, where it stands
+#: among the commands whose survivor reaper was not heard from: no command is taken as heard from.
+HOOK_LOG_UNREAD = "the hook log cannot be read"
+
+
 #: Whose session a leftover was, as its tokens are attributed: ``session`` or ``reviewer``.
 SessionKind = Literal["session", "reviewer"]
 
@@ -178,6 +183,9 @@ class Leftover(_Frozen):
     #: As at a session end: the digest of the policy limits its invocation left, if any. Compared
     #: with the run's first only for a session taken up: for one that is not, nothing was read.
     policy_limits_sha256: NonEmptyStr | None = None
+    #: For a session taken up whose end record does not say what its end found: why the policy
+    #: limits it ran under cannot be read, which is a finding of its own.
+    policy_limits_unread: NonEmptyStr | None = None
 
 
 class ChangeCheck(_Frozen):

@@ -38,9 +38,9 @@ import uuid
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Annotated, Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from physgate.hooks import withheld
 from physgate.hooks.config import SessionConfig
@@ -54,6 +54,7 @@ from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.canaries import canary_seen
+from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
@@ -88,6 +89,7 @@ from physgate.orchestrator.invocation import isolated_env, role_argv, session_se
 from physgate.orchestrator.managed import drift, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import (
+    HOOK_LOG_UNREAD,
     Leftover,
     SessionKind,
     SessionReport,
@@ -789,14 +791,53 @@ def _spawned_under_the_layer(session_id: str, events: Sequence[Event]) -> bool:
     return False
 
 
-def _refused_placeholders(sdir: Path) -> str | None:
-    """What the placeholder sweep at a session's end recorded it refused, as that end said it."""
+def _hook_records(state: Path) -> tuple[list[dict[str, Any]], str | None]:
+    """Every record in the hook layer's log, and why the log cannot be read whole, if it cannot.
+
+    Every hook writes one object per line, its decision a string and its session, where it names
+    one, a string. A line that is anything else (cut short, not an object, a field of another type),
+    or a log that is a link, is not read past as if it said nothing. No log is no record.
+    """
+    log = state / LOG_NAME
+    if not log.exists():
+        return [], None
     try:
-        data = read_session_file(sdir / PLACEHOLDERS_NAME)
-        refused = json.loads(data)["refused"] if data else []
-        return "; ".join(f"{path}: {why}" for path, why in refused) or None
-    except (InvocationError, ValueError, KeyError, TypeError):
-        return "the placeholder sweep's record of the session cannot be read"
+        text = read_session_file(log).decode(errors="replace")
+    except InvocationError as exc:
+        return [], f"{HOOK_LOG_UNREAD}: {exc}"
+    records: list[dict[str, Any]] = []
+    unread: str | None = None
+    for n, line in enumerate(text.splitlines(), start=1):
+        try:
+            record = json.loads(line)
+        except ValueError:
+            record = None
+        if (
+            isinstance(record, dict)
+            and isinstance(record.get("decision"), str)
+            and isinstance(record.get("session", ""), str)
+        ):
+            records.append(record)
+        elif unread is None:
+            unread = f"{HOOK_LOG_UNREAD}: its line {n} is not a hook's record"
+    return records, unread
+
+
+class EndFindings(BaseModel):
+    """What a session's end found beside its stream, on the end record its dispatcher writes.
+
+    Written after the stop is confirmed, when nothing of the session runs, and read by a process
+    that takes the session up after a kill before the loop's first line about it: every field is
+    required, so a record that does not say what the end found is never read as one that found
+    nothing.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    os_layer_aborted: tuple[NonEmptyStr, ...]
+    reaper_unverified: tuple[NonEmptyStr, ...]
+    placeholders_refused: NonEmptyStr | None
+    policy_limits_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None
 
 
 def write_record(parent: Path, name: str, record: dict[str, Any], file: str) -> None:
@@ -1578,6 +1619,13 @@ class ClaudeDispatcher:
                 raise InvocationError(msg, asked=request.model, answered=",".join(echoed))
         halted, appends = self._hook_log(sdir / "state", session_id)
         unverified = self._reaper_unverified(sdir / "state", session_id)
+        limits = policy_limits_digest(sdir / "config")
+        found = EndFindings(
+            os_layer_aborted=aborted,
+            reaper_unverified=unverified,
+            placeholders_refused=placeholders_refused,
+            policy_limits_sha256=limits,
+        )
         # The session has ended: its series records leave the worktree before anything is
         # committed, sealed if they hold, so no record is ever in git or in a review's diff.
         series = collect(
@@ -1613,6 +1661,8 @@ class ClaudeDispatcher:
                 "timed_out": timed_out,
                 "left_running": list(ended.left_running),
                 "sentinel_after_stop": after_stop,
+                # What a process taking the session up after a kill records in the loop's place.
+                "findings": found.model_dump(mode="json"),
             },
             "ended.json",
         )
@@ -1629,7 +1679,7 @@ class ClaudeDispatcher:
             hook_journal_appends=appends,
             usage=usage,
             managed_drift=drift(sdir / "config", system_before),
-            policy_limits_sha256=policy_limits_digest(sdir / "config"),
+            policy_limits_sha256=limits,
             trajectory_seal=sealed,
             trajectory_tampered=tampered,
             review_material_seen=seen,
@@ -1802,7 +1852,7 @@ class ClaudeDispatcher:
                 kind=kind,
                 quarantine=quarantine,
                 scan="unscanned (stream gone)",
-                **(self._end_again(sdir, session_id, b"", layered=layered) if again else {}),
+                **(self._end_again(sdir, b"", layered=layered) if again else {}),
             )
         # The same read as a session that ended under its orchestrator: sealed as read, a
         # tail after the runtime's result not taken, and a stream with a result held to the
@@ -1830,27 +1880,44 @@ class ClaudeDispatcher:
             review_material_seen=(
                 canary_seen(data, self._canaries) if kind == "session" and self._canaries else None
             ),
-            **(self._end_again(sdir, session_id, data, layered=layered) if again else {}),
+            **(self._end_again(sdir, data, layered=layered) if again else {}),
         )
 
-    def _end_again(
-        self, sdir: Path, session_id: str, data: bytes, *, layered: bool
-    ) -> dict[str, Any]:
-        """What a session's own end showed beside its stream, read again from its directory.
+    @staticmethod
+    def _end_again(sdir: Path, data: bytes, *, layered: bool) -> dict[str, Any]:
+        """What a session's own end found beside its stream, from the end record it wrote.
 
-        As :meth:`_run_session` read it, from what the directory keeps: the possible abort from
-        the stream and the refused placeholders from the sweep's record, both only under the OS
-        layer (without it a ``bwrap:`` line is the session's own output, and no sweep ran); the
-        unverified reaping from the hook layer's log; the policy limits' digest from the
-        configuration directory. The withheld files' check and the managed tier's are taken live
-        at the end, against what only that process held, and are not read again.
+        The record is the dispatcher's, written after the stop was confirmed: the session's own
+        files (its hook log, the sweep's record, its configuration) are not read again. The
+        possible abort and the refused placeholders count only where the record shows the session
+        spawned under the OS layer (without it a ``bwrap:`` line is the session's own output, and
+        no sweep ran). A record that does not say what the end found fails closed: each finding
+        it would hold is one that cannot be read, and the possible abort is read from the stream,
+        as the end read it. The withheld files' check and the managed tier's are taken live at the
+        end, against what only that process held, and are not on the record.
         """
+        try:
+            record = json.loads(read_session_file(sdir / "ended.json"))
+            found = EndFindings.model_validate_json(json.dumps(record["findings"]))
+        except (InvocationError, ValueError, KeyError, TypeError):
+            why = "the session's end record cannot be read"
+            return {
+                "taken_up": True,
+                "os_layer_aborted": aborted_tool_uses(data.decode(errors="replace"))
+                if layered
+                else (),
+                "reaper_unverified": (f"{HOOK_LOG_UNREAD} as its end read it: {why}",),
+                "placeholders_refused": f"the placeholder record cannot be read: {why}"
+                if layered
+                else None,
+                "policy_limits_unread": f"the policy limits it ran under cannot be read: {why}",
+            }
         return {
             "taken_up": True,
-            "os_layer_aborted": aborted_tool_uses(data.decode(errors="replace")) if layered else (),
-            "reaper_unverified": self._reaper_unverified(sdir / "state", session_id),
-            "placeholders_refused": _refused_placeholders(sdir) if layered else None,
-            "policy_limits_sha256": policy_limits_digest(sdir / "config"),
+            "os_layer_aborted": found.os_layer_aborted if layered else (),
+            "reaper_unverified": found.reaper_unverified,
+            "placeholders_refused": found.placeholders_refused if layered else None,
+            "policy_limits_sha256": found.policy_limits_sha256,
         }
 
     def _quarantine_of(self, session_id: str) -> str | None:
@@ -1999,28 +2066,28 @@ class ClaudeDispatcher:
 
     @staticmethod
     def _reaper_unverified(state: Path, session_id: str) -> tuple[str, ...]:
-        """The shell commands whose reaper's word the hook layer logged as cut off."""
-        log = state / "hooks.log.jsonl"
-        if not log.exists():
-            return ()
-        found = []
-        for line in read_session_file(log).decode(errors="replace").splitlines():
-            record = json.loads(line)
-            if record.get("session") == session_id and record.get("decision") == (
-                "reaper_unverified"
-            ):
-                found.append(json.dumps(record.get("tool_input"))[:200])
-        return tuple(found)
+        """The shell commands whose reaper's word the hook layer logged as cut off.
+
+        A log that cannot be read whole says nothing of the session's reaping, which is never taken
+        as none heard from: why it cannot be read is one of them (:data:`HOOK_LOG_UNREAD`).
+        """
+        records, unread = _hook_records(state)
+        found = [
+            json.dumps(record.get("tool_input"))[:200]
+            for record in records
+            if record.get("session") == session_id and record.get("decision") == "reaper_unverified"
+        ]
+        return (*found, *((unread,) if unread is not None else ()))
 
     @staticmethod
     def _hook_log(state: Path, session_id: str) -> tuple[bool, tuple[str, ...]]:
-        """Whether the sentinel halted on node files, and every journal append it recorded."""
-        log = state / "hooks.log.jsonl"
-        if not log.exists():
-            return False, ()
+        """Whether the sentinel halted on node files, and every journal append it recorded.
+
+        From the lines that are records: a line that is not one is the unverified reaping's finding
+        (:meth:`_reaper_unverified`), which halts the run.
+        """
         halted, appends = False, []
-        for line in read_session_file(log).decode(errors="replace").splitlines():
-            record = json.loads(line)
+        for record in _hook_records(state)[0]:
             if record.get("session") != session_id:
                 continue
             if record.get("decision") == "node mismatch":

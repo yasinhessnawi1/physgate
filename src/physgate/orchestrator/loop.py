@@ -138,6 +138,7 @@ from physgate.orchestrator.integration_state import issued_state
 from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.merge import merge_message
 from physgate.orchestrator.ports import (
+    HOOK_LOG_UNREAD,
     ChangeCheck,
     ChangeChecker,
     Dispatcher,
@@ -326,11 +327,30 @@ def _possible_abort(session_id: str, tool_uses: tuple[str, ...]) -> str:
 
 
 def _unverified_reaping(session_id: str, commands: tuple[str, ...]) -> str:
-    """The detail of an unverified reaping: the commands whose reaper's done line was cut off."""
-    return (
-        f"{len(commands)} shell command(s) of session {session_id} gave output longer than Claude "
-        f"Code keeps, so the survivor reaper's done line could not be read: {'; '.join(commands)}"
+    """The detail of an unverified reaping: the commands whose reaper's done line was cut off.
+
+    Where the hook layer's log could not be read, that is said on its own: no command of the
+    session's is then taken as heard from.
+    """
+    unread = [why for why in commands if why.startswith(HOOK_LOG_UNREAD)]
+    cut = [command for command in commands if not command.startswith(HOOK_LOG_UNREAD)]
+    said = (
+        [
+            f"{len(cut)} shell command(s) of session {session_id} gave output longer than Claude "
+            f"Code keeps, so the survivor reaper's done line could not be read: {'; '.join(cut)}"
+        ]
+        if cut
+        else []
     )
+    said += (
+        [
+            f"for session {session_id}, {'; '.join(unread)}, so no shell command's survivor reaper "
+            "is taken as heard from"
+        ]
+        if unread
+        else []
+    )
+    return "; ".join(said)
 
 
 #: What the integration item names of a review is a reviewer's output, read back from the log: each
@@ -764,7 +784,7 @@ class Loop:
         if left.placeholders_refused is not None:
             found.append(("placeholder_refused", f"leftover session {sid}: "
                           f"{left.placeholders_refused}"))  # fmt: skip
-        changed = (
+        changed = left.policy_limits_unread or (
             policy_limits_change(self._policy_baseline(), left.policy_limits_sha256)
             if left.taken_up
             else None
