@@ -119,7 +119,7 @@ from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
-from physgate.reviewers.places import SESSION_DIRNAME
+from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
 from physgate.series.collect import collect, empty_outbox, temporary_roots
 from physgate.series.seal import SetAside
 
@@ -1220,7 +1220,8 @@ class ClaudeDispatcher:
         self._binary = binary
         self._base_url = base_url
         self._credential = credential
-        self._review_root = Path(review_root)
+        # As every reader of the root takes it, so this run's reviews are found where they ran.
+        self._review_root = review_root_path(review_root)
         self._facts: InstallFacts | None = None
         self._os_layer: Present | Absent | None = None
         #: The last stop's leftovers, each with the end it writes once the loop has their findings.

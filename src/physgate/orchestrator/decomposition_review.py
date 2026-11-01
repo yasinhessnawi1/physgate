@@ -34,7 +34,7 @@ from physgate.orchestrator.dispatch import read_stream_file, redact, review_stre
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.ports import SpawnHook
 from physgate.orchestrator.processes import is_session, stop_tree
-from physgate.reviewers.places import SESSION_DIRNAME
+from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
 
 #: Where a design review's session is recorded while it runs, beneath the run directory.
 REVIEW_SESSION = PurePosixPath("decomposition", "review_session.json")
@@ -65,7 +65,11 @@ def review_spawned(
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             pass
         # Named as the reviewer named it (``places.review_dir``), from the id it spawned.
-        where = str(review_root / session_id / SESSION_DIRNAME) if review_root is not None else None
+        where = (
+            str(review_root_path(review_root) / session_id / SESSION_DIRNAME)
+            if review_root is not None
+            else None
+        )
         record = {
             "session_id": session_id,
             "pid": pid,

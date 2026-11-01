@@ -108,7 +108,7 @@ from physgate.reviewers.packet import (
     check_parts,
     indicator_scan_runs,
 )
-from physgate.reviewers.places import SESSION_DIRNAME, review_dir
+from physgate.reviewers.places import SESSION_DIRNAME, review_dir, review_root_path
 from physgate.reviewers.plan_packet import (
     PlanPacket,
     PlanUnderReview,
@@ -452,7 +452,8 @@ class ClaudeReviewer:
         self._model = model
         self._setup = setup
         self._rubric = rubric
-        self._root = Path(setup.review_root)
+        # As every reader of the root takes it: the run's record names its sessions there.
+        self._root = review_root_path(setup.review_root)
         #: Told each review session's spawn before it runs anything (:meth:`record_spawns`).
         self._on_spawn: SpawnHook | None = None
 

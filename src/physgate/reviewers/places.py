@@ -52,15 +52,25 @@ def _inside_a_checkout(path: Path) -> Path | None:
     return None
 
 
+def review_root_path(root: Path) -> Path:
+    """``root`` as every reader of it takes it: ``~`` expanded, then resolved to an absolute path.
+
+    A shell leaves ``--review-root=~/review-scratch`` as it is written, so a reader that did not
+    expand it would name a directory beneath the working directory, and two readers of one root
+    would name two places.
+    """
+    return Path(root).expanduser().resolve()
+
+
 def require_review_root(root: Path) -> Path:
-    """Return ``root`` resolved, if reviews may be read from beneath it.
+    """Return ``root`` as :func:`review_root_path` reads it, if reviews may be read from beneath it.
 
     Raises:
         ReviewRootError: its path holds a word that would tell a reviewer what is being
             measured, or it lies inside a git checkout, whose other files a reviewer
             must never be beside.
     """
-    resolved = Path(root).expanduser().resolve()
+    resolved = review_root_path(root)
     found = telltales(str(resolved))
     if found:
         msg = "the review root's path holds a word that would tell a reviewer what it reads"

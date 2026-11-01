@@ -94,6 +94,10 @@ from physgate.orchestrator.queue import (
 from physgate.orchestrator.record import ReviewInstall
 from physgate.orchestrator.replay import recorded_ledger
 from physgate.orchestrator.requirements import RunFacts, refusals
+from physgate.orchestrator.review_root_record import (
+    record_review_root,
+    require_recorded_review_root,
+)
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.role_python import measure as measure_role_python
 from physgate.orchestrator.run_config import (
@@ -114,7 +118,7 @@ from physgate.oslayer.policy import NETWORK_UNENFORCED
 from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.reviewers.claude import ReviewerSetup, claude_reviewers, design_reviewer
 from physgate.reviewers.exceptions import ReviewError
-from physgate.reviewers.places import require_review_root
+from physgate.reviewers.places import require_review_root, review_root_path
 from physgate.roles import require_registered
 from physgate.state.exceptions import DesignStateError
 
@@ -710,6 +714,15 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
     try:
         require_fresh(run_dir)
         reviewing = _plan_reviewer(args, config, credential, registrations)
+        # The root the reviewer runs under, as every reader takes it: recorded before the review
+        # runs, so a later command looks for this run's reviews where they are.
+        review_root = (
+            review_root_path(args.review_root)
+            if reviewing is not None and args.review_root is not None
+            else None
+        )
+        if review_root is not None:
+            record_review_root(run_dir, review_root)
         # Decoded once, from the bytes the run's digest names: the call and the review read alike.
         brief = args.brief.read_bytes().decode("utf-8")
         made = decompose_in_rounds(
@@ -726,12 +739,8 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
                 base_url=os.environ.get("ANTHROPIC_BASE_URL"),
                 credential=credential,
             ),
-            # The reviewer's own root, as it named it: a review's record names its session there.
-            review_root=(
-                args.review_root.resolve()
-                if reviewing is not None and args.review_root is not None
-                else None
-            ),
+            # The reviewer's own root, as it takes it: a review's record names its session there.
+            review_root=review_root,
         )
     except (OrchestratorError, ReviewError) as exc:
         return _fail(str(exc), **exc.context)
@@ -820,6 +829,12 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         except GateError as exc:  # a gate that cannot be built stops the run here
             return _fail(str(exc), **exc.context)
     run_dir = args.run_dir.resolve()
+    try:
+        # The root the run recorded, before anything is stopped or spawned: beneath another, none
+        # of its reviews would be found.
+        require_recorded_review_root(run_dir, args.review_root)
+    except OrchestratorError as exc:
+        return _fail(str(exc), **exc.context)
     if (left_exposed := _stop_left_review(run_dir)) is not None:
         return left_exposed
     try:
@@ -892,6 +907,9 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         keeper.close()
         return _fail("the run may not continue", requirements="; ".join(refused))
     try:
+        # Recorded before anything runs under it: a run opened before the record existed is
+        # driven as it always was, and every later command is held to the root it names now.
+        record_review_root(run_dir, review_root)
         # The check ran before the log was open; it is recorded now, before any spawn.
         loop.record.emit(
             InstallChecked(
