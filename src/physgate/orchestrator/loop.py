@@ -401,16 +401,27 @@ class Loop:
                 allow the layer's absence.
         """
         self._require_os_layer()
-        self._stop_leftovers()
+        if self._took_an_owed_halt():
+            return self._drive()
         if self.state.halted is None and self.state.interrupted() is not None:
             msg = "the run was interrupted mid-attempt; resume it instead"
             raise RunStateError(msg, run_dir=str(self.run_dir))
-        # A halt owed for an incident on the record comes first: a check of this process's own
-        # would find the same thing again and write a second incident before it.
-        owed = self.state.halt_owed()
-        if self.state.halted is None and not owed and not self._journal_clean():
+        if self.state.halted is None and not self._journal_clean():
             return self.state.next_step()
         return self._drive()
+
+    def _took_an_owed_halt(self) -> bool:
+        """Take the halt the record owes, then stop the leftovers; whether one was owed.
+
+        First, before the leftovers' lines: replay takes nothing but its incidents and its halt
+        while they are owed, and a check of this process's own would find again what the record
+        already holds and write a second incident. The leftovers are stopped either way.
+        """
+        owed = self.state.halt_owed()
+        if owed:
+            self._owed_halt()
+        self._stop_leftovers()
+        return owed
 
     def resume(self, *, confirm: Sequence[str] = (), confirmed_by: str | None = None) -> Step:
         """Take over a run a previous process left, then drive it.
@@ -433,15 +444,14 @@ class Loop:
                 allow the layer's absence.
         """
         self._require_os_layer()
-        self._stop_leftovers()
+        if self._took_an_owed_halt():
+            return self._drive()
         halted = self.state.halted
         if halted is not None and halted.reason not in RESUMABLE_HALTS:
             msg = f"the run halted for {halted.reason}; a person resolves that before any resume"
             raise RunStateError(msg, run_dir=str(self.run_dir), detail=halted.detail)
         self._require_confirmable(confirm, confirmed_by)
         self._confirm = (frozenset(confirm), confirmed_by)
-        if self.state.halt_owed():
-            return self._drive()  # the halt the record owes, before any check of this process's
         if not self._journal_clean():
             return self.state.next_step()
         sub = self.state.interrupted()
@@ -573,39 +583,48 @@ class Loop:
     def _stop_leftovers(self) -> None:
         """Stop what a previous process left running, before anything reads or writes.
 
-        Each leftover's own lines first, then its findings and their one halt: every exposure,
-        reviewer material and set-aside stream, each leftover in turn, then every tampered stream.
-        The halt is the tampering's, else the exposure's, else the material's, else the set-aside
-        stream's. A lone finding, and its halt, are written where they always were, so such a log
-        keeps its bytes.
+        The dispatcher ends each leftover as it hands it over, so a process killed after that finds
+        none of them again: what they showed is on the record before any of their own lines. Two
+        or more findings are one findings line first, then each leftover's lines, then each
+        incident and one halt; a lone finding is its incident first, then the lines and the halt.
+        In order: every exposure, reviewer material and set-aside stream, leftover by leftover,
+        then every tampered stream. The halt is the tampering's, else the exposure's, else the
+        material's, else the set-aside stream's.
         """
         if not self.log.events:
             return
         leftovers = self._dispatcher.stop_leftovers()
-        found: list[tuple[int, IncidentCause, str]] = []
-        for at, left in enumerate(leftovers):
+        found: list[tuple[IncidentCause, str]] = []
+        for left in leftovers:
             sid = left.session_id
             if left.held_out_seen is not None:
                 # As at a normal session end: the tier counts as exposed (ARCH-141), and the
                 # exposure is recorded whatever else the resume finds. The canary is not.
-                found.append((at, "held_out_read", f"held-out material in the stream of "
-                              f"leftover session {sid}"))  # fmt: skip
+                found.append(("held_out_read", f"held-out material in the stream of leftover "
+                              f"session {sid}"))  # fmt: skip
             if left.review_material_seen is not None:
                 # A role session that read what only its reviewer reads, found at the resume as
                 # at a normal session end. The canary is not recorded.
-                found.append((at, "review_material_read", f"reviewer material in the stream of "
+                found.append(("review_material_read", f"reviewer material in the stream of "
                               f"leftover session {sid}"))  # fmt: skip
             if left.quarantine is not None:
                 # The operator set a gone stream aside: nothing was scanned, so the session's
                 # work is never counted as clean. The run halts as an incident, once.
-                found.append((at, "stream_quarantined", f"leftover session {sid}: {left.scan}; "
+                found.append(("stream_quarantined", f"leftover session {sid}: {left.scan}; "
                               f"set aside by {left.quarantine}"))  # fmt: skip
         found += [
-            (len(leftovers), "trajectory_tampered", f"leftover session {left.session_id}: {why}")
+            ("trajectory_tampered", f"leftover session {left.session_id}: {why}")
             for left in leftovers
             if (why := left.tampered) is not None
         ]
-        for at, left in enumerate(leftovers):
+        causes = {cause for cause, _ in found}
+        halt = next((c for c in LEFTOVER_HALTS if c in causes), None)
+        if len(found) > 1 and halt is not None:
+            listed = tuple(SessionFinding(cause=cause, detail=detail) for cause, detail in found)
+            self._emit(FindingsRecorded(**self._env(), subtask_id=None, findings=listed, halt=halt))
+        for cause, detail in found[:1] if len(found) == 1 else ():
+            self._emit(Incident(**self._env(), subtask_id=None, cause=cause, detail=detail))
+        for left in leftovers:
             if left.stopped:
                 self._emit(
                     LeftoverStopped(
@@ -624,10 +643,6 @@ class Loop:
                     scan=left.scan,
                 )
             )
-            if len(found) == 1 and found[0][0] == at:
-                self._emit(
-                    Incident(**self._env(), subtask_id=None, cause=found[0][1], detail=found[0][2])
-                )
             # Spent, and never recorded: its orchestrator died first. Up to the
             # runtime's own result only, when something wrote after it.
             for message in left.usage:
@@ -640,15 +655,10 @@ class Loop:
                         partial=not left.complete,
                     )
                 )
-        if len(found) == 1:
-            at, cause, detail = found[0]
-            if at == len(leftovers):  # a tampered stream's, after every leftover's lines
-                self._emit(Incident(**self._env(), subtask_id=None, cause=cause, detail=detail))
-            self._halt_for(None, cause)
-        elif found:
-            causes = {cause for _, cause, _ in found}
-            halt = next(c for c in LEFTOVER_HALTS if c in causes)
-            self._findings(None, [(cause, detail) for _, cause, detail in found], halt)
+        for cause, detail in found if len(found) > 1 else ():
+            self._emit(Incident(**self._env(), subtask_id=None, cause=cause, detail=detail))
+        if halt is not None:
+            self._halt_for(None, halt)
 
     def _clean_up_worktrees(self) -> None:
         """Remove the worktrees the rules allow, recording each; never stall or fail the run.
