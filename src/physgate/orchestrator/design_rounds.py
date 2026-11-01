@@ -42,6 +42,7 @@ from physgate.orchestrator.decompose import (
     require_startable,
     start_run,
 )
+from physgate.orchestrator.decomposition_review import review_over, review_spawned
 from physgate.orchestrator.endings import (
     Canary,
     PlanCause,
@@ -66,6 +67,7 @@ from physgate.orchestrator.exceptions import (
     RunStateError,
 )
 from physgate.orchestrator.plan import plan_bytes, plan_sha256
+from physgate.orchestrator.ports import RecordsSpawns
 from physgate.orchestrator.protocols import MessageUsage, PlanReviewer, PlanUnderReview
 from physgate.orchestrator.queue import STREAM_NAME, plan_parts, round_parts
 from physgate.orchestrator.record import (
@@ -453,6 +455,9 @@ def _one_round(
             review_cause, detail = "invocation_error", str(exc)
         except ModelSeparationError as exc:
             review_cause, detail = "model_separation", str(exc)
+        except Exception:
+            review_over(loop.run_dir)  # raised past the review: its session is over all the same
+            raise
         else:
             result, why = reviewed.result, reviewed.unavailable
             review_cause = result.verdict if result else why.cause if why else "held_out_exposed"
@@ -460,6 +465,10 @@ def _one_round(
                 # Looked for in every reviewing mode, so a round's record names no budget.
                 findings = replan_findings(result)
                 canary = canary_in_findings(findings, loop.check)
+        # The review is over, and nothing of its session runs: the reviewer stops what its session
+        # left before it returns or raises. A process stopped mid-review raises no exception the
+        # rounds go on from, and keeps the record for the next command on the directory.
+        review_over(loop.run_dir)
     # No budget is set on the designer's call (its argv names none), so a spent one is never its.
     ending = round_ending(cause, review_cause, budget_set=False, canary=canary)
     return _Ran(outcome, ending, detail, reviewed, findings, call_ended, review_started)
@@ -540,6 +549,10 @@ def decompose_in_rounds(
     loop = _Loop(
         config, run_dir, target_repo, library, reviewing, check, make_call, time.monotonic()
     )
+    if isinstance(reviewing[0], RecordsSpawns):
+        # The review's spawn is on no run record before the opening: it is written beside the
+        # rounds, so a command after a kill during the review finds the session and stops it.
+        reviewing[0].record_spawns(review_spawned(run_dir))
     last = replans(config.design_review) + 1
     earlier: list[EarlierRound] = []
     proposals: list[Proposal] = []
