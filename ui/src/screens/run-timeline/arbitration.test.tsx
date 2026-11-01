@@ -102,6 +102,23 @@ const REOPENED = written({
   merge_commit: `abc1234${"d".repeat(33)}`,
   attempt: 2,
 });
+const FOLLOWED = written({
+  kind: "subtask_reopened",
+  subtask_id: "s3",
+  merge_commit: `abc1234${"d".repeat(33)}`,
+  attempt: 3,
+  cause: "follow_up",
+  owed: [
+    { source: "sizing.bus", target: "electrical.driver" },
+    { source: "sizing.bus", target: "electrical.stage" },
+  ],
+});
+const FOLLOW_UP_ENDED = written({
+  kind: "follow_up_ended",
+  subtask_id: "s3",
+  attempt: 3,
+  why: "no_verdict",
+});
 const ENDED = {
   person: written({
     kind: "subtask_rejected",
@@ -360,5 +377,26 @@ describe("no held or contract value, source or writer reaches a screen", () => {
     );
     expect(ledger).toContain("Electrical module");
     expect(ledger).not.toMatch(canaries);
+  });
+});
+
+describe("a follow-up after sizing's closing pass reads as code's reopen, and its end as its own", () => {
+  it("a module followed up by code, with no item, and its end without a merge", () => {
+    let rows: readonly Row[] = [];
+    try {
+      rows = rowsOf([...LINES, FOLLOWED, FOLLOW_UP_ENDED].map(runEvent), MODELS);
+    } catch (error) {
+      expect.fail(`a follow-up's lines do not read: ${String(error)}`);
+    }
+    const [reopened, ended] = [FOLLOWED, FOLLOW_UP_ENDED].map((l) =>
+      rows.find((r) => r.seq === l.seq),
+    );
+    expect(reopened?.sentence).toBe(
+      "Subtask 3 reopened for attempt 3, once and by code: sizing's closing pass changed values its nodes depend on (2 owed edges); its earlier merge stays on the record",
+    );
+    expect(ended?.sentence).toBe(
+      "Subtask 3's follow-up ended without a merge (no verdict), and is not retried; its earlier merge stands",
+    );
+    expect(ended?.meta).toBe("s3 · attempt 3");
   });
 });

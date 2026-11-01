@@ -39,7 +39,7 @@ from test_a_follow_up_after_the_closing_pass_is_recorded_and_replayed_as_the_rec
 from test_a_queue_decision_acts_at_a_boundary import decide
 
 from physgate.evaluation.observe.sequence import decisions
-from physgate.orchestrator.events import EnvironmentRecorded, Event, Resumed
+from physgate.orchestrator.events import EnvironmentRecorded, Event, OsLayerChecked, Resumed
 from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.protocols import Artefact, PersonOrder
 from physgate.orchestrator.replay import replay
@@ -194,7 +194,7 @@ def test_a_follow_up_not_merged_leaves_the_run_escalated_at_integration(tmp_path
     events = events_of(rig)
     assert outcome == "escalated", outcome
     assert "follow_up_ended" in kinds(events)
-    assert kinds(events)[-1] == "integration_escalated"
+    assert kinds(events).index("follow_up_ended") < kinds(events).index("integration_escalated")
 
 
 def test_a_follow_up_end_replay_cannot_place_is_refused(tmp_path: Path) -> None:
@@ -250,7 +250,7 @@ def _taken_over(events: list[Event]) -> list[tuple[str, str | None, int | None]]
     return [
         (e.kind, e.model_dump().get("subtask_id"), e.model_dump().get("attempt"))
         for e in events
-        if not isinstance(e, EnvironmentRecorded | Resumed)
+        if not isinstance(e, EnvironmentRecorded | OsLayerChecked | Resumed)
     ]
 
 
