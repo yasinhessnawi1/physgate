@@ -421,8 +421,13 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             step = {"step": "escalated", "subtask_id": e["subtask_id"]}
         elif kind == "attempt_returned":
             step = {"step": "returned", **at, "item_id": e["item_id"]}
+        elif kind == "subtask_reopened" and "cause" in e:
+            # Code's reopen after sizing's closing pass: its cause and edges, no decision.
+            step = {"step": "reopened", **at, "cause": e["cause"], "owed": e["owed"]}
         elif kind == "subtask_reopened":
             step = {"step": "reopened", **at, "item_id": e["item_id"]}
+        elif kind == "follow_up_ended":
+            step = {"step": "follow_up_ended", **at, "why": e["why"]}
         elif kind == "session_ended" and e["outcome"] == "infrastructure":
             step = {"step": "infrastructure", **at, "cause": e["cause"]}
         elif kind == "incident":

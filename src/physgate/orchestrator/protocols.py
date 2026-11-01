@@ -142,7 +142,8 @@ class SessionTrajectory(_Frozen):
 #: What a person ordered an attempt to be: the one fix after a review that blocked, or a retry
 #: after a person's reject; or, on an arbitration item, the next attempt or the one fix a person
 #: ordered by choosing sizing's value; or sizing's closing pass, ordered to write the values a
-#: person chose by choosing the domain's.
+#: person chose by choosing the domain's. Or no person's: the follow-up code orders once sizing's
+#: closing pass changed values a domain module's nodes depend on, which names no item.
 PersonOrderKind = Literal[
     "fix_after_block",
     "retry_after_reject",
@@ -150,6 +151,7 @@ PersonOrderKind = Literal[
     "fix_after_arbitration",
     "arbitration_value",
     "contract_conform",
+    "follow_up",
 ]
 
 
@@ -171,7 +173,8 @@ class PersonOrder(_Frozen):
     """
 
     kind: PersonOrderKind
-    item_id: NonEmptyStr
+    #: The item decided on; left out of a follow-up's, which no decision ordered.
+    item_id: NonEmptyStr | None = None
     #: The attempt the person decided on; this attempt is the next. For the closing pass's
     #: values, the first chosen value's item and attempt.
     of_attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
@@ -182,6 +185,9 @@ class PersonOrder(_Frozen):
     @model_validator(mode="after")
     def _values_with_their_kind(self) -> PersonOrder:
         first = self.chosen[0] if self.chosen else None
+        if (self.kind == "follow_up") != (self.item_id is None):
+            msg = "every order names the item decided on, but a follow-up's, which none ordered"
+            raise ValueError(msg)
         if (self.kind == "arbitration_value") != (first is not None) or (
             first is not None and (first.item_id, first.attempt) != (self.item_id, self.of_attempt)
         ):
@@ -194,6 +200,8 @@ class PersonOrder(_Frozen):
         data: dict[str, Any] = handler(self)
         if not self.chosen:
             data.pop("chosen", None)
+        if self.item_id is None:
+            data.pop("item_id", None)
         return data
 
 

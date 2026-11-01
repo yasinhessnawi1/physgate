@@ -19,7 +19,8 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping, Sequence
 
 from physgate.orchestrator.events import OwedEdge
-from physgate.orchestrator.protocols import ChangeSet
+from physgate.orchestrator.protocols import ChangeSet, PersonOrder
+from physgate.orchestrator.repair import _quantity_name, quoted
 from physgate.state.schema import Node, validate_node
 from physgate.state.store import JournalLine
 
@@ -76,3 +77,56 @@ def _at(revisions: Sequence[tuple[int, Node]], revision: int) -> Node | None:
             break
         found = node
     return found
+
+
+def follow_up_order(
+    lines: Sequence[JournalLine],
+    change_sets: Sequence[ChangeSet],
+    closing: str,
+    edges: Sequence[OwedEdge],
+    of_attempt: int,
+) -> PersonOrder:
+    """What a follow-up's one session is told, by code: each changed node and what it reaches.
+
+    Each source as the closing pass left it in the journal, its quantities by name with value and
+    unit, each part held to its form; never a quantity's free-text provenance. ``change_sets`` is
+    the history where the follow-up was written, and ``of_attempt`` the attempt that merged.
+    """
+    from physgate.orchestrator import integration_state as render
+
+    last = max(r for c in change_sets if c.subtask_id == closing for r in c.revisions)
+    timeline: dict[str, list[tuple[int, Node]]] = {}
+    for line in lines:
+        timeline.setdefault(line.node_id, []).append((line.rev, validate_node(line.payload)))
+    reached: dict[str, list[str]] = {}
+    for edge in edges:
+        reached.setdefault(edge.source, []).append(render.held(edge.target))
+    changed = []
+    for source, targets in reached.items():
+        node = _at(timeline.get(source, []), last)
+        values = "; ".join(
+            f"quantity {render.q(name) if _quantity_name(name) else 'with a refused name'} = "
+            f"{render.measure(quantity.value, quantity.unit)}"
+            for name, quantity in sorted(node.quantities.items() if node else ())
+        )
+        changed.append(
+            f"Node {render.held(source)} holds {values or 'no quantity'}; it constrains this "
+            f"module's node {', '.join(targets)}."
+        )
+    instruction = "\n".join(
+        [
+            "Sizing's closing pass, which settles the cross values after every domain module, "
+            "changed values that constrain nodes of this module, merged at attempt "
+            f"{of_attempt}, and no session wrote those nodes after it. This attempt is the "
+            "module's one follow-up, ordered by code: it is not repaired or retried.",
+            "",
+            "Each changed node as the design graph holds it now, and this module's nodes it "
+            "constrains:",
+            *quoted("\n".join(changed)),
+            "For each node of this module named above: rewrite it so it agrees with the changed "
+            "values, or keep its values and write in its no_change_justified, under the changed "
+            "node's id, why it need not change.",
+            "The specification as issued otherwise still governs.",
+        ]
+    )
+    return PersonOrder(kind="follow_up", of_attempt=of_attempt, instruction=instruction)

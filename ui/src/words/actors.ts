@@ -80,6 +80,7 @@ export function eventActor(
     case "contract_item_raised":
     case "attempt_returned":
     case "subtask_reopened":
+    case "follow_up_ended":
     case "subtask_rejected":
       return ORCHESTRATOR;
     case "decomposed":

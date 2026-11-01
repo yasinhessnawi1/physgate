@@ -153,8 +153,16 @@ export type RunEvent = Line &
         readonly kind: "subtask_reopened";
         readonly subtask: string;
         readonly attempt: number;
-        readonly itemId: string;
+        /** The decision's item; null on a follow-up, which code ordered and which owes edges. */
+        readonly itemId: string | null;
+        readonly owed: number;
         readonly mergeCommit: string;
+      }
+    | {
+        readonly kind: "follow_up_ended";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly why: string;
       }
     | {
         readonly kind: "subtask_rejected";
@@ -405,8 +413,17 @@ export function runEvent(value: unknown): RunEvent {
         kind: "subtask_reopened",
         subtask: subtask(),
         attempt: attempt(),
-        itemId: text(e.item_id, "an item id"),
+        itemId: e.cause === undefined ? text(e.item_id, "an item id") : null,
+        owed: e.cause === undefined ? 0 : list(e.owed, "the owed edges").length,
         mergeCommit: text(e.merge_commit, "a commit"),
+      };
+    case "follow_up_ended":
+      return {
+        ...line,
+        kind: "follow_up_ended",
+        subtask: subtask(),
+        attempt: attempt(),
+        why: text(e.why, "why a follow-up ended"),
       };
     case "subtask_rejected":
       return {

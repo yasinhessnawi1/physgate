@@ -34,7 +34,7 @@ from physgate.orchestrator.arbitration import (
     contract_standing,
     dispute_standing,
 )
-from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
+from physgate.orchestrator.budget import ATTEMPT_LIMIT, REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.decisions import require_taken, values_chosen
@@ -68,6 +68,8 @@ from physgate.orchestrator.events import (
     Escalated,
     EscalationDecided,
     Event,
+    FollowUpEnded,
+    FollowUpWhy,
     GateRan,
     GateSkipped,
     Halted,
@@ -254,6 +256,7 @@ class Step:
         "wait",
         "return",
         "reopen",
+        "follow_up_ended",
         "done",
     ]
     subtask_id: str | None = None
@@ -270,6 +273,21 @@ def at_a_boundary(step: Step) -> bool:
     if step.kind in ("integrate", "done", "escalated", "wait"):
         return True
     return step.kind == "attempt" and step.point == "resolve"
+
+
+def following_up(sub: SubtaskState, attempt: int | None = None) -> bool:
+    """Whether ``attempt`` (by default the subtask's last) is the follow-up the record owes it."""
+    number = attempt if attempt is not None else sub.attempts[-1].number if sub.attempts else 0
+    return sub.followed_up is not None and sub.followed_up.attempt == number
+
+
+def why_not_merged(now: AttemptState) -> FollowUpWhy:
+    """What ended an attempt that ended without a merge."""
+    if now.rejected is not None:
+        return "rejected"
+    if now.blocked is not None:
+        return "blocked"
+    return "no_verdict" if now.unavailable_final is not None else "for_a_person"
 
 
 def _refuse(message: str) -> NoReturn:
@@ -689,6 +707,10 @@ class RunState:
                 sub.status = "done"
                 self.merged_at[sub.plan.module_dir] = event.seq
                 self.merged_by[sub.plan.module_dir] = sub.plan.subtask_id
+        elif isinstance(event, FollowUpEnded):
+            ended = following_up(sub) and self._ended_without_merge(now)
+            self._expect(ended and event.why == why_not_merged(now), "a follow-up's end")
+            sub.status = "done"
         elif isinstance(event, EscalationDecided):
             self._decided(sub, now, event)
         elif isinstance(event, Escalated):
@@ -1329,8 +1351,10 @@ class RunState:
         A log that names an escalation backend carries the answer on a line of its own,
         which comes next. A log written before the interface existed has no such line; its
         loop sent to a person exactly where the rules do, so the rules' route is taken as
-        the answer it would have recorded.
+        the answer it would have recorded. A follow-up's one attempt is never asked about: it ends.
         """
+        if following_up(sub):
+            return
         if now.fix:
             # The fix a person ordered is routed by rule, never asked about: not accepted, the
             # subtask ends; a review that reached no verdict, or a dispute ruled for a person
@@ -1358,6 +1382,7 @@ class RunState:
         if self.escalation_backend is None:
             _refuse("a decision line in a log whose run names no escalation backend")
         due = self._ended_without_merge(now) and now.decided is None and not now.fix
+        due = due and not following_up(sub)
         self._expect(due and now.cursor in ("decide", "review", "gate"), "an escalation decision")
         decision = event.decision
         if decision.backend_id != self.escalation_backend:
@@ -1497,6 +1522,8 @@ class RunState:
             or last.merged is None
         ):
             _refuse("a follow-up reopens a domain module that merged, never sizing's")
+        if last.number >= ATTEMPT_LIMIT or any(a.fix for a in sub.attempts):
+            _refuse("a module that merged on its fix has no attempt left to follow up")
         if any(s.attempts[-1].number >= (s.followed_up or event).attempt for s in taken):
             _refuse("every follow-up is written together, before any of their attempts begins")
         if event.merge_commit != last.merged.merge_commit or event.attempt != last.number + 1:
@@ -1673,7 +1700,7 @@ class RunState:
         if not sub.attempts or sub.attempts[-1].number != attempt:
             if any(a.fix for a in sub.attempts):
                 _refuse("the fix a person ordered is a subtask's last attempt")
-            if attempt > REPAIR_BUDGET and not sub.fix_next:
+            if attempt > REPAIR_BUDGET and not sub.fix_next and not following_up(sub, attempt):
                 _refuse("an attempt past the repair budget is only the fix a person ordered")
             sub.attempts.append(AttemptState(number=attempt, fix=sub.fix_next))
             sub.fix_next = False
@@ -1879,6 +1906,8 @@ class RunState:
             return None
         if sub.ending is not None:
             return Step("end_subtask", subtask_id, now.number)
+        if following_up(sub) and self._ended_without_merge(now):
+            return Step("follow_up_ended", subtask_id, now.number)
         if now.merged is not None and sub.next_resolve is not None:
             return Step("attempt", subtask_id, sub.next_resolve, "resolve")  # reopened
         if now.approved is not None:

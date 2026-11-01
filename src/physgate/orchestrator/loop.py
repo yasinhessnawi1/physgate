@@ -75,6 +75,7 @@ from physgate.orchestrator.events import (
     Escalated,
     EscalationDecided,
     Event,
+    FollowUpEnded,
     GateRan,
     GateSkipped,
     Halted,
@@ -126,7 +127,7 @@ from physgate.orchestrator.exceptions import (
     TrajectoryTamperedError,
     WorktreeMisplacedError,
 )
-from physgate.orchestrator.follow_up import owed
+from physgate.orchestrator.follow_up import follow_up_order, owed
 from physgate.orchestrator.integration_state import issued_state
 from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.merge import merge_message
@@ -190,12 +191,15 @@ from physgate.orchestrator.replay import (
     Step,
     SubtaskState,
     at_a_boundary,
+    following_up,
     recorded_implementer,
     replay,
     require_mergeable,
+    why_not_merged,
 )
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
 from physgate.orchestrator.trajectory import read_sealed
+from physgate.reviewers.packet import fits_one_read, person_order_text
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError
 from physgate.roles import dispatchable, owners_of, require_registered
 from physgate.series.reader import attempt_records
@@ -343,6 +347,7 @@ class Loop:
         self._confirm: tuple[frozenset[str], str | None] = (frozenset(), None)
         #: Whether this process has recorded the environment its sessions run in.
         self._environment_recorded = False
+        self._follow_ups_checked = False  # held to the journal once in this process
         self.record = RunRecord(config, self.run_dir, clock=clock)
         self.state = self.record.state
         self.log = self.record.log
@@ -692,10 +697,19 @@ class Loop:
             "halt",
             "wait",
             "reopen",
+            "follow_up_ended",
         ):
             self._record_environment()
         while True:
             step = self.state.next_step()
+            if (
+                step.kind == "attempt"
+                and not self._follow_ups_checked
+                and following_up(self.state.subtasks[step.subtask_id or ""], step.attempt)
+            ):
+                # A process killed between two follow-up lines left a part: written here first.
+                self._follow_ups(write=True)
+                continue
             if self._at_a_boundary(step) and self._take_decisions():
                 continue  # what a decision did changes what comes next
             if step.kind in ("done", "halted", "escalated", "wait"):
@@ -727,6 +741,13 @@ class Loop:
                 self._end_subtask(step.subtask_id, step.attempt)
             elif step.kind == "decide":
                 self._decide(step.subtask_id, step.attempt)
+            elif step.kind == "follow_up_ended":
+                why = why_not_merged(self.state.subtasks[step.subtask_id].attempts[-1])
+                self._emit(
+                    FollowUpEnded(
+                        **self._env(), subtask_id=step.subtask_id, attempt=step.attempt, why=why
+                    )
+                )
             elif step.kind == "escalate":
                 now = self.state.subtasks[step.subtask_id].attempts[-1]
                 if now.unavailable_final is not None or now.blocked is not None or now.queued:
@@ -1124,6 +1145,10 @@ class Loop:
         previous = sub.attempts[-2] if attempt > 1 and len(sub.attempts) > 1 else None
         if previous is None:
             return None, None
+        followed = sub.followed_up
+        if previous.merged is not None and followed is not None and followed.attempt == attempt:
+            told = self._follow_up_order(followed)  # the follow-up's one attempt
+            return told.instruction, told
         reopened = sub.reopened
         if (
             previous.merged is not None
@@ -1176,13 +1201,14 @@ class Loop:
             "retry_after_arbitration",
             "fix_after_arbitration",
             "contract_conform",
+            "follow_up",
         ):
             return order.instruction
         attempts = self.state.subtasks[subtask_id].attempts
         spent = next((a.person_rejected for a in attempts if a.number == order.of_attempt), None)
         if spent is None or spent.note is None:
             msg = "a retry a person ordered has no note on the record"
-            raise RunStateError(msg, subtask=subtask_id, item=order.item_id)
+            raise RunStateError(msg, subtask=subtask_id, item=order.item_id or "")
         return spent.note
 
     def _material_clean(self, subtask_id: str, text: str) -> bool:
@@ -2116,7 +2142,7 @@ class Loop:
             if self._gate is None:
                 msg = f"the integration call cannot pass: gate mode is {mode!r} and no gate"
                 raise GateNotRegisteredError(msg, gate_mode=mode)
-            if not self._followed_up():
+            if not self._follow_ups(write=True):
                 return
             head = self._expected_run_head()
             if head is None:
@@ -2365,13 +2391,15 @@ class Loop:
         """
         if declaring is not None and not self._declaration_holds(declaring):
             return False
-        return self._results_hold() and self._follow_ups_hold() and self._scope_holds()
+        return self._results_hold() and self._follow_ups(write=False) and self._scope_holds()
 
     def _owed(self, events: Sequence[Event]) -> Mapping[str, tuple[OwedEdge, ...]]:
         """What sizing's closing pass owed the domain modules on the record up to ``events``.
 
         Candidates are the domain modules that merged with an attempt left to reopen at: one
-        that merged on its last has none, and the propagation check judges its nodes as written.
+        that merged on its fix has none, and the propagation check judges its nodes as written.
+        A module whose order its reviewer could not read whole is owed none either: the check
+        judges its edges as they stand.
         """
         state = replay(events)
         closing = state.closing_pass()
@@ -2385,35 +2413,59 @@ class Loop:
             and sub.plan.module_dir != directory
             and sub.attempts[-1].merged is not None
             and sub.attempts[-1].number < ATTEMPT_LIMIT
+            and not any(a.fix for a in sub.attempts)
         }
         _, change_sets = change_history(events)
         head = max((r for c in change_sets for r in c.revisions), default=0)
         lines = [line for line in self._graph.records_after(0) if line.rev <= head]
-        return owed(lines, change_sets, closing, candidates)
+        found = owed(lines, change_sets, closing, candidates)
+        return {
+            s: edges
+            for s, edges in found.items()
+            if fits_one_read(
+                person_order_text(
+                    follow_up_order(
+                        lines, change_sets, closing, edges, state.subtasks[s].attempts[-1].number
+                    )
+                )
+            )
+        }
 
-    def _follow_ups_hold(self) -> bool:
-        """The follow-ups on the record are what the journal owed where they were written."""
+    def _follow_up_order(self, followed: SubtaskReopened) -> PersonOrder:
+        """The follow-up's order, from the journal and the history where it was written."""
+        _, change_sets = change_history(self.log.events[: followed.seq])
+        closing = self.state.closing_pass() or ""
+        lines = self._graph.records_after(0)
+        edges = followed.owed or ()
+        return follow_up_order(lines, change_sets, closing, edges, followed.attempt - 1)
+
+    def _follow_ups(self, *, write: bool) -> bool:
+        """The follow-ups on the record are what the journal owed where the first was written.
+
+        With ``write``, the integration call's: the ones owed and not yet written are written, in
+        plan order, each reopening its domain module at its next attempt, by code (ARCH-051), and
+        whether the call may run now is returned. A process killed between two of them left a
+        plan-order prefix, and the rest follows; once any of their attempts began, none does.
+        Otherwise, whether what is recorded holds. A difference halts the run.
+        """
+        self._follow_ups_checked = True
         events = self.log.events
         taken = [e for e in events if isinstance(e, SubtaskReopened) and e.cause is not None]
-        if not taken or {e.subtask_id: e.owed for e in taken} == self._owed(events[: taken[0].seq]):
+        if not taken and not write:
             return True
-        detail = (
-            "the follow-ups on the record are not what the journal owed where they were written"
-        )
-        self._incident(None, "foreign_journal_line", detail)
-        return False
-
-    def _followed_up(self) -> bool:
-        """Whether the integration call may run: nothing more is owed before it, and none halted.
-
-        Writes the follow-ups the closing pass owes, in plan order, once: each reopens its domain
-        module at its next attempt, by code (ARCH-051). Once written, they are held to the journal.
-        """
-        if any(sub.followed_up is not None for sub in self.state.subtasks.values()):
-            return self._follow_ups_hold()
-        found = self._owed(self.log.events)
-        for subtask_id in [s for s in self.state.order if s in found]:
-            last = self.state.subtasks[subtask_id].attempts[-1]
+        found = self._owed(events[: taken[0].seq] if taken else events)
+        wanted = [(s, found[s]) for s in self.state.order if s in found]
+        recorded = [(e.subtask_id, e.owed) for e in taken]
+        subs = self.state.subtasks
+        begun = any(subs[e.subtask_id].attempts[-1].number >= e.attempt for e in taken)
+        if recorded != wanted[: len(recorded)] or ((begun or not write) and recorded != wanted):
+            detail = "the follow-ups on the record are not what the journal owed where written"
+            self._incident(None, "foreign_journal_line", detail)
+            return False
+        if begun or not write:
+            return True
+        for subtask_id, edges in wanted[len(recorded) :]:
+            last = subs[subtask_id].attempts[-1]
             merge_commit = last.merged.merge_commit if last.merged is not None else ""
             self._emit(
                 SubtaskReopened(
@@ -2422,10 +2474,10 @@ class Loop:
                     merge_commit=merge_commit,
                     attempt=last.number + 1,
                     cause="follow_up",
-                    owed=found[subtask_id],
+                    owed=edges,
                 )
             )
-        return not found
+        return not wanted
 
     def _no_declaration_at_head(self, declaring: str) -> bool:
         """The run head integration's window would start from holds no declaration; else halted.

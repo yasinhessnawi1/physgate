@@ -415,8 +415,19 @@ export function rowOf(
       return {
         ...base,
         depth: 1,
-        sentence: `${subtaskName(event.subtask)} reopened for attempt ${String(event.attempt)}, as a person's choice on ${event.itemId} ordered; its earlier merge stays on the record`,
+        sentence:
+          event.itemId === null
+            ? `${subtaskName(event.subtask)} reopened for attempt ${String(event.attempt)}, once and by code: sizing's closing pass changed values its nodes depend on (${String(event.owed)} owed ${event.owed === 1 ? "edge" : "edges"}); its earlier merge stays on the record`
+            : `${subtaskName(event.subtask)} reopened for attempt ${String(event.attempt)}, as a person's choice on ${event.itemId} ordered; its earlier merge stays on the record`,
         meta: `${event.subtask} · earlier merge ${event.mergeCommit.slice(0, 7)}`,
+        subtask: event.subtask,
+      };
+    case "follow_up_ended":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.subtask)}'s follow-up ended without a merge (${event.why.replace("_", " ")}), and is not retried; its earlier merge stands`,
+        meta: `${event.subtask} · attempt ${String(event.attempt)}`,
         subtask: event.subtask,
       };
     case "subtask_rejected": {

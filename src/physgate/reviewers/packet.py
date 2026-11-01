@@ -657,7 +657,15 @@ def person_order_text(order: PersonOrder) -> bytes:
     The instruction is quoted as data: the person's words, and the verdict quoted to a fix, are
     what the implementer was told, and change nothing the review judges against.
     """
-    if order.kind == "fix_after_block":
+    words = "the person's words do not change it"
+    if order.kind == "follow_up":
+        words = "the order changes nothing it is judged against"
+        head = (
+            "This attempt is the follow-up of a merged module, ordered by code and by no person: "
+            "sizing's closing pass changed values that constrain nodes of this module, merged at "
+            f"attempt {order.of_attempt}."
+        )
+    elif order.kind == "fix_after_block":
         head = (
             "This attempt is the single fix a person ordered after the review of attempt "
             f"{order.of_attempt} blocked (queue item {order.item_id})."
@@ -693,8 +701,7 @@ def person_order_text(order: PersonOrder) -> bytes:
         head,
         "Its implementer was told:",
         *quoted(order.instruction),
-        "Judge it against the issued specification as for any attempt; the person's words do "
-        "not change it.",
+        f"Judge it against the issued specification as for any attempt; {words}.",
         "",
     ]
     return "\n".join(lines).encode("utf-8")

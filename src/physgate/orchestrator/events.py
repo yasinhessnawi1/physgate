@@ -794,6 +794,23 @@ class AttemptReturned(_Event):
     item_id: NonEmptyStr
 
 
+#: What ended a follow-up's one attempt without a merge.
+FollowUpWhy = Literal["rejected", "blocked", "no_verdict", "for_a_person"]
+
+
+class FollowUpEnded(_Event):
+    """A follow-up's one attempt ended without a merge: no retry, and no fix or item follows.
+
+    The module's earlier merge stands, so the subtask is done again, and the integration call
+    judges the edges it still owes (ARCH-051). ``why`` is what ended the attempt.
+    """
+
+    kind: Literal["follow_up_ended"] = "follow_up_ended"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    why: FollowUpWhy
+
+
 class Incident(_Event):
     """Something the loop cannot answer by itself happened. The run halts after it."""
 
@@ -1358,6 +1375,7 @@ Event = Annotated[
     | SubtaskRejected
     | SubtaskReopened
     | AttemptReturned
+    | FollowUpEnded
     | Incident
     | Resumed
     | Decomposed
