@@ -204,6 +204,7 @@ def test_a_session_end_with_several_findings_records_them_before_its_incidents(
 ) -> None:
     shown, incidents, halt = ENDS[shape]
     rows = lines(ended_session(tmp_path, shown, kill=None))
+    assert "findings_recorded" in kinds(rows), "no line records the findings first"
     assert kinds(rows).index("session_ended") < kinds(rows).index("findings_recorded")
     _findings_then_incidents(rows, incidents, halt)
 
@@ -217,6 +218,7 @@ def test_the_leftovers_lines_come_first_then_their_findings_every_incident_and_o
     last_leftover = max(
         i for i, r in enumerate(rows) if r["kind"] in ("leftover_read", "tokens_used")
     )
+    assert "findings_recorded" in kinds(rows), "no line records the findings first"
     assert last_leftover < kinds(rows).index("findings_recorded")
     assert kinds(rows).count("halted") == 1
     _findings_then_incidents(rows, incidents, halt)
