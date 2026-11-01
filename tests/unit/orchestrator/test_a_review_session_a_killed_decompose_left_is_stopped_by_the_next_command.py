@@ -343,3 +343,43 @@ def test_a_killed_review_s_repair_stream_is_scanned(
     capsys.readouterr()
     assert _exit(args, StandIn(_verdict())) == 2
     assert "held-out" in capsys.readouterr().err, "the repair stream's exposure is on no record"
+
+
+class Credentialed(Recording):
+    """A review killed with its credential still in its directory, and in its stream."""
+
+    def review_plan(self, under: Any) -> ReviewResult:  # noqa: ANN401
+        assert self.hook is not None and self.root is not None
+        sdir = self.root / self.spawned[0] / "session"
+        for where in ("state", "config"):
+            (sdir / where).mkdir(parents=True, exist_ok=True)
+        self.hook(*self.spawned)
+        (sdir / "state" / "key-helper.sh").write_text(f"#!/bin/sh\necho {SECRET}\n")
+        (sdir / "state" / "key").write_text(SECRET)
+        (sdir / "config" / ".credentials.json").write_text(json.dumps({"token": SECRET}))
+        (sdir / "stdout.jsonl").write_text(json.dumps({"type": "user", "echo": SECRET}) + "\n")
+        raise Stopped
+
+
+#: The dummy key the ``calls`` fixture puts in the command's environment.
+SECRET = "sk-ant-test-dummy-not-a-credential"
+
+
+@pytest.mark.parametrize("second", ["decompose", "run"])
+def test_a_killed_review_s_credential_is_gone_after_the_next_command(
+    tmp_path: Path, calls: Calls, second: str
+) -> None:
+    args = _args(tmp_path, WITH_CANARY)
+    root = (tmp_path / "review-scratch").resolve()
+    with pytest.raises(BaseException) as stopped:  # noqa: PT011 - the stop is the point
+        _exit(args, Credentialed(Stopped(), (SESSION, 4242, OTHER_START), root=root))
+    assert stopped.type is Stopped
+    sdir = root / SESSION / "session"
+    assert any(SECRET.encode() in p.read_bytes() for p in sdir.rglob("*") if p.is_file())
+    _exit(args, StandIn(_verdict())) if second == "decompose" else main(_run_args(tmp_path))
+    held = sorted(
+        str(p.relative_to(sdir))
+        for p in sdir.rglob("*")
+        if p.is_file() and SECRET.encode() in p.read_bytes()
+    )
+    assert held == [], f"the credential is still in the review's directory: {held}"
