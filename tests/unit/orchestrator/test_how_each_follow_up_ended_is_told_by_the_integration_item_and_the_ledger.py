@@ -79,7 +79,7 @@ def _blocked() -> ReviewResult:
 ENDINGS: dict[str, tuple[str, dict[str, Any], tuple[str, ...]]] = {
     "gate": ("rejected", {"gate": ["pass", "fail"]}, ("magnitude",)),
     "review": ("rejected", {"results": {4: _failing()}}, ("DS-2", "unmet")),
-    "blocked": ("blocked", {"results": {4: _blocked()}}, ("DS-4", "criterion 2")),
+    "blocked": ("blocked", {"results": {4: _blocked()}}, ("DS-4", 'criterion "2"')),
 }
 
 
@@ -97,12 +97,14 @@ def _rig(tmp_path: Path, setup: dict[str, Any]) -> Rig:
 def _integration_item(rig: Rig) -> dict[str, Any]:
     rows = [json.loads(raw) for raw in (rig.run_dir / "queue.jsonl").read_bytes().splitlines()]
     (item,) = [r for r in rows if r.get("source") == "gate_escalation"]
-    return item
+    found: dict[str, Any] = item
+    return found
 
 
 def _ledger(rig: Rig, subtask_id: str) -> dict[str, Any]:
     rows = [json.loads(raw) for raw in (rig.run_dir / "ledger.jsonl").read_bytes().splitlines()]
-    return [r for r in rows if r["id"] == subtask_id][-1]
+    found: dict[str, Any] = [r for r in rows if r["id"] == subtask_id][-1]
+    return found
 
 
 # --- the integration item ------------------------------------------------------------------

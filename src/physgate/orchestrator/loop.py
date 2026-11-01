@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
@@ -27,6 +28,7 @@ from physgate.contracts.clause import check_pair
 from physgate.contracts.graph import nodes_at
 from physgate.contracts.pairs import ContractError
 from physgate.gate.exceptions import GateError
+from physgate.orchestrator import integration_state as render
 from physgate.orchestrator.apply import ProposalRefusedError
 from physgate.orchestrator.arbitration import (
     ContractConflict,
@@ -38,7 +40,7 @@ from physgate.orchestrator.arbitration import (
 )
 from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.change_sets import change_history
-from physgate.orchestrator.common import utc_now
+from physgate.orchestrator.common import PLANNED_ID_MAX_LENGTH, SUBTASK_PATTERN, utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decisions import (
     SCANNED_SOURCES,
@@ -55,7 +57,7 @@ from physgate.orchestrator.decisions import (
 from physgate.orchestrator.declaration import DeclarationError
 from physgate.orchestrator.dispute import DISPUTES_DIR, UNRECORDABLE, disputer_problem
 from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
-from physgate.orchestrator.escalation_state import escalation_state
+from physgate.orchestrator.escalation_state import RUBRIC_ITEM, escalation_state
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     ArbitrationDecided,
@@ -308,24 +310,54 @@ LEFTOVER_HALTS: tuple[IncidentCause, ...] = (
 )
 
 
+#: What the integration item names of a review is a reviewer's output, read back from the log: each
+#: value is held to the pattern it has where it is written, or a placeholder stands in its place.
+_ITEM = re.compile(RUBRIC_ITEM)
+_CRITERION = re.compile(r"[0-9]{1,6}")
+_CHECK = re.compile(r"[a-z][a-z0-9_]{0,63}")
+REFUSED_RUBRIC_ITEM = "(a rubric item id the rubric's id pattern refuses)"
+REFUSED_CRITERION = "(a criterion the specification's numbering refuses)"
+REFUSED_CHECK = "(a check name the gate's names refuse)"
+#: How many of one list the item names before it counts the rest, and its longest account.
+LISTED_AT_MOST = 8
+TOLD_AT_MOST = 4_000
+
+
+def _listed(values: list[str]) -> str:
+    left = len(values) - LISTED_AT_MOST
+    return ", ".join(values[:LISTED_AT_MOST]) + (f", and {left} more left out" if left > 0 else "")
+
+
 def _follow_up_end(now: AttemptState | None) -> str:
     """How a module's follow-up ended, in the record's structured fields; ``now`` is its attempt."""
     if now is None:
         return "none owed (merged on its fix, or its order no read shows whole)"
     if now.merged is not None:
         return f"its follow-up merged at attempt {now.number}"
-    said = [f"its follow-up ended {why_not_merged(now)}"]
+    said = [f"its follow-up ended {why_not_merged(now)}"]  # one of its enum's words, by code
+    held = render.held
     if isinstance(now.gate, GateRan) and now.gate.result.verdict == "fail":
-        said.append(f"gate check {now.gate.result.failing_check}")
+        check = now.gate.result.failing_check or ""
+        said.append(f"gate check {held(check, _CHECK, 64, REFUSED_CHECK)}")
     review = now.review.result if now.review is not None else None
     if review is not None:
-        failing = [f"{i.item} ({i.result})" for i in review.items if i.result in REJECTING_RESULTS]
-        blocking = [
-            f"criterion {c.criterion}" for c in review.criteria if c.defect and c.defect.blocking
+        failing = [
+            f"{held(i.item, _ITEM, 16, REFUSED_RUBRIC_ITEM)} ({i.result})"
+            for i in review.items
+            if i.result in REJECTING_RESULTS
         ]
-        blocking += [f"item {d.item}" for d in review.spec_defects if d.blocking and d.item]
-        said += [f"failing items {', '.join(failing)}"] if failing else []
-        said += [f"blocking {', '.join(blocking)}"] if blocking else []
+        blocking = [
+            f"criterion {held(c.criterion, _CRITERION, 6, REFUSED_CRITERION)}"
+            for c in review.criteria
+            if c.defect and c.defect.blocking
+        ]
+        blocking += [
+            f"item {held(d.item, _ITEM, 16, REFUSED_RUBRIC_ITEM)}"
+            for d in review.spec_defects
+            if d.blocking and d.item
+        ]
+        said += [f"failing items {_listed(failing)}"] if failing else []
+        said += [f"blocking {_listed(blocking)}"] if blocking else []
     return "; ".join(said)
 
 
@@ -2578,13 +2610,20 @@ class Loop:
         at = {e.subtask_id: e.attempt for e in taken}
         told = []
         for subtask_id, edges in reached.items():
-            named = ", ".join(f"{edge.source} -> {edge.target}" for edge in edges)
+            named = _listed([f"{render.held(e.source)} -> {render.held(e.target)}" for e in edges])
             sub = self.state.subtasks[subtask_id]
             now = next((a for a in sub.attempts if a.number == at.get(subtask_id)), None)
-            told.append(f"{subtask_id} (owed {named}): {_follow_up_end(now)}")
+            who = render.held(
+                subtask_id, SUBTASK_PATTERN, PLANNED_ID_MAX_LENGTH, render.REFUSED_SUBTASK
+            )
+            told.append(f"{who} (owed {named}): {_follow_up_end(now)}")
+        kept = [one for k, one in enumerate(told) if len("; ".join(told[: k + 1])) <= TOLD_AT_MOST]
+        more = (
+            f"; and {len(told) - len(kept)} more modules left out" if len(kept) < len(told) else ""
+        )
         return (
             "Sizing's closing pass changed values nodes of these modules depend on: "
-            f"{'; '.join(told)}."
+            f"{'; '.join(kept)}{more}."
         )
 
     def _follow_up_order(self, followed: SubtaskReopened) -> PersonOrder:

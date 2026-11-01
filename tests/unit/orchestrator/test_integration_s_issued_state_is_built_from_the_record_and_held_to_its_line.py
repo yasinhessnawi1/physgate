@@ -703,6 +703,17 @@ REWRITES: dict[str, tuple[Callable[[list[dict[str, Any]]], None], str, str]] = {
     "a quantity's node": (a_quantitys_node, SENTENCE, REFUSED),
     "a check's node": (a_checks_node, SENTENCE, REFUSED),
     "a node id past its bound": (first_result("drive.motor", LONG_NODE), LONG_NODE, REFUSED),
+    "a node id with a line break after it": (
+        first_result("drive.motor", NODE_GOES_ON),
+        NODE_GOES_ON,
+        REFUSED,
+    ),
+}
+
+
+#: Each rewrite of a planning line's role or subtask id: the replay refuses it before any document
+#: is built from the log, and the rendering's own hold stands behind it.
+PLANNED_REWRITES: dict[str, tuple[Callable[[list[dict[str, Any]]], None], str, str]] = {
     "a side's role": (said_instead("firmware"), SENTENCE, REFUSED_ROLE),
     "a role past its bound": (said_instead("firmware", LONG_ROLE), LONG_ROLE, REFUSED_ROLE),
     "a role within its bound": (said_instead("firmware", SHORT), SHORT, REFUSED_ROLE),
@@ -723,12 +734,27 @@ REWRITES: dict[str, tuple[Callable[[list[dict[str, Any]]], None], str, str]] = {
         SUBTASK_GOES_ON,
         REFUSED_SUBTASK,
     ),
-    "a node id with a line break after it": (
-        first_result("drive.motor", NODE_GOES_ON),
-        NODE_GOES_ON,
-        REFUSED,
-    ),
 }
+
+
+@pytest.mark.parametrize("rewrite", PLANNED_REWRITES)
+def test_a_planning_line_s_rewritten_role_or_id_is_refused_before_any_document_is_built(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rewrite: str
+) -> None:
+    edit, written, _ = PLANNED_REWRITES[rewrite]
+    rig, _ = run(
+        tmp_path,
+        monkeypatch,
+        kill=at_integrations_resolve,
+        gate_mode="observe",
+        gate=FakeGate(integration_verdict="fail"),
+    )
+    log = rig.run_dir / "events.jsonl"
+    runner.rewritten(log, edit)
+    assert canary_seen(log.read_bytes(), frozenset({written})) == written
+    with pytest.raises(CorruptEventLogError) as caught:
+        replay(read_events(log))
+    assert "pattern" in str(caught.value.context), caught.value.context
 
 
 @pytest.mark.parametrize("rewrite", REWRITES)
@@ -757,19 +783,19 @@ def test_an_identifier_is_quoted_only_where_its_pattern_holds_it_where_it_is_ren
     assert phrase in data.decode() and phrase not in honest
 
 
-def test_integrations_subtask_id_rewritten_before_its_window_reaches_its_session_in_no_form(
+def test_integrations_subtask_id_rewritten_before_its_window_reaches_no_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig, _ = run(tmp_path, monkeypatch, kill=at_integrations_resolve)
     for name in ("events.jsonl", "ledger.jsonl"):
         path = rig.run_dir / name
         path.write_text(path.read_text().replace(json.dumps(INTEG), json.dumps(SENTENCE)))
-    resumed(rig, monkeypatch)
-    # The session is handed the document, and the sentence is in no form in it.
-    (state,) = [r.issued_state for r in rig.dispatcher.requests if r.issued_state is not None]
-    text = state.text
-    assert canary_seen(text.encode(), frozenset({SENTENCE})) is None
-    assert f"Integration's subtask: {REFUSED_SUBTASK}.\n" in text
+    before = len(rig.dispatcher.requests)
+    # The replay refuses the planning line before any window: no session is handed anything.
+    with pytest.raises(CorruptEventLogError) as caught:
+        resumed(rig, monkeypatch)
+    assert "pattern" in str(caught.value.context), caught.value.context
+    assert len(rig.dispatcher.requests) == before
 
 
 @pytest.mark.parametrize("cut", [False, True], ids=["uninterrupted", "killed before its halt"])
