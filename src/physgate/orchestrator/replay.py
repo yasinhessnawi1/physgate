@@ -68,6 +68,7 @@ from physgate.orchestrator.events import (
     Escalated,
     EscalationDecided,
     Event,
+    FindingsRecorded,
     FollowUpEnded,
     FollowUpWhy,
     GateRan,
@@ -347,6 +348,9 @@ class RunState:
         #: The last halt on the record, kept when a resume takes the run up again.
         self.last_halt: Halted | None = None
         self.incident: Incident | None = None
+        #: A findings line whose halt is not yet written, and how many of its incidents are.
+        self.findings: FindingsRecorded | None = None
+        self.findings_written = 0
         self.ledger: list[TaskLine] = []
         #: The newest canonical journal revision the orchestrator accounts for: the
         #: decomposition's head, then each recorded write. Anything after it that no
@@ -457,6 +461,18 @@ class RunState:
             self.replans = replans(event.design_review or "off")
             return
         if isinstance(event, Halted):
+            listed = self.findings
+            if listed is not None:
+                where = f" in {listed.subtask_id}" if listed.subtask_id else ""
+                if (
+                    self.findings_written != len(listed.findings)
+                    or event.reason != "incident"
+                    or event.detail != f"{listed.halt}{where}"
+                ):
+                    _refuse(
+                        "a findings line's halt follows every finding it names, under its cause"
+                    )
+                self.findings = None
             if event.reason == "decomposition_failed" and self.reviews_plan:
                 self._proposals_end(None)
             self.halted = self.last_halt = event
@@ -492,6 +508,23 @@ class RunState:
             self._expect(allowed[event.reason], "a worktree removal")
             self.worktrees_handled.add(event.subtask_id)
             return
+        if isinstance(event, FindingsRecorded):
+            if self.findings is not None or self.owed_halt() is not None:
+                _refuse("a findings line comes before its incidents, with no halt owed before it")
+            self.findings, self.findings_written = event, 0
+            return
+        if self.findings is not None:
+            listed, n = self.findings, self.findings_written
+            if not isinstance(event, Incident) or n == len(listed.findings):
+                _refuse("nothing comes between a findings line and its incidents and halt")
+            found = listed.findings[n]
+            if (event.subtask_id, event.cause, event.detail) != (
+                listed.subtask_id,
+                found.cause,
+                found.detail,
+            ):
+                _refuse("an incident after a findings line is the next finding it names")
+            self.findings_written += 1
         if isinstance(event, Incident) and event.subtask_id is None:
             opening = self.reviews_plan and self.design_review is None
             if opening and event.cause == "held_out_read" and len(self.review_tokens) != 1:
@@ -1836,7 +1869,7 @@ class RunState:
         contract result the record owes comes before all of them, and the halt an incident owes
         before anything.
         """
-        if self.owed_halt() is not None:
+        if self.halt_owed():
             return Step(kind="halt")
         if self.halted is not None:
             return Step(kind="halted")
@@ -1884,6 +1917,14 @@ class RunState:
         if incident is None or (halt is not None and halt.seq > incident.seq):
             return None
         return incident
+
+    def halt_owed(self) -> bool:
+        """Whether the next step is a halt the record owes, with any incident it names before it.
+
+        After an incident with no halt (:meth:`owed_halt`), or a findings line whose incidents and
+        halt are not all written yet.
+        """
+        return self.findings is not None or self.owed_halt() is not None
 
     def _step_of(self, subtask_id: str) -> Step | None:
         """What the loop does next for ``subtask_id``; ``None`` once the subtask is resolved."""

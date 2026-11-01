@@ -15,6 +15,7 @@ loop refuses to start in a gate mode that needs a gate when none is registered.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -75,6 +76,7 @@ from physgate.orchestrator.events import (
     Escalated,
     EscalationDecided,
     Event,
+    FindingsRecorded,
     FollowUpEnded,
     GateRan,
     GateSkipped,
@@ -99,6 +101,7 @@ from physgate.orchestrator.events import (
     ReviewRan,
     ReviewUnavailable,
     SessionEnded,
+    SessionFinding,
     SessionSpawned,
     Stage,
     StageEntered,
@@ -119,6 +122,7 @@ from physgate.orchestrator.exceptions import (
     HeldOutExposedError,
     MergeConflictError,
     MergeRefusedError,
+    QueueError,
     QueueItemMismatchError,
     ReviewerNotRegisteredError,
     ReviewUnavailableError,
@@ -293,6 +297,16 @@ def refuse_unregistered(
         require_separate_models(implementer=implementer, reviewer=reviewer.model)
 
 
+#: Which of a resume's leftover findings names its one halt, first found first: a stream something
+#: else wrote, then an exposure, then reviewer material, then a stream set aside.
+LEFTOVER_HALTS: tuple[IncidentCause, ...] = (
+    "trajectory_tampered",
+    "held_out_read",
+    "review_material_read",
+    "stream_quarantined",
+)
+
+
 class Loop:
     """One run's loop, over the run directory's event log, ledger and queue."""
 
@@ -391,7 +405,10 @@ class Loop:
         if self.state.halted is None and self.state.interrupted() is not None:
             msg = "the run was interrupted mid-attempt; resume it instead"
             raise RunStateError(msg, run_dir=str(self.run_dir))
-        if self.state.halted is None and not self._journal_clean():
+        # A halt owed for an incident on the record comes first: a check of this process's own
+        # would find the same thing again and write a second incident before it.
+        owed = self.state.halt_owed()
+        if self.state.halted is None and not owed and not self._journal_clean():
             return self.state.next_step()
         return self._drive()
 
@@ -423,6 +440,8 @@ class Loop:
             raise RunStateError(msg, run_dir=str(self.run_dir), detail=halted.detail)
         self._require_confirmable(confirm, confirmed_by)
         self._confirm = (frozenset(confirm), confirmed_by)
+        if self.state.halt_owed():
+            return self._drive()  # the halt the record owes, before any check of this process's
         if not self._journal_clean():
             return self.state.next_step()
         sub = self.state.interrupted()
@@ -552,12 +571,41 @@ class Loop:
         self._emit(SessionSpawned(**self._env(), session_id=session_id, pid=pid, started=started))
 
     def _stop_leftovers(self) -> None:
-        """Stop what a previous process left running, before anything reads or writes."""
+        """Stop what a previous process left running, before anything reads or writes.
+
+        Each leftover's own lines first, then its findings and their one halt: every exposure,
+        reviewer material and set-aside stream, each leftover in turn, then every tampered stream.
+        The halt is the tampering's, else the exposure's, else the material's, else the set-aside
+        stream's. A lone finding, and its halt, are written where they always were, so such a log
+        keeps its bytes.
+        """
         if not self.log.events:
             return
-        tampered: list[tuple[str, str]] = []
-        exposed = material = quarantined = False
-        for left in self._dispatcher.stop_leftovers():
+        leftovers = self._dispatcher.stop_leftovers()
+        found: list[tuple[int, IncidentCause, str]] = []
+        for at, left in enumerate(leftovers):
+            sid = left.session_id
+            if left.held_out_seen is not None:
+                # As at a normal session end: the tier counts as exposed (ARCH-141), and the
+                # exposure is recorded whatever else the resume finds. The canary is not.
+                found.append((at, "held_out_read", f"held-out material in the stream of "
+                              f"leftover session {sid}"))  # fmt: skip
+            if left.review_material_seen is not None:
+                # A role session that read what only its reviewer reads, found at the resume as
+                # at a normal session end. The canary is not recorded.
+                found.append((at, "review_material_read", f"reviewer material in the stream of "
+                              f"leftover session {sid}"))  # fmt: skip
+            if left.quarantine is not None:
+                # The operator set a gone stream aside: nothing was scanned, so the session's
+                # work is never counted as clean. The run halts as an incident, once.
+                found.append((at, "stream_quarantined", f"leftover session {sid}: {left.scan}; "
+                              f"set aside by {left.quarantine}"))  # fmt: skip
+        found += [
+            (len(leftovers), "trajectory_tampered", f"leftover session {left.session_id}: {why}")
+            for left in leftovers
+            if (why := left.tampered) is not None
+        ]
+        for at, left in enumerate(leftovers):
             if left.stopped:
                 self._emit(
                     LeftoverStopped(
@@ -576,41 +624,10 @@ class Loop:
                     scan=left.scan,
                 )
             )
-            if left.held_out_seen is not None:
-                # As at a normal session end: the tier counts as exposed (ARCH-141), and
-                # the exposure is recorded whatever else the resume finds. The canary is not.
-                exposed = True
-                detail = f"held-out material in the stream of leftover session {left.session_id}"
+            if len(found) == 1 and found[0][0] == at:
                 self._emit(
-                    Incident(**self._env(), subtask_id=None, cause="held_out_read", detail=detail)
+                    Incident(**self._env(), subtask_id=None, cause=found[0][1], detail=found[0][2])
                 )
-            if left.review_material_seen is not None:
-                # A role session that read what only its reviewer reads, found at the
-                # resume as at a normal session end. The canary is not recorded.
-                material = True
-                detail = f"reviewer material in the stream of leftover session {left.session_id}"
-                self._emit(
-                    Incident(
-                        **self._env(), subtask_id=None, cause="review_material_read", detail=detail
-                    )
-                )
-            if left.quarantine is not None:
-                # The operator set a gone stream aside: nothing was scanned, so the session's
-                # work is never counted as clean. The run halts as an incident, once.
-                quarantined = True
-                self._emit(
-                    Incident(
-                        **self._env(),
-                        subtask_id=None,
-                        cause="stream_quarantined",
-                        detail=(
-                            f"leftover session {left.session_id}: {left.scan}; "
-                            f"set aside by {left.quarantine}"
-                        ),
-                    )
-                )
-            if left.tampered is not None:
-                tampered.append((left.session_id, left.tampered))
             # Spent, and never recorded: its orchestrator died first. Up to the
             # runtime's own result only, when something wrote after it.
             for message in left.usage:
@@ -623,15 +640,15 @@ class Loop:
                         partial=not left.complete,
                     )
                 )
-        for session_id, why in tampered:
-            self._incident(None, "trajectory_tampered", f"leftover session {session_id}: {why}")
-        if exposed and not tampered:
-            # No other incident: the exposure alone stops the run, once.
-            self._halt_for(None, "held_out_read")
-        elif material and not tampered:
-            self._halt_for(None, "review_material_read")
-        elif quarantined and not tampered:
-            self._halt_for(None, "stream_quarantined")
+        if len(found) == 1:
+            at, cause, detail = found[0]
+            if at == len(leftovers):  # a tampered stream's, after every leftover's lines
+                self._emit(Incident(**self._env(), subtask_id=None, cause=cause, detail=detail))
+            self._halt_for(None, cause)
+        elif found:
+            causes = {cause for _, cause, _ in found}
+            halt = next(c for c in LEFTOVER_HALTS if c in causes)
+            self._findings(None, [(cause, detail) for _, cause, detail in found], halt)
 
     def _clean_up_worktrees(self) -> None:
         """Remove the worktrees the rules allow, recording each; never stall or fail the run.
@@ -639,7 +656,13 @@ class Loop:
         A done subtask's (merged, diff clean), and an escalated subtask's once its
         queue item has a decision. Nothing else, and never forced.
         """
-        self.queue.refresh()  # a person may have decided while a session ran
+        try:
+            self.queue.refresh()  # a person may have decided while a session ran
+        except QueueError as exc:
+            # Recorded once: a run already halted, or halting, for it has its incident.
+            if not self._decisions_unreadable(exc, write=not self.state.halted):
+                raise
+            return
         resolved = {item.item_id for item in self.queue.items()} - {
             item.item_id for item in self.queue.open_items()
         }
@@ -667,18 +690,33 @@ class Loop:
                 reason = "queue_resolved"
             else:
                 continue
-            removal = self._merger.remove_worktree(subtask_id, reopen=sub.reopens)
-            self._emit(
-                WorktreeRemoved(
-                    **self._env(),
-                    subtask_id=subtask_id,
-                    path=removal.path,
-                    reason=reason,
-                    outcome=removal.outcome,
-                    seconds=removal.seconds,
-                    detail=removal.detail,
-                )
+            self._remove_worktree(subtask_id, reason)
+
+    def _remove_worktree(self, subtask_id: str, reason: Literal["done", "queue_resolved"]) -> None:
+        """Remove the subtask's present worktree, and record it; never stall or fail the run."""
+        sub = self.state.subtasks[subtask_id]
+        removal = self._merger.remove_worktree(subtask_id, reopen=sub.reopens)
+        self._emit(
+            WorktreeRemoved(
+                **self._env(),
+                subtask_id=subtask_id,
+                path=removal.path,
+                reason=reason,
+                outcome=removal.outcome,
+                seconds=removal.seconds,
+                detail=removal.detail,
             )
+        )
+
+    def _before_a_reopen(self, subtask_id: str) -> None:
+        """The merged subtask's worktree, removed before its reopen unless a stop removed it.
+
+        A reopened subtask works in a fresh worktree, and no stop need come between its merge and
+        its reopen (a follow-up never has one), so the old one is removed here, once. A process
+        killed after the removal and before its line finds it absent and records that.
+        """
+        if subtask_id not in self.state.worktrees_handled:
+            self._remove_worktree(subtask_id, "done")
 
     def _drive(self) -> Step:
         # The environment is recorded for a step that spawns a session; the integration
@@ -718,9 +756,7 @@ class Loop:
                 return step
             if step.kind == "halt":
                 # A process killed between an incident and its halt: the halt, and nothing else.
-                owed = self.state.owed_halt()
-                if owed is not None:
-                    self._halt_for(owed.subtask_id, owed.cause)
+                self._owed_halt()
                 continue
             if step.kind == "integrate":
                 self._integrate()
@@ -816,13 +852,19 @@ class Loop:
         Each becomes one ``decision_taken`` line computed by code from the item and the log;
         a held one the operator confirmed on the command line is taken again, acting.
         """
-        self.queue.refresh()
-        # One read of the file: the seals are checked on these bytes and the decisions parsed
-        # from them, so nothing written between the two is taken.
-        data = decisions_file_bytes(self.run_dir)
-        if not self._decisions_as_sealed(data):
+        try:
+            self.queue.refresh()
+            # One read of the file: the seals are checked on these bytes and the decisions parsed
+            # from them, so nothing written between the two is taken.
+            data = decisions_file_bytes(self.run_dir)
+            sealed = self._decisions_as_sealed(data)
+            view = read_queue(self.run_dir, decisions=data) if sealed else None
+        except QueueError as exc:
+            if not self._decisions_unreadable(exc):
+                raise
             return True  # halted: the next step says so
-        view = read_queue(self.run_dir, decisions=data)
+        if view is None:
+            return True  # halted: the next step says so
         items = {item.item_id: item for item in view.items}
         held = self._held_windows()
         confirm, confirmed_by = self._confirm
@@ -851,6 +893,27 @@ class Loop:
                 # and the next decision waits for the next boundary.
                 return True
         return took
+
+    def _decisions_unreadable(self, exc: QueueError, *, write: bool = True) -> bool:
+        """Whether ``exc`` is the decisions file's reader refusing it; then, with ``write``, halt.
+
+        A person's line that does not read is never read past and never mended here: one incident
+        names the file and the line, and the run halts until a person mends the file. Any other
+        refusal of the queue is not this one.
+        """
+        path = self.queue.decisions_path
+        named = exc.context.get("queue") or exc.context.get("file")
+        if named is None or Path(named) != path:
+            return False
+        if write and not self.state.halt_owed():
+            where = "the file"
+            offset = exc.context.get("offset")
+            if offset is not None and offset.isdigit():
+                with contextlib.suppress(OSError):
+                    where = f"line {path.read_bytes()[: int(offset)].count(b'\n') + 1}"
+            reason = exc.context.get("reason", "")
+            self._incident(None, "decisions_unreadable", f"{path}, {where}: {exc} ({reason})")
+        return True
 
     def _decisions_as_sealed(self, data: bytes) -> bool:
         """Every prefix of the decisions file a session started beside is still its first bytes.
@@ -996,6 +1059,7 @@ class Loop:
         if taken is None or taken.shown_sha256 is None or sub is None or merged is None:
             msg = "a reopen with no decision that orders it, or of a subtask with no merge"
             raise RunStateError(msg, run_dir=str(self.run_dir))
+        self._before_a_reopen(sub.plan.subtask_id)
         self._emit(
             SubtaskReopened(
                 **self._env(),
@@ -1401,46 +1465,9 @@ class Loop:
                 series=report.series,
             )
         )
-        exposed = report.held_out_seen is not None
-        if exposed:
-            # The session displayed held-out material: the tier counts as exposed (ARCH-141).
-            # Recorded first and whatever else is found below, so no other incident can
-            # leave an exposure unlogged; the run halts once, after every incident found.
-            # The canary is not recorded.
-            detail = f"held-out material in the stream of session {report.session_id}"
-            self._emit(
-                Incident(**self._env(), subtask_id=subtask_id, cause="held_out_read", detail=detail)
-            )
-        # Every other incident first, then the possible abort beside it, then one halt.
-        # ``bwrap:`` in a result is the session's own output, which any command can print:
-        # no harness-side signal tells a real abort from a printed one, so it is recorded
-        # alongside, never in place of, anything else the session's end shows.
-        other = self._other_incident(report)
-        if other is not None:
-            cause, detail = other
-            self._emit(Incident(**self._env(), subtask_id=subtask_id, cause=cause, detail=detail))
-            self._possible_abort(subtask_id, report)
-            self._unverified_reaping(subtask_id, report)
-            self._halt_for(subtask_id, cause)
-            return False
-        if exposed:
-            # No other incident: the exposure alone stops the run, and nothing is taken.
-            self._possible_abort(subtask_id, report)
-            self._unverified_reaping(subtask_id, report)
-            self._halt_for(subtask_id, "held_out_read")
-            return False
-        if report.os_layer_aborted:
-            # Nothing else: the session was told of failures no layer judged, if its words
-            # are bubblewrap's. Its work is not taken, and a person looks first.
-            self._possible_abort(subtask_id, report)
-            self._unverified_reaping(subtask_id, report)
-            self._halt_for(subtask_id, "os_layer_aborted")
-            return False
-        if report.reaper_unverified:
-            # A command's output was cut where its survivor reaper's last word stands: what
-            # it started may have lived on. Its work is not taken, and a person looks first.
-            self._unverified_reaping(subtask_id, report)
-            self._halt_for(subtask_id, "reaper_unverified")
+        found = self._session_findings(report)
+        if found is not None:
+            self._findings(subtask_id, *found)
             return False
         if report.end.outcome != "completed":
             return False
@@ -1485,35 +1512,84 @@ class Loop:
             return "managed_settings_changed", changed
         return None
 
-    def _unverified_reaping(self, subtask_id: str, report: SessionReport) -> None:
-        """Record the commands whose reaper could not be heard from, if any."""
-        if not report.reaper_unverified:
-            return
-        detail = (
-            f"{len(report.reaper_unverified)} shell command(s) of session {report.session_id} "
-            "gave output longer than Claude Code keeps, so the survivor reaper's done line "
-            f"could not be read: {'; '.join(report.reaper_unverified)}"
-        )
-        self._emit(
-            Incident(**self._env(), subtask_id=subtask_id, cause="reaper_unverified", detail=detail)
-        )
+    def _session_findings(
+        self, report: SessionReport
+    ) -> tuple[list[tuple[IncidentCause, str]], IncidentCause] | None:
+        """Every incident a session's end shows, in the order written, and the halt's cause.
 
-    def _possible_abort(self, subtask_id: str, report: SessionReport) -> None:
-        """Record the results that carry bubblewrap's own line, if any: a possible abort.
-
-        Neither a denial nor a reach, and never a judgement on the session's word: the
-        record says what the results showed, beside whatever else was found.
+        An exposure first, so no other incident can leave it unlogged; then any other incident,
+        which names the halt; then the possible abort beside it, and the unverified reaping.
+        ``bwrap:`` in a result is the session's own output, which any command can print: no
+        harness-side signal tells a real abort from a printed one, so it is recorded alongside,
+        never in place of, anything else the end shows. ``None`` when it shows none.
         """
-        if not report.os_layer_aborted:
+        found: list[tuple[IncidentCause, str]] = []
+        if report.held_out_seen is not None:
+            # The session displayed held-out material: the tier counts as exposed (ARCH-141).
+            # The canary is not recorded.
+            found.append(("held_out_read", f"held-out material in the stream of session "
+                          f"{report.session_id}"))  # fmt: skip
+        other = self._other_incident(report)
+        if other is not None:
+            found.append(other)
+        if report.os_layer_aborted:
+            found.append(("os_layer_aborted", (
+                f"possible abort: {len(report.os_layer_aborted)} result(s) of session "
+                f"{report.session_id} carry bubblewrap's own line, which the command may have "
+                f"printed itself: {', '.join(report.os_layer_aborted)}"
+            )))  # fmt: skip
+        if report.reaper_unverified:
+            # A command's output was cut where its survivor reaper's last word stands: what it
+            # started may have lived on. Its work is not taken, and a person looks first.
+            found.append(("reaper_unverified", (
+                f"{len(report.reaper_unverified)} shell command(s) of session {report.session_id} "
+                "gave output longer than Claude Code keeps, so the survivor reaper's done line "
+                f"could not be read: {'; '.join(report.reaper_unverified)}"
+            )))  # fmt: skip
+        if not found:
+            return None
+        # The halt: the other incident's cause, else the exposure's, else the first found.
+        halt = other[0] if other is not None else found[0][0]
+        return found, halt
+
+    def _findings(
+        self, subtask_id: str | None, found: list[tuple[IncidentCause, str]], halt: IncidentCause
+    ) -> None:
+        """Write a site's incidents, then its one halt; two or more are recorded in one line first.
+
+        That line is what a process taking over after a kill between them writes the rest from.
+        One incident needs none: its halt is its own cause, which the record already owes.
+        """
+        if len(found) > 1:
+            listed = tuple(SessionFinding(cause=cause, detail=detail) for cause, detail in found)
+            self._emit(
+                FindingsRecorded(**self._env(), subtask_id=subtask_id, findings=listed, halt=halt)
+            )
+        for cause, detail in found:
+            self._emit(Incident(**self._env(), subtask_id=subtask_id, cause=cause, detail=detail))
+        self._halt_for(subtask_id, halt)
+
+    def _owed_halt(self) -> None:
+        """The halt the record owes, after the incidents a findings line names and none follows.
+
+        A process killed between a site's incidents, or between them and the halt.
+        """
+        listed = self.state.findings
+        if listed is not None:
+            for found in listed.findings[self.state.findings_written :]:
+                self._emit(
+                    Incident(
+                        **self._env(),
+                        subtask_id=listed.subtask_id,
+                        cause=found.cause,
+                        detail=found.detail,
+                    )
+                )
+            self._halt_for(listed.subtask_id, listed.halt)
             return
-        detail = (
-            f"possible abort: {len(report.os_layer_aborted)} result(s) of session "
-            f"{report.session_id} carry bubblewrap's own line, which the command may have "
-            f"printed itself: {', '.join(report.os_layer_aborted)}"
-        )
-        self._emit(
-            Incident(**self._env(), subtask_id=subtask_id, cause="os_layer_aborted", detail=detail)
-        )
+        owed = self.state.owed_halt()
+        if owed is not None:
+            self._halt_for(owed.subtask_id, owed.cause)
 
     def _state_holds(self, subtask_id: str) -> IssuedState | None:
         """Integration's issued state, built again from the record and held to its window's line.
@@ -2466,6 +2542,7 @@ class Loop:
         for subtask_id, edges in wanted[len(recorded) :]:
             last = subs[subtask_id].attempts[-1]
             merge_commit = last.merged.merge_commit if last.merged is not None else ""
+            self._before_a_reopen(subtask_id)
             self._emit(
                 SubtaskReopened(
                     **self._env(),

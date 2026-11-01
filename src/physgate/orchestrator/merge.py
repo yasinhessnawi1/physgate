@@ -22,6 +22,8 @@ aborted and the run halts, and the agent is not charged. The merge leaves an
 attempt's disputes out: the change check read them from the attempt's commit and
 the run's log records them, so the run branch, and every worktree opened from it,
 never holds one, and two subtasks that dispute one quantity add no file to collide.
+That merge takes three git calls; a process killed between them leaves the merge of
+exactly the checked commit in progress, and the next process finishes it.
 
 **Every git call here holds to the commit's rule.** A repository or worktree a
 session could have touched has its ``.git`` pointer verified once per operation,
@@ -256,7 +258,13 @@ class GitMerger:
             objects_only=True, git_dir=pinned,
         )  # fmt: skip
         try:
-            if disputed:
+            if disputed and self._mid_merge_of(attempt_commit, admin):
+                # A process killed between the three calls left this very merge in progress: it
+                # is finished, never aborted, so the run does not halt on a conflict no one had.
+                git(run.integration, "rm", "-r", "-q", "-f", "--ignore-unmatch", "--",
+                    DISPUTES_DIR, git_dir=admin)  # fmt: skip
+                git(run.integration, "commit", "--no-edit", git_dir=admin)
+            elif disputed:
                 git(
                     run.integration, "merge", "--no-ff", "--no-commit", "-m", message,
                     attempt_commit, git_dir=admin,
@@ -276,6 +284,22 @@ class GitMerger:
             ) from None
         # Through the admin directory the merge ran in: the pointer is not read again.
         return head_of(run.integration, "HEAD", git_dir=admin)
+
+    def _mid_merge_of(self, attempt_commit: str, admin: GitDir) -> bool:
+        """Whether the integration worktree is mid-merge of exactly ``attempt_commit``.
+
+        Only from the run branch's head: the loop holds the branch to where the run left it just
+        before every merge, so a merge in progress from anywhere else, or of any other commit, is
+        no merge of this run's and is aborted as before.
+        """
+        run = self._run
+        found = git(run.integration, "rev-parse", "-q", "--verify", "MERGE_HEAD",
+                    check=False, git_dir=admin).strip()  # fmt: skip
+        if found != attempt_commit:
+            return False
+        pinned = verified_git_dir(run.repo, linked=False)
+        here = head_of(run.integration, "HEAD", git_dir=admin)
+        return here == head_of(run.repo, run.run_branch, git_dir=pinned)
 
     def run_branch_moved(self, expected: str, pending: str | None) -> str | None:
         """Why the run branch is not at ``expected``, or ``None``.

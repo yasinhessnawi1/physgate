@@ -109,6 +109,8 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 #: issued state that the run's record, read again, no longer gives: a line it was built from was
 #: rewritten after the state was issued. ``declaration_mismatch`` is integration's declaration line
 #: that its merged commit, read again with the change check's parser, no longer gives.
+#: ``decisions_unreadable`` is a line of the decisions file the queue's reader refuses: the run
+#: halts on it, named by file and line, until a person mends the file.
 IncidentCause = Literal[
     "cross_role_write",
     "merge_conflict",
@@ -133,6 +135,7 @@ IncidentCause = Literal[
     "interface_mismatch",
     "issued_state_mismatch",
     "declaration_mismatch",
+    "decisions_unreadable",
 ]
 
 #: Why a run stopped short of the end of its plan.
@@ -821,6 +824,32 @@ class Incident(_Event):
     detail: NonEmptyStr
 
 
+class SessionFinding(BaseModel):
+    """One thing a session's end showed that a person must look at, as its incident says it."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    cause: IncidentCause
+    detail: NonEmptyStr
+
+
+class FindingsRecorded(_Event):
+    """Every finding of one session's end, or of a resume's leftovers, before any incident of them.
+
+    Written where there are two or more, so a process killed between their incidents, or before
+    their one halt, leaves the rest on the record: the next process writes the incidents still
+    missing, in this order, and then the halt under ``halt``, the cause the site's own rule picks.
+    Left out where there is one, so such a log keeps its bytes; a log written before the line
+    existed has none and replays as it did.
+    """
+
+    kind: Literal["findings_recorded"] = "findings_recorded"
+    #: None for the leftovers a resume found, which belong to no subtask.
+    subtask_id: NonEmptyStr | None
+    findings: Annotated[tuple[SessionFinding, ...], Field(min_length=2, max_length=64)]
+    halt: IncidentCause
+
+
 class Decomposed(_Event):
     """The run's one model call produced a plan, and what it wrote."""
 
@@ -1376,6 +1405,7 @@ Event = Annotated[
     | SubtaskReopened
     | AttemptReturned
     | FollowUpEnded
+    | FindingsRecorded
     | Incident
     | Resumed
     | Decomposed
