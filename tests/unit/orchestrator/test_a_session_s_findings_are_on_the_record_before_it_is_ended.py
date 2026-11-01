@@ -201,6 +201,9 @@ def test_a_kill_after_the_session_was_ended_and_before_any_line_resumes_halted_o
     assert "sess-1" in incidents[0]["detail"]
     assert CANARY not in json.dumps(rows)
     assert "merged" not in kinds(rows)
+    # The end the session's own run wrote is kept.
+    ended = json.loads((tmp_path / "run" / "sessions" / "sess-1" / "ended.json").read_text())
+    assert ended == {"exit": 0, "timed_out": False}
 
 
 def test_a_kill_after_a_session_s_finding_does_not_read_its_stream_again(tmp_path: Path) -> None:

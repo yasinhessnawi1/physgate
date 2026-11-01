@@ -739,10 +739,8 @@ def _unended(sdir: Path, events: Sequence[Event]) -> bool:
     """Whether the role session ``sdir`` holds was spawned, and nothing on the log came after.
 
     Neither its end line nor a leftover's read names it, and no finding follows its spawn. A
-    review's session is ended by its review's own lines, so it is never one.
+    review's session directory is named for its review, never by a spawned session's id.
     """
-    if sdir.parent.name != "sessions":
-        return False
     spawn = next(
         (e.seq for e in events if isinstance(e, SessionSpawned) and e.session_id == sdir.name),
         None,
