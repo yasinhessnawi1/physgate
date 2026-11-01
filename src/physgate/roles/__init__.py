@@ -87,8 +87,17 @@ def register_of(roles: Iterable[RegisteredRole]) -> dict[str, RegisteredRole]:
 
 
 #: The roles the harness ships registered: those whose dispatch has everything it needs, and
-#: those a plan may name before they are built (:func:`dispatchable` tells them apart).
-SHIPPED: tuple[RegisteredRole, ...] = (CONTROL, FIRMWARE, INTEGRATION, MECHANICAL, ELECTRICAL)
+#: those a plan may name before they are built (:func:`dispatchable` tells them apart). Sizing
+#: ships once its always-loaded reading and its reviewer's rubric are promoted, and from then on
+#: owns the cross nodes in every run.
+SHIPPED: tuple[RegisteredRole, ...] = (
+    CONTROL,
+    FIRMWARE,
+    SIZING,
+    INTEGRATION,
+    MECHANICAL,
+    ELECTRICAL,
+)
 #: Every role registered so far, keyed by name.
 ROLES: dict[str, RegisteredRole] = register_of(SHIPPED)
 
