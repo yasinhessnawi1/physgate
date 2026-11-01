@@ -396,5 +396,7 @@ def test_the_placeholder_sweep_records_what_it_did_even_when_it_found_nothing(
     sdir.mkdir()
     before = placeholders.snapshot(str(worktree), absent=())
     assert ClaudeDispatcher._sweep(worktree, before, sdir) is None  # noqa: SLF001
-    kept = json.loads((sdir / "sandbox_placeholders.json").read_text())
+    record = sdir / "sandbox_placeholders.json"
+    assert record.is_file(), "a sweep that found nothing left no record of it"
+    kept = json.loads(record.read_text())
     assert kept == {"removed": [], "refused": []}
