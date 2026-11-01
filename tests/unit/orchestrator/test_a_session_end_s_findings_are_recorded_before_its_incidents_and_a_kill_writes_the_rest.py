@@ -104,7 +104,7 @@ ENDS: dict[str, tuple[dict[str, Any], list[str], str]] = {
     "abort and unverified reaping": (
         {"aborted": {1: ("toolu_a",)}, "unverified": {1: ("toolu_b",)}},
         ["os_layer_aborted", "reaper_unverified"],
-        "reaper_unverified",
+        "os_layer_aborted",
     ),
 }
 
