@@ -32,6 +32,8 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.replay import replay
 
 CANARY = "held-out canary"
+#: The lines a resume writes of each leftover it found, whatever the leftover showed.
+LEFTOVER_LINES = ("leftover_stopped", "leftover_read", "tokens_used")
 
 
 def lines(rig: Rig) -> list[dict[str, Any]]:
@@ -186,7 +188,8 @@ def _findings_then_incidents(rows: list[dict[str, Any]], incidents: list[str], h
     (record,) = [r for r in rows if r["kind"] == "findings_recorded"]
     assert [f["cause"] for f in record["findings"]] == incidents
     assert record["halt"] == halt
-    after = rows[at + 1 :]
+    # The leftovers' own lines may come between: recorded at any time, they say nothing found.
+    after = [r for r in rows[at + 1 :] if r["kind"] not in LEFTOVER_LINES]
     assert kinds(after)[: len(incidents) + 1] == ["incident"] * len(incidents) + ["halted"]
     written = after[: len(incidents)]
     assert [(r["cause"], r["detail"]) for r in written] == [
@@ -210,18 +213,30 @@ def test_a_session_end_with_several_findings_records_them_before_its_incidents(
 
 
 @pytest.mark.parametrize("shape", LEFT)
-def test_the_leftovers_lines_come_first_then_their_findings_every_incident_and_one_halt(
+def test_the_leftovers_findings_come_before_their_own_lines_then_every_incident_and_one_halt(
     tmp_path: Path, shape: str
 ) -> None:
+    # The dispatcher has ended the leftovers when it hands them over, so no later process finds
+    # them again: their findings are on the record before any of their own lines.
     found, incidents, halt = LEFT[shape]
     rows = lines(left_behind(tmp_path, found, kill=None))
-    last_leftover = max(
-        i for i, r in enumerate(rows) if r["kind"] in ("leftover_read", "tokens_used")
-    )
     assert "findings_recorded" in kinds(rows), "no line records the findings first"
-    assert last_leftover < kinds(rows).index("findings_recorded")
+    own = [i for i, r in enumerate(rows) if r["kind"] in LEFTOVER_LINES]
+    assert kinds(rows).index("findings_recorded") < min(own)
+    assert max(own) < kinds(rows).index("incident")
     assert kinds(rows).count("halted") == 1
     _findings_then_incidents(rows, incidents, halt)
+
+
+def test_a_lone_leftover_finding_is_its_incident_before_the_leftover_s_own_lines(
+    tmp_path: Path,
+) -> None:
+    rows = lines(left_behind(tmp_path, [leftover("left-1", held_out_seen=CANARY)], kill=None))
+    assert "findings_recorded" not in kinds(rows)
+    own = [i for i, r in enumerate(rows) if r["kind"] in LEFTOVER_LINES]
+    assert kinds(rows).index("incident") < min(own)
+    assert kinds(rows)[max(own) + 1 :] == ["halted"]
+    assert rows[kinds(rows).index("incident")]["cause"] == "held_out_read"
 
 
 def test_a_session_end_with_one_finding_writes_no_findings_line(tmp_path: Path) -> None:
@@ -356,3 +371,56 @@ def test_a_log_with_the_old_incident_and_halt_pairs_of_leftovers_replays_as_befo
 
 def _bytes(rows: list[dict[str, Any]]) -> bytes:
     return b"".join(json.dumps(r, separators=(",", ":")).encode() + b"\n" for r in rows)
+
+
+# --- a kill before the leftovers' own lines, and a halt owed when leftovers are found -----------
+
+
+#: Each leftover shape again, and one with a lone finding.
+LONE = {
+    "one exposure": ([leftover("left-1", held_out_seen=CANARY)], ["held_out_read"], "held_out_read")
+}
+
+
+@pytest.mark.parametrize("shape", [*LEFT, *LONE])
+def test_a_kill_before_a_leftover_s_own_lines_keeps_every_finding(
+    tmp_path: Path, shape: str
+) -> None:
+    # The dispatcher ended the leftovers before it handed them over: a process killed before it
+    # wrote their lines leaves none for the next to find. What they showed is on the record.
+    found, incidents, halt = {**LEFT, **LONE}[shape]
+    rig = left_behind(tmp_path, found, kill=(1, "leftover_read"))
+    said = taken_over(rig)
+    assert said == "halted", said
+    rows = lines(rig)
+    assert [r["cause"] for r in rows if r["kind"] == "incident"] == incidents
+    (halted,) = [r for r in rows if r["kind"] == "halted"]
+    assert halted["detail"] == halt
+    assert replay(read_events(rig.run_dir / "events.jsonl")).next_step().kind == "halted"
+
+
+def test_a_halt_owed_when_a_process_finds_leftovers_is_written_before_any_of_their_lines(
+    tmp_path: Path,
+) -> None:
+    shown, incidents, halt = ENDS["exposure and abort"]
+    rig = Rig(tmp_path, dispatcher=LeftBehind(**shown))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    dies_at(loop, 2, "incident")
+    assert outcome(loop.run) == "killed"
+    loop.close()
+    cut = lines(rig)
+    assert "findings_recorded" in kinds(cut), "no line records the findings first"
+    # The next process finds a leftover too: a session the run cannot have left, as a check.
+    assert isinstance(rig.dispatcher, LeftBehind)
+    rig.dispatcher.left = [leftover("left-9", held_out_seen=CANARY)]
+    said = taken_over(rig)
+    assert said == "halted", said
+    rows = lines(rig)
+    later = rows[len(cut) :]
+    assert kinds(later)[:2] == ["incident", "halted"], kinds(later)
+    assert later[1]["detail"] == f"{halt} in s1"
+    own = [i for i, r in enumerate(later) if r["kind"] in LEFTOVER_LINES]
+    assert own and min(own) > 1, "a leftover's line came before the owed halt"
+    assert [r["cause"] for r in rows if r["kind"] == "incident"] == [*incidents, "held_out_read"]
+    assert replay(read_events(rig.run_dir / "events.jsonl")).next_step().kind == "halted"

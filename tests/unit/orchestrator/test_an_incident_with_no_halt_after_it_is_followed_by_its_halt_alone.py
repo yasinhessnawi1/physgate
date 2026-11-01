@@ -230,6 +230,7 @@ def test_a_kill_between_a_session_end_s_incident_and_its_halt_resumes_to_the_hal
     assert state.next_step().kind == "halt"
     assert state.interrupted() is not None, "the attempt is in progress: a resume takes it over"
     fresh = rig.open()
+    said: str
     try:
         said = fresh.resume().kind
     except Exception as exc:  # noqa: BLE001 - any escape is the finding

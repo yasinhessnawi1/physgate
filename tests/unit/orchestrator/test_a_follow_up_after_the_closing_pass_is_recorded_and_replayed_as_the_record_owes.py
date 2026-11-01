@@ -291,11 +291,13 @@ def test_two_modules_reached_are_each_owed_one_follow_up_written_together(
         ("s2", [{"source": BUS, "target": LOOP}]),
     ]
     first = at(events, "subtask_reopened")
-    assert kinds(events)[first + 1] == "subtask_reopened"
+    second = next(i for i in range(first + 1, len(events)) if events[i].kind == "subtask_reopened")
+    # Between them, only the next module's old worktree, removed before its reopen.
+    assert kinds(events)[first + 1 : second] == ["worktree_removed"]
     assert refusal(events) is None
     # One round: every follow-up is written together, before any of their attempts begins.
-    begun = next(i for i in range(first + 2, len(events)) if events[i].kind == "stage_entered")
-    lines = moved(events, first + 1, begun)
+    begun = next(i for i in range(second + 1, len(events)) if events[i].kind == "stage_entered")
+    lines = moved(events, second, begun)
     assert "together, before" in (refusal(lines) or "")
 
 

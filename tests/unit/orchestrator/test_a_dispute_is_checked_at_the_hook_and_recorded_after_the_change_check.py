@@ -56,6 +56,9 @@ from physgate.orchestrator.git import (  # noqa: E402
     merge_base,
     verified_git_dir,
 )
+from physgate.orchestrator.git import (
+    git as git_command,
+)
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt  # noqa: E402
 from physgate.orchestrator.ports import ChangeCheck  # noqa: E402
 from physgate.orchestrator.protocols import QuantityRef  # noqa: E402
@@ -683,7 +686,7 @@ class _Died(BaseException):
 
 def _dies_after(monkeypatch: pytest.MonkeyPatch, *words: str) -> None:
     """The merger dies straight after the first git call whose arguments hold ``words``."""
-    real = merge_module.git
+    real = git_command
 
     def calling(cwd: Path, *args: str, **kw: Any) -> str:  # noqa: ANN401 - git's own
         out = real(cwd, *args, **kw)
@@ -696,7 +699,7 @@ def _dies_after(monkeypatch: pytest.MonkeyPatch, *words: str) -> None:
 
 def _merge_head(run: RunGit) -> str | None:
     admin = verified_git_dir(run.integration, linked=True, common=common_dir(run.repo))
-    found = merge_module.git(
+    found = git_command(
         run.integration, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False, git_dir=admin
     )
     return found.strip() or None
@@ -715,7 +718,7 @@ def _shape(run: RunGit, merged: str) -> tuple[list[str], str, str]:
 def test_a_merge_killed_between_its_git_calls_is_finished_by_the_next_process(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, words: tuple[str, ...]
 ) -> None:
-    files = {PATH: body(reason="the merge's canary")}
+    files: dict[str, bytes | None] = {PATH: body(reason="the merge's canary")}
     reference_run, reference_commit = attempt(tmp_path / "reference", "s1", files)
     whole = _merged(reference_run, "s1", reference_commit)
     assert not whole.startswith("raised"), whole
