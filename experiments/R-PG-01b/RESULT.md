@@ -8,6 +8,10 @@ Nothing of R-PG-01's results was read to write it. The comparison with R-PG-01 (
 replication, the share of R-PG-01's advantage, the gate across time and D1's sentence) is **not**
 here. `compare_r_pg_01.py` adds it as the last section, in a commit of its own.
 
+**Complete, 01.11.2026.** The comparison is now the last section, added in a commit of its own
+after "numbers final" was pushed. §10 items 6 to 13 and §1's citations were added after it. The
+sections the analyst wrote are otherwise as committed at "numbers final".
+
 **The tally's output:** `numbers/tally.json`, sha256
 **`719602a055ebf2fdb40b2af3bcc17563da541ee47d41dba3dbda0f4d5837d832`**, written by `contrast.py`
 and given in full in Appendix A.
@@ -33,6 +37,32 @@ and given in full in Appendix A.
 The freeze commit, the "sheet filled" and "run commit filled" commits, and the digests of §2.5 are
 `master`'s; they are cited when these files are copied to `master` (Appendix A of `CRITERIA.md`).
 The analyst's clone holds the run tag alone and does not carry them.
+
+**Cited at the copy to `master` (added 01.11.2026, §13):**
+
+| What | Commit |
+|---|---|
+| The freeze | `e1262da3a85f659ff600036eaf68e8c57ea5c47b` (PR #72) |
+| "scripts" | `1f097e36`, fixed before round 1 up to `91efa69ac2287d77b0e63bccc648ae4a60bdcbec` (PR #74); for round 2, `c0310f301860acbb52cdf20c33c5bb7c0c23b049` (PR #80, §10 item 8) |
+| "sheet" | `bab905c3eb748dbf9d697fbaaf2b8f8a5a0bfe59` |
+| "sheet filled" | `530724f5d370b7ead08a2c3091ae63a3051fbad5` |
+| "run commit filled" | `3ecacc225d1b40579e27cff187cf425dc6284a01`; filled again before round 1 by `8a6d8df3`, `be74c532` and `80e948cb` (23.10.2026), and after round 1 by `622c670f` (30.10.2026, §10 item 8) |
+| Run commit and tag, round 1 | `4c98383f96a020abc60bd75a060f38028ceb4849`, tag `r-pg-01b-run-round-1` |
+| Run commit and tag, round 2 | `2341e651930d1afa36a843581be4e22778f3be22`, tag `r-pg-01b-run` |
+| "numbers final" | `a73a7892110d2b335073ba813f44e6d6b63c7e82` on `exp/r-pg-01b-numbers` |
+
+Every pin of `CRITERIA.md` §2.2 was checked at each launch (L3, §2 below). The digests of §2.5,
+the R6.05 edit's included, are those `CRITERIA.md` gives; L4 held arm F's manifest and sheet to
+them at each launch.
+
+**The run records §13 publishes** are in `records/`, copied byte for byte from `~/runs/rpg01b/` on
+Oracle, with their sha256 in `records/SHA256SUMS`:
+- each valid run's results file, `run-<k>/results.jsonl` (slots 3 to 6). Each run's
+  `physgate catches` output is in `numbers/tally.json` under `checks`, held to the rows;
+- each attempt's smoke record and stream-check verdict (`launch-<r>-<a>/smoke/smoke.json`,
+  `L10.json`), and its end record with counts and void causes (`after.json`);
+- the slot draw (`slots.json`), the owner's launch statements (`owner-*.json`) and the quota
+  ledger (`ledger-round-*`).
 
 ## 2. Runs, attempts and slots
 
@@ -245,6 +275,101 @@ was not changed.
 5. **The review roots** (`~/review-scratch/rpb-<k>`, §2.6 and §10) lie outside `~/runs/rpg01b/`.
    The analyst passed them to `contrast.py` for the sessions' process records (turns, wall clock
    and lag), as §5.3 and §14 require, and did not open them otherwise.
+
+**Added 01.11.2026, after the comparison.** Items 1 to 5 are the analyst's, as committed at
+"numbers final". Items 6 to 13 complete them from the run's records and the orchestrator's log,
+which the analyst could not read. None of them changes a number.
+
+6. **Round 1 did not run on an idle account, and the owner waived the rule after the fact.**
+   - The run account was also the account of the orchestrator session that ran the project. From
+     round 1's launch checks (about 13:04Z on 29.10.2026), that session and four of its agents,
+     working on other tasks on the laptop, used the same account while round 1's reviews ran.
+   - `owner-1.json` records "no other session during the round" as true. It was written at launch,
+     before this was noticed, and is a launch record, so it is published as written.
+   - When it was noticed (about 15:40Z), the agents were stopped. The same afternoon the owner
+     decided to keep round 1 and to waive §11's idle-account rule for it. Work then went on at a
+     modest load for the rest of the round.
+   - No rule of §12 voids a round for this. The round's records show no effect: 0 HTTP 429s, 0
+     usage-limit files, 0 infrastructure `review_unavailable`. Both arms shared the account and
+     the time, so the I-against-F contrast is not exposed to it.
+7. **Round 2's first attempt was void because the account's weekly usage limit ran out, and our own
+   sessions had used most of it.**
+   - The attempt ran under the owner's recorded waiver (item 2), so the orchestrator and its agents
+     kept working on the same account.
+   - At 07:42:51Z on 31.10.2026 the watcher found 4 usage-limit files and 4 HTTP 429 responses. It
+     stopped both arms, which therefore ended killed (exit 143). That is why both causes are
+     listed.
+   - The limit was the account's weekly allowance. The attempt itself had used 67,239,573 review
+     tokens in 118 sessions, plus 376,252 in its smoke. The rest of the week's use was the
+     project's other work on the same account.
+   - The waiver did not raise the limit. §11 has no weekly gate, since the owner set no weekly cap,
+     but the account still had one.
+   - It counts as attempt 1 of 3 for round 2. Nothing of it was read but its causes and counts.
+8. **The run code was pinned again between the rounds, and its fill came after round 1.**
+   - Round 1 ran at the run commit `4c98383f96a020abc60bd75a060f38028ceb4849`, kept by the tag
+     `r-pg-01b-run-round-1`.
+   - For round 2 the owner chose to let work go on during the round under a recorded waiver,
+     instead of keeping the account idle for about 15 hours. L1 refused to start without the
+     owner's confirmation, so L1 was changed to accept a recorded waiver.
+   - The change landed on `master` as a new "scripts" commit,
+     `c0310f301860acbb52cdf20c33c5bb7c0c23b049` (PR #80, merge `c457975f`). The run commit became `2341e651930d1afa36a843581be4e22778f3be22`:
+     `4c98383` plus that change, in 5 files under `experiments/R-PG-01b/`. The owner moved the tag
+     `r-pg-01b-run` to it on 30.10.2026.
+   - The instrument tree (`dcb84fdb…`) and every gate, reviewer and rubric pin are unchanged, so
+     both rounds' reviews were made by the same code.
+   - `CRITERIA.md`'s run-commit fact was filled again for `2341e651` by the dated commit
+     `622c670f` on 30.10.2026. R1 places every fill before the first review, and this one came
+     after round 1, so it is a deviation of R1. No rule, threshold or other value changed with it.
+   - Round 2's valid attempt ran at `2341e651` with no waiver (item 9).
+9. **Round 2's valid attempt ran on a different, fresh account.**
+   - It was a Team premium seat, label "fresh run account (31.10.2026)", token digest prefix
+     `4389780d`. Round 1 ran on the original run account, prefix `af24827d`.
+   - The owner moved the run to it because the shared account's weekly limit had voided attempt 1.
+     On the owner's word nothing else used the new account until the run was done, and
+     `owner-2.json` records that.
+   - Model, binary, pins, run code and the machine were the same as in round 1. An account carries
+     quota, not a model.
+   - The analyst's session and the reason reading's 294 sessions also ran on the fresh account. It
+     was the only credential on Oracle from 31.10.2026 on.
+   - Round 2's ledger line (`records/ledger-round-2.*`) gives the fresh account's label and prefix
+     for both attempts. Attempt 1's 118 sessions in fact ran on the original account (item 7). The
+     record is published as written.
+10. **The analyst was started by the orchestrator, on the owner's behalf.**
+    - Appendix A has the owner start the analyst. Instead, the owner asked the orchestrator to run
+      the analysis itself. The orchestrator declined: it has read R-PG-01's results, and §8's
+      protection is an analyst who has not.
+    - With the owner's approval, the orchestrator started a fresh headless session on Oracle at
+      09:10:14Z on 01.11.2026: the pinned binary 2.1.301, `claude-opus-5-5`, in the §8 clone
+      `~/rpg01b-analysis` at the run tag. It was the session's own, not a subagent. Its first and
+      only message was Appendix A's prompt verbatim (23 lines, sha256 prefix `99f1457ccc10`).
+    - It ended at 11:15:50Z with exit 0. Its push failed, because Oracle has no git login.
+    - The orchestrator fetched its branch from Oracle and pushed it to GitHub unchanged, without
+      opening its files. Origin's `exp/r-pg-01b-numbers` is `a73a7892`, the commit the analyst
+      made.
+11. **An analysis script was fixed after it ran (§9, commit `2ae5cac`); both outputs are kept.**
+    - The fault was in the blind check of the reason reading's packets, not in the packets. The
+      check rebuilt each packet's findings from a key file stored in sorted order. So any packet
+      of ten or more findings came back as F1, F10, F11, F12, F2, … and never matched its file.
+    - The check therefore refused 216 of 266 packets: exactly those with ten or more findings.
+    - The analyst found it before any reality session ran. The fix makes the check rebuild in
+      label order, and a test with a twelve-finding packet was added. The corrected check passed
+      266 of 266.
+    - As §8 requires, both outputs are published (`numbers/blind-before-fix.json`,
+      `numbers/blind-after-fix.json`), and the corrected one decides. No session saw a packet the
+      corrected check had not passed, the packets did not change, and no rule changed.
+12. **The comparison (the last section) did not run in the run checkout.**
+    - §14 says every script runs in `~/physgate-r-pg-01b-run` on Oracle. That checkout was left
+      untouched. `compare_r_pg_01.py` ran on Oracle in a fresh clone of `exp/r-pg-01b-numbers`,
+      which holds the same script blob.
+    - R-PG-01's run directory exists only on the laptop, so it was copied to Oracle for this step.
+      Its digest was the same before and after the copy.
+    - The script reads only the committed tally output and the run directories, so where it ran
+      does not change what it computes.
+13. **§2.3 row 5's comparison of accounts with R-PG-01 cannot be made from the records.**
+    - R-PG-01's records hold no account label and no token digest prefix. Its launch script read
+      its credential from the laptop's local environment file.
+    - So which account R-PG-01 ran on can be stated only by the owner. Under §1's rule this is
+      impossible as specified. No step of §8 and no decision of §7 rests on it.
 
 ---
 
@@ -12355,7 +12480,7 @@ experiment. This section changes no number above and no decision of §7 beyond D
 - `compare_r_pg_01.py`, blob `d095335e6d2d2698b348747fe5b8a14e19b7ec55`, the same at the run tag,
   at both "scripts" commits and on `master`; run once, as `uv run --frozen python -I`.
 - On Oracle, 01.11.2026 at 11:30:36Z, in a fresh clone of `exp/r-pg-01b-numbers` at `a73a7892`
-  (`git clone --single-branch --no-tags`), not in the run checkout (deviation 11 of §10).
+  (`git clone --single-branch --no-tags`), not in the run checkout (deviation 12 of §10).
 - Its refusal check passed: the remote held `a73a7892`, `numbers/tally.json` is in that commit, and
   that file's sha256 `719602a0…` is the one this file gives.
 - **R-PG-01's run directory** is attempt 1's (`rp1-1`), kept on the macOS laptop where R-PG-01 ran.
@@ -12393,9 +12518,9 @@ R-PG-01's C is 0, below 1.
 **3. The gate across time:** R-PG-01's gate records are byte-identical to each of the four runs'
 (I1, F1, I2, F2). The gate's determinism holds across the two experiments.
 
-**4. D1's sentence.** Arm I's two rounds agree on the kill reading, so row 1 does not hold. R-PG-01's
-reading fires, arm I's fires on its means (Ā = 0.0, C̄ = 0.0), and arm F's fires on its means
-(Ā = 0.5, C̄ = 0.0), so row 2 holds:
+**4. D1's sentence.** Arm I's two rounds agree on the kill reading, so row 1 does not hold.
+R-PG-01's reading fires, arm I's fires on its means (Ā = 0.0, C̄ = 0.0), and arm F's fires on its
+means (Ā = 0.5, C̄ = 0.0), so row 2 holds:
 
 > **"The complete sheet did not change the kill reading."**
 
