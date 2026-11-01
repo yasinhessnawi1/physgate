@@ -145,7 +145,7 @@ def _killed_after_its_end(
             raise KilledError
         emit(event)
 
-    loop._emit = dying  # noqa: SLF001
+    loop._emit = dying  # type: ignore[method-assign]  # noqa: SLF001
     said = outcome(loop.run)
     loop.close()
     assert said == "killed", said
