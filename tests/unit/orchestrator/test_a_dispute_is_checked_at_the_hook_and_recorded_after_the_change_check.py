@@ -11,7 +11,10 @@ from the commit it checks, and refuses a malformed one as the dispute's; another
 a write outside its module. The loop records one line per dispute straight after an accepted
 change check, sorted, and replay takes such a line nowhere else; a dispute no line can hold is the
 attempt's refusal, never a crash. The merge and the reviewer's packet leave the directory out, so
-the file stays on its attempt's branch. No prompt names the channel yet.
+the file stays on its attempt's branch. A merge with disputes takes three git calls; a process
+killed between them leaves the integration worktree mid-merge of exactly that commit, and the next
+process finishes that merge rather than aborting it, where a merge of any other commit in progress
+is aborted and refused. No prompt names the channel yet.
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ from physgate import roles  # noqa: E402
 from physgate.hooks import graph  # noqa: E402
 from physgate.hooks.config import HookInput, SessionConfig  # noqa: E402
 from physgate.orchestrator import dispute  # noqa: E402
+from physgate.orchestrator import merge as merge_module  # noqa: E402
 from physgate.orchestrator.apply import GitChangeChecker  # noqa: E402
 from physgate.orchestrator.dispute import Dispute, DisputeError, parse  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
@@ -46,7 +50,12 @@ from physgate.orchestrator.events import (  # noqa: E402
     read_events,
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError  # noqa: E402
-from physgate.orchestrator.git import diff_text, merge_base, verified_git_dir  # noqa: E402
+from physgate.orchestrator.git import (  # noqa: E402
+    common_dir,
+    diff_text,
+    merge_base,
+    verified_git_dir,
+)
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt  # noqa: E402
 from physgate.orchestrator.ports import ChangeCheck  # noqa: E402
 from physgate.orchestrator.protocols import QuantityRef  # noqa: E402
@@ -663,6 +672,86 @@ def test_two_subtasks_disputing_one_quantity_on_open_branches_both_merge(tmp_pat
     merged = _merged(run, "s2", second)
     assert not merged.startswith("raised"), merged
     assert "disputes" not in _git(run.repo, "ls-tree", "-r", "--name-only", merged)
+
+
+# --- a merge with disputes, killed between its three git calls ---------------------------------
+
+
+class _Died(BaseException):
+    """The orchestrator killed between two of the merge's git calls."""
+
+
+def _dies_after(monkeypatch: pytest.MonkeyPatch, *words: str) -> None:
+    """The merger dies straight after the first git call whose arguments hold ``words``."""
+    real = merge_module.git
+
+    def calling(cwd: Path, *args: str, **kw: Any) -> str:  # noqa: ANN401 - git's own
+        out = real(cwd, *args, **kw)
+        if all(w in args for w in words):
+            raise _Died
+        return out
+
+    monkeypatch.setattr(merge_module, "git", calling)
+
+
+def _merge_head(run: RunGit) -> str | None:
+    admin = verified_git_dir(run.integration, linked=True, common=common_dir(run.repo))
+    found = merge_module.git(
+        run.integration, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False, git_dir=admin
+    )
+    return found.strip() or None
+
+
+def _shape(run: RunGit, merged: str) -> tuple[list[str], str, str]:
+    """A merge commit by what the run reads of it: its parents, its tree's files, its message."""
+    parents = _git(run.repo, "rev-list", "--parents", "-n", "1", merged).split()[1:]
+    files = _git(run.repo, "ls-tree", "-r", merged)
+    return parents, files, _git(run.repo, "show", "-s", "--format=%B", merged)
+
+
+@pytest.mark.parametrize(
+    "words", [("merge", "--no-commit"), ("rm",)], ids=["after the merge", "after the removal"]
+)
+def test_a_merge_killed_between_its_git_calls_is_finished_by_the_next_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, words: tuple[str, ...]
+) -> None:
+    files = {PATH: body(reason="the merge's canary")}
+    reference_run, reference_commit = attempt(tmp_path / "reference", "s1", files)
+    whole = _merged(reference_run, "s1", reference_commit)
+    assert not whole.startswith("raised"), whole
+    run, commit = attempt(tmp_path / "cut", "s1", files)
+    head = _git(run.repo, "rev-parse", run.run_branch)
+    with monkeypatch.context() as dying:
+        _dies_after(dying, *words)
+        with pytest.raises(_Died):
+            GitMerger(run, removal_timeout_s=30).merge("s1", 1, commit, "Merge s1\n")
+    assert _merge_head(run) == commit, "the process was not killed mid-merge"
+    # The process that takes over merges the same commit again, as the loop's resume does.
+    merged = _merged(run, "s1", commit)
+    assert not merged.startswith("raised"), merged
+    assert _git(run.repo, "rev-parse", run.run_branch) == merged
+    assert _merge_head(run) is None
+    parents, tree, message = _shape(run, merged)
+    assert parents == [head, commit]
+    assert (tree, message) == _shape(reference_run, whole)[1:]
+    assert "disputes" not in tree
+
+
+def test_a_merge_in_progress_of_another_commit_is_aborted_and_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run, first = attempt(tmp_path, "s1", {PATH: body()})
+    _, second = attempt(tmp_path, "s2", {OTHER: body(5, "A")}, number=2)
+    head = _git(run.repo, "rev-parse", run.run_branch)
+    with monkeypatch.context() as dying:
+        _dies_after(dying, "merge", "--no-commit")
+        with pytest.raises(_Died):
+            GitMerger(run, removal_timeout_s=30).merge("s2", 2, second, "Merge s2\n")
+    assert _merge_head(run) == second
+    said = _merged(run, "s1", first)
+    assert said.startswith("raised MergeConflictError"), said
+    assert _merge_head(run) is None, "the foreign merge was left in progress"
+    assert _git(run.repo, "rev-parse", run.run_branch) == head, "the foreign merge was finished"
 
 
 def test_the_reviewer_s_diff_and_export_leave_the_disputes_out(tmp_path: Path) -> None:

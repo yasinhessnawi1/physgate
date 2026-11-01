@@ -528,14 +528,24 @@ def test_a_journal_past_the_gate_lines_revision_halts_at_completion(tmp_path: Pa
     assert "system-scope result" in incident.detail
 
 
-def test_a_kill_between_the_journal_holds_incident_and_its_halt_resumes_to_a_halt(
+def test_a_kill_between_the_journal_holds_incident_and_its_halt_resumes_to_the_halt_alone(
     tmp_path: Path,
 ) -> None:
     # The journal has moved past the gate line's revision, and the process dies as it is about to
-    # halt. The process that takes over halts too, and nothing completes. (Its own journal check
-    # at resume may record the foreign line as an incident of its own first, so the log is not
-    # held to the uninterrupted one's bytes here.)
-    rig = rig_for(tmp_path, gate=RealSystemGate(), reviewer=Appending(tmp_path / "store"))
+    # halt. The process that takes over writes that halt and nothing else: its own journal check
+    # would find the same foreign line, and the incident is already on the record.
+    reference = rig_for(
+        tmp_path / "reference",
+        gate=RealSystemGate(),
+        reviewer=Appending(tmp_path / "reference" / "store"),
+    )
+    loop = reference.open()
+    runner.start(loop)
+    assert ended(loop.run) == "halted"
+    loop.close()
+    rig = rig_for(
+        tmp_path / "cut", gate=RealSystemGate(), reviewer=Appending(tmp_path / "cut" / "store")
+    )
     killed(rig, lambda e, _: isinstance(e, Halted))
     cut = log_of(rig)
     assert isinstance(cut[-1], Incident) and cut[-1].cause == "foreign_journal_line"
@@ -544,9 +554,11 @@ def test_a_kill_between_the_journal_holds_incident_and_its_halt_resumes_to_a_hal
     assert take_over(rig) == "halted"
     events = log_of(rig)
     assert completions(events) == []
-    later = [e for e in events[len(cut) :] if not isinstance(e, Resumed | WorktreeRemoved)]
-    assert later and isinstance(later[-1], Halted) and later[-1].detail == "foreign_journal_line"
-    assert all(isinstance(e, Incident | Halted) for e in later)
+    assert [type(e) for e in events if isinstance(e, Incident | Halted)] == [Incident, Halted]
+    later = [e for e in events[len(cut) :] if not isinstance(e, Resumed)]
+    assert isinstance(later[0], Halted) and later[0].detail == "foreign_journal_line"
+    assert all(isinstance(e, WorktreeRemoved) for e in later[1:])
+    assert comparable(events) == comparable(log_of(reference))
     assert replay(events).next_step().kind == "halted"
 
 

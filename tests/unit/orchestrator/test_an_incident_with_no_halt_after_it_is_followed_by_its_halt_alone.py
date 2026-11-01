@@ -10,17 +10,20 @@ would have, had the process not been killed.
 Shown at the three steps that halt with no attempt in progress: a completion step and a dispatch,
 each under a role register with two owners of completion (which only a register patched in a
 process can hold), and a contract step over a canonical journal that ends before the recorded
-revision.
+revision. And with an attempt in progress, taken over by a resume: a foreign journal line found
+at a session's end, which the resume's own journal check would find again.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from loop_fakes import KilledError, Rig, plan
+from loop_fakes import FakeDispatcher, FakeGraph, KilledError, Rig, plan
 from test_a_module_is_complete_only_as_integration_declared_it_and_every_precondition_holds import (
     INTEG,
     INTEGRATION,
@@ -44,6 +47,7 @@ from physgate.orchestrator.events import (
     Event,
     Halted,
     Incident,
+    Resumed,
     StageEntered,
     WorktreeRemoved,
     read_events,
@@ -185,3 +189,58 @@ def test_a_kill_between_an_incident_and_its_halt_resumes_to_the_halt_alone(
     assert all(isinstance(e, WorktreeRemoved) for e in later[1:])
     assert comparable(events) == comparable(read_events(reference.run_dir / "events.jsonl"))
     assert (owed, replay(events).next_step().kind) == ("halt", "halted")
+
+
+@dataclass
+class _Journal(FakeGraph):
+    """A canonical journal a line can be appended to while a session runs."""
+
+    lines: list[Any] = field(default_factory=list)
+
+    def records_after(self, revision: int) -> list[Any]:
+        return [line for line in self.lines if line.rev > revision]
+
+
+def foreign_at_a_session_end(tmp_path: Path) -> Rig:
+    """A run whose first session leaves a journal line nobody intended: found at its end."""
+    journal = _Journal()
+    foreign = SimpleNamespace(rev=1, op="write", node_id="electrical.x", payload={})
+    rig = Rig(
+        tmp_path,
+        diff=journal,
+        dispatcher=FakeDispatcher(during={1: lambda: journal.lines.append(foreign)}),
+    )
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.close()
+    return rig
+
+
+def test_a_kill_between_a_session_end_s_incident_and_its_halt_resumes_to_the_halt_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference = foreign_at_a_session_end(tmp_path / "reference")
+    halting(reference, monkeypatch, killed=False)
+    rig = foreign_at_a_session_end(tmp_path / "cut")
+    halting(rig, monkeypatch, killed=True)
+    cut = read_events(rig.run_dir / "events.jsonl")
+    assert isinstance(cut[-1], Incident) and cut[-1].cause == "foreign_journal_line"
+    assert cut[-1].subtask_id == "s1"
+    state = replay(cut)
+    assert state.next_step().kind == "halt"
+    assert state.interrupted() is not None, "the attempt is in progress: a resume takes it over"
+    fresh = rig.open()
+    try:
+        said = fresh.resume().kind
+    except Exception as exc:  # noqa: BLE001 - any escape is the finding
+        said = f"raised {exc!r}"
+    finally:
+        fresh.close()
+    assert said == "halted", said
+    events = read_events(rig.run_dir / "events.jsonl")
+    assert [type(e) for e in events if isinstance(e, Incident | Halted)] == [Incident, Halted]
+    later = events[len(cut) :]
+    assert [type(e) for e in later] == [Halted], [e.kind for e in later]
+    assert not any(isinstance(e, Resumed) for e in later)
+    assert comparable(events) == comparable(read_events(reference.run_dir / "events.jsonl"))
+    assert replay(events).next_step().kind == "halted"
