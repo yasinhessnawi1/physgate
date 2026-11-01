@@ -34,7 +34,7 @@ from physgate.orchestrator.arbitration import (
     contract_standing,
     dispute_standing,
 )
-from physgate.orchestrator.budget import ATTEMPT_LIMIT, REPAIR_BUDGET, after_rejection
+from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.decisions import require_taken, values_chosen
@@ -1351,10 +1351,8 @@ class RunState:
         A log that names an escalation backend carries the answer on a line of its own,
         which comes next. A log written before the interface existed has no such line; its
         loop sent to a person exactly where the rules do, so the rules' route is taken as
-        the answer it would have recorded. A follow-up's one attempt is never asked about: it ends.
+        the answer it would have recorded.
         """
-        if following_up(sub):
-            return
         if now.fix:
             # The fix a person ordered is routed by rule, never asked about: not accepted, the
             # subtask ends; a review that reached no verdict, or a dispute ruled for a person
@@ -1522,7 +1520,7 @@ class RunState:
             or last.merged is None
         ):
             _refuse("a follow-up reopens a domain module that merged, never sizing's")
-        if last.number >= ATTEMPT_LIMIT or any(a.fix for a in sub.attempts):
+        if any(a.fix for a in sub.attempts):  # a fix is the last attempt, the fourth's always one
             _refuse("a module that merged on its fix has no attempt left to follow up")
         if any(s.attempts[-1].number >= (s.followed_up or event).attempt for s in taken):
             _refuse("every follow-up is written together, before any of their attempts begins")

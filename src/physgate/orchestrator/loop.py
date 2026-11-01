@@ -35,7 +35,7 @@ from physgate.orchestrator.arbitration import (
     arbitrate,
     dispute_standing,
 )
-from physgate.orchestrator.budget import ATTEMPT_LIMIT, infra_retry_delay
+from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
@@ -2412,7 +2412,6 @@ class Loop:
             if (sub := state.subtasks[s]).status == "done"
             and sub.plan.module_dir != directory
             and sub.attempts[-1].merged is not None
-            and sub.attempts[-1].number < ATTEMPT_LIMIT
             and not any(a.fix for a in sub.attempts)
         }
         _, change_sets = change_history(events)
