@@ -2041,8 +2041,9 @@ class ApprovalQueue:
         """Open or create the queue at ``path``.
 
         Raises:
-            QueueError: a complete line is not a record, or does not follow from the
-                lines before it (an item listed twice, a decision on no open item).
+            QueueError: a complete line of the items file is not a record, or does not follow
+                from the lines before it (an item listed twice). The decisions file's refusal is
+                raised by the next :meth:`refresh`.
         """
         self.path = Path(path)
         if self.path.name != QUEUE_NAME:
@@ -2053,7 +2054,14 @@ class ApprovalQueue:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.touch(exist_ok=True)
         self.decisions_path.touch(exist_ok=True)
-        self.refresh()
+        try:
+            self.refresh()
+        except QueueError as exc:
+            # A person writes the decisions file: a line of it that does not read is recorded by
+            # the loop as an incident at its first read of the decisions, never a run that cannot
+            # open. Every item is read by then; the refusal is read again there.
+            if Path(exc.context.get("queue", "")) != self.decisions_path:
+                raise
 
     def refresh(self) -> None:
         """Read both files again: a person may have decided since they were last read.
