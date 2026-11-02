@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as runner
+from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeChanges, FakeGate, FakeReviewer, KilledError, Rig, passing_gate_result
 from test_integration_s_issued_state_is_built_from_the_record_and_held_to_its_line import (
     at_integrations_resolve,

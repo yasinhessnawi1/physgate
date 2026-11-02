@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 import test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing as pairs
+from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from arbitration_runs import CLOSING, PerAttempt, events_of, refusal, resume
 from loop_fakes import FakeReviewer, KilledError, Rig
 from pydantic import ValidationError

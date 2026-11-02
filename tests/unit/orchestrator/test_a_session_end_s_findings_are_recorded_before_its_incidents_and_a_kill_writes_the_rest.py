@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeDispatcher, KilledError, Rig, plan, usage
 
 from physgate.orchestrator.events import Event, parse_events, read_events

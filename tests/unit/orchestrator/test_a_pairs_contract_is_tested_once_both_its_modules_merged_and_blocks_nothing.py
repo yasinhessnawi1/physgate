@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from accounted import forged_account_before_each_open, reaccount  # noqa: F401 - the forger
 from loop_fakes import FakeChanges, FakeDispatcher, FakeGraph, KilledError, Rig
 
 from physgate import roles
@@ -713,12 +714,17 @@ def test_no_integration_skip_is_taken_under_off_while_a_result_is_owed(
 
 
 def rewritten(log: Path, edit: Callable[[list[dict[str, Any]]], None]) -> None:
-    """The log with lines rewritten in place by ``edit``, as anything on the machine could."""
+    """The log with lines rewritten in place by ``edit``, as anything on the machine could.
+
+    The write account is rewritten to name them too, as the forger the stated limit names would:
+    what is held to the record then is the later checks these rows reach.
+    """
     records = [json.loads(raw) for raw in log.read_bytes().splitlines()]
     edit(records)
     log.write_bytes(
         b"".join(json.dumps(r, separators=(",", ":")).encode() + b"\n" for r in records)
     )
+    reaccount(log.parent)
 
 
 def test_a_failed_result_rewritten_as_its_pairs_pass_halts_the_run_before_any_completion(

@@ -65,6 +65,7 @@ from physgate.state.vocabulary import (
 )
 from physgate.state.write_account import (
     ACCOUNT_NAME,
+    Completed,
     Entry,
     Intent,
     Settled,
@@ -110,6 +111,7 @@ __all__ = [
     "HeldFile",
     "identity_of",
     "ACCOUNT_NAME",
+    "Completed",
     "Entry",
     "Intent",
     "Settled",

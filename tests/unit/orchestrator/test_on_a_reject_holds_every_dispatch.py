@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from plan_hold_rig import (
     FINDING,
     ITEM,

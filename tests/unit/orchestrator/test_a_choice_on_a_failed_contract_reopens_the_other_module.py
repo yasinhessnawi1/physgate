@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeDispatcher, FakeReviewer, KilledError, Rig
 from test_a_blocked_review_is_a_review_that_goes_to_a_person import blocked_review
 from test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item import (

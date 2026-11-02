@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeDispatcher, FakeGate, KilledError, Rig, failing_gate_result
 from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_nothing import (
     BUDGET,

@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from arbitration_runs import (  # noqa: E402
     KilledByRowError,
     driven,
