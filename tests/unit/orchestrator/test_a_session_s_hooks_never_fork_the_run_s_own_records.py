@@ -32,6 +32,7 @@ from left_session import spawn_logged
 from loop_fakes import Rig
 from orch_helpers import make_config
 
+from physgate.knowledge import loader
 from physgate.orchestrator import dispatch
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
@@ -213,8 +214,8 @@ class Run:
         monkeypatch.setattr(ClaudeDispatcher, "_contracts", lambda _self, _request: ())
         monkeypatch.setattr(dispatch, "binary_version", lambda _binary: config.claude_version)
         monkeypatch.setattr(dispatch, "harness_protection", lambda: [])
-        monkeypatch.setattr(dispatch.loader, "required_reading", lambda *_a, **_k: ())
-        monkeypatch.setattr(dispatch.loader, "always_loaded", lambda *_a, **_k: ())
+        monkeypatch.setattr(loader, "required_reading", lambda *_a, **_k: ())
+        monkeypatch.setattr(loader, "always_loaded", lambda *_a, **_k: ())
         return ClaudeDispatcher(
             config=config,
             run=self.run,

@@ -134,6 +134,20 @@ HOOK_LOG_UNREAD = "the hook log cannot be read"
 SessionKind = Literal["session", "reviewer"]
 
 
+class RecordAtStart(_Frozen):
+    """One of the run's held records as a role session's sentinel found it when the session started.
+
+    ``identity`` is the file's device and inode, ``None`` where there was no file or something
+    other than one (then ``size`` is 0 for no file, -1 for something else); ``sha256`` is the
+    digest of the ``size`` bytes it held.
+    """
+
+    path: NonEmptyStr
+    identity: tuple[int, int] | None
+    size: Annotated[int, Field(ge=-1)]
+    sha256: str
+
+
 class Leftover(_Frozen):
     """A session a previous orchestrator left without an end, found at a resume.
 
@@ -186,6 +200,9 @@ class Leftover(_Frozen):
     #: For a session taken up whose end record names other policy limits than its configuration
     #: directory holds: what disagrees, which is a finding of its own.
     policy_limits_unsure: NonEmptyStr | None = None
+    #: A role session's: the run's held records as its sentinel found them when it started, which
+    #: the resume holds the records to, with its own writers, before it acts on them.
+    records_at_start: tuple[RecordAtStart, ...] = ()
 
 
 class ChangeCheck(_Frozen):

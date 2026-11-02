@@ -55,6 +55,12 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         help="a path no tool may write that the runtime writes during the session (not reverted)",
     )
     p.add_argument(
+        "--protect-record",
+        action="append",
+        default=[],
+        help="an append-only record the orchestrator holds open: compared, never written back",
+    )
+    p.add_argument(
         "--harness",
         help="the source checkout the orchestrator runs from: refused whole, its trusted trees "
         "put back",
@@ -168,6 +174,7 @@ def _install(args: argparse.Namespace) -> int:
         extra_review_material=tuple(_abs(p) for p in args.review_material),
         extra_protected=tuple(_abs(p) for p in args.protect),
         extra_protected_refuse_only=tuple(_abs(p) for p in args.protect_refuse_only),
+        extra_protected_record=tuple(_abs(p) for p in args.protect_record),
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,
         harness_root=_abs(args.harness) if args.harness else None,
         harness_site_packages=tuple(_abs(p) for p in args.harness_site_packages),

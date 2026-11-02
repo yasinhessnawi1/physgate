@@ -86,6 +86,7 @@ from physgate.orchestrator.trajectory import Seal
 from physgate.oslayer.probe import OsLayerState
 from physgate.roles import owner_of, owners_of
 from physgate.series.seal import SeriesCheck, SessionSeries
+from physgate.state.held_file import HeldFile
 from physgate.state.schema import NodeIdKey
 
 #: The eight stages of the per-subtask loop, in the architecture's order (ARCH-030).
@@ -136,6 +137,7 @@ IncidentCause = Literal[
     "issued_state_mismatch",
     "declaration_mismatch",
     "decisions_unreadable",
+    "run_records_changed",
 ]
 
 #: Why a run stopped short of the end of its plan.
@@ -1686,7 +1688,11 @@ class EventLog:
             with self.path.open("r+b") as handle:
                 handle.truncate(good_end)
         self._events: list[Event] = events
+        #: How many lines the log held when this handle opened it: the rest are its own.
+        self.read_at_open = len(events)
         self._handle = self.path.open("ab")
+        #: What this handle knows of its file, held to the path before every append.
+        self.held = HeldFile(self.path, self._handle.fileno())
 
     @property
     def events(self) -> tuple[Event, ...]:
@@ -1719,11 +1725,18 @@ class EventLog:
             ValueError: the event does not follow from the log, including a
                 sequence number that is not the next one; or it is a review with
                 no verdict carrying the legacy blocked cause, which is only read.
+            RecordMovedError: the log is no longer the file this handle holds, at the size it
+                wrote; nothing is written.
         """
         admitted = _admit(self._context, self._state, event)
-        self._handle.write(event.model_dump_json().encode() + b"\n")
+        # A log replaced beneath this handle, or written by another, is written no more: a line
+        # here would land where no path names it, or after a line this writer never wrote.
+        self.held.require_current()
+        payload = event.model_dump_json().encode() + b"\n"
+        self._handle.write(payload)
         self._handle.flush()
         os.fsync(self._handle.fileno())
+        self.held.wrote(payload)
         # Recorded only once the line is on disk, so a failed write leaves the
         # handle agreeing with the file.
         self._context.record(event)

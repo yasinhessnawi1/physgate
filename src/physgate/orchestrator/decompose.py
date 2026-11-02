@@ -31,7 +31,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from physgate.contracts.pairs import ContractError, ContractPair, pairing_problems, plan_pairs
-from physgate.gate.catalogue import shadowing_names
+from physgate.gate.catalogue import KINDS, QUANTITIES, RELATION_NAMES, shadowing_names
+from physgate.gate.units import PINT_ERRORS, SignRefusedError, UnitRefusedError, measure
 from physgate.hooks.settings import protected_in_a_worktree
 from physgate.knowledge.library import LibraryError, put_into, read_library
 from physgate.orchestrator.accounting import require_matching_totals
@@ -320,7 +321,62 @@ def plan_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[str]:
                 f"interface node {node.id!r} names {name!r}, which shadows {relation!r}, a "
                 "quantity a relation reads; it is written under the catalogue's name"
             )
+        for name, relation in decorated_names(node):
+            found.append(
+                f"interface node {node.id!r} names {name!r}, which is {relation!r}, a quantity "
+                "a relation reads, under added words, and the node does not hold "
+                f"{relation!r} itself; the gate checks it only under the catalogue's name, so "
+                f"the value the design runs at is written as {relation!r}"
+            )
     return found + _cross_cutting_problems(plan, roles) + _integration_problems(plan, roles, brief)
+
+
+def _of_kind(kind: str, value: float, unit: str) -> bool:
+    """Whether ``value`` in ``unit`` is of the catalogue's ``kind``, as the gate reads it.
+
+    A sign the kind never takes still says the unit is of the kind; a unit the gate cannot read
+    is of no kind here, and the units check refuses it at the gate.
+    """
+    try:
+        measure(KINDS[kind], value, unit)
+    except SignRefusedError:
+        return True
+    except (UnitRefusedError, *PINT_ERRORS, ValueError, TypeError, ArithmeticError):
+        return False
+    return True
+
+
+def _holds_words(name: str, words: Sequence[str]) -> bool:
+    """Whether ``name``'s underscore-separated words hold ``words``, whole and in order."""
+    have = name.split("_")
+    return any(have[i : i + len(words)] == list(words) for i in range(len(have) - len(words) + 1))
+
+
+def decorated_names(node: Node) -> tuple[tuple[str, str], ...]:
+    """The node's quantities that are a relation's quantity under added words, each once.
+
+    A name not in the catalogue that holds the words of a quantity a relation reads
+    (:data:`RELATION_NAMES`), whole and in order, in a unit of that quantity's kind, on a node
+    that does not hold the catalogue's name itself: ``overall_gear_ratio`` where the node has no
+    ``gear_ratio``. The gate reads no relation over it, so the gate covers less than the plan seems
+    to. A rating beside the catalogue's own name is written (``stall_current_rated`` beside
+    ``stall_current``), and so is a name whose unit is another kind (``mass_flow_rate`` in kg/s)
+    or that holds the words of a quantity no relation reads (``phase_margin_required``). Each
+    pair is the name and the longest relation quantity it holds.
+    """
+    found: list[tuple[str, str]] = []
+    for name, quantity in sorted(node.quantities.items()):
+        if name in QUANTITIES:
+            continue
+        for relation in sorted(RELATION_NAMES, key=lambda r: (-len(r), r)):
+            if (
+                relation not in node.quantities
+                and _holds_words(name, relation.split("_"))
+                and _of_kind(QUANTITIES[relation].kind, quantity.value, quantity.unit)
+            ):
+                found.append((name, relation))
+                break
+    return tuple(found)
 
 
 def _overlap(one: PurePosixPath, other: PurePosixPath) -> bool:
@@ -489,6 +545,40 @@ NODE_ID_FORM = (
 NODE_ID_SENTENCE = f'Each node\'s id is {NODE_ID_FORM}, such as "pump.flow_rate".'
 
 
+def catalogue_sentence() -> str:
+    """The gate's quantity names, grouped by kind with its unit, generated from its catalogue.
+
+    Every name the catalogue holds, in its kinds' order, so the prompt names what the gate
+    checks and nothing else. The second sentence is the rule a plan check refuses an interface
+    node by (:func:`decorated_names`); the specifications are held to it by the prompt alone.
+    """
+    names: dict[str, list[str]] = {}
+    for name, entry in QUANTITIES.items():
+        names.setdefault(entry.kind, []).append(name)
+    groups = "; ".join(
+        f"{kind.replace('_', ' ')}"
+        f"{'' if KINDS[kind].canonical == 'dimensionless' else f' ({KINDS[kind].canonical})'}: "
+        f"{', '.join(names[kind])}"
+        for kind in KINDS
+        if kind in names
+    )
+    return (
+        "The physics gate checks a quantity only under its catalogue name, in a unit of its "
+        "kind. Wherever a node holds one of these quantities, and wherever a specification "
+        f"names one, it is named so: {groups}. A name that adds words to one of them is another "
+        "quantity to the gate and goes unchecked; where a node holds two values of one (a "
+        "rating and the value the design runs at), the one it runs at takes the catalogue name."
+    )
+
+
+#: Who writes interface nodes, as every decomposition prompt states it.
+INTERFACE_WRITER_SENTENCE = (
+    "Interface nodes are written by the harness from this plan, before any module's session "
+    "runs, and never by a session: a specification never asks its module to write, rewrite or "
+    "correct one, and a module that refines a value writes it in a node of its own."
+)
+
+
 def _one_module_sentence(role: str) -> str:
     """The one sentence the prompt gains for the role that owns the cross nodes."""
     return (
@@ -522,6 +612,8 @@ def prompt_for(brief: str, roles: Sequence[str]) -> str:
         '"interface", owned by the role that produces it, with every quantity as a value, a '
         "unit, a source and the role that wrote it. "
         f"{NODE_ID_SENTENCE}\n\n"
+        f"{catalogue_sentence()}\n\n"
+        f"{INTERFACE_WRITER_SENTENCE}\n\n"
         f"{added}"
         "Answer by calling StructuredOutput once.\n\n"
         f"Brief:\n{brief}\n"

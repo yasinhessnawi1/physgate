@@ -39,7 +39,7 @@ EVENTS = (
     "SessionEnd",
 )
 PROFILES = ("role", "reviewer", "orchestrator", "baseline")
-WATCHES = ("revert", "journal", "halt", "log", "none")
+WATCHES = ("revert", "journal", "halt", "log", "record", "none")
 READS = ("open", "shell_denied", "denied")
 WATCHDOG_MARGIN_SECONDS = 10
 _SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")

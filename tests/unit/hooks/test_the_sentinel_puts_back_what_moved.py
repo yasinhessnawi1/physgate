@@ -221,7 +221,7 @@ def test_a_settings_file_planted_in_the_worktree_is_moved_aside(root: Path) -> N
     assert not claude.exists()
 
 
-def test_an_append_to_the_journal_is_left_to_the_store_and_a_rewrite_is_put_back(
+def test_an_append_to_the_journal_is_left_to_the_store_and_a_rewrite_halts(
     root: Path,
 ) -> None:
     _started(root)
@@ -229,13 +229,10 @@ def test_an_append_to_the_journal_is_left_to_the_store_and_a_rewrite_is_put_back
     original = journal.read_bytes()
     journal.write_bytes(original + b'{"not": "a record"}\n')
     assert _check(root) == "allow", "an append is the orchestrator's, or the store's guard's"
-    appended = journal.read_bytes()
-    journal.write_bytes(b"x" + appended[1:])
-    assert "journal.jsonl" in _check(root)
-    assert journal.read_bytes() == appended
     journal.write_bytes(b"")
     assert "journal.jsonl" in _check(root)
-    assert journal.read_bytes() == appended
+    assert journal.read_bytes() == b"", "a journal the store holds is never put back"
+    assert "journal.jsonl" in _check(root)
 
 
 def test_a_rewritten_journal_is_never_replaced_beneath_the_store_and_halts(root: Path) -> None:

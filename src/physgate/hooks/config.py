@@ -61,9 +61,12 @@ class Installation(BaseModel):
 #: because the orchestrator appends legitimately while sessions run; ``halt``
 #: refuses every later call, because the code the hooks run from changed and
 #: nothing it decides can be trusted; ``log`` records a change that another
-#: process may make legitimately; ``none`` leaves the root to the layers that
-#: refuse writes before they happen, because the hooks or Claude Code write it.
-Watch = Literal["revert", "journal", "halt", "log", "none"]
+#: process may make legitimately; ``record`` compares an append-only record the
+#: orchestrator holds open and never writes it: a change is reported and the call
+#: refused, and the orchestrator, which knows what it wrote, refuses on it; ``none``
+#: leaves the root to the layers that refuse writes before they happen, because the
+#: hooks or Claude Code write it.
+Watch = Literal["revert", "journal", "halt", "log", "record", "none"]
 
 #: Who may read a protected root, as far as the OS layer is concerned (``ProtectedRoot.reads``).
 Reads = Literal["open", "shell_denied", "denied"]

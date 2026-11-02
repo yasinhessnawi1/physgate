@@ -112,6 +112,10 @@ class InstallRequest(BaseModel):
     #: sentinel must not put them back. Only the layers that refuse a write before
     #: it happens protect them.
     extra_protected_refuse_only: tuple[AbsolutePath, ...] = ()
+    #: The run's append-only records the orchestrator holds open and appends to: no session
+    #: tool may write them, and the sentinel compares them and never writes them, since a
+    #: put-back by replacing would leave the orchestrator writing to a file no path names.
+    extra_protected_record: tuple[AbsolutePath, ...] = ()
     #: The source checkout the orchestrator runs from, when it runs from one: the
     #: gate's source, the curated library and the frozen experiments the run is
     #: judged by. A session in any other worktree may write none of it.
@@ -421,6 +425,14 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         root_exceptions[site_packages] = _startup_watch(Path(site_packages))
     for path in request.extra_protected:
         protected.setdefault(path, ("the orchestrator protects it for this session", "revert"))
+    for path in request.extra_protected_record:
+        protected.setdefault(
+            path,
+            (
+                "it is one of the run's own records, which the orchestrator alone writes",
+                "record",
+            ),
+        )
     for path in request.extra_protected_refuse_only:
         protected.setdefault(
             path,

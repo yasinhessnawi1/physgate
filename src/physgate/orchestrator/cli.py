@@ -120,7 +120,7 @@ from physgate.reviewers.claude import ReviewerSetup, claude_reviewers, design_re
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.places import require_review_root, review_root_path
 from physgate.roles import require_registered
-from physgate.state.exceptions import DesignStateError
+from physgate.state.exceptions import DesignStateError, RecordMovedError
 
 #: Example parameters files, one per auth mode.
 EXAMPLES = Path(__file__).resolve().parent / "examples"
@@ -925,7 +925,9 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         step = loop.resume(confirm=confirm, confirmed_by=confirmed_by) if resume else loop.run()
         account = TokenAccount.from_events(loop.log.events)
         account.assert_no_routing()
-    except OrchestratorError as exc:
+    except (OrchestratorError, RecordMovedError) as exc:
+        # A record no longer the file its writer holds is written no more: the run stops here,
+        # and its next command finds it as it was left.
         return _fail(str(exc), **exc.context)
     finally:
         loop.close()

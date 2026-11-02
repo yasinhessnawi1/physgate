@@ -572,6 +572,10 @@ class Store:
         # from it, so it is re-seeked rather than trusted.
         self._journal.seek(0, os.SEEK_END)
         self._durable_size = self.journal_path.stat().st_size
+        held = os.fstat(self._journal.fileno())
+        #: The file this handle appends to: a journal replaced beneath it is another file, even
+        #: at the same size, and this handle's appends would land where no path names them.
+        self._identity = (held.st_dev, held.st_ino)
 
     # ----- open and recovery ------------------------------------------------
 
@@ -773,23 +777,27 @@ class Store:
     # ----- the staleness guard ----------------------------------------------
 
     def _assert_current(self) -> None:
-        """Refuse to answer if the journal has grown or shrunk since the last sync.
+        """Refuse to answer if the journal has grown or shrunk since the last sync, or was replaced.
 
         The journal is strictly append-only, so its size is monotonic and moves on
         exactly the event this cares about. Modification time would not do: it is
-        coarse on some filesystems and can move backwards.
+        coarse on some filesystems and can move backwards. A journal replaced by a copy of
+        itself has the same size and is another file: this handle would append where no path
+        names it, so its identity is held too.
 
         Raises:
             StoreStaleError: another writer has touched the journal.
         """
-        size = os.stat(self.journal_path).st_size
-        if size != self._durable_size:
+        now = os.stat(self.journal_path)
+        size = now.st_size
+        if size != self._durable_size or (now.st_dev, now.st_ino) != self._identity:
             msg = "the journal moved underneath this handle"
             raise StoreStaleError(
                 msg,
                 journal=str(self.journal_path),
                 size_at_last_sync=str(self._durable_size),
                 size_now=str(size),
+                replaced=str((now.st_dev, now.st_ino) != self._identity),
             )
 
     # ----- writes ------------------------------------------------------------

@@ -29,7 +29,7 @@ def _quantity(value: float, unit: str) -> dict[str, Any]:
 
 
 def _plan(quantities: dict[str, tuple[float, str]]) -> Plan:
-    node = {
+    node: dict[str, Any] = {
         "id": "drivetrain.motor",
         "kind": "interface",
         "domain": "electrical",

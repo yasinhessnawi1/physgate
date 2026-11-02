@@ -92,6 +92,8 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.repair import Finding, Writer, held_line
 from physgate.orchestrator.trajectory import Seal, seal
 from physgate.reviewers.scan import ScanHit
+from physgate.state.exceptions import RecordMovedError
+from physgate.state.held_file import HeldFile
 
 #: The queue's sources (ARCH-130); a blocked review and one with no verdict are kept apart,
 #: and a subtask the escalation decision sent to a person while it had attempts left is its
@@ -2063,6 +2065,8 @@ class ApprovalQueue:
             raise QueueError(msg, queue=str(self.path), expected=QUEUE_NAME)
         self.decisions_path = self.path.with_name(DECISIONS_NAME)
         self._clock = clock
+        #: What this writer knows of its items file, taken at its first read.
+        self._held: HeldFile | None = None
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.touch(exist_ok=True)
         self.decisions_path.touch(exist_ok=True)
@@ -2076,6 +2080,11 @@ class ApprovalQueue:
             if not decisions_refused_later or Path(named) != self.decisions_path:
                 raise
 
+    @property
+    def held(self) -> HeldFile | None:
+        """What this writer knows of its items file, from its first read on."""
+        return self._held
+
     def refresh(self) -> None:
         """Read both files again: a person may have decided since they were last read.
 
@@ -2083,6 +2092,10 @@ class ApprovalQueue:
             QueueError: a complete line is not a record of its file's kind, or does not
                 follow from the lines before it.
         """
+        if self._held is not None:
+            # Read again, the items file is still the one this writer holds, at the size it made
+            # it: anything else wrote or replaced it, and nothing of it is read.
+            self._held.require_current()
         self._records = _Records()
         # The items file has one writer, this one, so a torn tail there is this writer's own
         # interrupted write and is cut. The decisions file is appended to by whoever decides,
@@ -2100,6 +2113,8 @@ class ApprovalQueue:
         if len(items) != good_end:
             with self.path.open("r+b") as handle:
                 handle.truncate(good_end)
+        if self._held is None:
+            self._held = HeldFile(self.path)
         _parse(decided, _DECISION, self._records, name=str(self.decisions_path))
 
     def _append(self, record: QueueItem) -> None:
@@ -2110,10 +2125,18 @@ class ApprovalQueue:
         # Every listed item has a decisions file beside it, so it can always be decided: the
         # decision function never creates one, and refuses a run whose file has gone.
         self.decisions_path.touch(exist_ok=True)
+        held = self._held if self._held is not None else HeldFile(self.path)
+        held.require_current()
+        payload = record.model_dump_json().encode() + b"\n"
         with self.path.open("ab") as handle:
-            handle.write(record.model_dump_json().encode() + b"\n")
+            opened = os.fstat(handle.fileno())
+            if (opened.st_dev, opened.st_ino) != held.identity:
+                msg = "the record is no longer the file this writer holds"
+                raise RecordMovedError(msg, path=str(self.path))
+            handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+        held.wrote(payload)
         self._records.record(record)
 
     def add(self, item: QueueItem) -> None:

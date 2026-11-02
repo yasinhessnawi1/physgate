@@ -20,6 +20,7 @@ adopted.
 | `schema.py` | The node shape, the quantity, and the identifier rule. Every quantity carries a value, a unit, a source and the role that wrote it |
 | `exceptions.py` | The domain exceptions. All of them carry a context mapping |
 | `task_ledger.py` | One append-only line per dispatched subtask |
+| `held_file.py` | What one writer of an append-only record has written to the file it holds (its identity, the size it found, the size it made it and a digest of its own bytes), and the check before every write that the path still names that file at that size: a record replaced or written beneath its writer is written no more |
 
 ### One of them reads differently from the others
 

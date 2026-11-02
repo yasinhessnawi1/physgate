@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import os
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -134,6 +135,7 @@ from physgate.orchestrator.exceptions import (
     WorktreeMisplacedError,
 )
 from physgate.orchestrator.follow_up import follow_up_order, owed
+from physgate.orchestrator.held_records import outlived, record_change
 from physgate.orchestrator.integration_state import issued_state
 from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.merge import merge_message
@@ -315,6 +317,7 @@ LEFTOVER_HALTS: tuple[IncidentCause, ...] = (
     "managed_settings_changed",
     "os_layer_aborted",
     "reaper_unverified",
+    "run_records_changed",
 )
 
 
@@ -726,6 +729,8 @@ class Loop:
         ]
         for left in leftovers:
             found += self._taken_up_findings(left)
+        for left in leftovers:
+            found += self._records_findings(left)
         causes = {cause for cause, _ in found}
         halt = next((c for c in LEFTOVER_HALTS if c in causes), None)
         if len(found) > 1 and halt is not None:
@@ -771,6 +776,36 @@ class Loop:
             self._emit(Incident(**self._env(), subtask_id=None, cause=cause, detail=detail))
         if halt is not None:
             self._halt_for(None, halt)
+
+    def _records_findings(self, left: Leftover) -> list[tuple[IncidentCause, str]]:
+        """Each held record the leftover's start and this process's own writes do not explain.
+
+        Judged by :func:`held_records.record_change` against this process's writers, before any
+        line of the leftovers is written: a change no orchestrator made is an incident, and the
+        run halts on it. A record this process no longer holds refuses the first line written
+        to it, so the incident is never written where no one will read it.
+        """
+        if not left.records_at_start:
+            return []
+        writers = {
+            os.path.realpath(self.log.path): self.log.held,
+            os.path.realpath(self.ledger.path): self.ledger.held,
+            os.path.realpath(self.queue.path): self.queue.held,
+        }
+        before = self.log.events[: self.log.read_at_open]
+        ran_on = left.taken_up or outlived(left.session_id, before)
+        found: list[tuple[IncidentCause, str]] = []
+        for start in left.records_at_start:
+            held = writers.get(os.path.realpath(start.path))
+            why = record_change(start, held, outlived_by_run=ran_on)
+            if why is not None:
+                found.append(
+                    (
+                        "run_records_changed",
+                        f"leftover session {left.session_id}: {start.path}: {why}",
+                    )  # fmt: skip
+                )
+        return found
 
     def _taken_up_findings(self, left: Leftover) -> list[tuple[IncidentCause, str]]:
         """What a session taken up after its own end showed beside its stream, as that end would.

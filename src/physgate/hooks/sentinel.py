@@ -23,7 +23,10 @@ says:
   own guard, which refuses on the orchestrator's next call when the journal
   moved under its handle. That is sound only if the orchestrator treats that
   refusal as an incident and never reopens and continues, because a reopen
-  would replay an agent's line as genuine. The node files beside it are
+  would replay an agent's line as genuine. A journal whose bytes changed, or
+  that is another file now, is never put back: the store holds it open, and a
+  put-back by replacing would leave the store appending to a file no path
+  names. The change is recorded and every later call is refused. The node files beside it are
   derived from the journal: one that no longer holds what the journal says, or
   that is missing while the journal names it, is rebuilt from the journal's
   newest line for it, with the store's own write, and every call after it is
@@ -36,6 +39,15 @@ says:
   protects the installation is that no agent tool can write it, and in the end
   an installation the session's user cannot write at all.
 - ``log``: files other processes change legitimately; a change is recorded.
+- ``record``: the run's append-only records the orchestrator holds open and
+  appends to (its event log, task ledger and approval queue). Never written
+  here: a put-back by replacing would leave the orchestrator writing to a file
+  no path names, and after a resume it would undo the new orchestrator's own
+  lines. Each is compared with what it held when the session started (its
+  identity, its size and the digest of its bytes); a change is recorded with
+  what it is, the call is refused, and the record stays as it is, so the next
+  check finds it again. What the change was is the orchestrator's to judge: it
+  knows what it wrote, and refuses whatever it did not.
 
 The records live in the hook state directory, which the hooks themselves write
 and which is protected only by the layers that refuse writes before they
@@ -78,6 +90,14 @@ NODE_MISMATCH = (
     "A graph node file does not hold what the journal says it holds ({paths}). Node files are "
     "written by the orchestrator alone: a file the journal names is rebuilt from the journal, "
     "and every call is refused."
+)
+RECORD_CHANGED = (
+    "The run's own records changed during this session ({paths}). They are written by the "
+    "orchestrator alone; nothing is put back, and the orchestrator refuses what it did not write."
+)
+JOURNAL_CHANGED = (
+    "The graph store's journal was rewritten or replaced during this session ({paths}). The "
+    "store holds it open, so it is not put back; every call is refused."
 )
 UNRESTORABLE = (
     "A protected path changed and could not be put back ({paths}); every call is refused."
@@ -286,8 +306,96 @@ def _journal_state(root: str, blobs: BlobStore) -> dict[str, Any] | None:
         return None
     with open(journal, "rb") as handle:
         data = handle.read()
+        held = os.fstat(handle.fileno())
     digest = blobs.keep(journal)
-    return {"size": len(data), "digest": digest, "blob": digest}
+    return {
+        "size": len(data),
+        "digest": digest,
+        "blob": digest,
+        "identity": [held.st_dev, held.st_ino],
+    }
+
+
+def _record_state(path: str) -> dict[str, Any] | None:
+    """A run record as it is now: its identity, size, digest and stat signature, or ``None``.
+
+    Read without following a link and without waiting on a pipe. Something at the path that is
+    not a regular file is recorded with no identity, so any later state differs from it.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return {"identity": None, "size": -1, "sha256": "", "signature": None}
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return {"identity": None, "size": -1, "sha256": "", "signature": None}
+        digest = hashlib.sha256()
+        size = 0
+        while chunk := os.read(fd, 1 << 20):
+            digest.update(chunk)
+            size += len(chunk)
+        return {
+            "identity": [st.st_dev, st.st_ino],
+            "size": size,
+            "sha256": digest.hexdigest(),
+            "signature": list(signature(st)),
+        }
+    finally:
+        os.close(fd)
+
+
+def _prefix_holds(path: str, was: dict[str, Any]) -> bool:
+    """Whether the regular file at ``path`` begins with exactly the bytes it held at the start."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return False
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return False
+        digest = hashlib.sha256()
+        left = int(was["size"])
+        while left > 0 and (chunk := os.read(fd, min(left, 1 << 20))):
+            digest.update(chunk)
+            left -= len(chunk)
+        return left == 0 and digest.hexdigest() == was["sha256"]
+    finally:
+        os.close(fd)
+
+
+def _record_change(path: str, was: dict[str, Any] | None) -> dict[str, Any] | None:
+    """What changed in a run record since the session started, or ``None`` if nothing did.
+
+    The facts are the record's identity and size then and now (``None`` where there was no
+    file) and whether it still begins with the bytes it held then: an append the orchestrator
+    made after a resume, and a line a session rewrote, read differently from these, and the
+    orchestrator, which knows what it wrote, tells them apart.
+    """
+    try:
+        st: os.stat_result | None = os.lstat(path)
+    except FileNotFoundError:
+        st = None
+    if was is None:
+        if st is None:
+            return None
+        return {
+            "path": path,
+            "was": None,
+            "now": [st.st_dev, st.st_ino, st.st_size],
+            "prefix": True,
+        }
+    if st is not None and was["signature"] is not None and list(signature(st)) == was["signature"]:
+        return None
+    now = [st.st_dev, st.st_ino, st.st_size] if st is not None else None
+    prefix = st is not None and was["identity"] is not None and _prefix_holds(path, was)
+    if now is not None and now[:2] == was["identity"] and now[2] == was["size"] and prefix:
+        # The same bytes in the same file: a touch, and nothing to report.
+        return None
+    held = [*was["identity"], was["size"]] if was["identity"] is not None else None
+    return {"path": path, "was": held, "now": now, "prefix": prefix}
 
 
 def _baseline(config: ConfigView, state: _State) -> dict[str, Any]:
@@ -303,6 +411,7 @@ def _baseline(config: ConfigView, state: _State) -> dict[str, Any]:
         "nodes": {r: _nodes_record(r, heads(r)) for r in _roots(config, "journal")},
         "node_roots": {r: os.path.realpath(r) for r in _roots(config, "journal")},
         "log": {p: list(sig) for p, sig in take_signatures(_roots(config, "log")).items()},
+        "records": {p: _record_state(p) for p in _roots(config, "record")},
         "halted": None,
     }
 
@@ -389,21 +498,32 @@ def _revert(base: dict[str, Any], state: _State) -> tuple[list[str], list[str]]:
 def _check_journals(
     base: dict[str, Any], state: _State
 ) -> tuple[list[str], list[tuple[str, int, int]]]:
-    """Journals put back, and appends seen: (journal, first byte, end), end exclusive."""
-    restored = []
+    """Journals changed, and appends seen: (journal, first byte, end), end exclusive.
+
+    A changed journal is never put back: the store holds it open (the module's account).
+    """
+    changed = []
     appended: list[tuple[str, int, int]] = []
     for root, was in base["journal"].items():
         journal = os.path.join(root, "journal.jsonl")
         if was is None:
             base["journal"][root] = _journal_state(root, state.blobs)
             continue
+        identity: list[int] | None = None
         try:
             with open(journal, "rb") as handle:
                 data = handle.read()
+                held = os.fstat(handle.fileno())
+                identity = [held.st_dev, held.st_ino]
         except FileNotFoundError:
             data = b""
         head = data[: was["size"]]
-        if len(data) >= was["size"] and hashlib.sha256(head).hexdigest() == was["digest"]:
+        same_file = was.get("identity") is None or identity == was["identity"]
+        if (
+            same_file
+            and len(data) >= was["size"]
+            and hashlib.sha256(head).hexdigest() == was["digest"]
+        ):
             if len(data) > was["size"]:
                 # Appended to: the orchestrator does that, and so could anything
                 # that got past the first layer. The two cannot be told apart
@@ -413,9 +533,21 @@ def _check_journals(
                 appended.append((journal, was["size"], len(data)))
                 base["journal"][root] = _journal_state(root, state.blobs)
             continue
-        state.blobs.restore(journal, was["blob"], 0o644)
-        restored.append(journal)
-    return restored, appended
+        changed.append(journal)
+    return changed, appended
+
+
+def _check_records(base: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every run record that is not what it was when the session started, with what changed.
+
+    The record of the start is never moved on: a change is found again at every later check, so
+    every later call is refused while it stands, and the last check reports it as it is then.
+    """
+    return [
+        found
+        for path, was in sorted(base.get("records", {}).items())
+        if (found := _record_change(path, was)) is not None
+    ]
 
 
 def _code_record(path: str, *, hashed: bool = True) -> list[Any]:
@@ -734,11 +866,13 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
             _event(config, hook_input, "halt", halted)
             return refuse(base["halted"])
         put_back, failed = _revert(base, state)
-        journals_put_back, appended = _check_journals(base, state)
-        put_back += journals_put_back
+        journals_changed, appended = _check_journals(base, state)
+        records_changed = _check_records(base)
         node_findings = _check_nodes(base)
         mismatched = [path for path, _root, _node in node_findings]
-        restored = _restore_nodes(base, node_findings) if node_findings else []
+        # Node files are rebuilt from the journal: never from one that was itself rewritten.
+        rebuild = node_findings and not journals_changed
+        restored = _restore_nodes(base, node_findings) if rebuild else []
         logged = _check_logged(base, config)
         # The withheld-file tripwire runs after everything above has been put back, so
         # finding something there never costs a put-back; it adds a halt of its own.
@@ -749,6 +883,9 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
             unsure += withheld.changed(recorded, now)
         if failed:
             base["halted"] = UNRESTORABLE.format(paths=", ".join(failed))
+        elif journals_changed:
+            # Named before the node files: a rewritten journal is why they no longer agree.
+            base["halted"] = JOURNAL_CHANGED.format(paths=", ".join(journals_changed))
         elif mismatched:
             base["halted"] = NODE_MISMATCH.format(paths=", ".join(mismatched))
         elif unsure:
@@ -766,9 +903,18 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
     # fault may not hide another fault's put-back from the log.
     if put_back:
         _event(config, hook_input, "put back", put_back)
+    if journals_changed:
+        _event(config, hook_input, "journal changed", journals_changed)
+    if records_changed:
+        changed = [str(found["path"]) for found in records_changed]
+        _event(config, hook_input, "record changed", changed, {"records": records_changed})
     if failed:
         _event(config, hook_input, "unrestorable", failed)
         return refuse(UNRESTORABLE.format(paths=", ".join(failed)))
+    if journals_changed:
+        if mismatched:
+            _event(config, hook_input, "node mismatch", mismatched, {"restored": restored})
+        return refuse(JOURNAL_CHANGED.format(paths=", ".join(journals_changed)))
     if mismatched:
         _event(config, hook_input, "node mismatch", mismatched, {"restored": restored})
         return refuse(NODE_MISMATCH.format(paths=", ".join(mismatched)))
@@ -776,6 +922,9 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         return refuse(LINKED.format(paths=", ".join(unsure)))
     if put_back:
         return refuse(PUT_BACK.format(paths=", ".join(put_back)))
+    if records_changed:
+        named = ", ".join(str(found["path"]) for found in records_changed)
+        return refuse(RECORD_CHANGED.format(paths=named))
     return ALLOW
 
 

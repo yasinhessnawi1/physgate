@@ -94,6 +94,7 @@ from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
     Leftover,
+    RecordAtStart,
     SessionKind,
     SessionReport,
     SessionRequest,
@@ -238,16 +239,36 @@ def read_session_file(path: Path) -> bytes:
 
 #: The run's own records, in the run directory. The session's working directory is
 #: one level below it, so none of these contains the worktree.
-#: The run's records a role session may not write. ``series`` holds the simulation records
-#: sealed at each session's end, which the orchestrator writes only between sessions.
+#: The run's records a role session may not write and the sentinel puts back. ``series`` holds
+#: the simulation records sealed at each session's end, which the orchestrator writes only
+#: between sessions.
 RUN_RECORDS = (
-    "events.jsonl",
-    "ledger.jsonl",
     "run.json",
-    "queue.jsonl",
     "decomposition",
     "series",
 )
+#: The run's append-only records, which the orchestrator holds and appends to: its event log,
+#: its task ledger and its approval queue's items. No role session may write them either, but
+#: they are never put back (:func:`run_record_roots`).
+HELD_RECORDS = (
+    "events.jsonl",
+    "ledger.jsonl",
+    "queue.jsonl",
+)
+
+
+def run_record_roots(run: RunGit) -> tuple[Path, ...]:
+    """The run's records a role session's sentinel compares and never writes.
+
+    The orchestrator holds each of them and appends to it, so a put-back by replacing would
+    leave it writing to a file no path names. And a session found running at a resume ends after
+    the new orchestrator has written its first lines: a put-back to that session's start would
+    undo them. So each is compared with the session's start, a change is reported and refused
+    there, and the orchestrator holds the file to what it wrote: at a session's end through the
+    record it takes before the spawn (:func:`record_roots`), and at a resume through what the
+    session's sentinel recorded at its start (:func:`records_at_start`), against its own writers.
+    """
+    return tuple(run.run_dir / name for name in HELD_RECORDS)
 
 
 def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
@@ -256,12 +277,13 @@ def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]
     Returns the roots the sentinel puts back if they change, and the roots it only
     refuses writes to, because the runtime writes them while the session runs.
 
-    - Put back: the run's records (the event log, the task ledger, the run
-      configuration, the approval queue, the decomposition call's files), the
-      orchestrator's integration worktree, the target repository's whole common git
-      directory, and the ``.git`` pointer file of every worktree it has. The
-      orchestrator writes none of them while a session runs: dispatch is serial, and
-      its own git commands start no maintenance that outlives them.
+    - Put back: the run's records that are not held open (the run configuration, the
+      decomposition call's files, the sealed series), the orchestrator's integration
+      worktree, the target repository's whole common git directory, and the ``.git``
+      pointer file of every worktree it has. The orchestrator writes none of them while
+      a session runs: dispatch is serial, and its own git commands start no maintenance
+      that outlives them. The held records are compared, never put back
+      (:func:`run_record_roots`).
     - Refused only: every session's directory, which holds each session's
       captured stream (the trajectory the reviewer and the token account read)
       and its process record, written by the runtime and the spawner during the
@@ -539,8 +561,9 @@ def session_end_command(settings: Path) -> EndCheck:
 
 
 #: What a sentinel check records when it could not do its work: the code the hooks run from
-#: changed, a protected path could not be put back, or the hook reached no decision.
-_FAILED_CHECKS = ("halt", "unrestorable", "error")
+#: changed, a protected path could not be put back, the store's journal was rewritten (which
+#: is never put back), or the hook reached no decision.
+_FAILED_CHECKS = ("halt", "unrestorable", "journal changed", "error")
 
 
 def sentinel_refusal(exit_code: int | None, records: list[dict[str, Any]]) -> str | None:
@@ -741,6 +764,43 @@ def end_check_at_resume(sdir: Path, session_id: str, install_bin: Path) -> EndCh
     return EndCheck(argv, 30.0)
 
 
+def records_at_start(sdir: Path, session_id: str) -> tuple[RecordAtStart, ...]:
+    """The run's held records as the role session's sentinel recorded them at its start.
+
+    Read from the sentinel's own record, as the check after the stop reads it; a record that
+    names no held records (a session installed before they were compared) gives none.
+
+    Raises:
+        InvocationError: the sentinel's record cannot be read, or what it says of a record is not
+            of the form the sentinel writes.
+    """
+    path = sdir / "state" / "sessions" / session_id / "sentinel" / "baseline.json"
+    try:
+        base = json.loads(read_session_file(path))
+        held = base.get("records", {}) if isinstance(base, dict) else None
+        if not isinstance(held, dict):
+            raise TypeError(type(held).__name__)
+        found: list[RecordAtStart] = []
+        for name, was in sorted(held.items()):
+            if was is None:
+                empty = hashlib.sha256(b"").hexdigest()
+                found.append(RecordAtStart(path=name, identity=None, size=0, sha256=empty))
+                continue
+            identity = was["identity"]
+            found.append(
+                RecordAtStart(
+                    path=name,
+                    identity=(int(identity[0]), int(identity[1])) if identity is not None else None,
+                    size=int(was["size"]),
+                    sha256=str(was["sha256"]),
+                )
+            )
+    except (InvocationError, OSError, ValueError, TypeError, KeyError, IndexError) as exc:
+        msg = "the sentinel's record of the run's held records at the session's start is unread"
+        raise InvocationError(msg, session_id=session_id, error=repr(exc)) from exc
+    return tuple(found)
+
+
 def _unended(session_id: str, events: Sequence[Event], *, review: bool = False) -> bool:
     """Whether the session ``session_id`` was spawned, and nothing on the log came after.
 
@@ -931,16 +991,20 @@ class RootsRecord:
     exclude: tuple[str, ...]
     #: Path to its signature, its content digest if a file, its target if a link.
     entries: dict[str, tuple[Signature, str | None, str | None]]
+    #: The run's held records among the roots: held to their identity as well, since a copy of
+    #: one put in its place holds the same bytes and is another file.
+    held: tuple[str, ...] = ()
 
 
 def record_roots(config_path: Path) -> RootsRecord:
-    """Record every root the session's sentinel puts back, as its configuration names them.
+    """Record every root the session's sentinel puts back or compares, as its configuration says.
 
     Raises:
         OSError: a path under a root could not be read; no session may start on such a record.
     """
     config = SessionConfig.model_validate_json(config_path.read_bytes())
-    reverted = [r for r in config.protected_roots if r.watch == "revert"]
+    reverted = [r for r in config.protected_roots if r.watch in ("revert", "record")]
+    held = tuple(sorted(r.path for r in config.protected_roots if r.watch == "record"))
     frozen = _frozen_experiment_paths(config)
     roots = tuple(sorted({r.path for r in reverted} | set(frozen)))
     exclude = tuple(sorted({e for r in reverted for e in r.exceptions}))
@@ -952,7 +1016,7 @@ def record_roots(config_path: Path) -> RootsRecord:
         )
         for path, sig in strict_signatures(roots, exclude).items()
     }
-    return RootsRecord(roots, exclude, entries)
+    return RootsRecord(roots, exclude, entries, held)
 
 
 def strict_signatures(roots: tuple[str, ...], exclude: tuple[str, ...]) -> dict[str, Signature]:
@@ -991,7 +1055,7 @@ def changed_since(record: RootsRecord) -> list[str]:
 
     A file put back holds its bytes and mode again (on a new inode); a directory's own times
     move when the sentinel moves something out of it, so a directory is held to its mode and
-    its entries, not its times.
+    its entries, not its times. A held record is never put back, and is held to its identity too.
     """
     now = strict_signatures(record.roots, record.exclude)
     changed = set(now) ^ set(record.entries)
@@ -1002,6 +1066,7 @@ def changed_since(record: RootsRecord) -> list[str]:
         kind = sig[0]
         if (
             sig[:2] != was[:2]
+            or (path in record.held and sig[2:4] != was[2:4])
             or kind == "other"
             or (kind == "file" and file_digest(path) != digest)
             or (kind == "link" and os.readlink(path) != link)
@@ -1310,6 +1375,9 @@ class ClaudeDispatcher:
             self._run, self._store_root, worktree, self._install_bin.parent.parent
         )
         protect = [arg for root in reverted for arg in ("--protect", str(root))]
+        protect += [
+            arg for root in run_record_roots(self._run) for arg in ("--protect-record", str(root))
+        ]
         protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
         # A session in the target's worktree has nothing of its own in the harness
         # checkout, and the live gate reads from it.
@@ -1844,19 +1912,23 @@ class ClaudeDispatcher:
             layered = _spawned_under_the_layer(session_id, events)
             streams = self._streams_of(sdir, reviews, events)
             try:
-                leftovers.append(
-                    self._read_leftover(
-                        sdir,
-                        session_id,
-                        pid,
-                        killed,
-                        stopped,
-                        kind,
-                        again=again,
-                        layered=layered,
-                        streams=streams,
-                    )
+                leftover = self._read_leftover(
+                    sdir,
+                    session_id,
+                    pid,
+                    killed,
+                    stopped,
+                    kind,
+                    again=again,
+                    layered=layered,
+                    streams=streams,
                 )
+                if kind == "session":
+                    # What the run's held records were when it started: the loop holds them to
+                    # it, and to its own writers, before anything of the run is acted on.
+                    at_start = records_at_start(sdir, session_id)
+                    leftover = leftover.model_copy(update={"records_at_start": at_start})
+                leftovers.append(leftover)
             except InvocationError as exc:
                 failures.append((session_id, str(exc)))
         if failures:
