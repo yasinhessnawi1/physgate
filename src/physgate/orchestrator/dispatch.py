@@ -773,7 +773,8 @@ def records_at_start(sdir: Path, session_id: str) -> tuple[RecordAtStart, ...] |
 
     Read from the sentinel's own record, as the check after the stop reads it. A record that
     names no held records gives ``None``: the session's user can write that record, and one with
-    them taken out is never read as a session's installed before they were compared.
+    them taken out is never read as a session's installed before they were compared. Every role
+    session this dispatcher installs has its held records protected, so none names none of them.
 
     Raises:
         InvocationError: the sentinel's record cannot be read, or what it says of a record is not
@@ -782,7 +783,7 @@ def records_at_start(sdir: Path, session_id: str) -> tuple[RecordAtStart, ...] |
     path = sdir / "state" / "sessions" / session_id / "sentinel" / "baseline.json"
     try:
         base = json.loads(read_session_file(path))
-        if isinstance(base, dict) and "records" not in base:
+        if isinstance(base, dict) and not base.get("records", None):
             return None
         held = base.get("records") if isinstance(base, dict) else None
         if not isinstance(held, dict):

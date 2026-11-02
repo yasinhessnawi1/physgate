@@ -789,7 +789,8 @@ class Loop:
         longer holds refuses the first line written to it, so the incident is never written
         where no one will read it.
         """
-        if left.kind != "session":
+        if left.kind != "session" or left.records_at_start == ():
+            # No start was read for it: a dispatcher that installs no sentinel, as a test's.
             return []
         sid = left.session_id
         if left.records_at_start is None:

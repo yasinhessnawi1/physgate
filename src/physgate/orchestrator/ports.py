@@ -204,7 +204,8 @@ class Leftover(_Frozen):
     policy_limits_unsure: NonEmptyStr | None = None
     #: A role session's: the run's held records as its sentinel found them when it started, which
     #: the resume holds the records to, with its own writers, before it acts on them; ``None``
-    #: where its sentinel's record names none, which the resume takes as a change.
+    #: where its sentinel's record names none, which the resume takes as a change. Empty where
+    #: no start was read at all: a dispatcher that installs no sentinel.
     records_at_start: tuple[RecordAtStart, ...] | None = ()
 
 
