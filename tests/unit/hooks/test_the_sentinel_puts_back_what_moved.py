@@ -13,6 +13,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from hook_helpers import SESSION, bash, make_store, node
@@ -297,13 +298,14 @@ def test_a_run_record_is_compared_reported_and_never_written(root: Path) -> None
     assert record.read_bytes() == b'{"seq": 0}\n{"seq": 1}\n', "a held record is never written"
     assert record.stat().st_ino == inode
     (seen,) = [e for e in _log(root) if e["decision"] == "record changed"]
-    (fact,) = seen["records"]
+    facts: Any = seen["records"]
+    (fact,) = facts
     assert fact["prefix"] is True and fact["was"][2] == len(b'{"seq": 0}\n')
     assert fact["now"][2] == record.stat().st_size
     with record.open("r+b") as out:
         out.write(b"X")
     assert "run's own records" in _check(root, config)
-    last = [e for e in _log(root) if e["decision"] == "record changed"][-1]
+    last: Any = [e for e in _log(root) if e["decision"] == "record changed"][-1]
     assert last["records"][0]["prefix"] is False
     assert record.read_bytes().startswith(b"X"), "a held record is never put back"
 
