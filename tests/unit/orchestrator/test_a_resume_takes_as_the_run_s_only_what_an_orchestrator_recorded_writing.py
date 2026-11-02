@@ -493,3 +493,101 @@ def test_the_attempt_restarted_after_such_a_resume_has_one_commit_and_no_ref_lef
     assert on_branch == [second], "the attempt has more than one commit on its branch"
     holding = _git_out(run, "for-each-ref", "--contains", first, "--format=%(refname)")
     assert holding == "", f"a ref still holds the superseded commit: {holding}"
+
+
+# -- rows the mutations asked for --------------------------------------------------------------
+
+
+def test_a_line_an_earlier_resume_wrote_rewritten_after_it_died_halts_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """After the session's start, so its start record cannot tell: only the account's digest."""
+    run = Run(tmp_path, "leftover")
+    _left(run, monkeypatch, leftovers)
+    _resume(run, monkeypatch).close()
+    data = run.log_path.read_bytes()
+    at = data.rindex(b'"seconds":0.1')
+    with run.log_path.open("r+b") as out:
+        out.seek(at)
+        out.write(b'"seconds":0.2')
+    incidents, halted, _ = _judged(run, monkeypatch)
+    assert "run_records_changed" in incidents
+    assert halted
+
+
+def test_a_start_record_that_leaves_one_held_record_out_halts_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    run = Run(tmp_path, "leftover")
+    _left(run, monkeypatch, leftovers)
+    base_record = json.loads(_baseline(run).read_text())
+    (named,) = [n for n in base_record["records"] if n.endswith("events.jsonl")]
+    del base_record["records"][named]
+    _baseline(run).write_text(json.dumps(base_record))
+    incidents, halted, details = _judged(run, monkeypatch)
+    assert "run_records_changed" in incidents
+    assert "does not name it" in details
+    assert halted
+
+
+def test_a_session_that_changes_the_log_and_puts_it_back_is_refused_at_its_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    def changed_and_back(run: Run) -> None:
+        first = run.log_path.read_bytes()[:1]
+        with run.log_path.open("r+b") as out:
+            out.write(b"X")
+        with run.log_path.open("r+b") as out:
+            out.write(first)
+
+    run, raised = _session_meanwhile(tmp_path, monkeypatch, changed_and_back)
+    assert raised is not None, "a held record changed and put back went unrefused"
+    assert "events.jsonl" in json.dumps(getattr(raised, "context", {})), raised
+
+
+def test_a_hard_link_to_the_log_left_in_the_worktree_before_the_session_is_never_committed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """There before the spawn, so nothing about the record changes while the session runs."""
+    run = Run(tmp_path, "clean")
+    worktree = run.run.open_subtask("s1")
+    link = worktree / "modules" / "power" / "events_link.jsonl"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    os.link(run.log_path, link)
+    loop = Rig(run.run.run_dir).open()
+    raised: BaseException | None = None
+    try:
+        try:
+            run.dispatcher(monkeypatch).run(run.request(), loop._spawned)
+        except Exception as exc:  # noqa: BLE001 - its context is asserted below
+            raised = exc
+    finally:
+        loop.close()
+    assert raised is not None, "a second name for the log in the worktree went unrefused"
+    assert str(link) in json.dumps(getattr(raised, "context", {})), raised
+    assert not any(f.endswith("events_link.jsonl") for f in _branch_files(run))
+
+
+def test_a_session_killed_after_its_commit_is_read_as_one_its_run_ended(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """Its end ran but for its record: what that end showed is derived again at the resume."""
+    run = Run(tmp_path, "clean")
+    _killed_after_the_commit(run, monkeypatch)
+    seen: list[Any] = []
+    real = dispatch.ClaudeDispatcher.stop_leftovers
+
+    def kept(self: dispatch.ClaudeDispatcher) -> Any:  # noqa: ANN401
+        found = real(self)
+        seen.extend(found)
+        return found
+
+    monkeypatch.setattr(dispatch.ClaudeDispatcher, "stop_leftovers", kept)
+    loop = _resume(run, monkeypatch)
+    try:
+        loop._stop_leftovers()
+    finally:
+        loop.close()
+    (left,) = seen
+    assert left.session_id == run.session_dir().name
+    assert left.taken_up
