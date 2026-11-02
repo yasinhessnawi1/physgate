@@ -408,9 +408,11 @@ class RunRecord:
         The task ledger or the approval queue holds what no orchestrator wrote, or what the log
         does not imply: an incident naming the record, and a halt, once. The refusal is raised
         after it all the same. A log that refuses to open takes no line, and its own refusal
-        names it.
+        names it. A run halted for another cause, one a resume clears, is put on the record all
+        the same; only a run already halted for a change to its records is not, again.
         """
-        if self.state.halted is not None:
+        halted = self.state.halted
+        if halted is not None and halted.detail == "run_records_changed":
             return
         detail = f"{record}: refused when the run opened: {exc}"
         self.log.append(

@@ -18,7 +18,9 @@ session left by a killed orchestrator holds each record, before it acts on anyth
 Named limit (the same-user limit): a process of the session's user that appends to a held record
 and to the write account a line naming those bytes, with the record's identity, offset, length
 and digest, writes as an orchestrator does. Under the OS layer the run directory is outside every
-session's writable set, which rules that out.
+session's writable set, which rules that out. And a cut of a write's bytes in the window after
+they are synced and before the account names the write complete is not found: it leaves the
+account as an honest crash before the write leaves it, so it is inherent to a two-step account.
 """
 
 from __future__ import annotations
@@ -51,15 +53,40 @@ def _begins_with(path: Path, size: int, sha256: str) -> bool:
         os.close(fd)
 
 
+def _intents(entries: Sequence[Entry], name: str) -> list[tuple[Intent, bool, Intent | None]]:
+    """The record's lines in order: each with whether its own completion follows it, and the next.
+
+    A record has one writer, which names a write complete before it names its next, so a write's
+    completion is the record's next line in the account or there is none.
+    """
+    mine = [e for e in entries if isinstance(e, Intent | Completed) and e.record == name]
+    found: list[tuple[Intent, bool]] = []
+    for at, line in enumerate(mine):
+        if isinstance(line, Intent):
+            then = mine[at + 1] if at + 1 < len(mine) else None
+            completed = isinstance(then, Completed) and (then.offset, then.sha256) == (
+                line.offset,
+                line.sha256,
+            )
+            found.append((line, completed))
+    return [
+        (line, completed, found[k + 1][0] if k + 1 < len(found) else None)
+        for k, (line, completed) in enumerate(found)
+    ]
+
+
 def unaccounted(held: HeldFile, entries: Sequence[Entry], problem: str | None) -> str | None:
     """Why the record's bytes before this process opened it are not all an orchestrator's.
 
     ``entries`` are the account's lines as this process found them, before it wrote any;
     ``problem`` is what of the account is of no form, if anything. The record's lines there are
-    walked in order from byte 0: a line at the walk's place whose bytes are there with its digest
-    moves it on; a line there whose bytes are not refuses if the account names that write
-    complete, and is otherwise a write its writer died in, which covers nothing; a line anywhere
-    else, or on another file, refuses. The walk must end where this process opened the record.
+    walked in order from byte 0. A line the account never names complete, followed by the
+    record's next line at the same offset, is a write its writer died in before its bytes: a
+    later process wrote again where it stood, often the very same bytes, so it covers nothing.
+    Otherwise a line at the walk's place whose bytes are there with its digest moves it on; a line
+    there whose bytes are not refuses if the account names that write complete, and is otherwise
+    a write its writer died in, which covers nothing; a line anywhere else, or on another file,
+    refuses. The walk must end where this process opened the record.
     """
     if problem is not None:
         return problem
@@ -76,7 +103,7 @@ def unaccounted(held: HeldFile, entries: Sequence[Entry], problem: str | None) -
         done = {
             (e.offset, e.sha256) for e in entries if isinstance(e, Completed) and e.record == name
         }
-        for line in (e for e in entries if isinstance(e, Intent) and e.record == name):
+        for line, completed, after in _intents(entries, name):
             if line.identity != held.identity:
                 return (
                     f"the write account names an orchestrator's write at byte {line.offset} to "
@@ -87,6 +114,8 @@ def unaccounted(held: HeldFile, entries: Sequence[Entry], problem: str | None) -
                     f"the write account names a write at byte {line.offset} where the "
                     f"orchestrators' writes had reached byte {at}"
                 )
+            if not completed and after is not None and after.offset == line.offset:
+                continue
             end = at + line.length
             found = (
                 hashlib.sha256(os.pread(fd, line.length, at)).hexdigest()
