@@ -7,12 +7,13 @@ session left by a killed orchestrator holds each record, before it acts on anyth
 - to its own writer: the file is the one it holds, and after what it found there it holds
   exactly what it has written since;
 - to the session's start: the same file, beginning with the bytes it held then, in the same mode;
-- to its one name: a second name for the file, anywhere, is a change (a session's worktree can
-  hold it, and an attempt's commit then would);
-- and, from its first byte to where this process opened it, to the run's write account: every
-  byte there is one an earlier orchestrator process named in the account before it wrote it, in
-  order (:func:`unaccounted`). No line is taken as an orchestrator's for what it says, so a line
-  forged in the record's form after the session started, whatever it names, is no orchestrator's.
+- and, at every resume whatever was left (the loop's account findings), to its one name, since
+  a second name for the file, anywhere, is a change (a session's worktree can hold it, and an
+  attempt's commit then would); and, from its first byte to where this process opened it, to the
+  run's write account: every byte there is one an earlier orchestrator process named in the
+  account before it wrote it, in order (:func:`unaccounted`). No line is taken as an
+  orchestrator's for what it says, so a line forged in the record's form after the session
+  started, whatever it names, is no orchestrator's.
 
 Named limit (the same-user limit): a process of the session's user that appends to a held record
 and to the write account a line naming those bytes, with the record's identity, offset, length
@@ -143,8 +144,6 @@ def record_change(
     if identity_of(held.path) != held.identity:
         return "the path no longer names the file this process writes"
     now = os.lstat(held.path)
-    if now.st_nlink != 1:
-        return f"the file has {now.st_nlink} names"
     if start.mode is not None and stat.S_IMODE(now.st_mode) != start.mode:
         return (
             f"its mode is {stat.S_IMODE(now.st_mode):o} where it was {start.mode:o} when the "

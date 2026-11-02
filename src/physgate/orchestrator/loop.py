@@ -809,8 +809,6 @@ class Loop:
                 why: str | None = "the sentinel's record of the session's start does not name it"
             else:
                 why = record_change(start, held, unaccounted_why=None)
-            if why is not None and held is not None and why.startswith("the file has"):
-                why = self._named_also(why, held, path)
             if why is not None:
                 found.append(("run_records_changed", f"leftover session {sid}: {path}: {why}"))
         return found
