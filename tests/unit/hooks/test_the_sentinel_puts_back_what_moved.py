@@ -253,6 +253,21 @@ def test_a_rewritten_journal_is_never_replaced_beneath_the_store_and_halts(root:
     assert any(e["decision"] == "journal changed" for e in _log(root))
 
 
+def test_a_rewritten_journal_halts_even_once_its_bytes_are_back(root: Path) -> None:
+    # The store held it while it was rewritten: what it read or wrote then is in doubt, so the
+    # session stays halted whatever the journal holds afterwards.
+    _started(root)
+    journal = root / "store" / "journal.jsonl"
+    original = journal.read_bytes()
+    with journal.open("r+b") as out:
+        out.write(b"x")
+    assert "journal.jsonl" in _check(root)
+    with journal.open("r+b") as out:
+        out.write(original[:1])
+    assert journal.read_bytes() == original
+    assert _check(root, name="PreToolUse") != "allow"
+
+
 def test_a_journal_replaced_by_a_copy_of_itself_halts(root: Path) -> None:
     _started(root)
     journal = root / "store" / "journal.jsonl"

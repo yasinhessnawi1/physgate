@@ -122,6 +122,18 @@ def test_the_approval_queue_lists_nothing_in_a_file_replaced_beneath_it(tmp_path
     assert path.read_bytes() == held
 
 
+def test_the_approval_queue_lists_nothing_after_another_writer_appended(tmp_path: Path) -> None:
+    path = tmp_path / "queue.jsonl"
+    queue = ApprovalQueue(path)
+    queue.add(_queue_item("r-s1"))
+    with path.open("ab") as out:
+        out.write(_queue_item("r-s9").model_dump_json().encode() + b"\n")
+    held = path.read_bytes()
+    raised = _refused(lambda: queue.add(_queue_item("r-s2")))
+    assert raised is not None and type(raised).__name__ == "RecordMovedError", raised
+    assert path.read_bytes() == held
+
+
 def test_the_approval_queue_lists_on_while_its_file_is_its_own(tmp_path: Path) -> None:
     path = tmp_path / "queue.jsonl"
     queue = ApprovalQueue(path)
