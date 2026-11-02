@@ -10,16 +10,20 @@ anything the record says:
 - what follows them is what the resume's writer read when it opened the file and has written
   since, and nothing else: the writer holds the path to its size and identity at every write, and
   its own bytes to their digest here;
-- and when the session's own run never outlived it (the record names no end of it, no finding and
-  no incident after its spawn, and the session is not one its run ended and died after), nothing
-  at all came between the session's start and the resume's open: its run wrote nothing while it
-  ran, so whatever is there was written by something else.
+- and when no orchestrator outlived the session (the record names no end of it, no finding and
+  no incident after its spawn, and no later process's start, and the session is not one its run
+  ended and died after), nothing at all came between the session's start and the resume's open:
+  its run wrote nothing while it ran, so whatever is there was written by something else. An
+  earlier resume that wrote its first lines and stopped short of ending the session (killed, or
+  refused at the session's check) is such a later process: its lines start with its installation's
+  check, which a run writes only when its command starts.
 
 Named limit (the same-user limit): a session's user can write the record as the orchestrator does.
 A line forged in the record's form after the session started, which names the session's end, a
-finding or an incident, makes its run look as though it outlived the session, and the lines between
-its start and the resume's open are then taken as its run's. Only the OS layer, which confines what
-a session's processes can write, rules that out.
+finding, an incident or a process's start, makes its run look as though an orchestrator outlived
+the session, and the lines between its start and the resume's open are then taken as that
+orchestrator's. Only the OS layer, which confines what a session's processes can write, rules that
+out.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ from physgate.orchestrator.events import (
     Event,
     FindingsRecorded,
     Incident,
+    InstallChecked,
     LeftoverRead,
     SessionEnded,
     SessionSpawned,
@@ -42,10 +47,11 @@ from physgate.state.held_file import HeldFile, identity_of
 
 
 def outlived(session_id: str, events: Sequence[Event]) -> bool:
-    """Whether the record shows the session's own run went on after it: its end, or a finding.
+    """Whether the record shows an orchestrator went on after the session's spawn.
 
     ``events`` are the lines the record held before this process wrote any: an end or a read of
-    the session, or an incident or a finding after its spawn.
+    the session, or an incident, a finding or a later process's start (its installation's check)
+    after its spawn.
     """
     spawn = next(
         (e.seq for e in events if isinstance(e, SessionSpawned) and e.session_id == session_id),
@@ -53,7 +59,7 @@ def outlived(session_id: str, events: Sequence[Event]) -> bool:
     )
     return spawn is not None and any(
         (isinstance(e, SessionEnded | LeftoverRead) and e.session_id == session_id)
-        or (isinstance(e, Incident | FindingsRecorded) and e.seq > spawn)
+        or (isinstance(e, Incident | FindingsRecorded | InstallChecked) and e.seq > spawn)
         for e in events
     )
 

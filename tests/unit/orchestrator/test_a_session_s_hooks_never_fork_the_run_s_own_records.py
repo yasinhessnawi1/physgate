@@ -37,7 +37,7 @@ from physgate.knowledge import loader
 from physgate.orchestrator import dispatch
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher, sentinel_refusal
-from physgate.orchestrator.events import EventLog, Incident, InstallChecked, read_events
+from physgate.orchestrator.events import EventLog, Incident, InstallChecked, TokensUsed, read_events
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.loop import Loop
@@ -431,8 +431,12 @@ def test_a_line_a_leftover_added_before_the_resume_opened_halts_the_run(
     run = Run(tmp_path, "leftover")
     _orchestrator_dies(run, run.dispatcher(monkeypatch), monkeypatch)
     leftovers.append(int(json.loads((run.session_dir() / "process.json").read_text())["pid"]))
+    # A line of the record's form, but no end, finding, incident or process start: tokens.
     forger = EventLog(run.log_path, run_id="run-1", gate_mode="on")
-    forger.emit(InstallChecked, path="/forged", action="checked", seconds=0.0, entries=0)
+    sid = run.session_dir().name
+    usage = {"input_tokens": 1, "output_tokens": 1, "cache_creation_input_tokens": 0}
+    usage |= {"cache_read_input_tokens": 0}
+    forger.emit(TokensUsed, attribution=f"session:{sid}", message_id="m-forged", usage=usage)
     forger.close()
     loop = _resume(run, monkeypatch)
     try:
@@ -556,3 +560,20 @@ def test_after_the_stop_a_rewritten_journal_refuses_and_a_record_change_does_not
     """A record's change is the loop's to judge at a resume; a journal is never put back."""
     assert sentinel_refusal(2, [{"decision": "journal changed"}]) is not None
     assert sentinel_refusal(2, [{"decision": "record changed"}]) is None
+
+
+def test_an_earlier_resume_s_first_lines_are_no_change_at_the_next_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """A resume that wrote its first lines and died before it ended the leftover is a later run."""
+    run = Run(tmp_path, "leftover")
+    _orchestrator_dies(run, run.dispatcher(monkeypatch), monkeypatch)
+    leftovers.append(int(json.loads((run.session_dir() / "process.json").read_text())["pid"]))
+    _resume(run, monkeypatch).close()
+    loop = _resume(run, monkeypatch)
+    try:
+        loop._stop_leftovers()
+        assert "run_records_changed" not in _incidents(run.log_path)
+        assert loop.state.halted is None
+    finally:
+        loop.close()
