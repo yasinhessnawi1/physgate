@@ -1067,6 +1067,14 @@ def strict_signatures(roots: tuple[str, ...], exclude: tuple[str, ...]) -> dict[
     return found
 
 
+def _links(path: str) -> int | None:
+    """How many names the file at ``path`` has, unfollowed; ``None`` if nothing is there."""
+    try:
+        return os.lstat(path).st_nlink
+    except FileNotFoundError:
+        return None
+
+
 def changed_since(record: RootsRecord) -> list[str]:
     """Every put-back root path that is not now what the record holds, read afresh.
 
@@ -1715,6 +1723,17 @@ class ClaudeDispatcher:
         linked = second_names(
             roots.held_identities(), (worktree, sdir)
         ) if unread is None else []  # fmt: skip
+        # And each held record has exactly one name, wherever another was made, before the spawn
+        # or since: the others the run directory holds are named, any further one is counted.
+        for path in roots.held:
+            links = _links(path)
+            if links not in (None, 1):
+                elsewhere = [
+                    f"{p} (a name of {path})"
+                    for p in second_names(roots.held_identities(), (self._run.run_dir,))
+                    if p not in roots.held and p not in linked
+                ]
+                linked += elsewhere or [f"{path} ({links} names)"]
         if (
             ended is None
             or unconfirmed is not None

@@ -36,7 +36,12 @@ from physgate.orchestrator.events import (
     TokensUsed,
     require_writable,
 )
-from physgate.orchestrator.exceptions import RunConfigError, RunStateError
+from physgate.orchestrator.exceptions import (
+    MergePreconditionError,
+    QueueError,
+    RunConfigError,
+    RunStateError,
+)
 from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.plan import CriterionWords, InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.protocols import MessageUsage, ReviewResult
@@ -53,6 +58,7 @@ from physgate.orchestrator.replay import RunState, project_ledger
 from physgate.orchestrator.run_config import RunConfig, require_recorded, write_run_config
 from physgate.orchestrator.trajectory import Seal
 from physgate.roles import owners_of
+from physgate.state.exceptions import CorruptRecordError
 from physgate.state.task_ledger import TaskLedger
 from physgate.state.write_account import ACCOUNT_NAME, WriteAccount
 
@@ -281,14 +287,21 @@ class RunRecord:
         elif self.log.events:
             msg = "the run has events but no recorded configuration"
             raise RunConfigError(msg, run_dir=str(self.run_dir))
-        self.ledger = TaskLedger(self.run_dir / "ledger.jsonl", account=self.account)
-        self.queue = ApprovalQueue(
-            self.run_dir / "queue.jsonl",
-            clock=clock,
-            decisions_refused_later=True,
-            account=self.account,
-        )
-        project_ledger(self.state, self.ledger)
+        opening = self.run_dir / "ledger.jsonl"
+        try:
+            self.ledger = TaskLedger(opening, account=self.account)
+            opening = self.run_dir / "queue.jsonl"
+            self.queue = ApprovalQueue(
+                opening,
+                clock=clock,
+                decisions_refused_later=True,
+                account=self.account,
+            )
+            opening = self.run_dir / "ledger.jsonl"
+            project_ledger(self.state, self.ledger)
+        except (CorruptRecordError, QueueError, MergePreconditionError) as exc:
+            self._refused_at_open(opening, exc)
+            raise
         if (
             self.state.reviews_plan
             and (self.state.plan_sha256 is not None or self.state.earlier_reviews)
@@ -388,6 +401,26 @@ class RunRecord:
             if isinstance(e, TokensUsed)
         ]
         yield "tokens", spent, tokens
+
+    def _refused_at_open(self, record: Path, exc: Exception) -> None:
+        """Put a held record refused at open on the record, where the event log takes a line.
+
+        The task ledger or the approval queue holds what no orchestrator wrote, or what the log
+        does not imply: an incident naming the record, and a halt, once. The refusal is raised
+        after it all the same. A log that refuses to open takes no line, and its own refusal
+        names it.
+        """
+        if self.state.halted is not None:
+            return
+        detail = f"{record}: refused when the run opened: {exc}"
+        self.log.append(
+            Incident(
+                **self.log.envelope(), subtask_id=None, cause="run_records_changed", detail=detail
+            )
+        )
+        self.log.append(
+            Halted(**self.log.envelope(), reason="incident", detail="run_records_changed")
+        )
 
     def close(self) -> None:
         """Release every file handle."""

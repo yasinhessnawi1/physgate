@@ -89,7 +89,15 @@ class HeldFile:
             self.account.intend(self.path, self.identity, self.size, payload)
 
     def wrote(self, payload: bytes) -> None:
-        """Account for ``payload``, which this writer has just appended in full."""
+        """Account for ``payload``, which this writer has just appended in full and synced.
+
+        The run's write account names it complete first (:meth:`WriteAccount.complete`).
+
+        Raises:
+            RecordMovedError: the account is no longer the file its writer holds.
+        """
+        if self.account is not None:
+            self.account.complete(self.path, self.size, payload)
         self.size += len(payload)
         self._written.update(payload)
 

@@ -19,7 +19,7 @@ from pathlib import Path
 from physgate.orchestrator.events import EventLog, RunStarted, SubtaskPlanned
 from physgate.orchestrator.held_records import unaccounted
 from physgate.state.held_file import HeldFile
-from physgate.state.write_account import Intent, Settled, WriteAccount, read_account
+from physgate.state.write_account import Completed, Intent, Settled, WriteAccount, read_account
 
 
 def _logged(run_dir: Path) -> Path:
@@ -43,17 +43,18 @@ def test_every_append_is_named_before_it_is_made_and_the_walk_reaches_the_end(
     path = _logged(tmp_path)
     entries, problem = read_account(tmp_path / "writes.jsonl")
     assert problem is None
-    assert [e.offset for e in entries if isinstance(e, Intent)] == [
-        0,
-        len(path.read_bytes().splitlines()[0]) + 1,
-    ]
+    first = len(path.read_bytes().splitlines()[0]) + 1
+    assert [e.offset for e in entries if isinstance(e, Intent)] == [0, first]
+    assert [e.offset for e in entries if isinstance(e, Completed)] == [0, first]
+    kinds = [type(e).__name__ for e in entries]
+    assert kinds == ["Intent", "Completed", "Intent", "Completed"], kinds
     assert _judged(path) is None
 
 
 def test_a_line_at_another_offset_refuses(tmp_path: Path) -> None:
     path = _logged(tmp_path)
     account = tmp_path / "writes.jsonl"
-    lines = account.read_bytes().splitlines()
+    lines = [x for x in account.read_bytes().splitlines() if b'"identity"' in x]
     second = json.loads(lines[1])
     second["offset"] += 1
     account.write_bytes(lines[0] + b"\n" + json.dumps(second).encode() + b"\n")

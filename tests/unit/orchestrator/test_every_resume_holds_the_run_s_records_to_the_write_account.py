@@ -288,3 +288,16 @@ def test_a_forged_log_line_refused_at_open_names_the_log_and_writes_nothing(
     assert raised is not None
     assert "events.jsonl" in str(raised) + json.dumps(getattr(raised, "context", {}))
     assert run.log_path.read_bytes() == held
+
+
+def test_a_second_name_with_no_leftover_halts_the_resume_and_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    run = Run(tmp_path, "clean")
+    link = run.run.run_dir / "store" / "kept.jsonl"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    os.link(run.run.run_dir / "ledger.jsonl", link)
+    incidents, halted, details = _judged(run, monkeypatch)
+    assert "run_records_changed" in incidents
+    assert str(link) in details
+    assert halted

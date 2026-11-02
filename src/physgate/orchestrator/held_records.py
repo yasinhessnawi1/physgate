@@ -30,7 +30,7 @@ from pathlib import Path
 
 from physgate.orchestrator.ports import RecordAtStart
 from physgate.state.held_file import HeldFile, identity_of
-from physgate.state.write_account import Entry, Intent
+from physgate.state.write_account import Completed, Entry, Intent
 
 
 def _begins_with(path: Path, size: int, sha256: str) -> bool:
@@ -56,9 +56,9 @@ def unaccounted(held: HeldFile, entries: Sequence[Entry], problem: str | None) -
     ``entries`` are the account's lines as this process found them, before it wrote any;
     ``problem`` is what of the account is of no form, if anything. The record's lines there are
     walked in order from byte 0: a line at the walk's place whose bytes are there with its digest
-    moves it on; a line there whose bytes are not is a write its writer died in, and covers
-    nothing; a line anywhere else, or on another file, refuses. The walk must end where this
-    process opened the record.
+    moves it on; a line there whose bytes are not refuses if the account names that write
+    complete, and is otherwise a write its writer died in, which covers nothing; a line anywhere
+    else, or on another file, refuses. The walk must end where this process opened the record.
     """
     if problem is not None:
         return problem
@@ -71,7 +71,11 @@ def unaccounted(held: HeldFile, entries: Sequence[Entry], problem: str | None) -
         if (st.st_dev, st.st_ino) != held.identity:
             return "the path no longer names the file this process writes"
         at = 0
-        for line in (e for e in entries if isinstance(e, Intent) and e.record == held.path.name):
+        name = held.path.name
+        done = {
+            (e.offset, e.sha256) for e in entries if isinstance(e, Completed) and e.record == name
+        }
+        for line in (e for e in entries if isinstance(e, Intent) and e.record == name):
             if line.identity != held.identity:
                 return (
                     f"the write account names an orchestrator's write at byte {line.offset} to "
@@ -83,10 +87,18 @@ def unaccounted(held: HeldFile, entries: Sequence[Entry], problem: str | None) -
                     f"orchestrators' writes had reached byte {at}"
                 )
             end = at + line.length
-            if end <= held.opened:
-                found = hashlib.sha256(os.pread(fd, line.length, at)).hexdigest()
-                if found == line.sha256:
-                    at = end
+            found = (
+                hashlib.sha256(os.pread(fd, line.length, at)).hexdigest()
+                if end <= held.opened
+                else None
+            )
+            if found == line.sha256:
+                at = end
+            elif (line.offset, line.sha256) in done:
+                return (
+                    f"the write at byte {line.offset} the write account names complete is not "
+                    "there as written"
+                )
         if at != held.opened:
             return (
                 f"{held.opened - at} bytes from byte {at} on, before this process opened it, are "

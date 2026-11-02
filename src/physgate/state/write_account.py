@@ -4,15 +4,19 @@ A held record (the event log, the task ledger, the approval queue) is written in
 can write: a line names what it says, and a line forged in that form says anything. So no line
 is taken as an orchestrator's for what it says. Before every append, the record's writer appends
 one line here and syncs it: the record's name, the file's identity, the offset it writes at, the
-number of bytes and their digest. Only then does it write the record. A resume holds each record,
-from its first byte to where it opened it, to these lines (``held_records.unaccounted``): bytes no
-line names are no orchestrator's.
+number of bytes and their digest. Only then does it write the record, and once that is synced, a
+completion line naming the record, the offset and the digest. A resume holds each record, from its
+first byte to where it opened it, to these lines (``held_records.unaccounted``): bytes no line
+names are no orchestrator's.
 
-A line here whose bytes never followed is a write its writer died in: written first, it names
-bytes the record does not hold, and covers nothing. The account also names each role session
-whose end its run settled (stopped, and checked after the stop) before any git call on its
-attempt: a resume never runs that session's end check again, which would put back the run's own
-writes after it.
+A write named complete must be there as written: one cut or changed since is a change. A write
+with no completion is one its writer died in: it covers its bytes where they are all there with
+its digest (the writer died after the write and before its completion), and nothing where they
+are not (it died before the write, or during it, and the torn tail is cut at the next open).
+
+The account also names each role session whose end its run settled (stopped, and checked
+after the stop) before any git call on its attempt: a resume never runs that session's end check
+again, which would put back the run's own writes after it.
 
 The account is itself a held record, compared by every session's sentinel and never written by
 one, held by its writer as the others are. Its own lines are written by no account.
@@ -50,6 +54,15 @@ class Intent:
 
 
 @dataclass(frozen=True)
+class Completed:
+    """An append its writer made in full and synced, named after it: its record, offset, digest."""
+
+    record: str
+    offset: int
+    sha256: str
+
+
+@dataclass(frozen=True)
 class Settled:
     """A role session whose end its run settled before any git call on its attempt."""
 
@@ -58,7 +71,7 @@ class Settled:
     attempt: int
 
 
-Entry = Intent | Settled
+Entry = Intent | Completed | Settled
 
 
 def _count(value: object) -> int:
@@ -76,6 +89,13 @@ def _entry(raw: object) -> Entry:
         if not (isinstance(sid, str) and sid and isinstance(subtask, str) and subtask):
             raise ValueError("a settle line names no session")
         return Settled(sid, subtask, _count(raw["attempt"]))
+    if set(raw) == {"completed", "offset", "sha256"}:
+        name, done = raw["completed"], raw["sha256"]
+        if not (isinstance(name, str) and name and "/" not in name):
+            raise ValueError(repr(name))
+        if not (isinstance(done, str) and len(done) == 64 and set(done) <= _SHA256):
+            raise ValueError(repr(done))
+        return Completed(name, _count(raw["offset"]), done)
     if set(raw) != {"record", "identity", "offset", "length", "sha256"}:
         raise ValueError(sorted(raw))
     record, identity, digest = raw["record"], raw["identity"], raw["sha256"]
@@ -195,6 +215,20 @@ class WriteAccount:
                 "identity": list(identity),
                 "offset": offset,
                 "length": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+        )
+
+    def complete(self, record: Path, offset: int, payload: bytes) -> None:
+        """Name ``payload`` as appended to ``record`` at ``offset`` in full and synced.
+
+        Raises:
+            RecordMovedError: the account is no longer the file this writer holds.
+        """
+        self._write(
+            {
+                "completed": record.name,
+                "offset": offset,
                 "sha256": hashlib.sha256(payload).hexdigest(),
             }
         )

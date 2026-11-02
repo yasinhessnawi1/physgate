@@ -216,6 +216,7 @@ from physgate.roles import dispatchable, owners_of, require_registered
 from physgate.series.reader import attempt_records
 from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
 from physgate.state.exceptions import DesignStateError, StoreStaleError
+from physgate.state.held_file import HeldFile
 from physgate.state.protocol import REJECT_CROSS_ROLE
 from physgate.state.schema import validate_node
 from physgate.state.store import payload_digest
@@ -731,6 +732,9 @@ class Loop:
             found += self._taken_up_findings(left)
         for left in leftovers:
             found += self._records_findings(left)
+        # Whatever was left, or nothing: every held record is the orchestrators' as the write
+        # account names it, after the run's end as before it.
+        found += self._account_findings()
         causes = {cause for cause, _ in found}
         halt = next((c for c in LEFTOVER_HALTS if c in causes), None)
         if len(found) > 1 and halt is not None:
@@ -796,14 +800,7 @@ class Loop:
         if left.records_at_start is None:
             none = "the sentinel's record of its start names none of the run's held records"
             return [("run_records_changed", f"leftover session {sid}: {none}")]
-        account = self.record.account
-        queue = self.queue.held
-        writers = {
-            self.log.path: self.log.held,
-            self.ledger.path: self.ledger.held,
-            account.path: account.held,
-            **({self.queue.path: queue} if queue is not None else {}),
-        }
+        writers = self._held_writers()
         starts = {os.path.realpath(s.path): s for s in left.records_at_start}
         found: list[tuple[IncidentCause, str]] = []
         for path, held in sorted(writers.items()):
@@ -811,18 +808,50 @@ class Loop:
             if start is None:
                 why: str | None = "the sentinel's record of the session's start does not name it"
             else:
-                counted = (
-                    None if held is account.held else unaccounted(held, account.earlier,
-                                                                  account.problem)
-                )  # fmt: skip
-                why = record_change(start, held, unaccounted_why=counted)
+                why = record_change(start, held, unaccounted_why=None)
             if why is not None and held is not None and why.startswith("the file has"):
-                others = [
-                    p for p in second_names([held.identity], [self.run_dir]) if p != str(path)
-                ]
-                why = f"{why}: {', '.join(others)}" if others else why
+                why = self._named_also(why, held, path)
             if why is not None:
                 found.append(("run_records_changed", f"leftover session {sid}: {path}: {why}"))
+        return found
+
+    def _held_writers(self) -> dict[Path, HeldFile | None]:
+        """This process's writer of each held record, by its path."""
+        account = self.record.account
+        return {
+            self.log.path: self.log.held,
+            self.ledger.path: self.ledger.held,
+            self.queue.path: self.queue.held,
+            account.path: account.held,
+        }
+
+    def _named_also(self, why: str, held: HeldFile, path: Path) -> str:
+        """``why``, with every other name for the record's file under the run directory."""
+        others = [p for p in second_names([held.identity], [self.run_dir]) if p != str(path)]
+        return f"{why}: {', '.join(others)}" if others else why
+
+    def _account_findings(self) -> list[tuple[IncidentCause, str]]:
+        """Each held record the write account does not name as the orchestrators', or renamed.
+
+        At every resume, whatever was left: :func:`held_records.unaccounted` walks each record
+        along the account from its first byte; the account itself is held to its one name and
+        its form.
+        """
+        account = self.record.account
+        found: list[tuple[IncidentCause, str]] = []
+        for path, held in sorted(self._held_writers().items()):
+            if held is None:
+                why: str | None = "this process holds no writer of it"
+            elif held is account.held:
+                why = account.problem
+            else:
+                why = unaccounted(held, account.earlier, None)
+            if why is None and held is not None:
+                links = os.lstat(path).st_nlink
+                if links != 1:
+                    why = self._named_also(f"the file has {links} names", held, path)
+            if why is not None:
+                found.append(("run_records_changed", f"{path}: {why}"))
         return found
 
     def _taken_up_findings(self, left: Leftover) -> list[tuple[IncidentCause, str]]:
