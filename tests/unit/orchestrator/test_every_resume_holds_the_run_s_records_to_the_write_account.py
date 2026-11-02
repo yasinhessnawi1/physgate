@@ -23,6 +23,7 @@ import pytest
 from loop_fakes import Rig
 from test_a_session_s_hooks_never_fork_the_run_s_own_records import (
     INSTALL_BIN,
+    Died,
     Run,
     _incidents,
     _orchestrator_dies,
@@ -39,6 +40,7 @@ from physgate.orchestrator.events import (
     read_events,
 )
 from physgate.orchestrator.merge import GitMerger
+from physgate.state.held_file import HeldFile
 
 __all__ = ["leftovers"]
 
@@ -93,6 +95,40 @@ def _append(path: Path, data: bytes) -> None:
         out.write(data)
 
 
+def _done_rig(run: Run, monkeypatch: pytest.MonkeyPatch) -> Rig:
+    rig = Rig(run.run.run_dir, dispatcher=run.dispatcher(monkeypatch))  # type: ignore[arg-type]
+    rig.merger = GitMerger(run.run, removal_timeout_s=60.0)  # type: ignore[assignment]
+    return rig
+
+
+def _run_to_its_end(rig: Rig, *, resumed: bool = False) -> None:
+    """A process's loop over the run, with its first line written, driven until it stops."""
+    loop = rig.open()
+    try:
+        loop.record.emit(
+            InstallChecked(
+                **loop.record.envelope(),
+                path=str(INSTALL_BIN),
+                action="checked",
+                seconds=0.1,
+                entries=1,
+            )
+        )
+        loop.resume() if resumed else loop.run()
+        assert loop.state.halted is None
+    finally:
+        loop.close()
+
+
+def _entries(run: Run) -> list[dict[str, object]]:
+    return [json.loads(x) for x in _account(run).read_bytes().splitlines()]
+
+
+def _write_entries(run: Run, entries: list[dict[str, object]]) -> None:
+    lines = [json.dumps(e, separators=(",", ":")).encode() + b"\n" for e in entries]
+    _account(run).write_bytes(b"".join(lines))
+
+
 # -- every resume walks the account (O1) -----------------------------------------------------------
 
 
@@ -132,6 +168,81 @@ def test_a_line_appended_with_no_leftover_halts_the_resume(
     incidents, halted, _ = _judged(run, monkeypatch)
     assert "run_records_changed" in incidents
     assert halted
+
+
+# -- a write its writer died in is no write (round 4, O1) -----------------------------------------
+
+
+def test_a_kill_between_a_ledger_line_s_intent_and_its_bytes_halts_neither_of_two_resumes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The ledger's line is named and never written; the next open writes the very same bytes.
+
+    A ledger line has no time on it, so the open after the kill appends the same bytes at the
+    same offset. The account then names that write twice, once with no completion: the first is
+    the write that died, and covers nothing.
+    """
+    run = Run(tmp_path, "clean")
+    _run_to_its_end(_done_rig(run, monkeypatch))
+    entries = _entries(run)
+    last = max(
+        i
+        for i, e in enumerate(entries)
+        if e.get("record") == "ledger.jsonl" and "completed" not in e
+    )
+    intent = entries[last]
+    ledger = run.run.run_dir / "ledger.jsonl"
+    data = ledger.read_bytes()
+    at = int(str(intent["offset"]))
+    line = data[at:]
+    assert hashlib.sha256(line).hexdigest() == intent["sha256"]
+    kept = [
+        e
+        for e in entries
+        if not (e.get("completed") == "ledger.jsonl" and e.get("offset") == intent["offset"])
+    ]
+    assert len(kept) == len(entries) - 1
+    _write_entries(run, kept)
+    os.truncate(ledger, at)
+    first, halted_first, details = _judged(run, monkeypatch)
+    assert "run_records_changed" not in first, details
+    assert not halted_first
+    assert ledger.read_bytes() == data
+    second, halted_second, details = _judged(run, monkeypatch)
+    assert "run_records_changed" not in second, details
+    assert not halted_second
+    assert ledger.read_bytes().count(line) == 1
+
+
+def test_a_process_killed_after_naming_a_ledger_line_resumes_to_the_end_and_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The real write path, with no account rebuilt: the kill lands between intent and bytes."""
+    run = Run(tmp_path, "clean")
+    named = HeldFile.intend
+    seen: list[bytes] = []
+
+    def dies_after_naming(self: HeldFile, payload: bytes) -> None:
+        named(self, payload)
+        if self.path.name == "ledger.jsonl":
+            seen.append(payload)
+            raise Died
+
+    with monkeypatch.context() as killed:
+        killed.setattr(HeldFile, "intend", dies_after_naming)
+        with pytest.raises(Died):
+            _run_to_its_end(_done_rig(run, monkeypatch))
+    (payload,) = seen
+    ledger = run.run.run_dir / "ledger.jsonl"
+    assert payload not in ledger.read_bytes()
+    _run_to_its_end(_done_rig(run, monkeypatch), resumed=True)
+    incidents, halted, details = _judged(run, monkeypatch)
+    assert "run_records_changed" not in incidents, details
+    assert not halted
+    assert ledger.read_bytes().count(payload) == 1
+    again, halted_again, details = _judged(run, monkeypatch)
+    assert "run_records_changed" not in again, details
+    assert not halted_again
 
 
 # -- a write the account names complete (Y1) -------------------------------------------------------
@@ -288,6 +399,34 @@ def test_a_forged_log_line_refused_at_open_names_the_log_and_writes_nothing(
     assert raised is not None
     assert "events.jsonl" in str(raised) + json.dumps(getattr(raised, "context", {}))
     assert run.log_path.read_bytes() == held
+
+
+def test_a_forged_ledger_line_refused_at_open_during_a_resumable_halt_is_an_incident_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """A run halted for a cause its next resume clears is still put on the record first."""
+    run = Run(tmp_path, "clean")
+    loop = _resume(run, monkeypatch)
+    try:
+        loop.record.emit(
+            Halted(
+                **loop.record.envelope(),
+                reason="infrastructure_exhausted",
+                detail="the infrastructure schedule ran out",
+            )
+        )
+    finally:
+        loop.close()
+    ledger = run.run.run_dir / "ledger.jsonl"
+    _append(ledger, ledger.read_bytes().splitlines(keepends=True)[-1])
+    raised = _opened(run, monkeypatch)
+    assert raised is not None
+    assert "ledger.jsonl" in str(raised) + json.dumps(getattr(raised, "context", {}))
+    _on_the_record(run, "ledger.jsonl")
+    assert _opened(run, monkeypatch) is not None
+    halts = [e for e in read_events(run.log_path) if isinstance(e, Halted)]
+    assert [h.detail for h in halts][-1:] == ["run_records_changed"]
+    assert len([h for h in halts if h.detail == "run_records_changed"]) == 1
 
 
 def test_a_second_name_with_no_leftover_halts_the_resume_and_is_named(
