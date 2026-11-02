@@ -238,6 +238,23 @@ def test_an_append_to_the_journal_is_left_to_the_store_and_a_rewrite_is_put_back
     assert journal.read_bytes() == appended
 
 
+def test_a_rewritten_journal_is_never_replaced_beneath_the_store_and_halts(root: Path) -> None:
+    # The store holds its journal open and appends to it: a put-back by replacing would leave
+    # the store writing to a file no path names. The change is reported, the file is left for
+    # the orchestrator to refuse, and every later call is refused.
+    _started(root)
+    journal = root / "store" / "journal.jsonl"
+    inode = journal.stat().st_ino
+    rewritten = b"x" + journal.read_bytes()[1:]
+    with journal.open("r+b") as out:
+        out.write(rewritten)
+    assert "journal.jsonl" in _check(root)
+    assert journal.stat().st_ino == inode, "the journal was replaced beneath the store"
+    assert journal.read_bytes() == rewritten
+    assert _check(root, name="PreToolUse") != "allow"
+    assert any(e["decision"] == "journal changed" for e in _log(root))
+
+
 def test_user_settings_are_logged_not_reverted(root: Path) -> None:
     _started(root)
     user = root / "outside" / "home" / ".claude" / "settings.json"
