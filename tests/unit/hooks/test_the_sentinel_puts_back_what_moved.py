@@ -252,6 +252,62 @@ def test_a_rewritten_journal_is_never_replaced_beneath_the_store_and_halts(root:
     assert any(e["decision"] == "journal changed" for e in _log(root))
 
 
+def test_a_journal_replaced_by_a_copy_of_itself_halts(root: Path) -> None:
+    _started(root)
+    journal = root / "store" / "journal.jsonl"
+    copy = journal.with_name("journal.copy")
+    copy.write_bytes(journal.read_bytes())
+    os.replace(copy, journal)
+    assert "journal.jsonl" in _check(root)
+    assert _check(root, name="PreToolUse") != "allow"
+
+
+def _record_config(root: Path, record: Path) -> SessionConfig:
+    return build_config(
+        InstallRequest(
+            profile="role",
+            role="electrical",
+            worktree=str(root / "worktree"),
+            own_branch=None,
+            store_root=str(root / "store"),
+            state_dir=str(root / "outside" / "state"),
+            target_dir=str(root / "outside" / "session"),
+            claude_config_dir=str(root / "outside" / "cfg"),
+            user_home=str(root / "outside" / "home"),
+            token_ceiling=1000,
+            extra_protected_record=(str(record),),
+        ),
+        installation(),
+    )
+
+
+def test_a_run_record_is_compared_reported_and_never_written(root: Path) -> None:
+    record = root / "run" / "events.jsonl"
+    record.parent.mkdir()
+    record.write_bytes(b'{"seq": 0}\n')
+    config = _record_config(root, record)
+    assert _check(root, config, name="SessionStart") == "allow"
+    inode = record.stat().st_ino
+    os.utime(record, ns=(1, 1))
+    assert _check(root, config) == "allow", "the same bytes in the same file are no change"
+    with record.open("ab") as out:
+        out.write(b'{"seq": 1}\n')
+    told = _check(root, config)
+    assert "run's own records" in told and str(record) in told
+    assert record.read_bytes() == b'{"seq": 0}\n{"seq": 1}\n', "a held record is never written"
+    assert record.stat().st_ino == inode
+    (seen,) = [e for e in _log(root) if e["decision"] == "record changed"]
+    (fact,) = seen["records"]
+    assert fact["prefix"] is True and fact["was"][2] == len(b'{"seq": 0}\n')
+    assert fact["now"][2] == record.stat().st_size
+    with record.open("r+b") as out:
+        out.write(b"X")
+    assert "run's own records" in _check(root, config)
+    last = [e for e in _log(root) if e["decision"] == "record changed"][-1]
+    assert last["records"][0]["prefix"] is False
+    assert record.read_bytes().startswith(b"X"), "a held record is never put back"
+
+
 def test_user_settings_are_logged_not_reverted(root: Path) -> None:
     _started(root)
     user = root / "outside" / "home" / ".claude" / "settings.json"

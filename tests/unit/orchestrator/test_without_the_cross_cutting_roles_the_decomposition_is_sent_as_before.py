@@ -9,8 +9,9 @@ experiments that compare against them, stay comparable with every run made since
 The digests below are of the prompt and the schema as the code sent them before the
 two roles were planned for, with what every run has been sent since: the store's pattern
 on an interface node's id in the schema, and the sentence giving that form in the
-prompt. A change to either for such a run is a change to what every ordinary run sends,
-and turns this red.
+prompt; and in the prompt, the gate's quantity names, generated from its catalogue, and who
+writes interface nodes. A change to either for such a run is a change to what every ordinary
+run sends, and turns this red.
 """
 
 from __future__ import annotations
@@ -20,7 +21,14 @@ import hashlib
 import pytest
 
 from physgate import roles
-from physgate.orchestrator.decompose import Plan, plan_model, plan_schema, prompt_for
+from physgate.orchestrator.decompose import (
+    INTERFACE_WRITER_SENTENCE,
+    Plan,
+    catalogue_sentence,
+    plan_model,
+    plan_schema,
+    prompt_for,
+)
 
 BRIEF = "Build a robot."
 
@@ -30,14 +38,14 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 
 #: The prompt for ``BRIEF`` and each set of roles, as it was sent before.
 PROMPT_SHA256 = {
-    ("control", "firmware"): "1b0030bb325ecbb6008de61dd19842a371a8ff7860dfe07b5d1f2088e5c0ef01",
-    ("electrical",): "654fc5056c641b36a0c96ae007295734efa44ee7188f820ec52430791db90282",
+    ("control", "firmware"): "748902966f0665b24cdfb1fdf8a06a08d401ddc134729439d2352e9e917a0717",
+    ("electrical",): "95fe568607b04a899297e82c505122cb1fc94fdc950c18d4c71c9876da24d208",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "150717973d2d86b4910602ed1791005948e4d1aa466a7781b1dd1cde61b91621",
+    ): "2f9c1d0dbb40ffba995a578035dfba2e22dd5ab4886f312ebe515ead067ebe23",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -52,6 +60,10 @@ PROMPT = (
     "that wrote it. Each node's id is two or more parts joined by dots, each of lowercase "
     "letters, digits and underscores only, the first beginning with a letter, such as "
     '"pump.flow_rate".\n\n'
+    # The catalogue's names, from the catalogue: a copy here would hold the test to a list the
+    # catalogue no longer keeps. The digests above hold the bytes.
+    f"{catalogue_sentence()}\n\n"
+    f"{INTERFACE_WRITER_SENTENCE}\n\n"
     "Answer by calling StructuredOutput once.\n\n"
     "Brief:\nBuild a robot.\n"
 )

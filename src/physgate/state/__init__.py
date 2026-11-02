@@ -18,8 +18,10 @@ from physgate.state.exceptions import (
     InterfaceImmutableError,
     MalformedNodeIdError,
     MissingUnitError,
+    RecordMovedError,
     StoreStaleError,
 )
+from physgate.state.held_file import HeldFile, identity_of
 from physgate.state.protocol import (
     REJECT_CROSS_ROLE,
     REJECT_DUPLICATE_NODE,
@@ -94,6 +96,9 @@ __all__ = [
     "Revision",
     "Store",
     "StoreStaleError",
+    "RecordMovedError",
+    "HeldFile",
+    "identity_of",
     "TaskLedger",
     "TaskLine",
     "WriteResult",

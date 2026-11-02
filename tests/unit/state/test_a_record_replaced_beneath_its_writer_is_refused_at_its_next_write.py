@@ -17,7 +17,7 @@ import pytest
 from helpers import node
 
 from physgate.orchestrator.events import EventLog, RunStarted, StageEntered, SubtaskPlanned
-from physgate.orchestrator.queue import ApprovalQueue
+from physgate.orchestrator.queue import ApprovalQueue, QueueItem
 from physgate.state.store import Store
 from physgate.state.task_ledger import TaskLedger, TaskLine
 
@@ -94,6 +94,41 @@ def test_the_approval_queue_reads_nothing_of_a_file_replaced_beneath_it(tmp_path
     _replace_with_a_copy(tmp_path / "queue.jsonl")
     raised = _refused(queue.refresh)
     assert raised is not None and type(raised).__name__ == "RecordMovedError", raised
+
+
+def _queue_item(item_id: str) -> QueueItem:
+    return QueueItem(
+        item_id=item_id,
+        ts="2026-10-11T00:00:00.000000Z",
+        run_id="r",
+        subtask_id="s1",
+        source="repair_budget_exhausted",
+        decision_required="Decide.",
+        artefact_diff="",
+        triggering_finding="a finding",
+        quantities=(),
+        trajectories=("sessions/a/stdout.jsonl",),
+    )
+
+
+def test_the_approval_queue_lists_nothing_in_a_file_replaced_beneath_it(tmp_path: Path) -> None:
+    path = tmp_path / "queue.jsonl"
+    queue = ApprovalQueue(path)
+    queue.add(_queue_item("r-s1"))
+    _replace_with_a_copy(path)
+    held = path.read_bytes()
+    raised = _refused(lambda: queue.add(_queue_item("r-s2")))
+    assert raised is not None and type(raised).__name__ == "RecordMovedError", raised
+    assert path.read_bytes() == held
+
+
+def test_the_approval_queue_lists_on_while_its_file_is_its_own(tmp_path: Path) -> None:
+    path = tmp_path / "queue.jsonl"
+    queue = ApprovalQueue(path)
+    queue.add(_queue_item("r-s1"))
+    queue.refresh()
+    queue.add(_queue_item("r-s2"))
+    assert path.read_bytes().count(b"\n") == 2
 
 
 def test_the_store_refuses_once_its_journal_was_replaced_at_the_same_size(tmp_path: Path) -> None:

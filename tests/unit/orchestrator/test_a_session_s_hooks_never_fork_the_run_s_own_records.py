@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import stat
 import sys
@@ -35,7 +36,7 @@ from orch_helpers import make_config
 from physgate.knowledge import loader
 from physgate.orchestrator import dispatch
 from physgate.orchestrator.credentials import Credential
-from physgate.orchestrator.dispatch import ClaudeDispatcher
+from physgate.orchestrator.dispatch import ClaudeDispatcher, sentinel_refusal
 from physgate.orchestrator.events import EventLog, Incident, InstallChecked, read_events
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import InstallFacts
@@ -63,6 +64,8 @@ GITENV = {
 #: ``leftover``: runs until it is stopped, and ends through its SessionEnd hook on SIGTERM.
 #: ``gone``: exits once its record is taken, with no SessionEnd, as one killed with its run.
 #: ``writes-log``: appends a line to the run's event log, makes a tool call, and ends.
+#: ``copies-log``: puts a copy of the run's event log in its place, makes a tool call, and ends.
+#: Any other: writes its module file and ends.
 SESSION = r"""
 import json, os, shlex, signal, subprocess, sys, time
 
@@ -108,6 +111,16 @@ if MODE == "writes-log":
     with open(os.path.join(run_dir, "events.jsonl"), "ab") as out:
         out.write(b'{"seq": 999}\n')
     hook("PreToolUse", tool_name="Bash", tool_input={"command": "true"})
+if MODE == "copies-log":
+    # The same bytes on a new inode, in the log's place.
+    log = os.path.join(run_dir, "events.jsonl")
+    with open(log, "rb") as source, open(log + ".copy", "wb") as out:
+        out.write(source.read())
+    os.replace(log + ".copy", log)
+    hook("PreToolUse", tool_name="Bash", tool_input={"command": "true"})
+os.makedirs("modules/power", exist_ok=True)
+with open("modules/power/a.py", "w") as out:
+    out.write("x = 2\n")
 hook("SessionEnd", reason="other")
 usage = {"input_tokens": 3, "output_tokens": 5}
 lines = [
@@ -454,3 +467,92 @@ def test_a_line_a_leftover_adds_after_the_resume_opened_stops_the_resume_writing
         assert run.log_path.read_bytes() == held, "the resume wrote to a log it no longer holds"
     finally:
         loop.close()
+
+
+def test_a_session_s_copy_of_the_held_log_in_its_place_is_refused_at_its_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The same bytes on a new inode: the orchestrator's record of the roots holds the identity."""
+    run = Run(tmp_path, "copies-log")
+    loop = Rig(run.run.run_dir).open()
+    try:
+        raised: BaseException | None = None
+        try:
+            run.dispatcher(monkeypatch).run(run.request(), loop._spawned)
+        except Exception as exc:  # noqa: BLE001 - its context is asserted below
+            raised = exc
+        assert raised is not None, "a copy of the run's log in its place went unrefused"
+        assert "events.jsonl" in json.dumps(getattr(raised, "context", {})), raised
+    finally:
+        loop.close()
+
+
+def test_a_log_a_leftover_replaced_by_a_copy_before_the_resume_opened_halts_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The same bytes, another file: not the one the session started with."""
+    run = Run(tmp_path, "leftover")
+    _orchestrator_dies(run, run.dispatcher(monkeypatch), monkeypatch)
+    leftovers.append(int(json.loads((run.session_dir() / "process.json").read_text())["pid"]))
+    copy = run.log_path.with_name("events.copy")
+    shutil.copy2(run.log_path, copy)
+    os.replace(copy, run.log_path)
+    loop = _resume(run, monkeypatch)
+    try:
+        loop._stop_leftovers()
+        assert _holds(run.log_path, loop.log._handle)
+        assert _incidents(run.log_path)[-1:] == ["run_records_changed"]
+        assert loop.state.halted is not None
+    finally:
+        loop.close()
+
+
+def test_a_line_of_the_resume_s_own_rewritten_in_place_halts_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """Same file, same size: only the resume's own digest of what it wrote tells."""
+    run = Run(tmp_path, "leftover")
+    _orchestrator_dies(run, run.dispatcher(monkeypatch), monkeypatch)
+    leftovers.append(int(json.loads((run.session_dir() / "process.json").read_text())["pid"]))
+    loop = _resume(run, monkeypatch)
+    try:
+        data = run.log_path.read_bytes()
+        at = data.rindex(b'"seconds":0.1')
+        with run.log_path.open("r+b") as out:
+            out.seek(at)
+            out.write(b'"seconds":0.2')
+        loop._stop_leftovers()
+        assert _incidents(run.log_path)[-1:] == ["run_records_changed"]
+        assert loop.state.halted is not None
+    finally:
+        loop.close()
+
+
+def test_lines_a_run_wrote_after_its_session_ended_are_its_own_at_the_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The session ended under its run, which wrote on and died before the end's own line."""
+    run = Run(tmp_path, "clean")
+    loop = Rig(run.run.run_dir).open()
+    try:
+        run.dispatcher(monkeypatch).run(run.request(), loop._spawned)
+        loop.record.emit(
+            InstallChecked(
+                **loop.record.envelope(), path="/its-run", action="checked", seconds=0.0, entries=0
+            )
+        )
+    finally:
+        loop.close()
+    resumed = _resume(run, monkeypatch)
+    try:
+        resumed._stop_leftovers()
+        assert "run_records_changed" not in _incidents(run.log_path)
+        assert _holds(run.log_path, resumed.log._handle)
+    finally:
+        resumed.close()
+
+
+def test_after_the_stop_a_rewritten_journal_refuses_and_a_record_change_does_not() -> None:
+    """A record's change is the loop's to judge at a resume; a journal is never put back."""
+    assert sentinel_refusal(2, [{"decision": "journal changed"}]) is not None
+    assert sentinel_refusal(2, [{"decision": "record changed"}]) is None
