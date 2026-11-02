@@ -176,3 +176,22 @@ def test_a_writer_whose_file_is_untouched_writes_on(tmp_path: Path, name: str) -
         )
         ledger.close()
         assert path.read_bytes().count(b"\n") == 2
+
+
+def test_the_store_refuses_once_its_journal_is_named_by_a_link_to_its_own_file(
+    tmp_path: Path,
+) -> None:
+    """The same file and bytes, moved and named again by a link: the path is never followed."""
+    store = Store(tmp_path / "store")
+    try:
+        assert store.write_node(node(), "electrical").accepted
+        journal = tmp_path / "store" / "journal.jsonl"
+        moved = journal.with_name("journal.moved")
+        os.rename(journal, moved)
+        os.symlink(moved, journal)
+        held = moved.read_bytes()
+        raised = _refused(lambda: store.write_node(node("electrical.motor_right"), "electrical"))
+        assert raised is not None and type(raised).__name__ == "StoreStaleError", raised
+        assert moved.read_bytes() == held
+    finally:
+        store.close()

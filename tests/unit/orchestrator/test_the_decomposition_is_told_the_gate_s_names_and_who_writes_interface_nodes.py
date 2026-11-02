@@ -7,9 +7,9 @@ plan named its gear ratio ``overall_gear_ratio`` and its stall currents ``stall_
 specification asked a session to write the interface nodes, which the harness writes itself.
 
 So the prompt names every quantity the catalogue holds, generated from it, and says that
-interface nodes are the harness's to write. The plan check refuses an interface node that names
-a quantity a relation reads under added words, in a unit of that quantity's kind, where the node
-does not also hold the catalogue's own name.
+interface nodes are the harness's to write. The plan check refuses none of a node's names for
+added words: a node of part masses and no total is an honest plan, and a refusal there halts the
+run at its first step after a paid call.
 """
 
 from __future__ import annotations
@@ -64,22 +64,24 @@ def test_the_prompt_says_interface_nodes_are_written_by_the_harness_and_never_by
     assert "never by a session" in prompt
 
 
-def test_a_relation_s_quantity_under_added_words_is_refused_and_named() -> None:
-    found = _problems(
-        {
-            "overall_gear_ratio": (110.24, "1"),
-            "stall_current_rated": (1.5, "A"),
-            "stall_current_at_max_voltage": (1.3, "A"),
-            "mass_with_cells": (0.36, "kg"),
-        }
+def test_a_node_holding_part_masses_and_no_total_is_written() -> None:
+    """A mass budget's parts beside no total are an honest plan: the prompt carries the names."""
+    assert _problems({"battery_mass": (0.12, "kg"), "wheel_mass": (0.05, "kg")}) == []
+
+
+def test_decorated_names_of_a_relation_s_quantity_are_left_to_the_prompt() -> None:
+    """The plan check refuses none of them: a refusal there halted honest plans after a call."""
+    assert (
+        _problems(
+            {
+                "overall_gear_ratio": (110.24, "1"),
+                "stall_current_at_max_voltage": (1.3, "A"),
+                "chassis_thermal_resistance": (2.0, "K/W"),
+                "peak_power_draw": (12.0, "W"),
+            }
+        )
+        == []
     )
-    for name, catalogued in (
-        ("overall_gear_ratio", "gear_ratio"),
-        ("stall_current_rated", "stall_current"),
-        ("stall_current_at_max_voltage", "stall_current"),
-        ("mass_with_cells", "mass"),
-    ):
-        assert any(f"'{name}'" in p and f"'{catalogued}'" in p for p in found), (name, found)
 
 
 def test_a_rating_beside_the_catalogue_s_own_name_is_written() -> None:

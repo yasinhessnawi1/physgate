@@ -304,8 +304,6 @@ def test_a_run_record_is_compared_reported_and_never_written(root: Path) -> None
     config = _record_config(root, record)
     assert _check(root, config, name="SessionStart") == "allow"
     inode = record.stat().st_ino
-    os.utime(record, ns=(1, 1))
-    assert _check(root, config) == "allow", "the same bytes in the same file are no change"
     with record.open("ab") as out:
         out.write(b'{"seq": 1}\n')
     told = _check(root, config)
@@ -323,6 +321,56 @@ def test_a_run_record_is_compared_reported_and_never_written(root: Path) -> None
     last: Any = [e for e in _log(root) if e["decision"] == "record changed"][-1]
     assert last["records"][0]["prefix"] is False
     assert record.read_bytes().startswith(b"X"), "a held record is never put back"
+
+
+def test_a_run_record_changed_and_put_back_is_reported_never_passed_as_a_touch(root: Path) -> None:
+    """The same bytes in the same file again: what was there in between is not known."""
+    record = root / "run" / "events.jsonl"
+    record.parent.mkdir()
+    record.write_bytes(b'{"seq": 0}\n')
+    config = _record_config(root, record)
+    assert _check(root, config, name="SessionStart") == "allow"
+    with record.open("r+b") as out:
+        out.write(b"X")
+    with record.open("r+b") as out:
+        out.write(b"{")
+    assert record.read_bytes() == b'{"seq": 0}\n'
+    assert "run's own records" in _check(root, config)
+    assert any(e["decision"] == "record changed" for e in _log(root))
+
+
+def test_a_second_name_for_a_run_record_is_reported(root: Path) -> None:
+    record = root / "run" / "events.jsonl"
+    record.parent.mkdir()
+    record.write_bytes(b'{"seq": 0}\n')
+    config = _record_config(root, record)
+    assert _check(root, config, name="SessionStart") == "allow"
+    os.link(record, root / "worktree" / "kept.jsonl")
+    assert "run's own records" in _check(root, config)
+    (seen,) = [e for e in _log(root) if e["decision"] == "record changed"]
+    facts: Any = seen["records"]
+    assert facts[0]["links"] == 2
+
+
+def test_a_second_name_for_the_journal_halts(root: Path) -> None:
+    _started(root)
+    journal = root / "store" / "journal.jsonl"
+    os.link(journal, root / "worktree" / "journal_kept.jsonl")
+    assert "journal.jsonl" in _check(root)
+    assert _check(root, name="PreToolUse") != "allow"
+    assert any(e["decision"] == "journal changed" for e in _log(root))
+
+
+def test_a_journal_moved_and_named_again_by_a_link_halts(root: Path) -> None:
+    """Its bytes and its file are the same; the path that names it is a link, never followed."""
+    _started(root)
+    journal = root / "store" / "journal.jsonl"
+    moved = root / "store" / "journal.moved"
+    os.rename(journal, moved)
+    os.symlink(moved, journal)
+    assert os.stat(journal).st_nlink == 1
+    assert "journal.jsonl" in _check(root)
+    assert _check(root, name="PreToolUse") != "allow"
 
 
 def test_user_settings_are_logged_not_reverted(root: Path) -> None:
