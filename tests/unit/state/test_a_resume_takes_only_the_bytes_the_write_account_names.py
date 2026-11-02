@@ -120,3 +120,46 @@ def test_a_settle_line_reads_back_as_written(tmp_path: Path) -> None:
     account.settle("sid-1", "s1", 2)
     account.close()
     assert read_account(tmp_path / "writes.jsonl") == ((Settled("sid-1", "s1", 2),), None)
+
+
+def _named(path: Path, offset: int, payload: bytes, *, completed: bool) -> None:
+    st = os.stat(path)
+    digest = hashlib.sha256(payload).hexdigest()
+    intent = {
+        "record": path.name,
+        "identity": [st.st_dev, st.st_ino],
+        "offset": offset,
+        "length": len(payload),
+        "sha256": digest,
+    }
+    done = {"completed": path.name, "offset": offset, "sha256": digest}
+    with path.with_name("writes.jsonl").open("ab") as out:
+        for line in (intent, done) if completed else (intent,):
+            out.write(json.dumps(line).encode() + b"\n")
+
+
+def test_a_write_that_died_before_its_bytes_and_was_written_again_as_it_was_covers_nothing(
+    tmp_path: Path,
+) -> None:
+    """The next process writes the very same bytes where the dead write stood, and completes it."""
+    path = _logged(tmp_path)
+    at = path.stat().st_size
+    payload = b'{"seq": 2}\n'
+    _named(path, at, payload, completed=False)
+    with path.open("ab") as out:
+        out.write(payload)
+    _named(path, at, payload, completed=True)
+    assert _judged(path) is None
+
+
+def test_a_completed_write_cut_and_written_over_where_it_stood_refuses(tmp_path: Path) -> None:
+    path = _logged(tmp_path)
+    data = path.read_bytes()
+    at = data.rstrip(b"\n").rfind(b"\n") + 1
+    os.truncate(path, at)
+    payload = b'{"seq": 9}\n'
+    with path.open("ab") as out:
+        out.write(payload)
+    _named(path, at, payload, completed=True)
+    why = _judged(path)
+    assert why is not None and "names complete is not there as written" in why
