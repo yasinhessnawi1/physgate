@@ -146,6 +146,8 @@ class RecordAtStart(_Frozen):
     identity: tuple[int, int] | None
     size: Annotated[int, Field(ge=-1)]
     sha256: str
+    #: Its permission bits then, ``None`` where the record does not say.
+    mode: Annotated[int, Field(ge=0)] | None = None
 
 
 class Leftover(_Frozen):
@@ -201,8 +203,9 @@ class Leftover(_Frozen):
     #: directory holds: what disagrees, which is a finding of its own.
     policy_limits_unsure: NonEmptyStr | None = None
     #: A role session's: the run's held records as its sentinel found them when it started, which
-    #: the resume holds the records to, with its own writers, before it acts on them.
-    records_at_start: tuple[RecordAtStart, ...] = ()
+    #: the resume holds the records to, with its own writers, before it acts on them; ``None``
+    #: where its sentinel's record names none, which the resume takes as a change.
+    records_at_start: tuple[RecordAtStart, ...] | None = ()
 
 
 class ChangeCheck(_Frozen):

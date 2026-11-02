@@ -26,7 +26,9 @@ says:
   would replay an agent's line as genuine. A journal whose bytes changed, or
   that is another file now, is never put back: the store holds it open, and a
   put-back by replacing would leave the store appending to a file no path
-  names. The change is recorded and every later call is refused. The node files beside it are
+  names. The journal is read without following a link, and a link in its place, or a second
+  name for its file, is a change too. The change is recorded and every later call is refused.
+  The node files beside it are
   derived from the journal: one that no longer holds what the journal says, or
   that is missing while the journal names it, is rebuilt from the journal's
   newest line for it, with the store's own write, and every call after it is
@@ -44,7 +46,9 @@ says:
   here: a put-back by replacing would leave the orchestrator writing to a file
   no path names, and after a resume it would undo the new orchestrator's own
   lines. Each is compared with what it held when the session started (its
-  identity, its size and the digest of its bytes); a change is recorded with
+  identity, its size and the digest of its bytes, and its stat signature: any
+  change of that is one, the same bytes put back and a second name for the file
+  included); a change is recorded with
   what it is, the call is refused, and the record stays as it is, so the next
   check finds it again. What the change was is the orchestrator's to judge: it
   knows what it wrote, and refuses whatever it did not.
@@ -300,14 +304,41 @@ def _unlock(fd: int) -> None:
     os.close(fd)
 
 
+def _read_journal(journal: str) -> tuple[bytes, os.stat_result] | None:
+    """The journal's bytes and its file's stat, read without following a link; ``None`` if absent.
+
+    Raises:
+        OSError: the path names a link or something other than a regular file.
+    """
+    try:
+        fd = os.open(journal, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    try:
+        held = os.fstat(fd)
+        if not stat.S_ISREG(held.st_mode):
+            msg = "the journal is not a regular file"
+            raise OSError(msg)
+        chunks = []
+        while chunk := os.read(fd, 1 << 20):
+            chunks.append(chunk)
+        return b"".join(chunks), held
+    finally:
+        os.close(fd)
+
+
 def _journal_state(root: str, blobs: BlobStore) -> dict[str, Any] | None:
     journal = os.path.join(root, "journal.jsonl")
-    if not os.path.isfile(journal):
+    try:
+        read = _read_journal(journal)
+    except OSError:
+        # A link or no file in the journal's place: no state matches it, so every check halts.
+        return {"size": -1, "digest": "", "blob": None, "identity": [-1, -1]}
+    if read is None:
         return None
-    with open(journal, "rb") as handle:
-        data = handle.read()
-        held = os.fstat(handle.fileno())
-    digest = blobs.keep(journal)
+    data, held = read
+    digest = hashlib.sha256(data).hexdigest()
+    blobs.keep(journal)
     return {
         "size": len(data),
         "digest": digest,
@@ -370,9 +401,12 @@ def _record_change(path: str, was: dict[str, Any] | None) -> dict[str, Any] | No
     """What changed in a run record since the session started, or ``None`` if nothing did.
 
     The facts are the record's identity and size then and now (``None`` where there was no
-    file) and whether it still begins with the bytes it held then: an append the orchestrator
-    made after a resume, and a line a session rewrote, read differently from these, and the
-    orchestrator, which knows what it wrote, tells them apart.
+    file), whether it still begins with the bytes it held then, and how many names the file has
+    now: an append the orchestrator made after a resume, and a line a session rewrote, read
+    differently from these, and the orchestrator, which knows what it wrote, tells them apart.
+    Any change of its stat signature is reported, the same bytes in the same file included: a
+    record changed and then put back held something else in between, and a second name for it is
+    a path the session's tools may write it through.
     """
     try:
         st: os.stat_result | None = os.lstat(path)
@@ -386,16 +420,15 @@ def _record_change(path: str, was: dict[str, Any] | None) -> dict[str, Any] | No
             "was": None,
             "now": [st.st_dev, st.st_ino, st.st_size],
             "prefix": True,
+            "links": st.st_nlink,
         }
     if st is not None and was["signature"] is not None and list(signature(st)) == was["signature"]:
         return None
     now = [st.st_dev, st.st_ino, st.st_size] if st is not None else None
     prefix = st is not None and was["identity"] is not None and _prefix_holds(path, was)
-    if now is not None and now[:2] == was["identity"] and now[2] == was["size"] and prefix:
-        # The same bytes in the same file: a touch, and nothing to report.
-        return None
     held = [*was["identity"], was["size"]] if was["identity"] is not None else None
-    return {"path": path, "was": held, "now": now, "prefix": prefix}
+    links = st.st_nlink if st is not None else None
+    return {"path": path, "was": held, "now": now, "prefix": prefix, "links": links}
 
 
 def _baseline(config: ConfigView, state: _State) -> dict[str, Any]:
@@ -510,17 +543,23 @@ def _check_journals(
             base["journal"][root] = _journal_state(root, state.blobs)
             continue
         identity: list[int] | None = None
+        links = 1
         try:
-            with open(journal, "rb") as handle:
-                data = handle.read()
-                held = os.fstat(handle.fileno())
-                identity = [held.st_dev, held.st_ino]
-        except FileNotFoundError:
+            read = _read_journal(journal)
+        except OSError:
+            changed.append(journal)
+            continue
+        if read is None:
             data = b""
+        else:
+            data, held = read
+            identity, links = [held.st_dev, held.st_ino], held.st_nlink
         head = data[: was["size"]]
         same_file = was.get("identity") is None or identity == was["identity"]
         if (
             same_file
+            and links == 1
+            and was["size"] >= 0
             and len(data) >= was["size"]
             and hashlib.sha256(head).hexdigest() == was["digest"]
         ):

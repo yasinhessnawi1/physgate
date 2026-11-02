@@ -783,12 +783,13 @@ class Store:
         exactly the event this cares about. Modification time would not do: it is
         coarse on some filesystems and can move backwards. A journal replaced by a copy of
         itself has the same size and is another file: this handle would append where no path
-        names it, so its identity is held too.
+        names it, so its identity is held too, read from the path itself: a link in the journal's
+        place, even to the very file, is another file.
 
         Raises:
             StoreStaleError: another writer has touched the journal.
         """
-        now = os.stat(self.journal_path)
+        now = os.lstat(self.journal_path)
         size = now.st_size
         if size != self._durable_size or (now.st_dev, now.st_ino) != self._identity:
             msg = "the journal moved underneath this handle"

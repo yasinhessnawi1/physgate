@@ -21,6 +21,7 @@ adopted.
 | `exceptions.py` | The domain exceptions. All of them carry a context mapping |
 | `task_ledger.py` | One append-only line per dispatched subtask |
 | `held_file.py` | What one writer of an append-only record has written to the file it holds (its identity, the size it found, the size it made it and a digest of its own bytes), and the check before every write that the path still names that file at that size: a record replaced or written beneath its writer is written no more |
+| `write_account.py` | The run's write account: before every append to a held record, its writer names the record's file, the offset, the length and the digest of what it is about to write, and syncs that first; it also names each role session whose end its run settled before any git call on its attempt. A resume takes as an orchestrator's only the bytes the account names. The same-user limit is named there |
 
 ### One of them reads differently from the others
 

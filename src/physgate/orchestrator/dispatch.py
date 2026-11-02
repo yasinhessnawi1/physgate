@@ -86,11 +86,12 @@ from physgate.orchestrator.exceptions import (
     WorktreeMisplacedError,
 )
 from physgate.orchestrator.git import common_dir, named_from, object_format, verified_git_dir
+from physgate.orchestrator.held_records import second_names
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.integration_state import STATE_NAME
 from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
 from physgate.orchestrator.managed import drift, policy_limits_digest
-from physgate.orchestrator.merge import RunGit, commit_attempt
+from physgate.orchestrator.merge import RunGit, attempt_head, attempt_message, commit_attempt
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
     Leftover,
@@ -123,6 +124,7 @@ from physgate.reviewers.packet import issued_spec_sha256
 from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
 from physgate.series.collect import collect, empty_outbox, temporary_roots
 from physgate.series.seal import SetAside
+from physgate.state.write_account import ACCOUNT_NAME, Settled, account_of, read_account
 
 REDACTED = REDACTED_TEXT.encode()
 
@@ -248,12 +250,14 @@ RUN_RECORDS = (
     "series",
 )
 #: The run's append-only records, which the orchestrator holds and appends to: its event log,
-#: its task ledger and its approval queue's items. No role session may write them either, but
-#: they are never put back (:func:`run_record_roots`).
+#: its task ledger, its approval queue's items, and the write account that names every append to
+#: the others before it is made. No role session may write them either, but they are never put
+#: back (:func:`run_record_roots`).
 HELD_RECORDS = (
     "events.jsonl",
     "ledger.jsonl",
     "queue.jsonl",
+    ACCOUNT_NAME,
 )
 
 
@@ -764,11 +768,12 @@ def end_check_at_resume(sdir: Path, session_id: str, install_bin: Path) -> EndCh
     return EndCheck(argv, 30.0)
 
 
-def records_at_start(sdir: Path, session_id: str) -> tuple[RecordAtStart, ...]:
+def records_at_start(sdir: Path, session_id: str) -> tuple[RecordAtStart, ...] | None:
     """The run's held records as the role session's sentinel recorded them at its start.
 
-    Read from the sentinel's own record, as the check after the stop reads it; a record that
-    names no held records (a session installed before they were compared) gives none.
+    Read from the sentinel's own record, as the check after the stop reads it. A record that
+    names no held records gives ``None``: the session's user can write that record, and one with
+    them taken out is never read as a session's installed before they were compared.
 
     Raises:
         InvocationError: the sentinel's record cannot be read, or what it says of a record is not
@@ -777,7 +782,9 @@ def records_at_start(sdir: Path, session_id: str) -> tuple[RecordAtStart, ...]:
     path = sdir / "state" / "sessions" / session_id / "sentinel" / "baseline.json"
     try:
         base = json.loads(read_session_file(path))
-        held = base.get("records", {}) if isinstance(base, dict) else None
+        if isinstance(base, dict) and "records" not in base:
+            return None
+        held = base.get("records") if isinstance(base, dict) else None
         if not isinstance(held, dict):
             raise TypeError(type(held).__name__)
         found: list[RecordAtStart] = []
@@ -786,13 +793,14 @@ def records_at_start(sdir: Path, session_id: str) -> tuple[RecordAtStart, ...]:
                 empty = hashlib.sha256(b"").hexdigest()
                 found.append(RecordAtStart(path=name, identity=None, size=0, sha256=empty))
                 continue
-            identity = was["identity"]
+            identity, signature = was["identity"], was.get("signature")
             found.append(
                 RecordAtStart(
                     path=name,
                     identity=(int(identity[0]), int(identity[1])) if identity is not None else None,
                     size=int(was["size"]),
                     sha256=str(was["sha256"]),
+                    mode=int(signature[1]) if signature is not None else None,
                 )
             )
     except (InvocationError, OSError, ValueError, TypeError, KeyError, IndexError) as exc:
@@ -995,6 +1003,14 @@ class RootsRecord:
     #: one put in its place holds the same bytes and is another file.
     held: tuple[str, ...] = ()
 
+    def held_identities(self) -> list[tuple[int, int]]:
+        """The device and inode of each held record that was a file before the spawn."""
+        return [
+            (int(sig[2]), int(sig[3]))
+            for path in self.held
+            if (entry := self.entries.get(path)) is not None and (sig := entry[0])[0] == "file"
+        ]
+
 
 def record_roots(config_path: Path) -> RootsRecord:
     """Record every root the session's sentinel puts back or compares, as its configuration says.
@@ -1055,12 +1071,17 @@ def changed_since(record: RootsRecord) -> list[str]:
 
     A file put back holds its bytes and mode again (on a new inode); a directory's own times
     move when the sentinel moves something out of it, so a directory is held to its mode and
-    its entries, not its times. A held record is never put back, and is held to its identity too.
+    its entries, not its times. A held record is never put back, and nothing of the run writes
+    one while a session runs: any change of its signature is a change (its identity, its mode, its
+    times, its number of names), whatever its bytes are now.
     """
     now = strict_signatures(record.roots, record.exclude)
     changed = set(now) ^ set(record.entries)
     for path, sig in now.items():
         if path not in record.entries or sig == record.entries[path][0]:
+            continue
+        if path in record.held:
+            changed.add(path)
             continue
         was, digest, link = record.entries[path]
         kind = sig[0]
@@ -1688,11 +1709,17 @@ class ClaudeDispatcher:
             moved, unread = changed_since(roots), None
         except OSError as exc:
             moved, unread = [], f"a put-back root could not be read: {exc!r}"
+        # A second name for a held record, where the session could write: its worktree, and its
+        # directory, which holds what the sentinel moved aside. An attempt commit never holds one.
+        linked = second_names(
+            roots.held_identities(), (worktree, sdir)
+        ) if unread is None else []  # fmt: skip
         if (
             ended is None
             or unconfirmed is not None
             or after_stop["refused"] is not None
             or moved
+            or linked
             or unread is not None
         ):
             settled = {
@@ -1700,6 +1727,7 @@ class ClaudeDispatcher:
                 "stop_unconfirmed": unconfirmed,
                 "sentinel_after_stop": after_stop,
                 "protected_changed": moved,
+                "held_record_names": linked,
                 "protected_unread": unread,
             }
             # Beside the end record, not in it: a resume still finds the session unended,
@@ -1715,8 +1743,15 @@ class ClaudeDispatcher:
                 stop=unconfirmed or "",
                 check=str(after_stop["refused"] or ""),
                 changed=", ".join(moved),
+                names=", ".join(linked),
                 unread=unread or "",
             )
+        # Settled: stopped, checked after the stop, nothing protected moved. Named so before any
+        # write of the run's on this attempt (the sweep, the series, the commit), so a resume
+        # never runs this session's end check again over them.
+        account = account_of(self._run.run_dir)
+        if account is not None:
+            account.settle(session_id, request.subtask_id, request.attempt)
         exit_code: int | None = ended.exit_code
         timed_out = ended.timed_out
         # A session killed mid-command can leave the sandbox's placeholders in the
@@ -1772,7 +1807,12 @@ class ClaudeDispatcher:
         withheld_problems = "; ".join(problems) if problems else None
         commit = (
             commit_attempt(
-                worktree, request.subtask_id, request.attempt, session_id, repo=self._run.repo
+                worktree,
+                request.subtask_id,
+                request.attempt,
+                session_id,
+                repo=self._run.repo,
+                replaces=self._superseded(worktree, request),
             )
             if end.outcome == "completed"
             else None
@@ -1853,6 +1893,7 @@ class ClaudeDispatcher:
         reviews = set(self._review_dirs())
         session_dirs = self._session_dirs()
         events = self._logged()
+        settled = self._settled()
         records: list[tuple[Path, dict[str, Any]]] = []
         for sdir in session_dirs:
             record_path, ended = sdir / "process.json", sdir / "ended.json"
@@ -1893,7 +1934,9 @@ class ClaudeDispatcher:
             if kind == "session":
                 # Before any git call on the attempt, as at a session's end under its
                 # orchestrator; a refusal leaves the session unended for the next resume.
-                written |= self._settle_at_resume(sdir, session_id, pid, started, stopped, leads)
+                written |= self._settle_at_resume(
+                    sdir, session_id, pid, started, stopped, leads, by_run=session_id in settled
+                )
             found.append((sdir, session_id, pid, killed, stopped, kind, written))
         # Phase 2: nothing of this run is running now, so no session still needs its
         # credential. A killed orchestrator never removed it; its stream was never redacted.
@@ -1908,7 +1951,11 @@ class ClaudeDispatcher:
         for sdir, session_id, pid, killed, stopped, kind, _written in found:
             # Read again for what its own end showed beside the stream: only a role session its
             # own run ended, never one left running.
-            again = kind == "session" and (sdir / "ended.json").exists() and _taken_up(sdir)
+            # A session the write account names settled is one too, whether or not its end
+            # record was written before the kill.
+            again = kind == "session" and (
+                session_id in settled or ((sdir / "ended.json").exists() and _taken_up(sdir))
+            )
             layered = _spawned_under_the_layer(session_id, events)
             streams = self._streams_of(sdir, reviews, events)
             try:
@@ -2117,6 +2164,43 @@ class ClaudeDispatcher:
         _target, by, why = self._quarantine
         return f"{by}: {why}" if by.strip() and why.strip() else None
 
+    def _settled(self) -> frozenset[str]:
+        """The role sessions the write account names settled by their run.
+
+        A resume reads it before it stops anything; an account that cannot be read names none,
+        and the resume's held-record judgement refuses it.
+        """
+        entries, _problem = read_account(self._run.run_dir / ACCOUNT_NAME)
+        return frozenset(e.session_id for e in entries if isinstance(e, Settled))
+
+    def _superseded(self, worktree: Path, request: SessionRequest) -> str | None:
+        """The attempt's commit a session whose end was never recorded left at the worktree's head.
+
+        Its run settled it and committed for this very attempt, then died before the session's
+        end line: the resume restarts the attempt, and the restarted session's commit replaces
+        that one rather than following it, so the attempt has one commit.
+        """
+        head = attempt_head(worktree, repo=self._run.repo)
+        if head is None:
+            return None
+        commit, message = head
+        events = self._logged()
+        ended = {e.session_id for e in events if isinstance(e, SessionEnded)}
+        entries, problem = read_account(self._run.run_dir / ACCOUNT_NAME)
+        if problem is not None:
+            return None
+        for entry in entries:
+            if (
+                isinstance(entry, Settled)
+                and entry.subtask_id == request.subtask_id
+                and entry.attempt == request.attempt
+                and entry.session_id not in ended
+                and message
+                == attempt_message(request.subtask_id, request.attempt, entry.session_id)
+            ):
+                return commit
+        return None
+
     def _logged(self) -> list[Event]:
         """The run's event log, as the stop holds every session to it.
 
@@ -2181,8 +2265,15 @@ class ClaudeDispatcher:
         started: str | None,
         stopped: bool,
         leads: bool,
+        *,
+        by_run: bool = False,
     ) -> dict[str, Any]:
         """Stop what a role session found at a resume left in its group; check once more.
+
+        Unless the write account names it settled (``by_run``): its run stopped it and its
+        sentinel's check after the stop passed, before any git call on its attempt, so the check
+        is not run again. Run from the session's start, it would put back what the run wrote
+        after that check (the attempt's commit, its series records) as the session's own change.
 
         The record is honoured (:meth:`_honoured`): its pid is the session's, and the group the
         harness created for it has that id. So the group is swept when the session was found
@@ -2214,12 +2305,18 @@ class ClaudeDispatcher:
                 unconfirmed = f"the sweep could not be completed: {exc!r}"
             else:
                 unconfirmed = still_running(pid, started, swept, time.time())
-        check = end_check_at_resume(sdir, session_id, self._install_bin)
-        after_stop = (
-            check_after_stop(check, session_id, sdir, {"PATH": "/usr/bin:/bin"}, sdir / "state")
-            if check is not None
-            else {"refused": "the sentinel's record of the session is missing", "no_record": True}
-        )
+        check = None if by_run else end_check_at_resume(sdir, session_id, self._install_bin)
+        if by_run:
+            after_stop: dict[str, Any] = {"refused": None, "settled_by_run": True}
+        elif check is not None:
+            after_stop = check_after_stop(
+                check, session_id, sdir, {"PATH": "/usr/bin:/bin"}, sdir / "state"
+            )
+        else:
+            after_stop = {
+                "refused": "the sentinel's record of the session is missing",
+                "no_record": True,
+            }
         settled = {
             "left_running": list(swept),
             "stop_unconfirmed": unconfirmed,

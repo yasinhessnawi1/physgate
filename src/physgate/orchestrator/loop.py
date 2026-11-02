@@ -135,7 +135,7 @@ from physgate.orchestrator.exceptions import (
     WorktreeMisplacedError,
 )
 from physgate.orchestrator.follow_up import follow_up_order, owed
-from physgate.orchestrator.held_records import outlived, record_change
+from physgate.orchestrator.held_records import record_change, second_names, unaccounted
 from physgate.orchestrator.integration_state import issued_state
 from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.merge import merge_message
@@ -778,33 +778,50 @@ class Loop:
             self._halt_for(None, halt)
 
     def _records_findings(self, left: Leftover) -> list[tuple[IncidentCause, str]]:
-        """Each held record the leftover's start and this process's own writes do not explain.
+        """Each held record the leftover's start, this process and the write account do not explain.
 
         Judged by :func:`held_records.record_change` against this process's writers, before any
-        line of the leftovers is written: a change no orchestrator made is an incident, and the
-        run halts on it. A record this process no longer holds refuses the first line written
-        to it, so the incident is never written where no one will read it.
+        line of the leftovers is written, for every held record this process writes: one the
+        session's start does not name is a change too, and so is a start that names none. Every
+        byte of a record before this process opened it must be one the write account names
+        (:func:`held_records.unaccounted`): what a line says makes it no orchestrator's. A change
+        no orchestrator made is an incident, and the run halts on it. A record this process no
+        longer holds refuses the first line written to it, so the incident is never written
+        where no one will read it.
         """
-        if not left.records_at_start:
+        if left.kind != "session":
             return []
+        sid = left.session_id
+        if left.records_at_start is None:
+            none = "the sentinel's record of its start names none of the run's held records"
+            return [("run_records_changed", f"leftover session {sid}: {none}")]
+        account = self.record.account
+        queue = self.queue.held
         writers = {
-            os.path.realpath(self.log.path): self.log.held,
-            os.path.realpath(self.ledger.path): self.ledger.held,
-            os.path.realpath(self.queue.path): self.queue.held,
+            self.log.path: self.log.held,
+            self.ledger.path: self.ledger.held,
+            account.path: account.held,
+            **({self.queue.path: queue} if queue is not None else {}),
         }
-        before = self.log.events[: self.log.read_at_open]
-        ran_on = left.taken_up or outlived(left.session_id, before)
+        starts = {os.path.realpath(s.path): s for s in left.records_at_start}
         found: list[tuple[IncidentCause, str]] = []
-        for start in left.records_at_start:
-            held = writers.get(os.path.realpath(start.path))
-            why = record_change(start, held, outlived_by_run=ran_on)
+        for path, held in sorted(writers.items()):
+            start = starts.get(os.path.realpath(path))
+            if start is None:
+                why: str | None = "the sentinel's record of the session's start does not name it"
+            else:
+                counted = (
+                    None if held is account.held else unaccounted(held, account.earlier,
+                                                                  account.problem)
+                )  # fmt: skip
+                why = record_change(start, held, unaccounted_why=counted)
+            if why is not None and held is not None and why.startswith("the file has"):
+                others = [
+                    p for p in second_names([held.identity], [self.run_dir]) if p != str(path)
+                ]
+                why = f"{why}: {', '.join(others)}" if others else why
             if why is not None:
-                found.append(
-                    (
-                        "run_records_changed",
-                        f"leftover session {left.session_id}: {start.path}: {why}",
-                    )  # fmt: skip
-                )
+                found.append(("run_records_changed", f"leftover session {sid}: {path}: {why}"))
         return found
 
     def _taken_up_findings(self, left: Leftover) -> list[tuple[IncidentCause, str]]:

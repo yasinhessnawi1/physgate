@@ -94,6 +94,7 @@ from physgate.orchestrator.trajectory import Seal, seal
 from physgate.reviewers.scan import ScanHit
 from physgate.state.exceptions import RecordMovedError
 from physgate.state.held_file import HeldFile
+from physgate.state.write_account import WriteAccount
 
 #: The queue's sources (ARCH-130); a blocked review and one with no verdict are kept apart,
 #: and a subtask the escalation decision sent to a person while it had attempts left is its
@@ -2048,12 +2049,14 @@ class ApprovalQueue:
         *,
         clock: Callable[[], datetime] = utc_now,
         decisions_refused_later: bool = False,
+        account: WriteAccount | None = None,
     ) -> None:
         """Open or create the queue at ``path``.
 
         ``decisions_refused_later`` is the run's own opener's: a decisions line the reader refuses
         is then refused by the next :meth:`refresh`, where the loop records it, and does not stop
-        the run from opening.
+        the run from opening. ``account`` is the run's write account, which names every item
+        before it is listed.
 
         Raises:
             QueueError: a complete line is not a record, or does not follow from the lines
@@ -2067,6 +2070,7 @@ class ApprovalQueue:
         self._clock = clock
         #: What this writer knows of its items file, taken at its first read.
         self._held: HeldFile | None = None
+        self._account = account
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.touch(exist_ok=True)
         self.decisions_path.touch(exist_ok=True)
@@ -2114,7 +2118,7 @@ class ApprovalQueue:
             with self.path.open("r+b") as handle:
                 handle.truncate(good_end)
         if self._held is None:
-            self._held = HeldFile(self.path)
+            self._held = HeldFile(self.path, account=self._account)
         _parse(decided, _DECISION, self._records, name=str(self.decisions_path))
 
     def _append(self, record: QueueItem) -> None:
@@ -2125,9 +2129,10 @@ class ApprovalQueue:
         # Every listed item has a decisions file beside it, so it can always be decided: the
         # decision function never creates one, and refuses a run whose file has gone.
         self.decisions_path.touch(exist_ok=True)
-        held = self._held if self._held is not None else HeldFile(self.path)
+        held = self._held if self._held is not None else HeldFile(self.path, account=self._account)
         held.require_current()
         payload = record.model_dump_json().encode() + b"\n"
+        held.intend(payload)
         with self.path.open("ab") as handle:
             opened = os.fstat(handle.fileno())
             if (opened.st_dev, opened.st_ino) != held.identity:

@@ -54,6 +54,7 @@ from physgate.orchestrator.run_config import RunConfig, require_recorded, write_
 from physgate.orchestrator.trajectory import Seal
 from physgate.roles import owners_of
 from physgate.state.task_ledger import TaskLedger
+from physgate.state.write_account import ACCOUNT_NAME, WriteAccount
 
 if TYPE_CHECKING:
     from physgate.orchestrator.design_rounds import Journal
@@ -223,12 +224,23 @@ class RunRecord:
         self.run_dir = Path(run_dir)
         self.config_path = self.run_dir / "run.json"
         self.state = RunState()
+        # Opened before every record it names, so what it holds then is every earlier process's.
+        self.account = WriteAccount(self.run_dir / ACCOUNT_NAME)
+        try:
+            self._open(clock)
+        except BaseException:
+            self.account.close()
+            raise
+
+    def _open(self, clock: Callable[[], datetime]) -> None:
+        config = self.config
         self.log = EventLog(
             self.run_dir / "events.jsonl",
             run_id=config.run_id,
             gate_mode=config.gate_mode,
             clock=clock,
             state=self.state,
+            account=self.account,
         )
         if self.config_path.exists():
             require_recorded(self.config_path, config)
@@ -269,9 +281,12 @@ class RunRecord:
         elif self.log.events:
             msg = "the run has events but no recorded configuration"
             raise RunConfigError(msg, run_dir=str(self.run_dir))
-        self.ledger = TaskLedger(self.run_dir / "ledger.jsonl")
+        self.ledger = TaskLedger(self.run_dir / "ledger.jsonl", account=self.account)
         self.queue = ApprovalQueue(
-            self.run_dir / "queue.jsonl", clock=clock, decisions_refused_later=True
+            self.run_dir / "queue.jsonl",
+            clock=clock,
+            decisions_refused_later=True,
+            account=self.account,
         )
         project_ledger(self.state, self.ledger)
         if (
@@ -376,8 +391,11 @@ class RunRecord:
 
     def close(self) -> None:
         """Release every file handle."""
-        self.log.close()
-        self.ledger.close()
+        if hasattr(self, "log"):
+            self.log.close()
+        if hasattr(self, "ledger"):
+            self.ledger.close()
+        self.account.close()
 
     def emit(self, event: Event) -> None:
         """Append one event, built by the caller, and bring the ledger up to it."""

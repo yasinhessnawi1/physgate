@@ -124,19 +124,43 @@ class RunGit:
         return path
 
 
+def attempt_message(subtask_id: str, attempt: int, session_id: str) -> str:
+    """The template every attempt commit's message is: no text an agent wrote is one."""
+    return (
+        f"Attempt {attempt} of subtask {subtask_id}\n\n"
+        f"Committed by the orchestrator at the end of session {session_id}.\n"
+    )
+
+
+def attempt_head(worktree: Path, *, repo: Path) -> tuple[str, str] | None:
+    """The commit at the worktree's head and its message, or ``None`` if it has no commit."""
+    admin = verified_git_dir(worktree, linked=True, common=common_dir(repo))
+    try:
+        shown = git(worktree, "log", "-1", "--format=%H%x00%B", git_dir=admin)
+    except GitError:
+        return None
+    commit, _, message = shown.partition("\0")
+    return commit.strip(), message.rstrip("\n") + "\n"
+
+
 def commit_attempt(
-    worktree: Path, subtask_id: str, attempt: int, session_id: str, *, repo: Path
+    worktree: Path,
+    subtask_id: str,
+    attempt: int,
+    session_id: str,
+    *,
+    repo: Path,
+    replaces: str | None = None,
 ) -> str:
     """The orchestrator's commit of whatever a session left in its worktree.
 
     The message is a template. No text an agent wrote becomes a commit message. ``repo`` is the
     repository the worktree was made in: the worktree's admin directory must belong to it.
+    ``replaces`` is this attempt's commit at the worktree's head from a session whose end was
+    never recorded: the new commit takes its place, on its parent, so the attempt has one commit.
     """
-    message = (
-        f"Attempt {attempt} of subtask {subtask_id}\n\n"
-        f"Committed by the orchestrator at the end of session {session_id}.\n"
-    )
-    return commit_all(worktree, message, linked=True, common=common_dir(repo))
+    message = attempt_message(subtask_id, attempt, session_id)
+    return commit_all(worktree, message, linked=True, common=common_dir(repo), replaces=replaces)
 
 
 def write_scope_violations(

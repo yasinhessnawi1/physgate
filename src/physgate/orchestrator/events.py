@@ -88,6 +88,7 @@ from physgate.roles import owner_of, owners_of
 from physgate.series.seal import SeriesCheck, SessionSeries
 from physgate.state.held_file import HeldFile
 from physgate.state.schema import NodeIdKey
+from physgate.state.write_account import WriteAccount
 
 #: The eight stages of the per-subtask loop, in the architecture's order (ARCH-030).
 Stage = Literal[
@@ -1658,11 +1659,13 @@ class EventLog:
         gate_mode: GateMode,
         clock: Callable[[], datetime] = utc_now,
         state: RecordState | None = None,
+        account: WriteAccount | None = None,
     ) -> None:
         """Open or create the log at ``path`` for ``run_id``.
 
         ``state``, if given, follows every line read at open and every line
         written after, and can refuse one; the loop passes its run state here.
+        ``account`` is the run's write account, which names every line before it is written.
 
         Raises:
             CorruptEventLogError: as :func:`read_events`.
@@ -1692,7 +1695,7 @@ class EventLog:
         self.read_at_open = len(events)
         self._handle = self.path.open("ab")
         #: What this handle knows of its file, held to the path before every append.
-        self.held = HeldFile(self.path, self._handle.fileno())
+        self.held = HeldFile(self.path, self._handle.fileno(), account)
 
     @property
     def events(self) -> tuple[Event, ...]:
@@ -1733,6 +1736,7 @@ class EventLog:
         # here would land where no path names it, or after a line this writer never wrote.
         self.held.require_current()
         payload = event.model_dump_json().encode() + b"\n"
+        self.held.intend(payload)
         self._handle.write(payload)
         self._handle.flush()
         os.fsync(self._handle.fileno())

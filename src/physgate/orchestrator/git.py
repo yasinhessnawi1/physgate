@@ -829,7 +829,12 @@ def nested_git(worktree: Path) -> Path | None:
 
 
 def commit_all(
-    worktree: Path, message: str, *, linked: bool = False, common: Path | None = None
+    worktree: Path,
+    message: str,
+    *,
+    linked: bool = False,
+    common: Path | None = None,
+    replaces: str | None = None,
 ) -> str:
     """Stage everything in ``worktree`` and commit it, even if nothing changed.
 
@@ -845,6 +850,9 @@ def commit_all(
     is accepted otherwise. Anything else refuses (:func:`verified_git_dir`): git is never left
     to find a repository of its own. A worktree holding a repository of its own below its top
     level (:func:`nested_git`) is refused before anything is staged.
+
+    ``replaces`` is the commit at the head the new one takes the place of, on its parent; it is
+    refused unless the head is still that commit.
     """
     admin = verified_git_dir(worktree, linked=linked, common=common)
     nested = nested_git(worktree)
@@ -852,7 +860,24 @@ def commit_all(
         msg = "the worktree holds a git repository of its own, which staging would open"
         raise GitError(msg, cwd=str(worktree), path=str(nested))
     git(worktree, "add", "--all", git_dir=admin)
-    git(worktree, "commit", "--quiet", "--allow-empty", "--file", "-", stdin=message, git_dir=admin)
+    amend: tuple[str, ...] = ()
+    if replaces is not None:
+        head = git(worktree, "rev-parse", "--verify", "HEAD^{commit}", git_dir=admin).strip()
+        if head != replaces:
+            msg = "the commit to be replaced is no longer the worktree's head"
+            raise GitError(msg, cwd=str(worktree), head=head, replaces=replaces)
+        amend = ("--amend", "--reset-author")
+    git(
+        worktree,
+        "commit",
+        "--quiet",
+        "--allow-empty",
+        *amend,
+        "--file",
+        "-",
+        stdin=message,
+        git_dir=admin,
+    )
     return git(worktree, "rev-parse", "--verify", "HEAD^{commit}", git_dir=admin).strip()
 
 

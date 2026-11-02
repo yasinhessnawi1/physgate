@@ -30,6 +30,7 @@ from pydantic import (
 
 from physgate.state.exceptions import CorruptRecordError
 from physgate.state.held_file import HeldFile
+from physgate.state.write_account import WriteAccount
 
 NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
 
@@ -155,7 +156,9 @@ class TaskLedger:
     here there is one writer and nothing to corrupt.
     """
 
-    def __init__(self, path: Path, *, on_corrupt: OnCorrupt = "raise") -> None:
+    def __init__(
+        self, path: Path, *, on_corrupt: OnCorrupt = "raise", account: WriteAccount | None = None
+    ) -> None:
         """Open the ledger at ``path``, creating it if it does not exist.
 
         Args:
@@ -165,6 +168,8 @@ class TaskLedger:
                 ``"truncate"`` drops that line and everything after it. The
                 default refuses, because a complete line that does not validate
                 was written by something that is not this class.
+            account: the run's write account, which names every line before it is written;
+                ``None`` for a ledger written for no orchestrator.
         """
         self.path = Path(path)
         self._on_corrupt = on_corrupt
@@ -185,7 +190,7 @@ class TaskLedger:
             raise
         self._handle.seek(0, os.SEEK_END)
         #: What this handle knows of its file, held to the path before every append.
-        self.held = HeldFile(self.path, self._handle.fileno())
+        self.held = HeldFile(self.path, self._handle.fileno(), account)
 
     def recover(self) -> None:
         """Read the file, dropping and reporting an incomplete final line.
@@ -253,6 +258,7 @@ class TaskLedger:
         """
         payload = line.model_dump_json(exclude_none=False).encode() + b"\n"
         self.held.require_current()
+        self.held.intend(payload)
         self._handle.write(payload)
         self._handle.flush()
         os.fsync(self._handle.fileno())

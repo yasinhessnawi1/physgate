@@ -15,8 +15,12 @@ import hashlib
 import os
 import stat
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from physgate.state.exceptions import RecordMovedError
+
+if TYPE_CHECKING:
+    from physgate.state.write_account import WriteAccount
 
 
 def identity_of(path: Path) -> tuple[int, int] | None:
@@ -31,8 +35,13 @@ def identity_of(path: Path) -> tuple[int, int] | None:
 class HeldFile:
     """One writer's account of the append-only file it writes."""
 
-    def __init__(self, path: Path, fd: int | None = None) -> None:
+    def __init__(
+        self, path: Path, fd: int | None = None, account: WriteAccount | None = None
+    ) -> None:
         """Take the file as it is now: through ``fd`` if the writer holds it open, else by path.
+
+        ``account`` is the run's write account, which names every append before it is made
+        (:meth:`intend`); ``None`` for a writer that writes for no orchestrator.
 
         Raises:
             RecordMovedError: the path names something other than a regular file.
@@ -48,6 +57,7 @@ class HeldFile:
         #: The size this writer has made it: what it found, and everything it wrote since.
         self.size: int = st.st_size
         self._written = hashlib.sha256()
+        self.account = account
 
     def require_current(self) -> None:
         """Refuse unless the path names the file this writer holds, at the size it made it.
@@ -68,6 +78,15 @@ class HeldFile:
                 held=f"{self.identity} at {self.size} bytes",
                 now=f"{now} at {st.st_size if st is not None else 'no'} bytes",
             )
+
+    def intend(self, payload: bytes) -> None:
+        """Name ``payload`` in the run's write account, before it is appended at this size.
+
+        Raises:
+            RecordMovedError: the account is no longer the file its writer holds.
+        """
+        if self.account is not None:
+            self.account.intend(self.path, self.identity, self.size, payload)
 
     def wrote(self, payload: bytes) -> None:
         """Account for ``payload``, which this writer has just appended in full."""
