@@ -9,13 +9,19 @@ follow, even where a domain's module is the first to run.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from arbitration_runs import entry  # noqa: E402
+from arbitration_runs import PerAttempt, entry, events_of, refusal  # noqa: E402
+from loop_fakes import Rig  # noqa: E402
 from test_a_followed_interface_is_written_at_the_merge_and_recomputed_on_replay import (  # noqa: E402
+    _edited,
     asked,
     rig_of,
     run,
@@ -34,6 +40,8 @@ from test_a_sizing_interface_follows_sizing_s_joined_node_at_its_opening_pass im
 )
 
 from physgate.orchestrator.decompose import contracts_of, interface_contract  # noqa: E402
+from physgate.orchestrator.events import ProposalsChecked, WriteDone, WriteIntended  # noqa: E402
+from physgate.orchestrator.exceptions import MergeRefusedError  # noqa: E402
 from physgate.orchestrator.follow import derive  # noqa: E402
 from physgate.orchestrator.merge import GitMerger  # noqa: E402
 from physgate.state.schema import Node  # noqa: E402
@@ -41,6 +49,7 @@ from physgate.state.store import (  # noqa: E402
     REJECT_INTERFACE_NOT_FOLLOWED,
     Store,
     followed_payload,
+    payload_digest,
 )
 
 
@@ -111,3 +120,75 @@ def test_a_domain_s_opening_subtask_is_never_asked_to_follow(tmp_path: Path) -> 
     late = [entry("s1", "electrical"), entry("z0", "sizing"), entry("zc", "sizing", "modules/z0")]
     assert run(rig, late) == "done"
     assert dict(asked(rig))["s1"] is None
+
+
+def test_the_store_refuses_a_revision_copied_from_a_joined_node_of_another_role(
+    tmp_path: Path,
+) -> None:
+    other = {**sized("control.drive"), "owner_role": "control", "domain": "control"}
+    root = store_of(tmp_path / "store", interface(), other)
+    copied = followed_payload(interface(), [other], "sizing", 1)
+    store = Store(root)
+    try:
+        refused = store.follow_interface(copied, "sizing", ("control.drive",))
+        assert not refused.accepted and refused.reason == REJECT_INTERFACE_NOT_FOLLOWED
+    finally:
+        store.close()
+
+
+def test_a_merge_rewrites_no_file_but_an_interface_contract(tmp_path: Path) -> None:
+    gitrun, commit = attempt_run(tmp_path, sized())
+    merger = GitMerger(gitrun, removal_timeout_s=60)
+    with pytest.raises(MergeRefusedError):
+        merger.merge("z0", 1, commit, "Merge\n", contracts={"modules/z0/a.txt": "1\n"})
+
+
+def _honest_rig(tmp_path: Path) -> Rig:
+    rig = rig_of(tmp_path / "run")
+    assert run(rig) == "done"
+    return rig
+
+
+def test_the_gate_judges_the_attempt_with_its_followed_revision_and_others_without(
+    tmp_path: Path,
+) -> None:
+    rig = _honest_rig(tmp_path)
+    assert isinstance(rig.gate, PerAttempt)
+    seen = {a.subtask_id: a for a in rig.gate.seen}
+    assert [f.interface for f in seen["z0"].followed] == [IFACE]
+    assert seen["s1"].followed == ()
+    assert "followed" not in json.loads(seen["s1"].model_dump_json())
+
+
+def test_a_change_check_that_follows_nothing_keeps_its_line_s_bytes(tmp_path: Path) -> None:
+    events = events_of(_honest_rig(tmp_path))
+    lines = {
+        e.subtask_id: json.loads(e.model_dump_json())
+        for e in events
+        if isinstance(e, ProposalsChecked)
+    }
+    assert "followed" in lines["z0"] and "followed" not in lines["s1"]
+
+
+def test_replay_refuses_a_followed_interface_another_role_produces(tmp_path: Path) -> None:
+    def theirs(line: dict[str, Any]) -> dict[str, Any]:
+        if line.get("kind") == "proposals_checked" and line.get("followed"):
+            entry = line["followed"][0]
+            entry["before"]["owner_role"] = entry["after"]["owner_role"] = "control"
+            entry["payload_sha256"] = payload_digest(entry["after"])
+            theirs.digest = entry["payload_sha256"]  # type: ignore[attr-defined]
+        if line.get("kind") == "write_intended" and line.get("node_id") == IFACE:
+            line["payload_sha256"] = theirs.digest  # type: ignore[attr-defined]
+        return line
+
+    why = refusal(_edited(events_of(_honest_rig(tmp_path)), theirs))
+    assert why is not None and "no interface the sizing role produces" in why
+
+
+def test_replay_refuses_a_merge_before_its_followed_interface_is_written(tmp_path: Path) -> None:
+    events = events_of(_honest_rig(tmp_path))
+    unwritten = [
+        e for e in events if not (isinstance(e, WriteIntended | WriteDone) and e.node_id == IFACE)
+    ]
+    why = refusal(unwritten)
+    assert why is not None and "merge" in why

@@ -114,12 +114,12 @@ def followed_payload(
     return {**interface, "quantities": quantities}
 
 
-def _followed_attempt(payload: Payload, first: str) -> int | None:
-    """The attempt every quantity of a followed revision names, if each names ``first`` and one."""
+def _followed_attempt(payload: Payload) -> int | None:
+    """The one attempt a followed revision names; the copy it is held to names the node."""
     found: set[int] = set()
     for quantity in payload.get("quantities", {}).values():
         matched = _FOLLOWED.fullmatch(str(quantity.get("source", "")))
-        if matched is None or matched["node"] != first:
+        if matched is None:
             return None
         found.add(int(matched["attempt"]))
     return found.pop() if len(found) == 1 else None
@@ -938,7 +938,7 @@ class Store:
             ):
                 return refused
             sources.append(other)
-        attempt = _followed_attempt(node, ids[0])
+        attempt = _followed_attempt(node)
         if attempt is None or node != followed_payload(current, sources, actor_role, attempt):
             return refused
         # By name, as written: a value of 2 and one of 2.0 are two writings.
