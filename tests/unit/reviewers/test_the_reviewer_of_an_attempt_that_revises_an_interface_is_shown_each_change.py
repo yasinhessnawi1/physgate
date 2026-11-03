@@ -40,13 +40,13 @@ def _q(value: float, unit: str, source: str) -> dict[str, Any]:
     return {"value": value, "unit": unit, "source": source, "written_by": "sizing"}
 
 
-INTERFACE = {
+INTERFACE: dict[str, Any] = {
     "id": "drive.motor", "kind": "interface", "domain": "cross", "owner_role": "sizing",
     "quantities": {"stall_current": _q(1.44, "A", "plan"), "current_limit": _q(1.8, "A", "plan")},
     "requirements": [], "constrains": [], "model": None, "geometry_hash": "none",
     "updated": "2026-11-03",
 }  # fmt: skip
-SIZED = {
+SIZED: dict[str, Any] = {
     **INTERFACE, "id": "sizing.drive", "kind": "component", "constrains": ["drive.motor"],
     "quantities": {"stall_current": _q(1.35, "A", "fit"), "current_limit": _q(1.8, "A", "sheet")},
 }  # fmt: skip
