@@ -25,11 +25,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arbitration_runs import PerAttempt, entry, events_of, refusal  # noqa: E402
 from loop_fakes import Rig  # noqa: E402
 from test_a_followed_interface_is_written_at_the_merge_and_recomputed_on_replay import (  # noqa: E402
+    PLAN,
     Following,
     _edited,
     asked,
     rig_of,
-    run,
+)
+from test_a_followed_interface_is_written_at_the_merge_and_recomputed_on_replay import (  # noqa: E402
+    run as _run,
 )
 from test_a_sizing_interface_follows_sizing_s_joined_node_at_its_opening_pass import (  # noqa: E402
     _ENV,
@@ -54,6 +57,7 @@ from physgate.orchestrator.events import (  # noqa: E402
 from physgate.orchestrator.exceptions import CorruptEventLogError, MergeRefusedError  # noqa: E402
 from physgate.orchestrator.follow import derive  # noqa: E402
 from physgate.orchestrator.merge import GitMerger  # noqa: E402
+from physgate.orchestrator.record import PlanEntry  # noqa: E402
 from physgate.state.schema import Node  # noqa: E402
 from physgate.state.store import (  # noqa: E402
     REJECT_INTERFACE_NOT_FOLLOWED,
@@ -61,6 +65,14 @@ from physgate.state.store import (  # noqa: E402
     followed_payload,
     payload_digest,
 )
+
+
+def run(rig: Rig, plan: list[PlanEntry] = PLAN) -> str:
+    """The run's end; a run the loop or its record refuses fails the row, never errors it."""
+    try:
+        return _run(rig, plan)
+    except Exception as exc:  # noqa: BLE001 - any refusal is this row's failure
+        pytest.fail(f"the run did not end: {type(exc).__name__}: {exc}")
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -77,6 +89,7 @@ def test_a_second_joined_node_that_lacks_a_name_refuses_the_attempt(tmp_path: Pa
     check = checked(tmp_path, store, sized(), sized("sizing.drive_b", short))
     assert check.refused_by == "interface" and check.subject == IFACE
     assert "sizing.drive_b" in str(check.reason) and "no_load_speed" in str(check.reason)
+    assert "holds no quantity" in str(check.reason)
     assert check.followed == ()
 
 
@@ -238,3 +251,34 @@ def test_a_followed_line_whose_digest_is_not_its_revision_s_is_no_line_of_this_p
     with pytest.raises(CorruptEventLogError) as refused:
         parse_events(data, log="events.jsonl")
     assert "digest of its revision" in refused.value.context.get("reason", "")
+
+
+def test_the_store_refuses_a_role_s_revision_of_an_interface_another_role_produces(
+    tmp_path: Path,
+) -> None:
+    theirs = {**sized("control.drive"), "owner_role": "control", "domain": "control"}
+    root = store_of(tmp_path / "store", interface(), theirs)
+    copied = followed_payload(interface(), [theirs], "control", 1)
+    store = Store(root)
+    try:
+        refused = store.follow_interface(copied, "control", ("control.drive",))
+        assert not refused.accepted and refused.reason == REJECT_INTERFACE_NOT_FOLLOWED
+    finally:
+        store.close()
+
+
+def test_replay_refuses_a_followed_line_on_a_pass_that_is_not_due_as_not_due(
+    tmp_path: Path,
+) -> None:
+    events = events_of(_honest_rig(tmp_path))
+    followed = next(
+        e for e in events if isinstance(e, ProposalsChecked) and e.subtask_id == "z0"
+    ).followed
+
+    def moved(line: dict[str, Any]) -> dict[str, Any]:
+        if line.get("kind") == "proposals_checked" and line.get("subtask_id") == "zc":
+            line["followed"] = [json.loads(f.model_dump_json()) for f in followed]
+        return line
+
+    why = refusal(_edited(events, moved))
+    assert why is not None and "where no follow is due" in why

@@ -79,6 +79,7 @@ def _build(tmp_path: Path, *, followed: bool) -> tuple[Packet, Path, Path, str]:
 def test_the_packet_shows_each_changed_quantity_and_holds_it_to_its_digest(tmp_path: Path) -> None:
     packet, read, repo, base = _build(tmp_path, followed=True)
     path = read / FOLLOWED_NAME
+    assert path.is_file()
     text = path.read_text()
     assert "- drive.motor.stall_current: 1.44 A -> 1.35 A" in text
     assert "followed from sizing.drive at attempt 1" in text
@@ -91,6 +92,7 @@ def test_the_packet_shows_each_changed_quantity_and_holds_it_to_its_digest(tmp_p
 def test_a_changed_or_removed_list_of_changes_is_refused_before_the_review(tmp_path: Path) -> None:
     packet, read, repo, base = _build(tmp_path, followed=True)
     path = read / FOLLOWED_NAME
+    assert path.is_file()
     path.write_text(path.read_text().replace("1.35 A", "1.30 A"))
     with pytest.raises(PacketError, match="interface revisions"):
         check_parts(packet, repo=repo, base_commit=base)

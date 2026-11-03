@@ -48,8 +48,12 @@ class FollowRefusedError(Exception):
         self.subject = subject
 
 
-def _quantity(payload: Mapping[str, Any], name: str) -> Quantity:
-    raw = dict(payload["quantities"][name])
+def _quantity(payload: Mapping[str, Any], name: str) -> Quantity | None:
+    """The payload's quantity ``name`` as the clause reads it, series aside; ``None`` if absent."""
+    found = payload.get("quantities", {}).get(name)
+    if found is None:
+        return None
+    raw = dict(found)
     raw.pop("series", None)
     return Quantity.model_validate(raw)
 
@@ -86,15 +90,16 @@ def derive(
                     f"a node joined to {iid} holds every one of its quantities under its name"
                 )
                 raise FollowRefusedError(msg, iid)
-        outcome, why = agrees(_quantity(first, name), wanted)
-        if outcome == "unit":
+        held_first = _quantity(first, name)
+        outcome, why = agrees(held_first, wanted)
+        if held_first is None or outcome == "unit":
             msg = (
                 f"{found[0]}'s {name} cannot revise the interface {iid}'s {name}: {why}; the "
                 "interface keeps its quantities' kinds"
             )
             raise FollowRefusedError(msg, iid)
         for other in found[1:]:
-            held, _ = agrees(_quantity(nodes[other], name), _quantity(first, name))
+            held, _ = agrees(_quantity(nodes[other], name), held_first)
             if held != "pass":
                 msg = (
                     f"{found[0]} and {other} are both joined to the interface {iid} and disagree "
