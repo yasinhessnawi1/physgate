@@ -123,6 +123,23 @@ def test_a_plan_review_with_no_verdict_is_priced_at_the_model_it_names(tmp_path:
     assert line.review_tokens == {"(plan review, round 1)": _tokens(5, 5)}
 
 
+def test_the_model_a_plan_review_with_no_verdict_names_is_the_one_priced(tmp_path: Path) -> None:
+    """Not the run's one pinned reviewer model: the model the unavailable part names."""
+    run_dir = _ran(tmp_path, "on", [Step(review="no_verdict")])
+    log = _log(run_dir)
+    at = next(i for i, e in enumerate(log) if isinstance(e, DesignReviewRan))
+    review = log[at]
+    assert isinstance(review, DesignReviewRan) and review.unavailable is not None
+    named = review.unavailable.model_copy(update={"reviewer_model": "claude-haiku-4-5-20251001"})
+    log[at] = review.model_copy(update={"unavailable": named})
+    manifest = read_manifest(run_dir)
+    line = _priced(
+        lambda: price_events(manifest.config, manifest.manifest_id, log, load_price_sheet(DATE))
+    )
+    rows = {r.model: r.tokens for r in line.rows}
+    assert rows == {DECOMPOSITION: _tokens(10, 10), "claude-haiku-4-5-20251001": _tokens(5, 5)}
+
+
 def _model_unnamed(run_dir: Path) -> list[Event]:
     """The run's log with its plan review's unavailable line naming no model."""
     log = _log(run_dir)
@@ -174,6 +191,26 @@ def test_each_round_s_plan_review_has_its_own_line(tmp_path: Path) -> None:
     line = _priced(lambda: price_run(run_dir, load_price_sheet(DATE)))
     rows = {r.model: r.tokens for r in line.rows}
     assert rows == {DECOMPOSITION: _tokens(20, 20), DESIGN: _tokens(10, 10)}
+    assert line.review_tokens == {
+        "(plan review, round 1)": _tokens(5, 5),
+        "(plan review, round 2)": _tokens(5, 5),
+    }
+
+
+def test_a_plan_review_line_that_records_no_round_is_labelled_by_its_place(
+    tmp_path: Path,
+) -> None:
+    """A line written before rounds were recorded: its round is its place among the reviews."""
+    run_dir = _ran(tmp_path, "repair:1", [Step(), Step()])
+    log = [
+        e.model_copy(update={"round": None}) if isinstance(e, DesignReviewRan) else e
+        for e in _log(run_dir)
+    ]
+    assert [r.round for r in _reviews(log)] == [None, None]
+    manifest = read_manifest(run_dir)
+    line = _priced(
+        lambda: price_events(manifest.config, manifest.manifest_id, log, load_price_sheet(DATE))
+    )
     assert line.review_tokens == {
         "(plan review, round 1)": _tokens(5, 5),
         "(plan review, round 2)": _tokens(5, 5),
