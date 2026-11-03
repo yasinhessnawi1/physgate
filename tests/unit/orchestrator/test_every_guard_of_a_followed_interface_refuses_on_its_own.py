@@ -1,10 +1,14 @@
 """Each guard on a followed interface refuses on its own (M-195, D-A2-37).
 
-The derivation refuses a second joined node that lacks a name as it refuses the first; the store's
-own method refuses a revision copied from a node of the owner that is not joined to the interface,
-and one in which nothing differs; a merge that a killed process left in progress writes the
-contract file when it is finished; and only the role that owns the cross nodes is ever asked to
-follow, even where a domain's module is the first to run.
+The derivation refuses a second joined node that lacks a name as it refuses the first. The store's
+own method refuses a revision copied from a node not joined to the interface, from a joined node of
+another role, naming a node it does not hold, or in which nothing differs. A merge rewrites no file
+but an interface contract, and one a killed process left in progress is finished with its contract
+file. Only the role that owns the cross nodes is ever asked to follow; the gate judges the opening
+attempt with its followed revision; a line or an artefact that follows nothing keeps its bytes; the
+record names every interface the decomposition wrote; and replay refuses a followed interface of
+another role, a merge before the followed interface is written, and a followed line whose digest is
+not its revision's.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arbitration_runs import PerAttempt, entry, events_of, refusal  # noqa: E402
 from loop_fakes import Rig  # noqa: E402
 from test_a_followed_interface_is_written_at_the_merge_and_recomputed_on_replay import (  # noqa: E402
+    Following,
     _edited,
     asked,
     rig_of,
@@ -40,8 +45,13 @@ from test_a_sizing_interface_follows_sizing_s_joined_node_at_its_opening_pass im
 )
 
 from physgate.orchestrator.decompose import contracts_of, interface_contract  # noqa: E402
-from physgate.orchestrator.events import ProposalsChecked, WriteDone, WriteIntended  # noqa: E402
-from physgate.orchestrator.exceptions import MergeRefusedError  # noqa: E402
+from physgate.orchestrator.events import (  # noqa: E402
+    ProposalsChecked,
+    WriteDone,
+    WriteIntended,
+    parse_events,
+)
+from physgate.orchestrator.exceptions import CorruptEventLogError, MergeRefusedError  # noqa: E402
 from physgate.orchestrator.follow import derive  # noqa: E402
 from physgate.orchestrator.merge import GitMerger  # noqa: E402
 from physgate.state.schema import Node  # noqa: E402
@@ -192,3 +202,39 @@ def test_replay_refuses_a_merge_before_its_followed_interface_is_written(tmp_pat
     ]
     why = refusal(unwritten)
     assert why is not None and "merge" in why
+
+
+def test_the_store_refuses_a_revision_naming_a_joined_node_it_does_not_hold(
+    tmp_path: Path,
+) -> None:
+    root = store_of(tmp_path / "store", interface(), sized())
+    copied = followed_payload(interface(), [sized()], "sizing", 1)
+    store = Store(root)
+    try:
+        refused = store.follow_interface(copied, "sizing", (JOINED, "sizing.unheld"))
+        assert not refused.accepted and refused.reason == REJECT_INTERFACE_NOT_FOLLOWED
+    finally:
+        store.close()
+
+
+def test_the_record_names_every_interface_the_decomposition_wrote(tmp_path: Path) -> None:
+    # A run whose plan names no consumers still names its interface nodes, so an interface
+    # write is held to the followed line that explains it in every run.
+    rig = rig_of(tmp_path / "run")
+    assert isinstance(rig.changes, Following)
+    rig.changes.graph.writes["z0"] = [sized(values=PLAN_VALUES)]
+    assert run(rig) == "done"
+    assert rig.open().state.interface_nodes == (IFACE,)
+
+
+def test_a_followed_line_whose_digest_is_not_its_revision_s_is_no_line_of_this_package(
+    tmp_path: Path,
+) -> None:
+    lines = [json.loads(e.model_dump_json()) for e in events_of(_honest_rig(tmp_path))]
+    for line in lines:
+        if line.get("kind") == "proposals_checked" and line.get("followed"):
+            line["followed"][0]["after"]["quantities"]["stall_current"]["value"] = 1.2
+    data = b"".join(json.dumps(line).encode() + b"\n" for line in lines)
+    with pytest.raises(CorruptEventLogError) as refused:
+        parse_events(data, log="events.jsonl")
+    assert "digest of its revision" in refused.value.context.get("reason", "")
