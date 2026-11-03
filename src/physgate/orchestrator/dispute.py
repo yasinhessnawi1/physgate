@@ -207,8 +207,9 @@ def _interface_refusal(
     else:
         where = f"no cross node joined to it holds {quantity}, so there is no value to dispute"
     return (
-        f"{node_id} is an interface, which no session writes or disputes; a dispute is of a value "
-        f"the owner of the cross nodes wrote, so {where}"
+        f"{node_id} is no cross node of the graph, or is an interface; a dispute is of a value the "
+        f"owner of the cross nodes wrote. {node_id} is an interface, which no session writes or "
+        f"disputes: {where}"
     )
 
 

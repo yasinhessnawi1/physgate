@@ -30,7 +30,7 @@ from pydantic import (
 from physgate.orchestrator.budget import ATTEMPT_LIMIT
 from physgate.orchestrator.common import ModelString, NonEmptyStr, model_named
 from physgate.orchestrator.exceptions import GateContractError, ModelSeparationError
-from physgate.orchestrator.follow import FollowedInterface
+from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.plan import IntegratedPlan, Plan
 from physgate.orchestrator.trajectory import Seal
 from physgate.series.seal import AttemptSeries

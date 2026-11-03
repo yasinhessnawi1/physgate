@@ -44,9 +44,11 @@ from physgate.state.schema import (
     validate_node_id,
 )
 from physgate.state.store import (
+    REJECT_INTERFACE_NOT_FOLLOWED,
     JournalLine,
     RevisionNotFoundError,
     Store,
+    followed_payload,
     graph_at,
     journal_diff,
     journal_records_after,
@@ -85,6 +87,7 @@ __all__ = [
     "REJECT_CROSS_ROLE",
     "REJECT_DUPLICATE_NODE",
     "REJECT_INTERFACE_IMMUTABLE",
+    "REJECT_INTERFACE_NOT_FOLLOWED",
     "REJECT_MISSING_UNIT",
     "REJECT_UNKNOWN_NODE",
     "CorruptRecordError",
@@ -107,6 +110,7 @@ __all__ = [
     "Revision",
     "Store",
     "StoreStaleError",
+    "followed_payload",
     "RecordMovedError",
     "HeldFile",
     "identity_of",

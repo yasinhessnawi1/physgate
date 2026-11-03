@@ -21,7 +21,7 @@ from physgate.orchestrator.budget import ATTEMPT_LIMIT, SessionEnd
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.dispute import Dispute
-from physgate.orchestrator.follow import FollowedInterface
+from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.protocols import IssuedState, MessageUsage
 from physgate.orchestrator.run_config import RunBounds

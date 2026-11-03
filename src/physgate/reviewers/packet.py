@@ -94,7 +94,7 @@ from physgate.knowledge import loader
 from physgate.knowledge.library import LibraryError, read_library
 from physgate.orchestrator.dispute import DISPUTES_DIR
 from physgate.orchestrator.exceptions import GitError, TrajectoryTamperedError
-from physgate.orchestrator.follow import FollowedInterface
+from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.git import (
     EMPTY_TREES,
     FORCED_ENV,

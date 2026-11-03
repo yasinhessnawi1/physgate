@@ -63,7 +63,7 @@ from physgate.orchestrator.exceptions import (
     RoleRegisterError,
     RunConfigError,
 )
-from physgate.orchestrator.follow import FollowedInterface
+from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.plan import (
