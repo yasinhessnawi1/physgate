@@ -84,11 +84,23 @@ NOT_AS_WRITTEN = (
 
 
 def _follow(root: Path, payload: dict[str, Any], joined: tuple[str, ...]) -> Any:  # noqa: ANN401
+    """The store's answer; a raise, where a refusal is due, fails the row and never errors it."""
     store = Store(root)
     try:
         return store.follow_interface(payload, "sizing", joined)
+    except Exception as exc:  # noqa: BLE001 - any escape is this row's failure
+        pytest.fail(f"the store raised: {type(exc).__name__}: {exc}")
     finally:
         store.close()
+
+
+def _started(root: Path, plan: Any) -> Path:  # noqa: ANN401 - the plan of either form
+    """The run directory of a run started from ``plan``; a start that raises fails the row."""
+    try:
+        run_dir, _ = started(root, plan, BOTH)
+    except Exception as exc:  # noqa: BLE001 - any escape is this row's failure
+        pytest.fail(f"the run did not start: {type(exc).__name__}: {exc}")
+    return run_dir
 
 
 # --- the store: every joined node, never some of them -------------------------------------------
@@ -115,10 +127,33 @@ def test_the_store_refuses_a_revision_that_leaves_out_a_joined_node_that_agrees(
 
 
 def test_the_store_takes_the_revision_copied_from_every_joined_node(tmp_path: Path) -> None:
+    # Written out of id order, beside a node not joined and another interface that is: the
+    # joined set is the role's non-interface nodes with an edge, in id order.
     a, b = sized(), sized(B)
-    root = store_of(tmp_path / "store", interface(), a, b, sized("sizing.loose", edges=()))
+    other = {**interface(node_id="drive.other"), "constrains": [IFACE]}
+    loose = sized("sizing.loose", edges=())
+    root = store_of(tmp_path / "store", interface(), b, a, loose, other)
     taken = _follow(root, followed_payload(interface(), [a, b], "sizing", 1), (JOINED, B))
-    assert taken.accepted and taken.revision == 5
+    assert taken.accepted and taken.revision == 6
+
+
+def test_the_store_refuses_a_revision_naming_no_joined_node_where_none_is_joined(
+    tmp_path: Path,
+) -> None:
+    loose = sized("sizing.loose", edges=())
+    root = store_of(tmp_path / "store", interface(), loose)
+    refused = _follow(root, followed_payload(interface(), [loose], "sizing", 1), ())
+    assert not refused.accepted and refused.reason == REJECT_INTERFACE_NOT_FOLLOWED
+
+
+def test_the_store_refuses_a_revision_beside_a_second_joined_node_that_lacks_a_name(
+    tmp_path: Path,
+) -> None:
+    short = {k: v for k, v in SIZED_VALUES.items() if k != "no_load_speed"}
+    a, b = sized(), sized(B, short)
+    root = store_of(tmp_path / "store", interface(), a, b)
+    refused = _follow(root, followed_payload(interface(), [a, b], "sizing", 1), (JOINED, B))
+    assert not refused.accepted and refused.reason == REJECT_INTERFACE_NOT_FOLLOWED
 
 
 # --- the decomposition records what follows, and from what ---------------------------------------
@@ -150,7 +185,7 @@ def _recorded(run_dir: Path) -> Any:  # noqa: ANN401 - whatever the build names
 def test_the_decomposition_records_each_interface_sizing_produces_by_its_digest(
     tmp_path: Path,
 ) -> None:
-    run_dir, _ = started(tmp_path, integrated([BUDGET, DRIVE, FW], **TWO), BOTH)
+    run_dir = _started(tmp_path, integrated([BUDGET, DRIVE, FW], **TWO))
     recorded = _recorded(run_dir)
     store = Store(run_dir / "store")
     try:
@@ -162,7 +197,7 @@ def test_the_decomposition_records_each_interface_sizing_produces_by_its_digest(
 
 
 def test_a_decomposition_whose_sizing_produces_no_interface_records_none(tmp_path: Path) -> None:
-    run_dir, _ = started(tmp_path, integrated([BUDGET, DRIVE, FW]), BOTH)
+    run_dir = _started(tmp_path, integrated([BUDGET, DRIVE, FW]))
     assert getattr(decomposed(run_dir), "followable", None) is None
     written = next(
         raw for raw in (run_dir / "events.jsonl").read_text().splitlines() if '"decomposed"' in raw
@@ -175,23 +210,32 @@ def test_a_decomposition_with_two_owners_of_the_cross_nodes_records_none(
 ) -> None:
     second = CrossCuttingRole(name="sizing_b", architecture="ARCH-051", owns="cross_nodes")
     monkeypatch.setitem(roles.ROLES, second.name, second)
-    run_dir, _ = started(tmp_path, integrated([BUDGET, DRIVE, FW], **TWO), BOTH)
+    run_dir = _started(tmp_path, integrated([BUDGET, DRIVE, FW], **TWO))
     assert getattr(decomposed(run_dir), "followable", None) is None
 
 
-def test_a_decomposed_line_whose_followable_interface_is_not_one_of_its_own_is_refused(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("digests", "said"),
+    [
+        pytest.param(
+            {"other.iface": "0" * 64},
+            "a followable interface is an interface node of the plan",
+            id="an-interface-not-its-own",
+        ),
+        pytest.param({}, "at least 1 item", id="no-interface"),
+    ],
+)
+def test_a_decomposed_line_whose_followable_interfaces_are_not_some_of_its_own_is_refused(
+    tmp_path: Path, digests: dict[str, str], said: str
 ) -> None:
     def elsewhere(line: dict[str, Any]) -> dict[str, Any]:
         if line.get("kind") == "decomposed":
-            line["followable"] = {"role": "sizing", "payload_sha256": {"other.iface": "0" * 64}}
+            line["followable"] = {"role": "sizing", "payload_sha256": digests}
         return line
 
     with pytest.raises(CorruptEventLogError) as refused:
         _edited(_honest(tmp_path), elsewhere)
-    assert "a followable interface is an interface node of the plan" in str(
-        refused.value.context.get("reason", "")
-    )
+    assert said in str(refused.value.context.get("reason", ""))
 
 
 # --- replay: the recorded role follows, and revises the interface as written ---------------------
@@ -272,7 +316,11 @@ def test_a_run_whose_decomposition_recorded_no_followable_interface_asks_nothing
     tmp_path: Path,
 ) -> None:
     rig = rig_of(tmp_path / "run")
-    assert run(rig, recorded=False) == "done"
+    try:
+        kind = run(rig, recorded=False)
+    except Exception as exc:  # noqa: BLE001 - any escape is this row's failure
+        pytest.fail(f"the run did not end: {type(exc).__name__}: {exc}")
+    assert kind == "done"
     assert asked(rig) == [("z0", None), ("s1", None), ("zc", None)]
 
 
