@@ -178,7 +178,9 @@ def test_the_call_holds_the_system_requirements_to_its_brief(
     tmp_path: Path, sizing_registered: None
 ) -> None:
     # The brief numbers two acceptance criteria; a requirement numbered 3 is not one of
-    # them, and the call that made the plan is the one that refuses it.
+    # them, and the call that made the plan is the one that refuses it: the schema it sent
+    # holds a requirement to the brief's numbers, so the binary refuses the answer. The plan
+    # check that refused it after the call before the schema did is as strict (unit rows).
     unknown = {
         **PLAN,
         "system_requirements": [
@@ -187,5 +189,24 @@ def test_the_call_holds_the_system_requirements_to_its_brief(
     }
     api, outcome, _, _ = _decompose(tmp_path, ROLES, unknown)
     assert len(api.requests) == 1
-    assert not outcome.ok and outcome.cause == "invalid_plan"
-    assert "'3' is not one of the brief's numbered acceptance criteria (1, 2)" in outcome.detail
+    assert not outcome.ok and outcome.cause == "schema_refused", outcome.detail
+    assert "pattern" in outcome.detail, outcome.detail
+
+
+def test_a_requirement_named_otherwise_than_by_the_brief_s_number_is_refused_by_the_schema(
+    tmp_path: Path, sizing_registered: None
+) -> None:
+    # A real plan named its requirements "AC4: every performance criterion met ...", where the
+    # brief numbers the criterion "4". The schema the binary holds the answer to carries the
+    # brief's numbers, so such an answer is the binary's refusal, not the plan check's after it.
+    decorated = {
+        **PLAN,
+        "system_requirements": [
+            {**PLAN["system_requirements"][0], "requirement": "AC2: It recovers from a 5 N push."}
+        ],
+    }
+    api, outcome, _, _ = _decompose(tmp_path, ROLES, decorated)
+    assert not outcome.ok and outcome.cause == "schema_refused", outcome.detail
+    assert "does not match required schema" in outcome.detail
+    assert "pattern" in outcome.detail, outcome.detail
+    assert len(api.requests) == 1
