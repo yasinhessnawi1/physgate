@@ -17,14 +17,19 @@ import hashlib
 import inspect
 import json
 import re
+import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
 import test_every_pair_sharing_an_interface_is_enumerated_from_the_recorded_plan as pairs
 import test_the_plan_gives_sizing_one_module_and_integration_its_consumers_and_requirements as sized
 import test_without_the_cross_cutting_roles_the_decomposition_is_sent_as_before as before
+from orch_helpers import make_config
 
+import physgate.orchestrator.decompose as decompose
 from physgate import roles
+from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.decompose import (
     REQUIREMENTS_SENTENCE,
     ReplanFindings,
@@ -33,6 +38,7 @@ from physgate.orchestrator.decompose import (
     prompt_for,
     replan_prompt,
 )
+from physgate.orchestrator.run_config import ModelStrings
 from physgate.reviewers.contract import issued_criteria
 
 #: The run role sets with integration: without sizing, and with it.
@@ -152,6 +158,42 @@ def test_with_an_unnumbered_brief_or_without_integration_the_schema_is_as_sent_b
             _schema(sized.DOMAIN_ONLY, numbered), sort_keys=True, separators=(",", ":")
         )
         assert hashlib.sha256(domain.encode()).hexdigest() == before.SCHEMA_SHA256
+
+
+@pytest.mark.parametrize("brief", [*NUMBERED, *UNNUMBERED], ids=["1", "7", "line", "sentence"])
+def test_the_call_sends_the_schema_and_the_prompt_of_its_own_brief(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, brief: str
+) -> None:
+    sent: dict[str, Any] = {}
+
+    def ran(argv: list[str], **given: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
+        sent["schema"] = argv[argv.index("--json-schema") + 1]
+        sent["prompt"] = given["input"]
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="")
+
+    run_roles = pairs.BOTH
+    models = ModelStrings(
+        decomposition="claude-sonnet-5",
+        roles=dict.fromkeys(run_roles, "claude-sonnet-5"),
+        reviewers=dict.fromkeys(run_roles, "claude-opus-5-5"),
+    )
+    monkeypatch.setattr(decompose, "claude_binary", lambda: "/nonexistent/claude")
+    monkeypatch.setattr(decompose, "binary_version", lambda binary=None: "2.1.272")
+    monkeypatch.setattr(subprocess, "run", ran)
+    decompose.call(
+        brief,
+        config=make_config(models=models),
+        workdir=tmp_path / "decomposition",
+        base_url=None,
+        credential=Credential(mode="api_key", secret="sk-ant-test-dummy-not-a-credential"),
+    )
+    assert sent["schema"] == plan_schema(run_roles, brief)
+    assert sent["prompt"] == prompt_for(brief, run_roles)
+    pattern = (
+        "pattern"
+        in json.loads(sent["schema"])["$defs"]["SystemRequirement"]["properties"]["requirement"]
+    )
+    assert pattern is (issued_criteria(brief) is not None)
 
 
 # --- the check ----------------------------------------------------------------------------
