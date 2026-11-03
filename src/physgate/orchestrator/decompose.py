@@ -224,15 +224,20 @@ def plan_model(roles: Sequence[str]) -> type[Plan]:
 _ROOT_NAMING = ("title", "description", "$id", "$comment")
 
 
-def plan_schema(roles: Sequence[str]) -> str:
+def plan_schema(roles: Sequence[str], brief: str | None = None) -> str:
     """The JSON schema the structured answer is held to by the binary, unnamed at its root.
 
     The schema of the plan's form for a run of ``roles`` (:func:`plan_model`). A run
     without the integration role is sent the base plan's, byte for byte as before that
-    role was planned for.
+    role was planned for. Where the run has that role and ``brief`` numbers its acceptance
+    criteria, a system requirement carries the pattern of those numbers
+    (:func:`requirement_pattern`); with any other brief, or none, the schema is as before.
     """
     model = plan_model(roles)
     schema = {k: v for k, v in model.model_json_schema().items() if k not in _ROOT_NAMING}
+    pattern = requirement_pattern(brief) if issubclass(model, IntegratedPlan) else None
+    if pattern is not None:
+        schema["$defs"]["SystemRequirement"]["properties"]["requirement"]["pattern"] = pattern
     return json.dumps(schema, sort_keys=True, separators=(",", ":"))
 
 
@@ -479,6 +484,37 @@ NUMBERING_SENTENCE = (
 )
 
 
+def requirement_form_sentence(brief: str) -> str | None:
+    """The sentence that follows the requirements sentence where the brief numbers its criteria.
+
+    Where the brief numbers its acceptance criteria, the plan check holds a system requirement
+    to one of those numbers exactly (:func:`_requirement_problems`), so the prompt gives that
+    form, with the brief's first number as its example. ``None`` for a brief that numbers
+    none, whose requirements are given in its words.
+    """
+    numbered = issued_criteria(brief)
+    if numbered is None:
+        return None
+    return (
+        "The brief numbers its acceptance criteria: name each of these requirements by the "
+        f'brief\'s number for it alone, such as "{numbered[0]}".'
+    )
+
+
+def requirement_pattern(brief: str | None) -> str | None:
+    """The schema's pattern for a system requirement: one of the brief's criterion numbers.
+
+    The same numbers the plan check holds a requirement to, each whole: anchored at both ends,
+    since a schema's pattern is searched for, and of digits, a group and alternation only, read
+    alike by the binary's validator and by the API. ``None`` for a brief that numbers none.
+    The check stays: the pattern tells the binary, and the check decides.
+    """
+    numbered = issued_criteria(brief)
+    if numbered is None:
+        return None
+    return f"^({'|'.join(numbered)})$"
+
+
 #: The form of a node's id, as the store holds it (``NODE_ID_PATTERN``), in words: what the
 #: prompt tells the decomposition and what a plan that missed it is refused with.
 NODE_ID_FORM = (
@@ -537,16 +573,18 @@ def prompt_for(brief: str, roles: Sequence[str]) -> str:
     """The decomposition prompt: a fixed template around the brief.
 
     A cross-cutting role of the run adds its sentences: sizing's, that it has one module
-    at most; integration's, which ask for the system requirements and for module criteria
-    numbered as they are read. Integration is not offered as a module's role, since the
-    harness writes its specification. A run with neither is sent the template as it was
-    before either was planned for.
+    at most; integration's, which ask for the system requirements, by the brief's number where
+    it numbers its criteria, and for module criteria numbered as they are read. Integration is
+    not offered as a module's role, since the harness writes its specification. A run with
+    neither is sent the template as it was before either was planned for.
     """
     completion = _in_run("completion", roles)
     offered = sorted(role for role in roles if role not in completion)
     added = "".join(f"{_one_module_sentence(role)}\n\n" for role in _in_run("cross_nodes", roles))
     if completion:
-        added += f"{REQUIREMENTS_SENTENCE}\n\n{NUMBERING_SENTENCE}\n\n"
+        form = requirement_form_sentence(brief)
+        asked = REQUIREMENTS_SENTENCE if form is None else f"{REQUIREMENTS_SENTENCE} {form}"
+        added += f"{asked}\n\n{NUMBERING_SENTENCE}\n\n"
     return (
         "Decompose the design brief below into modules, one per role that has work to do, "
         "and the interface nodes between them.\n\n"
@@ -874,7 +912,7 @@ def call(
     sent = prompt_for(brief, roles) if prompt is None else prompt
     argv = decomposition_argv(
         binary,
-        schema=plan_schema(roles),
+        schema=plan_schema(roles, brief),
         model=config.models.decomposition,
         session_id=session_id,
         settings=settings,

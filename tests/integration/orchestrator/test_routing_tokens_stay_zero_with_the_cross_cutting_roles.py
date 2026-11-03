@@ -170,7 +170,7 @@ def test_the_binary_is_offered_exactly_the_prompt_and_schema_of_the_run_s_roles(
     assert isinstance(outcome.plan, decompose.IntegratedPlan) is with_lists
     (request,) = api.requests
     offered = json.dumps(request.structured_schema, sort_keys=True, separators=(",", ":"))
-    assert offered == decompose.plan_schema(run_roles)
+    assert offered == decompose.plan_schema(run_roles, BRIEF)
     assert request.last_user == decompose.prompt_for(BRIEF, run_roles)
 
 
