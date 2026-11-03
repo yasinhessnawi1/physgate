@@ -44,6 +44,9 @@ def _owner_the_guard_would_have_checked(store: Store, change: NodeChange) -> str
 #: the same names when they refuse the same writes.
 CROSS_NODE = "cross_node"
 INTERFACE_CREATION = "interface_creation"
+#: An interface node rewritten after the decomposition wrote it, other than by the one revision
+#: the step's change check derived and the caller admits (D-A2-37).
+INTERFACE_REWRITTEN = "interface_rewritten"
 COMPLETION_OWNER_NODE = "completion_owner_node"
 
 #: The domain of the quantities that tie domains together, and the kind of node a plan fixes
@@ -113,6 +116,7 @@ def divergence(
     changes: list[NodeChange],
     acting_role: str,
     duties: Duties | OwnershipOnly,
+    admitted: frozenset[int] = frozenset(),
 ) -> list[Divergence]:
     """Return every change in ``changes`` to a node ``acting_role`` does not own.
 
@@ -153,6 +157,8 @@ def divergence(
             caller when the step is checked; or :data:`OWNERSHIP_ONLY`, which checks
             ownership alone, as for a store no register stands behind. Always passed, so
             a caller cannot drop the duties by leaving them out.
+        admitted: the revisions of interface nodes the step wrote as its change check's
+            followed revisions (D-A2-37); any other rewrite of an interface is named.
 
     Returns:
         One entry per offending change, in the order the changes arrived. A node
@@ -194,7 +200,7 @@ def divergence(
             continue
         if isinstance(duties, OwnershipOnly):
             continue
-        broken = _duty_broken(store, change, acting_role, duties)
+        broken = _duty_broken(store, change, acting_role, duties, admitted)
         if broken is not None:
             reason, detail = broken
             found.append(
@@ -211,7 +217,11 @@ def divergence(
 
 
 def _duty_broken(
-    store: Store, change: NodeChange, acting_role: str, duties: Duties
+    store: Store,
+    change: NodeChange,
+    acting_role: str,
+    duties: Duties,
+    admitted: frozenset[int] = frozenset(),
 ) -> tuple[str, str] | None:
     """The first cross-cutting duty ``change`` breaks, as (reason, what it means), or ``None``.
 
@@ -261,6 +271,12 @@ def _duty_broken(
             f"{node_id} was turned into an interface node, of the {domain} domain, after it "
             "was created as another kind; interface nodes are written from the plan when the "
             "task is decomposed, never by a session"
+        )
+    if kind == _INTERFACE and change.revision != first and change.revision not in admitted:
+        return INTERFACE_REWRITTEN, (
+            f"{node_id} is an interface node, rewritten at revision {change.revision}; an "
+            "interface is written from the plan when the task is decomposed, and revised only "
+            "by the one revision its producer's opening pass was checked to follow"
         )
     owners = duties.completion
     if len(owners) > 1:

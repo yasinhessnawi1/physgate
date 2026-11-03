@@ -99,7 +99,9 @@ class Diverging(FakeGraph):
     role: str = "electrical"
     found: tuple[Divergence, ...] = field(default_factory=tuple)
 
-    def divergences(self, since: int, acting_role: str) -> tuple[Divergence, ...]:
+    def divergences(
+        self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
+    ) -> tuple[Divergence, ...]:
         self.calls.append((since, acting_role))
         return self.found if acting_role == self.role else ()
 

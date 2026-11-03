@@ -35,6 +35,9 @@ reviewer judges the work without another session's free text in it.
 - ``integration_state.md``: for an attempt of integration's subtask, the issued state its session
   read, byte for byte (``orchestrator.integration_state``), held to the digest its line records.
   Absent for every other attempt.
+- ``interface-followed.md``: for an attempt whose nodes revise an interface (D-A2-37), one line
+  per changed quantity, old -> new, built by code from the change check's derivation, with the
+  node and attempt it followed; no session's text. Absent for every other attempt.
 - ``knowledge/``: the role's curated library files, copied from the harness; for a
   generalist review, only the standards every role reads.
 - ``files-NN-of-MM.md``: the listing of every other file above, by full path and size,
@@ -91,6 +94,7 @@ from physgate.knowledge import loader
 from physgate.knowledge.library import LibraryError, read_library
 from physgate.orchestrator.dispute import DISPUTES_DIR
 from physgate.orchestrator.exceptions import GitError, TrajectoryTamperedError
+from physgate.orchestrator.follow import FollowedInterface
 from physgate.orchestrator.git import (
     EMPTY_TREES,
     FORCED_ENV,
@@ -138,6 +142,7 @@ SPEC_AS_ISSUED_NAME = "spec_as_issued.md"
 RUBRIC_NAME = "rubric.md"
 PERSON_ORDER_NAME = "person_order.md"
 INTEGRATION_STATE_NAME = "integration_state.md"
+FOLLOWED_NAME = "interface-followed.md"
 KNOWLEDGE_NAME = "knowledge"
 RECORD_NAME = "packet.json"
 
@@ -206,6 +211,9 @@ class Packet(BaseModel):
     #: The digest of ``integration_state.md``, for an attempt of integration's subtask. Left out
     #: of the record when absent, so every other packet reads and hashes as before.
     integration_state_sha256: Sha256 | None = None
+    #: The digest of ``interface-followed.md``, for an attempt whose nodes revise an interface.
+    #: Left out of the record when absent, so every other packet reads and hashes as before.
+    followed_sha256: Sha256 | None = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -218,6 +226,8 @@ class Packet(BaseModel):
             data.pop("person_order_sha256", None)
         if self.integration_state_sha256 is None:
             data.pop("integration_state_sha256", None)
+        if self.followed_sha256 is None:
+            data.pop("followed_sha256", None)
         return data
 
     def sha256(self) -> str:
@@ -707,6 +717,34 @@ def person_order_text(order: PersonOrder) -> bytes:
     return "\n".join(lines).encode("utf-8")
 
 
+def followed_text(followed: tuple[FollowedInterface, ...]) -> bytes:
+    """What the reviewer is shown of the interfaces an attempt's nodes revise: old -> new.
+
+    Built by code from the change check's derivation alone, one line per quantity whose value or
+    unit changed; an unchanged quantity has no line, and no source a session wrote is quoted.
+    """
+    lines = [
+        "# Interface revisions this attempt makes",
+        "",
+        "The harness derived each revision below from this attempt's own nodes joined to the "
+        "interface; no session writes an interface. The domains read the revised values once "
+        "this attempt merges. Each line is one quantity whose value or unit changes, as "
+        "interface.quantity: old -> new.",
+    ]
+    for entry in followed:
+        lines += [
+            "",
+            f"## {entry.interface}, followed from {entry.joined[0]} at attempt {entry.attempt}",
+            "",
+        ]
+        lines += [
+            f"- {entry.interface}.{name}: {old['value']} {old['unit']} -> "
+            f"{new['value']} {new['unit']}"
+            for name, old, new in entry.changed()
+        ]
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
 def build_packet(
     review: Path,
     artefact: Artefact,
@@ -774,6 +812,15 @@ def build_packet(
         (read / INTEGRATION_STATE_NAME).write_bytes(state.text.encode("utf-8"))
         state_digest = state.sha256
         reading.append(read / INTEGRATION_STATE_NAME)
+    followed_digest = None
+    if artefact.followed:
+        revised = followed_text(artefact.followed)
+        if not fits_one_read(revised):
+            msg = "the interface revisions are longer than one read shows whole"
+            raise PacketError(msg, bytes=str(len(revised)))
+        (read / FOLLOWED_NAME).write_bytes(revised)
+        followed_digest = _digest(revised)
+        reading.append(read / FOLLOWED_NAME)
     order_digest = None
     if artefact.ordered_by_person is not None:
         order = person_order_text(artefact.ordered_by_person)
@@ -826,6 +873,7 @@ def build_packet(
         files_parts=files_parts,
         person_order_sha256=order_digest,
         integration_state_sha256=state_digest,
+        followed_sha256=followed_digest,
     )
     (Path(review) / RECORD_NAME).write_text(packet.model_dump_json(indent=1) + "\n")
     return packet
@@ -913,6 +961,7 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
     _check_series_parts(packet, artefact, read)
     _check_person_order(packet, artefact, read)
     _check_integration_state(packet, artefact, read)
+    _check_followed(packet, artefact, read)
     _check_copies(packet, artefact, read, Path(repo))
     # The listing names every file under ``read/`` as it stands now, and nothing else.
     if joined["listing"] != file_listing(read, {part.name for part in packet.files_parts}):
@@ -976,6 +1025,21 @@ def _check_integration_state(packet: Packet, artefact: Artefact, read: Path) -> 
     found = _digest(path.read_bytes()) if path.is_file() else None
     if packet.integration_state_sha256 != state.sha256 or found != state.sha256:
         msg = "integration's issued state is missing or is not the one its session read"
+        raise PacketError(msg, read=str(read))
+
+
+def _check_followed(packet: Packet, artefact: Artefact, read: Path) -> None:
+    """Hold ``interface-followed.md`` to the attempt's followed revisions: there exactly when so."""
+    path = read / FOLLOWED_NAME
+    if not artefact.followed:
+        if packet.followed_sha256 is not None or path.exists():
+            msg = "the packet issued interface revisions for an attempt that follows none"
+            raise PacketError(msg, read=str(read))
+        return
+    expected = _digest(followed_text(artefact.followed))
+    found = _digest(path.read_bytes()) if path.is_file() else None
+    if packet.followed_sha256 != expected or found != expected:
+        msg = "the interface revisions are missing or are not the ones the attempt carries"
         raise PacketError(msg, read=str(read))
 
 

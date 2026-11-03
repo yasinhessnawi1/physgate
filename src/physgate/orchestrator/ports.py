@@ -11,7 +11,7 @@ changing. None of them decides anything the loop should decide.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Annotated, Literal, Protocol, runtime_checkable
 
@@ -21,6 +21,7 @@ from physgate.orchestrator.budget import ATTEMPT_LIMIT, SessionEnd
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.dispute import Dispute
+from physgate.orchestrator.follow import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.protocols import IssuedState, MessageUsage
 from physgate.orchestrator.run_config import RunBounds
@@ -212,7 +213,9 @@ class Leftover(_Frozen):
 class ChangeCheck(_Frozen):
     """The verdict on an attempt's changes before the gate sees them."""
 
-    refused_by: Literal["proposal", "write_scope", "series", "declaration", "dispute"] | None
+    refused_by: (
+        Literal["proposal", "write_scope", "series", "declaration", "dispute", "interface"] | None
+    )
     reason: NonEmptyStr | None
     #: The offending paths or node id, for the finding's key.
     subject: NonEmptyStr | None = None
@@ -230,6 +233,9 @@ class ChangeCheck(_Frozen):
     #: Every dispute the attempt holds, read from the commit checked, sorted by node and quantity.
     #: Never on the change check's own line: the loop records each on a line of its own.
     disputes: tuple[Dispute, ...] = ()
+    #: Each interface the attempt's nodes revise, derived at this check (D-A2-37), in id order;
+    #: empty unless the check was asked to follow and something differed.
+    followed: tuple[FollowedInterface, ...] = ()
 
 
 class WorktreeRemoval(_Frozen):
@@ -288,10 +294,12 @@ class ChangeChecker(Protocol):
         role: str,
         *,
         series: SessionSeries | None = None,
+        follows: int | None = None,
     ) -> ChangeCheck:
         """Check the attempt commit's changes and the session's series records.
 
-        Never writes the canonical store.
+        ``follows`` is the attempt's number when it is due to follow its role's interfaces
+        (``RunState.follows``), and ``None`` otherwise. Never writes the canonical store.
         """
         ...
 
@@ -311,12 +319,20 @@ class Merger(Protocol):
     """Applies an accepted attempt and merges it into the run branch."""
 
     def merge(
-        self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+        self,
+        subtask_id: str,
+        attempt: int,
+        attempt_commit: str,
+        message: str,
+        reopen: int = 0,
+        contracts: Mapping[str, str] | None = None,
     ) -> str:
         """Merge exactly ``attempt_commit`` and return the merge commit.
 
         Idempotent: a merge already made is returned, not redone. Refuses a commit
-        that is no longer what the subtask's branch points at.
+        that is no longer what the subtask's branch points at. ``contracts`` are interface
+        contract files, by path, the merge commit writes with these bytes: the revisions the
+        attempt followed (D-A2-37).
         """
         ...
 
@@ -388,14 +404,25 @@ class GraphPort(Protocol):
         """
         ...
 
-    def divergences(self, since: int, acting_role: str) -> tuple[Divergence, ...]:
+    def follow(self, payload: Payload, role: str, joined: tuple[str, ...]) -> int:
+        """Write an interface's followed revision through the store's own method; its revision.
+
+        Raises ``StoreRefusalError`` for a revision that is not the derivation the store holds
+        it to, and ``StoreStaleError`` when the journal moved underneath the handle.
+        """
+        ...
+
+    def divergences(
+        self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
+    ) -> tuple[Divergence, ...]:
         """Every node changed after ``since`` by a role that does not own it, or against a duty.
 
         A duty is one the role register gives a cross-cutting role: the cross nodes, which
         only their owner writes, and completion, whose owner writes no node. An interface
-        node made after ``since``, created as one or turned into one, is named too. Each
-        entry says which of these it is, so the loop records a write past the store's own
-        guard apart from a duty's breach.
+        node made after ``since``, created as one or turned into one, is named too, and so is an
+        interface rewritten at any revision but the ``admitted`` ones, the step's followed
+        revisions. Each entry says which of these it is, so the loop records a write past the
+        store's own guard apart from a duty's breach.
         """
         ...
 

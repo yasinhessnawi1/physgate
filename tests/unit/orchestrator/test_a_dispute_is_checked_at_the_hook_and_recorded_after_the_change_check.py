@@ -850,6 +850,7 @@ class _RealChecks(FakeChanges):
         role: str,
         *,
         series: Any = None,
+        follows: int | None = None,
     ) -> ChangeCheck:
         self.calls += 1
         return self._real.check(subtask_id, self._commit, role, series=series)

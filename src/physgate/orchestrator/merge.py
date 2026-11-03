@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -69,6 +70,10 @@ _PROPOSAL = re.compile(r"^\.physgate/proposals/[a-z][a-z0-9_]*(\.[a-z0-9_]+)+\.j
 _REGULAR = "100644"
 _ABSENT = "000000"
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+#: Where a run's interface contract files are: ``decompose.INTERFACES_DIR``, spelled here as well
+#: because ``decompose`` imports this module.
+CONTRACTS_DIR = ".physgate/interfaces"
 
 
 def _safe(name: str, what: str) -> str:
@@ -251,12 +256,20 @@ class GitMerger:
         self._removal_timeout_s = removal_timeout_s
 
     def merge(
-        self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+        self,
+        subtask_id: str,
+        attempt: int,
+        attempt_commit: str,
+        message: str,
+        reopen: int = 0,
+        contracts: Mapping[str, str] | None = None,
     ) -> str:
         """Merge exactly ``attempt_commit`` into the run branch and return the merge.
 
         The merge commit's parents are the run branch and ``attempt_commit``; its tree is the
-        merged tree without the disputes directory.
+        merged tree without the disputes directory, with each of ``contracts`` (an interface's
+        contract file, by path under the interfaces directory) holding the bytes given: the
+        revisions the attempt followed (D-A2-37), so later sessions read them.
 
         Raises:
             MergeRefusedError: the subtask's branch no longer points at the checked
@@ -281,19 +294,31 @@ class GitMerger:
             run.repo, "ls-tree", "--name-only", attempt_commit, "--", DISPUTES_DIR,
             objects_only=True, git_dir=pinned,
         )  # fmt: skip
+        rewritten = dict(contracts or {})
+        for path in rewritten:
+            if PurePosixPath(path).parent != PurePosixPath(CONTRACTS_DIR) or not path.endswith(
+                ".json"
+            ):
+                msg = "a merge rewrites interface contract files only"
+                raise MergeRefusedError(msg, subtask=subtask_id, path=path)
         try:
-            if disputed and self._mid_merge_of(attempt_commit, admin):
-                # A process killed between the three calls left this very merge in progress: it
-                # is finished, never aborted, so the run does not halt on a conflict no one had.
-                git(run.integration, "rm", "-r", "-q", "-f", "--ignore-unmatch", "--",
-                    DISPUTES_DIR, git_dir=admin)  # fmt: skip
+            if (disputed or rewritten) and self._mid_merge_of(attempt_commit, admin):
+                # A process killed between the calls left this very merge in progress: it is
+                # finished, never aborted, so the run does not halt on a conflict no one had.
+                if disputed:
+                    git(run.integration, "rm", "-r", "-q", "-f", "--ignore-unmatch", "--",
+                        DISPUTES_DIR, git_dir=admin)  # fmt: skip
+                self._write_contracts(rewritten, admin)
                 git(run.integration, "commit", "--no-edit", git_dir=admin)
-            elif disputed:
+            elif disputed or rewritten:
                 git(
                     run.integration, "merge", "--no-ff", "--no-commit", "-m", message,
                     attempt_commit, git_dir=admin,
                 )  # fmt: skip
-                git(run.integration, "rm", "-r", "-q", "-f", "--", DISPUTES_DIR, git_dir=admin)
+                if disputed:
+                    git(run.integration, "rm", "-r", "-q", "-f", "--", DISPUTES_DIR,
+                        git_dir=admin)  # fmt: skip
+                self._write_contracts(rewritten, admin)
                 git(run.integration, "commit", "--no-edit", git_dir=admin)
             else:
                 git(
@@ -308,6 +333,16 @@ class GitMerger:
             ) from None
         # Through the admin directory the merge ran in: the pointer is not read again.
         return head_of(run.integration, "HEAD", git_dir=admin)
+
+    def _write_contracts(self, contracts: Mapping[str, str], admin: GitDir) -> None:
+        """Write each contract file into the merge in progress and stage it."""
+        if not contracts:
+            return
+        for path, text in sorted(contracts.items()):
+            target = self._run.integration / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(text.encode("utf-8"))
+        git(self._run.integration, "add", "--", *sorted(contracts), git_dir=admin)
 
     def _mid_merge_of(self, attempt_commit: str, admin: GitDir) -> bool:
         """Whether the integration worktree is mid-merge of exactly ``attempt_commit``.

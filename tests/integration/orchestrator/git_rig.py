@@ -173,6 +173,7 @@ class ScopeChecker:
         role: str,
         *,
         series: SessionSeries | None = None,
+        follows: int | None = None,
     ) -> ChangeCheck:
         base = sh(self.run.repo, "merge-base", self.run.run_branch, attempt_commit).strip()
         found = write_scope_violations(
@@ -293,7 +294,12 @@ class EmptyGraph:
     def write(self, payload: dict[str, Any], role: str) -> int:
         raise AssertionError("no proposal, so nothing is written")
 
-    def divergences(self, since: int, acting_role: str) -> tuple[Divergence, ...]:
+    def follow(self, payload: dict[str, Any], role: str, joined: tuple[str, ...]) -> int:
+        raise AssertionError("no proposal, so no interface is followed")
+
+    def divergences(
+        self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
+    ) -> tuple[Divergence, ...]:
         return ()
 
     def reopen(self) -> tuple[int, tuple[str, ...]]:

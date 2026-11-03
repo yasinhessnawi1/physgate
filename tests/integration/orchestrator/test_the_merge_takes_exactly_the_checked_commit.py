@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -231,9 +232,15 @@ class _KilledAfterMerge(GitMerger):
     """Makes the real merge, then dies before the loop can record it."""
 
     def merge(
-        self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+        self,
+        subtask_id: str,
+        attempt: int,
+        attempt_commit: str,
+        message: str,
+        reopen: int = 0,
+        contracts: Mapping[str, str] | None = None,
     ) -> str:
-        super().merge(subtask_id, attempt, attempt_commit, message, reopen)
+        super().merge(subtask_id, attempt, attempt_commit, message, reopen, contracts)
         raise KeyboardInterrupt
 
 
@@ -271,12 +278,18 @@ def test_a_branch_moved_after_the_check_halts_the_run_as_an_incident(tmp_path: P
 
     class Moving(GitMerger):
         def merge(
-            self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+            self,
+            subtask_id: str,
+            attempt: int,
+            attempt_commit: str,
+            message: str,
+            reopen: int = 0,
+            contracts: Mapping[str, str] | None = None,
         ) -> str:
             worktree = run.subtask_worktree(subtask_id)
             (worktree / "modules" / "power" / "late.py").write_text("late\n")
             commit_attempt(worktree, subtask_id, attempt, "late", repo=run.repo)
-            return super().merge(subtask_id, attempt, attempt_commit, message, reopen)
+            return super().merge(subtask_id, attempt, attempt_commit, message, reopen, contracts)
 
     before = head_of(run.repo, run.run_branch)
     loop = _loop(run, GitDispatcher(run), Gate(), Moving(run, removal_timeout_s=60.0))
@@ -450,9 +463,15 @@ def test_the_merge_a_killed_process_made_and_never_recorded_is_where_the_run_lef
 
     class KilledAtSecondMerge(GitMerger):
         def merge(
-            self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+            self,
+            subtask_id: str,
+            attempt: int,
+            attempt_commit: str,
+            message: str,
+            reopen: int = 0,
+            contracts: Mapping[str, str] | None = None,
         ) -> str:
-            done = super().merge(subtask_id, attempt, attempt_commit, message, reopen)
+            done = super().merge(subtask_id, attempt, attempt_commit, message, reopen, contracts)
             if subtask_id == "s2":
                 raise KeyboardInterrupt
             return done

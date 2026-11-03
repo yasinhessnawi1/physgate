@@ -79,6 +79,7 @@ from physgate.orchestrator.declaration import (
 from physgate.orchestrator.dispute import DISPUTES_DIR, Dispute, DisputeError, disputer_problem
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.exceptions import DutyUnownedError, RoleRegisterError, StoreRefusalError
+from physgate.orchestrator.follow import FollowedInterface, FollowRefusedError, follow
 from physgate.orchestrator.git import (
     GitDir,
     changes_between,
@@ -529,6 +530,7 @@ class GitChangeChecker:
         role: str,
         *,
         series: SessionSeries | None = None,
+        follows: int | None = None,
     ) -> ChangeCheck:
         """Refuse an attempt out of scope, with a refused series record, or a refused proposal.
 
@@ -536,7 +538,11 @@ class GitChangeChecker:
         that owns completion, its declaration, read from the commit; then its series records (one
         the collector refused, or one, from any session of the attempt, whose script or loaded
         code is not what was committed); then its node proposals, against the store's own
-        guards; last, every quantity that names a record, against that record.
+        guards; then every quantity that names a record, against that record. Last, for an
+        attempt due to follow (``follows``, its number), each interface its role produces takes
+        the values of the attempt's nodes joined to it (D-A2-37): the revision is written into
+        the scratch graph, so the gate judges it as the attempt's own, and an interface it
+        cannot follow refuses the attempt.
         """
         repo = self._run.repo
         # Verified once; the base, the scope check and the proposals all read through it.
@@ -633,6 +639,19 @@ class GitChangeChecker:
                 proposed=proposed,
                 series_checks=checks,
             )
+        followed: tuple[FollowedInterface, ...] = ()
+        if follows is not None:
+            try:
+                followed = self._follow(scratch, proposals, role, follows)
+            except FollowRefusedError as exc:
+                return ChangeCheck(
+                    refused_by="interface",
+                    reason=str(exc),
+                    subject=exc.subject,
+                    graph_root=str(scratch),
+                    proposed=proposed,
+                    series_checks=checks,
+                )
         return ChangeCheck(
             refused_by=None,
             reason=None,
@@ -641,7 +660,39 @@ class GitChangeChecker:
             series_checks=checks,
             declaration=declared,
             disputes=disputed,
+            followed=followed,
         )
+
+    def _follow(
+        self, scratch: Path, proposals: list[Payload], role: str, attempt: int
+    ) -> tuple[FollowedInterface, ...]:
+        """Each interface ``role`` produces, followed from the proposals and written to scratch.
+
+        Raises:
+            FollowRefusedError: an interface the attempt cannot follow, or one the store's own
+                method refuses as not the derivation.
+        """
+        nodes = {str(p["id"]): p for p in proposals}
+        interfaces = sorted(
+            (node_id, head[2])
+            for node_id, head in heads(str(scratch)).items()
+            if head[2].get("kind") == "interface" and head[2].get("owner_role") == role
+        )
+        found: list[FollowedInterface] = []
+        store = Store(scratch)
+        try:
+            for node_id, payload in interfaces:
+                entry = follow(payload, nodes, role, attempt)
+                if entry is None:
+                    continue
+                result = store.follow_interface(entry.after, role, entry.joined)
+                if not result.accepted:
+                    msg = f"the store refused the followed revision of {node_id}: {result.reason}"
+                    raise FollowRefusedError(msg, node_id)
+                found.append(entry)
+        finally:
+            store.close()
+        return tuple(found)
 
     def _disputes(self, base: str, commit: str, role: str, pinned: GitDir) -> tuple[Dispute, ...]:
         """Every dispute ``commit`` added or changed since ``base``, read and parsed, sorted.
@@ -827,14 +878,24 @@ class StoreKeeper:
             raise StoreRefusalError(msg, node=str(payload.get("id")), reason=str(result.reason))
         return result.revision
 
-    def divergences(self, since: int, acting_role: str) -> tuple[Divergence, ...]:
+    def follow(self, payload: Payload, role: str, joined: tuple[str, ...]) -> int:
+        """Write an interface's followed revision; a revision the store refuses raises."""
+        result = self._handle().follow_interface(payload, role, joined)
+        if not result.accepted or result.revision is None:
+            msg = "the store refused an interface revision the change check had derived"
+            raise StoreRefusalError(msg, node=str(payload.get("id")), reason=str(result.reason))
+        return result.revision
+
+    def divergences(
+        self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
+    ) -> tuple[Divergence, ...]:
         """Every node changed after ``since`` by a role that does not own it, or against a duty.
 
         The duties' owners are asked of the role register now, as the hook and the apply
-        step ask it.
+        step ask it. ``admitted`` are the step's followed interface revisions.
         """
         store = self._handle()
-        return tuple(divergence(store, store.diff(since), acting_role, _duties()))
+        return tuple(divergence(store, store.diff(since), acting_role, _duties(), admitted))
 
     def reopen(self) -> tuple[int, tuple[str, ...]]:
         """Reopen the store so recovery repairs node files from the journal."""

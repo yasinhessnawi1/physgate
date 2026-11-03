@@ -121,11 +121,13 @@ from physgate.orchestrator.exceptions import (
     RunConfigError,
     RunStateError,
 )
+from physgate.orchestrator.follow import rederived
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR, CriterionWords, SystemRequirement
 from physgate.orchestrator.protocols import ChosenValue, QuantityRef
 from physgate.orchestrator.queue import DECOMPOSITION_NAME, PLAN, contract_item_id, item_id_for
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
+from physgate.state.store import payload_digest
 from physgate.state.task_ledger import Outcome, TaskLedger, TaskLine, read_ledger
 
 
@@ -420,6 +422,12 @@ class RunState:
         #: The lines a session's window in the decisions file is read from, in order: what tells
         #: a decision written while a session ran without the OS layer (``queue.held_windows_of``).
         self.windows: list[Event] = []
+        #: The module directories a subtask of has entered ``spawn``: once one other than the
+        #: opening pass's own has, no interface follows (D-A2-37).
+        self.spawned_dirs: set[str] = set()
+        #: Every interface node the decomposition wrote, as its line names them, whether or not
+        #: the plan names their consumers.
+        self.interface_nodes: tuple[str, ...] = ()
 
     # -- following the log -------------------------------------------------------
 
@@ -582,6 +590,7 @@ class RunState:
                 self._proposals_end(event)
             self.journal_head = self.base_revision = event.head_revision
             self.run_head = event.spec_commit
+            self.interface_nodes = event.interface_nodes
             if event.interface_consumers is not None:
                 self.consumers = {e.interface: e.consumers for e in event.interface_consumers}
                 self.interfaces = event.interface_nodes
@@ -670,6 +679,8 @@ class RunState:
             if event.stage == "spawn" and sub.plan.subtask_id == self.completion_subtask:
                 self._expect_issued(now)
             self._enter(now, event.stage)
+            if event.stage == "spawn":
+                self.spawned_dirs.add(sub.plan.module_dir)
         elif isinstance(event, IntegrationStateIssued):
             self._issued(sub, now, event)
         elif isinstance(event, SessionEnded):
@@ -683,6 +694,8 @@ class RunState:
             sub.next_resolve = now.number
         elif isinstance(event, ProposalsChecked):
             self._expect(now.cursor == "implement" and now.changes is None, "a change check")
+            if event.followed:
+                self._followed(sub, event)
             now.changes = event
         elif isinstance(event, CompletionDeclared):
             self._declared(sub, now, event)
@@ -728,6 +741,7 @@ class RunState:
             next_rev = event.expected_revision == self.journal_head + 1
             own = event.actor_role == sub.plan.assigned_role
             self._expect(ready and fresh and next_rev and own, "a write intent")
+            self._intended(now, event)
             now.pending = event
         elif isinstance(event, WriteDone):
             pending = now.pending
@@ -749,6 +763,9 @@ class RunState:
             self._expect(now.cursor == "decide" and self.mergeable(now), "a merge")
             if now.pending is not None:
                 _refuse("a merge with a store write still unaccounted for")
+            followed = now.changes.followed if now.changes is not None else ()
+            if any(entry.interface not in now.applied for entry in followed):
+                _refuse("a merge before every interface its change check followed is written")
             if event.attempt_commit != checked:
                 _refuse("a merge of a commit other than the one that was checked")
             now.merged = event
@@ -1023,6 +1040,73 @@ class RunState:
                 found.append(subtask_id)
             seen.add(directory)
         return found
+
+    def follows(self, subtask_id: str) -> int | None:
+        """The attempt in progress, if it is due to follow its role's interfaces; else ``None``.
+
+        Due is an attempt of a module's first subtask, never a reopen, while no subtask of any
+        other module directory has entered ``spawn`` (D-A2-37): the opening pass, before any
+        module reads what it produces. Read from the record alone; the loop asks it only for
+        the role that owns the cross nodes, and replay holds a followed line to the role's own
+        interfaces and nodes, so another role's first subtask follows nothing the record shows.
+        """
+        sub = self.subtasks.get(subtask_id)
+        if sub is None or not sub.attempts or sub.reopens or subtask_id not in self.modules():
+            return None
+        if any(d != sub.plan.module_dir for d in self.spawned_dirs):
+            return None
+        return sub.attempts[-1].number
+
+    def _followed(self, sub: SubtaskState, event: ProposalsChecked) -> None:
+        """Hold a change check's followed interfaces to their derivation, where one is due."""
+        if self.follows(sub.plan.subtask_id) != event.attempt:
+            _refuse(
+                "a change check follows an interface where no follow is due: only an attempt of "
+                "a module's opening subtask, before any other module spawned, follows one"
+            )
+        ids = [entry.interface for entry in event.followed]
+        if ids != sorted(set(ids)):
+            _refuse("a change check follows each interface once, in id order")
+        for entry in event.followed:
+            if entry.interface not in self.interface_nodes:
+                _refuse(f"{entry.interface} is no interface node of the plan, so none follows it")
+            if entry.attempt != event.attempt:
+                _refuse(f"the revision of {entry.interface} names another attempt than its own")
+            why = rederived(entry, sub.plan.assigned_role)
+            if why is not None:
+                _refuse(why)
+
+    def _intended(self, now: AttemptState, event: WriteIntended) -> None:
+        """Hold a write intent to the change check's followed revisions, and their joined nodes.
+
+        An interface is written only as the revision its change check followed, after every node
+        the attempt proposed; a node joined to a followed interface is written as the payload the
+        followed line records it with.
+        """
+        followed = {e.interface: e for e in (now.changes.followed if now.changes else ())}
+        entry = followed.get(event.node_id)
+        if entry is None and event.node_id in self.interface_nodes:
+            _refuse(
+                f"a write of the interface {event.node_id} that no followed line explains: an "
+                "interface is written from the plan, and revised only as its change check followed"
+            )
+        if entry is not None:
+            proposed = now.changes.proposed if now.changes is not None else ()
+            if event.payload_sha256 != entry.payload_sha256 or any(
+                n not in now.applied for n in (*proposed, *entry.joined)
+            ):
+                _refuse(
+                    f"the write of the interface {event.node_id} is not the revision its change "
+                    "check followed, written after the attempt's own nodes it follows"
+                )
+        for one in followed.values():
+            if event.node_id in one.joined:
+                held = one.joined_payloads[one.joined.index(event.node_id)]
+                if payload_digest(held) != event.payload_sha256:
+                    _refuse(
+                        f"{event.node_id} is joined to the interface {one.interface}, and its "
+                        "write is not the payload the followed revision was derived from"
+                    )
 
     def _declared(self, sub: SubtaskState, now: AttemptState, event: CompletionDeclared) -> None:
         """Take integration's declaration: after the attempt's accepted change check, once.

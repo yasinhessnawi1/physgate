@@ -30,6 +30,7 @@ from pydantic import (
 from physgate.orchestrator.budget import ATTEMPT_LIMIT
 from physgate.orchestrator.common import ModelString, NonEmptyStr, model_named
 from physgate.orchestrator.exceptions import GateContractError, ModelSeparationError
+from physgate.orchestrator.follow import FollowedInterface
 from physgate.orchestrator.plan import IntegratedPlan, Plan
 from physgate.orchestrator.trajectory import Seal
 from physgate.series.seal import AttemptSeries
@@ -249,6 +250,10 @@ class Artefact(_Frozen):
     #: Integration's issued state, for an attempt of integration's subtask: what its session was
     #: given to read. Left out of a dump when absent, so every other attempt is recorded as before.
     integration_state: IssuedState | None = None
+    #: The interfaces the attempt's nodes revise, as its change check derived them (D-A2-37),
+    #: which its reviewer is shown quantity by quantity. Left out of a dump when empty, so every
+    #: other attempt is recorded as before.
+    followed: tuple[FollowedInterface, ...] = ()
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -259,6 +264,8 @@ class Artefact(_Frozen):
             data.pop("ordered_by_person", None)
         if self.integration_state is None:
             data.pop("integration_state", None)
+        if not self.followed:
+            data.pop("followed", None)
         return data
 
     @model_validator(mode="after")

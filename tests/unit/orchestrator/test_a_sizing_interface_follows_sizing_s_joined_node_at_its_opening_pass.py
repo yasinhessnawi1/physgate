@@ -169,7 +169,7 @@ def checked(
     checker = GitChangeChecker(run, store, {"z0": "modules/z0"})
     if "follows" not in inspect.signature(checker.check).parameters:
         pytest.fail("the change check takes no follows argument yet")
-    return checker.check("z0", commit, role, follows=follows)  # type: ignore[call-arg]
+    return checker.check("z0", commit, role, follows=follows)
 
 
 def followed(check: ChangeCheck) -> tuple[Any, ...]:
@@ -363,7 +363,7 @@ def test_the_merge_rewrites_the_run_branch_s_contract_file(tmp_path: Path) -> No
     merger = GitMerger(run, removal_timeout_s=60)
     if "contracts" not in inspect.signature(merger.merge).parameters:
         pytest.fail("the merge takes no contracts yet")
-    merged = merger.merge("z0", 1, commit, "Merge subtask z0, attempt 1\n", contracts=contracts)  # type: ignore[call-arg]
+    merged = merger.merge("z0", 1, commit, "Merge subtask z0, attempt 1\n", contracts=contracts)
     shown = _git(run.repo, "show", f"{merged}:{interface_contract(IFACE)}")
     assert shown + "\n" == contracts[interface_contract(IFACE)]
     assert _git(run.repo, "rev-parse", f"{merged}^2") == commit

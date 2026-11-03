@@ -237,6 +237,7 @@ class Patching(FakeChanges):
         role: str,
         *,
         series: SessionSeries | None = None,
+        follows: int | None = None,
     ) -> ChangeCheck:
         if subtask_id == INTEG and self.armed:
             self.monkeypatch.setitem(roles.ROLES, CLOSER.name, CLOSER)

@@ -35,8 +35,9 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 from collections import deque
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import IO, Annotated, Any, Literal
 
@@ -74,6 +75,55 @@ Payload = dict[str, Any]
 
 #: What to do about a complete journal line that is not a valid record.
 OnCorrupt = Literal["raise", "truncate"]
+
+#: The one reason :meth:`Store.follow_interface` refuses for. Not one of the frozen workload's
+#: reasons (``protocol``): the method is not on the frozen interface, and ``write_node``, which
+#: is, never gives it.
+REJECT_INTERFACE_NOT_FOLLOWED = "interface_not_followed"
+#: The source a followed interface quantity carries (D-A2-37).
+FOLLOWED_SOURCE = "followed from {node} at attempt {attempt}"
+_FOLLOWED = re.compile(r"^followed from (?P<node>\S+) at attempt (?P<attempt>[1-9][0-9]{0,8})$")
+
+
+def followed_payload(
+    interface: Payload, joined: Sequence[Payload], role: str, attempt: int
+) -> Payload:
+    """The interface's next revision, each quantity copied from the first node of ``joined``.
+
+    The value and unit are the first joined node's as written, the source names that node and
+    ``attempt``, the writer is ``role``, and no series reference is carried; every other field of
+    the interface is kept. A copy and no judgement: whether the joined nodes agree and the units
+    are the interface's is the change check's (``orchestrator.follow``), which calls this.
+
+    Raises:
+        KeyError: the first joined node lacks one of the interface's quantities.
+        IndexError: ``joined`` is empty.
+    """
+    first = joined[0]
+    source = FOLLOWED_SOURCE.format(node=first["id"], attempt=attempt)
+    held = first["quantities"]
+    quantities = {
+        name: {
+            "value": held[name]["value"],
+            "unit": held[name]["unit"],
+            "source": source,
+            "written_by": role,
+        }
+        for name in interface["quantities"]
+    }
+    return {**interface, "quantities": quantities}
+
+
+def _followed_attempt(payload: Payload, first: str) -> int | None:
+    """The attempt every quantity of a followed revision names, if each names ``first`` and one."""
+    found: set[int] = set()
+    for quantity in payload.get("quantities", {}).values():
+        matched = _FOLLOWED.fullmatch(str(quantity.get("source", "")))
+        if matched is None or matched["node"] != first:
+            return None
+        found.add(int(matched["attempt"]))
+    return found.pop() if len(found) == 1 else None
+
 
 JOURNAL_NAME = "journal.jsonl"
 NODES_DIRNAME = "nodes"
@@ -839,6 +889,68 @@ class Store:
 
         version = 1 if known is None else known[1] + 1
         rev = self._append("create" if known is None else "write", node_id, version, node)
+        self._materialise(node_id, rev, version, node)
+        return WriteResult(True, rev, None)
+
+    def follow_interface(
+        self, node: Payload, actor_role: str, joined: Sequence[str]
+    ) -> WriteResult:
+        """Write an interface's followed revision: only its owner's derivation from ``joined``.
+
+        Not on the frozen interface, and ``write_node`` is unchanged: it refuses every interface
+        write as before. This accepts exactly one kind of revision (D-A2-37): ``node`` must be
+        the interface as the store holds it with each quantity copied from the first of the
+        ``joined`` nodes (:func:`followed_payload`), written by the interface's owner role, where
+        every joined node is a node of that role in the store, not an interface, joined to it by
+        a ``constrains`` edge either way, holding every one of its names, and where something
+        differs. Anything else is refused with ``interface_not_followed`` and writes nothing.
+        The line it appends is an ordinary ``write`` one version on, which recovery replays as
+        it replays every write.
+
+        Raises:
+            StoreStaleError: the journal moved underneath this handle.
+            MalformedNodeIdError: the node id is not a legal identifier.
+        """
+        self._assert_current()
+        node_id = validate_node_id(node.get("id"))
+        refused = WriteResult(False, None, REJECT_INTERFACE_NOT_FOLLOWED)
+        known = self._head.get(node_id)
+        ids = tuple(joined)
+        if known is None or not ids or list(ids) != sorted(set(ids)):
+            return refused
+        current = self._read_node(node_id)
+        if current["kind"] != "interface" or current["owner_role"] != actor_role:
+            return refused
+        names = current.get("quantities", {})
+        sources: list[Payload] = []
+        for joined_id in ids:
+            if joined_id not in self._head:
+                return refused
+            other = self._read_node(joined_id)
+            edged = node_id in other.get("constrains", ()) or joined_id in current.get(
+                "constrains", ()
+            )
+            if (
+                other["owner_role"] != actor_role
+                or other["kind"] == "interface"
+                or not edged
+                or any(name not in other.get("quantities", {}) for name in names)
+            ):
+                return refused
+            sources.append(other)
+        attempt = _followed_attempt(node, ids[0])
+        if attempt is None or node != followed_payload(current, sources, actor_role, attempt):
+            return refused
+        # As written: a value of 2 and one of 2.0 are two writings.
+        if json.dumps([[q["value"], q["unit"]] for q in names.values()]) == json.dumps(
+            [[q["value"], q["unit"]] for q in node["quantities"].values()]
+        ):
+            return refused
+        if not quantities_are_valid(node):
+            return refused
+        validate_node(node)
+        version = known[1] + 1
+        rev = self._append("write", node_id, version, node)
         self._materialise(node_id, rev, version, node)
         return WriteResult(True, rev, None)
 

@@ -363,7 +363,7 @@ def test_replay_refuses_a_followed_line_where_none_is_due(tmp_path: Path) -> Non
     events = _honest(tmp_path)
     followed = next(
         e for e in events if isinstance(e, ProposalsChecked) and e.subtask_id == "z0"
-    ).followed  # type: ignore[attr-defined]
+    ).followed
 
     def moved(line: dict[str, Any]) -> dict[str, Any]:
         if line.get("kind") == "proposals_checked" and line.get("subtask_id") == "zc":

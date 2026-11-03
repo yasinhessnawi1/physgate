@@ -13,7 +13,7 @@ recorded before the switch, is unchanged.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -658,9 +658,15 @@ class KilledAfterMerge(FakeMerger):
     kill: str | None = "s1"
 
     def merge(
-        self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+        self,
+        subtask_id: str,
+        attempt: int,
+        attempt_commit: str,
+        message: str,
+        reopen: int = 0,
+        contracts: Mapping[str, str] | None = None,
     ) -> str:
-        commit = super().merge(subtask_id, attempt, attempt_commit, message, reopen)
+        commit = super().merge(subtask_id, attempt, attempt_commit, message, reopen, contracts)
         if subtask_id == self.kill:
             self.kill = None
             self.moved = True

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -202,6 +202,7 @@ class FakeChanges:
         role: str,
         *,
         series: SessionSeries | None = None,
+        follows: int | None = None,
     ) -> ChangeCheck:
         self.calls += 1
         self.seen.append(series)
@@ -318,7 +319,13 @@ class FakeMerger:
     reopens: list[int] = field(default_factory=list)
 
     def merge(
-        self, subtask_id: str, attempt: int, attempt_commit: str, message: str, reopen: int = 0
+        self,
+        subtask_id: str,
+        attempt: int,
+        attempt_commit: str,
+        message: str,
+        reopen: int = 0,
+        contracts: Mapping[str, str] | None = None,
     ) -> str:
         self.messages.append(message)
         self.reopens.append(reopen)
@@ -388,7 +395,12 @@ class FakeGraph:
     def write(self, payload: dict[str, Any], role: str) -> int:
         raise AssertionError("no proposal, so nothing is written")
 
-    def divergences(self, since: int, acting_role: str) -> tuple[Divergence, ...]:
+    def follow(self, payload: dict[str, Any], role: str, joined: tuple[str, ...]) -> int:
+        raise AssertionError("no proposal, so no interface is followed")
+
+    def divergences(
+        self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
+    ) -> tuple[Divergence, ...]:
         self.calls.append((since, acting_role))
         return self.divergent.get(len(self.calls), ())
 

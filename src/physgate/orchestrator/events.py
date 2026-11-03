@@ -63,6 +63,7 @@ from physgate.orchestrator.exceptions import (
     RoleRegisterError,
     RunConfigError,
 )
+from physgate.orchestrator.follow import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.plan import (
@@ -518,7 +519,9 @@ class ProposalsChecked(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     checked_commit: Sha
-    refused_by: Literal["proposal", "write_scope", "series", "declaration", "dispute"] | None
+    refused_by: (
+        Literal["proposal", "write_scope", "series", "declaration", "dispute", "interface"] | None
+    )
     reason: NonEmptyStr | None
     subject: NonEmptyStr | None
     graph_root: NonEmptyStr
@@ -528,13 +531,27 @@ class ProposalsChecked(_Event):
     #: Every proposed quantity that names a simulation record, held to it, passes included;
     #: empty on every line written before the field existed.
     series_checks: tuple[SeriesCheck, ...] = ()
+    #: Each interface the attempt's nodes revise, derived at the check (D-A2-37): the interface
+    #: as it stood, every joined node's payload and the derived revision, so replay derives it
+    #: again. Left out of the line when empty, so every other line keeps its bytes.
+    followed: tuple[FollowedInterface, ...] = ()
 
     @model_validator(mode="after")
     def _a_refusal_says_why(self) -> ProposalsChecked:
         if (self.refused_by is None) != (self.reason is None):
             msg = "a refusal names what refused and why, and an acceptance names neither"
             raise ValueError(msg)
+        if self.followed and self.refused_by is not None:
+            msg = "only an accepted change check follows an interface"
+            raise ValueError(msg)
         return self
+
+    @model_serializer(mode="wrap")
+    def _omit_none_followed(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.followed:
+            data.pop("followed", None)
+        return data
 
 
 class AttemptRejected(_Event):

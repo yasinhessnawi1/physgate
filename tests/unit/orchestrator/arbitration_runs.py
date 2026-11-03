@@ -150,6 +150,7 @@ class Scripted(FakeChanges):
         role: str,
         *,
         series: SessionSeries | None = None,
+        follows: int | None = None,
     ) -> ChangeCheck:
         if subtask_id == "s1":
             self.disputes["s1"] = self.script[min(self.checked, len(self.script) - 1)]

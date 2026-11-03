@@ -43,6 +43,7 @@ FindingSource = Literal[
     "declaration",
     "dispute",
     "arbitration",
+    "interface",
 ]
 
 _WHO = {
@@ -57,6 +58,8 @@ _WHO = {
     "dispute": "the dispute check (a dispute is not one the harness reads)",
     "arbitration": "the arbitration rule (sizing alone writes a cross node's quantities, and its "
     "value stands over a domain's first dispute)",
+    "interface": "the interface check (an interface sizing produces follows a node of its own "
+    "joined to it, holding every one of its quantities)",
 }
 
 #: The fixed line every instruction that quotes a person's words ends with: what a person

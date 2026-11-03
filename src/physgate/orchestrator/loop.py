@@ -56,6 +56,7 @@ from physgate.orchestrator.decisions import (
     source_of,
 )
 from physgate.orchestrator.declaration import DeclarationError
+from physgate.orchestrator.decompose import contracts_of
 from physgate.orchestrator.dispute import DISPUTES_DIR, UNRECORDABLE, disputer_problem
 from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
 from physgate.orchestrator.escalation_state import RUBRIC_ITEM, escalation_state
@@ -134,6 +135,7 @@ from physgate.orchestrator.exceptions import (
     TrajectoryTamperedError,
     WorktreeMisplacedError,
 )
+from physgate.orchestrator.follow import FollowedInterface, rederived
 from physgate.orchestrator.follow_up import follow_up_order, owed
 from physgate.orchestrator.held_records import record_change, second_names, unaccounted
 from physgate.orchestrator.integration_state import issued_state
@@ -218,8 +220,8 @@ from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
 from physgate.state.exceptions import DesignStateError, StoreStaleError
 from physgate.state.held_file import HeldFile
 from physgate.state.protocol import REJECT_CROSS_ROLE
-from physgate.state.schema import validate_node
-from physgate.state.store import payload_digest
+from physgate.state.schema import Node, validate_node
+from physgate.state.store import Payload, payload_digest
 
 UNREAD = (
     "The session ended without completing its required reading, so nothing it "
@@ -2038,8 +2040,79 @@ class Loop:
                     revision=revision,
                 )
             )
-        if proposals:
+        followed = now.changes.followed if now.changes is not None else ()
+        if not self._apply_followed(subtask_id, attempt, role, proposals, followed):
+            return False
+        if proposals or followed:
             self._graph.commit(f"Nodes of subtask {subtask_id}, attempt {attempt}\n")
+        return True
+
+    def _apply_followed(
+        self,
+        subtask_id: str,
+        attempt: int,
+        role: str,
+        proposals: list[Payload],
+        followed: tuple[FollowedInterface, ...],
+    ) -> bool:
+        """Write each interface the change check followed, after the proposals, behind an intent.
+
+        Derived again first, from what the line records, and held to the proposals just written:
+        a revision that is not the derivation, or that follows a node other than the one written,
+        halts the run. The store's own method holds it to the interface and the joined nodes as
+        the journal has them, and refuses anything else.
+        """
+        now = self.state.subtasks[subtask_id].attempts[-1]
+        written = {str(p["id"]): payload_digest(p) for p in proposals}
+        for entry in followed:
+            if entry.interface in now.applied:
+                continue
+            why = rederived(entry, role)
+            if why is None and any(
+                written.get(node_id) != payload_digest(payload)
+                for node_id, payload in zip(entry.joined, entry.joined_payloads, strict=True)
+            ):
+                why = f"the revision of {entry.interface} follows nodes other than those written"
+            if why is not None:
+                self._incident(subtask_id, "store_refusal", why)
+                return False
+            expected = self.state.journal_head + 1
+            self._emit(
+                WriteIntended(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    attempt=attempt,
+                    node_id=entry.interface,
+                    payload_sha256=entry.payload_sha256,
+                    actor_role=role,
+                    expected_revision=expected,
+                )
+            )
+            try:
+                revision = self._graph.follow(entry.after, role, entry.joined)
+            except StoreStaleError:
+                if self._journal_clean():
+                    self._incident(
+                        subtask_id, "foreign_journal_line", "the store handle went stale"
+                    )
+                return False
+            except StoreRefusalError as exc:
+                self._incident(subtask_id, "store_refusal", f"{exc} ({exc.context.get('reason')})")
+                return False
+            if revision != expected:
+                self._incident(
+                    subtask_id, "foreign_journal_line", f"revision {revision}, not {expected}"
+                )
+                return False
+            self._emit(
+                WriteDone(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    attempt=attempt,
+                    node_id=entry.interface,
+                    revision=revision,
+                )
+            )
         return True
 
     def _judge(self, subtask_id: str, attempt: int) -> bool:
@@ -2057,10 +2130,14 @@ class Loop:
             self._reject(subtask_id, attempt, Finding(source="reading", text=UNREAD))
             return False
         self._stage(subtask_id, attempt, "implement")
+        # Only the cross-nodes owner's opening pass follows its interfaces (D-A2-37).
+        follows = self.state.follows(subtask_id) if role in owners_of("cross_nodes") else None
         check = self._recordable(
             subtask_id,
             attempt,
-            self._changes.check(subtask_id, session.attempt_commit, role, series=session.series),
+            self._changes.check(
+                subtask_id, session.attempt_commit, role, series=session.series, follows=follows
+            ),
         )
         self._emit(
             ProposalsChecked(
@@ -2119,6 +2196,7 @@ class Loop:
             earlier_sessions=self._earlier_sessions(subtask_id, attempt),
             series=self._attempt_series(subtask_id, attempt, check.series_checks),
             ordered_by_person=self._instruction(subtask_id, attempt)[1],
+            followed=check.followed,
         )
         self._stage(subtask_id, attempt, "gate")
         mode = self.config.gate_mode
@@ -2330,9 +2408,18 @@ class Loop:
         if not self._run_branch_holds(subtask_id, checked):
             return False
         try:
-            merge_commit = self._merger.merge(
-                subtask_id, attempt, checked, merge_text, reopen=sub.reopens
-            )
+            if changes.followed:
+                # The merge commit rewrites each followed interface's contract file, so every
+                # later session reads the revised values (D-A2-37).
+                contracts = contracts_of([Node.model_validate(e.after) for e in changes.followed])
+                merge_commit = self._merger.merge(
+                    subtask_id, attempt, checked, merge_text, reopen=sub.reopens,
+                    contracts=contracts,
+                )  # fmt: skip
+            else:
+                merge_commit = self._merger.merge(
+                    subtask_id, attempt, checked, merge_text, reopen=sub.reopens
+                )
         except (MergeConflictError, MergeRefusedError) as exc:
             cause: IncidentCause = (
                 "merge_conflict" if isinstance(exc, MergeConflictError) else "merge_refused"
@@ -2982,7 +3069,15 @@ class Loop:
         checked = now.diff
         since = min(now.applied.values()) - 1 if now.applied else self.state.journal_head
         role = self.state.subtasks[subtask_id].plan.assigned_role
-        found = self._graph.divergences(since, role)
+        followed = now.changes.followed if now.changes is not None else ()
+        admitted = frozenset(
+            now.applied[e.interface] for e in followed if e.interface in now.applied
+        )
+        found = (
+            self._graph.divergences(since, role, admitted=admitted)
+            if admitted
+            else self._graph.divergences(since, role)
+        )
         named = tuple(str(d) for d in found)
         if checked is None:
             self._emit(

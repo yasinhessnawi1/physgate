@@ -26,7 +26,7 @@ import json
 import math
 import re
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -150,7 +150,9 @@ def parse(path: str, data: bytes, role: str, nodes: Mapping[str, Mapping[str, ob
     if why is not None:
         raise DisputeError(why)
     node = nodes.get(node_id)
-    if node is None or node.get("domain") != "cross" or node.get("kind") == "interface":
+    if node is not None and node.get("kind") == "interface":
+        raise DisputeError(_interface_refusal(node_id, quantity, node, nodes))
+    if node is None or node.get("domain") != "cross":
         msg = (
             f"{node_id} is no cross node of the graph, or is an interface; a dispute is of a "
             "value the owner of the cross nodes wrote"
@@ -169,6 +171,45 @@ def parse(path: str, data: bytes, role: str, nodes: Mapping[str, Mapping[str, ob
         raise DisputeError(
             {"value": VALUE, "unit": UNIT, "reason": REASON}.get(field, SHAPE)
         ) from None
+
+
+def _listed(node: Mapping[str, object], key: str) -> Collection[object]:
+    """A payload's list or mapping under ``key``, or nothing where it holds none."""
+    found = node.get(key)
+    return found if isinstance(found, list | dict) else ()
+
+
+def _interface_refusal(
+    node_id: str,
+    quantity: str,
+    node: Mapping[str, object],
+    nodes: Mapping[str, Mapping[str, object]],
+) -> str:
+    """Why an interface's quantity is not disputed, naming the cross node to dispute instead.
+
+    The cross nodes joined to the interface (an edge either way) that hold the quantity, in id
+    order: an interface sizing produces takes their values (D-A2-37), so a dispute of the value is
+    a dispute of one of them.
+    """
+    holders = sorted(
+        other_id
+        for other_id, other in nodes.items()
+        if other_id != node_id
+        and other.get("domain") == "cross"
+        and other.get("kind") != "interface"
+        and (node_id in _listed(other, "constrains") or other_id in _listed(node, "constrains"))
+        and quantity in _listed(other, "quantities")
+    )
+    if holders:
+        where = (
+            f"dispute it on the cross node joined to it that holds {quantity}: {', '.join(holders)}"
+        )
+    else:
+        where = f"no cross node joined to it holds {quantity}, so there is no value to dispute"
+    return (
+        f"{node_id} is an interface, which no session writes or disputes; a dispute is of a value "
+        f"the owner of the cross nodes wrote, so {where}"
+    )
 
 
 def _body(data: bytes) -> tuple[float | int, str, str]:
