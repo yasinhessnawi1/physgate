@@ -941,9 +941,11 @@ class Store:
         attempt = _followed_attempt(node, ids[0])
         if attempt is None or node != followed_payload(current, sources, actor_role, attempt):
             return refused
-        # As written: a value of 2 and one of 2.0 are two writings.
-        if json.dumps([[q["value"], q["unit"]] for q in names.values()]) == json.dumps(
-            [[q["value"], q["unit"]] for q in node["quantities"].values()]
+        # By name, as written: a value of 2 and one of 2.0 are two writings.
+        if all(
+            json.dumps([q["value"], q["unit"]])
+            == json.dumps([node["quantities"][name]["value"], node["quantities"][name]["unit"]])
+            for name, q in names.items()
         ):
             return refused
         if not quantities_are_valid(node):

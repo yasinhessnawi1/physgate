@@ -135,8 +135,8 @@ from physgate.orchestrator.exceptions import (
     TrajectoryTamperedError,
     WorktreeMisplacedError,
 )
-from physgate.orchestrator.follow import FollowedInterface, rederived
 from physgate.orchestrator.follow_up import follow_up_order, owed
+from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.held_records import record_change, second_names, unaccounted
 from physgate.orchestrator.integration_state import issued_state
 from physgate.orchestrator.managed import policy_limits_change
@@ -221,7 +221,7 @@ from physgate.state.exceptions import DesignStateError, StoreStaleError
 from physgate.state.held_file import HeldFile
 from physgate.state.protocol import REJECT_CROSS_ROLE
 from physgate.state.schema import Node, validate_node
-from physgate.state.store import Payload, payload_digest
+from physgate.state.store import payload_digest
 
 UNREAD = (
     "The session ended without completing its required reading, so nothing it "
@@ -2041,7 +2041,7 @@ class Loop:
                 )
             )
         followed = now.changes.followed if now.changes is not None else ()
-        if not self._apply_followed(subtask_id, attempt, role, proposals, followed):
+        if not self._apply_followed(subtask_id, attempt, role, followed):
             return False
         if proposals or followed:
             self._graph.commit(f"Nodes of subtask {subtask_id}, attempt {attempt}\n")
@@ -2052,30 +2052,20 @@ class Loop:
         subtask_id: str,
         attempt: int,
         role: str,
-        proposals: list[Payload],
         followed: tuple[FollowedInterface, ...],
     ) -> bool:
         """Write each interface the change check followed, after the proposals, behind an intent.
 
-        Derived again first, from what the line records, and held to the proposals just written:
-        a revision that is not the derivation, or that follows a node other than the one written,
-        halts the run. The store's own method holds it to the interface and the joined nodes as
-        the journal has them, and refuses anything else.
+        The record holds both ends: the change check's line was taken only as the derivation of
+        what it records, and an intent only as that line's revision, after the joined nodes were
+        written as the payloads it records (``RunState``'s rules, applied as each line is
+        written). The store's own method holds the revision to the interface and the joined
+        nodes as the journal has them, and refuses anything else.
         """
         now = self.state.subtasks[subtask_id].attempts[-1]
-        written = {str(p["id"]): payload_digest(p) for p in proposals}
         for entry in followed:
             if entry.interface in now.applied:
                 continue
-            why = rederived(entry, role)
-            if why is None and any(
-                written.get(node_id) != payload_digest(payload)
-                for node_id, payload in zip(entry.joined, entry.joined_payloads, strict=True)
-            ):
-                why = f"the revision of {entry.interface} follows nodes other than those written"
-            if why is not None:
-                self._incident(subtask_id, "store_refusal", why)
-                return False
             expected = self.state.journal_head + 1
             self._emit(
                 WriteIntended(
