@@ -10,8 +10,9 @@ The digests below are of the prompt and the schema as the code sent them before 
 two roles were planned for, with what every run has been sent since: the store's pattern
 on an interface node's id in the schema, and the sentence giving that form in the
 prompt; and in the prompt, the gate's quantity names, generated from its catalogue, and who
-writes interface nodes. A change to either for such a run is a change to what every ordinary
-run sends, and turns this red.
+writes interface nodes; and since D-A2-38, where the gate has a bound and what forms each of its
+relations, generated from the tables and the catalogue it loads. A change to either for such a
+run is a change to what every ordinary run sends, and turns this red.
 """
 
 from __future__ import annotations
@@ -24,10 +25,13 @@ from physgate import roles
 from physgate.orchestrator.decompose import (
     INTERFACE_WRITER_SENTENCE,
     Plan,
+    bounds_sentence,
     catalogue_sentence,
+    interface_writer_sentence,
     plan_model,
     plan_schema,
     prompt_for,
+    relations_sentence,
 )
 
 BRIEF = "Build a robot."
@@ -36,16 +40,18 @@ BRIEF = "Build a robot."
 SCHEMA_LENGTH = 3807
 SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f3357"
 
-#: The prompt for ``BRIEF`` and each set of roles, as it was sent before.
+#: The prompt for ``BRIEF`` and each set of roles, as it is sent since D-A2-38 (03.11.2026): the
+#: catalogue's two new kinds and three new names, and the bounds and relations sentences. Before
+#: it: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40..., in this order.
 PROMPT_SHA256 = {
-    ("control", "firmware"): "748902966f0665b24cdfb1fdf8a06a08d401ddc134729439d2352e9e917a0717",
-    ("electrical",): "95fe568607b04a899297e82c505122cb1fc94fdc950c18d4c71c9876da24d208",
+    ("control", "firmware"): "dd56ee830053b0132c75fbcef564b9faa67c8adc3f346dc3a632d2b408c86f8d",
+    ("electrical",): "eefd8ba42c142622f94f59d3c2cd41f4ec77b8e6c9d68b82978a402f354e2528",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "2f9c1d0dbb40ffba995a578035dfba2e22dd5ab4886f312ebe515ead067ebe23",
+    ): "a0d39189207269a4faf7e1fa644d4dd8c91a2fa8feffbfb280f84d1ceb6fef5c",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -63,6 +69,9 @@ PROMPT = (
     # The catalogue's names, from the catalogue: a copy here would hold the test to a list the
     # catalogue no longer keeps. The digests above hold the bytes.
     f"{catalogue_sentence()}\n\n"
+    # Where the gate has a bound, and what forms each relation: from what the gate loads.
+    f"{bounds_sentence()}\n\n"
+    f"{relations_sentence()}\n\n"
     f"{INTERFACE_WRITER_SENTENCE}\n\n"
     "Answer by calling StructuredOutput once.\n\n"
     "Brief:\nBuild a robot.\n"
@@ -100,13 +109,16 @@ def test_with_sizing_alone_the_schema_is_as_before_and_the_prompt_gains_one_sent
     sizing_registered: None,
 ) -> None:
     # Sizing is planned as an ordinary module, so the plan's form does not change; the
-    # prompt says only that it has one module at most.
+    # prompt says that it has one module at most, and (D-A2-37) that the interfaces it produces
+    # follow a node of its own joined to them, in place of the sentence every other run is sent.
     run_roles = ("control", "firmware", "sizing")
     schema = plan_schema(run_roles)
     assert (len(schema), _sha(schema)) == (SCHEMA_LENGTH, SCHEMA_SHA256)
     assert plan_model(run_roles) is Plan
     prompt = prompt_for(BRIEF, run_roles)
-    before = PROMPT.replace("control, firmware.", "control, firmware, sizing.")
+    before = PROMPT.replace("control, firmware.", "control, firmware, sizing.").replace(
+        INTERFACE_WRITER_SENTENCE, interface_writer_sentence("sizing")
+    )
     added = [p for p in prompt.split("\n\n") if p not in before.split("\n\n")]
     assert len(added) == 1, added
     (sentence,) = added

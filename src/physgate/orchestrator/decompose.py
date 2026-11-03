@@ -31,7 +31,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from physgate.contracts.pairs import ContractError, ContractPair, pairing_problems, plan_pairs
-from physgate.gate.catalogue import KINDS, QUANTITIES, shadowing_names
+from physgate.gate.bounds_table import load_bounds
+from physgate.gate.catalogue import KINDS, QUANTITIES, RELATIONS, shadowing_names
 from physgate.hooks.settings import protected_in_a_worktree
 from physgate.knowledge.library import LibraryError, put_into, read_library
 from physgate.orchestrator.accounting import require_matching_totals
@@ -552,12 +553,61 @@ def catalogue_sentence() -> str:
     )
 
 
-#: Who writes interface nodes, as every decomposition prompt states it.
+def bounds_sentence() -> str:
+    """Where the gate holds a value to a sourced span, generated from the tables it loads.
+
+    Each range by its name and the domains whose tables hold it, then each envelope by its kind,
+    which holds in every domain (D-A2-38). Generated, never copied by hand, so the prompt cannot
+    name a bound the gate does not hold; the spans themselves are not given.
+    """
+    bounds = load_bounds()
+    domains: dict[str, list[str]] = {}
+    for domain, table in sorted(bounds.tables.items()):
+        for name in table.ranges:
+            domains.setdefault(name, []).append(domain)
+    named = "; ".join(
+        f"`{name}` in {' and '.join(sorted(domains[name]))}" for name in sorted(domains)
+    )
+    kinds = " and every ".join(kind.replace("_", " ") for kind in sorted(bounds.envelopes))
+    by_kind = f"; and by kind, in every domain and under any name of that kind, every {kinds}"
+    return (
+        "The gate holds a value to a sourced span only where its tables give one: by name, in "
+        f"the domain of the node that holds it, {named or 'none'}"
+        f"{by_kind if bounds.envelopes else ''}. Every other value is checked for its unit and "
+        "in the relations below, and for nothing else."
+    )
+
+
+def relations_sentence() -> str:
+    """What forms each relation the gate judges, generated from its catalogue's statements."""
+    statements = "; ".join(relation.statement for relation in RELATIONS.values())
+    return (
+        "The gate's relations hold only where the nodes and their constrains edges form them: "
+        "a node's constrains edges name what it draws from or belongs to, so a consumer names "
+        "its supply and a module's member names the module, a node of kind module. Each is "
+        f"judged where it forms: {statements}. A relation the nodes do not form is not judged."
+    )
+
+
+#: Who writes interface nodes, as every decomposition prompt of a run without the role that
+#: owns the cross nodes states it.
 INTERFACE_WRITER_SENTENCE = (
     "Interface nodes are written by the harness from this plan, before any module's session "
     "runs, and never by a session: a specification never asks its module to write, rewrite or "
     "correct one, and a module that refines a value writes it in a node of its own."
 )
+
+
+def interface_writer_sentence(owner: str) -> str:
+    """Who writes interface nodes, in a run where ``owner`` writes the cross nodes (D-A2-37)."""
+    return (
+        "Interface nodes are written by the harness, never by a session: a specification never "
+        f"asks its module to write, rewrite or correct one. The {owner} module keeps a node of "
+        "its own joined to each interface it produces, naming the interface in its constrains "
+        "edges and holding every one of its quantities under the same name, and the interface "
+        f"takes that node's values when the {owner} module's first pass merges, before any module "
+        "reads it. Every other interface keeps the plan's values."
+    )
 
 
 def _one_module_sentence(role: str) -> str:
@@ -572,15 +622,22 @@ def _one_module_sentence(role: str) -> str:
 def prompt_for(brief: str, roles: Sequence[str]) -> str:
     """The decomposition prompt: a fixed template around the brief.
 
-    A cross-cutting role of the run adds its sentences: sizing's, that it has one module
-    at most; integration's, which ask for the system requirements, by the brief's number where
-    it numbers its criteria, and for module criteria numbered as they are read. Integration is
+    Every prompt says where the gate has a bound and what forms each relation, generated from
+    what the gate loads (D-A2-38). A cross-cutting role of the run adds its sentences: sizing's,
+    that it has one module at most, and that it keeps a node joined to each interface it
+    produces, which the interface follows (D-A2-37); integration's, which ask for the system
+    requirements, by the brief's number where it numbers its criteria, and for module criteria
+    numbered as they are read. Integration is
     not offered as a module's role, since the harness writes its specification. A run with
     neither is sent the template as it was before either was planned for.
     """
     completion = _in_run("completion", roles)
     offered = sorted(role for role in roles if role not in completion)
-    added = "".join(f"{_one_module_sentence(role)}\n\n" for role in _in_run("cross_nodes", roles))
+    owners = _in_run("cross_nodes", roles)
+    added = "".join(f"{_one_module_sentence(role)}\n\n" for role in owners)
+    writers = (
+        interface_writer_sentence(owners[0]) if len(owners) == 1 else INTERFACE_WRITER_SENTENCE
+    )
     if completion:
         form = requirement_form_sentence(brief)
         asked = REQUIREMENTS_SENTENCE if form is None else f"{REQUIREMENTS_SENTENCE} {form}"
@@ -596,7 +653,9 @@ def prompt_for(brief: str, roles: Sequence[str]) -> str:
         "unit, a source and the role that wrote it. "
         f"{NODE_ID_SENTENCE}\n\n"
         f"{catalogue_sentence()}\n\n"
-        f"{INTERFACE_WRITER_SENTENCE}\n\n"
+        f"{bounds_sentence()}\n\n"
+        f"{relations_sentence()}\n\n"
+        f"{writers}\n\n"
         f"{added}"
         "Answer by calling StructuredOutput once.\n\n"
         f"Brief:\n{brief}\n"

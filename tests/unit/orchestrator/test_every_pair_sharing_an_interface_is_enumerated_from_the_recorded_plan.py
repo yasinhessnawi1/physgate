@@ -61,13 +61,16 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 #: The prompt and the schema of a run with integration as they were sent before the pairing
 #: rule: the rule is a check on the answer and changes neither. Both carry the form of an
 #: interface node's id, which every run is told: the store's pattern, and its sentence. The
-#: prompt also names the gate's quantity names and who writes interface nodes, as every run's.
+#: prompt also names the gate's quantity names and who writes interface nodes, as every run's,
+#: and since D-A2-38 (03.11.2026) where the gate has a bound and what forms each relation; with
+#: sizing, since D-A2-37, that its interfaces follow its joined node. Before them: f56406956965...
+#: and 1a3802deb6f1..., in this order.
 INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "f56406956965079060bf11bb71409f000ed4513bf5e1d80390cd45df0dc72c0a"
+        "08a7e77a7464a16c7d07809bb5c0496945e31c1c088f14b028d15a92d9ff80dd"
     ),
-    BOTH: "1a3802deb6f16ce251041a0ef09f7c76682e874f874ea713881fd252b6703e41",
+    BOTH: "b26536a3481863473b2c9b1a9b3a96f27578eab0c22a030ca00e00487269b0f7",
 }
 
 
