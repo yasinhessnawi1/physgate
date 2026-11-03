@@ -7,9 +7,10 @@ its bounds table is the one file in it named ``bounds.toml``. A table holds
 every domain and under any name that kind is written under: the span outside
 which no value of that kind occurs on the class of machine the gate judges. A
 range in the writer's own domain is applied before any envelope and never
-replaced by one. One kind gets one envelope, in one table. No envelope is loaded
-today: each drafted one is a product-class assumption, not physics, and is withheld in
-the cross-domain table's comments until a ruling loads it. No agent session
+replaced by one. One kind gets one envelope, in one table. Only definitional envelopes
+are loaded (an efficiency and a duty cycle, 0 to 1: D-A2-38); each drafted product-class
+one is an assumption, not physics, and is withheld in the cross-domain table's comments
+until a ruling loads it. No agent session
 can widen a range to make its own number pass: the physics gate always builds
 in the orchestrator's own live process, from whatever checkout is driving the
 run, never through the read-only installation copy a role session's hooks run
@@ -154,10 +155,10 @@ class _Meta(_Frozen):
 
 
 class _File(_Frozen):
-    #: A table may hold no live entry: the cross-domain table keeps its envelopes drafted
-    #: in its comments, each with its source, until a ruling loads one. Such a table loads
-    #: with nothing in it, and the magnitude check records every quantity it would have
-    #: judged as unchecked.
+    #: A table may hold no live entry: the cross-domain table keeps its product-class
+    #: envelopes drafted in its comments, each with its source, until a ruling loads one.
+    #: Such a table loads with nothing in it, and the magnitude check records every
+    #: quantity it would have judged as unchecked.
     meta: _Meta
     range: list[Range] = Field(default_factory=list)
     envelope: list[Envelope] = Field(default_factory=list)

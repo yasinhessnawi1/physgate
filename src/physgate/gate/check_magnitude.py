@@ -11,10 +11,12 @@ refused with the value, the span and its source (ARCH-080). A quantity with no r
 for its name and no envelope for its kind is recorded as unchecked for magnitude,
 never as passed.
 
-No envelope is loaded today: each drafted one (a voltage, a temperature, a mass, a length)
-is a product-class assumption, not physics, and is withheld in the cross-domain table's
-comments until a ruling loads it, so a quantity with no range for its name in its domain
-is unchecked.
+Two envelopes are loaded, each a definition rather than a product class: an efficiency and
+a duty cycle are fractions, 0 to 1, in every domain (D-A2-38). Every product-class envelope
+drafted (a voltage, a temperature, a mass, a length) is an assumption, not physics, and is
+withheld in the cross-domain table's comments until a ruling loads it, so a quantity of
+those kinds with no range for its name in its domain is unchecked. The inertial sensor's
+``output_data_rate`` has its range in the electrical and the firmware tables.
 
 Named limit: a range applies to every quantity of its name in its domain, and its note
 says which class it was drawn from. The electrical ``sample_rate`` range is an inertial

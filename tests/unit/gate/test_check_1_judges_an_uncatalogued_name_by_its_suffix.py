@@ -61,6 +61,9 @@ def test_the_list_is_closed_and_every_suffix_has_one_kind_and_a_source() -> None
         "_diameter": "length",
         "_radius": "length",
         "_thickness": "length",
+        # The two fractions (D-A2-38), each bounded from 0 to 1 by its definition.
+        "_efficiency": "efficiency",
+        "_duty_cycle": "duty_cycle",
     }
     assert all(s.kind in KINDS and s.source for s in SUFFIXES)
 

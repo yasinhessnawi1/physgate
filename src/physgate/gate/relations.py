@@ -124,6 +124,13 @@ def _members(view: GraphView, target: str, name: str) -> tuple[TermRef, ...]:
     return tuple(TermRef(n, name) for n in view.constrained_by(target) if _has(view, n, name))
 
 
+def _bounded(view: GraphView, node_id: str) -> bool:
+    """Whether a node its ``constrains`` edges name holds a current limit."""
+    return any(
+        t in view.nodes and _has(view, t, "current_limit") for t in view.nodes[node_id].constrains
+    )
+
+
 def instances(view: GraphView) -> list[Instance]:
     """Every relation instance in the graph, in a stable order."""
     found: list[Instance] = []
@@ -197,6 +204,31 @@ def instances(view: GraphView) -> list[Instance]:
                     right=(TermRef(node_id, "current_limit"),),
                 )
                 for consumer in _members(view, node_id, "stall_current")
+            )
+        if "stall_current" in q and "current_limit" in q:
+            # A node holding both is held to its own limit: a consumer aggregated with the
+            # supply that carries it, which its stall must not overrun either.
+            found.append(
+                Instance(
+                    relation=RELATIONS["current_limit"],
+                    subject=node_id,
+                    left=(TermRef(node_id, "stall_current"),),
+                    op="<=",
+                    right=(TermRef(node_id, "current_limit"),),
+                )
+            )
+        elif "stall_current" in q and not _bounded(view, node_id):
+            # A stall current no limit bounds, on its node or on a node its edges name, is
+            # kept with the limit missing, so it is recorded as unchecked, never passed.
+            found.append(
+                Instance(
+                    relation=RELATIONS["current_limit"],
+                    subject=node_id,
+                    left=(TermRef(node_id, "stall_current"),),
+                    op="<=",
+                    right=(),
+                    missing=("current_limit",),
+                )
             )
         members = _members(view, node_id, "mass")
         if node.kind == "module" and members:

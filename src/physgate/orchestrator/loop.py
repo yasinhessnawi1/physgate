@@ -2420,12 +2420,19 @@ class Loop:
                 retried = True
 
     def _scopes(self, subtask_id: str) -> tuple[AttemptScope, ...]:
-        """Subtask scope always; module scope when this completes its module.
+        """Subtask scope always; module scope when this completes its module, or is sizing's.
 
         A module is complete when the last planned subtask for its directory is
-        judged; a subtask taken out of the plan does not count.
+        judged; a subtask taken out of the plan does not count. Every subtask of the
+        cross-nodes owner is also judged at module scope (ARCH-080, D-A2-38): the domains
+        read sizing's nodes as they stand after its opening pass, so the relations those
+        nodes form are judged there. A domain's subtask keeps module scope only when it
+        completes its module, since a half-written module would fail its mass sum falsely.
         """
-        module_dir = self.state.subtasks[subtask_id].plan.module_dir
+        plan = self.state.subtasks[subtask_id].plan
+        if plan.assigned_role in owners_of("cross_nodes"):
+            return ("subtask", "module")
+        module_dir = plan.module_dir
         same = [
             s
             for s in self.state.order

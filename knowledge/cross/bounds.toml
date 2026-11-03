@@ -8,7 +8,11 @@
 # never replaced by one. Each envelope names its source, the date it was read, the date its
 # figures were confirmed in the document named, and what it does and does not claim.
 #
-# No envelope is loaded. Every one drafted below is a product-class assumption, not
+# Two envelopes are loaded, and each is a definition, not a product class: an efficiency
+# and a duty cycle are fractions, 0 to 1, whatever the machine (D-A2-38, 03.11.2026). They
+# are at the end of this file. Every other one, drafted below, is withheld.
+#
+# Every envelope drafted below is a product-class assumption, not
 # physics: what a hobby-class machine happens to run at, not what a design cannot be. Each
 # refuses a correct design outside that class (a 72 V e-bike supply, a 400 V traction bus,
 # a 3-D printer's 300 C hotend, a soldering iron, a standoff at 10 m in the equilibrium
@@ -47,4 +51,47 @@
 
 [meta]
 domain = "cross"
-curated_by = "the physics gate's own build, drafted from the sources named and confirmed in them on 19.10.2026; every envelope withheld pending a ruling; not yet reviewed through the knowledge layer's promotion step"
+curated_by = "the physics gate's own build, drafted from the sources named and confirmed in them on 19.10.2026; every product-class envelope withheld pending a ruling; the two definitional envelopes drafted by the builder on 03.11.2026 for the owner's review; not yet reviewed through the knowledge layer's promotion step"
+
+[[envelope]]
+kind = "efficiency"
+low = 0
+high = 1
+unit = "1"
+class = "any passive transmission or converter at steady state: a gear stage, a driver, a regulator"
+source = """By definition an efficiency is the power a stage delivers over the power it takes in. \
+At steady state the first law gives input power = output power + heat dissipated, with the heat \
+never negative, which is the catalogue's own energy_balance relation and its source ("the first \
+law of thermodynamics for a component at steady state"); so a passive stage's efficiency lies \
+from 0 to 1. A quantity of dimension one, written as a number or a fraction (the SI Brochure, \
+9th edition, 2019, NIST SP 330-2019, the catalogue's citation for every kind: section 2.3.4 and \
+the notes to Table 4, read via search, not in full, 26.09.2026)"""
+retrieved = 2026-11-03
+confirmed = 2026-11-03
+note = """A definition, not a product class: no passive stage delivers more than it takes in, \
+so a value above 1 is a mistake in the arithmetic or the unit (a percentage written as a bare \
+number), never a better part. It bounds the size of a value; the sign is the unit check's. \
+Named limit: a ratio written under an efficiency name that is not output over input (a heat \
+pump's coefficient of performance, an active stage's gain) is refused above 1; such a ratio has \
+its own name. Drafted by the builder for the owner's review (03.11.2026)."""
+
+[[envelope]]
+kind = "duty_cycle"
+low = 0
+high = 1
+unit = "1"
+class = "any pulse-width-modulated or periodic on-off signal: a motor command, a heater, a switch"
+source = """By definition a duty cycle is the time a periodic signal is on in each period over \
+the period, so it lies from 0 (never on) to 1 (always on). The repository's sizing standards \
+(section 6) use it so: a count limit n of a full scale n_max is the duty n / n_max, and a driver \
+that brakes in its off time applies on average D times its supply for duty D (Texas Instruments, \
+DRV883x Low-Voltage H-Bridge Driver, SLVSBA4F, revised April 2021, section 7.3.1, Table 7-2, as \
+those standards cite it). A quantity of dimension one (the SI Brochure, 9th edition, 2019, \
+NIST SP 330-2019, the catalogue's citation for every kind: section 2.3.4 and the notes to \
+Table 4, read via search, not in full, 26.09.2026)"""
+retrieved = 2026-11-03
+confirmed = 2026-11-03
+note = """A definition, not a product class: a signal cannot be on for more than its whole \
+period, so a value above 1 is a mistake in the arithmetic or the unit (a percentage or a count \
+written as a bare number). It bounds the size of a value; the sign is the unit check's. Drafted \
+by the builder for the owner's review (03.11.2026)."""

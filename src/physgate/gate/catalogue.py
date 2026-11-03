@@ -43,6 +43,23 @@ SI_BROCHURE = (
     "section 2.3.4 and the notes to Table 4 (read via search, not in full, 26.09.2026)"
 )
 WORKLOAD = "the name as the design-state graph's reference workload uses it"
+#: The two kinds whose span is a definition, not a product class (D-A2-38): each is a
+#: fraction, so the cross-domain table bounds it from 0 to 1 in every domain.
+EFFICIENCY = (
+    "the power a stage delivers over the power it takes in, a quantity of dimension one; at "
+    "steady state the first law (the energy_balance relation's source) holds a passive "
+    "stage's from 0 to 1"
+)
+DUTY_CYCLE = (
+    "the time a periodic signal is on in each period over the period, a quantity of dimension "
+    "one, from 0 to 1"
+)
+#: The inertial sensor's rate, under its own name: the electrical and firmware tables hold it
+#: to the six makers' data sheets' range.
+OUTPUT_DATA_RATE = (
+    "the rate at which an inertial sensor (a gyroscope, an accelerometer) delivers samples, "
+    "as its data sheet sets it; not a control or firmware loop's rate"
+)
 
 
 class _Frozen(BaseModel):
@@ -102,6 +119,8 @@ KINDS: Mapping[str, Kind] = _kinds(
     Kind(name="temperature_difference", canonical="K", source=SI_BROCHURE),
     Kind(name="thermal_resistance", canonical="K/W", sign="positive", source=SI_BROCHURE),
     Kind(name="dimensionless", canonical="dimensionless", source=SI_BROCHURE),
+    Kind(name="efficiency", canonical="dimensionless", sign="nonnegative", source=EFFICIENCY),
+    Kind(name="duty_cycle", canonical="dimensionless", sign="nonnegative", source=DUTY_CYCLE),
 )
 
 
@@ -198,6 +217,9 @@ QUANTITIES: Mapping[str, Entry] = _entries(
     Entry(name="stall_torque", kind="torque", source=FIXTURES),
     Entry(name="torque_peak", kind="torque", source=WORKLOAD),
     Entry(name="sample_rate", kind="frequency", source=WORKLOAD),
+    Entry(name="output_data_rate", kind="frequency", source=OUTPUT_DATA_RATE),
+    Entry(name="efficiency", kind="efficiency", source=EFFICIENCY),
+    Entry(name="duty_cycle", kind="duty_cycle", source=DUTY_CYCLE),
     Entry(name="no_load_speed", kind="angular_velocity", source=FIXTURES),
     Entry(name="max_temperature", kind="temperature", source=FIXTURES),
     Entry(name="ambient_temperature", kind="temperature", source=FIXTURES),
@@ -396,7 +418,10 @@ RELATIONS: Mapping[str, Relation] = MappingProxyType(
             ),
             Relation(
                 name="current_limit",
-                statement="a consumer's stall current is at most its supply's current limit",
+                statement=(
+                    "a consumer's stall current is at most the current limit on its own node, "
+                    "and at most that of each supply its constrains edges name"
+                ),
                 judged_by=4,
                 source=HEADROOM,
             ),
@@ -485,7 +510,8 @@ SUFFIX_RULE = (
     "as unchecked, never refused; a word with more than one meaning there (_current, which "
     "is also a loss in watts; _position, _length, _width and _height, which are also counts, "
     "pulses and ratios; _temperature, which is also a colour or a difference; _energy, "
-    "_power, _rate, _ratio, _capacity, _resistance, _limit, _draw) is not here"
+    "_power, _rate, _ratio, _capacity, _resistance, _limit, _draw) is not here; "
+    "_efficiency and _duty_cycle added 03.11.2026, each a fraction by its definition"
 )
 
 
@@ -508,6 +534,8 @@ SUFFIXES: tuple[Suffix, ...] = _suffixes(
     Suffix(suffix="_diameter", kind="length", source=SUFFIX_RULE),
     Suffix(suffix="_radius", kind="length", source=SUFFIX_RULE),
     Suffix(suffix="_thickness", kind="length", source=SUFFIX_RULE),
+    Suffix(suffix="_efficiency", kind="efficiency", source=SUFFIX_RULE),
+    Suffix(suffix="_duty_cycle", kind="duty_cycle", source=SUFFIX_RULE),
 )
 
 
