@@ -33,7 +33,21 @@ One row per quantity sizing writes (§1, §2):
 5. Use a name the automated checks know where the quantity is one. Under a name a check compares
    with a bound, write the value it must judge (the largest demand, the rating); under any other,
    the brief's or the nominal value. Other conditions go under `_max`, `_min` or `_nominal` (§10).
+   An efficiency or a duty cycle is a fraction in the unit `1`, under `efficiency`, `duty_cycle` or
+   a name ending in `_efficiency` or `_duty_cycle` (§10).
 6. A quantity two domains read that the plan gave sizing no node for is listed as unowned (§1).
+
+## Procedure: the interfaces sizing produces
+
+1. List every interface node the plan gives sizing (its owner is sizing) and its quantities.
+2. For each, keep one node of your own in the cross-quantity table that names the interface in its
+   `constrains` edges and holds every one of the interface's quantities under the same name, in a
+   unit of the same kind, with the value the domains are to read (§10). Values at other conditions
+   go under suffixed names on that node.
+3. Never write the interface node: at the change check of your first pass the harness writes it
+   from your joined node, and your reviewer is shown each value that changes, old and new. An
+   interface with no joined node, a missing name, two joined nodes that disagree, or a unit of
+   another kind refuses the attempt before the gate (§10).
 
 ## Procedure: the supply range
 
@@ -131,5 +145,10 @@ In a record under your module directory, cited from the `source` of the value it
 - **A name of your own for a known quantity.** It leaves the value unchecked (§10).
 - **A missing edge.** A cross node with no `constrains` edge to a node that uses it lets a change
   go unpropagated (§10, §11).
+- **An interface left to the plan's guess.** No node of sizing's joined to an interface it
+  produces, or one that lacks one of its names: the attempt is refused, and the domains would read
+  the plan's forecast instead of the computed values (§10).
+- **A percentage as a fraction.** An efficiency of 90 or a duty of 75 is refused; write 0.9 and
+  0.75 (§10).
 - **A closing pass that only re-reads.** A changed domain node owes a rewrite or a stated reason
   (§11).
