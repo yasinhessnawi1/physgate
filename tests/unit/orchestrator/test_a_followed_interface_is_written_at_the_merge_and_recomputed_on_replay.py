@@ -211,7 +211,19 @@ def rig_of(run_dir: Path) -> Rig:
     )
 
 
-def run(rig: Rig, plan: list[PlanEntry] = PLAN) -> str:
+def _followable(recorded: bool) -> dict[str, Any]:
+    """The decomposition's record of the interface sizing produces, where the build records one."""
+    if not recorded or "followable" not in DecompositionSummary.model_fields:
+        return {}
+    from physgate.orchestrator.events import Followable
+
+    return {
+        "followable": Followable(role="sizing", payload_sha256={IFACE: payload_digest(INTERFACE)})
+    }
+
+
+def run(rig: Rig, plan: list[PlanEntry] = PLAN, *, recorded: bool = True) -> str:
+    """The run's end; ``recorded`` is whether its decomposition recorded sizing's interface."""
     loop = rig.open()
     summary = DecompositionSummary(
         session_id="decomp-1",
@@ -221,6 +233,7 @@ def run(rig: Rig, plan: list[PlanEntry] = PLAN) -> str:
         interface_nodes=(IFACE,),
         spec_commit="a" * 40,
         head_revision=1,
+        **_followable(recorded),
     )
     loop.record.start(plan, decomposed=summary)
     _layer(loop)
@@ -343,10 +356,30 @@ def _intent_moved(line: dict[str, Any]) -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("edit", "said"),
     [
-        pytest.param(_forge_value, "derivation", id="a-value-changed-by-hand"),
-        pytest.param(_forge_joined, "joined", id="a-joined-node-not-what-the-attempt-wrote"),
-        pytest.param(_unexplained, "interface", id="an-interface-write-no-line-explains"),
-        pytest.param(_intent_moved, "interface", id="an-intent-with-another-digest"),
+        pytest.param(
+            _forge_value,
+            f"the followed revision of {IFACE} is not the derivation of the interface and the "
+            "joined nodes it records",
+            id="a-value-changed-by-hand",
+        ),
+        pytest.param(
+            _forge_joined,
+            f"{JOINED} is joined to the interface {IFACE}, and its write is not the payload the "
+            "followed revision was derived from",
+            id="a-joined-node-not-what-the-attempt-wrote",
+        ),
+        pytest.param(
+            _unexplained,
+            f"a write of the interface {IFACE} that no followed line explains: an interface is "
+            "written from the plan, and revised only as its change check followed",
+            id="an-interface-write-no-line-explains",
+        ),
+        pytest.param(
+            _intent_moved,
+            f"the write of the interface {IFACE} is not the revision its change check followed, "
+            "written after the attempt's own nodes it follows",
+            id="an-intent-with-another-digest",
+        ),
     ],
 )
 def test_replay_refuses_a_followed_revision_the_record_does_not_derive(
@@ -355,8 +388,7 @@ def test_replay_refuses_a_followed_revision_the_record_does_not_derive(
     said: str,  # noqa: ANN401
 ) -> None:
     events = _edited(_honest(tmp_path), edit)
-    why = refusal(events)
-    assert why is not None and said in why
+    assert refusal(events) == said
 
 
 def test_replay_refuses_a_followed_line_where_none_is_due(tmp_path: Path) -> None:
@@ -370,6 +402,8 @@ def test_replay_refuses_a_followed_line_where_none_is_due(tmp_path: Path) -> Non
             line["followed"] = [json.loads(f.model_dump_json()) for f in followed]
         return line
 
-    why = refusal(_edited(events, moved))
-    assert why is not None and "follow" in why
+    assert refusal(_edited(events, moved)) == (
+        "a change check follows an interface where no follow is due: only an attempt of a "
+        "module's opening subtask, before any other module spawned, follows one"
+    )
     assert any(isinstance(e, Merged) and e.subtask_id == "zc" for e in events)
