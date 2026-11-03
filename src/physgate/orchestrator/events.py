@@ -870,6 +870,21 @@ class FindingsRecorded(_Event):
     halt: IncidentCause
 
 
+class Followable(BaseModel):
+    """The interfaces the role that owns the cross nodes produces, as the decomposition wrote them.
+
+    Only these follow that role's opening pass, and only that role's change check follows them:
+    replay holds each followed line to ``role`` and the interface it revises to the digest of the
+    payload the store held for it here. The role is the register's when the line is written,
+    never when it is read, as a planning line's completion mark is.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    role: NonEmptyStr
+    payload_sha256: Annotated[dict[NodeIdKey, Sha256], Field(min_length=1)]
+
+
 class Decomposed(_Event):
     """The run's one model call produced a plan, and what it wrote."""
 
@@ -900,6 +915,19 @@ class Decomposed(_Event):
     #: number, in the list's order; left out when there are none. Taken from the brief the call
     #: was given, which the record holds by its digest alone.
     brief_words: tuple[CriterionWords, ...] | None = None
+    #: The interfaces the role that owns the cross nodes produces, each by the digest of its
+    #: payload as the store held it; left out where that role produces none, or no one role owns
+    #: the cross nodes, and then no interface follows.
+    followable: Followable | None = None
+
+    @model_validator(mode="after")
+    def _the_followable_interfaces_are_its_own(self) -> Decomposed:
+        if self.followable is not None and not set(self.followable.payload_sha256) <= set(
+            self.interface_nodes
+        ):
+            msg = "a followable interface is an interface node of the plan"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _both_lists_or_neither(self) -> Decomposed:
@@ -932,7 +960,13 @@ class Decomposed(_Event):
     def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         # Left out when absent, so a line without them is written exactly as before they existed.
         data: dict[str, Any] = handler(self)
-        for name in ("plan_sha256", "interface_consumers", "system_requirements", "brief_words"):
+        for name in (
+            "plan_sha256",
+            "interface_consumers",
+            "system_requirements",
+            "brief_words",
+            "followable",
+        ):
             if data.get(name) is None:
                 data.pop(name, None)
         return data

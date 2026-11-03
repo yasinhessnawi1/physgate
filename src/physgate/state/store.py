@@ -901,9 +901,13 @@ class Store:
         write as before. This accepts exactly one kind of revision (D-A2-37): ``node`` must be
         the interface as the store holds it with each quantity copied from the first of the
         ``joined`` nodes (:func:`followed_payload`), written by the interface's owner role, where
-        every joined node is a node of that role in the store, not an interface, joined to it by
-        a ``constrains`` edge either way, holding every one of its names, and where something
-        differs. Anything else is refused with ``interface_not_followed`` and writes nothing.
+        ``joined`` is every node of that role the store's heads hold that is not an interface and
+        is joined to it by a ``constrains`` edge either way, in id order, each holding every one
+        of its names, and where something differs. A revision copied from some of the joined
+        nodes is refused even where the rest agree: whether they agree is the change check's
+        judgement, which this copy cannot repeat without the units, so the copy is held to the
+        whole set that judgement was made over. Anything else is refused with
+        ``interface_not_followed`` and writes nothing.
         The line it appends is an ordinary ``write`` one version on, which recovery replays as
         it replays every write.
 
@@ -915,29 +919,28 @@ class Store:
         node_id = validate_node_id(node.get("id"))
         refused = WriteResult(False, None, REJECT_INTERFACE_NOT_FOLLOWED)
         known = self._head.get(node_id)
-        ids = tuple(joined)
-        if known is None or not ids or list(ids) != sorted(set(ids)):
+        if known is None:
             return refused
         current = self._read_node(node_id)
         if current["kind"] != "interface" or current["owner_role"] != actor_role:
             return refused
         names = current.get("quantities", {})
+        # Every joined node the heads hold, never only the ones named: a revision copied from
+        # some of them would stand beside a joined node that disagrees with it.
+        every: list[str] = []
         sources: list[Payload] = []
-        for joined_id in ids:
-            if joined_id not in self._head:
-                return refused
-            other = self._read_node(joined_id)
-            edged = node_id in other.get("constrains", ()) or joined_id in current.get(
+        for other_id in sorted(self._head):
+            other = self._read_node(other_id)
+            edged = node_id in other.get("constrains", ()) or other_id in current.get(
                 "constrains", ()
             )
-            if (
-                other["owner_role"] != actor_role
-                or other["kind"] == "interface"
-                or not edged
-                or any(name not in other.get("quantities", {}) for name in names)
-            ):
-                return refused
-            sources.append(other)
+            if other["owner_role"] == actor_role and other["kind"] != "interface" and edged:
+                every.append(other_id)
+                sources.append(other)
+        if not every or list(joined) != every:
+            return refused
+        if any(name not in other.get("quantities", {}) for other in sources for name in names):
+            return refused
         attempt = _followed_attempt(node)
         if attempt is None or node != followed_payload(current, sources, actor_role, attempt):
             return refused

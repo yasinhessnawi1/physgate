@@ -74,6 +74,7 @@ from physgate.orchestrator.events import (
     EscalationDecided,
     Event,
     FindingsRecorded,
+    Followable,
     FollowUpEnded,
     FollowUpWhy,
     GateRan,
@@ -428,6 +429,9 @@ class RunState:
         #: Every interface node the decomposition wrote, as its line names them, whether or not
         #: the plan names their consumers.
         self.interface_nodes: tuple[str, ...] = ()
+        #: The interfaces that may follow, and the role whose opening pass they follow, as the
+        #: decomposition recorded them; ``None`` where it recorded none, and then none follows.
+        self.followable: Followable | None = None
 
     # -- following the log -------------------------------------------------------
 
@@ -591,6 +595,7 @@ class RunState:
             self.journal_head = self.base_revision = event.head_revision
             self.run_head = event.spec_commit
             self.interface_nodes = event.interface_nodes
+            self.followable = event.followable
             if event.interface_consumers is not None:
                 self.consumers = {e.interface: e.consumers for e in event.interface_consumers}
                 self.interfaces = event.interface_nodes
@@ -1044,21 +1049,35 @@ class RunState:
     def follows(self, subtask_id: str) -> int | None:
         """The attempt in progress, if it is due to follow its role's interfaces; else ``None``.
 
-        Due is an attempt of a module's first subtask, never a reopen, while no subtask of any
+        Due is an attempt of a module's first subtask, never a reopen, of the role the
+        decomposition recorded as producing the interfaces that follow, while no subtask of any
         other module directory has entered ``spawn`` (D-A2-37): the opening pass, before any
-        module reads what it produces. Read from the record alone; the loop asks it only for
-        the role that owns the cross nodes, and replay holds a followed line to the role's own
-        interfaces and nodes, so another role's first subtask follows nothing the record shows.
+        module reads what it produces. Read from the record alone, so a run whose decomposition
+        recorded no such role follows nothing.
         """
         sub = self.subtasks.get(subtask_id)
         if sub is None or not sub.attempts or sub.reopens or subtask_id not in self.modules():
+            return None
+        if self.followable is None or sub.plan.assigned_role != self.followable.role:
             return None
         if any(d != sub.plan.module_dir for d in self.spawned_dirs):
             return None
         return sub.attempts[-1].number
 
     def _followed(self, sub: SubtaskState, event: ProposalsChecked) -> None:
-        """Hold a change check's followed interfaces to their derivation, where one is due."""
+        """Hold a change check's followed interfaces to their derivation, where one is due.
+
+        Only the recorded role follows, and each revision revises the interface as the
+        decomposition wrote it: the only revision of an interface before its follow, since an
+        interface is written after that only at the opening pass's own merge, and nothing follows
+        once that pass has merged.
+        """
+        recorded = self.followable
+        if recorded is None or sub.plan.assigned_role != recorded.role:
+            _refuse(
+                f"the {sub.plan.assigned_role} role's change check follows an interface: only the "
+                "role the decomposition recorded as producing the interfaces that follow does"
+            )
         if self.follows(sub.plan.subtask_id) != event.attempt:
             _refuse(
                 "a change check follows an interface where no follow is due: only an attempt of "
@@ -1075,6 +1094,11 @@ class RunState:
             why = rederived(entry, sub.plan.assigned_role)
             if why is not None:
                 _refuse(why)
+            if payload_digest(entry.before) != recorded.payload_sha256.get(entry.interface):
+                _refuse(
+                    f"the followed revision of {entry.interface} revises another interface than "
+                    "the one the decomposition wrote"
+                )
 
     def _intended(self, now: AttemptState, event: WriteIntended) -> None:
         """Hold a write intent to the change check's followed revisions, and their joined nodes.

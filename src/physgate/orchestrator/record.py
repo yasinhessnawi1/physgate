@@ -26,6 +26,7 @@ from physgate.orchestrator.events import (
     Envelope,
     Event,
     EventLog,
+    Followable,
     Halted,
     Incident,
     InstallChecked,
@@ -111,6 +112,9 @@ class DecompositionSummary(BaseModel):
     #: The brief's own words for each system requirement the plan gives by number; ``None`` or
     #: empty when there are none, and then left out of the line.
     brief_words: tuple[CriterionWords, ...] | None = None
+    #: The interfaces the role that owns the cross nodes produces, by their digests; ``None``
+    #: where none follows.
+    followable: Followable | None = None
 
 
 class ReviewInstall(BaseModel):
@@ -616,6 +620,7 @@ class RunRecord:
                 interface_consumers=decomposed.interface_consumers,
                 system_requirements=decomposed.system_requirements,
                 brief_words=decomposed.brief_words or None,
+                followable=decomposed.followable,
             )
         for entry in plan:
             # The mark is written only where it is set: every other line keeps the bytes it

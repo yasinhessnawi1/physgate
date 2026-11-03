@@ -45,6 +45,7 @@ from physgate.orchestrator.credentials import (
     remove_secrets,
     write_login,
 )
+from physgate.orchestrator.events import Followable
 from physgate.orchestrator.exceptions import (
     DecompositionError,
     GitError,
@@ -101,7 +102,7 @@ from physgate.roles import CrossCuttingDuty, owners_of
 from physgate.series.collect import series_library
 from physgate.state.exceptions import MalformedNodeIdError
 from physgate.state.schema import Node, validate_node_id
-from physgate.state.store import Store
+from physgate.state.store import Store, payload_digest
 
 #: Where the run branch holds each interface node the decomposition planned, one JSON file
 #: per node named by its id, written in the commit that issues the specifications. Every
@@ -1463,6 +1464,24 @@ def _planned_subtasks(plan: Plan, config: RunConfig) -> list[_Issued]:
     return planned
 
 
+def _followable(store: Store, interfaces: Sequence[str]) -> Followable | None:
+    """The interfaces the one owner of the cross nodes produces, by the digests ``store`` holds.
+
+    The record of what may follow that role's opening pass (ARCH-011), from the register as the
+    run starts: ``None`` where the role produces none of ``interfaces``, or where no one role owns
+    the cross nodes, so that no interface follows.
+    """
+    owners = owners_of("cross_nodes")
+    if len(owners) != 1:
+        return None
+    produced: dict[str, str] = {}
+    for node_id in interfaces:
+        payload = store.read_node(node_id)
+        if payload["owner_role"] == owners[0]:
+            produced[node_id] = payload_digest(payload)
+    return Followable(role=owners[0], payload_sha256=produced) if produced else None
+
+
 def start_run(
     outcome: Outcome,
     *,
@@ -1557,6 +1576,7 @@ def start_run(
                 msg = "the store refused an interface node the plan validated"
                 raise DecompositionError(msg, node=node.id, reason=str(written.reason))
         head = store.head_revision()
+        followable = _followable(store, [node.id for node in plan.interface_nodes])
     finally:
         store.close()
     init_repo(store_root)
@@ -1580,6 +1600,7 @@ def start_run(
             system_requirements=requirements,
             contract_pairs=pairs,
             brief_words=words or None,
+            followable=followable,
         ),
         reviewed=reviewed,
         earlier=earlier,

@@ -38,6 +38,7 @@ from test_a_queue_decision_acts_at_a_boundary import _layer  # noqa: E402
 
 from physgate.orchestrator.events import (  # noqa: E402
     Event,
+    Followable,
     Merged,
     ProposalsChecked,
     WriteIntended,
@@ -212,11 +213,9 @@ def rig_of(run_dir: Path) -> Rig:
 
 
 def _followable(recorded: bool) -> dict[str, Any]:
-    """The decomposition's record of the interface sizing produces, where the build records one."""
-    if not recorded or "followable" not in DecompositionSummary.model_fields:
+    """The decomposition's record of the interface sizing produces, or nothing."""
+    if not recorded:
         return {}
-    from physgate.orchestrator.events import Followable
-
     return {
         "followable": Followable(role="sizing", payload_sha256={IFACE: payload_digest(INTERFACE)})
     }
