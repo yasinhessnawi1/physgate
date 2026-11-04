@@ -16,9 +16,16 @@ from typing import Any
 
 import pint
 import pytest
-from instrument_corpus import BASE_NODES, MAGNITUDE_ARTEFACT, SOURCE_ROWS, node, write_corpus
+from instrument_corpus import (
+    BASE_NODES,
+    MAGNITUDE_ARTEFACT,
+    SOURCE,
+    SOURCE_ROWS,
+    node,
+    write_corpus,
+)
 
-from physgate.evaluation.inject.corpus import load_corpus
+from physgate.evaluation.inject.corpus import CorpusError, load_corpus
 from physgate.evaluation.inject.source_check import _shown, check_sources
 from physgate.gate.units import parse
 
@@ -87,4 +94,27 @@ def test_a_corpus_number_in_a_squared_unit_is_reported_not_raised(tmp_path: Path
     assert finding.fact() == (
         f"revision m1: mass of {PACK} is 0.5 kg * m ** 2, and no row at its source gives a number "
         f"of that kind ({ELSEWHERE})"
+    )
+
+
+def test_a_derived_number_whose_arithmetic_mixes_powered_units_is_refused_in_words(
+    tmp_path: Path,
+) -> None:
+    # M-201's sibling in the corpus loader: a derived quantity whose arithmetic does not check
+    # under pint is refused with pint's reason, which pint cannot print once a power is not one.
+    rows = {
+        **SOURCE_ROWS,
+        "R9.01": {"quantity": "rotor inertia", "value": 2, "unit": "kg*m**2", "url": SOURCE},
+        "R9.02": {"quantity": "wheel radius", "value": 0.03, "unit": "m", "url": SOURCE},
+    }
+    derived = node(PACK, quantities={"mass": (2.03, "kg")})
+    derived["quantities"]["mass"]["source"] = "derived: [R9.01] + [R9.02]"
+    root = write_corpus(tmp_path / "c", base_nodes=(*BASE_NODES, derived), rows=rows)
+    try:
+        with pytest.raises(CorpusError) as caught:
+            load_corpus(root)
+    except Exception as exc:  # noqa: BLE001 - a crash is the finding
+        pytest.fail(f"load_corpus raised: {type(exc).__name__}: {exc}")
+    assert caught.value.context["reason"] == (
+        "pint cannot convert 'kilogram * meter ** 2' ([mass] * [length]**2) to 'meter' ([length])"
     )
