@@ -15,7 +15,11 @@ A quantity whose name is not here is checked for a unit that parses and nothing
 else, and every gate run records it as unchecked. Where its name ends in a word with
 one meaning in mechatronics (``SUFFIXES``), the record also says whether its unit and
 sign are that word's: a mismatch is recorded, never refused, because the suffix is a
-reading of the name and not the catalogue's. Coverage is a number, not an assumption.
+reading of the name and not the catalogue's. A name that ends in words saying which value
+of a quantity it is (``QUALIFIERS``: ``stall_current_max``, ``computation_delay_budget``)
+is read, once those words are taken off, as the catalogued name or the suffix that is left,
+in the same way: its kind, its sign and its kind's definitional envelope, a mismatch recorded
+and never refused, and no relation formed. Coverage is a number, not an assumption.
 
 Every kind, every name and every relation names its source. An entry without one
 fails when this module is imported, so a gate with an unsourced entry cannot be
@@ -27,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import date
 from fractions import Fraction
 from types import MappingProxyType
@@ -54,6 +59,49 @@ DUTY_CYCLE = (
     "the time a periodic signal is on in each period over the period, a quantity of dimension "
     "one, from 0 to 1"
 )
+#: Why each kind the catalogue widening added (04.11.2026) has the sign it has: each from a
+#: definition or a law, never from a product class.
+_SIGN_SOURCES = {
+    "resistance": (
+        "never negative: a passive resistor dissipates P = I**2 R >= 0 (Joule's first law), so "
+        "R >= 0; V/A converts"
+    ),
+    "moment_of_inertia": "never negative: J is the integral of r**2 dm, with dm >= 0",
+    "area": "never negative: an area is the measure of a surface",
+    "extent": (
+        "never negative: a diameter or a thickness is a distance between two points; a "
+        "position, which may be negative, stays a length"
+    ),
+    "duration": (
+        "never negative: a period is the least T > 0 with f(t + T) = f(t), and a latency or "
+        "an age cannot precede its cause; a delay or a time, which may be negative (a filter's "
+        "group delay), stays a time"
+    ),
+    "velocity": "a linear velocity, signed by its direction: its unit is read, not its sign",
+    "torque_constant": (
+        "a motor's torque per ampere, Kt = torque / current, signed by convention: its unit is "
+        "read, not its sign"
+    ),
+    "modulus": (
+        "never negative: a norm, a modulus or a ratio of two magnitudes (a peak of a "
+        "sensitivity function, a spectral radius, a gain margin as a factor, a utilisation); "
+        "no upper bound holds by definition"
+    ),
+    "temperature": (
+        "never negative: a thermodynamic temperature, in kelvin above absolute zero (section 2.3.1)"
+    ),
+    "frequency": (
+        "never negative: cycles or events per unit time; a signed frequency offset is another "
+        "quantity and needs its own name"
+    ),
+}
+
+
+def _signed(kind: str) -> str:
+    """The SI brochure for a widened kind's unit, and the definition that fixes its sign."""
+    return f"{SI_BROCHURE}; {_SIGN_SOURCES[kind]}"
+
+
 #: The inertial sensor's rate, under its own name: the electrical and firmware tables hold it
 #: to the six makers' data sheets' range.
 OUTPUT_DATA_RATE = (
@@ -105,20 +153,41 @@ def _kinds(*kinds: Kind) -> Mapping[str, Kind]:
 KINDS: Mapping[str, Kind] = _kinds(
     Kind(name="current", canonical="A", source=SI_BROCHURE),
     Kind(name="voltage", canonical="V", source=SI_BROCHURE),
+    Kind(name="resistance", canonical="ohm", sign="nonnegative", source=_signed("resistance")),
     Kind(name="power", canonical="W", sign="nonnegative", source=SI_BROCHURE),
     Kind(name="energy", canonical="J", shape="energy", sign="positive", source=SI_BROCHURE),
     Kind(name="mass", canonical="kg", sign="nonnegative", source=SI_BROCHURE),
+    Kind(
+        name="moment_of_inertia",
+        canonical="kg*m**2",
+        sign="nonnegative",
+        source=_signed("moment_of_inertia"),
+    ),
     Kind(name="length", canonical="m", source=SI_BROCHURE),
+    Kind(name="extent", canonical="m", sign="nonnegative", source=_signed("extent")),
+    Kind(name="area", canonical="m**2", sign="nonnegative", source=_signed("area")),
+    Kind(name="velocity", canonical="m/s", source=_signed("velocity")),
     Kind(name="force", canonical="N", source=SI_BROCHURE),
     Kind(name="torque", canonical="N*m", shape="force*length", source=SI_BROCHURE),
-    Kind(name="frequency", canonical="Hz", angle=0, source=SI_BROCHURE),
+    Kind(name="torque_constant", canonical="N*m/A", source=_signed("torque_constant")),
+    Kind(
+        name="frequency", canonical="Hz", angle=0, sign="nonnegative", source=_signed("frequency")
+    ),
     Kind(name="angular_velocity", canonical="rad/s", angle=1, source=SI_BROCHURE),
     Kind(name="angle", canonical="rad", angle=1, source=SI_BROCHURE),
     Kind(name="time", canonical="s", source=SI_BROCHURE),
-    Kind(name="temperature", canonical="K", absolute=True, source=SI_BROCHURE),
+    Kind(name="duration", canonical="s", sign="nonnegative", source=_signed("duration")),
+    Kind(
+        name="temperature",
+        canonical="K",
+        absolute=True,
+        sign="nonnegative",
+        source=_signed("temperature"),
+    ),
     Kind(name="temperature_difference", canonical="K", source=SI_BROCHURE),
     Kind(name="thermal_resistance", canonical="K/W", sign="positive", source=SI_BROCHURE),
     Kind(name="dimensionless", canonical="dimensionless", source=SI_BROCHURE),
+    Kind(name="modulus", canonical="dimensionless", sign="nonnegative", source=_signed("modulus")),
     Kind(name="efficiency", canonical="dimensionless", sign="nonnegative", source=EFFICIENCY),
     Kind(name="duty_cycle", canonical="dimensionless", sign="nonnegative", source=DUTY_CYCLE),
 )
@@ -133,6 +202,22 @@ def _entries(*entries: Entry) -> Mapping[str, Entry]:
 
 
 FIXTURES = "named for the physics gate's checks, 26.09.2026"
+#: The names the catalogue widening added (04.11.2026), each a name a real plan wrote, read by
+#: its definition.
+TORQUE_CONSTANT = "a motor's torque per ampere of its current, as its data sheet states it"
+MOTOR_RESISTANCE = "a motor's terminal resistance, as its data sheet states it"
+UPDATE_RATE = (
+    "the rate at which a control or firmware loop updates; not an inertial sensor's output "
+    "data rate"
+)
+SENSITIVITY_PEAK = (
+    "the peak magnitude of a feedback loop's sensitivity function, the largest |S| over "
+    "frequency, a ratio of magnitudes"
+)
+GAIN_MARGIN = (
+    "a feedback loop's gain margin as a factor: the loop gain's increase that brings it to "
+    "instability, a ratio of magnitudes (a decibel figure is refused as a logarithmic unit)"
+)
 EXTRACTORS = (
     "the series layer's published extractors (physgate.series.extract), which read the value "
     "off a sealed record in this unit"
@@ -156,6 +241,7 @@ QUANTITIES: Mapping[str, Entry] = _entries(
     Entry(name="current_limit", kind="current", source=CURRENT_LIMIT),
     Entry(name="supply_voltage", kind="voltage", source=WORKLOAD),
     Entry(name="rated_voltage", kind="voltage", source=FIXTURES),
+    Entry(name="motor_resistance", kind="resistance", source=MOTOR_RESISTANCE),
     Entry(name="power_draw", kind="power", source=FIXTURES),
     Entry(name="power_supply", kind="power", source=FIXTURES),
     Entry(name="input_power", kind="power", source=FIXTURES),
@@ -200,6 +286,8 @@ QUANTITIES: Mapping[str, Entry] = _entries(
     Entry(name="phase_margin", kind="angle", source=EXTRACTORS),
     Entry(name="gain_crossover_frequency", kind="angular_velocity", source=EXTRACTORS),
     Entry(name="delay_margin", kind="time", source=EXTRACTORS),
+    Entry(name="sensitivity_peak", kind="modulus", source=SENSITIVITY_PEAK),
+    Entry(name="gain_margin", kind="modulus", source=GAIN_MARGIN),
     Entry(
         name="step_peak",
         kind="length",
@@ -210,14 +298,16 @@ QUANTITIES: Mapping[str, Entry] = _entries(
     ),
     Entry(name="support_position", kind="length", source=FIXTURES),
     Entry(name="mount_position", kind="length", source=FIXTURES),
-    Entry(name="bore_diameter", kind="length", source=WORKLOAD),
+    Entry(name="bore_diameter", kind="extent", source=WORKLOAD),
     Entry(name="reaction_force", kind="force", source=FIXTURES),
     Entry(name="load_force", kind="force", source=FIXTURES),
     Entry(name="reaction_moment", kind="torque", source=FIXTURES),
     Entry(name="stall_torque", kind="torque", source=FIXTURES),
     Entry(name="torque_peak", kind="torque", source=WORKLOAD),
+    Entry(name="torque_constant", kind="torque_constant", source=TORQUE_CONSTANT),
     Entry(name="sample_rate", kind="frequency", source=WORKLOAD),
     Entry(name="output_data_rate", kind="frequency", source=OUTPUT_DATA_RATE),
+    Entry(name="update_rate", kind="frequency", source=UPDATE_RATE),
     Entry(name="efficiency", kind="efficiency", source=EFFICIENCY),
     Entry(name="duty_cycle", kind="duty_cycle", source=DUTY_CYCLE),
     Entry(name="no_load_speed", kind="angular_velocity", source=FIXTURES),
@@ -513,6 +603,17 @@ SUFFIX_RULE = (
     "_power, _rate, _ratio, _capacity, _resistance, _limit, _draw) is not here; "
     "_efficiency and _duty_cycle added 03.11.2026, each a fraction by its definition"
 )
+#: The suffixes the catalogue widening added. Each was held to every value a real run wrote
+#: before it was added, and reaches one of them; _utilization is _utilisation's spelling.
+WIDENED_SUFFIX_RULE = (
+    "the same closed rule, widened 04.11.2026 by definitions alone: each suffix is a word or "
+    "words with one meaning as the noun of what the quantity is, held to every value a real "
+    "run wrote before it was added; a period, a duration, a latency and an age are never "
+    "negative, while a delay, a lateness and a time may be signed (a filter's group delay); a "
+    "spectral radius, a sensitivity peak, a gain margin and a utilisation are moduli, never "
+    "negative; a suffix of one word never reaches a kind whose span refuses (the one before "
+    "this rule is _efficiency); _resistance alone stays out (thermal, electrical and rolling)"
+)
 
 
 def _suffixes(*suffixes: Suffix) -> tuple[Suffix, ...]:
@@ -536,28 +637,131 @@ SUFFIXES: tuple[Suffix, ...] = _suffixes(
     Suffix(suffix="_thickness", kind="length", source=SUFFIX_RULE),
     Suffix(suffix="_efficiency", kind="efficiency", source=SUFFIX_RULE),
     Suffix(suffix="_duty_cycle", kind="duty_cycle", source=SUFFIX_RULE),
+    Suffix(suffix="_period", kind="duration", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_duration", kind="duration", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_latency", kind="duration", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_age", kind="duration", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_delay", kind="time", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_lateness", kind="time", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_time", kind="time", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_delay_margin", kind="time", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_phase_margin", kind="angle", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_inertia", kind="moment_of_inertia", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_area", kind="area", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_ground_speed", kind="velocity", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_stall_current", kind="current", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_no_load_current", kind="current", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_motor_current", kind="current", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_no_load_speed", kind="angular_velocity", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_gain_crossover_frequency", kind="angular_velocity", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_gear_ratio", kind="dimensionless", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_output_data_rate", kind="frequency", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_sensitivity_peak", kind="modulus", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_spectral_radius", kind="modulus", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_gain_margin", kind="modulus", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_utilisation", kind="modulus", source=WIDENED_SUFFIX_RULE),
+    Suffix(suffix="_utilization", kind="modulus", source=WIDENED_SUFFIX_RULE),
 )
 
+#: The words that, ending a name, say which value of a quantity it is and not what it is: a
+#: maximum, a bound or a measured value of a current is a current. A closed list (04.11.2026).
+#: A word that says where or in which case a quantity is taken (_wheel, _armature, _full_duty,
+#: _reflected) changes what it is, and is not here.
+QUALIFIERS: tuple[str, ...] = (
+    "_max",
+    "_min",
+    "_nominal",
+    "_measured",
+    "_applied",
+    "_bound",
+    "_budget",
+    "_typical",
+    "_lower",
+    "_upper",
+    "_implied",
+    "_estimated",
+    "_indicative",
+)
 
-def inferred_by(name: str) -> Suffix | None:
-    """The suffix that gives an uncatalogued ``name`` its kind, or ``None``.
+#: The suffixes read at either power of the radian: "frequency" names both f, in hertz, and the
+#: angular frequency omega, in radians per second. The dimension, 1/s, and the sign are still
+#: read; a catalogued name keeps its kind's one power.
+EITHER_ANGLE: tuple[str, ...] = ("_frequency",)
 
-    A catalogued name is never inferred: its entry says what it is. The suffix must end
-    the name and leave something before it, so the bare word is not a name.
+
+@dataclass(frozen=True)
+class Reading:
+    """How the gate reads a name the catalogue lacks, and the kind that reading gives it.
+
+    ``base`` is what the name is read as: a suffix that ends it (``_delay``), or, once the
+    ``qualifiers`` that end it are taken off, the catalogued name (``stall_current``) or the
+    suffix (``_delay``) that is left. ``qualifiers`` are in the order they stand in the name.
     """
-    if name in QUANTITIES:
-        return None
+
+    name: str
+    base: str
+    kind: str
+    qualifiers: tuple[str, ...] = ()
+
+    @property
+    def rule(self) -> str:
+        """The reading as a record names it: ``_voltage``, ``stall_current + _max``."""
+        return f"{self.base} + {''.join(self.qualifiers)}" if self.qualifiers else self.base
+
+    @property
+    def angles(self) -> tuple[int, ...]:
+        """The powers of the radian the reading accepts in the name's unit."""
+        return (0, 1) if self.base in EITHER_ANGLE else (KINDS[self.kind].angle,)
+
+
+def _suffix_of(name: str) -> Suffix | None:
+    """The longest suffix that ends ``name`` and leaves something before it, or ``None``."""
     for suffix in sorted(SUFFIXES, key=lambda s: -len(s.suffix)):
         if name.endswith(suffix.suffix) and len(name) > len(suffix.suffix):
             return suffix
     return None
 
 
+def _qualifier_of(name: str) -> str | None:
+    """The qualifier word that ends ``name`` and leaves something before it, or ``None``."""
+    return next((q for q in QUALIFIERS if name.endswith(q) and len(name) > len(q)), None)
+
+
+def inferred_by(name: str) -> Reading | None:
+    """How the gate reads an uncatalogued ``name``, or ``None`` if nothing gives it a kind.
+
+    A catalogued name is never inferred: its entry says what it is. A suffix of the name
+    reads it first; the suffix must end the name and leave something before it, so the bare
+    word is not a name. Only where none does are its qualifier words taken off its end, one
+    at a time and each leaving something before it, and what is left read as a catalogued
+    name or by its own suffix. A qualifier alone, or a rest the catalogue cannot read, gives
+    nothing.
+    """
+    if name in QUANTITIES:
+        return None
+    suffix = _suffix_of(name)
+    if suffix is not None:
+        return Reading(name=name, base=suffix.suffix, kind=suffix.kind)
+    rest = name
+    taken: tuple[str, ...] = ()
+    while (word := _qualifier_of(rest)) is not None:
+        rest, taken = rest[: -len(word)], (word, *taken)
+    if not taken:
+        return None
+    entry = QUANTITIES.get(rest)
+    if entry is not None:
+        return Reading(name=name, base=rest, kind=entry.kind, qualifiers=taken)
+    suffix = _suffix_of(rest)
+    if suffix is not None:
+        return Reading(name=name, base=suffix.suffix, kind=suffix.kind, qualifiers=taken)
+    return None
+
+
 def unknown_names(names: Iterable[str]) -> tuple[str, ...]:
     """The names among ``names`` the catalogue lacks, sorted, each once.
 
-    A suffix that gives the gate a kind does not make a name known: the suffix rule is the
-    gate's reading of a corpus written outside the hooks, not a licence for a writer.
+    A suffix or a qualifier that gives the gate a kind does not make a name known: the
+    reading is the gate's, of a corpus written outside the hooks, not a licence for a writer.
     """
     return tuple(sorted({n for n in names if n not in QUANTITIES}))
 
@@ -665,19 +869,20 @@ def shadowing_names(names: Iterable[str]) -> tuple[tuple[str, str], ...]:
 
 
 def kind_of(name: str) -> Kind | None:
-    """The kind of the quantity called ``name``: its catalogue entry's, else its suffix's.
+    """The kind of the quantity called ``name``: its catalogue entry's, else its reading's.
 
-    ``None`` if the catalogue does not know the name and no suffix gives it a kind.
+    ``None`` if the catalogue does not know the name and no suffix, after any qualifiers,
+    gives it a kind.
     """
     entry = QUANTITIES.get(name)
     if entry is not None:
         return KINDS[entry.kind]
-    suffix = inferred_by(name)
-    return KINDS[suffix.kind] if suffix is not None else None
+    reading = inferred_by(name)
+    return KINDS[reading.kind] if reading is not None else None
 
 
 def catalogue_digest() -> str:
-    """The sha256 of the catalogue's content: every kind, name, relation and product.
+    """The sha256 of the catalogue's content: every kind, name, relation, product and reading.
 
     Taken over a canonical serialisation of what the catalogue says, not over this
     file, so a comment changes nothing and one changed entry changes the digest.
@@ -692,6 +897,7 @@ def catalogue_digest() -> str:
         "sources": sorted(SOURCES.items()),
         "store_classes": [c.model_dump(mode="json") for c in STORE_CLASSES],
         "suffixes": [s.model_dump() for s in SUFFIXES],
+        "qualifiers": list(QUALIFIERS),
     }
     canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()

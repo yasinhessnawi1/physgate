@@ -63,14 +63,16 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 #: interface node's id, which every run is told: the store's pattern, and its sentence. The
 #: prompt also names the gate's quantity names and who writes interface nodes, as every run's,
 #: and since D-A2-38 (03.11.2026) where the gate has a bound and what forms each relation; with
-#: sizing, since D-A2-37, that its interfaces follow its joined node. Before them: f56406956965...
-#: and 1a3802deb6f1..., in this order.
+#: sizing, since D-A2-37, that its interfaces follow its joined node; and since the catalogue
+#: widening (04.11.2026), the catalogue sentence's new names and kind labels. Before the widening:
+#: 08a7e77a7464... and b26536a34818...; before D-A2-37 and D-A2-38: f56406956965... and
+#: 1a3802deb6f1..., in this order.
 INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "08a7e77a7464a16c7d07809bb5c0496945e31c1c088f14b028d15a92d9ff80dd"
+        "44f7ed176029fd40d72d588336b3f89c41f30bc9cb4269181cf1948bc81745ec"
     ),
-    BOTH: "b26536a3481863473b2c9b1a9b3a96f27578eab0c22a030ca00e00487269b0f7",
+    BOTH: "eefbf4fe50d67cd68c6e66749069d0054a135cb4f8469953a3bc5b911054735e",
 }
 
 

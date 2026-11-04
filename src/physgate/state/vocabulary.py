@@ -24,6 +24,7 @@ QUANTITY_NAMES: tuple[str, ...] = (
     "energy_capacity",
     "external_gear_ratio",
     "gain_crossover_frequency",
+    "gain_margin",
     "gear_ratio",
     "heat_dissipation",
     "heat_rejection_capacity",
@@ -33,6 +34,7 @@ QUANTITY_NAMES: tuple[str, ...] = (
     "mass",
     "max_discharge_power",
     "max_temperature",
+    "motor_resistance",
     "mount_position",
     "no_load_speed",
     "output_data_rate",
@@ -45,6 +47,7 @@ QUANTITY_NAMES: tuple[str, ...] = (
     "reaction_force",
     "reaction_moment",
     "sample_rate",
+    "sensitivity_peak",
     "stall_current",
     "stall_torque",
     "step_peak",
@@ -53,7 +56,9 @@ QUANTITY_NAMES: tuple[str, ...] = (
     "supported_mass",
     "thermal_margin",
     "thermal_resistance",
+    "torque_constant",
     "torque_peak",
+    "update_rate",
 )
 
 

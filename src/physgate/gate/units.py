@@ -30,7 +30,8 @@ in this order, stopping at the first failure:
    as ``delta_degC`` never appears on one (this gate's rule: pint converts
    40 delta_degC to 40 K, so an ambient of 40 degrees read as a difference would
    be 273.15 K colder than written);
-4. the power of the radian in its root units is the kind's (this gate's rule);
+4. the power of the radian in its root units is the kind's, or one of those a
+   reading of the name allows (a ``_frequency`` is f or omega) (this gate's rule);
 5. its unit has the kind's factor shape, where the kind has one: a torque is a
    force times a length, an energy an energy unit or a power times a time (this
    gate's rule);
@@ -268,8 +269,14 @@ def _shape_holds(shape: str, quantity: Any) -> bool:
     return made_of("J") or made_of("W", "s")
 
 
-def measure(kind: Kind, value: float | int, unit: str) -> Measured:
+def measure(
+    kind: Kind, value: float | int, unit: str, *, angles: tuple[int, ...] | None = None
+) -> Measured:
     """Measure one quantity against its kind: rules 1 to 6, in order.
+
+    ``angles`` are the powers of the radian rule 4 accepts, the kind's own unless a reading
+    of the name says otherwise: a name ending in ``_frequency`` is f or omega, so it is read
+    at either power; its dimension and its sign are still the kind's.
 
     Raises:
         UnitRefusedError: the unit does not parse, or one of this gate's own rules
@@ -290,11 +297,12 @@ def measure(kind: Kind, value: float | int, unit: str) -> Measured:
             f"as a temperature of {value} degrees ({OWN_RULE})"
         )
         raise UnitRefusedError(msg, unit=unit, kind=kind.name)
-    if _root_angle(quantity) != kind.angle:
+    wanted = (kind.angle,) if angles is None else angles
+    if _root_angle(quantity) not in wanted:
         msg = (
             f"{_said(kind.name)} is written with the radian to the power "
-            f"{kind.angle}, and {unit!r} has it to the power {_root_angle(quantity)} "
-            f"({OWN_RULE})"
+            f"{' or '.join(str(a) for a in wanted)}, and {unit!r} has it to the power "
+            f"{_root_angle(quantity)} ({OWN_RULE})"
         )
         raise UnitRefusedError(msg, unit=unit, kind=kind.name)
     if kind.shape is not None and not _shape_holds(kind.shape, quantity):

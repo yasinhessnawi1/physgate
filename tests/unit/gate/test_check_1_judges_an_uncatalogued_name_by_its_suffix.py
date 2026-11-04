@@ -52,7 +52,10 @@ def outcomes(ran: Any) -> list[str]:
 
 
 def test_the_list_is_closed_and_every_suffix_has_one_kind_and_a_source() -> None:
-    assert {s.suffix: s.kind for s in SUFFIXES} == {
+    # The ten as they stood before the catalogue widening of 04.11.2026, unchanged; the
+    # widened list, closed, is pinned with its rows in
+    # test_the_widened_catalogue_s_rows_are_the_approved_ones.
+    assert {s.suffix: s.kind for s in SUFFIXES[:10]} == {
         "_voltage": "voltage",
         "_mass": "mass",
         "_force": "force",

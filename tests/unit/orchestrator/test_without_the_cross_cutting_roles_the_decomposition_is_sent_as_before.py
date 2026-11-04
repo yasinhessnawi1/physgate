@@ -11,8 +11,9 @@ two roles were planned for, with what every run has been sent since: the store's
 on an interface node's id in the schema, and the sentence giving that form in the
 prompt; and in the prompt, the gate's quantity names, generated from its catalogue, and who
 writes interface nodes; and since D-A2-38, where the gate has a bound and what forms each of its
-relations, generated from the tables and the catalogue it loads. A change to either for such a
-run is a change to what every ordinary run sends, and turns this red.
+relations, generated from the tables and the catalogue it loads; and since the catalogue widening
+of 04.11.2026, its new names and kinds. A change to either for such a run is a change to what
+every ordinary run sends, and turns this red.
 """
 
 from __future__ import annotations
@@ -40,18 +41,22 @@ BRIEF = "Build a robot."
 SCHEMA_LENGTH = 3807
 SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f3357"
 
-#: The prompt for ``BRIEF`` and each set of roles, as it is sent since D-A2-38 (03.11.2026): the
-#: catalogue's two new kinds and three new names, and the bounds and relations sentences. Before
-#: it: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40..., in this order.
+#: The prompt for ``BRIEF`` and each set of roles, as it is sent since the catalogue widening
+#: (04.11.2026): the catalogue sentence's five new names (torque_constant, motor_resistance,
+#: update_rate, sensitivity_peak, gain_margin) and its four new kind labels (resistance, extent,
+#: torque constant, modulus), bore_diameter moved from the lengths to the extents; every other
+#: byte as before (test_the_widened_catalogue_adds_its_names_to_the_prompt_and_nothing_else).
+#: Before it, since D-A2-38 (03.11.2026): dd56ee830053..., eefd8ba42c14... and a0d391892072...,
+#: in this order; before D-A2-38: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
 PROMPT_SHA256 = {
-    ("control", "firmware"): "dd56ee830053b0132c75fbcef564b9faa67c8adc3f346dc3a632d2b408c86f8d",
-    ("electrical",): "eefd8ba42c142622f94f59d3c2cd41f4ec77b8e6c9d68b82978a402f354e2528",
+    ("control", "firmware"): "ca0317a59ce72d0e35d4f1314ad04d983c7570bc7e66c9fd145f0bc3d7f44351",
+    ("electrical",): "8abeae4b5f23f26d14bc7d28a154e39c2a47ebf068198797b0ca2260918c31d1",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "a0d39189207269a4faf7e1fa644d4dd8c91a2fa8feffbfb280f84d1ceb6fef5c",
+    ): "44175ad46745e22ed4febf019023122e97f77f4f8d9cb8067239f36af8393921",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
