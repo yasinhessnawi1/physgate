@@ -1,14 +1,16 @@
 """M-198, the table rows: the catalogue widened by definitions alone, and by nothing else.
 
 The owner approved the widening on 04.11.2026, in the scope of the research's section 6
-(``CATALOGUE_WIDEN_research.md``): ten new kinds, each sign from a definition or a law and never
-from a product class; temperature and frequency never negative; five new exact names, and
-``bore_diameter`` read as an extent; and the new suffixes that reach a value G11 run 4 wrote.
-Held back, and pinned here as held back: the ``max_duty`` name, the suffixes no run-4 value
-reaches (``_inductance``, ``_capacitance``, ``_winding_resistance``, ``_terminal_resistance``,
-``_armature_resistance``, and the US spelling ``_utilization``), the ``_diameter`` and
-``_thickness`` re-kinds, a kind with the radian to the power -1, an alias, and any new envelope
-or range.
+(``CATALOGUE_WIDEN_research.md``), as ruled at the red rows' review the same day: eight new
+kinds, each sign from a definition or a law and never from a product class, and each reached by
+a name or a suffix; temperature and frequency never negative; five new exact names, and
+``bore_diameter`` read as an extent; the new suffixes that reach a value G11 run 4 wrote, and
+``_utilization``, the spelling twin of ``_utilisation`` (one meaning, so no new reach). Held
+back, and pinned here as held back: the inductance and capacitance kinds (no name or suffix
+would reach them, so they would only move the digest), the ``max_duty`` name, the suffixes no
+run-4 value reaches (``_inductance``, ``_capacitance``, ``_winding_resistance``,
+``_terminal_resistance``, ``_armature_resistance``), the ``_diameter`` and ``_thickness``
+re-kinds, a kind with the radian to the power -1, an alias, and any new envelope or range.
 
 Every row is pinned against the catalogue at a64e805f (digest ``3da50073...``), so a row that is
 added, dropped or changed without a ruling turns this red. The rules for an envelope kind's
@@ -59,11 +61,10 @@ BASE_KINDS: dict[str, tuple[str, int, str | None, bool, str]] = {
     "duty_cycle": ("dimensionless", 0, None, False, "nonnegative"),
 }
 
-#: The ten new kinds (research section 3a), in the same form.
+#: The eight new kinds (research section 3a, without the inductance and the capacitance), in the
+#: same form.
 NEW_KINDS: dict[str, tuple[str, int, str | None, bool, str]] = {
     "resistance": ("ohm", 0, None, False, "nonnegative"),
-    "inductance": ("H", 0, None, False, "nonnegative"),
-    "capacitance": ("F", 0, None, False, "nonnegative"),
     "moment_of_inertia": ("kg*m**2", 0, None, False, "nonnegative"),
     "area": ("m**2", 0, None, False, "nonnegative"),
     "extent": ("m", 0, None, False, "nonnegative"),
@@ -145,8 +146,9 @@ BASE_SUFFIXES = {
     "_duty_cycle": "duty_cycle",
 }
 
-#: The 23 new suffixes: each one reaches at least one of run 4's values, as the name's last
-#: words or once its qualifiers are stripped (the run-4 test holds that).
+#: The 24 new suffixes: each one but ``_utilization`` reaches at least one of run 4's values, as
+#: the name's last words or once its qualifiers are stripped (the run-4 test holds that);
+#: ``_utilization`` is ``_utilisation``'s spelling twin, one meaning in two spellings.
 NEW_SUFFIXES = {
     "_period": "duration",
     "_duration": "duration",
@@ -171,6 +173,7 @@ NEW_SUFFIXES = {
     "_spectral_radius": "modulus",
     "_gain_margin": "modulus",
     "_utilisation": "modulus",
+    "_utilization": "modulus",
 }
 
 #: Suffixes that stay out: no run-4 value reaches them (held back by the ruling), they were
@@ -182,7 +185,6 @@ HELD_BACK_SUFFIXES = (
     "_winding_resistance",
     "_terminal_resistance",
     "_armature_resistance",
-    "_utilization",
     "_duty",
     "_angle",
     "_tilt",
@@ -193,16 +195,24 @@ HELD_BACK_SUFFIXES = (
     "_fraction",
 )
 
-#: The one suffix of one word under an envelope kind, approved before the rule (D-A2-38,
-#: 03.11.2026). Its named limit is in the research's section 5: a volumetric efficiency above 1.
+#: The one suffix of one word under an envelope kind, and why it stands although the rule below
+#: would not admit it: it was approved on 03.11.2026, a day before the rule was written, with its
+#: limit named then. An efficiency is a fraction by definition, but the last word is not always
+#: the quantity: a forced-induction engine's volumetric efficiency is correctly above 1, and the
+#: envelope refuses it under this suffix. The exception is named here, so no other one-word suffix
+#: can join an envelope kind without this test going red.
 ONE_WORD_ENVELOPE_SUFFIXES_BEFORE_THE_RULE = frozenset({"_efficiency"})
+
+#: Kinds the research proposed and the ruling held back: no name or suffix in the set reaches
+#: them, so each would move the digest and check nothing.
+HELD_BACK_KINDS = ("inductance", "capacitance", "back_emf_constant")
 
 
 def _row(kind: Kind) -> tuple[str, int, str | None, bool, str]:
     return (kind.canonical, kind.angle, kind.shape, kind.absolute, kind.sign)
 
 
-def test_the_ten_new_kinds_are_the_approved_ones_each_with_a_source() -> None:
+def test_the_eight_new_kinds_are_the_approved_ones_each_with_a_source() -> None:
     added = {name: _row(kind) for name, kind in KINDS.items() if name not in BASE_KINDS}
     assert added == NEW_KINDS
     assert all(KINDS[name].source for name in NEW_KINDS)
@@ -246,9 +256,27 @@ def test_the_held_back_names_are_not_catalogued(name: str) -> None:
     assert name not in QUANTITIES and name not in QUANTITY_NAMES
 
 
+@pytest.mark.parametrize("kind", HELD_BACK_KINDS)
+def test_a_held_back_kind_is_not_in_the_catalogue(kind: str) -> None:
+    # Guard.
+    assert kind not in KINDS
+
+
+def test_every_new_kind_is_reached_by_a_name_or_a_suffix() -> None:
+    # A kind nothing reaches checks nothing and only moves the digest.
+    reached = {e.kind for e in QUANTITIES.values()} | {s.kind for s in SUFFIXES}
+    assert set(NEW_KINDS) <= set(KINDS)
+    assert set(NEW_KINDS) - reached == set()
+
+
+def test_utilization_reads_as_utilisation_does() -> None:
+    assert kind_of("cpu_utilization") is kind_of("cpu_utilisation") is KINDS.get("modulus")
+    assert kind_of("cpu_utilization") is not None
+
+
 def test_the_suffix_list_is_the_approved_closed_list() -> None:
     assert {s.suffix: s.kind for s in SUFFIXES} == {**BASE_SUFFIXES, **NEW_SUFFIXES}
-    assert len(SUFFIXES) == len({s.suffix for s in SUFFIXES}) == 33
+    assert len(SUFFIXES) == len({s.suffix for s in SUFFIXES}) == 34
     assert all(s.kind in KINDS and s.source for s in SUFFIXES)
 
 

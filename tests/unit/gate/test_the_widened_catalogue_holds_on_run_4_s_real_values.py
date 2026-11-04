@@ -153,7 +153,8 @@ EXPECTED_KINDS: dict[str, str] = {
     "wheel_radius": "length",
 }
 
-#: The 23 new suffixes, each of which must decide the kind of at least one run-4 name.
+#: The new suffixes, each of which must decide the kind of at least one run-4 name. The 24th,
+#: ``_utilization``, is ``_utilisation``'s spelling twin and reaches none; the rows test holds it.
 NEW_SUFFIXES = (
     "_period", "_duration", "_latency", "_age", "_delay", "_lateness", "_time", "_delay_margin",
     "_phase_margin", "_inertia", "_area", "_ground_speed", "_stall_current", "_no_load_current",
@@ -242,8 +243,9 @@ def test_every_run_4_value_passes_its_kind_and_its_bound_in_every_domain(
     }
     assert refused == PARSE_REFUSED
     assert not any(o.outcome == "fail" for o in magnitude.observations)
-    # A kind the unit disagrees with is a mis-kind: the record says so, and there is none.
-    mis_kinds = [o.message for o in units.observations if "is not what its suffix" in o.message]
+    # A kind the unit disagrees with is a mis-kind: the record says so, and there is none. Every
+    # reading's mismatch record, a suffix's or a qualified name's, says it refuses nothing.
+    mis_kinds = [o.message for o in units.observations if "refuses nothing" in o.message]
     assert mis_kinds == []
 
 

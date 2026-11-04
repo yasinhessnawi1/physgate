@@ -7,8 +7,8 @@ its kind with the kind's unit. The widening adds five names (``torque_constant``
 constant, a resistance, a modulus and an extent) and ``update_rate`` among the frequencies. The
 suffixes, the qualifiers and the signs never reach the prompt, and no envelope or range is added,
 so the bounds and relations sentences, and every other byte of the prompt, stay as they were sent
-at a64e805f. The kinds with no catalogued name (an inductance, a capacitance, an area, a moment
-of inertia, a duration, a velocity) get no label.
+at a64e805f. The new kinds with no catalogued name (an area, a moment of inertia, a duration, a
+velocity), reached by suffixes only, get no label.
 
 The order of the groups follows the catalogue's kinds, and of the names its entries: where the fix
 puts a row is its choice, so the groups are compared as sets here, and the new prompt digests are

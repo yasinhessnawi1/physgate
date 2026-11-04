@@ -131,6 +131,7 @@ def test_the_qualifier_list_is_part_of_the_catalogue_digest(
         ("computation_delay_budget", "time"),
         ("gearbox_efficiency_implied", "efficiency"),
         ("cpu_utilisation_bound", "modulus"),
+        ("cpu_utilization_bound", "modulus"),
         ("motor_off_latency_measured", "duration"),
         ("push_wheel_torque_indicative", "torque"),
         ("proposed_gain_margin_lower", "modulus"),
