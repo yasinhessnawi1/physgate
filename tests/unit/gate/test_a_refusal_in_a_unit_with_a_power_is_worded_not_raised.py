@@ -26,12 +26,13 @@ from physgate.gate.catalogue import KINDS
 from physgate.gate.graph import GraphView
 from physgate.gate.runner import PhysicsGate
 from physgate.gate.units import UREG, _dimensions, measure, pint_message, unit_text
+from physgate.orchestrator.protocols import Scope
 
 NODE = "control.plant"
 M = "mechanical"
 
 
-def _gate(tmp_path: Path, scope: str, *payloads: dict[str, Any]) -> Any:
+def _gate(tmp_path: Path, scope: Scope, *payloads: dict[str, Any]) -> Any:
     graph(tmp_path / "g", *payloads)
     try:
         return PhysicsGate().run(GraphView.read(tmp_path / "g", 0), [scope], "on")
@@ -82,7 +83,7 @@ def test_a_known_kind_in_a_powered_unit_of_another_dimension_is_refused_in_pint_
 
 @pytest.mark.parametrize("scope", ["subtask", "system"])
 def test_a_relation_whose_term_is_in_a_powered_unit_is_refused_in_pint_s_words(
-    tmp_path: Path, scope: str
+    tmp_path: Path, scope: Scope
 ) -> None:
     result = _gate(
         tmp_path,
