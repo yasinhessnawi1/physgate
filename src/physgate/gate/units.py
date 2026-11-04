@@ -111,7 +111,8 @@ def unit_text(units: Any, *, symbols: bool = False) -> str:
     """
     if isinstance(units, str):
         return units
-    factors = (
+    # The powers are pint's fractions; typed Any, as pint's own types do not narrow to them.
+    factors: list[tuple[str, Any]] = (
         sorted(units._units.items())  # noqa: SLF001 - no public view of the factors
         if isinstance(units, pint.Unit)
         else list(units.items())
