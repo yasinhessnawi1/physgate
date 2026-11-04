@@ -115,6 +115,20 @@ def test_a_derived_number_whose_arithmetic_mixes_powered_units_is_refused_in_wor
             load_corpus(root)
     except Exception as exc:  # noqa: BLE001 - a crash is the finding
         pytest.fail(f"load_corpus raised: {type(exc).__name__}: {exc}")
+    assert str(caught.value) == "a derived quantity's arithmetic does not check under pint"
     assert caught.value.context["reason"] == (
         "pint cannot convert 'kilogram * meter ** 2' ([mass] * [length]**2) to 'meter' ([length])"
     )
+
+
+def test_a_derived_number_in_a_unit_the_gate_refuses_keeps_the_gate_s_words(
+    tmp_path: Path,
+) -> None:
+    # Guard: a refusal that is not pint's is its own text, as it was.
+    derived = node(PACK, quantities={"supply_voltage": (7.2, "dB")})
+    derived["quantities"]["supply_voltage"]["source"] = "derived: [R5.01] * [R5.02]"
+    root = write_corpus(tmp_path / "c", base_nodes=(*BASE_NODES, derived))
+    with pytest.raises(CorpusError) as caught:
+        load_corpus(root)
+    assert str(caught.value) == "a derived quantity's arithmetic does not check under pint"
+    assert caught.value.context["reason"].startswith("the unit 'dB' is logarithmic")
