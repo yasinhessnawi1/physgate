@@ -190,4 +190,29 @@ def test_a_unit_is_spelt_from_its_factors_and_a_named_one_is_its_name(
     units: Any, text: str
 ) -> None:
     # pint names a unit by a string in some of its errors; that string is the unit's text.
-    assert unit_text(units) == text
+    try:
+        spelt = unit_text(units)
+    except Exception as exc:  # noqa: BLE001 - a crash is the finding
+        pytest.fail(f"unit_text raised on {units!r}: {type(exc).__name__}: {exc}")
+    assert spelt == text
+
+
+def test_a_sum_whose_terms_are_in_units_that_do_not_add_is_refused_in_pint_s_words(
+    tmp_path: Path,
+) -> None:
+    # The relation's sum of members parts before its two sides are compared: one member in kg,
+    # one in m**2.
+    result = _gate(
+        tmp_path,
+        "system",
+        node(f"{M}.robot", kind="module", domain=M, quantities={"mass": (1, "kg")}),
+        node(f"{M}.pack", domain=M, quantities={"mass": (2, "kg")}, constrains=[f"{M}.robot"]),
+        node(f"{M}.arm", domain=M, quantities={"mass": (3, "m**2")}, constrains=[f"{M}.robot"]),
+    )
+    assert result.verdict == "fail"
+    assert (
+        "mass(mechanical.robot) == mass(mechanical.arm) + mass(mechanical.pack) compares "
+        "'meter ** 2' with 'kilogram': pint cannot convert 'meter ** 2' ([length]**2) to "
+        "'kilogram' ([mass]). The relation cannot be evaluated, so nothing that depends on it can "
+        "be trusted"
+    ) in _refusals(result)

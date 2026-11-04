@@ -288,3 +288,39 @@ def test_the_hooks_still_count_a_qualified_name_as_one_the_catalogue_lacks() -> 
     expected = ("mass_max", "stall_current_max", "supply_voltage_min")
     assert unknown_names(names) == unknown_quantity_names(names) == expected
     assert shadowing_names(names) == shadowing_quantity_names(names) == ()
+
+
+def test_the_record_names_each_reading_with_its_qualifier_words_in_order(tmp_path: Path) -> None:
+    # The record says how each name was read: the quantity or suffix that is left, and the
+    # words taken off, in the order they stand. A suffix name keeps its own record.
+    ran = _units(
+        tmp_path,
+        {
+            "stall_current_max": (1.575, "A"),
+            "computation_delay_measured_nominal": (0.0013765625, "s"),
+            "gyro_delay": (0.00481, "s"),
+        },
+    )
+    qualified = _naming(ran, "stall_current_max")
+    assert [o.details.quantities for o in qualified] == [
+        ("computation_delay_measured_nominal", "stall_current_max")
+    ]
+    (record,) = qualified
+    assert "computation_delay_measured_nominal by _delay + _measured_nominal" in record.message
+    assert "stall_current_max by stall_current + _max" in record.message
+    assert "words that say which value of it they are" in record.message
+    assert "their suffix suggests" not in record.message
+    (suffix,) = _naming(ran, "gyro_delay")
+    assert suffix.details.quantities == ("gyro_delay",)
+    assert "gyro_delay by _delay" in suffix.message
+
+
+def test_a_qualified_mismatch_names_the_reading_with_its_words_in_order(tmp_path: Path) -> None:
+    ran = _units(tmp_path, {"computation_delay_measured_nominal": (3, "m")})
+    (mismatch,) = [
+        o
+        for o in _naming(ran, "computation_delay_measured_nominal")
+        if "refuses nothing" in o.message
+    ]
+    assert "(_delay + _measured_nominal)" in mismatch.message
+    assert "once the words that say which value it is are taken off" in mismatch.message

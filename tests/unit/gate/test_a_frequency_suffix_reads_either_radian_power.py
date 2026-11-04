@@ -109,3 +109,23 @@ def test_a_catalogued_name_keeps_its_one_radian_power_and_its_sign(
     ran = _units(tmp_path, name, value, unit)
     assert [o.outcome for o in ran.observations] == ["fail"]
     assert name in ran.observations[0].message
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "unit"),
+    [
+        # another suffix of the frequency kind: a sensor's output data rate is in hertz
+        ("gyro_output_data_rate", 208, "rad/s"),
+        # a catalogued frequency name with a qualifier keeps the name's one power
+        ("sample_rate_max", 100, "rad/s"),
+        ("update_rate_nominal", 100, "rad/s"),
+    ],
+)
+def test_only_a_frequency_suffix_reads_either_power(
+    tmp_path: Path, name: str, value: float, unit: str
+) -> None:
+    ran = _units(tmp_path, name, value, unit)
+    assert kind_of(name) is KINDS["frequency"]
+    assert not any(o.outcome == "fail" for o in ran.observations)
+    (mismatch,) = _mismatches(ran, name) or [""]
+    assert "the radian to the power 0, and 'rad/s' has it to the power 1" in mismatch, mismatch
