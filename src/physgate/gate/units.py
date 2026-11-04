@@ -88,7 +88,7 @@ def _dimensions(container: Any) -> str:
     return " * ".join(k if v == 1 else f"{k}**{v}" for k, v in container.items()) or "none"
 
 
-def unit_text(units: Any) -> str:
+def unit_text(units: Any, *, symbols: bool = False) -> str:
     """A pint unit, or the container of its factors, spelt as pint's plain format spells it.
 
     pint 0.26.1 cannot print a unit with a power other than one when it computes in
@@ -103,6 +103,10 @@ def unit_text(units: Any) -> str:
     which pint's errors carry, as they were written, ``newton * meter``. Where pint can print
     a unit, every power one or minus one, the text is pint's own, byte for byte. A unit pint
     names by a string is that string.
+
+    With ``symbols``, each factor is its symbol and no factor at all is nothing, as pint's
+    short format (``~``) spells a unit, in the same order: ``kg * m ** 2``, ``m * N / A``
+    (M-201: the inject command's source check shows its numbers so).
     """
     if isinstance(units, str):
         return units
@@ -112,10 +116,11 @@ def unit_text(units: Any) -> str:
         else list(units.items())
     )
     if not factors:
-        return "dimensionless"
+        return "" if symbols else "dimensionless"
 
     def term(name: str, power: Any) -> str:
-        return name if power == 1 else f"{name} ** {power}"
+        said = UREG.get_symbol(name) if symbols else name
+        return said if power == 1 else f"{said} ** {power}"
 
     above = [term(name, power) for name, power in factors if power > 0]
     below = [term(name, -power) for name, power in factors if power < 0]
