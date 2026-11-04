@@ -10,6 +10,15 @@ so the bounds and relations sentences, and every other byte of the prompt, stay 
 at a64e805f. The new kinds with no catalogued name (an area, a moment of inertia, a duration, a
 velocity), reached by suffixes only, get no label.
 
+One more sentence moves, with the check round (04.11.2026, finding C3): the sentence after the
+groups said that a name adding words to a catalogued one "is another quantity to the gate and goes
+unchecked". With the qualifier words that is untrue: ``duty_cycle_max`` = 1.5 is refused by its
+duty cycle's envelope, and ``stall_current_max`` has its unit and sign read. The sentence now says
+what the gate does: such a name joins no relation and no range by name, and where the added words
+are the closed qualifier list, generated from the catalogue, its unit, its sign and its kind's
+definitional bound are read as the quantity's. So the qualifier words reach the prompt; the
+suffixes and the signs still do not.
+
 The order of the groups follows the catalogue's kinds, and of the names its entries: where the fix
 puts a row is its choice, so the groups are compared as sets here, and the new prompt digests are
 pinned with the fix.
@@ -22,6 +31,7 @@ import hashlib
 import pytest
 
 from physgate import roles
+from physgate.gate.catalogue import QUALIFIERS
 from physgate.orchestrator.decompose import (
     bounds_sentence,
     catalogue_sentence,
@@ -31,16 +41,30 @@ from physgate.orchestrator.decompose import (
 
 BRIEF = "Build a robot."
 
-#: The catalogue sentence's frame at a64e805f: the words around the groups.
+#: The catalogue sentence's frame: the words around the groups.
 HEAD = (
     "The physics gate checks a quantity only under its catalogue name, in a unit of its kind. "
     "Wherever a node holds one of these quantities, and wherever a specification names one, it "
     "is named so: "
 )
-TAIL = (
+#: The words after the groups at a64e805f.
+BASE_TAIL = (
     ". A name that adds words to one of them is another quantity to the gate and goes unchecked; "
     "where a node holds two values of one (a rating and the value the design runs at), the one it "
     "runs at takes the catalogue name."
+)
+#: The closed qualifier list, in the catalogue's order.
+QUALIFIER_WORDS = (
+    "_max, _min, _nominal, _measured, _applied, _bound, _budget, _typical, _lower, _upper, "
+    "_implied, _estimated, _indicative"
+)
+#: The words after the groups since the check round (C3).
+TAIL = (
+    ". A name that adds words to one of them is not that quantity to the gate: it joins no "
+    "relation and no range by name. Where the added words end the name and only say which value "
+    f"of the quantity it is ({QUALIFIER_WORDS}), its unit, its sign and any bound its kind has by "
+    "definition are still read as that quantity's; where a node holds two values of one (a rating "
+    "and the value the design runs at), the one it runs at takes the catalogue name."
 )
 
 #: The groups at a64e805f in the order the sentence gave them, for rebuilding its bytes.
@@ -117,12 +141,12 @@ def _sha(text: str) -> str:
 def _base_sentence() -> str:
     """The catalogue sentence at a64e805f, rebuilt from its groups in the order it had."""
     groups = "; ".join(f"{label}: {', '.join(names)}" for label, names in BASE_ORDER)
-    return f"{HEAD}{groups}{TAIL}"
+    return f"{HEAD}{groups}{BASE_TAIL}"
 
 
-def _groups(sentence: str) -> dict[str, set[str]]:
-    assert sentence.startswith(HEAD) and sentence.endswith(TAIL), sentence
-    body = sentence[len(HEAD) : -len(TAIL)]
+def _groups(sentence: str, tail: str = TAIL) -> dict[str, set[str]]:
+    assert sentence.startswith(HEAD) and sentence.endswith(tail), sentence
+    body = sentence[len(HEAD) : -len(tail)]
     groups: dict[str, set[str]] = {}
     for group in body.split("; "):
         label, _, names = group.partition(": ")
@@ -140,11 +164,23 @@ def sizing_registered(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_the_base_sentence_is_rebuilt_byte_for_byte() -> None:
     # Guard: the rebuild below is a64e805f's sentence, so the comparisons stand on it.
     assert _sha(_base_sentence()) == BASE_SENTENCE_SHA256
-    assert _groups(_base_sentence()) == BASE_GROUPS
+    assert _groups(_base_sentence(), BASE_TAIL) == BASE_GROUPS
 
 
 def test_the_catalogue_sentence_gains_the_new_names_and_kind_labels_and_nothing_else() -> None:
     assert _groups(catalogue_sentence()) == WIDENED_GROUPS
+
+
+def test_the_added_words_sentence_says_what_the_gate_reads_of_such_a_name() -> None:
+    sentence = catalogue_sentence()
+    assert sentence.endswith(TAIL), sentence[-700:]
+    assert "goes unchecked" not in sentence
+
+
+def test_the_qualifier_words_in_the_prompt_are_the_catalogue_s_own() -> None:
+    # Generated from the catalogue, so the prompt names exactly the words the gate strips.
+    assert ", ".join(QUALIFIERS) == QUALIFIER_WORDS
+    assert f"({QUALIFIER_WORDS})" in catalogue_sentence()
 
 
 def test_the_bounds_and_relations_sentences_are_unchanged() -> None:

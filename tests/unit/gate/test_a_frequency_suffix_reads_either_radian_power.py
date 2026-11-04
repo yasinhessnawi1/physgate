@@ -94,21 +94,39 @@ def test_a_negative_frequency_at_either_radian_power_is_recorded_as_one(
 
 
 @pytest.mark.parametrize(
-    ("name", "value", "unit"),
+    ("name", "value", "unit", "why"),
     [
-        ("sample_rate", 100, "rad/s"),
-        ("update_rate", 100, "rad/s"),
-        ("sample_rate", -100, "Hz"),
-        ("update_rate", -100, "Hz"),
-        ("gain_crossover_frequency", 2.4, "Hz"),
+        (
+            "sample_rate",
+            100,
+            "rad/s",
+            "the radian to the power 0, and 'rad/s' has it to the power 1",
+        ),
+        (
+            "update_rate",
+            100,
+            "rad/s",
+            "the radian to the power 0, and 'rad/s' has it to the power 1",
+        ),
+        ("sample_rate", -100, "Hz", "a frequency is never negative"),
+        ("update_rate", -100, "Hz", "a frequency is never negative"),
+        (
+            "gain_crossover_frequency",
+            2.4,
+            "Hz",
+            "the radian to the power 1, and 'Hz' has it to the power 0",
+        ),
     ],
 )
 def test_a_catalogued_name_keeps_its_one_radian_power_and_its_sign(
-    tmp_path: Path, name: str, value: float, unit: str
+    tmp_path: Path, name: str, value: float, unit: str, why: str
 ) -> None:
     ran = _units(tmp_path, name, value, unit)
     assert [o.outcome for o in ran.observations] == ["fail"]
-    assert name in ran.observations[0].message
+    # Refused for its reason: the radian's power or the sign, not another.
+    assert name in ran.observations[0].message and why in ran.observations[0].message, (
+        ran.observations[0].message
+    )
 
 
 @pytest.mark.parametrize(

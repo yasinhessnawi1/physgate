@@ -207,8 +207,8 @@ def test_a_qualified_name_is_recorded_as_read_with_no_relation(tmp_path: Path) -
 @pytest.mark.parametrize(
     ("name", "value", "unit", "said"),
     [
-        ("stall_current_max", 2, "V", "stall_current_max"),
-        ("supply_voltage_min", 5.4, "A", "supply_voltage_min"),
+        ("stall_current_max", 2, "V", "pint cannot convert 'volt' ([mass] * [length]**2"),
+        ("supply_voltage_min", 5.4, "A", "pint cannot convert 'ampere' ([current]) to 'volt'"),
         ("motor_off_latency_max", -0.06, "s", "never negative"),
         ("sensitivity_peak_nominal", -2.0, "1", "never negative"),
         ("gearbox_efficiency_implied", -0.5, "1", "never negative"),

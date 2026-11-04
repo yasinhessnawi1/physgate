@@ -37,54 +37,117 @@ def _units(result: Any) -> list[Any]:
 
 
 @pytest.mark.parametrize(
-    ("name", "value", "unit", "said"),
+    ("name", "value", "unit", "said", "why"),
     [
-        # a wrong dimension under a suffix's new kind
-        ("drag_area", 0.013216, "m", "_area"),
-        ("body_inertia", 0.000605802, "kg*m", "_inertia"),
-        ("sample_period", 0.01, "Hz", "_period"),
-        ("max_ground_speed", 1.11473, "rad/s", "_ground_speed"),
-        ("proposed_sensitivity_peak", 2.0, "s", "_sensitivity_peak"),
-        ("gyro_delay", 0.00481, "m", "_delay"),
+        # a wrong dimension under a suffix's new kind: pint's refusal, to the kind's unit
+        (
+            "drag_area",
+            0.013216,
+            "m",
+            "_area",
+            "pint cannot convert 'meter' ([length]) to 'meter ** 2'",
+        ),
+        (
+            "body_inertia",
+            0.000605802,
+            "kg*m",
+            "_inertia",
+            "pint cannot convert 'kilogram * meter' ([mass] * [length]) to 'kilogram * meter ** 2'",
+        ),
+        (
+            "sample_period",
+            0.01,
+            "Hz",
+            "_period",
+            "pint cannot convert 'hertz' ([time]**-1) to 'second'",
+        ),
+        (
+            "max_ground_speed",
+            1.11473,
+            "rad/s",
+            "_ground_speed",
+            "pint cannot convert 'radian / second' ([time]**-1) to 'meter / second'",
+        ),
+        (
+            "proposed_sensitivity_peak",
+            2.0,
+            "s",
+            "_sensitivity_peak",
+            "pint cannot convert 'second' ([time]) to 'dimensionless'",
+        ),
+        (
+            "gyro_delay",
+            0.00481,
+            "m",
+            "_delay",
+            "pint cannot convert 'meter' ([length]) to 'second'",
+        ),
         # a sign the definition rules out
-        ("drag_area", -0.013216, "m**2", "never negative"),
-        ("body_inertia", -0.0006, "kg*m**2", "never negative"),
-        ("sample_period", -0.01, "s", "never negative"),
-        ("angle_decay_one_count_spectral_radius", -1.0, "1", "never negative"),
-        ("motor_off_latency_max", -0.06, "s", "never negative"),
+        ("drag_area", -0.013216, "m**2", "_area", "an area is never negative"),
+        ("body_inertia", -0.0006, "kg*m**2", "_inertia", "a moment of inertia is never negative"),
+        ("sample_period", -0.01, "s", "_period", "a duration is never negative"),
+        (
+            "angle_decay_one_count_spectral_radius",
+            -1.0,
+            "1",
+            "_spectral_radius",
+            "a modulus is never negative",
+        ),
+        ("motor_off_latency_max", -0.06, "s", "_latency + _max", "a duration is never negative"),
     ],
 )
 def test_a_new_kind_s_mismatch_under_a_read_name_is_recorded_and_refuses_nothing(
-    tmp_path: Path, name: str, value: float, unit: str, said: str
+    tmp_path: Path, name: str, value: float, unit: str, said: str, why: str
 ) -> None:
     result = _gate(tmp_path, name, value, unit)
     assert result.verdict == "pass"
     records = [c for c in _units(result) if c.outcome == "unchecked" and name in c.message]
-    assert any("refuses nothing" in c.message and said in c.message for c in records), [
-        c.message for c in records
-    ]
+    # The record names the reading and gives the reason: the kind's dimension, or its sign.
+    assert any(
+        "refuses nothing" in c.message and said in c.message and why in c.message for c in records
+    ), [c.message for c in records]
 
 
 @pytest.mark.parametrize(
-    ("name", "value", "unit"),
+    ("name", "value", "unit", "why"),
     [
-        ("motor_resistance", 3.75, "V"),
-        ("motor_resistance", -3.75, "V/A"),
-        ("torque_constant", 0.053755, "N*m"),
-        ("update_rate", 100, "s"),
-        ("sensitivity_peak", 2.4, "rad/s"),
-        ("sensitivity_peak", -2.4, "1"),
-        ("gain_margin", -0.5, "1"),
-        ("bore_diameter", 0.005, "m**2"),
-        ("bore_diameter", -0.005, "m"),
+        ("motor_resistance", 3.75, "V", "pint cannot convert 'volt'"),
+        ("motor_resistance", -3.75, "V/A", "a resistance is never negative"),
+        ("torque_constant", 0.053755, "N*m", "pint cannot convert 'newton * meter'"),
+        ("update_rate", 100, "s", "pint cannot convert 'second' ([time]) to 'hertz'"),
+        (
+            "update_rate",
+            100,
+            "rad/s",
+            "the radian to the power 0, and 'rad/s' has it to the power 1",
+        ),
+        ("sensitivity_peak", 2.4, "rad/s", "pint cannot convert 'radian / second' ([time]**-1)"),
+        (
+            "sensitivity_peak",
+            2.4,
+            "rad",
+            "the radian to the power 0, and 'rad' has it to the power 1",
+        ),
+        ("sensitivity_peak", 2.4, "m", "pint cannot convert 'meter' ([length]) to 'dimensionless'"),
+        ("sensitivity_peak", -2.4, "1", "a modulus is never negative"),
+        ("gain_margin", -0.5, "1", "a modulus is never negative"),
+        (
+            "bore_diameter",
+            0.005,
+            "m**2",
+            "pint cannot convert 'meter ** 2' ([length]**2) to 'meter'",
+        ),
+        ("bore_diameter", -0.005, "m", "an extent is never negative"),
     ],
 )
 def test_a_new_exact_name_s_mismatch_is_refused(
-    tmp_path: Path, name: str, value: float, unit: str
+    tmp_path: Path, name: str, value: float, unit: str, why: str
 ) -> None:
     result = _gate(tmp_path, name, value, unit)
     assert result.verdict == "fail"
-    assert any(c.outcome == "fail" and name in c.message for c in _units(result))
+    # Refused for its reason: the kind's dimension, its radian or its sign, not another.
+    refusals = [c.message for c in _units(result) if c.outcome == "fail" and name in c.message]
+    assert len(refusals) == 1 and why in refusals[0], refusals
 
 
 @pytest.mark.parametrize(
