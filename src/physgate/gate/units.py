@@ -103,7 +103,8 @@ def unit_text(units: Any) -> str:
     """
     if isinstance(units, str):
         return units
-    factors = list(getattr(units, "_units", units).items())
+    container = units._units if isinstance(units, pint.Unit) else units  # noqa: SLF001
+    factors = list(container.items())
     if not factors:
         return "dimensionless"
 
