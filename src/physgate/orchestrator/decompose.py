@@ -32,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from physgate.contracts.pairs import ContractError, ContractPair, pairing_problems, plan_pairs
 from physgate.gate.bounds_table import load_bounds
-from physgate.gate.catalogue import KINDS, QUANTITIES, RELATIONS, shadowing_names
+from physgate.gate.catalogue import KINDS, QUALIFIERS, QUANTITIES, RELATIONS, shadowing_names
 from physgate.hooks.settings import protected_in_a_worktree
 from physgate.knowledge.library import LibraryError, put_into, read_library
 from physgate.orchestrator.accounting import require_matching_totals
@@ -531,9 +531,12 @@ def catalogue_sentence() -> str:
     """The gate's quantity names, grouped by kind with its unit, generated from its catalogue.
 
     Every name the catalogue holds, in its kinds' order, so the prompt names what the gate
-    checks and nothing else. The second sentence is the naming rule, held by the prompt alone:
-    no plan check refuses a node's name for added words, since a node of part masses and no total
-    is an honest plan, and a refusal there halts the run at its first step after a paid call.
+    checks and nothing else. The sentences after it are the naming rule, held by the prompt
+    alone: no plan check refuses a node's name for added words, since a node of part masses and
+    no total is an honest plan, and a refusal there halts the run at its first step after a paid
+    call. They say what the gate does with such a name: it joins no relation and no range by
+    name, and where the added words are the catalogue's closed qualifier words, listed from it,
+    its unit, its sign and its kind's definitional bound are read as the quantity's.
     """
     names: dict[str, list[str]] = {}
     for name, entry in QUANTITIES.items():
@@ -548,9 +551,12 @@ def catalogue_sentence() -> str:
     return (
         "The physics gate checks a quantity only under its catalogue name, in a unit of its "
         "kind. Wherever a node holds one of these quantities, and wherever a specification "
-        f"names one, it is named so: {groups}. A name that adds words to one of them is another "
-        "quantity to the gate and goes unchecked; where a node holds two values of one (a "
-        "rating and the value the design runs at), the one it runs at takes the catalogue name."
+        f"names one, it is named so: {groups}. A name that adds words to one of them is not that "
+        "quantity to the gate: it joins no relation and no range by name. Where the added words "
+        "end the name and only say which value of the quantity it is "
+        f"({', '.join(QUALIFIERS)}), its unit, its sign and any bound its kind has by definition "
+        "are still read as that quantity's; where a node holds two values of one (a rating and "
+        "the value the design runs at), the one it runs at takes the catalogue name."
     )
 
 
