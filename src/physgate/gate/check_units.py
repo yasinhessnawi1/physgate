@@ -35,6 +35,7 @@ from physgate.gate.units import (
     measure,
     parse,
     pint_message,
+    unit_text,
 )
 from physgate.orchestrator.protocols import (
     NumericOutput,
@@ -81,7 +82,7 @@ def _sum(view: GraphView, factors: tuple[Factor, ...]) -> Any:
         try:
             total = total + value
         except PINT_ERRORS as exc:
-            raise _MismatchError(str(total.units), str(value.units), exc) from None
+            raise _MismatchError(unit_text(total.units), unit_text(value.units), exc) from None
     return total if total is not None else UREG.Quantity(0)
 
 
@@ -101,7 +102,7 @@ def _relation_finding(view: GraphView, instance: Instance) -> Observation | None
         try:
             left - right  # noqa: B018 - pint's refusal is the finding
         except PINT_ERRORS as exc:
-            raise _MismatchError(str(left.units), str(right.units), exc) from None
+            raise _MismatchError(unit_text(left.units), unit_text(right.units), exc) from None
     except UnitRefusedError as exc:
         return Observation(
             outcome="fail",

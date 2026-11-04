@@ -25,7 +25,7 @@ from gate_fixtures import graph, node
 from physgate.gate.catalogue import KINDS
 from physgate.gate.graph import GraphView
 from physgate.gate.runner import PhysicsGate
-from physgate.gate.units import _dimensions, measure, pint_message
+from physgate.gate.units import UREG, _dimensions, measure, pint_message, unit_text
 
 NODE = "control.plant"
 M = "mechanical"
@@ -173,3 +173,20 @@ def test_where_pint_can_print_the_units_the_words_are_pint_s_own(kind: str, unit
         f"pint cannot convert '{exc.units1}' ({_dimensions(exc.dim1)}) to "
         f"'{exc.units2}' ({_dimensions(exc.dim2)})"
     )
+
+
+@pytest.mark.parametrize(
+    ("units", "text"),
+    [
+        (UREG.Unit("m**2"), "meter ** 2"),
+        (UREG.Unit("1/s**2"), "1 / second ** 2"),
+        (UREG.Unit("kg*m**2/s**3/A"), "kilogram * meter ** 2 / second ** 3 / ampere"),
+        (UREG.Unit("dimensionless"), "dimensionless"),
+        ("dimensionless", "dimensionless"),
+    ],
+)
+def test_a_unit_is_spelt_from_its_factors_and_a_named_one_is_its_name(
+    units: Any, text: str
+) -> None:
+    # pint names a unit by a string in some of its errors; that string is the unit's text.
+    assert unit_text(units) == text
