@@ -21,10 +21,10 @@ from typing import Literal
 from physgate.gate.catalogue import (
     KINDS,
     MAX_DISCHARGE_PER_HOUR,
+    QUANTITIES,
     RELATIONS,
     SOURCES,
     Relation,
-    kind_of,
 )
 from physgate.gate.graph import GraphView
 from physgate.gate.units import UREG, Measured, add, measure, multiply
@@ -310,11 +310,13 @@ def measured(view: GraphView, ref: TermRef) -> Measured:
         UnitRefusedError, pint errors: see :func:`physgate.gate.units.measure`.
     """
     quantity = view.nodes[ref.node].quantities[ref.name]
-    kind = kind_of(ref.name)
-    if kind is None:  # relations are built from catalogue names only
+    entry = QUANTITIES.get(ref.name)
+    # Relations are built from catalogue names only: a name the gate merely reads, by a suffix
+    # or by qualifier words, has a kind but is never a term.
+    if entry is None:
         msg = f"relation term {ref.name!r} is not in the catalogue"
         raise ValueError(msg)
-    return measure(kind, quantity.value, quantity.unit)
+    return measure(KINDS[entry.kind], quantity.value, quantity.unit)
 
 
 def scaled(view: GraphView, term: Scaled) -> Measured:

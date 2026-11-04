@@ -15,7 +15,8 @@ node, the ones the decomposition wrote included:
    is held to its reading's kind the same way, and a mismatch is recorded as unchecked,
    naming the reading, and refuses nothing: the reading is the gate's, not the
    catalogue's. A ``_frequency`` reading is f or omega, so it takes either power of the
-   radian; its dimension and sign are still read.
+   radian, and a ``torque_constant`` is Kt or Ke, so it takes the radian to the power 0 or -1
+   (``EITHER_ANGLE``); their dimension and sign are still read.
 
 Whether a relation holds is the business of the check its ``judged_by`` names.
 
@@ -26,7 +27,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from physgate.gate.catalogue import Reading, inferred_by, kind_of
+from physgate.gate.catalogue import Reading, angles_of, inferred_by, kind_of
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
 from physgate.gate.relations import Factor, Instance, Product, Scaled, instances, touching
@@ -268,7 +269,7 @@ def run(ctx: CheckContext) -> CheckRun:
                 continue
             reading = inferred_by(name)
             try:
-                measure(kind, q.value, q.unit, angles=None if reading is None else reading.angles)
+                measure(kind, q.value, q.unit, angles=angles_of(name))
             except PINT_ERRORS as exc:
                 reason, wanted = pint_message(exc), None
             except SignRefusedError as exc:

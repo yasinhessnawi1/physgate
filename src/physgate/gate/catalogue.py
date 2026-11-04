@@ -80,7 +80,8 @@ _SIGN_SOURCES = {
     "velocity": "a linear velocity, signed by its direction: its unit is read, not its sign",
     "torque_constant": (
         "a motor's torque per ampere, Kt = torque / current, signed by convention: its unit is "
-        "read, not its sign"
+        "read, not its sign; in SI it is the same number as the back-EMF constant Ke in V*s/rad, "
+        "so it is read at the radian's power 0 or -1"
     ),
     "modulus": (
         "never negative: a norm, a modulus or a ratio of two magnitudes (a peak of a "
@@ -683,10 +684,16 @@ QUALIFIERS: tuple[str, ...] = (
     "_indicative",
 )
 
-#: The suffixes read at either power of the radian: "frequency" names both f, in hertz, and the
-#: angular frequency omega, in radians per second. The dimension, 1/s, and the sign are still
-#: read; a catalogued name keeps its kind's one power.
-EITHER_ANGLE: tuple[str, ...] = ("_frequency",)
+#: The suffixes and names read at more than one power of the radian, each with its powers,
+#: because one quantity is written both ways: "frequency" names both f, in hertz, and the
+#: angular frequency omega, in radians per second; a motor's torque constant Kt, in N*m/A, is in
+#: SI the same number as its back-EMF constant Ke, in V*s/rad. The dimension and the sign are
+#: still read; every other catalogued name keeps its kind's one power. No relation and no range
+#: takes a name read so (a guard row holds that): pint takes the radian as one, so a frequency
+#: in rad/s is converted to hertz without its factor 2 pi.
+EITHER_ANGLE: Mapping[str, tuple[int, ...]] = MappingProxyType(
+    {"_frequency": (0, 1), "torque_constant": (0, -1)}
+)
 
 
 @dataclass(frozen=True)
@@ -711,7 +718,7 @@ class Reading:
     @property
     def angles(self) -> tuple[int, ...]:
         """The powers of the radian the reading accepts in the name's unit."""
-        return (0, 1) if self.base in EITHER_ANGLE else (KINDS[self.kind].angle,)
+        return EITHER_ANGLE.get(self.base, (KINDS[self.kind].angle,))
 
 
 def _suffix_of(name: str) -> Suffix | None:
@@ -881,6 +888,19 @@ def kind_of(name: str) -> Kind | None:
     return KINDS[reading.kind] if reading is not None else None
 
 
+def angles_of(name: str) -> tuple[int, ...] | None:
+    """The powers of the radian the unit of the quantity called ``name`` may have.
+
+    A catalogued name's are its kind's, unless ``EITHER_ANGLE`` lists the name; an uncatalogued
+    name's are its reading's. ``None`` if no reading gives the name a kind.
+    """
+    entry = QUANTITIES.get(name)
+    if entry is not None:
+        return EITHER_ANGLE.get(name, (KINDS[entry.kind].angle,))
+    reading = inferred_by(name)
+    return reading.angles if reading is not None else None
+
+
 def catalogue_digest() -> str:
     """The sha256 of the catalogue's content: every kind, name, relation, product and reading.
 
@@ -898,6 +918,7 @@ def catalogue_digest() -> str:
         "store_classes": [c.model_dump(mode="json") for c in STORE_CLASSES],
         "suffixes": [s.model_dump() for s in SUFFIXES],
         "qualifiers": list(QUALIFIERS),
+        "either_angle": [[key, list(powers)] for key, powers in sorted(EITHER_ANGLE.items())],
     }
     canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()

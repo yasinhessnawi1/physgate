@@ -1,8 +1,8 @@
 """Check 2, magnitude plausibility: each value against its sourced range or envelope.
 
 At subtask scope over the nodes the attempt wrote, and at system scope over every
-node (the decomposition's included), every quantity with a kind (a catalogued name,
-or one whose suffix gives it a kind) is looked up in the bounds table: the range for
+node (the decomposition's included), every quantity with a kind (a catalogued name, or
+one a suffix or qualifier words give a kind) is looked up in the bounds table: the range for
 its name in the writer's own domain first, else the envelope for its kind, which
 holds in every domain. The comparison is exact, in the bound's unit: the bounds are
 what the source says, and rounding is never credited toward a pass. An envelope
@@ -28,10 +28,10 @@ scores such a refusal as this stated limit.
 from __future__ import annotations
 
 from physgate.gate.bounds_table import Bound, BoundsTable, Envelope
-from physgate.gate.catalogue import kind_of
+from physgate.gate.catalogue import QUANTITIES, kind_of
 from physgate.gate.context import CheckContext
 from physgate.gate.result import CheckRun, Observation
-from physgate.gate.units import PINT_ERRORS, Measured, UnitRefusedError, compare, measure
+from physgate.gate.units import PINT_ERRORS, Measured, UnitRefusedError, compare, measure, parse
 from physgate.orchestrator.protocols import (
     MagnitudeDetails,
     NumericOutput,
@@ -76,6 +76,14 @@ def _outside(
     )
 
 
+def _parses(value: float | int, unit: str) -> bool:
+    try:
+        parse(value, unit)
+    except UnitRefusedError:
+        return False
+    return True
+
+
 def run(ctx: CheckContext) -> CheckRun:
     """Compare every catalogued quantity of the attempt's own nodes with its range."""
     view = ctx.view
@@ -86,6 +94,7 @@ def run(ctx: CheckContext) -> CheckRun:
         node = view.nodes[node_id]
         no_range: list[str] = []
         unreadable: list[str] = []
+        misread: list[str] = []
         for name, q in node.quantities.items():
             kind = kind_of(name)
             if kind is None:
@@ -103,7 +112,11 @@ def run(ctx: CheckContext) -> CheckRun:
                 below = compare(value, measure(kind, found.low, found.unit)) < 0
                 above = compare(value, measure(kind, found.high, found.unit)) > 0
             except (UnitRefusedError, *PINT_ERRORS):
-                unreadable.append(name)  # the unit check refuses it with the reason
+                # The unit check refuses a catalogued name's mismatch and a unit that does not
+                # parse; a name it only reads, by a suffix or qualifier words, it records.
+                (
+                    unreadable if name in QUANTITIES or not _parses(q.value, q.unit) else misread
+                ).append(name)
                 continue
             evaluated += 1
             if below or above:
@@ -113,6 +126,11 @@ def run(ctx: CheckContext) -> CheckRun:
         for names, why in (
             (no_range, "have no sourced range for their domain and no envelope for their kind"),
             (unreadable, "are in a unit the unit check refuses, so no range could be applied"),
+            (
+                misread,
+                "are not in a unit or of a sign of the kind their name is read as, which the unit "
+                "check records and does not refuse, so no range could be applied",
+            ),
         ):
             if names:
                 observations.append(

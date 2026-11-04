@@ -35,10 +35,12 @@ from physgate.gate.catalogue import (
 )
 from physgate.state.vocabulary import QUANTITY_NAMES
 
-#: The catalogue's digest at a64e805f, before the widening, and with it: the rows below and the
-#: closed qualifier list.
+#: The catalogue's digest at a64e805f, before the widening, and with it: the rows below, the
+#: closed qualifier list and, since the check round (04.11.2026), what is read at either power of
+#: the radian (EITHER_ANGLE: _frequency, and torque_constant for Ke). At 470b3f34, without
+#: EITHER_ANGLE: 87ff47377cf8....
 BASE_DIGEST = "3da500738f1e5a3fe3e523bf1e9fcd6fb689f1a3fe6ec1870d1cda6acf4324f7"
-WIDENED_DIGEST = "87ff47377cf8122bdbc1325cb557e09f58d5f8e24dde499daa726c6425ac02b6"
+WIDENED_DIGEST = "0ec405db80746115a88db9676f737661030b62ef6a080c8e444746a63ebd4edd"
 
 #: Every kind at a64e805f: (canonical unit, radian power, shape, absolute, sign).
 BASE_KINDS: dict[str, tuple[str, int, str | None, bool, str]] = {

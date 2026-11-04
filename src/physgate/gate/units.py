@@ -31,7 +31,8 @@ in this order, stopping at the first failure:
    40 delta_degC to 40 K, so an ambient of 40 degrees read as a difference would
    be 273.15 K colder than written);
 4. the power of the radian in its root units is the kind's, or one of those a
-   reading of the name allows (a ``_frequency`` is f or omega) (this gate's rule);
+   reading of the name allows (a ``_frequency`` is f or omega, a ``torque_constant`` Kt
+   or Ke) (this gate's rule);
 5. its unit has the kind's factor shape, where the kind has one: a torque is a
    force times a length, an energy an energy unit or a power times a time (this
    gate's rule);
@@ -286,9 +287,10 @@ def measure(
 ) -> Measured:
     """Measure one quantity against its kind: rules 1 to 6, in order.
 
-    ``angles`` are the powers of the radian rule 4 accepts, the kind's own unless a reading
-    of the name says otherwise: a name ending in ``_frequency`` is f or omega, so it is read
-    at either power; its dimension and its sign are still the kind's.
+    ``angles`` are the powers of the radian rule 4 accepts, the kind's own unless the
+    catalogue says otherwise for the name (``catalogue.angles_of``): a name ending in
+    ``_frequency`` is f or omega, so it is read at either power, and a ``torque_constant`` is
+    Kt in N*m/A or Ke in V*s/rad; its dimension and its sign are still the kind's.
 
     Raises:
         UnitRefusedError: the unit does not parse, or one of this gate's own rules
@@ -298,6 +300,12 @@ def measure(
             absolute temperature.
     """
     quantity = parse(value, unit)
+    # pint takes the radian as one, so a value read at another power of the radian than its
+    # kind's is converted without that factor: 13.885 rad/s read as a frequency becomes
+    # 13.885 Hz, not 13.885 / (2 pi) = 2.21 Hz (a torque constant's V*s/rad converts exactly).
+    # Nothing reads that magnitude: the unit check reads the dimension and the sign only, and
+    # no relation and no range takes a name read at another power (a guard row holds that).
+    # A frequency envelope or range for such a name would first need omega converted.
     converted = quantity.to(kind.canonical)
     if not kind.absolute:
         # pint refuses arithmetic on an offset unit; provoking it is the test.
