@@ -98,13 +98,19 @@ def unit_text(units: Any) -> str:
     default format does: the factors with a positive power by `` * ``, then each with a
     negative power after `` / ``, a power other than one as `` ** `` and its size, ``1`` for
     an empty numerator and ``dimensionless`` for no factor at all (``kilogram * meter ** 2``,
-    ``radian / second ** 2``). Where pint can print a unit, every power one or minus one,
-    the text is pint's own, byte for byte. A unit pint names by a string is that string.
+    ``radian / second ** 2``). The factors stand in pint's order: a unit (``pint.Unit``)
+    sorted by name, ``meter * newton`` for ``N*m``, and the container of a unit's factors,
+    which pint's errors carry, as they were written, ``newton * meter``. Where pint can print
+    a unit, every power one or minus one, the text is pint's own, byte for byte. A unit pint
+    names by a string is that string.
     """
     if isinstance(units, str):
         return units
-    container = units._units if isinstance(units, pint.Unit) else units  # noqa: SLF001
-    factors = list(container.items())
+    factors = (
+        sorted(units._units.items())  # noqa: SLF001 - no public view of the factors
+        if isinstance(units, pint.Unit)
+        else list(units.items())
+    )
     if not factors:
         return "dimensionless"
 

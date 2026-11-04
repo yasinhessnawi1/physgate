@@ -181,7 +181,8 @@ def test_where_pint_can_print_the_units_the_words_are_pint_s_own(kind: str, unit
     [
         (UREG.Unit("m**2"), "meter ** 2"),
         (UREG.Unit("1/s**2"), "1 / second ** 2"),
-        (UREG.Unit("kg*m**2/s**3/A"), "kilogram * meter ** 2 / second ** 3 / ampere"),
+        # pint sorts a unit's factors by name (C1 of the M-198 check)
+        (UREG.Unit("kg*m**2/s**3/A"), "kilogram * meter ** 2 / ampere / second ** 3"),
         (UREG.Unit("dimensionless"), "dimensionless"),
         ("dimensionless", "dimensionless"),
     ],
