@@ -47,7 +47,7 @@ from pydantic import (
 
 from physgate.gate.catalogue import KINDS, kind_of
 from physgate.gate.exceptions import GateError
-from physgate.gate.units import PINT_ERRORS, UnitRefusedError, measure
+from physgate.gate.units import PINT_ERRORS, UnitRefusedError, measure, pint_message
 from physgate.state.schema import DomainKind
 
 #: One file name, one per domain directory.
@@ -67,6 +67,15 @@ _Text = Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
 
 class BoundsTableError(GateError):
     """A bounds table that does not load: missing a source, a date, or a sound range."""
+
+
+def _why(exc: Exception) -> str:
+    """Why a row's unit is refused: the gate's own words, or pint's refusal put into words.
+
+    pint 0.26.1, computing in fractions, cannot print its own refusal once a unit or a
+    dimension has a power other than one (M-200), so its refusal is worded from its fields.
+    """
+    return str(exc) if isinstance(exc, UnitRefusedError) else pint_message(exc)
 
 
 class _Frozen(BaseModel):
@@ -103,7 +112,7 @@ class Range(_Frozen):
         try:
             measure(kind, self.low, self.unit)
         except (UnitRefusedError, *PINT_ERRORS) as exc:
-            msg = f"the unit {self.unit!r} is not one a {kind.name} is written in: {exc}"
+            msg = f"the unit {self.unit!r} is not one a {kind.name} is written in: {_why(exc)}"
             raise ValueError(msg) from None
         return self
 
@@ -140,7 +149,7 @@ class Envelope(_Frozen):
         try:
             measure(kind, self.high, self.unit)
         except (UnitRefusedError, *PINT_ERRORS) as exc:
-            msg = f"the unit {self.unit!r} is not one a {kind.name} is written in: {exc}"
+            msg = f"the unit {self.unit!r} is not one a {kind.name} is written in: {_why(exc)}"
             raise ValueError(msg) from None
         return self
 
