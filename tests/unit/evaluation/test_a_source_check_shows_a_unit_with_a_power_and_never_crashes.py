@@ -55,6 +55,12 @@ def test_a_unit_is_shown_as_pint_s_short_format_shows_it(unit: str) -> None:
     assert _shown_or_fail(1.5, unit) == f"1.5 {PLAIN.Unit(unit):~}"
 
 
+def test_a_number_with_no_unit_is_shown_as_pint_s_short_format_shows_it() -> None:
+    # pint's short format spells no factor as nothing, so the number is followed by its space.
+    assert f"{PLAIN.Unit('dimensionless'):~}" == ""
+    assert _shown_or_fail(0.5, "1") == "0.5 "
+
+
 def _corpus(tmp_path: Path, unit: str) -> Path:
     clean = node(PACK, quantities={"mass": (0.5, unit)})
     clean["quantities"]["mass"]["source"] = ELSEWHERE
