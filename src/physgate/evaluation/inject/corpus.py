@@ -65,7 +65,7 @@ from pydantic import (
 )
 
 from physgate.evaluation.inject.exceptions import CorpusError
-from physgate.gate.units import PINT_ERRORS, UnitRefusedError, parse
+from physgate.gate.units import PINT_ERRORS, UnitRefusedError, parse, pint_message
 from physgate.orchestrator.common import ModelString, NonEmptyStr, first_problem
 from physgate.orchestrator.protocols import CheckName
 from physgate.state.exceptions import DesignStateError
@@ -720,8 +720,11 @@ def _derivations_hold(
                 same = derived.dimensionality == declared.dimensionality
             except (*PINT_ERRORS, UnitRefusedError, AttributeError) as exc:
                 msg = "a derived quantity's arithmetic does not check under pint"
+                # pint cannot print its own refusal once a power is not one (M-200), so it is
+                # put into words from its fields; any other refusal is its own text.
+                reason = pint_message(exc) if isinstance(exc, PINT_ERRORS) else str(exc)
                 raise CorpusError(
-                    msg, where=where, node=str(payload["id"]), quantity=name, reason=str(exc)
+                    msg, where=where, node=str(payload["id"]), quantity=name, reason=reason
                 ) from exc
             if not same:
                 msg = "a derived quantity's arithmetic gives another dimension than its unit"
