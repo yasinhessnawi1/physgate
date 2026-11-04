@@ -25,7 +25,8 @@ from instrument_corpus import (
     write_corpus,
 )
 
-from physgate.evaluation.inject.corpus import CorpusError, load_corpus
+from physgate.evaluation.inject.corpus import load_corpus
+from physgate.evaluation.inject.exceptions import CorpusError
 from physgate.evaluation.inject.source_check import _shown, check_sources
 from physgate.gate.units import parse
 
