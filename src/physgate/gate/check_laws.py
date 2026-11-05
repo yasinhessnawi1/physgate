@@ -28,6 +28,7 @@ from fractions import Fraction
 
 from physgate.gate.catalogue import KINDS, QUANTITIES
 from physgate.gate.context import CheckContext
+from physgate.gate.exceptions import LawRecordError
 from physgate.gate.graph import GraphView
 from physgate.gate.laws import (
     Binding,
@@ -89,7 +90,7 @@ def run(ctx: CheckContext) -> CheckRun:
             if verdict is not None:
                 failed.append((binding, verdict))
         observations.extend(
-            _failure(law, parsed, table, view, binding, evaluation, judged)
+            _failure(law, parsed, table, view, binding, evaluation, judged, cache)
             for binding, evaluation in failed
         )
         counts.append(LawCount(law_id=law_id, evaluated=judged))
@@ -161,8 +162,10 @@ def _judge(
                 refused.append(entry.name)
                 continue
             numbers.append(number)
-        if numbers:
-            values[symbol] = tuple(numbers) if entry.place == "each" else numbers[0]
+        if entry.place == "each":
+            values[symbol] = tuple(numbers)
+        elif numbers:
+            values[symbol] = numbers[0]
     if refused:
         names = tuple(dict.fromkeys(refused))
         why = f"{', '.join(names)} is in a unit the unit check refuses"
@@ -233,8 +236,11 @@ def _spelled(law: Law, binding: Binding) -> str:
     return text.decode()
 
 
-def _inputs(law: Law, view: GraphView, binding: Binding) -> tuple[LawInput, ...]:
-    """Every input of the instance, the anchor's first, with the quantity's own provenance."""
+def _inputs(law: Law, view: GraphView, binding: Binding, cache: _Cache) -> tuple[LawInput, ...]:
+    """Every input of the instance, the anchor's first, with the quantity's own provenance.
+
+    Each canonical value is the one the law was evaluated at, read back from the measurements.
+    """
     ordered = [law.anchor, *sorted(s for s in law.symbols if s != law.anchor)]
     found: dict[tuple[str, str], LawInput] = {}
     for symbol in ordered:
@@ -243,7 +249,10 @@ def _inputs(law: Law, view: GraphView, binding: Binding) -> tuple[LawInput, ...]
             if (node_id, name) in found:
                 continue
             q = view.nodes[node_id].quantities[name]
-            magnitude = measured(view, TermRef(node_id, name)).magnitude
+            magnitude = cache.get((node_id, name))
+            if magnitude is None:
+                msg = "a law was judged on an input that was not measured"
+                raise LawRecordError(msg, law=law.id, node=node_id)
             found[(node_id, name)] = LawInput(
                 node_id=node_id,
                 name=name,
@@ -263,6 +272,7 @@ def _failure(
     binding: Binding,
     evaluation: Evaluation,
     judged: int,
+    cache: _Cache,
 ) -> Observation:
     """The record of a law that does not hold at one instance."""
     unit = _unit(law, parsed)
@@ -270,7 +280,7 @@ def _failure(
     left, right = output(evaluation.left, unit), output(evaluation.right, unit)
     residual = output(evaluation.residual, unit)
     allowance = None if evaluation.allowance is None else output(evaluation.allowance, unit)
-    inputs = _inputs(law, view, binding)
+    inputs = _inputs(law, view, binding, cache)
     if allowance is None:
         expected = expression
         found = (
