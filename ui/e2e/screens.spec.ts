@@ -528,13 +528,13 @@ test("the command palette finds the graph's nodes by label, key and verdict", as
 
 for (const theme of THEMES) {
   for (const width of WIDTHS) {
-    test(`the glossary: five groups, every term, and the queue item as recorded (${theme}, ${String(width)})`, async ({
+    test(`the glossary: six groups, every term, and the queue item as recorded (${theme}, ${String(width)})`, async ({
       page,
     }) => {
       const seen = await watch(page);
       await open(page, theme, "/reference/glossary", width);
       await expect(page.locator(".pg-page-title")).toHaveText("Glossary");
-      await expect(page.locator(".pg-glossary section")).toHaveCount(5);
+      await expect(page.locator(".pg-glossary section")).toHaveCount(6);
       const glossary = page.locator(".pg-glossary");
       for (const term of ["Gate", "Observe", "Unchecked", "Attempt", "Repair", "Safe point"])
         await expect(glossary.locator("dt", { hasText: new RegExp(`^${term}$`) })).toHaveCount(1);

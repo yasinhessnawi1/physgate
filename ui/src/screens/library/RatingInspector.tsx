@@ -122,7 +122,7 @@ export function RatingInspector({
               <Id value={table.sha256} />
             </dd>
           </dl>
-          <SourceChip id={table.path} commit={null} />
+          <SourceChip id={table.path} commit={null} compact />
           <a className="pg-hit pg-lib-open" href={hrefFile(role)}>
             {LIBRARY_COPY.openTheFile}
           </a>

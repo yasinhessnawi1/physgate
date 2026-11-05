@@ -80,7 +80,7 @@ function FileBody({ file }: { readonly file: LibraryFile }) {
           </dd>
           <dt>Source</dt>
           <dd>
-            <SourceChip id={file.path} commit={null} />
+            <SourceChip id={file.path} commit={null} compact />
           </dd>
         </dl>
       </InspectorSection>

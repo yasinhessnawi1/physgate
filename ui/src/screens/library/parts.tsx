@@ -85,6 +85,19 @@ export function PromotedBy({ line }: { readonly line: PromotionLine | null }) {
 }
 
 /**
+ * Focus ``element``, trying again on the next frames while it cannot take focus: the shell shows
+ * its inspector region only after the record is put there, and an element in a hidden region
+ * takes no focus. It gives up once the element is gone or after a second's worth of frames.
+ */
+function focusWhenShown(element: HTMLElement, frames = 60) {
+  element.focus();
+  if (document.activeElement === element || frames === 0 || !element.isConnected) return;
+  requestAnimationFrame(() => {
+    focusWhenShown(element, frames - 1);
+  });
+}
+
+/**
  * Focus moves to the inspector's heading when a record opens there, so a keyboard reaches what
  * it opened without hunting for it. The heading is focusable by script only. The ref is a new
  * function for each record, so a heading drawn once its record is read is focused then too.
@@ -92,7 +105,7 @@ export function PromotedBy({ line }: { readonly line: PromotionLine | null }) {
 export function useFocusOnOpen(key: string): (element: HTMLElement | null) => void {
   return useCallback(
     (element: HTMLElement | null) => {
-      element?.focus();
+      if (element !== null) focusWhenShown(element);
     },
     // The key is what changes the ref: each record opened is focused once.
     // eslint-disable-next-line react-hooks/exhaustive-deps

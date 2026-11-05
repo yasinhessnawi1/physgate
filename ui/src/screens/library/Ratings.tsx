@@ -61,16 +61,16 @@ function RatingsTable({
         {
           key: "quantity",
           label: kind === "range" ? "Quantity" : "Kind",
+          // The link holds the label and the key under it, so its hit area is the whole cell's
+          // and never reaches into the table's header.
           render: (r) => (
-            <span className="pg-lib-doc">
-              <a
-                className="pg-hit pg-lib-open"
-                href={hrefOpen({ kind, table: at, index: index.get(r) ?? 0 })}
-              >
-                {quantityLabel(r.key)}
-              </a>
+            <a
+              className="pg-hit pg-lib-open pg-lib-doc"
+              href={hrefOpen({ kind, table: at, index: index.get(r) ?? 0 })}
+            >
+              <span className="pg-lib-label">{quantityLabel(r.key)}</span>
               <Id value={r.key} copy={false} />
-            </span>
+            </a>
           ),
         },
         { key: "range", label: "Range", render: (r) => <RangeOf rating={r} /> },
@@ -112,13 +112,7 @@ export function RatingsSection({
               aria-label={name}
               data-source={sourceAttribute({ id: table.path, commit: null })}
             >
-              <div className="pg-panel-head">
-                <h2 className="pg-panel-title">{name}</h2>
-                <span className="pg-lib-ids">
-                  <Id value={table.path} copy={false} />
-                  <Id value={table.sha256} />
-                </span>
-              </div>
+              <h2 className="pg-panel-title">{name}</h2>
               <h3 className="pg-section-label">Ranges</h3>
               {table.ranges.length === 0 ? (
                 <p className="pg-muted">{LIBRARY_COPY.noRange}</p>
@@ -145,6 +139,12 @@ export function RatingsSection({
                   hrefOpen={hrefOpen}
                 />
               )}
+              <p className="pg-panel-note pg-lib-ids">
+                <span>File</span>
+                <Id value={table.path} copy={false} />
+                <span>sha256</span>
+                <Id value={table.sha256} />
+              </p>
             </section>
           );
         })
@@ -153,13 +153,7 @@ export function RatingsSection({
         className="pg-card pg-panel"
         data-source={sourceAttribute({ id: LIBRARY_COPY.catalogue, commit: null })}
       >
-        <div className="pg-panel-head">
-          <h2 className="pg-panel-title">{LIBRARY_COPY.storeClasses}</h2>
-          <span className="pg-lib-ids">
-            <SourceChip id={LIBRARY_COPY.catalogue} commit={null} />
-            <Id value={ratings.catalogueDigest} />
-          </span>
-        </div>
+        <h2 className="pg-panel-title">{LIBRARY_COPY.storeClasses}</h2>
         <DataTable
           label={LIBRARY_COPY.storeClasses}
           rows={ratings.storeClasses}
@@ -192,6 +186,11 @@ export function RatingsSection({
             },
           ]}
         />
+        <p className="pg-panel-note pg-lib-ids">
+          <SourceChip id={LIBRARY_COPY.catalogue} commit={null} />
+          <span>Catalogue digest</span>
+          <Id value={ratings.catalogueDigest} />
+        </p>
       </section>
     </>
   );

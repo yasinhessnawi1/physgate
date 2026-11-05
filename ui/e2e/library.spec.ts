@@ -31,6 +31,15 @@ const SECTIONS = [
   "Data-sheet ratings",
 ] as const;
 
+/** What each section draws once it has read what it reads. */
+const READY: Readonly<Record<(typeof SECTIONS)[number], string>> = {
+  Standards: 'table[aria-label="Standards"]',
+  Skills: 'table[aria-label="Skills"]',
+  "Reviewer rubrics": 'table[aria-label="Reviewer rubrics"]',
+  "Proposed · 4": 'table[aria-label="Proposed changes"]',
+  "Data-sheet ratings": 'table[aria-label="Energy store classes"]',
+};
+
 /** The routes this screen may read: the library's five, and nothing else. */
 const LIBRARY_ROUTES: readonly RegExp[] = [
   /^\/api\/library$/,
@@ -147,6 +156,7 @@ for (const theme of THEMES) {
       await expect(page.getByText("10 promotions recorded")).toBeVisible();
       for (const name of SECTIONS) {
         await section(page, name).click();
+        await expect(page.locator(READY[name])).toBeVisible();
         await settle(page);
         await expect(section(page, name)).toHaveAttribute("aria-pressed", "true");
         expect(await idsLead(page, "main table tbody tr td:first-child")).toEqual([]);
@@ -216,7 +226,10 @@ test("a file opens in the inspector, focus moves to it, and its text is text", a
   await expect(history.nth(0)).not.toContainText("Wrote this file");
   for (const chip of await styles(page, ".pg-inspector-region .pg-source", ["border-top-style"]))
     expect(chip["border-top-style"]).toBe("dashed");
-  await expect(inspector.locator(".pg-source")).toContainText("no commit");
+  await expect(inspector.locator(".pg-source")).toHaveAttribute(
+    "aria-label",
+    "Source: knowledge/control/standards.md at no commit",
+  );
   expect(await idsLead(page, ".pg-inspector-title")).toEqual([]);
   await holds(page, seen, "file-inspector");
 });
@@ -334,6 +347,7 @@ test("the screen asks for its own routes alone, and a call to any other is caugh
   await open(page, "light");
   for (const name of SECTIONS) {
     await section(page, name).click();
+    await expect(page.locator(READY[name])).toBeVisible();
     await settle(page);
   }
   expect([...seen.api].sort()).toEqual([
