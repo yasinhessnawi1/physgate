@@ -145,7 +145,9 @@ def test_a_condition_on_a_name_outside_the_catalogue_is_refused(tmp_path: Path, 
     condition: dict[str, str] = {"name": "max_duty", "place": "self"}
     if field == "unless":
         condition["reason"] = "a duty limit lowers the mean voltage"
-    assert field in refused(tmp_path, [sound_law(**{field: [condition]})])
+    row = sound_law()
+    row[field] = [condition]
+    assert field in refused(tmp_path, [row])
 
 
 def test_an_unless_without_its_reason_is_refused(tmp_path: Path) -> None:
