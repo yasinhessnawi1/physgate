@@ -160,9 +160,13 @@ def write_table(
 
 
 def load(root: Path, laws: list[dict[str, Any]], **kwargs: Any) -> Any:
-    """Write ``laws`` and load them through the gate's loader."""
+    """Write ``laws`` and load them through the gate's loader; an assertion fails if refused."""
+    module = laws_module()
     table, lines = write_table(root, laws, **kwargs)
-    return laws_module().load_laws(table, lines)
+    try:
+        return module.load_laws(table, lines)
+    except module.LawTableError as exc:
+        raise AssertionError(f"the table was refused, where it should load: {exc}") from None
 
 
 def refused(root: Path, laws: list[dict[str, Any]], **kwargs: Any) -> str:

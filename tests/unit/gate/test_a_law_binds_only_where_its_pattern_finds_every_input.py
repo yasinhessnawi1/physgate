@@ -326,3 +326,35 @@ def test_at_module_scope_a_law_judges_only_what_the_attempt_could_have_changed(
     system = judged_of(laws_records(laws, view, ("system",)), "within_rating")
     assert sorted(r.node or "" for r in system) == ["electrical.new", "electrical.old"]
     assert not laws_records(laws, view, ("subtask",))
+
+
+def test_at_module_scope_an_edge_law_judges_a_consumer_whose_producer_the_attempt_wrote(
+    tmp_path: Path,
+) -> None:
+    laws = table(tmp_path / "t", [rate_throughput()])
+    graph(tmp_path / "g", consumer(400, "electrical.imu"))
+    base = graph(tmp_path / "g", producer()) - 1
+    view = GraphView.read(tmp_path / "g", base_revision=base)
+    # The attempt wrote only the producer; the consumer reading it is judged all the same.
+    record = one(judged_of(laws_records(laws, view, ("module",)), "rate_throughput"))
+    assert record.node == "firmware.estimator"
+
+
+def test_at_module_scope_a_law_judges_a_member_of_a_module_the_attempt_touched(
+    tmp_path: Path,
+) -> None:
+    laws = table(tmp_path / "t", [within_rating()])
+    drive = node("electrical.drive", kind="module")
+    sibling = node(
+        "electrical.old",
+        quantities={"current_draw": (3, "A"), "current_limit": (2, "A")},
+        constrains=["electrical.drive"],
+    )
+    written = node(
+        "electrical.new", quantities={"mass": (1, "kg")}, constrains=["electrical.drive"]
+    )
+    graph(tmp_path / "g", drive, sibling)
+    base = graph(tmp_path / "g", written) - 1
+    view = GraphView.read(tmp_path / "g", base_revision=base)
+    record = one(judged_of(laws_records(laws, view, ("module",)), "within_rating"))
+    assert record.node == "electrical.old"
