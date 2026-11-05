@@ -583,6 +583,7 @@ describe("reviewer rubrics", () => {
     ]);
     // The last line in log order, not the one with the latest time.
     expect(found[0]?.querySelector(".pg-lib-digest")?.textContent).toBe("fffffff");
+    expect(found[0]?.querySelector("time")?.getAttribute("datetime")).toBe("2026-10-08T12:00:00Z");
     expect(found[1]?.textContent).toContain(LIBRARY_COPY.noDigest);
     expect(found[0]?.textContent).toContain("2 promotions");
   });
