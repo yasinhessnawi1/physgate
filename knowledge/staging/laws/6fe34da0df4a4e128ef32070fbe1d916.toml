@@ -98,3 +98,16 @@ REACH (how little it covers; do not read more into it)
   multi-rate design above, which the record may not contain.
 - Overlap: none. No relation the checks form reads update_rate or output_data_rate.
 """
+
+[review]
+by = "claude-sonnet-5-5"
+verdict = "accept"
+findings = """
+Review of rate_throughput_output_data_rate, 05.11.2026 (the card format has no date field, so the date is here). Accept at warn. The items marked TEXT are edits to the page for the owner; none changes the row.
+1. Physics. Under the stated assumption (one new reading per update) update_rate <= output_data_rate is true; it refuses only the multi-rate, held-sample and fused designs the card names. A fusion loop that names an IMU and a slower sensor is held to each one separately in the two twin cards. One more TEXT: an inertial unit has an accelerometer ODR and a gyroscope ODR (LSM6DS33 Table 44 and Table 48), and the node can hold one output_data_rate only, so the number written may be either.
+2. Source: SECTION HOLDS, THE INEQUALITY IS NOT IN IT. Advanced PID Control, Chapter 13 Implementation, section 13.3 Computer Implementations (heading at the foot of p. 412) and "Sampling" (p. 413): the quoted sentence and the six-step clock-driven list are verbatim. The book describes the controller's own sampling period, never a sensor's delivery rate; the inequality is the card's own counting step, which the card says. TEXT: say the source supports the loop structure only.
+3. Where the copy sits. The source fields name the book, which is right. The page text names "a copy hosted on an NTNU staff page" (skoge.folk.ntnu.no, an unofficial host of an ISA-copyrighted book). Cite the book, drop the sentence about the host. I saw no publisher banner on pp. 412-413. TEXT.
+4. Names: update_rate and output_data_rate (frequency) are exact and read as the catalogue defines them (a loop's rate, an inertial sensor's rate). Edge pattern, no requires or unless needed. Form: no literals, inequality, no allowance.
+5. Examples hold. ST LSM6DS33 DocID027423 Rev 4 (October 2015), Table 44 Accelerometer ODR register setting: 52 Hz, 104 Hz and 208 Hz are consecutive settings in both modes. I ran both: 52 <= 104 passes, 208 <= 104 fails, for the right reason.
+6. Reach: stated plainly and matches the group. The two rate cards are one law split by the name of the producer's rate and are accepted as a pair.
+"""

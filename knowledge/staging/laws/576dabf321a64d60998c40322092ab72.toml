@@ -102,3 +102,17 @@ REACH (how little it covers; do not read more into it)
   law; the law adds a catch only where a draw is written and a stall current is not, or the
   draw exceeds the stall.
 """
+
+[review]
+by = "claude-sonnet-5-5"
+verdict = "reject"
+findings = """
+Review of within_rating_current, 05.11.2026 (the card format has no date field, so the date is here). Reject; the changes are items 1 and 2, with the text fixes in 3.
+1. MUST CHANGE, a correct design is refused. The law forms at every node with current_limit, and a supply or converter node declares current_limit as its output rating while a current_draw written on it may be at its input (power_draw on a supply is what it draws from upstream). A boost stage from a 3.7 V cell to 5 V with a 1 A output limit draws about 1.5 A at its input, a correct design, and this law refuses it. The card's idealisation says "same node" but not "same terminals", and the sibling card electrical_power names the regulator case. Add unless { name = "power_supply", place = "self" } with that reason. The law then reaches drivers, which is where its own examples sit.
+2. MUST CHANGE, the idealisation and the examples disagree. The idealisation and the page say current_draw is the node's steady operating current and that stall spikes are not judged. Both worked examples, and the page's last paragraph, write a motor's stall current (a worst case, and a name the catalogue already has, stall_current) as current_draw. The catalogue gives current_draw no definition (source: named for the physics gate's checks). Say which reading the law takes, or say it takes whatever statistic the plan wrote; do not claim steady and then show stall.
+3. Text fixes. Pololu item #4801 is "4.4:1 Metal Gearmotor 25Dx63L mm HP 6V with 48 CPR Encoder"; the card drops the encoder. DRV8838 SLVSBA4F section 6.3 gives IOUT as "Motor peak current", max 1.8 A; the same sheet's design example targets 0.8 A rms and its overcurrent trip is 1.9 A min, so a pass here says nothing about a sustained current (the card says "weak bound"; keep that).
+4. Source holds for what it is used for. ECSS-Q-ST-30-11C Rev.2 (23 June 2021), clause 3.2.8 "rating" and its NOTE ("Rating is considered as a limit not to be exceeded during operation..."), and 5.2 "The designer should ensure that the stress applied does not exceed the component parameter strength", are verbatim. It is a standard (not a data sheet), written for space EEE components; it supports "stress must stay under the rating", not the choice of a peak rating as the number. The card says the standard asks for more than the law checks.
+5. Examples hold: DRV8838 1.8 A; Pololu #3061 stall 1.5 A at 6 V, #4801 stall 6.0 A at 6 V (Pololu calls both theoretical). I loaded the row and ran the examples: 1.5 A passes against 1.8 A, 6.0 A fails; the fail is for the right reason.
+6. Names hold: current_draw and current_limit are exact catalogue names of kind current. The row does not restate the relation current_limit (its names are stall_current and current_limit) and overlaps = "current_limit" is a relation the checks form. Form holds: no literals, one monomial a side, inequality with no allowance.
+7. Reach is stated plainly: at most 2 of the 4 by name, and the strict reading drops 3 of 4. Keep it.
+"""
