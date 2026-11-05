@@ -109,10 +109,12 @@ def _destination(domain: str, kind: Kind, root: Path) -> Path:
 _CANDIDATE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 
-def _find(
+def find_staged(
     candidate_id: str, staging_root: Path, rubric_staging_root: Path
 ) -> tuple[Kind, Candidate, Path] | None:
     """The staged candidate ``candidate_id``, looked for only where its kind is staged.
+
+    Public so that a reader describing a promotion finds a candidate exactly as the write does.
 
     A rubric is looked for only under the rubric staging directory, inside the tree
     only reviewers read, and every other kind only under the general one, which a
@@ -147,18 +149,6 @@ def _find(
                 )
             return kind, candidate, path
     return None
-
-
-def find_staged(
-    candidate_id: str, staging_root: Path, rubric_staging_root: Path
-) -> tuple[Kind, Candidate, Path] | None:
-    """Not yet: the finder, made public."""
-    return None
-
-
-def promotion_bytes(candidate: Candidate, kind: Kind, current: bytes | None) -> tuple[bytes, bool]:
-    """Not yet: what a promotion would write."""
-    return b"", False
 
 
 _NO_FOLLOW = os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
@@ -316,6 +306,29 @@ def _refuse_links(destination: Path, knowledge_root: Path) -> None:
         current = current.parent
 
 
+def _text(candidate: Candidate) -> bytes:
+    """A candidate's content as a promotion writes it: trailing space trimmed, one newline."""
+    return (candidate.content.rstrip() + "\n").encode("utf-8")
+
+
+def promotion_bytes(candidate: Candidate, kind: Kind, current: bytes | None) -> tuple[bytes, bool]:
+    """What promoting ``candidate`` writes to a destination now holding ``current``.
+
+    Returns the bytes the destination will hold and whether they replace it whole. Standards
+    and rubrics are written whole, and so is a skill staged as a replacement; a skill or an
+    antipattern is otherwise added after what the file holds, below a rule, or creates it.
+
+    Pure: it reads no file, asks for no terminal and adds no canary. The write calls it, so a
+    reader that shows what a promotion would do shows exactly what the write would make; a
+    rubric's canary is added by the write afterwards, and is never part of a description.
+    """
+    text = _text(candidate)
+    whole = kind in ("standards", "rubric") or candidate.replaces
+    before = None if whole else current
+    data = text if before is None else before + b"\n---\n\n" + text
+    return data, whole
+
+
 def _apply(
     candidate_id: str,
     *,
@@ -335,12 +348,12 @@ def _apply(
     Raises:
         PromotionError: ``by`` is empty; no candidate with ``candidate_id`` is
             staged where its kind is staged; the id, the staged file or the
-            destination is refused (:func:`_find`, :func:`_refuse_links`).
+            destination is refused (:func:`find_staged`, :func:`_refuse_links`).
     """
     if not by.strip():
         msg = "promotion needs the name of the human approving it"
         raise PromotionError(msg, candidate_id=candidate_id)
-    found = _find(candidate_id, Path(staging_root), Path(rubric_staging_root))
+    found = find_staged(candidate_id, Path(staging_root), Path(rubric_staging_root))
     if found is None:
         msg = "no staged candidate has this id"
         raise PromotionError(msg, candidate_id=candidate_id)
@@ -349,7 +362,6 @@ def _apply(
     # An early, readable refusal; what makes the write safe is that it goes through
     # descriptors opened without following links, at the moment of writing.
     _refuse_links(destination, Path(knowledge_root))
-    text = (candidate.content.rstrip() + "\n").encode("utf-8")
     canary = None
     if kind == "rubric":
         # Only a paired rubric of the required form becomes a role's rubric: one that
@@ -358,7 +370,7 @@ def _apply(
         from physgate.reviewers.rubric import check_rubric
 
         try:
-            check_rubric(text.decode("utf-8"))
+            check_rubric(_text(candidate).decode("utf-8"))
         except ReviewError as exc:
             msg = f"the staged rubric would not load as a role's rubric: {exc}"
             raise PromotionError(msg, candidate_id=candidate_id, **exc.context) from None
@@ -366,11 +378,12 @@ def _apply(
         # the rubric by a path no hook can judge shows it in its own stream, where the
         # dispatcher looks for it: detection after the fact, not prevention.
         canary = secrets.token_hex(16)
-        text += f"\n<!-- {canary} -->\n".encode()
-    whole = kind in ("standards", "rubric") or candidate.replaces
     current = _existing(destination, knowledge_root)
-    before = None if whole else current
-    data = text if before is None else before + b"\n---\n\n" + text
+    data, whole = promotion_bytes(candidate, kind, current)
+    if canary is not None:
+        # After the description is computed, never inside it: a rubric is written whole, so
+        # its canary line ends the file exactly where it always has.
+        data += f"\n<!-- {canary} -->\n".encode()
     # Said before anything is written: a whole-file write deletes whatever the file
     # held, and a candidate can be staged by more than the person promoting it.
     if notice is not None:
