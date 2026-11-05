@@ -218,8 +218,8 @@ def _spelled(law: Law, binding: Binding) -> str:
     """
     text = law.expression.encode()
     starts = [0]
-    for line in text.split(b"\n"):
-        starts.append(starts[-1] + len(line) + 1)
+    for written in text.split(b"\n"):
+        starts.append(starts[-1] + len(written) + 1)
     names = law.symbol_positions()
     whole = law.whole_sides()
     for symbol, line, start, end in sorted(names, key=lambda n: (n[1], n[2]), reverse=True):

@@ -24,11 +24,11 @@ from law_fixtures import laws_module
 
 from physgate.gate.graph import GraphView
 from physgate.gate.runner import PhysicsGate
-from physgate.orchestrator.protocols import GateResult
+from physgate.orchestrator.protocols import GateResult, Scope
 from physgate.state.store import Store
 
 RECORD = Path(__file__).parent / "gate_before" / "record.json"
-SCOPES = ("subtask", "module", "system")
+SCOPES: tuple[Scope, ...] = ("subtask", "module", "system")
 
 
 #: A graph that breaks every test law, each on its own node.
