@@ -164,8 +164,9 @@ export function RatingsSection({
               label: "Class",
               wrap: true,
               render: (s) => (
+                // A box, not an inline run: a name that wraps keeps one whole target.
                 <a
-                  className="pg-hit pg-lib-open"
+                  className="pg-hit pg-lib-open pg-lib-doc"
                   href={hrefOpen({ kind: "store", index: ratings.storeClasses.indexOf(s) })}
                 >
                   {storeLabel(s.name)}
