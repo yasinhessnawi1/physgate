@@ -117,7 +117,7 @@ def test_the_relation_names_are_the_relations_and_the_laws_names_and_nothing_els
     written = relation_inputs()
     table = laws_module().load_laws()
     from_relations = {name for entry in written.values() for name in entry.names}
-    assert UNGUARDED <= from_relations
+    assert from_relations >= UNGUARDED
     assert set(RELATION_NAMES) == (from_relations - UNGUARDED) | set(table.input_names())
     assert RELATION_QUANTITY_NAMES == RELATION_NAMES
 

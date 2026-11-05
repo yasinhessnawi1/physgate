@@ -45,6 +45,12 @@ from law_fixtures import laws_module, load, refused, sound_law
         ("(lambda: P)() == V", "call"),
         ("P == V * I and P", "comparison"),
         ("P == [V][0] * I", "subscript"),
+        ("P == [V for V in I][0]", "subscript"),
+        ("P == sum(V for V in I)", "call"),
+        ("P == f'{V}' * I", "not allowed"),
+        ("P == {V: I}[V]", "subscript"),
+        ("P == (V if P else I) * I", "conditional"),
+        ("P == ... * V * I", "literal of type"),
     ],
 )
 def test_each_refused_form_names_the_row_and_the_form(

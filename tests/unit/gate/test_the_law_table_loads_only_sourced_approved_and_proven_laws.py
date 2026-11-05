@@ -108,6 +108,13 @@ def test_a_promotion_line_for_another_law_does_not_approve_this_one(tmp_path: Pa
     assert "promotion" in refused(tmp_path, [sound_law()], promotions=other)
 
 
+def test_a_promotion_line_for_another_candidate_does_not_approve_this_one(tmp_path: Path) -> None:
+    from law_fixtures import promotion_lines
+
+    other = promotion_lines([sound_law(approved={"candidate_id": "f" * 32, "date": "2026-11-05"})])
+    assert "promotion" in refused(tmp_path, [sound_law()], promotions=other)
+
+
 @pytest.mark.parametrize(
     ("name", "why"),
     [
