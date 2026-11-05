@@ -36,9 +36,12 @@ from escalation_paths import (
 )
 from stand_in_drive_plan import DRIVE_MODULE, POWER_BUS
 
+from physgate.gate import check_laws
 from physgate.gate.catalogue import catalogue_digest
 from physgate.gate.laws import load_laws
+from physgate.gate.registry import CADENCE
 from physgate.orchestrator import decompose
+from physgate.orchestrator.protocols import CHECK_NUMBERS, CheckRecord, PassDetails
 
 #: Event kinds the escalation interface writes, absent from the golden file by
 #: construction: one decision line at every attempt end that did not merge.
@@ -136,6 +139,10 @@ def _as_the_gate_now_judges(event: dict[str, Any]) -> dict[str, Any]:
     joins the count of those evaluated, and one that joins it leaves that count; the unchecked
     record itself is dropped when its list is empty. Which quantities have a bound is read
     from the gate's own tables, so the rule is the one sentence above, not a list of names.
+
+    The closed-form laws check runs after propagation, at module and system scope. The tracked
+    law table holds no law, so at each of those scopes the gate ran at it writes one pass that
+    judged nothing, after every other record.
     """
     if event.get("kind") not in ("gate_ran", "integration_gate_ran"):
         return event
@@ -178,6 +185,26 @@ def _as_the_gate_now_judges(event: dict[str, Any]) -> dict[str, Any]:
             and (r["name"], r["scope"]) in unchecked
         )
     ]
+    ran_at = {r["scope"] for r in checks}
+    checks.extend(
+        CheckRecord(
+            check=CHECK_NUMBERS["laws"],
+            name="laws",
+            scope=scope,
+            outcome="pass",
+            blocking=on_failure == "block",
+            node=None,
+            module=None,
+            value=None,
+            expected=None,
+            tool=check_laws.TOOL,
+            message="the laws check found nothing wrong (0 evaluated)",
+            gate_mode=result["mode"],
+            details=PassDetails(evaluated=0),
+        ).model_dump(mode="json")
+        for scope, on_failure in CADENCE["laws"].items()
+        if scope in ran_at
+    )
     return {**event, "result": {**result, "checks": checks}}
 
 
