@@ -62,6 +62,8 @@ FILES = {
     "experiments/R-OP-01/CRITERIA.md": "frozen criteria\n",
     "experiments/R-OP-01/RESULT.md": "published result\n",
     "knowledge/control/standards.md": "curated control standards\n",
+    # The law table: curated content outside every domain directory, read by the gate.
+    "knowledge/laws/laws.toml": "[meta]\nformat = 1\n",
 }
 GIT_ENV = {
     "PATH": "/usr/bin:/bin",
@@ -100,6 +102,7 @@ def _protected_trees(root: Path) -> list[Path]:
         w / "src" / "physgate" / "hooks",
         w / "knowledge" / "control",
         w / "knowledge" / "mechanical",
+        w / "knowledge" / "laws",
         w / ".physgate" / "series",
         w / ".physgate" / "lib",
         o / "store",
@@ -587,6 +590,33 @@ ATTEMPTS = [
                 file_path="@W/knowledge/mechanical/standards.md",
                 content="a planted rule, never reviewed\n",
             ),
+        ],
+        "paths",
+    ),
+    Attempt(
+        "heredoc-laws",
+        "heredoc over the law table",
+        [bash("cat > knowledge/laws/laws.toml <<'EOF'\n[meta]\nformat = 1\nEOF\n")],
+        "shell_paths",
+    ),
+    Attempt(
+        "redirect-laws",
+        ">> onto the law table, a law no person promoted",
+        [bash("echo '[[law]]' >> knowledge/laws/laws.toml")],
+        "shell_paths",
+    ),
+    Attempt(
+        "python-laws",
+        "python -c open/write over the law table",
+        [bash("python3 -c \"open('knowledge/laws/laws.toml','w').write('')\"")],
+        "shell_paths",
+    ),
+    Attempt(
+        "write-laws",
+        "the Write tool over the law table, after reading it",
+        [
+            tool("Read", file_path="@W/knowledge/laws/laws.toml"),
+            tool("Write", file_path="@W/knowledge/laws/laws.toml", content="[meta]\nformat = 1\n"),
         ],
         "paths",
     ),
