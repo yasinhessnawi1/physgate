@@ -1,4 +1,4 @@
-"""The widened catalogue, held to every value G11 run 4 wrote, and its coverage counted.
+"""The widened catalogue, held to every value the fourth slice run wrote, and its coverage counted.
 
 ``run4/values.json`` holds run 4's 203 values: one row per distinct node, name, value and unit
 across the run's 124 node files (its store, each attempt's graph, the worktrees' interfaces and

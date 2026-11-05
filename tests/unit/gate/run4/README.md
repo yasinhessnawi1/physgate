@@ -1,7 +1,7 @@
 # Run 4's nodes, as data
 
-The design-state nodes of G11 run 4 (03.11.2026, the reference brief `briefs/balboa-32u4.md`), copied
-unchanged as test fixtures and nothing else:
+The design-state nodes of the fourth slice run on the reference brief (03.11.2026,
+`briefs/balboa-32u4.md`), copied unchanged as test fixtures and nothing else:
 
 - `plan_interfaces.json`: the three interface nodes the run's decomposition wrote (journal revisions 1
   to 3);

@@ -10,7 +10,7 @@ so the bounds and relations sentences, and every other byte of the prompt, stay 
 at a64e805f. The new kinds with no catalogued name (an area, a moment of inertia, a duration, a
 velocity), reached by suffixes only, get no label.
 
-One more sentence moves, with the check round (04.11.2026, finding C3): the sentence after the
+One more sentence moves, with the check round (04.11.2026): the sentence after the
 groups said that a name adding words to a catalogued one "is another quantity to the gate and goes
 unchecked". With the qualifier words that is untrue: ``duty_cycle_max`` = 1.5 is refused by its
 duty cycle's envelope, and ``stall_current_max`` has its unit and sign read. The sentence now says
@@ -58,7 +58,7 @@ QUALIFIER_WORDS = (
     "_max, _min, _nominal, _measured, _applied, _bound, _budget, _typical, _lower, _upper, "
     "_implied, _estimated, _indicative"
 )
-#: The words after the groups since the check round (C3).
+#: The words after the groups since the check round.
 TAIL = (
     ". A name that adds words to one of them is not that quantity to the gate: it joins no "
     "relation and no range by name. Where the added words end the name and only say which value "

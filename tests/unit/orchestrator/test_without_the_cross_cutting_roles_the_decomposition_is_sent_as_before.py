@@ -46,10 +46,10 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: update_rate, sensitivity_peak, gain_margin) and its four new kind labels (resistance, extent,
 #: torque constant, modulus), bore_diameter moved from the lengths to the extents, and, since the
 #: check round, the sentence after the groups saying what the gate reads of a name with added
-#: words (C3); every other byte as before
+#: words; every other byte as before
 #: (test_the_widened_catalogue_adds_its_names_to_the_prompt_and_nothing_else). At 470b3f34,
-#: before C3: ca0317a59ce7..., 8abeae4b5f23... and 44175ad46745...; before the widening, since
-#: 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
+#: before that sentence: ca0317a59ce7..., 8abeae4b5f23... and 44175ad46745...; before the
+#: widening, since 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
 #: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
 PROMPT_SHA256 = {
     ("control", "firmware"): "c14dba963d6cf4c2398f7a063a4956790d8fa365d4bc298c4d55b598c221531b",
