@@ -23,6 +23,7 @@ import pytest
 import sympy
 from gate_fixtures import graph, node
 from law_cases import (
+    gate,
     joule_heating,
     laws_records,
     of_law,
@@ -33,11 +34,17 @@ from law_cases import (
     table,
     within_rating,
 )
-from law_fixtures import laws_module, sound_law
+from law_fixtures import cleared, laws_module, sound_law
 
 from physgate.gate.graph import GraphView
 from physgate.gate.tolerances import propagated_bound
-from physgate.orchestrator.protocols import CheckRecord, LawDetails, LawInput, NumericOutput
+from physgate.orchestrator.protocols import (
+    CheckRecord,
+    LawDetails,
+    LawInput,
+    NumericOutput,
+    QuantityRef,
+)
 
 E = Fraction(1, 200)
 
@@ -133,7 +140,16 @@ def test_a_failing_record_carries_every_field_of_the_law_and_the_instance(tmp_pa
         written_by="electrical",
     )
     assert "electrical_power" in record.message and details.statement in record.message
-    assert record.quantities and record.quantities[0].node_id == "electrical.imu"
+
+
+def test_a_blocking_failure_hands_the_verdict_the_law_s_anchor_input_first(tmp_path: Path) -> None:
+    laws = table(tmp_path / "t", [sound_law(status="block", cleared=cleared())])
+    result = gate(laws).run(view_of(tmp_path, imu(19.5)), ["system"], "on")
+    assert result.verdict == "fail" and result.failing_check == "laws"
+    assert result.quantities[0] == QuantityRef(
+        node_id="electrical.imu", name="power_draw", value=19.5, unit="mW"
+    )
+    assert {q.name for q in result.quantities} == {"power_draw", "supply_voltage", "current_draw"}
 
 
 def test_a_power_counts_each_factor_of_its_base_in_the_bound(tmp_path: Path) -> None:
