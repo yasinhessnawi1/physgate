@@ -35,9 +35,12 @@ from dataclasses import dataclass
 from datetime import date
 from fractions import Fraction
 from types import MappingProxyType
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+if TYPE_CHECKING:
+    from physgate.gate.laws import LawTable
 
 _Text = Annotated[str, StringConstraints(min_length=1)]
 
@@ -901,15 +904,18 @@ def angles_of(name: str) -> tuple[int, ...] | None:
     return reading.angles if reading is not None else None
 
 
-def catalogue_digest() -> str:
-    """The sha256 of the catalogue's content: every kind, name, relation, product and reading.
+def catalogue_digest(laws: LawTable) -> str:
+    """The sha256 of the catalogue's content and of the law table ``laws``.
 
-    Taken over a canonical serialisation of what the catalogue says, not over this
-    file, so a comment changes nothing and one changed entry changes the digest.
-    Every gate result carries it: the catalogue decides what gets checked at all,
-    so a result that does not name its catalogue cannot be reproduced.
+    The catalogue's content is every kind, name, relation, product and reading.
+    Taken over a canonical serialisation of what the catalogue and the table say, not over
+    their files, so a comment changes nothing and one changed entry, one changed law or one
+    changed law status changes the digest. Every gate result carries it: the catalogue and the
+    laws decide what gets checked at all, so a result that does not name them cannot be
+    reproduced. An empty table adds nothing, so the digest of a gate with no law is the
+    catalogue's alone, as it was before laws existed; any law moves it.
     """
-    content = {
+    content: dict[str, Any] = {
         "kinds": [KINDS[k].model_dump() for k in sorted(KINDS)],
         "quantities": [QUANTITIES[q].model_dump() for q in sorted(QUANTITIES)],
         "relations": [RELATIONS[r].model_dump() for r in sorted(RELATIONS)],
@@ -920,5 +926,7 @@ def catalogue_digest() -> str:
         "qualifiers": list(QUALIFIERS),
         "either_angle": [[key, list(powers)] for key, powers in sorted(EITHER_ANGLE.items())],
     }
+    if laws.laws:
+        content["laws"] = laws.content()
     canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()

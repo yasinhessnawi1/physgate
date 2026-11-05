@@ -33,6 +33,7 @@ from physgate.gate.catalogue import (
     catalogue_digest,
     kind_of,
 )
+from physgate.gate.laws import load_laws
 from physgate.state.vocabulary import QUANTITY_NAMES
 
 #: The catalogue's digest at a64e805f, before the widening, and with it: the rows below, the
@@ -325,5 +326,5 @@ def test_the_hook_s_vocabulary_holds_the_new_names() -> None:
 
 
 def test_the_catalogue_digest_moves_off_a64e805f_s() -> None:
-    assert catalogue_digest() != BASE_DIGEST
-    assert catalogue_digest() == WIDENED_DIGEST
+    assert catalogue_digest(load_laws()) != BASE_DIGEST
+    assert catalogue_digest(load_laws()) == WIDENED_DIGEST

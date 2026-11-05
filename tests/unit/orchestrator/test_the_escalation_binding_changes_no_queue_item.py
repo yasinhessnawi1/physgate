@@ -37,6 +37,7 @@ from escalation_paths import (
 from stand_in_drive_plan import DRIVE_MODULE, POWER_BUS
 
 from physgate.gate.catalogue import catalogue_digest
+from physgate.gate.laws import load_laws
 from physgate.orchestrator import decompose
 
 #: Event kinds the escalation interface writes, absent from the golden file by
@@ -138,7 +139,7 @@ def _as_the_gate_now_judges(event: dict[str, Any]) -> dict[str, Any]:
     """
     if event.get("kind") not in ("gate_ran", "integration_gate_ran"):
         return event
-    result = {**event["result"], "catalogue_sha256": catalogue_digest()}
+    result = {**event["result"], "catalogue_sha256": catalogue_digest(load_laws())}
     checks: list[dict[str, Any]] = []
     moved: dict[str, int] = {}
     for record in result["checks"]:

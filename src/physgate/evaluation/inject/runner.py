@@ -98,7 +98,6 @@ from physgate.evaluation.inject.materialise import (
     materialise,
     require_blind,
 )
-from physgate.gate.catalogue import catalogue_digest
 from physgate.gate.graph import ChangeHistory, GraphView
 from physgate.gate.runner import PhysicsGate
 from physgate.orchestrator.common import AuthMode, ModelString, NonEmptyStr
@@ -824,7 +823,7 @@ def run_instrument(
         review_clean_twins=review_clean_twins,
         gate_mode=GATE_MODE,
         scopes=SCOPES,
-        catalogue_sha256=catalogue_digest(),
+        catalogue_sha256=gate.catalogue_sha256,
         reviewing=reviewing,
         per_class=per_class,
         lanes=lanes,

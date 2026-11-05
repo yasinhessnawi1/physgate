@@ -34,6 +34,7 @@ from physgate.gate.context import CheckContext
 from physgate.gate.equilibrium import EquilibriumSolver
 from physgate.gate.exceptions import GateModeError, LawRecordError, NothingCheckedError
 from physgate.gate.graph import ChangeHistory, GraphView
+from physgate.gate.laws import LawTable, load_laws
 from physgate.gate.registry import CADENCE, REGISTRY, OnFailure, RegisteredCheck
 from physgate.gate.result import CheckRun, Observation
 from physgate.orchestrator.protocols import (
@@ -80,22 +81,28 @@ class PhysicsGate:
         registry: tuple[RegisteredCheck, ...] = REGISTRY,
         bounds: Bounds | None = None,
         solver: EquilibriumSolver | None = None,
-        law_status: Mapping[str, LawStatus] | None = None,
+        laws: LawTable | None = None,
     ) -> None:
-        """Run the checks in ``registry`` against ``bounds``: the real ones unless a test says.
+        """Run the checks in ``registry`` against ``bounds`` and ``laws``; real unless a test says.
 
-        ``law_status`` is each law's probation state, by law id, from the law table the gate
-        is built with; it decides whether a law's failure blocks. With none, the gate holds
-        no law, and a laws check can only record that it judged nothing.
+        Each law's probation state comes from ``laws``, the table the gate is built with, and
+        decides whether a law's failure blocks; the catalogue digest on every result names it.
 
         Raises:
             BoundsTableError: the bounds table does not load; no gate is built without it.
+            LawTableError: the law table does not load; no gate is built without it.
         """
         self._registry = registry
         self._bounds = bounds if bounds is not None else load_bounds()
-        self._catalogue_sha256 = catalogue_digest()
+        self._laws = laws if laws is not None else load_laws()
+        self._catalogue_sha256 = catalogue_digest(self._laws)
         self._solver = solver
-        self._law_status: Mapping[str, LawStatus] = MappingProxyType(dict(law_status or {}))
+        self._law_status: Mapping[str, LawStatus] = MappingProxyType(dict(self._laws.statuses()))
+
+    @property
+    def catalogue_sha256(self) -> str:
+        """The digest of the catalogue and the law table this gate was built with."""
+        return self._catalogue_sha256
 
     def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
         """Check one attempt's artefact.

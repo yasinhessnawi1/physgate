@@ -1,0 +1,10 @@
+# The law table: closed-form laws the physics gate judges as its eighth check.
+#
+# Each law is one [[law]] row, promoted into this file by a person, never written by hand:
+# drafted from the literature, reviewed adversarially, and approved, with a promotion line in
+# knowledge/promotions.jsonl. Every law enters at status "warn"; it moves to "block" only by a
+# person, after an audit over clean designs, with its clearance recorded on the row. The gate
+# refuses to build on a row that does not load. No law is held yet.
+
+[meta]
+format = 1

@@ -13,9 +13,10 @@ record it as unchecked rather than dropping it.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from fractions import Fraction
+from types import MappingProxyType
 from typing import Literal
 
 from physgate.gate.catalogue import (
@@ -83,6 +84,67 @@ class Scaled:
 
 
 Factor = TermRef | Product | Scaled
+
+
+@dataclass(frozen=True)
+class RelationInputs:
+    """The quantity names one relation reads, every form of it together, and its comparator."""
+
+    names: frozenset[str]
+    comparator: Literal["<=", "=="]
+
+
+#: Every relation the checks form, by the names it reads and its comparator: the catalogue's
+#: relations, held to what :func:`instances` reads by a test over a graph that forms them all,
+#: and the equilibrium check's readings, which the relation names below the catalogue's list.
+#: A law is refused when its names and its comparator are one of these: laws add relations,
+#: they never count one the checks already judge a second time.
+RELATION_INPUTS: Mapping[str, RelationInputs] = MappingProxyType(
+    {
+        "power_budget": RelationInputs(frozenset({"power_draw", "power_supply"}), "<="),
+        "supply_covered": RelationInputs(frozenset({"power_supply", "power_draw"}), "<="),
+        "source_rating": RelationInputs(
+            frozenset({"power_supply", "max_discharge_power", "rated_output_power", "power_draw"}),
+            "<=",
+        ),
+        "current_limit": RelationInputs(frozenset({"stall_current", "current_limit"}), "<="),
+        "discharge_rate": RelationInputs(
+            frozenset({"max_discharge_power", "energy_capacity"}), "<="
+        ),
+        "mass_sum": RelationInputs(frozenset({"mass"}), "=="),
+        "energy_balance": RelationInputs(
+            frozenset({"input_power", "output_power", "heat_dissipation"}), "=="
+        ),
+        "heat_budget": RelationInputs(
+            frozenset({"heat_dissipation", "heat_rejection_capacity"}), "<="
+        ),
+        "junction_limit": RelationInputs(
+            frozenset(
+                {"ambient_temperature", "thermal_resistance", "heat_dissipation", "max_temperature"}
+            ),
+            "<=",
+        ),
+        # The equilibrium check's readings, which no catalogue relation states.
+        "torque_unit": RelationInputs(
+            frozenset({"torque_peak", "reaction_moment", "gear_ratio", "external_gear_ratio"}),
+            "==",
+        ),
+        "carrier": RelationInputs(frozenset({"supported_mass", "mass"}), "=="),
+        "mount_balance": RelationInputs(
+            frozenset(
+                {
+                    "support_position",
+                    "mount_position",
+                    "reaction_force",
+                    "reaction_moment",
+                    "load_force",
+                    "mass",
+                }
+            ),
+            "==",
+        ),
+    }
+)
 
 
 @dataclass(frozen=True)

@@ -39,6 +39,7 @@ from physgate.gate.catalogue import (
 )
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
+from physgate.gate.laws import load_laws
 from physgate.orchestrator.protocols import UncheckedDetails
 from physgate.state.vocabulary import shadowing_quantity_names, unknown_quantity_names
 
@@ -106,9 +107,9 @@ def test_the_qualifier_list_is_part_of_the_catalogue_digest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     words = _qualifiers()
-    before = catalogue_digest()
+    before = catalogue_digest(load_laws())
     monkeypatch.setattr(catalogue, "QUALIFIERS", words[:-1])
-    assert catalogue_digest() != before
+    assert catalogue_digest(load_laws()) != before
 
 
 @pytest.mark.parametrize(
