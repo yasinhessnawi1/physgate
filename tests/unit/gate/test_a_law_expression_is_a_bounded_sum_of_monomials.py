@@ -65,7 +65,7 @@ def test_an_expression_longer_than_the_bound_is_refused_before_it_is_parsed(
 
 def test_an_expression_of_more_nodes_than_the_bound_is_refused(tmp_path: Path) -> None:
     module = laws_module()
-    many = "P == " + " * ".join(["V"] * 30) + " * I"
+    many = "P == " + " * ".join(["V"] * 40) + " * I"
     assert len(many) <= module.MAX_EXPRESSION_LENGTH
     assert module.MAX_EXPRESSION_NODES == 64
     assert "nodes" in refused(tmp_path, [sound_law(expression=many)])
