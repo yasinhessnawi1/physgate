@@ -210,12 +210,28 @@ def test_the_finder_refuses_an_id_that_is_not_a_plain_id(library: Path) -> None:
         find_staged("../escape", *_roots(library))
 
 
-def test_the_finder_refuses_a_staged_link(library: Path, tmp_path: Path) -> None:
+def test_the_finder_refuses_a_staged_link_before_reading_it(library: Path, tmp_path: Path) -> None:
+    """Refused by the finder's own check, which names the staged file as the link.
+
+    A second layer, the read that will not follow a link, would refuse a live link too, but
+    in other words and only once it reads; the finder's check is the one that says what is wrong.
+    """
     staged = _stage(library, "skill", "control")
     elsewhere = tmp_path / "elsewhere.json"
     staged.rename(elsewhere)
     staged.symlink_to(elsewhere)
-    with pytest.raises(PromotionError, match="is a link"):
+    with pytest.raises(PromotionError, match="staged candidate is a link"):
+        find_staged(staged.stem, *_roots(library))
+
+
+def test_the_finder_refuses_a_staged_link_that_points_nowhere(
+    library: Path, tmp_path: Path
+) -> None:
+    """A link to nothing is still a link, never "no such candidate"."""
+    staged = _stage(library, "skill", "control")
+    staged.unlink()
+    staged.symlink_to(tmp_path / "gone.json")
+    with pytest.raises(PromotionError, match="staged candidate is a link"):
         find_staged(staged.stem, *_roots(library))
 
 
