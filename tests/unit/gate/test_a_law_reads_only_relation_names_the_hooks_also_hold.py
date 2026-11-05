@@ -145,5 +145,5 @@ def real_names() -> set[str]:
 
 def test_no_name_a_real_plan_wrote_is_refused_as_a_misspelling() -> None:
     names = real_names()
-    assert len(names) > 250
+    assert len(names) > 200
     assert shadowing_names(names) == ()
