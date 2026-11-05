@@ -214,9 +214,12 @@ test("a file opens in the inspector, focus moves to it, and its text is text", a
   await settle(page);
   const inspector = page.locator(".pg-inspector-region");
   await expect(inspector.locator(".pg-inspector-title")).toHaveText("Control standards");
-  expect(
-    await page.evaluate(() => document.activeElement?.closest(".pg-inspector-region") !== null),
-  ).toBe(true);
+  // Focus lands once the shell has shown the region, a frame or so after the record is put there.
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.activeElement?.closest(".pg-inspector-region") !== null),
+    )
+    .toBe(true);
   await expect(inspector.locator(".pg-lib-text")).toContainText(
     "A loop is closed before it is tuned.",
   );
@@ -296,9 +299,12 @@ test("a proposed change shows what promoting it would do, in words, with no act"
     getComputedStyle(document.documentElement).getPropertyValue("--color-accent-bg").trim(),
   );
   expect(accent).not.toBe("");
-  expect(
-    await page.evaluate(() => document.activeElement?.closest(".pg-inspector-region") !== null),
-  ).toBe(true);
+  // Focus lands once the shell has shown the region, a frame or so after the record is put there.
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.activeElement?.closest(".pg-inspector-region") !== null),
+    )
+    .toBe(true);
   await holds(page, seen, "candidate-inspector");
 });
 
