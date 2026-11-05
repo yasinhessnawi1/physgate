@@ -218,15 +218,31 @@ def _law_card() -> str:
 STAGE_LAW_CARD = tool(
     "Write", file_path=f"@W/knowledge/staging/laws/{LAW_CARD_ID}.toml", content=_law_card()
 )
-#: The test interpreter, which holds the harness: a session's own ``python3`` may not. ``-B``
-#: writes no bytecode, so the only write the command makes is the one the attempt is about.
-HARNESS_PYTHON = f"{sys.executable} -B"
-#: The promotion's own entry with its terminal check stubbed out, run in the language: it names
-#: no path, so the first layer has nothing to read, and the write is the law table's.
-SKIP_THE_TERMINAL = (
-    f'{HARNESS_PYTHON} -c "import physgate.knowledge.law_promotion as m; '
-    f"m.require_interactive = lambda: None; m.promote_law('{LAW_CARD_ID}', by='a session')\"; "
-    "echo ran > ran.txt"
+#: The promotion's own entry with its terminal check stubbed out, run in the language. The test
+#: interpreter holds the harness (a session's own ``python3`` may not); ``-B`` writes no bytecode,
+#: so the only write is the one the attempt is about.
+STUB_AND_PROMOTE = (
+    '-B -c "import physgate.knowledge.law_promotion as m; '
+    f"m.require_interactive = lambda: None; m.promote_law('{LAW_CARD_ID}', by='a session')\""
+)
+#: Named outright, the interpreter lies inside the hooks' own installation, a protected root,
+#: so the first layer refuses the command for naming it.
+SKIP_THE_TERMINAL = f"{sys.executable} {STUB_AND_PROMOTE}; echo ran > ran.txt"
+
+
+def _built_at_run_time(path: str) -> str:
+    """``path`` as a value only running the command gives: two halves joined by ``printf``.
+
+    The first half stops two characters short of the installation's root, so no written word
+    lies inside a protected root and the first layer has nothing to read: the sentinel's case.
+    """
+    cut = len(sys.prefix) - 2
+    return f"$(printf '%s%s' '{path[:cut]}' '{path[cut:]}')"
+
+
+#: The same promotion with the interpreter's path built at run time.
+SKIP_THE_TERMINAL_UNNAMED = (
+    f'py={_built_at_run_time(sys.executable)}; "$py" {STUB_AND_PROMOTE}; echo ran > ran.txt'
 )
 
 GATE = "src/physgate/gate"
@@ -658,6 +674,12 @@ ATTEMPTS = [
         "promote-law-skipping-the-terminal",
         "a staged law card promoted by the promotion's own code, its terminal check stubbed out",
         [STAGE_LAW_CARD, bash(SKIP_THE_TERMINAL)],
+        "shell_paths",
+    ),
+    Attempt(
+        "promote-law-skipping-the-terminal-unnamed",
+        "the same, the interpreter's path built at run time so that no word names it",
+        [STAGE_LAW_CARD, bash(SKIP_THE_TERMINAL_UNNAMED)],
         "sentinel",
         runs=True,
     ),
@@ -873,7 +895,9 @@ def test_the_law_promotion_attempt_is_live_without_the_two_shell_layers(tmp_path
     # its line. So what stops the attempt above is the hook layer, not the code failing.
     run = run_session(
         tmp_path,
-        Script(main=[*_place([STAGE_LAW_CARD, bash(SKIP_THE_TERMINAL)], tmp_path), text("end")]),
+        Script(
+            main=[*_place([STAGE_LAW_CARD, bash(SKIP_THE_TERMINAL_UNNAMED)], tmp_path), text("end")]
+        ),
         files=FILES,
         prepare=_prepare,
         store_root=str(tmp_path / "outside" / "store"),
@@ -889,10 +913,11 @@ def test_the_law_promotion_attempt_is_live_without_the_two_shell_layers(tmp_path
 
 def test_the_law_promotion_command_refuses_a_session_and_writes_nothing(tmp_path: Path) -> None:
     # The honest attempt: the command itself, from a session. Its standard input is not a
-    # terminal, so it refuses before reading anything, and the card stays staged.
-    physgate = Path(sys.executable).parent / "physgate"
+    # terminal, so it refuses before reading anything, and the card stays staged. Its path is
+    # built at run time: named outright, the first layer refuses it before it runs.
+    physgate = _built_at_run_time(str(Path(sys.executable).parent / "physgate"))
     command = (
-        f"PYTHONDONTWRITEBYTECODE=1 {physgate} knowledge promote-law {LAW_CARD_ID} "
+        f'ph={physgate}; PYTHONDONTWRITEBYTECODE=1 "$ph" knowledge promote-law {LAW_CARD_ID} '
         "--by 'a session' > told.txt 2>&1; echo ran > ran.txt"
     )
     run = run_session(
