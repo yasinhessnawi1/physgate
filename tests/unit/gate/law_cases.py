@@ -224,3 +224,121 @@ def evaluated(records: Iterable[CheckRecord], law_id: str) -> int | None:
         if isinstance(count, int):
             return count
     return None
+
+
+def _law(law_id: str, statement: str, expression: str, **fields: Any) -> dict[str, Any]:
+    return sound_law(law_id, statement=statement, expression=expression, **fields)
+
+
+def dense_laws() -> list[dict[str, Any]]:
+    """Laws that bind on a graph of supplies and the consumers that draw from each of them."""
+    return [
+        _law(
+            "draw_within_rating",
+            "a consumer draws no more than the rated output of each supply its edges name",
+            "D <= R",
+            pattern="edge",
+            anchor="D",
+            tolerance="inequality",
+            symbols=symbols(D=("power_draw", "self"), R=("rated_output_power", "target")),
+            example=[
+                example("pass", D=(1.25, "W"), R=(10, "W")),
+                example("fail", D=(12, "W"), R=(10, "W")),
+            ],
+        ),
+        _law(
+            "rating_covers_members",
+            "a supply's rated output covers the sum of what its members draw",
+            "R >= D",
+            pattern="members",
+            anchor="R",
+            tolerance="inequality",
+            symbols=symbols(R=("rated_output_power", "subject"), D=("power_draw", "each")),
+            example=[
+                example("pass", R=(10, "W"), D=[(4, "W"), (5, "W")]),
+                example("fail", R=(8, "W"), D=[(4, "W"), (5, "W")]),
+            ],
+        ),
+        _law(
+            "supply_within_rating",
+            "a supply supplies no more than its rated output",
+            "S <= R",
+            anchor="S",
+            tolerance="inequality",
+            symbols=symbols(S=("power_supply", "self"), R=("rated_output_power", "self")),
+            example=[
+                example("pass", S=(8, "W"), R=(10, "W")),
+                example("fail", S=(12, "W"), R=(10, "W")),
+            ],
+        ),
+        _law(
+            "efficiency_output",
+            "a stage delivers its efficiency times the power it takes in",
+            "O == E * N",
+            anchor="O",
+            symbols=symbols(
+                O=("output_power", "self"),
+                E=("efficiency", "self"),
+                N=("input_power", "self"),
+            ),
+            example=[
+                example("pass", O=(8, "W"), E=(0.8, "dimensionless"), N=(10, "W")),
+                example("fail", O=(9, "W"), E=(0.8, "dimensionless"), N=(10, "W")),
+            ],
+        ),
+        _law(
+            "rate_throughput_sample_rate",
+            "a consumer is updated no faster than its producer samples",
+            "U <= F",
+            pattern="edge",
+            anchor="U",
+            tolerance="inequality",
+            symbols=symbols(U=("update_rate", "self"), F=("sample_rate", "target")),
+            example=[
+                example("pass", U=(100, "Hz"), F=(200, "Hz")),
+                example("fail", U=(400, "Hz"), F=(200, "Hz")),
+            ],
+        ),
+        _law(
+            "rated_power",
+            "a node's draw at its rated voltage is that voltage times its current",
+            "V * I == P",
+            anchor="V",
+            symbols=symbols(
+                V=("rated_voltage", "self"), I=("current_draw", "self"), P=("power_draw", "self")
+            ),
+            example=[
+                example("pass", V=(12, "V"), I=(0.5, "A"), P=(6, "W")),
+                example("fail", V=(12, "V"), I=(0.5, "A"), P=(7, "W")),
+            ],
+        ),
+        _law(
+            "draw_below_stall",
+            "a motor draws no more than its stall current",
+            "I <= S",
+            anchor="I",
+            tolerance="inequality",
+            symbols=symbols(I=("current_draw", "self"), S=("stall_current", "self")),
+            example=[
+                example("pass", I=(0.5, "A"), S=(2, "A")),
+                example("fail", I=(3, "A"), S=(2, "A")),
+            ],
+        ),
+        _law(
+            "peak_within_stall",
+            "a motor's peak torque is no more than its stall torque",
+            "P <= S",
+            anchor="P",
+            tolerance="inequality",
+            symbols=symbols(P=("torque_peak", "self"), S=("stall_torque", "self")),
+            example=[
+                example("pass", P=(0.1, "N*m"), S=(0.2, "N*m")),
+                example("fail", P=(0.3, "N*m"), S=(0.2, "N*m")),
+            ],
+        ),
+    ]
+
+
+def full_table() -> list[dict[str, Any]]:
+    """Fifteen laws over every pattern and tolerance class: the size of the first law set."""
+    return [*every_case(), *dense_laws()]

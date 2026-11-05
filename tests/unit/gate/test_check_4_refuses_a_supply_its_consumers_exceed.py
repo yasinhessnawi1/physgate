@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import statistics
 import time
 from fractions import Fraction
 from pathlib import Path
@@ -173,36 +174,74 @@ def test_the_real_gate_refuses_the_joint_deficit_at_system_scope_and_blocks(tmp_
     assert PhysicsGate().run(view, ["module"], "on").verdict == "pass"
 
 
-@pytest.mark.integration
-def test_power_balance_over_a_dense_graph_stays_under_a_second(tmp_path: Path) -> None:
-    # 40 supplies, and every one of 160 consumers drawing from all of them:
-    # 6,400 edges, 128 times the reference workload's. A clock assertion, so it
-    # is marked and excluded from the default run, and a red here is repeated
-    # before it is believed.
-    supplies = [
+#: How much more the power balance may cost on the dense graph than on the same shape at a
+#: quarter of its supplies and consumers: twice what growth linear in the work would give. The
+#: dense graph has 16 times the edges, and each supply 4 times the members over 4 times the
+#: nodes, so a balance linear in its edges costs about 16 times as much; one quadratic in them,
+#: as substitution term by term once was, costs about 256 times as much.
+DENSE_COST_RATIO = 32
+#: Interleaved pairs measured, after one warm-up call of each.
+DENSE_PAIRS = 5
+
+
+def supplied(root: Path, supplies: int, consumers: int) -> CheckContext:
+    """``consumers`` consumers each drawing from every one of ``supplies`` supplies."""
+    sources = [
         node(
             f"electrical.s{i:02d}",
             kind="module",
             # Declared sources, so each is judged only as a supply to its consumers.
             quantities={"power_supply": (10_000, "W"), "rated_output_power": (10_000, "W")},
         )
-        for i in range(40)
+        for i in range(supplies)
     ]
-    ids = [s["id"] for s in supplies]
-    consumers = [
+    ids = [s["id"] for s in sources]
+    drawing = [
         node(f"electrical.c{i:03d}", quantities={"power_draw": (1.25, "W")}, constrains=ids)
-        for i in range(160)
+        for i in range(consumers)
     ]
-    graph(tmp_path / "g", *supplies, *consumers)
-    view = GraphView.read(tmp_path / "g", 0)
-    ctx = CheckContext(view=view, scope="system", bounds=load_bounds())
-    started = time.perf_counter()
-    ran = check_power.run(ctx)
-    took = time.perf_counter() - started
+    graph(root, *sources, *drawing)
+    view = GraphView.read(root, 0)
+    return CheckContext(view=view, scope="system", bounds=load_bounds())
+
+
+@pytest.mark.integration
+def test_power_balance_over_a_dense_graph_grows_with_its_edges_not_their_square(
+    tmp_path: Path,
+) -> None:
+    # 40 supplies, and every one of 160 consumers drawing from all of them: 6,400 edges, 128
+    # times the reference workload's. The budget is a ratio against the same check on a
+    # quarter of the supplies and consumers, timed in the same process, so it holds on a slow
+    # host as on a fast one; a clock budget of one second failed on a slower host with no
+    # change to the code. A clock assertion all the same, so it is marked and excluded from
+    # the default run, and a red here is repeated before it is believed.
+    dense = supplied(tmp_path / "dense", 40, 160)
+    small = supplied(tmp_path / "small", 10, 40)
+    ran = check_power.run(dense)
     # Forty budgets, and forty supplies held to their ratings.
     assert ran.evaluated == 80 and ran.observations == ()
-    print(f"power balance over 6,400 edges: {took:.4f} s")  # the measured number, for the record
-    assert took < 1.0, f"power balance over 6,400 edges took {took:.3f} s"
+    assert check_power.run(small).evaluated == 20
+
+    def timed(ctx: CheckContext) -> float:
+        started = time.perf_counter()
+        check_power.run(ctx)
+        return time.perf_counter() - started
+
+    ratios, took = [], []
+    for pair in range(DENSE_PAIRS):
+        if pair % 2 == 0:
+            big, little = timed(dense), timed(small)
+        else:
+            little, big = timed(small), timed(dense)
+        took.append(big)
+        ratios.append(big / little)
+    ratio = statistics.median(ratios)
+    # The measured numbers, for the record.
+    print(
+        f"power balance over 6,400 edges: {statistics.median(took):.4f} s, "
+        f"{ratio:.2f} times the 400-edge graph (min {min(ratios):.2f}, max {max(ratios):.2f})"
+    )
+    assert ratio <= DENSE_COST_RATIO, f"power balance cost {ratio:.1f} times the small graph"
 
 
 # --- a stage that passes power on is held to what it takes in ---------------------------
