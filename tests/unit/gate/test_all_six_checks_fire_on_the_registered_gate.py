@@ -20,6 +20,11 @@ from physgate.orchestrator.cli import default_registrations
 from physgate.orchestrator.protocols import CHECK_NUMBERS, Artefact
 
 SIX = {"units", "magnitude", "equilibrium", "power", "conservation", "thermal"}
+#: Checks that have their number and their row in the architecture's table but no evaluator
+#: yet, so they are not registered and never run: the laws check, until its evaluator lands.
+#: Each one is listed here by name, so its absence from the registry is a stated fact and not
+#: an oversight, and this set empties when the check is registered.
+UNREGISTERED = {"laws"}
 
 
 def test_every_check_is_registered_in_the_architecture_s_order() -> None:
@@ -32,8 +37,10 @@ def test_every_check_is_registered_in_the_architecture_s_order() -> None:
         "thermal",
         "propagation",
     ]
-    assert [entry.number for entry in REGISTRY] == sorted(CHECK_NUMBERS.values())
-    assert set(CHECK_NUMBERS) - SIX == {"propagation"}
+    assert [entry.number for entry in REGISTRY] == sorted(
+        number for name, number in CHECK_NUMBERS.items() if name not in UNREGISTERED
+    )
+    assert set(CHECK_NUMBERS) - SIX - UNREGISTERED == {"propagation"}
 
 
 def test_the_registered_gate_fires_all_six_checks_on_a_graph_that_breaks_them_all(
