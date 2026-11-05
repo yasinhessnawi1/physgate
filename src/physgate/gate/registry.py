@@ -23,6 +23,7 @@ from typing import Literal
 from physgate.gate import (
     check_conservation,
     check_equilibrium,
+    check_laws,
     check_magnitude,
     check_power,
     check_propagation,
@@ -106,4 +107,5 @@ REGISTRY: tuple[RegisteredCheck, ...] = (
     RegisteredCheck(name="conservation", run=check_conservation.run),
     RegisteredCheck(name="thermal", run=check_thermal.run),
     RegisteredCheck(name="propagation", run=check_propagation.run),
+    RegisteredCheck(name="laws", run=check_laws.run),
 )

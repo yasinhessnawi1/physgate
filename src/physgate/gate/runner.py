@@ -155,7 +155,13 @@ class PhysicsGate:
                 if on_failure is None:
                     continue
                 ran = entry.run(
-                    CheckContext(view=view, scope=scope, bounds=self._bounds, solver=self._solver)
+                    CheckContext(
+                        view=view,
+                        scope=scope,
+                        bounds=self._bounds,
+                        solver=self._solver,
+                        laws=self._laws,
+                    )
                 )
                 if entry.name == "laws":
                     stamped, failing = _stamp_laws(

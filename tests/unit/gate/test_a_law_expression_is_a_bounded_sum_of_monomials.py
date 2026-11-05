@@ -94,6 +94,11 @@ def test_sums_of_monomials_over_declared_symbols_load(tmp_path: Path, expression
     tolerance = "rounding" if "==" in expression else "inequality"
     literals = [{"value": "0", "reason": "a side that is zero"}] if "0 *" in expression else []
     row = sound_law(expression=expression, tolerance=tolerance, literals=literals)
+    if tolerance == "inequality":
+        # The worked examples are run at load: an inequality's failing one draws too little.
+        failing = {**row["example"][1], "values": {**row["example"][1]["values"]}}
+        failing["values"]["P"] = {"value": 10, "unit": "mW"}
+        row["example"] = [row["example"][0], failing]
     assert "electrical_power" in load(tmp_path, [row]).laws
 
 

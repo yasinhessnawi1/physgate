@@ -32,7 +32,22 @@ A row is refused, naming it, when:
   none of them an unexplained block. The bar was set by a person before any audit counted
   anything; changing it is a recorded change of what the gate may refuse.
 
-Running the worked examples, and evaluating a law over a graph, are the laws check's.
+A law's worked examples are run when it loads, through :func:`evaluate`, the evaluator the laws
+check uses on a graph: a row whose pass example fails, whose fail example passes, or whose
+example cannot be evaluated, is refused with the rest.
+
+**Evaluation is exact.** Every side is a sum of monomials, so a side's value is the sum of each
+monomial's coefficient times its inputs to their integer powers, in fractions, with nothing
+rounded and no string evaluated. A summed member term contributes one term per member. An
+equality of the ``rounding`` class may miss by the propagated rounding of its terms
+(:func:`physgate.gate.tolerances.propagated_allowance`), each member its own term; a ``model``
+law by its sourced share of the right side's magnitude; an inequality by nothing. A law that
+would divide by a zero input cannot be evaluated, and says so.
+
+**Patterns** (:func:`bindings`) say where a law forms an instance: wherever its anchor is, and
+nowhere else. Each instance is either judged, or names why it cannot be: a missing input or
+required name, a present excusing name, an edge into an interface node or into no node, or a
+subject no member names.
 """
 
 from __future__ import annotations
@@ -61,8 +76,10 @@ from pydantic import (
 from physgate.gate.bounds_table import KNOWLEDGE_DIR
 from physgate.gate.catalogue import EITHER_ANGLE, KINDS, QUANTITIES, inferred_by
 from physgate.gate.exceptions import GateError
+from physgate.gate.graph import GraphView
 from physgate.gate.relations import RELATION_INPUTS
-from physgate.gate.units import UREG
+from physgate.gate.tolerances import propagated_allowance
+from physgate.gate.units import PINT_ERRORS, UREG, UnitRefusedError, measure
 from physgate.orchestrator.protocols import TOLERANCE_COMPARATORS, LawStatus
 
 #: The table, in the tracked knowledge tree beside the bounds tables, outside every domain
@@ -247,6 +264,7 @@ class Law(_Frozen):
         _check_dimension(self, parsed)
         _check_new(self, parsed)
         _check_examples(self)
+        _run_examples(self, parsed)
         _check_status(self)
         return self
 
@@ -260,6 +278,39 @@ class Law(_Frozen):
             {s.name for s in self.symbols.values()}
             | {c.name for c in (*self.requires, *self.unless)}
         )
+
+    def symbol_positions(self) -> list[tuple[str, int, int, int]]:
+        """Where each symbol is written: ``(symbol, line, start, end)``, byte offsets in the line.
+
+        Read off the checked expression's syntax tree, so a record can spell the instance in
+        the row's own words.
+        """
+        body = ast.parse(self.expression, mode="eval").body
+        if not isinstance(body, ast.Compare):
+            return []
+        return _positions(body.left) + _positions(body.comparators[0])
+
+    def whole_sides(self) -> frozenset[tuple[int, int]]:
+        """The positions ``(line, start)`` of symbols that are a whole side on their own."""
+        body = ast.parse(self.expression, mode="eval").body
+        if not isinstance(body, ast.Compare):
+            return frozenset()
+        return frozenset(
+            (side.lineno, side.col_offset)
+            for side in (body.left, body.comparators[0])
+            if isinstance(side, ast.Name)
+        )
+
+
+def _positions(node: ast.expr) -> list[tuple[str, int, int, int]]:
+    """The names in a checked side, with where each is written."""
+    if isinstance(node, ast.Name):
+        return [(node.id, node.lineno, node.col_offset, node.end_col_offset or node.col_offset)]
+    if isinstance(node, ast.BinOp):
+        return _positions(node.left) + _positions(node.right)
+    if isinstance(node, ast.UnaryOp):
+        return _positions(node.operand)
+    return []
 
 
 # --- the parser ---------------------------------------------------------------------------
@@ -424,6 +475,284 @@ def _integer(node: ast.expr) -> int | None:
     if isinstance(node, ast.Constant) and type(node.value) is int:
         return node.value
     return None
+
+
+# --- evaluation ----------------------------------------------------------------------------
+
+#: One symbol's value at one instance, in its kind's canonical unit: a number, or one number per
+#: member for a summed symbol.
+Value = Fraction | tuple[Fraction, ...]
+
+
+class ZeroDivisorError(ValueError):
+    """An instance the law cannot be evaluated on: it would divide by an input that is zero."""
+
+    def __init__(self, symbols: tuple[str, ...]) -> None:
+        """Name the symbols whose value is zero below the line."""
+        super().__init__(f"it would divide by {', '.join(symbols)}, which is zero")
+        self.symbols = symbols
+
+
+@dataclass(frozen=True)
+class Evaluation:
+    """One instance of a law, evaluated exactly: both sides, the residual, and the verdict."""
+
+    left: Fraction
+    right: Fraction
+    #: ``left - right``.
+    residual: Fraction
+    #: What the tolerance class lets an equality miss by; ``None`` for an inequality.
+    allowance: Fraction | None
+    holds: bool
+
+
+def terms(
+    monomials: tuple[Monomial, ...], values: Mapping[str, Value]
+) -> list[tuple[Fraction, int, int]]:
+    """Each term of a side as ``(value, positive, negative)``, for the value and its rounding.
+
+    A monomial is its coefficient times its inputs to their powers; ``positive`` and
+    ``negative`` count its declared factors above and below the line. A summed symbol stands
+    alone in its monomial, so it gives one plain term per member.
+
+    Raises:
+        ZeroDivisorError: an input below the line is zero.
+    """
+    found: list[tuple[Fraction, int, int]] = []
+    for monomial in monomials:
+        summed = values[monomial.powers[0][0]] if len(monomial.powers) == 1 else None
+        if isinstance(summed, tuple):
+            found.extend((monomial.coefficient * member, 1, 0) for member in summed)
+            continue
+        zero = tuple(s for s, p in monomial.powers if p < 0 and values[s] == 0)
+        if zero:
+            raise ZeroDivisorError(zero)
+        value = monomial.coefficient
+        positive = negative = 0
+        for symbol, power in monomial.powers:
+            number = values[symbol]
+            if isinstance(number, tuple):
+                msg = f"the summed symbol {symbol} stands alone in its term"
+                raise TypeError(msg)
+            value *= number**power
+            if power > 0:
+                positive += power
+            else:
+                negative -= power
+        found.append((value, positive, negative))
+    return found
+
+
+def side_value(monomials: tuple[Monomial, ...], values: Mapping[str, Value]) -> Fraction:
+    """The exact value of one side over ``values``.
+
+    Raises:
+        ZeroDivisorError: an input below the line is zero.
+    """
+    return sum((value for value, _, _ in terms(monomials, values)), Fraction(0))
+
+
+def evaluate(law: Law, parsed: Expression, values: Mapping[str, Value]) -> Evaluation:
+    """Evaluate ``law``, whose checked expression is ``parsed``, over ``values``, exactly.
+
+    ``values`` holds every symbol's value in its kind's canonical unit; the canonical units are
+    coherent, so the sides' values are in one unit.
+
+    Raises:
+        ZeroDivisorError: an input below the line is zero.
+    """
+    left_terms = terms(parsed.left, values)
+    right_terms = terms(parsed.right, values)
+    left = sum((v for v, _, _ in left_terms), Fraction(0))
+    right = sum((v for v, _, _ in right_terms), Fraction(0))
+    residual = left - right
+    allowance: Fraction | None
+    if law.tolerance == "rounding":
+        allowance = propagated_allowance([*left_terms, *right_terms])
+        holds = abs(residual) <= allowance
+    elif law.tolerance == "model" and law.model is not None:
+        allowance = Fraction(law.model.share) * abs(right)
+        holds = abs(residual) <= allowance
+    else:
+        allowance = None
+        holds = residual <= 0 if parsed.comparator == "<=" else residual >= 0
+    return Evaluation(left=left, right=right, residual=residual, allowance=allowance, holds=holds)
+
+
+# --- patterns ------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Binding:
+    """One instance of a law in a graph: where each place is, or why it cannot be judged."""
+
+    #: The node holding the anchor: the law's ``self`` or ``subject``.
+    anchor: str
+    #: The node an ``edge`` law's edge names, where it has one.
+    target: str | None = None
+    #: For a ``members`` law, each summed symbol's members, in id order.
+    members: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    #: Names the instance needs and the graph does not give there.
+    missing: tuple[str, ...] = ()
+    #: Why the instance cannot be judged, besides a missing name; ``None`` if it can be.
+    reason: str | None = None
+    #: The names the reason is about.
+    about: tuple[str, ...] = ()
+
+    def judgeable(self) -> bool:
+        """Whether every input is there and nothing excuses the law."""
+        return not self.missing and self.reason is None
+
+    def nodes(self) -> tuple[str, ...]:
+        """Every node the instance reads, the anchor first."""
+        found = [self.anchor]
+        if self.target is not None:
+            found.append(self.target)
+        found.extend(m for _, members in self.members for m in members)
+        return tuple(dict.fromkeys(found))
+
+
+def _names_at(law: Law, place: str) -> list[str]:
+    """The catalogue names the law reads at ``place``, then the ones it requires there."""
+    read = [entry.name for entry in law.symbols.values() if entry.place == place]
+    required = [c.name for c in law.requires if c.place == place]
+    return list(dict.fromkeys([*read, *required]))
+
+
+def _excuse(law: Law, quantities: Collection[str], place: str) -> Condition | None:
+    """The first excusing name present at ``place``, if any."""
+    return next((c for c in law.unless if c.place == place and c.name in quantities), None)
+
+
+def _absent(names: list[str], quantities: Collection[str]) -> list[str]:
+    return [n for n in names if n not in quantities]
+
+
+def bindings(law: Law, view: GraphView) -> list[Binding]:
+    """Every instance of ``law`` in ``view``: one per anchor (per edge for an ``edge`` law).
+
+    Instances are in node-id order, an edge law's in its targets' id order.
+    """
+    anchor_name = law.symbols[law.anchor].name
+    found: list[Binding] = []
+    for node_id, node in view.nodes.items():
+        if anchor_name not in node.quantities:
+            continue
+        if law.pattern == "node":
+            found.append(_on_node(law, node_id, node.quantities))
+        elif law.pattern == "edge":
+            found.extend(_on_edges(law, view, node_id))
+        else:
+            found.append(_on_members(law, view, node_id))
+    return found
+
+
+def _on_node(law: Law, node_id: str, quantities: Collection[str]) -> Binding:
+    excuse = _excuse(law, quantities, "self")
+    if excuse is not None:
+        return Binding(anchor=node_id, reason=excuse.reason, about=(excuse.name,))
+    return Binding(anchor=node_id, missing=tuple(_absent(_names_at(law, "self"), quantities)))
+
+
+def _on_edges(law: Law, view: GraphView, node_id: str) -> list[Binding]:
+    own = view.nodes[node_id].quantities
+    excuse = _excuse(law, own, "self")
+    if excuse is not None:
+        return [Binding(anchor=node_id, reason=excuse.reason, about=(excuse.name,))]
+    missing_here = _absent(_names_at(law, "self"), own)
+    wanted = _names_at(law, "target")
+    read = [entry.name for entry in law.symbols.values() if entry.place == "target"]
+    found: list[Binding] = []
+    for target in sorted(set(view.nodes[node_id].constrains)):
+        held = view.nodes.get(target)
+        if held is None:
+            found.append(
+                Binding(
+                    anchor=node_id,
+                    target=target,
+                    reason=f"its edge names {target}, which is not in the graph",
+                    about=tuple(read),
+                )
+            )
+        elif held.kind == "interface":
+            found.append(
+                Binding(
+                    anchor=node_id,
+                    target=target,
+                    reason=f"its edge names {target}, an interface node fixed at decomposition",
+                    about=tuple(read),
+                )
+            )
+        elif any(name in held.quantities for name in read):
+            there = _excuse(law, held.quantities, "target")
+            if there is not None:
+                found.append(
+                    Binding(anchor=node_id, target=target, reason=there.reason, about=(there.name,))
+                )
+                continue
+            missing = (*missing_here, *_absent(wanted, held.quantities))
+            found.append(Binding(anchor=node_id, target=target, missing=tuple(missing)))
+    if not found:
+        # No node its edges name holds what the law reads there: the anchor is unjudged.
+        found.append(Binding(anchor=node_id, missing=(*missing_here, *read)))
+    return found
+
+
+def _on_members(law: Law, view: GraphView, node_id: str) -> Binding:
+    own = view.nodes[node_id].quantities
+    excuse = _excuse(law, own, "subject")
+    if excuse is not None:
+        return Binding(anchor=node_id, reason=excuse.reason, about=(excuse.name,))
+    missing = _absent(_names_at(law, "subject"), own)
+    constrained = view.constrained_by(node_id)
+    summed = sorted(s for s, entry in law.symbols.items() if entry.place == "each")
+    members = tuple(
+        (s, tuple(m for m in constrained if law.symbols[s].name in view.nodes[m].quantities))
+        for s in summed
+    )
+    empty = [law.symbols[s].name for s, held in members if not held]
+    if empty:
+        return Binding(
+            anchor=node_id,
+            members=members,
+            reason=f"no member names it and holds {', '.join(empty)}",
+            about=tuple(empty),
+        )
+    for _, held in members:
+        for member in held:
+            there = view.nodes[member].quantities
+            excused = _excuse(law, there, "each")
+            if excused is not None:
+                return Binding(
+                    anchor=node_id, members=members, reason=excused.reason, about=(excused.name,)
+                )
+            missing.extend(n for n in _absent(_names_at(law, "each"), there) if n not in missing)
+    return Binding(anchor=node_id, members=members, missing=tuple(missing))
+
+
+def _run_examples(law: Law, parsed: Expression) -> None:
+    """Evaluate each worked example and refuse the law if one does not give its outcome."""
+    for example in law.example:
+        values: dict[str, Value] = {}
+        for symbol, given in example.values.items():
+            kind = KINDS[QUANTITIES[law.symbols[symbol].name].kind]
+            try:
+                if isinstance(given, list):
+                    values[symbol] = tuple(measure(kind, v.value, v.unit).magnitude for v in given)
+                else:
+                    values[symbol] = measure(kind, given.value, given.unit).magnitude
+            except (UnitRefusedError, *PINT_ERRORS):
+                msg = f"the {example.outcome} example's {symbol} is in a unit its kind refuses"
+                raise ValueError(msg) from None
+        try:
+            holds = evaluate(law, parsed, values).holds
+        except ZeroDivisorError as exc:
+            msg = f"the {example.outcome} example cannot be evaluated: {exc}"
+            raise ValueError(msg) from None
+        if holds != (example.outcome == "pass"):
+            gives = "passes" if holds else "fails"
+            msg = f"the {example.outcome} example {gives}: it does not give its stated outcome"
+            raise ValueError(msg)
 
 
 # --- the row's checks ------------------------------------------------------------------------
