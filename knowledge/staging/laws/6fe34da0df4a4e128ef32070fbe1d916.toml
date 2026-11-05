@@ -27,7 +27,7 @@ R = { name = "output_data_rate", place = "target" }
 kind = "textbook"
 title = "Advanced PID Control (K. J. Åström, T. Hägglund)"
 edition = "ISA, 2006"
-section = "13.3 Computer Implementations, Sampling, pp. 412-413"
+section = "13.3 Computer Implementations, Sampling, p. 413"
 read = 2026-11-05
 reading = "in full"
 
@@ -71,8 +71,10 @@ WHERE IT DOES NOT HOLD
 - A consumer that fuses several sensors updates at the rate of whichever it waits on; the law
   holds it to each named sensor separately, which over-refuses when it waits on the fastest.
 - An edge that names the sensor for some other reason (a mount, a bus) still forms an instance.
+- An inertial unit has an accelerometer ODR and a gyroscope ODR (LSM6DS33 Table 44 and
+  Table 48), and a node holds one output_data_rate, so the number written may be either.
 
-SOURCE (read 05.11.2026, primary text of §13.3, pp. 412-413)
+SOURCE (read 05.11.2026: §13.3 opens on p. 412; "Sampling" is on p. 413)
 Åström and Hägglund, Advanced PID Control (ISA, 2006), §13.3 Computer Implementations,
 "Sampling": "When the controller is implemented in a computer, the analog inputs are read, and
 the outputs are set with a certain sampling period." The ideal sequence of operation it gives
@@ -80,7 +82,9 @@ is: wait for clock interrupt, read analog input, compute control signal, set ana
 update controller variables, go to 1. One read per update is that sequence. The inequality
 follows by counting (each update takes one new sample; the sensor delivers R samples a second,
 so there are at most R updates a second); the book does not state the inequality in these
-words. I read the chapter from a copy hosted on an NTNU staff page.
+words. The source supports the loop's structure only (one clock-driven read per update, at the
+controller's own sampling period); it never speaks of a producer's delivery rate. Cited as
+the book: Åström and Hägglund, Advanced PID Control, ISA, 2006, §13.3, p. 413.
 
 WORKED EXAMPLES (ST LSM6DS33, DocID027423 Rev 4, Table 44, accelerometer ODR 104 Hz)
 - pass: loop at 52 Hz (the table's next lower ODR step). 52 Hz <= 104 Hz.

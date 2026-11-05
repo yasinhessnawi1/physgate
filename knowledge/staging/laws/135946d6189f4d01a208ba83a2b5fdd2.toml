@@ -27,7 +27,7 @@ F = { name = "sample_rate", place = "target" }
 kind = "textbook"
 title = "Advanced PID Control (K. J. Åström, T. Hägglund)"
 edition = "ISA, 2006"
-section = "13.3 Computer Implementations, Sampling, pp. 412-413"
+section = "13.3 Computer Implementations, Sampling, p. 413"
 read = 2026-11-05
 reading = "in full"
 
@@ -72,10 +72,14 @@ WHERE IT DOES NOT HOLD
   refuses them. That is why it is warn only.
 - A consumer that fuses several producers is held to each named producer separately, which
   over-refuses when it waits on the fastest.
+  A fusion loop that names a slow producer (a camera at 30 Hz) beside a fast one is refused.
+- A cascade: the catalogue gives sample_rate no narrower meaning, so a loop's own sampling
+  frequency is also a sample_rate; an inner (fast) loop whose edge names the outer loop's
+  node, where that node declares a sample_rate, is refused though it is correct.
 - A node whose sample_rate means something else (a logger's storage rate, say) and that an edge
   names for another reason still forms an instance.
 
-SOURCE (read 05.11.2026, primary text of §13.3, pp. 412-413)
+SOURCE (read 05.11.2026: §13.3 opens on p. 412; "Sampling" is on p. 413)
 Åström and Hägglund, Advanced PID Control (ISA, 2006), §13.3 Computer Implementations,
 "Sampling": "When the controller is implemented in a computer, the analog inputs are read, and
 the outputs are set with a certain sampling period." The ideal sequence of operation it gives
@@ -83,7 +87,9 @@ is: wait for clock interrupt, read analog input, compute control signal, set ana
 update controller variables, go to 1. One read per update is that sequence. The inequality
 follows by counting (each update takes one new sample; the producer delivers F samples a
 second, so there are at most F updates a second); the book does not state the inequality in
-these words. I read the chapter from a copy hosted on an NTNU staff page.
+these words. The source supports the loop's structure only (one clock-driven read per update, at the
+controller's own sampling period); it never speaks of a producer's delivery rate. Cited as
+the book: Åström and Hägglund, Advanced PID Control, ISA, 2006, §13.3, p. 413.
 
 WORKED EXAMPLES (TI ADS1115, SBAS444E, Table 8-3, DR = 128 SPS, the default)
 - pass: loop at 64 Hz (the table's next lower step). 64 Hz <= 128 Hz.

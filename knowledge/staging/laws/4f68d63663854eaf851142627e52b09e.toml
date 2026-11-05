@@ -13,10 +13,12 @@ pattern = "node"
 anchor = "P"
 tolerance = "rounding"
 overlaps = "none"
-idealisation = "a DC supply and a steady draw, all three values at the same terminals of the same node: with ripple, PWM or a varying load the product of the averages is not the average power, and a node whose power_draw is taken on a different rail from its supply_voltage (a regulator's input against its output) is not this law"
+idealisation = "all three values are taken at one operating point, on one rail (the node's own input terminals) and as one statistic (typical with typical, maximum with maximum), with the rail voltage constant while the current flows: a voltage that sags or ripples with the draw, values from different rails, or a typical power beside a maximum current is not this law"
 literals = []
 requires = []
-unless = []
+unless = [
+  { name = "power_supply", place = "self", reason = "a node that declares power_supply is a source or converter: its supply_voltage is the voltage it supplies at its output, while its power_draw is what it draws at its input and its current_draw may be at either terminal, so the product of the two is not its draw (a 12 V to 3.3 V buck drawing 0.4 A at its input writes 4.8 W, not 3.3 V x 0.4 A)" },
+]
 
 [law.symbols]
 P = { name = "power_draw", place = "self" }
@@ -33,12 +35,12 @@ reading = "in full"
 
 [[law.example]]
 outcome = "pass"
-source = "TI ADS1115 data sheet, SBAS444E (revised December 2024), §5.5 Electrical Characteristics, at VDD = 3.3 V: supply current IVDD operating, typical 150 µA; power dissipation PD at VDD = 3.3 V, typical 0.5 mW"
+source = "TI ADS1115 data sheet, SBAS444E (revised December 2024), §5.5 Electrical Characteristics, at VDD = 3.3 V, data rate 8 SPS, TA = 25 °C: supply current IVDD operating, typical 150 µA; power dissipation PD at VDD = 3.3 V, typical 0.5 mW (typical with typical)"
 values = { P = { value = 0.5, unit = "mW" }, V = { value = 3.3, unit = "V" }, I = { value = 0.15, unit = "mA" } }
 
 [[law.example]]
 outcome = "fail"
-source = "the same table, with the power dissipation of its VDD = 5.0 V row, typical 0.9 mW, written beside the 3.3 V supply and its 150 µA"
+source = "the same table, with the typical power dissipation of its VDD = 5.0 V row, 0.9 mW, written beside the 3.3 V supply and the typical 150 µA specified at 3.3 V"
 values = { P = { value = 0.9, unit = "mW" }, V = { value = 3.3, unit = "V" }, I = { value = 0.15, unit = "mA" } }
 
 [page]
@@ -50,16 +52,37 @@ three numbers as written (equality, rounding class; the product's rounding is pr
 the allowance is about 1.5 % of the power). It enters the table at status warn, as every law
 does.
 
+WHAT THE THREE NUMBERS MUST BE
+The catalogue gives power_draw and current_draw no definition beyond their names, so the law
+states it: power_draw and current_draw are the same operating point of the same node, on the
+same rail, at that node's own input terminals, and the same statistic. Typical with typical,
+or maximum with maximum. A typical power beside a maximum current is refused even when the
+design is sound: ADS1115's own sheet gives IVDD typical 150 µA and maximum 200 µA at 3.3 V,
+and 3.3 V x 200 µA = 0.66 mW against the typical 0.5 mW would fail. This is one reason the law
+stays at warn until an audit says how plans write these numbers.
+
 HOW IT BINDS (node pattern)
 An instance forms at every node that declares power_draw. It is judged only where the same
 node also declares supply_voltage and current_draw; otherwise it is unjudged, naming what is
 missing. It never reads a neighbour's values.
 
+WHERE IT IS EXCUSED
+unless power_supply on the node: a node that declares power_supply is a source or converter
+(the supply-covered relation reads it so). Its supply_voltage is the voltage it supplies, its
+power_draw is what it draws upstream, and its current_draw may be at either terminal, so the
+product is not its draw. Example: a 12 V to 3.3 V buck with supply_voltage 3.3 V, current_draw
+0.4 A at its 12 V input and power_draw 4.8 W is correct; 3.3 V x 0.4 A = 1.32 W.
+I did not add output_power as an excuse: a motor written as an energy-balance stage may declare
+an output_power (its mechanical output), and its electrical draw is still V x I at its own
+terminals, so that excuse would remove nodes the law is about. A stage whose power_draw is
+not at the terminals of its supply_voltage is refused at warn; the review may overrule this.
+
 WHERE IT DOES NOT HOLD
-- AC, ripple, PWM or a load that varies: P = V I holds instant by instant, but the product of
-  an average voltage and an average current is not the average power.
-- Values on different terminals: a regulator's power_draw taken at its input beside the
-  voltage of its output, or a motor driver's logic supply beside its motor supply.
+- A rail whose voltage moves with the draw (sag under load, ripple): the mean of v(t) i(t) is
+  then not the mean voltage times the mean current. On a constant DC rail it is, even when the
+  current is chopped by PWM: the mean of V i(t) is V times the mean of i(t).
+- Values on different rails or terminals (a regulator's input against its output, a motor
+  driver's logic supply against its motor supply), or of different statistics (above).
 - The at-stall heat form (all the electrical input becomes heat in a stalled motor) needs a
   name for stall heat that the catalogue lacks; it is not this law.
 
@@ -67,23 +90,27 @@ SOURCE (read 05.11.2026, primary text)
 OpenStax, University Physics Volume 2, §9.5 Electrical Energy and Power, subsection "Electric
 Power": "The electric power gained or lost by any device has the form P = IV" (equation 9.12),
 and "The power supplied from the battery is equal to current times the voltage, P = IV." The
-section derives it for a steady current; it does not itself state the DC-only restriction
-above, which is mine, from the reading of averages.
+text does not restrict P = IV to DC or steady current; the conditions above (one rail, constant
+voltage, one statistic) are this card's own, for the reading of declared numbers.
 
-WORKED EXAMPLES (TI ADS1115 data sheet SBAS444E, §5.5, at VDD = 3.3 V)
-- pass: V = 3.3 V, I = 150 µA, P = 0.5 mW (the data sheet's own PD at 3.3 V). 3.3 x 0.150 =
-  0.495 mW; the 0.005 mW miss is inside the allowance (about 0.0075 mW).
-- fail: same V and I, P = 0.9 mW, the data sheet's PD for its 5.0 V row written on the wrong
-  row. Miss 0.405 mW.
+WORKED EXAMPLES (TI ADS1115 data sheet SBAS444E, §5.5, at VDD = 3.3 V, 8 SPS, 25 °C)
+- pass: V = 3.3 V, I = 150 µA typical, P = 0.5 mW typical (the sheet's own PD at 3.3 V).
+  3.3 x 0.150 = 0.495 mW; the 0.005 mW miss is inside the allowance (about 0.0075 mW).
+- fail: same V and I, P = 0.9 mW, the sheet's typical PD for its 5.0 V row written on the
+  3.3 V row. Miss 0.405 mW. The sheet gives no operating current at 5.0 V, so the 5.0 V row
+  cannot be checked by this law at all; the fail example only shows a power from the wrong row.
 
 REACH (how little it covers; do not read more into it)
 - R-LAW-01 names 3 L flaws in this group (Appendix A): 2 named "electrical power P = V*I" and
   1 named "energy conservation at stall ... P = V*I", the heat form this law does not judge.
   So it can reach at most 2 by name, before any overlap with what the existing checks catch.
 - supply_voltage and current_draw sit in no relation today, so plans have had no reason to
-  write all three names on one node. The library's reach research found that this first group
-  of laws forms almost no complete instance on any design the builders may read; this law is
-  one of the reasons that is so, since it needs all three on the same node.
+  write all three names on one node, and the power_supply excuse removes every source and
+  converter node. The library's reach research found that this first group of laws forms
+  almost no complete instance on any design the builders may read.
+- Rounding: the gate assumes three significant figures; data sheets often give one or two. The
+  pass example passes by a narrow margin, and a correct design copied from a two-figure sheet
+  can miss by more than the allowance. Another reason the law stays at warn.
 - False-positive record: none. P == V * I, P_s == V_imu * I_imu, Q == V * I and
   Q_stall == V * I_stall blocked no clean twin.
 - Overlap: none. power_draw is also read by the power budget relations, but those compare a
