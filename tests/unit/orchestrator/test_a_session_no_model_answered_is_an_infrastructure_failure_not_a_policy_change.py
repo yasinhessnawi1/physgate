@@ -33,6 +33,7 @@ from physgate.orchestrator.events import (
     SessionEnded,
     read_events,
 )
+from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.ports import SessionReport
 from physgate.orchestrator.record import DecompositionSummary
 
@@ -66,6 +67,14 @@ def _start_with_limits(rig: Rig, limits: str | None) -> None:
     loop.close()
 
 
+def _run(loop: Loop) -> str:
+    # A line the loop's own records refuse is a failure of the judgement, not an end of the run.
+    try:
+        return loop.run().kind
+    except ValueError as exc:
+        pytest.fail(f"the loop wrote a session's end it could not record: {exc}")
+
+
 def test_a_drop_before_any_answer_is_retried_then_exhausted_and_resumable_never_an_incident(
     tmp_path: Path,
 ) -> None:
@@ -81,7 +90,7 @@ def test_a_drop_before_any_answer_is_retried_then_exhausted_and_resumable_never_
     rig = Rig(tmp_path, dispatcher=dispatcher, delays=(60.0, 60.0))
     _start_with_limits(rig, LIMITS)
     loop = rig.open()
-    assert loop.run().kind == "halted"
+    assert _run(loop) == "halted"
     loop.close()
     events = read_events(tmp_path / "events.jsonl")
     assert not any(isinstance(e, Incident) for e in events)
@@ -111,7 +120,7 @@ def test_a_retry_no_model_answered_goes_on_to_a_session_that_merges(tmp_path: Pa
     rig = Rig(tmp_path, dispatcher=dispatcher, delays=(60.0,))
     _start_with_limits(rig, LIMITS)
     loop = rig.open()
-    assert loop.run().kind == "done"
+    assert _run(loop) == "done"
     loop.close()
     events = read_events(tmp_path / "events.jsonl")
     assert not any(isinstance(e, Incident) for e in events)
@@ -151,7 +160,7 @@ def test_limits_that_appear_change_or_go_missing_after_an_answer_stay_an_inciden
     rig = Rig(tmp_path, dispatcher=dispatcher, delays=(60.0,))
     _start_with_limits(rig, baseline)
     loop = rig.open()
-    assert loop.run().kind == "halted"
+    assert _run(loop) == "halted"
     loop.close()
     events = read_events(tmp_path / "events.jsonl")
     (incident,) = [e for e in events if isinstance(e, Incident)]
@@ -170,7 +179,7 @@ def test_a_session_no_model_answered_under_no_limits_at_all_is_recorded_unjudged
     rig = Rig(tmp_path, dispatcher=dispatcher, delays=(60.0,))
     _start_with_limits(rig, None)
     loop = rig.open()
-    assert loop.run().kind == "done"
+    assert _run(loop) == "done"
     loop.close()
     events = read_events(tmp_path / "events.jsonl")
     assert not any(isinstance(e, Incident) for e in events)
@@ -322,3 +331,20 @@ def test_a_report_that_does_not_say_whether_a_model_answered_has_its_limits_judg
     assert (
         managed.policy_limits_unjudged(report.end, answered=report.model_answered, now=None) is None
     )
+
+
+@pytest.mark.parametrize(
+    ("end", "answered", "now"),
+    [
+        (SessionEnd(outcome="completed", cause=None), False, None),
+        (SessionEnd(outcome="infrastructure", cause="api_error"), False, LIMITS),
+        (SessionEnd(outcome="infrastructure", cause="api_error"), True, None),
+    ],
+    ids=["completed", "left-limits", "answered"],
+)
+def test_only_an_unanswered_infrastructure_end_with_no_limits_goes_unjudged(
+    end: SessionEnd, answered: bool, now: str | None
+) -> None:
+    assert managed.policy_limits_unjudged(end, answered=answered, now=now) is None
+    unanswered = SessionEnd(outcome="infrastructure", cause="api_error")
+    assert managed.policy_limits_unjudged(unanswered, answered=False, now=None) is not None
