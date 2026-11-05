@@ -23,7 +23,7 @@ import pytest
 from loop_fakes import FakeDispatcher, Rig, plan
 
 from physgate.orchestrator import managed
-from physgate.orchestrator.budget import classify_session_end
+from physgate.orchestrator.budget import SessionEnd, classify_session_end
 from physgate.orchestrator.decompose import read_stream
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
@@ -305,3 +305,20 @@ def test_an_end_line_may_name_unjudged_limits_only_for_an_infrastructure_end_wit
     # A line written before the field existed reads as judged.
     old = {k: v for k, v in base.items() if k != "policy_limits_unjudged"}
     assert SessionEnded.model_validate(old).policy_limits_unjudged is None
+
+
+def test_a_report_that_does_not_say_whether_a_model_answered_has_its_limits_judged() -> None:
+    report = SessionReport(
+        session_id="sess-1",
+        end=SessionEnd(outcome="infrastructure", cause="api_error"),
+        attempt_commit=None,
+        trajectory=None,
+        worktree=None,
+        reading_verified=False,
+        node_files_halted=False,
+        usage=(),
+    )
+    assert report.model_answered is True
+    assert (
+        managed.policy_limits_unjudged(report.end, answered=report.model_answered, now=None) is None
+    )
