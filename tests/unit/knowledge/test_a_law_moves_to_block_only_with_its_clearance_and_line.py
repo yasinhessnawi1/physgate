@@ -48,13 +48,22 @@ def library(tmp_path: Path) -> Library:
     return found
 
 
-def move(found: Library, law_id: str = LAW, **changes: Any) -> Path:
+def attempt(found: Library, law_id: str = LAW, **changes: Any) -> Path:
     """Move ``law_id`` to ``block`` in ``found``, as the step after the terminal check does."""
     module = law_promotion()
     kwargs: dict[str, Any] = {"by": "a person", "on": MOVED, "notice": None, **found.kwargs()}
     kwargs.update(changes)
     destination: Path = module._apply_block(law_id, **kwargs)
     return destination
+
+
+def move(found: Library, law_id: str = LAW, **changes: Any) -> Path:
+    """A move that should go ahead; an assertion fails if it is refused."""
+    module = law_promotion()
+    try:
+        return attempt(found, law_id, **changes)
+    except module.PromotionError as exc:
+        raise AssertionError(f"the move was refused, where it should go ahead: {exc}") from None
 
 
 def refusal(call: Callable[[], object]) -> str:
@@ -124,6 +133,7 @@ def test_the_move_keeps_every_other_row_and_line_as_it_was(tmp_path: Path) -> No
     other = rows(found)["another_power"]
     earlier = found.lines()
     move(found)
+    assert "another_power" in rows(found), "the move dropped another law's row"
     assert rows(found)["another_power"] == other
     assert found.lines()[:-1] == earlier
     moved = rows(found)[LAW]
@@ -171,7 +181,7 @@ def refused_move(found: Library, law_id: str = LAW) -> str:
     """Move ``law_id``; the refusal, with nothing written and any staged clearance kept."""
     before = found.state()
     staged = found.clearance(law_id).is_file()
-    why = refusal(lambda: move(found, law_id))
+    why = refusal(lambda: attempt(found, law_id))
     assert found.state() == before, "a refused move wrote to the table or the record"
     assert found.clearance(law_id).is_file() == staged, "a refused move removed the clearance"
     return why
@@ -183,7 +193,7 @@ def refused_move(found: Library, law_id: str = LAW) -> str:
         (clearance_text(evaluated_clean=9), "would not load"),
         (clearance_text(designs=["practice-set"]), "would not load"),
         (clearance_text(unexplained=1), "would not load"),
-        (clearance_text(approved="2026-11-19"), "approved"),
+        (clearance_text(approved="2026-11-19"), "only a move sets"),
         (clearance_text(audit_sha256="not a digest"), "clearance"),
         ("[cleared]\naudit_sha256 = 1 = 2\n", "TOML"),
         ("[audit]\nevaluated_clean = 12\n", "clearance"),
@@ -227,12 +237,12 @@ def test_a_law_already_at_block_is_refused(tmp_path: Path) -> None:
 def test_a_move_without_a_person_s_name_is_refused(tmp_path: Path) -> None:
     found = library(tmp_path)
     before = found.state()
-    assert "name" in refusal(lambda: move(found, by=""))
+    assert "name" in refusal(lambda: attempt(found, by=""))
     assert found.state() == before
 
 
 def test_a_law_id_that_is_not_a_plain_name_is_refused(tmp_path: Path) -> None:
     found = library(tmp_path)
     before = found.state()
-    assert "plain" in refusal(lambda: move(found, "../laws"))
+    assert "plain" in refusal(lambda: attempt(found, "../laws"))
     assert found.state() == before

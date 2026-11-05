@@ -39,9 +39,13 @@ def test_every_value_a_row_can_hold_reads_back_as_written() -> None:
     module = law_promotion()
     meta = {"format": 1}
     text = module._table_text(meta, [ROW])
-    assert tomllib.loads(text) == {"meta": meta, "law": [ROW]}
+    try:
+        parsed = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise AssertionError(f"the table written is not TOML: {exc}") from None
+    assert parsed == {"meta": meta, "law": [ROW]}
     assert text.startswith(module.HEADER)
-    signs = [math.copysign(1, f) for f in tomllib.loads(text)["law"][0]["floats"]]
+    signs = [math.copysign(1, f) for f in parsed["law"][0]["floats"]]
     assert signs == [math.copysign(1, f) for f in ROW["floats"]], "a float's sign was lost"
 
 

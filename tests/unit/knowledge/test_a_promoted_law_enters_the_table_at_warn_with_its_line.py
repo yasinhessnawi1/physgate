@@ -37,13 +37,24 @@ from physgate.gate.laws import load_laws
 ON = datetime.date(2026, 11, 6)
 
 
-def promote(found: Library, candidate_id: str, **changes: Any) -> Path:
+def attempt(found: Library, candidate_id: str, **changes: Any) -> Path:
     """Promote ``candidate_id`` in ``found``, as the step after the terminal check does."""
     module = law_promotion()
     kwargs: dict[str, Any] = {"by": "a person", "on": ON, "notice": None, **found.kwargs()}
     kwargs.update(changes)
     destination: Path = module._apply_law(candidate_id, **kwargs)
     return destination
+
+
+def promote(found: Library, candidate_id: str, **changes: Any) -> Path:
+    """A promotion that should go ahead; an assertion fails if it is refused."""
+    module = law_promotion()
+    try:
+        return attempt(found, candidate_id, **changes)
+    except module.PromotionError as exc:
+        raise AssertionError(
+            f"the promotion was refused, where it should go ahead: {exc}"
+        ) from None
 
 
 def refusal(call: Callable[[], object]) -> str:
@@ -214,7 +225,7 @@ def refused_card(tmp_path: Path, text: str, **changes: Any) -> str:
     found = library(tmp_path)
     found.stage(FIRST, text)
     before = found.state()
-    why = refusal(lambda: promote(found, FIRST, **changes))
+    why = refusal(lambda: attempt(found, FIRST, **changes))
     assert found.state() == before, "a refused promotion wrote to the table or the record"
     assert found.card(FIRST).is_file(), "a refused promotion removed the staged card"
     return why
@@ -275,7 +286,7 @@ def test_a_law_already_in_the_table_is_refused_and_nothing_is_written(tmp_path: 
     promote(found, FIRST)
     found.stage(SECOND, card_text(card_row()))
     before = found.state()
-    why = refusal(lambda: promote(found, SECOND))
+    why = refusal(lambda: attempt(found, SECOND))
     assert "already" in why and "electrical_power" in why
     assert found.state() == before
     assert found.card(SECOND).is_file()
@@ -292,7 +303,7 @@ def test_a_candidate_that_is_not_staged_under_its_plain_id_is_refused(
     found = library(tmp_path)
     found.stage(FIRST, card_text(card_row()))
     before = found.state()
-    assert said in refusal(lambda: promote(found, candidate_id))
+    assert said in refusal(lambda: attempt(found, candidate_id))
     assert found.state() == before
 
 
@@ -307,7 +318,7 @@ def test_a_staged_card_that_is_a_link_is_refused(tmp_path: Path) -> None:
     found.card(FIRST).parent.mkdir(parents=True)
     os.symlink(elsewhere, found.card(FIRST))
     before = found.state()
-    assert "link" in refusal(lambda: promote(found, FIRST))
+    assert "link" in refusal(lambda: attempt(found, FIRST))
     assert found.state() == before
 
 
@@ -320,6 +331,6 @@ def test_a_table_that_is_a_link_is_refused_and_what_it_names_is_not_written(
     elsewhere.write_text("# the law table\n[meta]\nformat = 1\n", encoding="utf-8")
     found.table.unlink()
     os.symlink(elsewhere, found.table)
-    assert "link" in refusal(lambda: promote(found, FIRST))
+    assert "link" in refusal(lambda: attempt(found, FIRST))
     assert elsewhere.read_text(encoding="utf-8") == "# the law table\n[meta]\nformat = 1\n"
     assert found.lines() == []
