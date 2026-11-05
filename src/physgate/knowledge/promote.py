@@ -149,6 +149,18 @@ def _find(
     return None
 
 
+def find_staged(
+    candidate_id: str, staging_root: Path, rubric_staging_root: Path
+) -> tuple[Kind, Candidate, Path] | None:
+    """Not yet: the finder, made public."""
+    return None
+
+
+def promotion_bytes(candidate: Candidate, kind: Kind, current: bytes | None) -> tuple[bytes, bool]:
+    """Not yet: what a promotion would write."""
+    return b"", False
+
+
 _NO_FOLLOW = os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
 
 
