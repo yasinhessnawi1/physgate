@@ -46,8 +46,8 @@ would divide by a zero input cannot be evaluated, and says so.
 
 **Patterns** (:func:`bindings`) say where a law forms an instance: wherever its anchor is, and
 nowhere else. Each instance is either judged, or names why it cannot be: a missing input or
-required name, a present excusing name, an edge into an interface node or into no node, or a
-subject no member names.
+required name, a present excusing name, an edge into an interface node or into no node, a
+subject that is an interface node, or a subject no member names.
 """
 
 from __future__ import annotations
@@ -699,6 +699,16 @@ def _on_edges(law: Law, view: GraphView, node_id: str) -> list[Binding]:
 
 
 def _on_members(law: Law, view: GraphView, node_id: str) -> Binding:
+    if view.nodes[node_id].kind == "interface":
+        # An interface holds values fixed at decomposition, not a part's own: the law refuses
+        # nothing there, whatever its members sum to, as an edge into an interface refuses
+        # nothing.
+        read = [entry.name for entry in law.symbols.values() if entry.place == "subject"]
+        return Binding(
+            anchor=node_id,
+            reason=f"its subject {node_id} is an interface node fixed at decomposition",
+            about=tuple(read),
+        )
     own = view.nodes[node_id].quantities
     excuse = _excuse(law, own, "subject")
     if excuse is not None:

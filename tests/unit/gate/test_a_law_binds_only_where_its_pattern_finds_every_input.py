@@ -9,7 +9,8 @@ and why, and never passed:
 - an input the law needs is missing, or a name it requires is absent;
 - a name that excuses it is present (its idealisation does not hold there);
 - its edge leads into an interface node, fixed at decomposition, or into no node at all;
-- its subject has no member that holds what the law sums (an empty sum is never evaluated);
+- its subject is an interface node, or has no member that holds what the law sums (an empty
+  sum is never evaluated);
 - an input is in a unit the unit check refuses, or the law would divide by zero.
 
 A law's count says how many instances it judged, so a law that judged nothing is never hidden
