@@ -10,7 +10,7 @@ median ratio is held to the bound; the interquartile range and the smallest rati
 beside it, with each side's median time.
 
 Three of the fifteen laws bind on every supply or every edge of the graph, one leaves every
-consumer unjudged, and the rest find no anchor: the cost of forming, evaluating and recording
+consumer unjudged and one every supply, and the rest find no anchor: the cost of forming, evaluating and recording
 instances is all in the measurement, as is the cost of looking for anchors that are not there.
 
 The bound was set before any gate carrying a law had been timed. Moving it is a change to what
@@ -67,10 +67,11 @@ def test_the_full_law_table_costs_at_most_a_quarter_more_at_system_scope(tmp_pat
     with_laws = PhysicsGate(laws=table(tmp_path / "t", full_table()))
     without = PhysicsGate(laws=laws_module().load_laws())
     laws = [r for r in with_laws.run(view, ["system"], "on").checks if r.name == "laws"]
-    # The laws really bind: every edge, every supply, and every consumer left unjudged.
+    # The laws really bind: every edge and every supply judged, and every consumer (a draw with
+    # no voltage or current) and every supply (a rating with no output power) left unjudged.
     judged = sum(getattr(r.details, "evaluated", 0) for r in laws if r.outcome == "pass")
     assert judged == 6_400 + 40 + 40
-    assert sum(1 for r in laws if r.outcome == "unchecked") == 160
+    assert sum(1 for r in laws if r.outcome == "unchecked") == 160 + 40
     timed(with_laws, view)
     timed(without, view)
     ratios, full, bare = [], [], []
