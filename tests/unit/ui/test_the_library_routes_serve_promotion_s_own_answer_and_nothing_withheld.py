@@ -577,7 +577,10 @@ def test_a_candidate_that_is_not_one_is_its_own_row_and_a_refusal_alone(
     (lib / "staging" / "skill" / "bad name.json").write_text("{}\n")
     moved = lib / "staging" / "standards" / f"{SKILL_CANDIDATE}.json"
     (lib / "staging" / "skill" / f"{SKILL_CANDIDATE}.json").rename(moved)
-    answers = _ask_all(world, [STAGED, _candidate("not-a-candidate"), _candidate(SKILL_CANDIDATE)])
+    answers = _ask_all(
+        world, [LISTING, STAGED, _candidate("not-a-candidate"), _candidate(SKILL_CANDIDATE)]
+    )
+    assert answers[LISTING][1]["staged"] == 3, "a candidate that is not one is not waiting"
     assert answers[STAGED][0] == 200, answers[STAGED]
     rows = {row["name"]: row for row in answers[STAGED][1]["candidates"]}
     assert "does not read as a candidate" in rows["not-a-candidate.json"]["error"]
@@ -703,3 +706,29 @@ def test_a_library_with_no_staging_folder_is_read_without_making_one(
     assert writes == []
     assert snapshot(lib) == before
     assert not (lib / "staging").exists()
+
+
+def test_a_rubric_found_in_the_general_staging_folder_is_not_staged(world: dict[str, Any]) -> None:
+    """Promotion looks for a rubric only in the reviewers' tree, so one here is never promoted."""
+    lib = world["lib"]
+    misplaced = lib / "staging" / "rubric" / "cand-rubric-misplaced.json"
+    misplaced.parent.mkdir()
+    record = json.loads((lib / "staging" / "skill" / f"{SKILL_CANDIDATE}.json").read_text())
+    record.update(kind="rubric", candidate_id="cand-rubric-misplaced")
+    misplaced.write_text(json.dumps(record))
+    target = _candidate("cand-rubric-misplaced")
+    status, body = _ask_all(world, [target])[target]
+    assert status == 404, body
+    assert body["error"].startswith("no candidate")
+
+
+def test_two_tables_giving_one_kind_an_envelope_refuse_the_tab_as_the_gate_would(
+    world: dict[str, Any],
+) -> None:
+    electrical = world["lib"] / "electrical" / "bounds.toml"
+    cross = (world["lib"] / "cross" / "bounds.toml").read_text()
+    envelope = cross[cross.index("[[envelope]]") :]
+    electrical.write_text(electrical.read_text() + "\n" + envelope)
+    status, body = _ask_all(world, [RATINGS])[RATINGS]
+    assert status == 422, body
+    assert "envelope" in body["error"]
