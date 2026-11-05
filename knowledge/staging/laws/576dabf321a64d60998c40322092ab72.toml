@@ -1,0 +1,104 @@
+# Law card: within_rating_current, the current half of "an operating value within its own
+# rating". Drafted from the literature; the adversarial review is added below the page by the
+# reviewer, never by the drafter.
+
+[card]
+format = 1
+drafted_by = "claude-opus-5-5"
+
+[law]
+id = "within_rating_current"
+statement = "a node's operating current is within its own maximum rated current"
+expression = "I <= L"
+pattern = "node"
+anchor = "L"
+tolerance = "inequality"
+overlaps = "current_limit"
+idealisation = "current_draw is the node's own steady operating current and current_limit the maximum output current its data sheet rates, both on the same node; a continuous, pulsed or duty-limited rating, a derated limit, or a current the node chops or regulates below its draw is a different number, and transients above the steady draw are not judged"
+literals = []
+requires = []
+unless = []
+
+[law.symbols]
+I = { name = "current_draw", place = "self" }
+L = { name = "current_limit", place = "self" }
+
+[law.source]
+kind = "standard"
+title = "ECSS-Q-ST-30-11C Rev.2, Space product assurance: Derating - EEE components"
+edition = "Rev.2, 23 June 2021"
+section = "3.2.8 rating (with its note); 5.1 Overview and 5.2 Principles of derating"
+read = 2026-11-05
+reading = "in full"
+
+[[law.example]]
+outcome = "pass"
+source = "TI DRV8838 data sheet, SLVSBA4F (revised April 2021), §6.3 Recommended Operating Conditions: IOUT motor peak current, max 1.8 A; the node carries a Pololu 10:1 Micro Metal Gearmotor HPCB 6V (item #3061, product specifications) whose worst-case draw, its stall current at 6 V, is 1.5 A"
+values = { I = { value = 1.5, unit = "A" }, L = { value = 1.8, unit = "A" } }
+
+[[law.example]]
+outcome = "fail"
+source = "the same DRV8838 limit, 1.8 A, with the node carrying a Pololu 4.4:1 Metal Gearmotor 25Dx63L mm HP 6V (item #4801, product specifications) whose stall current at 6 V is 6.0 A"
+values = { I = { value = 6.0, unit = "A" }, L = { value = 1.8, unit = "A" } }
+
+[page]
+text = """
+WHAT IT SAYS
+A part's rating is the most its maker guarantees it can take; a design that runs a part above
+its own rating is not a design that part supports. On one node: current_draw <= current_limit.
+Inequality, no coefficient, no allowance. It enters the table at status warn, as every law does.
+
+THE NAME
+The id is within_rating_current, not within_rating, because the voltage half (supply voltage
+within an absolute maximum voltage) needs a name, max_voltage, the catalogue does not hold yet.
+It will be its own row. rated_voltage is a nominal rating, not an absolute maximum, so running
+above it is a design choice and is not refused by anything here.
+
+HOW IT BINDS (node pattern)
+The anchor is current_limit: an instance forms at every node that declares a current limit
+(drivers and supplies, by the catalogue's definition), and is judged only where the same node
+also declares current_draw. I anchored on the limit rather than the draw so that the many
+consumer nodes that declare a draw and no rating do not each show as an unjudged instance.
+
+WHAT current_limit MEANS HERE (the catalogue's definition)
+"a driver's or supply's maximum output current: the peak output current its datasheet rates
+(for example TI DRV8838, SLVSBA4F section 6.3, IOUT motor peak current 1.8 A), not a continuous
+rating." So the law compares an operating current with a peak rating; it is a weak bound, and
+it says nothing about a current above a continuous rating.
+
+WHERE IT DOES NOT HOLD
+- A rating that is not a peak rating: a continuous, pulsed or duty-cycle rating, or a limit
+  already derated. Under the wrong number the law refuses a sound design or passes an unsound
+  one.
+- A node that regulates or chops its current (a current-limiting driver) can be written with a
+  draw above its limit that it never actually delivers.
+- Transients: inrush and stall spikes above the steady draw are not judged.
+
+SOURCE (read 05.11.2026, primary text, clauses 3, 5.1 and 5.2)
+ECSS-Q-ST-30-11C Rev.2 (23 June 2021), §3.2.8 "rating: maximum parameter value specified and
+guaranteed by the component manufacturer and component procurement specification. NOTE Rating
+is considered as a limit not to be exceeded during operation and constitutes in most cases the
+reference for derating." §5.2: "A component operates in a reliable way if its parameter
+strength exceeds the parameter stress. The designer should ensure that the stress applied does
+not exceed the component parameter strength." The standard asks for more than this law checks
+(a derated margin below the rating); the law checks only the rating itself.
+
+WORKED EXAMPLES (TI DRV8838, SLVSBA4F §6.3, IOUT max 1.8 A; Pololu product specifications)
+- pass: the node carries a Pololu #3061 gearmotor (stall 1.5 A at 6 V). 1.5 A <= 1.8 A.
+- fail: the node carries a Pololu #4801 gearmotor (stall 6.0 A at 6 V). 6.0 A > 1.8 A.
+Both draws are the motors' worst-case (stall) currents written as the node's current_draw;
+Pololu calls those stall values theoretical extrapolations.
+
+REACH (how little it covers; do not read more into it)
+- R-LAW-01 names 4 L flaws in this group (Appendix A), 2 on current and 2 on voltage; this card
+  is the current half, so it can reach at most 2 by name. The strict-law reading of R-LAW-01
+  drops 3 of the group's 4, so the honest expectation is 1 or 0.
+- current_draw sits in no relation today, so few plans write it beside a current_limit. The
+  library's reach research found that this first group of laws forms almost no complete
+  instance on any design the builders may read.
+- False-positive record: low. I_nl <= I_lim blocked no clean twin.
+- Overlap: the relation current_limit already holds a stall_current to the same current_limit.
+  Where a node declares both a stall current and a draw no larger, that relation implies this
+  law; the law adds a catch only where a draw is written and a stall current is not, or the
+  draw exceeds the stall.
+"""

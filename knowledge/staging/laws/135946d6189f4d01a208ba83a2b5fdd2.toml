@@ -1,0 +1,103 @@
+# Law card: rate_throughput_sample_rate, rate <= throughput against a producer's sample rate.
+# Drafted from the literature; the adversarial review is added below the page by the reviewer,
+# never by the drafter.
+
+[card]
+format = 1
+drafted_by = "claude-opus-5-5"
+
+[law]
+id = "rate_throughput_sample_rate"
+statement = "a consumer updated once per delivered sample updates no faster than the sample rate of the producer its edge names"
+expression = "U <= F"
+pattern = "edge"
+anchor = "U"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "a single-rate consumer that takes exactly one new sample from the named producer per update (read, compute, output, once per period); a multi-rate loop that updates on predictions between samples, interpolates, or reuses a held sample is a correct design this law refuses"
+literals = []
+requires = []
+unless = []
+
+[law.symbols]
+U = { name = "update_rate", place = "self" }
+F = { name = "sample_rate", place = "target" }
+
+[law.source]
+kind = "textbook"
+title = "Advanced PID Control (K. J. Åström, T. Hägglund)"
+edition = "ISA, 2006"
+section = "13.3 Computer Implementations, Sampling, pp. 412-413"
+read = 2026-11-05
+reading = "in full"
+
+[[law.example]]
+outcome = "pass"
+source = "TI ADS1115 data sheet, SBAS444E (revised December 2024), Table 8-3 Config Register Field Descriptions, DR[2:0]: 128 SPS (the default); the consumer loop runs at 64 Hz, the table's next lower data-rate step (1 SPS = 1 Hz)"
+values = { U = { value = 64, unit = "Hz" }, F = { value = 128, unit = "Hz" } }
+
+[[law.example]]
+outcome = "fail"
+source = "the same Table 8-3, DR = 128 SPS; the consumer loop runs at 250 Hz, the table's next higher data-rate step, while the converter is left at 128 SPS"
+values = { U = { value = 250, unit = "Hz" }, F = { value = 128, unit = "Hz" } }
+
+[page]
+text = """
+WHAT IT SAYS
+A loop that uses one new sample each time it updates cannot update more often than its
+producer delivers samples. On a consumer node whose constrains edge names a sampling producer
+(an ADC, an encoder interface): update_rate <= the producer's sample_rate. Inequality, no
+allowance. It enters the table at status warn and is meant to stay there: whether a loop really
+takes one new sample per update is a judgement about the design, not something the numbers
+show.
+
+HOW IT BINDS (edge pattern)
+The anchor is update_rate on the consumer. For each node its constrains edges name that
+declares sample_rate, one instance forms. An edge into an interface node, or into a node not in
+the graph, is unjudged and says so. If no named node declares sample_rate, the consumer shows
+one unjudged instance naming the missing name. A twin card does the same against an inertial
+sensor's output_data_rate (rate_throughput_output_data_rate); the two are one law split by the
+name of the producer's rate, because a law reads exact names only.
+
+WHAT THE NAMES MEAN (the catalogue's definitions)
+- update_rate: "the rate at which a control or firmware loop updates; not an inertial sensor's
+  output data rate".
+- sample_rate: the name as the design-state graph's reference workload uses it, a producer's
+  rate of delivered samples. The catalogue gives it no narrower definition, so any node that
+  declares a sample_rate is read as a producer when an edge names it.
+
+WHERE IT DOES NOT HOLD
+- Multi-rate designs: a loop that predicts between samples, interpolates, or deliberately
+  reuses the last sample. These update faster than the producer and are correct; the law
+  refuses them. That is why it is warn only.
+- A consumer that fuses several producers is held to each named producer separately, which
+  over-refuses when it waits on the fastest.
+- A node whose sample_rate means something else (a logger's storage rate, say) and that an edge
+  names for another reason still forms an instance.
+
+SOURCE (read 05.11.2026, primary text of §13.3, pp. 412-413)
+Åström and Hägglund, Advanced PID Control (ISA, 2006), §13.3 Computer Implementations,
+"Sampling": "When the controller is implemented in a computer, the analog inputs are read, and
+the outputs are set with a certain sampling period." The ideal sequence of operation it gives
+is: wait for clock interrupt, read analog input, compute control signal, set analog output,
+update controller variables, go to 1. One read per update is that sequence. The inequality
+follows by counting (each update takes one new sample; the producer delivers F samples a
+second, so there are at most F updates a second); the book does not state the inequality in
+these words. I read the chapter from a copy hosted on an NTNU staff page.
+
+WORKED EXAMPLES (TI ADS1115, SBAS444E, Table 8-3, DR = 128 SPS, the default)
+- pass: loop at 64 Hz (the table's next lower step). 64 Hz <= 128 Hz.
+- fail: loop at 250 Hz (the table's next higher step) with the converter left at 128 SPS.
+
+REACH (how little it covers; do not read more into it)
+- R-LAW-01 names 2 L flaws for rate <= throughput (Appendix A): one "a consumer updated once per
+  delivered sample ...", one "a filter updated on every delivered sample ...". Which producer
+  name each used is not in what I read, so this card reaches at most 2 by name, and the two rate
+  cards together at most 2.
+- update_rate, output_data_rate and sample_rate became exact catalogue names only recently. The
+  library's reach research found that this first group of laws forms almost no complete
+  instance on any design the builders may read.
+- False-positive record: none. f_est <= f_drv blocked no clean twin. The judgement risk is the
+  multi-rate design above, which the record may not contain.
+- Overlap: none. No relation the checks form reads update_rate or sample_rate.
+"""

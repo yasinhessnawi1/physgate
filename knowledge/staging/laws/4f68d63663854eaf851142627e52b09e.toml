@@ -1,0 +1,91 @@
+# Law card: electrical_power. Drafted from the literature; the adversarial review is added
+# below the page by the reviewer, never by the drafter.
+
+[card]
+format = 1
+drafted_by = "claude-opus-5-5"
+
+[law]
+id = "electrical_power"
+statement = "the power a node draws from a DC supply is its supply voltage times the current it draws"
+expression = "P == V * I"
+pattern = "node"
+anchor = "P"
+tolerance = "rounding"
+overlaps = "none"
+idealisation = "a DC supply and a steady draw, all three values at the same terminals of the same node: with ripple, PWM or a varying load the product of the averages is not the average power, and a node whose power_draw is taken on a different rail from its supply_voltage (a regulator's input against its output) is not this law"
+literals = []
+requires = []
+unless = []
+
+[law.symbols]
+P = { name = "power_draw", place = "self" }
+V = { name = "supply_voltage", place = "self" }
+I = { name = "current_draw", place = "self" }
+
+[law.source]
+kind = "textbook"
+title = "University Physics Volume 2 (S. J. Ling, J. Sanny, W. Moebs; OpenStax)"
+edition = "OpenStax, 2016, web edition"
+section = "9.5 Electrical Energy and Power, Electric Power, equation 9.12"
+read = 2026-11-05
+reading = "in full"
+
+[[law.example]]
+outcome = "pass"
+source = "TI ADS1115 data sheet, SBAS444E (revised December 2024), §5.5 Electrical Characteristics, at VDD = 3.3 V: supply current IVDD operating, typical 150 µA; power dissipation PD at VDD = 3.3 V, typical 0.5 mW"
+values = { P = { value = 0.5, unit = "mW" }, V = { value = 3.3, unit = "V" }, I = { value = 0.15, unit = "mA" } }
+
+[[law.example]]
+outcome = "fail"
+source = "the same table, with the power dissipation of its VDD = 5.0 V row, typical 0.9 mW, written beside the 3.3 V supply and its 150 µA"
+values = { P = { value = 0.9, unit = "mW" }, V = { value = 3.3, unit = "V" }, I = { value = 0.15, unit = "mA" } }
+
+[page]
+text = """
+WHAT IT SAYS
+On one node fed from a DC supply, the electrical power it draws is the supply voltage times
+the current it draws: power_draw == supply_voltage x current_draw, within the rounding of the
+three numbers as written (equality, rounding class; the product's rounding is propagated, so
+the allowance is about 1.5 % of the power). It enters the table at status warn, as every law
+does.
+
+HOW IT BINDS (node pattern)
+An instance forms at every node that declares power_draw. It is judged only where the same
+node also declares supply_voltage and current_draw; otherwise it is unjudged, naming what is
+missing. It never reads a neighbour's values.
+
+WHERE IT DOES NOT HOLD
+- AC, ripple, PWM or a load that varies: P = V I holds instant by instant, but the product of
+  an average voltage and an average current is not the average power.
+- Values on different terminals: a regulator's power_draw taken at its input beside the
+  voltage of its output, or a motor driver's logic supply beside its motor supply.
+- The at-stall heat form (all the electrical input becomes heat in a stalled motor) needs a
+  name for stall heat that the catalogue lacks; it is not this law.
+
+SOURCE (read 05.11.2026, primary text)
+OpenStax, University Physics Volume 2, §9.5 Electrical Energy and Power, subsection "Electric
+Power": "The electric power gained or lost by any device has the form P = IV" (equation 9.12),
+and "The power supplied from the battery is equal to current times the voltage, P = IV." The
+section derives it for a steady current; it does not itself state the DC-only restriction
+above, which is mine, from the reading of averages.
+
+WORKED EXAMPLES (TI ADS1115 data sheet SBAS444E, §5.5, at VDD = 3.3 V)
+- pass: V = 3.3 V, I = 150 µA, P = 0.5 mW (the data sheet's own PD at 3.3 V). 3.3 x 0.150 =
+  0.495 mW; the 0.005 mW miss is inside the allowance (about 0.0075 mW).
+- fail: same V and I, P = 0.9 mW, the data sheet's PD for its 5.0 V row written on the wrong
+  row. Miss 0.405 mW.
+
+REACH (how little it covers; do not read more into it)
+- R-LAW-01 names 3 L flaws in this group (Appendix A): 2 named "electrical power P = V*I" and
+  1 named "energy conservation at stall ... P = V*I", the heat form this law does not judge.
+  So it can reach at most 2 by name, before any overlap with what the existing checks catch.
+- supply_voltage and current_draw sit in no relation today, so plans have had no reason to
+  write all three names on one node. The library's reach research found that this first group
+  of laws forms almost no complete instance on any design the builders may read; this law is
+  one of the reasons that is so, since it needs all three on the same node.
+- False-positive record: none. P == V * I, P_s == V_imu * I_imu, Q == V * I and
+  Q_stall == V * I_stall blocked no clean twin.
+- Overlap: none. power_draw is also read by the power budget relations, but those compare a
+  sum of draws with a supply; they do not judge this product.
+"""
