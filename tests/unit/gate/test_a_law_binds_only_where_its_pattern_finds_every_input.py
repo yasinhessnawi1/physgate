@@ -289,9 +289,11 @@ def test_a_subject_that_is_an_interface_node_is_unchecked_whatever_its_members_s
     )
     records = laws_records(laws, view_of(tmp_path, bus, unit("left", 1), unit("right", 2)))
     assert judged_of(records, "reaction_moment_sum") == []
-    record = one(unchecked_of(records, "reaction_moment_sum"))
+    # The members hold the anchor too, and are each a subject no member names.
+    unchecked = unchecked_of(records, "reaction_moment_sum")
+    record = one([r for r in unchecked if r.node == "mechanical.chassis"])
     assert "interface" in record.message and "mechanical.chassis" in record.message
-    assert [r.outcome for r in of_law(records, "reaction_moment_sum")] == ["unchecked"]
+    assert {r.outcome for r in of_law(records, "reaction_moment_sum")} == {"unchecked"}
 
 
 # --- inputs the law cannot evaluate --------------------------------------------------------
