@@ -1,4 +1,4 @@
-"""M-198, the table rows: the catalogue widened by definitions alone, and by nothing else.
+"""The table rows: the catalogue widened by definitions alone, and by nothing else.
 
 The owner approved the widening on 04.11.2026, in the scope of the research's section 6
 (``CATALOGUE_WIDEN_research.md``), as ruled at the red rows' review the same day: eight new

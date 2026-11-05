@@ -694,7 +694,7 @@ def install(
             raise ValueError(msg)
         readable = request.os_layer_readable
         if config.survivor_reaper:
-            # Nothing a command starts outlives it (M-128): the reaper runs as each sandboxed
+            # Nothing a command starts outlives it: the reaper runs as each sandboxed
             # command's first process, named by the shell prefix, and must be readable there.
             if not request.spawns_with_canary:
                 msg = (

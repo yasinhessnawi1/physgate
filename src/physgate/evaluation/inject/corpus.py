@@ -720,7 +720,7 @@ def _derivations_hold(
                 same = derived.dimensionality == declared.dimensionality
             except (*PINT_ERRORS, UnitRefusedError, AttributeError) as exc:
                 msg = "a derived quantity's arithmetic does not check under pint"
-                # pint cannot print its own refusal once a power is not one (M-200), so it is
+                # pint cannot print its own refusal once a power is not one, so it is
                 # put into words from its fields; any other refusal is its own text.
                 reason = pint_message(exc) if isinstance(exc, PINT_ERRORS) else str(exc)
                 raise CorpusError(

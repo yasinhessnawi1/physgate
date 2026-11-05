@@ -62,12 +62,12 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 #: rule: the rule is a check on the answer and changes neither. Both carry the form of an
 #: interface node's id, which every run is told: the store's pattern, and its sentence. The
 #: prompt also names the gate's quantity names and who writes interface nodes, as every run's,
-#: and since D-A2-38 (03.11.2026) where the gate has a bound and what forms each relation; with
-#: sizing, since D-A2-37, that its interfaces follow its joined node; since the catalogue
+#: and since 03.11.2026 where the gate has a bound and what forms each relation; with
+#: sizing, since the same day, that its interfaces follow its joined node; since the catalogue
 #: widening (04.11.2026), the catalogue sentence's new names and kind labels; and since its check
 #: round, the sentence on names with added words (C3). Before C3, at 470b3f34: 44f7ed176029...
-#: and eefbf4fe50d6...; before the widening: 08a7e77a7464... and b26536a34818...; before D-A2-37
-#: and D-A2-38: f56406956965... and 1a3802deb6f1..., in this order.
+#: and eefbf4fe50d6...; before the widening: 08a7e77a7464... and b26536a34818...; before
+#: those two sentences: f56406956965... and 1a3802deb6f1..., in this order.
 INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (

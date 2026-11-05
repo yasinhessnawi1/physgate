@@ -1,4 +1,4 @@
-"""M-198: the three values the existing suffixes gave the wrong kind in run 4 (gate seq 271).
+"""The three values the existing suffixes gave the wrong kind in run 4 (gate seq 271).
 
 At a64e805f the ``_radius`` suffix reads ``angle_decay_one_count_spectral_radius`` (a spectral
 radius, dimension one) as a length, and ``_frequency`` reads ``proposed_gain_crossover_frequency``

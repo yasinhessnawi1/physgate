@@ -1,4 +1,4 @@
-"""A sizing-produced interface takes its joined sizing node's values at the opening pass (M-195).
+"""A sizing-produced interface takes its joined sizing node's values at the opening pass.
 
 The decomposition writes an interface's values as a forecast of sizing's work. At the change check
 of sizing's opening attempt, while no other module has spawned, code derives the interface's next

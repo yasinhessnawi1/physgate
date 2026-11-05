@@ -2120,7 +2120,7 @@ class Loop:
             self._reject(subtask_id, attempt, Finding(source="reading", text=UNREAD))
             return False
         self._stage(subtask_id, attempt, "implement")
-        # Only the cross-nodes owner's opening pass follows its interfaces (D-A2-37).
+        # Only the cross-nodes owner's opening pass follows its interfaces.
         follows = self.state.follows(subtask_id) if role in owners_of("cross_nodes") else None
         check = self._recordable(
             subtask_id,
@@ -2400,7 +2400,7 @@ class Loop:
         try:
             if changes.followed:
                 # The merge commit rewrites each followed interface's contract file, so every
-                # later session reads the revised values (D-A2-37).
+                # later session reads the revised values.
                 contracts = contracts_of([Node.model_validate(e.after) for e in changes.followed])
                 merge_commit = self._merger.merge(
                     subtask_id, attempt, checked, merge_text, reopen=sub.reopens,
@@ -2501,7 +2501,7 @@ class Loop:
 
         A module is complete when the last planned subtask for its directory is
         judged; a subtask taken out of the plan does not count. Every subtask of the
-        cross-nodes owner is also judged at module scope (ARCH-080, D-A2-38): the domains
+        cross-nodes owner is also judged at module scope (ARCH-080): the domains
         read sizing's nodes as they stand after its opening pass, so the relations those
         nodes form are judged there. A domain's subtask keeps module scope only when it
         completes its module, since a half-written module would fail its mass sum falsely.

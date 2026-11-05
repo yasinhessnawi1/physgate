@@ -1,4 +1,4 @@
-"""M-198: the widened catalogue, held to every value G11 run 4 wrote, and its coverage counted.
+"""The widened catalogue, held to every value G11 run 4 wrote, and its coverage counted.
 
 ``run4/values.json`` holds run 4's 203 values: one row per distinct node, name, value and unit
 across the run's 124 node files (its store, each attempt's graph, the worktrees' interfaces and
@@ -30,7 +30,7 @@ Two things are held here:
   a kind the unit disagrees with       3           0
   ===================================  ==========  =====================
 
-  By name, of 174: 25 have a kind at a64e805f, 86 after. M-198's own figures (110, 31, 40, 5,
+  By name, of 174: 25 have a kind at a64e805f, 86 after. The research's own figures (110, 31, 40, 5,
   89) include ``max_duty`` (3 values), the radian -1 kind (1) and the alias (1), all held back.
 """
 
@@ -169,7 +169,7 @@ DOMAINS = sorted({*load_bounds().tables, "control"})
 def _qualifiers() -> tuple[str, ...]:
     words = getattr(catalogue, "QUALIFIERS", None)
     if words is None:
-        pytest.fail("the catalogue has no closed QUALIFIERS list yet (M-198, change 1)")
+        pytest.fail("the catalogue has no closed QUALIFIERS list yet (the widening's first change)")
     return tuple(words)
 
 

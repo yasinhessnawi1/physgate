@@ -1,4 +1,4 @@
-"""The gate judges what a real plan writes, with no check loosened (M-196, ARCH-080 amended).
+"""The gate judges what a real plan writes, with no check loosened (ARCH-080 amended).
 
 G11's run 4 wrote three interface nodes and one sizing node. On those nodes, as they were written,
 the magnitude check found nothing with a bound and the power check no relation: a consumer and its

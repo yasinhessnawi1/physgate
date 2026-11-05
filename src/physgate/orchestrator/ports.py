@@ -233,7 +233,7 @@ class ChangeCheck(_Frozen):
     #: Every dispute the attempt holds, read from the commit checked, sorted by node and quantity.
     #: Never on the change check's own line: the loop records each on a line of its own.
     disputes: tuple[Dispute, ...] = ()
-    #: Each interface the attempt's nodes revise, derived at this check (D-A2-37), in id order;
+    #: Each interface the attempt's nodes revise, derived at this check, in id order;
     #: empty unless the check was asked to follow and something differed.
     followed: tuple[FollowedInterface, ...] = ()
 
@@ -332,7 +332,7 @@ class Merger(Protocol):
         Idempotent: a merge already made is returned, not redone. Refuses a commit
         that is no longer what the subtask's branch points at. ``contracts`` are interface
         contract files, by path, the merge commit writes with these bytes: the revisions the
-        attempt followed (D-A2-37).
+        attempt followed.
         """
         ...
 

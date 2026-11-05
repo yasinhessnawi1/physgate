@@ -1,4 +1,4 @@
-"""M-198 check, C7: check 2 says the unit check refuses a value only where the unit check does.
+"""Check 2 says the unit check refuses a value only where the unit check does.
 
 Check 2 cannot compare a value with its kind's range or envelope when the value is not in a unit
 or of a sign its kind has. For a catalogued name, or a unit that does not parse, the unit check

@@ -1,4 +1,4 @@
-"""M-198: the decomposition prompt gains the widened catalogue's names and kinds, and no more.
+"""The decomposition prompt gains the widened catalogue's names and kinds, and no more.
 
 The prompt's catalogue sentence is generated from the catalogue: every catalogued name, grouped by
 its kind with the kind's unit. The widening adds five names (``torque_constant``,

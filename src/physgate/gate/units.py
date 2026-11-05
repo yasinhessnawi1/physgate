@@ -107,7 +107,7 @@ def unit_text(units: Any, *, symbols: bool = False) -> str:
 
     With ``symbols``, each factor is its symbol and no factor at all is nothing, as pint's
     short format (``~``) spells a unit, in the same order: ``kg * m ** 2``, ``m * N / A``
-    (M-201: the inject command's source check shows its numbers so).
+    (the inject command's source check shows its numbers so).
     """
     if isinstance(units, str):
         return units

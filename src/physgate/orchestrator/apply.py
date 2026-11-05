@@ -540,7 +540,7 @@ class GitChangeChecker:
         code is not what was committed); then its node proposals, against the store's own
         guards; then every quantity that names a record, against that record. Last, for an
         attempt due to follow (``follows``, its number), each interface its role produces takes
-        the values of the attempt's nodes joined to it (D-A2-37): the revision is written into
+        the values of the attempt's nodes joined to it: the revision is written into
         the scratch graph, so the gate judges it as the attempt's own, and an interface it
         cannot follow refuses the attempt.
         """

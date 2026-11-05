@@ -35,7 +35,7 @@ reviewer judges the work without another session's free text in it.
 - ``integration_state.md``: for an attempt of integration's subtask, the issued state its session
   read, byte for byte (``orchestrator.integration_state``), held to the digest its line records.
   Absent for every other attempt.
-- ``interface-followed.md``: for an attempt whose nodes revise an interface (D-A2-37), one line
+- ``interface-followed.md``: for an attempt whose nodes revise an interface, one line
   per changed quantity, old -> new, built by code from the change check's derivation, with the
   node and attempt it followed; no session's text. Absent for every other attempt.
 - ``knowledge/``: the role's curated library files, copied from the harness; for a

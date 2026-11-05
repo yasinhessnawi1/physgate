@@ -1,14 +1,14 @@
-"""M-198 check, C1: a unit of several factors is spelt in the order pint itself spells it.
+"""A unit of several factors is spelt in the order pint itself spells it.
 
 pint 0.26.1 spells a unit (``pint.Unit``) with its factors sorted by name, ``meter * newton`` for
 ``N*m``, and the container of a unit's factors (``UnitsContainer``, what a ``DimensionalityError``
 carries) in the order the factors were written, ``newton * meter``. At a64e805f the unit check
 printed a pint unit at its two relation-mismatch sites and pint's error's containers in its
 refusal, so a relation whose term is in ``N*m`` read ``compares 'kilogram' with 'meter * newton':
-pint cannot convert 'kilogram' ([mass]) to 'newton * meter' (...)``. M-200's ``unit_text`` kept the
-written order for both, so the first quote changed to ``'newton * meter'``: a refusal's words
-moved where pint could print them. They are a64e805f's again: a unit in pint's sorted order, a
-container in its written order.
+pint cannot convert 'kilogram' ([mass]) to 'newton * meter' (...)``. The power fault's fix,
+``unit_text``, kept the written order for both, so the first quote changed to
+``'newton * meter'``: a refusal's words moved where pint could print them. They are a64e805f's
+again: a unit in pint's sorted order, a container in its written order.
 
 pint's own text is the measure: a registry that computes in floats can print every unit, so each
 spelling is compared with it.

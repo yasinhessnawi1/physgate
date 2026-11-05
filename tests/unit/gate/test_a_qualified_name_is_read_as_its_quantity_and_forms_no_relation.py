@@ -1,4 +1,4 @@
-"""M-198, change 1: a qualifier word after a quantity's name keeps the quantity's kind.
+"""A qualifier word after a quantity's name keeps the quantity's kind.
 
 A maximum, a bound or a measured value of a quantity is a value of that quantity, so
 ``stall_current_max`` is a current and ``gearbox_efficiency_implied`` an efficiency. The
@@ -67,7 +67,7 @@ QUALIFIERS = frozenset(
 def _qualifiers() -> tuple[str, ...]:
     words = getattr(catalogue, "QUALIFIERS", None)
     if words is None:
-        pytest.fail("the catalogue has no closed QUALIFIERS list yet (M-198, change 1)")
+        pytest.fail("the catalogue has no closed QUALIFIERS list yet (the widening's first change)")
     return tuple(words)
 
 

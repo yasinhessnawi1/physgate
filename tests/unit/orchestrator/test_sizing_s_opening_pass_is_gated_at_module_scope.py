@@ -1,4 +1,4 @@
-"""Sizing's opening pass is gated at module scope as well as at its own (M-196, ARCH-080 amended).
+"""Sizing's opening pass is gated at module scope as well as at its own (ARCH-080 amended).
 
 The domains read sizing's nodes as they stand after its opening pass, so the relations those nodes
 form are judged there, not only once sizing's closing pass completes the module. A domain's subtask

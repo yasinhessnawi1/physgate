@@ -424,7 +424,7 @@ class RunState:
         #: a decision written while a session ran without the OS layer (``queue.held_windows_of``).
         self.windows: list[Event] = []
         #: The module directories a subtask of has entered ``spawn``: once one other than the
-        #: opening pass's own has, no interface follows (D-A2-37).
+        #: opening pass's own has, no interface follows.
         self.spawned_dirs: set[str] = set()
         #: Every interface node the decomposition wrote, as its line names them, whether or not
         #: the plan names their consumers.
@@ -1051,7 +1051,7 @@ class RunState:
 
         Due is an attempt of a module's first subtask, never a reopen, of the role the
         decomposition recorded as producing the interfaces that follow, while no subtask of any
-        other module directory has entered ``spawn`` (D-A2-37): the opening pass, before any
+        other module directory has entered ``spawn``: the opening pass, before any
         module reads what it produces. Read from the record alone, so a run whose decomposition
         recorded no such role follows nothing.
         """

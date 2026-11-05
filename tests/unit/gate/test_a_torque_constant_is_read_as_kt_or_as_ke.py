@@ -1,4 +1,4 @@
-"""M-198 check, C4: a motor's torque constant is read in N*m/A or in V*s/rad, both correct in SI.
+"""A motor's torque constant is read in N*m/A or in V*s/rad, both correct in SI.
 
 A motor's torque constant Kt, the torque per ampere, and its back-EMF constant Ke, the voltage per
 unit of angular speed, are one number in SI: a data sheet gives either, Kt in N*m/A or Ke in

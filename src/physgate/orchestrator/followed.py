@@ -1,4 +1,4 @@
-"""The record of one followed interface revision (D-A2-37), apart from its derivation.
+"""The record of one followed interface revision, apart from its derivation.
 
 Kept apart from :mod:`physgate.orchestrator.follow`, which derives it through the contract clause
 and so loads pint: the run's records and the reviewer's artefact carry this shape, and a hook that

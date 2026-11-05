@@ -1,4 +1,4 @@
-"""A stall above the current limit on its own node is refused as that node's (D-A2-38).
+"""A stall above the current limit on its own node is refused as that node's.
 
 The finding says the limit is on the node's own, and names the node once among those that
 contribute; a stall above a supply's limit is still refused naming the supply and the motor.

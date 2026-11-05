@@ -8,7 +8,7 @@ every domain and under any name that kind is written under: the span outside
 which no value of that kind occurs on the class of machine the gate judges. A
 range in the writer's own domain is applied before any envelope and never
 replaced by one. One kind gets one envelope, in one table. Only definitional envelopes
-are loaded (an efficiency and a duty cycle, 0 to 1: D-A2-38); each drafted product-class
+are loaded (an efficiency and a duty cycle, 0 to 1, by definition); each drafted product-class
 one is an assumption, not physics, and is withheld in the cross-domain table's comments
 until a ruling loads it. No agent session
 can widen a range to make its own number pass: the physics gate always builds
@@ -73,7 +73,7 @@ def _why(exc: Exception) -> str:
     """Why a row's unit is refused: the gate's own words, or pint's refusal put into words.
 
     pint 0.26.1, computing in fractions, cannot print its own refusal once a unit or a
-    dimension has a power other than one (M-200), so its refusal is worded from its fields.
+    dimension has a power other than one, so its refusal is worded from its fields.
     """
     return str(exc) if isinstance(exc, UnitRefusedError) else pint_message(exc)
 

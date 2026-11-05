@@ -80,7 +80,7 @@ OnCorrupt = Literal["raise", "truncate"]
 #: reasons (``protocol``): the method is not on the frozen interface, and ``write_node``, which
 #: is, never gives it.
 REJECT_INTERFACE_NOT_FOLLOWED = "interface_not_followed"
-#: The source a followed interface quantity carries (D-A2-37).
+#: The source a followed interface quantity carries: the node and attempt it was taken from.
 FOLLOWED_SOURCE = "followed from {node} at attempt {attempt}"
 _FOLLOWED = re.compile(r"^followed from (?P<node>\S+) at attempt (?P<attempt>[1-9][0-9]{0,8})$")
 
@@ -898,7 +898,7 @@ class Store:
         """Write an interface's followed revision: only its owner's derivation from ``joined``.
 
         Not on the frozen interface, and ``write_node`` is unchanged: it refuses every interface
-        write as before. This accepts exactly one kind of revision (D-A2-37): ``node`` must be
+        write as before. This accepts exactly one kind of revision: ``node`` must be
         the interface as the store holds it with each quantity copied from the first of the
         ``joined`` nodes (:func:`followed_payload`), written by the interface's owner role, where
         ``joined`` is every node of that role the store's heads hold that is not an interface and

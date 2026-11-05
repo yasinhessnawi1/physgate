@@ -1,4 +1,4 @@
-"""A sizing-produced interface follows sizing's joined node at the opening pass (D-A2-37).
+"""A sizing-produced interface follows sizing's joined node at the opening pass.
 
 The decomposition writes each interface node's values as its forecast of the work. For an
 interface the cross-nodes owner produces, the forecast is replaced once, by code, with what that

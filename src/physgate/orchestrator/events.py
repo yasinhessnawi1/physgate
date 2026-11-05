@@ -531,7 +531,7 @@ class ProposalsChecked(_Event):
     #: Every proposed quantity that names a simulation record, held to it, passes included;
     #: empty on every line written before the field existed.
     series_checks: tuple[SeriesCheck, ...] = ()
-    #: Each interface the attempt's nodes revise, derived at the check (D-A2-37): the interface
+    #: Each interface the attempt's nodes revise, derived at the check: the interface
     #: as it stood, every joined node's payload and the derived revision, so replay derives it
     #: again. Left out of the line when empty, so every other line keeps its bytes.
     followed: tuple[FollowedInterface, ...] = ()

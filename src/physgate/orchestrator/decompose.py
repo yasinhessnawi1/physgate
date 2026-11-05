@@ -564,7 +564,7 @@ def bounds_sentence() -> str:
     """Where the gate holds a value to a sourced span, generated from the tables it loads.
 
     Each range by its name and the domains whose tables hold it, then each envelope by its kind,
-    which holds in every domain (D-A2-38). Generated, never copied by hand, so the prompt cannot
+    which holds in every domain. Generated, never copied by hand, so the prompt cannot
     name a bound the gate does not hold; the spans themselves are not given.
     """
     bounds = load_bounds()
@@ -606,7 +606,7 @@ INTERFACE_WRITER_SENTENCE = (
 
 
 def interface_writer_sentence(owner: str) -> str:
-    """Who writes interface nodes, in a run where ``owner`` writes the cross nodes (D-A2-37)."""
+    """Who writes interface nodes, in a run where ``owner`` writes the cross nodes."""
     return (
         "Interface nodes are written by the harness, never by a session: a specification never "
         f"asks its module to write, rewrite or correct one. The {owner} module keeps a node of "
@@ -630,9 +630,9 @@ def prompt_for(brief: str, roles: Sequence[str]) -> str:
     """The decomposition prompt: a fixed template around the brief.
 
     Every prompt says where the gate has a bound and what forms each relation, generated from
-    what the gate loads (D-A2-38). A cross-cutting role of the run adds its sentences: sizing's,
+    what the gate loads. A cross-cutting role of the run adds its sentences: sizing's,
     that it has one module at most, and that it keeps a node joined to each interface it
-    produces, which the interface follows (D-A2-37); integration's, which ask for the system
+    produces, which the interface follows; integration's, which ask for the system
     requirements, by the brief's number where it numbers its criteria, and for module criteria
     numbered as they are read. Integration is
     not offered as a module's role, since the harness writes its specification. A run with

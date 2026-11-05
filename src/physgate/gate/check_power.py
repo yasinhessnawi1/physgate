@@ -26,8 +26,8 @@ is at most its supply's current limit, the supply's peak rating: at stall a moto
 back-EMF and draws its whole stall current, so a driver rated below it is overrun at every
 start. A node that holds both a stall current and a current limit is held to its own limit
 (a consumer aggregated with the supply that carries it), and a stall current that no limit
-bounds, on its node or on a node its edges name, is recorded as unchecked, never passed
-(D-A2-38). A store's maximum continuous discharge is at most its stored energy times the
+bounds, on its node or on a node its edges name, is recorded as unchecked, never passed.
+A store's maximum continuous discharge is at most its stored energy times the
 fastest rate any store class the catalogue confirms can give (the catalogue's
 ``STORE_CLASSES``; for a capacitor, the most power a cell can deliver into any load, from
 the smallest confirmed time constant), so an invented rating cannot make a token store a
