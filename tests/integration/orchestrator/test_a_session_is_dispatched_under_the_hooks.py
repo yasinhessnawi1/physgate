@@ -25,6 +25,7 @@ from scripted_endpoint import (  # noqa: E402
     DUMMY_KEY,
     DUMMY_OAUTH_TOKEN,
     Script,
+    failure,
     serving,
     text,
     tool,
@@ -498,6 +499,29 @@ def test_a_session_that_received_no_policy_limits_reports_none(
     worktree = tmp_path / "run" / "worktrees" / "s1"
     steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    assert report.policy_limits_sha256 is None
+
+
+def test_a_session_a_model_answered_reports_it(tmp_path: Path, install_bin: Path) -> None:
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    if "model_answered" not in type(report).model_fields:
+        pytest.fail("a session's report does not say whether a model answered it")
+    assert report.end.outcome == "completed" and report.model_answered is True
+
+
+def test_a_session_whose_only_request_failed_reports_no_model_answered(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    # The binary writes its own error message for the failed request, under a model name of
+    # its own: the session ends ``api_error`` with no model's answer in its stream.
+    steps = [failure(400, "invalid_request_error", "the request was refused")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    if "model_answered" not in type(report).model_fields:
+        pytest.fail("a session's report does not say whether a model answered it")
+    assert (report.end.outcome, report.end.cause) == ("infrastructure", "api_error")
+    assert report.model_answered is False
     assert report.policy_limits_sha256 is None
 
 

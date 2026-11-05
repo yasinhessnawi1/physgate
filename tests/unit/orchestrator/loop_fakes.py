@@ -74,6 +74,9 @@ class FakeDispatcher:
     tampered: dict[int, str] = field(default_factory=dict)
     #: Per call: the digest of the policy limits the session's invocation received.
     policy: dict[int, str] = field(default_factory=dict)
+    #: The calls no model answered before the session ended: the binary wrote only its own
+    #: messages, as a connection dropped before the first request does.
+    unanswered: set[int] = field(default_factory=set)
     #: Per call: a canary of reviewer material found in the session's stream.
     material: dict[int, str] = field(default_factory=dict)
     #: Per call: a held-out task's canary found in the session's stream.
@@ -101,6 +104,10 @@ class FakeDispatcher:
 
     def end_leftovers(self) -> None:
         return None
+
+    def _answered(self, call: int) -> dict[str, Any]:
+        # Named only where a test asks for it, so a report without the field still builds.
+        return {"model_answered": False} if call in self.unanswered else {}
 
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         self.requests.append(request)
@@ -133,6 +140,8 @@ class FakeDispatcher:
                 series=self.series.get(call, SessionSeries()),
                 os_layer_aborted=self.aborted.get(call, ()),
                 reaper_unverified=self.unverified.get(call, ()),
+                policy_limits_sha256=self.policy.get(call),
+                **self._answered(call),
             )
         trajectory = f"sessions/{sid}/stdout.jsonl"
         sealed = None
@@ -160,6 +169,7 @@ class FakeDispatcher:
             withheld_problems=self.withheld.get(call),
             os_layer_aborted=self.aborted.get(call, ()),
             reaper_unverified=self.unverified.get(call, ()),
+            **self._answered(call),
             usage=(
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
