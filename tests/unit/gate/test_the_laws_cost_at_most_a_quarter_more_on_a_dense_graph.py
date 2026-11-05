@@ -10,8 +10,9 @@ median ratio is held to the bound; the interquartile range and the smallest rati
 beside it, with each side's median time.
 
 Three of the fifteen laws bind on every supply or every edge of the graph, one leaves every
-consumer unjudged and one every supply, and the rest find no anchor: the cost of forming, evaluating and recording
-instances is all in the measurement, as is the cost of looking for anchors that are not there.
+consumer unjudged and one every supply, and the rest find no anchor: the cost of forming,
+evaluating and recording instances is all in the measurement, as is the cost of looking for
+anchors that are not there.
 
 The bound was set before any gate carrying a law had been timed. Moving it is a change to what
 the gate may cost, recorded beside the measurement that prompted it.
