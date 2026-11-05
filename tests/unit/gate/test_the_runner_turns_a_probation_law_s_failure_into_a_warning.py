@@ -161,12 +161,23 @@ def test_a_blocking_law_s_failure_fails_the_verdict(view: GraphView) -> None:
 def test_observe_records_the_same_verdict_and_a_probation_law_still_never_blocks(
     view: GraphView,
 ) -> None:
+    probation = violated("within_rating", "warn").model_copy(
+        update={
+            "quantities": (
+                QuantityRef(
+                    node_id="electrical.motor_left", name="current_draw", value=3, unit="A"
+                ),
+            )
+        }
+    )
     check = laws_check(
-        [violated("electrical_power", "block"), violated("within_rating", "warn")],
+        [violated("electrical_power", "block"), probation],
         {"electrical_power": 1, "within_rating": 1},
     )
     statuses: dict[str, LawStatus] = {"electrical_power": "block", "within_rating": "warn"}
     result = gate(check, statuses).run(view, ["module"], "observe")
+    # Only a failure that blocks travels with the verdict.
+    assert [q.name for q in result.quantities] == ["power_draw"]
     by_law = {r.details.law_id: r for r in law_records(result.checks)}  # type: ignore[union-attr]
     assert (by_law["electrical_power"].outcome, by_law["electrical_power"].blocking) == (
         "fail",
