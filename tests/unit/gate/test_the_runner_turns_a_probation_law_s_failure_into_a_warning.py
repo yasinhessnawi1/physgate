@@ -13,12 +13,14 @@ its unchecked records where it judged nothing.
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 
 import pytest
 from gate_fixtures import fixed, graph, node, unchecked
+from law_fixtures import table_of
 
 from physgate.gate.exceptions import LawRecordError
 from physgate.gate.graph import GraphView
@@ -130,7 +132,10 @@ def laws_check(observations: list[Observation], counts: Mapping[str, int]) -> Re
 
 
 def gate(check: RegisteredCheck, statuses: Mapping[str, LawStatus], *others: Any) -> PhysicsGate:
-    return PhysicsGate((*others, check), law_status=statuses)
+    """A gate built with a law table holding one law per id, at the status given."""
+    with tempfile.TemporaryDirectory() as root:
+        laws = table_of(Path(root), statuses)
+    return PhysicsGate((*others, check), laws=laws)
 
 
 def law_records(records: tuple[CheckRecord, ...]) -> list[CheckRecord]:
@@ -299,9 +304,7 @@ def test_another_check_cannot_report_a_law(view: GraphView) -> None:
     )
     assert "only the laws check" in refusal(
         LawRecordError,
-        lambda: PhysicsGate((other,), law_status={"electrical_power": "block"}).run(
-            view, ["module"], "on"
-        ),
+        lambda: gate(other, {"electrical_power": "block"}).run(view, ["module"], "on"),
     )
 
 
