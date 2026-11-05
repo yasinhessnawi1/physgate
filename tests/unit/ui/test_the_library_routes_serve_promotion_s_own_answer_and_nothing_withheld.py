@@ -33,6 +33,7 @@ from ui_library_rig import (
 )
 from ui_rig import RECORDER, Live, context_over, fake_ui, serving, snapshot, write_run
 
+from physgate.gate.bounds_table import load_table
 from physgate.gate.catalogue import STORE_CLASSES, catalogue_digest
 from physgate.knowledge.promote import _apply, canaries
 from physgate.knowledge.staging import Candidate
@@ -143,7 +144,8 @@ def _every_target() -> list[str]:
 def _row(listing: dict[str, Any], kind: str, role: str) -> dict[str, Any]:
     rows = [d for d in listing["documents"] if (d["kind"], d["role"]) == (kind, role)]
     assert len(rows) == 1, (kind, role, listing["documents"])
-    return rows[0]
+    row: dict[str, Any] = rows[0]
+    return row
 
 
 def _plant_link(path: Path, target: Path) -> None:
@@ -665,7 +667,7 @@ def test_a_file_swapped_for_a_link_after_it_was_judged_is_refused(
 def test_a_bounds_table_changed_between_its_read_and_its_load_is_refused(
     world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    real_load = library_routes.load_table
+    real_load = load_table
 
     def changed(path: Path) -> Any:
         Path(path).write_text(Path(path).read_text() + "\n# changed\n")
