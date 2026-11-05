@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import socketserver
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -96,8 +97,8 @@ def test_the_library_is_its_own_slot_and_a_file_in_it_resolves(world: dict[str, 
     assert allow.library.path == real
     assert [root.path for root in allow.roots] == [Path(os.path.realpath(world["runs"]))]
     standards = world["library"] / "control" / "standards.md"
-    assert allow.resolve(standards) == real / "control" / "standards.md"
     assert allow.readable(str(standards)) is True
+    assert allow.resolve(standards) == real / "control" / "standards.md"
 
 
 def test_the_withheld_folder_is_the_library_s_reviewers_and_not_part_of_the_refused_set(
@@ -124,6 +125,31 @@ def test_without_a_library_there_is_no_slot_and_nothing_is_withheld(
 # -- the start checks -------------------------------------------------------------------------
 
 
+def _start_refusal(build: Callable[[], Allowlist]) -> str:
+    """Why the start is refused, or what happened instead.
+
+    A start check that is missing does not always let the start through: the next step may
+    crash on what the check should have caught. A raw error past the start is a broken refusal
+    too, so it is reported here as text and the test's assertion fails on it, rather than the
+    crash ending the test as an error.
+    """
+    try:
+        build()
+    except StartupRefusedError as exc:
+        return str(exc)
+    except Exception as exc:  # noqa: BLE001 - any other outcome is reported, then asserted on
+        return f"not a refusal: {type(exc).__name__}: {exc}"
+    return "not a refusal: the start succeeded"
+
+
+def _library_alone(
+    runs: Path, library: str, harness: Path | None = None
+) -> Callable[[], Allowlist]:
+    return lambda: Allowlist.build(
+        [str(runs)], held_out=[], answer_keys=[], harness=harness, library=library
+    )
+
+
 def test_a_library_that_is_missing_or_not_a_directory_refuses_the_start(
     world: dict[str, Path], tmp_path: Path
 ) -> None:
@@ -132,18 +158,13 @@ def test_a_library_that_is_missing_or_not_a_directory_refuses_the_start(
     a_file.parent.mkdir()
     a_file.write_text("not a folder\n")
     for given in (str(missing), str(a_file)):
-        with pytest.raises(StartupRefusedError, match="existing directory"):
-            Allowlist.build(
-                [str(world["runs"])], held_out=[], answer_keys=[], harness=None, library=given
-            )
-    with pytest.raises(StartupRefusedError, match="NUL"):
-        Allowlist.build(
-            [str(world["runs"])],
-            held_out=[],
-            answer_keys=[],
-            harness=None,
-            library=str(world["library"]) + "\x00",
-        )
+        reason = _start_refusal(_library_alone(world["runs"], given))
+        assert "existing directory" in reason, (given, reason)
+
+
+def test_a_library_holding_a_nul_byte_refuses_the_start(world: dict[str, Path]) -> None:
+    reason = _start_refusal(_library_alone(world["runs"], str(world["library"]) + "\x00"))
+    assert "NUL" in reason, reason
 
 
 def test_a_library_that_is_a_link_into_a_corpus_refuses_the_start(tmp_path: Path) -> None:
@@ -155,8 +176,8 @@ def test_a_library_that_is_a_link_into_a_corpus_refuses_the_start(tmp_path: Path
     link = tmp_path / "linked" / "knowledge"
     link.parent.mkdir()
     link.symlink_to(inside)
-    with pytest.raises(StartupRefusedError, match="evaluation corpus"):
-        Allowlist.build([str(runs)], held_out=[], answer_keys=[], harness=None, library=str(link))
+    reason = _start_refusal(_library_alone(runs, str(link)))
+    assert "evaluation corpus" in reason, reason
 
 
 def test_a_library_not_named_knowledge_refuses_the_start(tmp_path: Path) -> None:
@@ -164,52 +185,42 @@ def test_a_library_not_named_knowledge_refuses_the_start(tmp_path: Path) -> None
     runs.mkdir()
     other = tmp_path / "library"
     other.mkdir()
-    with pytest.raises(StartupRefusedError, match="named knowledge"):
-        Allowlist.build([str(runs)], held_out=[], answer_keys=[], harness=None, library=str(other))
+    reason = _start_refusal(_library_alone(runs, str(other)))
+    assert "named knowledge" in reason, reason
 
 
 def test_a_held_out_path_inside_the_library_refuses_the_start(world: dict[str, Path]) -> None:
     inside = world["library"] / "held"
     inside.mkdir()
-    with pytest.raises(StartupRefusedError, match="library overlaps a path nothing may read"):
-        _allow(world, held_out=(str(inside),))
+    reason = _start_refusal(lambda: _allow(world, held_out=(str(inside),)))
+    assert "library overlaps a path nothing may read" in reason, reason
 
 
 def test_a_library_inside_a_held_out_path_refuses_the_start(world: dict[str, Path]) -> None:
-    with pytest.raises(StartupRefusedError, match="library overlaps a path nothing may read"):
-        _allow(world, held_out=(str(world["checkout"]),))
+    reason = _start_refusal(lambda: _allow(world, held_out=(str(world["checkout"]),)))
+    assert "library overlaps a path nothing may read" in reason, reason
 
 
 def test_a_library_holding_the_harness_s_corpora_refuses_the_start(world: dict[str, Path]) -> None:
     harness = world["library"] / "inner"
     harness.mkdir()
-    with pytest.raises(StartupRefusedError, match="library overlaps a path nothing may read"):
-        Allowlist.build(
-            [str(world["runs"])],
-            held_out=[],
-            answer_keys=[],
-            harness=harness,
-            library=str(world["library"]),
-        )
+    reason = _start_refusal(_library_alone(world["runs"], str(world["library"]), harness))
+    assert "library overlaps a path nothing may read" in reason, reason
 
 
 def test_a_library_inside_a_run_root_refuses_the_start(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     library = runs / "knowledge"
     library.mkdir(parents=True)
-    with pytest.raises(StartupRefusedError, match="overlaps a run root"):
-        Allowlist.build(
-            [str(runs)], held_out=[], answer_keys=[], harness=None, library=str(library)
-        )
+    reason = _start_refusal(_library_alone(runs, str(library)))
+    assert "overlaps a run root" in reason, reason
 
 
 def test_a_run_root_inside_the_library_refuses_the_start(world: dict[str, Path]) -> None:
     inner = world["library"] / "runs"
     inner.mkdir()
-    with pytest.raises(StartupRefusedError, match="overlaps a run root"):
-        Allowlist.build(
-            [str(inner)], held_out=[], answer_keys=[], harness=None, library=str(world["library"])
-        )
+    reason = _start_refusal(_library_alone(inner, str(world["library"])))
+    assert "overlaps a run root" in reason, reason
 
 
 # -- what stays refused inside and around it ---------------------------------------------------
