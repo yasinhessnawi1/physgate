@@ -1,6 +1,6 @@
 /**
  * The words physgate uses for its own parts, in five groups, from the one table the inline
- * explanations read. The gate's seven checks and the queue's reasons for asking a person are
+ * explanations read. The gate's eight checks and the queue's reasons for asking a person are
  * listed in their groups from their own tables. Engineering terms are not here: they mean what
  * they mean in any textbook.
  */
