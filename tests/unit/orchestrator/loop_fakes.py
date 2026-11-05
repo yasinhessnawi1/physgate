@@ -105,10 +105,6 @@ class FakeDispatcher:
     def end_leftovers(self) -> None:
         return None
 
-    def _answered(self, call: int) -> dict[str, Any]:
-        # Named only where a test asks for it, so a report without the field still builds.
-        return {"model_answered": False} if call in self.unanswered else {}
-
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         self.requests.append(request)
         call = len(self.requests)
@@ -141,7 +137,7 @@ class FakeDispatcher:
                 os_layer_aborted=self.aborted.get(call, ()),
                 reaper_unverified=self.unverified.get(call, ()),
                 policy_limits_sha256=self.policy.get(call),
-                **self._answered(call),
+                model_answered=call not in self.unanswered,
             )
         trajectory = f"sessions/{sid}/stdout.jsonl"
         sealed = None
@@ -169,7 +165,7 @@ class FakeDispatcher:
             withheld_problems=self.withheld.get(call),
             os_layer_aborted=self.aborted.get(call, ()),
             reaper_unverified=self.unverified.get(call, ()),
-            **self._answered(call),
+            model_answered=call not in self.unanswered,
             usage=(
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),

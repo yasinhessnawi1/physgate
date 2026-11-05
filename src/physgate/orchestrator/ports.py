@@ -97,6 +97,9 @@ class SessionReport(_Frozen):
     trajectory_tampered: NonEmptyStr | None = None
     #: The digest of the policy limits the invocation received, if it received any.
     policy_limits_sha256: NonEmptyStr | None = None
+    #: Whether a model answered the session at least once (:func:`managed.model_answered`).
+    #: A report that does not say is taken as answered, so its limits are judged.
+    model_answered: bool = True
     #: A canary of reviewer material found in the session's own stream, if one was:
     #: the session read what only reviewers read, by a path no hook could judge.
     review_material_seen: NonEmptyStr | None = None

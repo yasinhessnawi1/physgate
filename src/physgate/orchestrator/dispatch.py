@@ -90,7 +90,7 @@ from physgate.orchestrator.held_records import second_names
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.integration_state import STATE_NAME
 from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
-from physgate.orchestrator.managed import drift, policy_limits_digest
+from physgate.orchestrator.managed import drift, model_answered, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, attempt_head, attempt_message, commit_attempt
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
@@ -1864,6 +1864,7 @@ class ClaudeDispatcher:
             usage=usage,
             managed_drift=drift(sdir / "config", system_before),
             policy_limits_sha256=limits,
+            model_answered=model_answered(answered),
             trajectory_seal=sealed,
             trajectory_tampered=tampered,
             review_material_seen=seen,

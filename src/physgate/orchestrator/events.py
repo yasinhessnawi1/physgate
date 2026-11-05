@@ -475,6 +475,10 @@ class SessionEnded(_Event):
     #: The digest of the policy limits the session's invocation received, ``None`` if
     #: none: held to the decomposition call's.
     policy_limits_sha256: Sha256 | None = None
+    #: Why the session's missing policy limits were recorded and not held to the decomposition
+    #: call's: it ended for infrastructure before any model answered it. ``None`` where they were
+    #: judged, and on a line written before this was recorded.
+    policy_limits_unjudged: NonEmptyStr | None = None
     #: The digest of the session's specification as the decomposition issued it,
     #: taken before the session was spawned; ``None`` for a plan given directly.
     issued_spec_sha256: Sha256 | None = None
@@ -490,6 +494,11 @@ class SessionEnded(_Event):
             raise ValueError(msg)
         if completed and None in (self.attempt_commit, self.trajectory, self.worktree):
             msg = "a completed session names its attempt commit, trajectory and worktree"
+            raise ValueError(msg)
+        if self.policy_limits_unjudged is not None and (
+            completed or self.policy_limits_sha256 is not None
+        ):
+            msg = "only an infrastructure end that left no policy limits has them unjudged"
             raise ValueError(msg)
         return self
 

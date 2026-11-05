@@ -139,7 +139,7 @@ from physgate.orchestrator.follow_up import follow_up_order, owed
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.held_records import record_change, second_names, unaccounted
 from physgate.orchestrator.integration_state import issued_state
-from physgate.orchestrator.managed import policy_limits_change
+from physgate.orchestrator.managed import policy_limits_change, policy_limits_unjudged
 from physgate.orchestrator.merge import merge_message
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
@@ -322,6 +322,13 @@ LEFTOVER_HALTS: tuple[IncidentCause, ...] = (
     "reaper_unverified",
     "run_records_changed",
 )
+
+
+def _unjudged(report: SessionReport) -> str | None:
+    """Why a session's missing policy limits are recorded and not judged, if they are."""
+    return policy_limits_unjudged(
+        report.end, answered=report.model_answered, now=report.policy_limits_sha256
+    )
 
 
 def _possible_abort(session_id: str, tool_uses: tuple[str, ...]) -> str:
@@ -1714,6 +1721,7 @@ class Loop:
                 trajectory_seal=report.trajectory_seal,
                 decisions_bytes=self._decisions_bytes(),
                 policy_limits_sha256=report.policy_limits_sha256,
+                policy_limits_unjudged=_unjudged(report),
                 issued_spec_sha256=report.issued_spec_sha256,
                 series=report.series,
             )
@@ -1757,7 +1765,11 @@ class Loop:
             # Settings above every source the hooks were installed in changed under the
             # session: nothing it did is taken, and a person looks first.
             return "managed_settings_changed", report.managed_drift
-        changed = policy_limits_change(self._policy_baseline(), report.policy_limits_sha256)
+        changed = (
+            policy_limits_change(self._policy_baseline(), report.policy_limits_sha256)
+            if _unjudged(report) is None
+            else None
+        )
         if changed is not None:
             # The account's policy limits are applied without a trace the hooks see: the
             # session ran under other limits than the run began with.

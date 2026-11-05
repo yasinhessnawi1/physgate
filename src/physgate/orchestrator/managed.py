@@ -18,7 +18,8 @@ configuration directory, and after every invocation a non-empty remote-settings
 cache, or a system managed path that changed, is drift, which halts the run. So
 are policy limits that differ from the ones the run's decomposition call received:
 the account's side can change them, and they are applied without a trace in any
-file the hooks see.
+file the hooks see. A session no model answered before it ended for infrastructure ran
+no tool under any limits: its missing limits are recorded, not judged.
 The harness cannot stop a managed-policy change pushed from outside; it halts on
 one.
 """
@@ -32,10 +33,14 @@ import os
 import re
 import stat
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
+
+from physgate.orchestrator.budget import SessionEnd
+from physgate.reviewers.transcript import SYNTHETIC_MODEL
 
 #: Where the binary caches fetched remote settings, inside its configuration directory.
 REMOTE_CACHE = "remote-settings.json"
@@ -214,6 +219,34 @@ def policy_limits_digest(config_dir: Path) -> str | None:
     """The sha256 of the policy limits an invocation left, or ``None`` if it left none."""
     path = Path(config_dir) / POLICY_LIMITS
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+
+def model_answered(answered: Iterable[str]) -> bool:
+    """Whether a model answered a session at least once, from the models its stream names.
+
+    The binary names the messages it writes itself, an API error's among them, as
+    ``<synthetic>``: no model's answer. It writes its ``init`` line before any request
+    (measured on a live run whose retry dropped before its first request: the init line
+    was there, and only the binary's own error message after it), so that line is no sign
+    the session reached the API. A model's answer is: before one, no tool has run.
+    """
+    return any(model != SYNTHETIC_MODEL for model in answered)
+
+
+def policy_limits_unjudged(end: SessionEnd, *, answered: bool, now: str | None) -> str | None:
+    """Why an invocation's missing policy limits are not held to the run's first, or ``None``.
+
+    Only a session that ended for infrastructure before any model answered it, and left no
+    limits: a connection that dropped before the binary fetched them. No tool ran under any
+    limits, so nothing is judged; the session is retried as the infrastructure failure it is,
+    and its missing file is recorded. Limits it did leave are judged as every session's are.
+    """
+    if end.outcome != "infrastructure" or answered or now is not None:
+        return None
+    return (
+        f"the session ended {end.cause} before any model answered it and left no policy "
+        "limits: recorded, not held to the decomposition call's"
+    )
 
 
 def policy_limits_change(baseline: str | None, now: str | None) -> str | None:
