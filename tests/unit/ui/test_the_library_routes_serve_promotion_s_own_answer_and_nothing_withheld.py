@@ -603,9 +603,11 @@ def test_a_file_that_is_not_utf8_or_too_large_is_refused_with_a_sentence(
         world, [LISTING, _file("standards", "control"), _file("standards", "sizing")]
     )
     status, body = answers[_file("standards", "control")]
-    assert (status, "UTF-8" in body["error"]) == (422, True)
+    assert status == 422, body
+    assert "UTF-8" in body["error"]
     status, body = answers[_file("standards", "sizing")]
-    assert (status, "larger than this page reads" in body["error"]) == (422, True)
+    assert status == 422, str(body)[:200]
+    assert "larger than this page reads" in body["error"]
     assert "larger than" in _row(answers[LISTING][1], "standards", "sizing")["error"]
     assert _row(answers[LISTING][1], "standards", "control")["state"] == "differs"
 
