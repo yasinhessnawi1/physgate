@@ -244,6 +244,13 @@ def _built_at_run_time(path: str) -> str:
 SKIP_THE_TERMINAL_UNNAMED = (
     f'py={_built_at_run_time(sys.executable)}; "$py" {STUB_AND_PROMOTE}; echo ran > ran.txt'
 )
+#: The promotion command itself, from a session, its path built at run time. Its subcommand word
+#: ``knowledge`` names the protected tree in the worktree, so the first layer refuses it before
+#: the command's own terminal check is reached; that check is proven in the unit tests.
+PROMOTE_LAW_COMMAND = (
+    f"ph={_built_at_run_time(str(Path(sys.executable).parent / 'physgate'))}; "
+    f"PYTHONDONTWRITEBYTECODE=1 \"$ph\" knowledge promote-law {LAW_CARD_ID} --by 'a session'"
+)
 
 GATE = "src/physgate/gate"
 OUTBOX = ".physgate/series"
@@ -677,6 +684,12 @@ ATTEMPTS = [
         "shell_paths",
     ),
     Attempt(
+        "promote-law-command",
+        "the law promotion command run from a session",
+        [STAGE_LAW_CARD, bash(PROMOTE_LAW_COMMAND)],
+        "shell_paths",
+    ),
+    Attempt(
         "promote-law-skipping-the-terminal-unnamed",
         "the same, the interpreter's path built at run time so that no word names it",
         [STAGE_LAW_CARD, bash(SKIP_THE_TERMINAL_UNNAMED)],
@@ -909,42 +922,3 @@ def test_the_law_promotion_attempt_is_live_without_the_two_shell_layers(tmp_path
     record = (run.worktree / "knowledge" / "promotions.jsonl").read_text()
     assert '"kind": "law"' in record and LAW_CARD_ID in record
     assert not (run.worktree / "knowledge" / "staging" / "laws" / f"{LAW_CARD_ID}.toml").exists()
-
-
-def test_the_law_promotion_command_refuses_a_session_and_writes_nothing(tmp_path: Path) -> None:
-    # The honest attempt: the command itself, from a session. Its standard input is not a
-    # terminal, so it refuses before reading anything, and the card stays staged. Its path is
-    # built at run time: named outright, the first layer refuses it before it runs.
-    physgate = _built_at_run_time(str(Path(sys.executable).parent / "physgate"))
-    command = (
-        f'ph={physgate}; PYTHONDONTWRITEBYTECODE=1 "$ph" knowledge promote-law {LAW_CARD_ID} '
-        "--by 'a session' > told.txt 2>&1; echo ran > ran.txt"
-    )
-    run = run_session(
-        tmp_path,
-        Script(main=[*_place([STAGE_LAW_CARD, bash(command)], tmp_path), text("end")]),
-        files=FILES,
-        prepare=_prepare,
-        store_root=str(tmp_path / "outside" / "store"),
-        held_out=(str(tmp_path / "outside" / "heldout"),),
-    )
-    before = json.loads((tmp_path / SNAPSHOT_KEY).read_text())
-    after = _snapshot(tmp_path)
-    reached = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
-    told = (run.worktree / "told.txt").read_text() if (run.worktree / "told.txt").exists() else ""
-    outcome = "no reach" if not reached and "non-interactively" in told else "FAILED"
-    _record(
-        Attempt(
-            "promote-law-command",
-            "the law promotion command run from a session",
-            [],
-            "the command's own terminal check",
-        ),
-        outcome,
-        ["terminal check"],
-        told.strip()[:200],
-    )
-    assert (run.worktree / "ran.txt").exists(), "the command never ran"
-    assert reached == [], f"REACHED {reached}"
-    assert "refused" in told and "non-interactively" in told, told
-    assert (run.worktree / "knowledge" / "staging" / "laws" / f"{LAW_CARD_ID}.toml").is_file()
