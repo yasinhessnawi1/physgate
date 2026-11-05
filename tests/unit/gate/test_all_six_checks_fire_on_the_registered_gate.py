@@ -5,6 +5,12 @@ So the gate the ``physgate`` command actually registers is run on one graph that
 breaks every check, each by its own wrong artefact, at every scope an attempt and
 the integration call ask for, and every check must be seen failing. This is also
 what refuses a gate that passes everything: the registered one must fail here.
+
+The closed-form laws check is registered too, after propagation, and runs at module and system
+scope. Its laws are data: the table the command's gate is built with is the tracked one, which
+holds no law until a person promotes one, so on the registered gate the laws check runs, records
+that it judged nothing, and cannot fire. That it fires is shown on the same graph by the same
+gate built with a table of test laws, one of which the graph breaks.
 """
 
 from __future__ import annotations
@@ -12,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from gate_fixtures import all_six, given, graph
+from law_fixtures import cleared, load, sound_law
 
 from physgate.gate.graph import GraphView
 from physgate.gate.registry import REGISTRY
@@ -21,10 +28,12 @@ from physgate.orchestrator.protocols import CHECK_NUMBERS, Artefact
 
 SIX = {"units", "magnitude", "equilibrium", "power", "conservation", "thermal"}
 #: Checks that have their number and their row in the architecture's table but no evaluator
-#: yet, so they are not registered and never run: the laws check, until its evaluator lands.
-#: Each one is listed here by name, so its absence from the registry is a stated fact and not
-#: an oversight, and this set empties when the check is registered.
-UNREGISTERED = {"laws"}
+#: yet, so they are not registered and never run. Each one is listed here by name, so its
+#: absence from the registry is a stated fact and not an oversight. None is left.
+UNREGISTERED: set[str] = set()
+#: The checks whose consequence is data the tracked checkout does not hold yet: the laws check
+#: runs on the registered gate and judges nothing until a law is promoted.
+NO_CONTENT_YET = {"laws"}
 
 
 def test_every_check_is_registered_in_the_architecture_s_order() -> None:
@@ -36,11 +45,12 @@ def test_every_check_is_registered_in_the_architecture_s_order() -> None:
         "conservation",
         "thermal",
         "propagation",
+        "laws",
     ]
     assert [entry.number for entry in REGISTRY] == sorted(
         number for name, number in CHECK_NUMBERS.items() if name not in UNREGISTERED
     )
-    assert set(CHECK_NUMBERS) - SIX - UNREGISTERED == {"propagation"}
+    assert set(CHECK_NUMBERS) - SIX - UNREGISTERED == {"propagation", "laws"}
 
 
 def test_the_registered_gate_fires_all_six_checks_on_a_graph_that_breaks_them_all(
@@ -64,6 +74,49 @@ def test_the_registered_gate_fires_all_six_checks_on_a_graph_that_breaks_them_al
     # Power and thermal by the architecture's table; the other four because the
     # gate also runs them over the whole graph at integration.
     assert blocking_at_system == SIX
+    # The laws check ran where the architecture's table says, judged nothing, and said so.
+    laws = [r for result in (attempt, integrated) for r in result.checks if r.name == "laws"]
+    assert {(r.scope, r.outcome) for r in laws} == {("module", "pass"), ("system", "pass")}
+    assert {r.message for r in laws} == {"the laws check found nothing wrong (0 evaluated)"}
+
+
+def test_the_same_gate_with_a_law_it_breaks_fires_the_laws_check_too(tmp_path: Path) -> None:
+    # The motor on the power artefact draws 15 W; at 12 V and 2 A it should draw 24 W.
+    table = load(
+        tmp_path / "t",
+        [sound_law(status="block", cleared=cleared())],
+    )
+    gate = PhysicsGate(laws=table)
+    root = tmp_path / "g"
+    payloads = list(all_six())
+    for payload in payloads:
+        if payload["id"] == "electrical.motor_left":
+            payload["quantities"] = {
+                **payload["quantities"],
+                "supply_voltage": {
+                    "value": 12,
+                    "unit": "V",
+                    "source": "datasheet",
+                    "written_by": "electrical",
+                },
+                "current_draw": {
+                    "value": 2,
+                    "unit": "A",
+                    "source": "datasheet",
+                    "written_by": "electrical",
+                },
+            }
+    graph(root, *payloads)
+    attempt = gate.run(GraphView.read(root, base_revision=0), ["subtask", "module"], "on")
+    integrated = gate.check_integration(given(root), mode="on")
+    fired = {
+        (r.name, r.scope)
+        for result in (attempt, integrated)
+        for r in result.checks
+        if r.outcome == "fail" and r.blocking
+    }
+    assert {("laws", "module"), ("laws", "system")} <= fired
+    assert {name for name, _ in fired} == SIX | NO_CONTENT_YET
 
 
 def test_the_registered_gate_refuses_through_the_calls_the_loop_makes(tmp_path: Path) -> None:
