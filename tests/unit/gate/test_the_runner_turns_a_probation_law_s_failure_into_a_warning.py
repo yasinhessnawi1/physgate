@@ -13,7 +13,7 @@ its unchecked records where it judged nothing.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 
@@ -34,6 +34,20 @@ from physgate.orchestrator.protocols import (
     QuantityRef,
     UncheckedDetails,
 )
+
+
+def refusal(error: type[Exception], build: Callable[[], object]) -> str:
+    """The message ``build`` is refused with.
+
+    An accepted build fails an assertion here, so a guard weakened on purpose turns a test red
+    by a failing assertion and not by some other exception.
+    """
+    try:
+        build()
+    except error as exc:
+        return str(exc)
+    raise AssertionError("accepted, where a refusal was expected")
+
 
 LawStatus = Literal["warn", "block"]
 
@@ -231,28 +245,35 @@ def test_the_laws_records_come_in_the_order_of_their_law_ids(view: GraphView) ->
 
 def test_a_law_the_table_does_not_hold_stops_the_gate(view: GraphView) -> None:
     check = laws_check([violated("electrical_power", "block")], {"electrical_power": 1})
-    with pytest.raises(LawRecordError, match="not in the table"):
-        gate(check, {}).run(view, ["module"], "on")
+    assert "not in the table" in refusal(
+        LawRecordError, lambda: gate(check, {}).run(view, ["module"], "on")
+    )
 
 
 def test_a_law_reported_at_another_status_than_the_table_s_stops_the_gate(
     view: GraphView,
 ) -> None:
     check = laws_check([violated("electrical_power", "block")], {"electrical_power": 1})
-    with pytest.raises(LawRecordError, match="status"):
-        gate(check, {"electrical_power": "warn"}).run(view, ["module"], "on")
+    assert "status" in refusal(
+        LawRecordError,
+        lambda: gate(check, {"electrical_power": "warn"}).run(view, ["module"], "on"),
+    )
 
 
 def test_a_failing_record_s_count_must_be_the_law_s_count(view: GraphView) -> None:
     check = laws_check([violated("electrical_power", "warn", evaluated=1)], {"electrical_power": 4})
-    with pytest.raises(LawRecordError, match="count"):
-        gate(check, {"electrical_power": "warn"}).run(view, ["module"], "on")
+    assert "count" in refusal(
+        LawRecordError,
+        lambda: gate(check, {"electrical_power": "warn"}).run(view, ["module"], "on"),
+    )
 
 
 def test_a_law_without_a_count_stops_the_gate(view: GraphView) -> None:
     check = laws_check([violated("electrical_power", "warn")], {})
-    with pytest.raises(LawRecordError, match="count"):
-        gate(check, {"electrical_power": "warn"}).run(view, ["module"], "on")
+    assert "count" in refusal(
+        LawRecordError,
+        lambda: gate(check, {"electrical_power": "warn"}).run(view, ["module"], "on"),
+    )
 
 
 def test_another_check_cannot_report_a_law(view: GraphView) -> None:
@@ -265,8 +286,12 @@ def test_another_check_cannot_report_a_law(view: GraphView) -> None:
             law_evaluated=(LawCount(law_id="electrical_power", evaluated=1),),
         ),
     )
-    with pytest.raises(LawRecordError, match="only the laws check"):
-        PhysicsGate((other,), law_status={"electrical_power": "block"}).run(view, ["module"], "on")
+    assert "only the laws check" in refusal(
+        LawRecordError,
+        lambda: PhysicsGate((other,), law_status={"electrical_power": "block"}).run(
+            view, ["module"], "on"
+        ),
+    )
 
 
 def test_checks_one_to_seven_are_stamped_as_before_beside_the_laws(view: GraphView) -> None:

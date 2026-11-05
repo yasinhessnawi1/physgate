@@ -16,6 +16,7 @@ could not be told from one that blocks. Three things are held here:
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -31,6 +32,20 @@ from physgate.orchestrator.protocols import (
     PassDetails,
     UncheckedDetails,
 )
+
+
+def refusal(error: type[Exception], build: Callable[[], object]) -> str:
+    """The message ``build`` is refused with.
+
+    An accepted build fails an assertion here, so a guard weakened on purpose turns a test red
+    by a failing assertion and not by some other exception.
+    """
+    try:
+        build()
+    except error as exc:
+        return str(exc)
+    raise AssertionError("accepted, where a refusal was expected")
+
 
 AMPS = NumericOutput(value=2, unit="A")
 
@@ -104,16 +119,17 @@ def test_a_failing_law_record_carries_the_law_its_inputs_and_its_table() -> None
 def test_a_law_on_probation_never_blocks() -> None:
     probation = law_details(law_status="warn")
     assert record(outcome="warn", blocking=False, details=probation).outcome == "warn"
-    with pytest.raises(ValidationError, match="probation"):
-        record(outcome="fail", blocking=True, details=probation)
+    assert "probation" in refusal(
+        ValidationError, lambda: record(outcome="fail", blocking=True, details=probation)
+    )
 
 
 def test_an_inequality_has_no_allowance_and_an_equality_has_one() -> None:
     law_details(comparator="<=", tolerance="inequality", allowance=None)
-    with pytest.raises(ValidationError, match="allowance"):
-        law_details(comparator="<=", tolerance="inequality")
-    with pytest.raises(ValidationError, match="allowance"):
-        law_details(allowance=None)
+    assert "allowance" in refusal(
+        ValidationError, lambda: law_details(comparator="<=", tolerance="inequality")
+    )
+    assert "allowance" in refusal(ValidationError, lambda: law_details(allowance=None))
 
 
 @pytest.mark.parametrize(
@@ -124,8 +140,10 @@ def test_a_comparator_outside_its_tolerance_class_is_refused(
     comparator: str, tolerance: str
 ) -> None:
     allowance = None if tolerance == "inequality" else AMPS
-    with pytest.raises(ValidationError, match="tolerance"):
-        law_details(comparator=comparator, tolerance=tolerance, allowance=allowance)
+    assert "tolerance" in refusal(
+        ValidationError,
+        lambda: law_details(comparator=comparator, tolerance=tolerance, allowance=allowance),
+    )
 
 
 def test_a_pass_and_an_unchecked_record_of_the_laws_check_name_their_law() -> None:
@@ -150,13 +168,15 @@ def test_a_pass_and_an_unchecked_record_of_the_laws_check_name_their_law() -> No
 
 
 def test_an_unchecked_law_record_without_its_law_is_refused() -> None:
-    with pytest.raises(ValidationError, match="names its law"):
-        record(
+    assert "names its law" in refusal(
+        ValidationError,
+        lambda: record(
             outcome="unchecked",
             value=None,
             expected=None,
             details=UncheckedDetails(quantities=("current_draw",)),
-        )
+        ),
+    )
 
 
 def test_a_pass_of_the_laws_check_without_a_law_judged_nothing() -> None:
@@ -165,10 +185,12 @@ def test_a_pass_of_the_laws_check_without_a_law_judged_nothing() -> None:
         outcome="pass", node=None, value=None, expected=None, details=PassDetails(evaluated=0)
     )
     assert empty.details.form == "pass"
-    with pytest.raises(ValidationError, match="names its law"):
-        record(
+    assert "names its law" in refusal(
+        ValidationError,
+        lambda: record(
             outcome="pass", node=None, value=None, expected=None, details=PassDetails(evaluated=2)
-        )
+        ),
+    )
 
 
 @pytest.mark.parametrize(
@@ -179,8 +201,9 @@ def test_a_pass_of_the_laws_check_without_a_law_judged_nothing() -> None:
     ],
 )
 def test_no_other_check_names_a_law(details: PassDetails | UncheckedDetails) -> None:
-    with pytest.raises(ValidationError, match="only the laws check"):
-        CheckRecord(
+    assert "only the laws check" in refusal(
+        ValidationError,
+        lambda: CheckRecord(
             check=1,
             name="units",
             scope="subtask",
@@ -194,12 +217,12 @@ def test_no_other_check_names_a_law(details: PassDetails | UncheckedDetails) -> 
             message="m",
             gate_mode="on",
             details=details,
-        )
+        ),
+    )
 
 
 def test_law_details_never_stand_under_another_check() -> None:
-    with pytest.raises(ValidationError):
-        record(check=4, name="power")
+    refusal(ValidationError, lambda: record(check=4, name="power"))
 
 
 #: A gate line exactly as checks 1 to 7 wrote it before the laws check existed.
