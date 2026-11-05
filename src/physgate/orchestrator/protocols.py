@@ -320,9 +320,10 @@ class IntegrationArtefact(_Frozen):
         return self
 
 
-#: The architecture's physics checks, by name, with their numbers (ARCH-080).
+#: The architecture's physics checks, by name, with their numbers (ARCH-080). The eighth judges
+#: closed-form laws, each a row of a protected table rather than code (ARCH-084, proposed).
 CheckName = Literal[
-    "units", "magnitude", "equilibrium", "power", "conservation", "thermal", "propagation"
+    "units", "magnitude", "equilibrium", "power", "conservation", "thermal", "propagation", "laws"
 ]
 CHECK_NUMBERS: dict[str, int] = {
     "units": 1,
@@ -332,7 +333,12 @@ CHECK_NUMBERS: dict[str, int] = {
     "conservation": 5,
     "thermal": 6,
     "propagation": 7,
+    "laws": 8,
 }
+#: The highest check number a record may carry.
+LAST_CHECK = max(CHECK_NUMBERS.values())
+#: A law's own state: on probation (its failure warns and blocks nothing) or out of it.
+LawStatus = Literal["warn", "block"]
 #: Where a check ran: on one attempt's own nodes, on a module, or on the whole system.
 Scope = Literal["subtask", "module", "system"]
 #: What one check found. ``unchecked`` is never a pass: it names what no check could judge.
@@ -341,17 +347,43 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
 class PassDetails(_Frozen):
-    """A check that ran and found nothing wrong, and how many things it looked at."""
+    """A check that ran and found nothing wrong, and how many things it looked at.
+
+    For the laws check, one pass per law and scope, naming the law: its reach is stated per
+    law, so a law that judged nothing is never hidden behind another that judged much. No other
+    check names a law, and the field is left out of every other record entirely, so what checks
+    1 to 7 write is unchanged byte for byte.
+    """
 
     form: Literal["pass"] = "pass"
     evaluated: Count
+    law_id: NonEmptyStr | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_no_law(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.law_id is None:
+            data.pop("law_id", None)
+        return data
 
 
 class UncheckedDetails(_Frozen):
-    """The quantities no check could judge beyond what the record says."""
+    """The quantities no check could judge beyond what the record says.
+
+    For the laws check, the law that could not be judged here; absent, and left out of the
+    record, for every other check.
+    """
 
     form: Literal["unchecked"] = "unchecked"
     quantities: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
+    law_id: NonEmptyStr | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_no_law(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.law_id is None:
+            data.pop("law_id", None)
+        return data
 
 
 class UnitDetails(_Frozen):
@@ -435,6 +467,66 @@ class PropagationDetails(_Frozen):
     unwritten: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
 
 
+class LawInput(_Frozen):
+    """One input of one law instance: the number as declared, as evaluated, and who wrote it."""
+
+    node_id: NonEmptyStr
+    name: NonEmptyStr
+    declared: NumericOutput
+    #: The same number in its kind's canonical unit, which is what the law was evaluated at.
+    canonical: NumericOutput
+    #: The quantity's own ``source`` and ``written_by`` on the node.
+    source: NonEmptyStr
+    written_by: NonEmptyStr
+
+
+#: Which comparators each tolerance class admits: an allowance only for an equality, and
+#: rounding never credited toward an inequality.
+TOLERANCE_COMPARATORS: dict[str, frozenset[str]] = {
+    "rounding": frozenset({"=="}),
+    "model": frozenset({"=="}),
+    "inequality": frozenset({"<=", ">="}),
+}
+
+
+class LawDetails(_Frozen):
+    """Check 8: a law that does not hold, with everything needed to see why.
+
+    The law and its textbook source, its inputs with their own sources, both sides, the
+    residual and the allowance the tolerance class gives, the digest of the table that judged
+    it, the law's probation state, and how many instances of the law the check evaluated at
+    this scope.
+    """
+
+    form: Literal["laws"] = "laws"
+    law_id: NonEmptyStr
+    statement: NonEmptyStr
+    source: NonEmptyStr
+    law_status: LawStatus
+    #: The instance spelled over nodes: ``power_draw(motor.left) == ...``.
+    expression: NonEmptyStr
+    inputs: Annotated[tuple[LawInput, ...], Field(min_length=1)]
+    left: NumericOutput
+    right: NumericOutput
+    comparator: Literal["==", "<=", ">="]
+    tolerance: Literal["rounding", "inequality", "model"]
+    residual: NumericOutput
+    #: What the tolerance class allows an equality to miss by; an inequality has none.
+    allowance: NumericOutput | None
+    laws_sha256: Sha256
+    evaluated: Count
+
+    @model_validator(mode="after")
+    def _a_tolerance_class_admits_its_comparators(self) -> LawDetails:
+        if self.comparator not in TOLERANCE_COMPARATORS[self.tolerance]:
+            msg = f"the {self.tolerance} tolerance does not admit {self.comparator!r}"
+            raise ValueError(msg)
+        if (self.allowance is None) != (self.tolerance == "inequality"):
+            msg = "an equality carries its allowance and an inequality has none"
+            raise ValueError(msg)
+        return self
+
+
 CheckDetails = Annotated[
     PassDetails
     | UncheckedDetails
@@ -444,7 +536,8 @@ CheckDetails = Annotated[
     | PowerDetails
     | ConservationDetails
     | ThermalDetails
-    | PropagationDetails,
+    | PropagationDetails
+    | LawDetails,
     Field(discriminator="form"),
 ]
 
@@ -459,11 +552,13 @@ class CheckRecord(_Frozen):
     rewriting this one.
     """
 
-    check: Annotated[int, Field(ge=1, le=7)]
+    check: Annotated[int, Field(ge=1, le=LAST_CHECK)]
     name: CheckName
     scope: Scope
     outcome: Outcome
-    #: Whether a failure of this check blocks at this scope, whatever the run's mode.
+    #: Whether a failure of this check blocks at this scope, whatever the run's mode. For the
+    #: laws check, whether this record's law blocks here: the check's scope blocks and the law
+    #: is out of probation.
     blocking: bool
     node: NonEmptyStr | None
     module: NonEmptyStr | None
@@ -487,7 +582,31 @@ class CheckRecord(_Frozen):
         if self.details.form != expected:
             msg = f"a {self.outcome} record of the {self.name} check carries {self.details.form}"
             raise ValueError(msg)
+        self._names_its_law()
         return self
+
+    def _names_its_law(self) -> None:
+        """A laws record names its law; no other check's record names one.
+
+        The one laws record without a law is the pass of a check that had no law to judge,
+        which therefore evaluated nothing.
+        """
+        details = self.details
+        if isinstance(details, LawDetails):
+            if details.law_status == "warn" and self.blocking:
+                msg = "a law on probation never blocks"
+                raise ValueError(msg)
+            return
+        law_id = details.law_id if isinstance(details, PassDetails | UncheckedDetails) else None
+        if self.name != "laws":
+            if law_id is not None:
+                msg = "only the laws check names a law"
+                raise ValueError(msg)
+            return
+        no_law_judged = isinstance(details, PassDetails) and details.evaluated == 0
+        if law_id is None and not no_law_judged:
+            msg = "a record of the laws check names its law"
+            raise ValueError(msg)
 
 
 class GateResult(_Frozen):

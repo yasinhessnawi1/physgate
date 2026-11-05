@@ -7,6 +7,15 @@ was asked to run in. A mode it does not recognise, or none, is refused before an
 check runs: a record without its mode would let an observed failure be counted as
 a gated one, and the catch accounting would no longer mean anything.
 
+A law of the closed-form laws check blocks only where that check blocks **and** the
+law is out of probation. The check reports each law's failure the same way whatever
+the law's state; the runner looks the law up in the table the gate was built with and
+stamps a probation law's failure as a warning, in ``on`` mode as in ``observe``. The
+check never decides whether its own failure blocks, and neither does a law. Each law
+is stamped as a check of its own at each scope, so its reach is always on the record:
+its own pass record with its count where it failed nowhere, its count on its failing
+records where it failed, and its unchecked records where it judged nothing.
+
 The verdict is not chosen here either. It follows from the records by the rule
 the result shape itself enforces: it fails exactly when a check failed where its
 failure blocks. Under ``observe`` the verdict is the same; the loop decides not to
@@ -15,14 +24,15 @@ act on it.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
+from types import MappingProxyType
 
 from physgate.gate.bounds_table import Bounds, load_bounds
 from physgate.gate.catalogue import catalogue_digest
 from physgate.gate.context import CheckContext
 from physgate.gate.equilibrium import EquilibriumSolver
-from physgate.gate.exceptions import GateModeError, NothingCheckedError
+from physgate.gate.exceptions import GateModeError, LawRecordError, NothingCheckedError
 from physgate.gate.graph import ChangeHistory, GraphView
 from physgate.gate.registry import CADENCE, REGISTRY, OnFailure, RegisteredCheck
 from physgate.gate.result import CheckRun, Observation
@@ -33,10 +43,13 @@ from physgate.orchestrator.protocols import (
     CheckRecord,
     GateResult,
     IntegrationArtefact,
+    LawDetails,
+    LawStatus,
     PassDetails,
     QuantityRef,
     RunningGateMode,
     Scope,
+    UncheckedDetails,
 )
 
 #: The order the scopes are checked in, narrowest first.
@@ -67,8 +80,13 @@ class PhysicsGate:
         registry: tuple[RegisteredCheck, ...] = REGISTRY,
         bounds: Bounds | None = None,
         solver: EquilibriumSolver | None = None,
+        law_status: Mapping[str, LawStatus] | None = None,
     ) -> None:
         """Run the checks in ``registry`` against ``bounds``: the real ones unless a test says.
+
+        ``law_status`` is each law's probation state, by law id, from the law table the gate
+        is built with; it decides whether a law's failure blocks. With none, the gate holds
+        no law, and a laws check can only record that it judged nothing.
 
         Raises:
             BoundsTableError: the bounds table does not load; no gate is built without it.
@@ -77,6 +95,7 @@ class PhysicsGate:
         self._bounds = bounds if bounds is not None else load_bounds()
         self._catalogue_sha256 = catalogue_digest()
         self._solver = solver
+        self._law_status: Mapping[str, LawStatus] = MappingProxyType(dict(law_status or {}))
 
     def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
         """Check one attempt's artefact.
@@ -131,15 +150,16 @@ class PhysicsGate:
                 ran = entry.run(
                     CheckContext(view=view, scope=scope, bounds=self._bounds, solver=self._solver)
                 )
-                stamped = _stamp(entry.name, scope, on_failure, running, ran)
-                records.extend(stamped)
-                if on_failure == "block":
-                    failing_quantities.extend(
-                        q
-                        for o in _ordered(ran.observations)
-                        if o.outcome == "fail"
-                        for q in o.quantities
+                if entry.name == "laws":
+                    stamped, failing = _stamp_laws(
+                        scope, on_failure, running, ran, self._law_status
                     )
+                else:
+                    _require_no_law(entry.name, ran)
+                    stamped = _stamp(entry.name, scope, on_failure, running, ran)
+                    failing = _failing(ran) if on_failure == "block" else []
+                records.extend(stamped)
+                failing_quantities.extend(failing)
         if not records:
             msg = "no registered check runs at the scopes asked for"
             raise NothingCheckedError(msg, scopes=",".join(wanted) or "none")
@@ -151,14 +171,99 @@ def _ordered(observations: Iterable[Observation]) -> list[Observation]:
     return sorted(observations, key=lambda o: (o.node or "", o.module or "", o.outcome, o.message))
 
 
+def _failing(ran: CheckRun) -> list[QuantityRef]:
+    """The quantities of the failures in ``ran``, in record order."""
+    return [q for o in _ordered(ran.observations) if o.outcome == "fail" for q in o.quantities]
+
+
+def _law_of(observation: Observation) -> str | None:
+    """The law an observation is about, if it names one."""
+    details = observation.details
+    if isinstance(details, LawDetails | UncheckedDetails | PassDetails):
+        return details.law_id
+    return None
+
+
+def _require_no_law(name: CheckName, ran: CheckRun) -> None:
+    """Refuse a law reported by any check but the laws check.
+
+    Raises:
+        LawRecordError: ``ran`` counts a law, or an observation in it names one.
+    """
+    if ran.law_evaluated or any(_law_of(o) is not None for o in ran.observations):
+        msg = "only the laws check reports a law"
+        raise LawRecordError(msg, check=name)
+
+
+def _stamp_laws(
+    scope: Scope,
+    on_failure: OnFailure,
+    mode: RunningGateMode,
+    ran: CheckRun,
+    statuses: Mapping[str, LawStatus],
+) -> tuple[list[CheckRecord], list[QuantityRef]]:
+    """The laws check's records, each law stamped as a check of its own, in law-id order.
+
+    A law blocks here only if the check blocks here and the law is out of probation, as the
+    table the gate was built with says. Returns the records and the quantities of the failures
+    that block.
+
+    Raises:
+        LawRecordError: a law the table does not hold, a law without its count, a failure at
+            another status than the table's or with another count than the law's, or an
+            observation that names no law.
+    """
+    counts = {c.law_id: c.evaluated for c in ran.law_evaluated}
+    by_law: dict[str, list[Observation]] = {}
+    for observation in ran.observations:
+        law_id = _law_of(observation)
+        if law_id is None:
+            msg = "a laws observation names no law"
+            raise LawRecordError(msg, node=observation.node or "")
+        by_law.setdefault(law_id, []).append(observation)
+    if not counts and not by_law:
+        if ran.evaluated:
+            msg = "the laws check counted instances without naming their laws"
+            raise LawRecordError(msg, evaluated=str(ran.evaluated))
+        return _stamp("laws", scope, on_failure, mode, ran), []
+    records: list[CheckRecord] = []
+    failing: list[QuantityRef] = []
+    for law_id in sorted(set(counts) | set(by_law)):
+        status = statuses.get(law_id)
+        if status is None:
+            msg = "a law the check reported is not in the table the gate was built with"
+            raise LawRecordError(msg, law=law_id)
+        if law_id not in counts:
+            msg = "a law was reported without its count"
+            raise LawRecordError(msg, law=law_id)
+        observations = tuple(by_law.get(law_id, ()))
+        for o in observations:
+            if isinstance(o.details, LawDetails) and o.details.law_status != status:
+                msg = "a law was reported at another status than the table's"
+                raise LawRecordError(msg, law=law_id, reported=o.details.law_status, table=status)
+            if isinstance(o.details, LawDetails) and o.details.evaluated != counts[law_id]:
+                msg = "a law's failing record does not carry the law's count"
+                raise LawRecordError(msg, law=law_id)
+        blocks = on_failure == "block" and status == "block"
+        one = CheckRun(tool=ran.tool, evaluated=counts[law_id], observations=observations)
+        records.extend(_stamp("laws", scope, "block" if blocks else "warn", mode, one, law_id))
+        if blocks:
+            failing.extend(_failing(one))
+    return records, failing
+
+
 def _stamp(
     name: CheckName,
     scope: Scope,
     on_failure: OnFailure,
     mode: RunningGateMode,
     ran: CheckRun,
+    law_id: str | None = None,
 ) -> list[CheckRecord]:
-    """Every record one check's run produces, each carrying the mode and the scope."""
+    """Every record one check's run produces, each carrying the mode and the scope.
+
+    ``law_id`` names the law, for one law of the laws check; its pass record names it too.
+    """
     blocking = on_failure == "block"
     records = [
         CheckRecord(
@@ -198,9 +303,13 @@ def _stamp(
                 value=None,
                 expected=None,
                 tool=ran.tool,
-                message=f"the {name} check found nothing wrong ({ran.evaluated} evaluated)",
+                message=(
+                    f"the {law_id} law found nothing wrong ({ran.evaluated} evaluated)"
+                    if law_id is not None
+                    else f"the {name} check found nothing wrong ({ran.evaluated} evaluated)"
+                ),
                 gate_mode=mode,
-                details=PassDetails(evaluated=ran.evaluated),
+                details=PassDetails(evaluated=ran.evaluated, law_id=law_id),
             ),
         )
     return records

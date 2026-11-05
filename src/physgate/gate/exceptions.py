@@ -27,3 +27,12 @@ class NothingCheckedError(GateError):
 
 class ChangeHistoryError(GateError):
     """A change history that does not describe the journal the gate was asked to read."""
+
+
+class LawRecordError(GateError):
+    """A law record that does not agree with the law table the gate was built with.
+
+    A law the table does not hold, a status other than the table's, a count that is not the
+    law's, or a law reported by a check other than the laws check: the runner would otherwise
+    have to guess whether the failure blocks, so it stops instead.
+    """
