@@ -18,9 +18,11 @@ from types import ModuleType
 from typing import Any
 
 import pytest
-
-CANDIDATE = "0" * 31 + "1"
-AUDIT = "b" * 64
+from law_rows import AUDIT as AUDIT
+from law_rows import CANDIDATE as CANDIDATE
+from law_rows import cleared as cleared
+from law_rows import sound_law as sound_law
+from law_rows import toml_value
 
 
 def laws_module() -> ModuleType:
@@ -31,83 +33,12 @@ def laws_module() -> ModuleType:
         pytest.fail("the gate has no law table module (physgate.gate.laws) yet")
 
 
-def sound_law(law_id: str = "electrical_power", **changes: Any) -> dict[str, Any]:
-    """One law that loads: the power a node draws is its supply voltage times its current."""
-    row: dict[str, Any] = {
-        "id": law_id,
-        "statement": "the power a node draws is its supply voltage times the current it draws",
-        "expression": "P == V * I",
-        "pattern": "node",
-        "anchor": "P",
-        "tolerance": "rounding",
-        "status": "warn",
-        "overlaps": "none",
-        "idealisation": "a DC supply; with ripple the product of the means understates the power",
-        "literals": [],
-        "requires": [],
-        "unless": [],
-        "symbols": {
-            "P": {"name": "power_draw", "place": "self"},
-            "V": {"name": "supply_voltage", "place": "self"},
-            "I": {"name": "current_draw", "place": "self"},
-        },
-        "source": {
-            "kind": "textbook",
-            "title": "Fundamentals of Electric Circuits",
-            "edition": "7th",
-            "section": "1.5, power and energy",
-            "read": "2026-11-05",
-            "reading": "in full",
-        },
-        "approved": {"candidate_id": CANDIDATE, "date": "2026-11-05"},
-        "example": [
-            {
-                "outcome": "pass",
-                "source": "an IMU breakout's data sheet: 3.3 V, 3.9 mA",
-                "values": {
-                    "P": {"value": 12.9, "unit": "mW"},
-                    "V": {"value": 3.3, "unit": "V"},
-                    "I": {"value": 3.9, "unit": "mA"},
-                },
-            },
-            {
-                "outcome": "fail",
-                "source": "the same data sheet, with the power written at 5 V",
-                "values": {
-                    "P": {"value": 19.5, "unit": "mW"},
-                    "V": {"value": 3.3, "unit": "V"},
-                    "I": {"value": 3.9, "unit": "mA"},
-                },
-            },
-        ],
-    }
-    row.update(changes)
-    return row
-
-
-def _value(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int | float):
-        return repr(value)
-    if isinstance(value, str):
-        if len(value) == 10 and value[4] == "-" and value[7] == "-" and value[:4].isdigit():
-            return value  # a TOML date
-        return json.dumps(value)
-    if isinstance(value, list):
-        return "[" + ", ".join(_value(v) for v in value) + "]"
-    if isinstance(value, Mapping):
-        return "{ " + ", ".join(f"{k} = {_value(v)}" for k, v in value.items()) + " }"
-    msg = f"no TOML spelling for {value!r}"
-    raise TypeError(msg)
-
-
 def toml(laws: list[dict[str, Any]], *, comment: str = "") -> str:
     """The table file holding ``laws``, every table spelled inline under its ``[[law]]``."""
     lines = [f"# {comment}" if comment else "# the law table", "[meta]", "format = 1", ""]
     for law in laws:
         lines.append("[[law]]")
-        lines.extend(f"{key} = {_value(value)}" for key, value in law.items())
+        lines.extend(f"{key} = {toml_value(value)}" for key, value in law.items())
         lines.append("")
     return "\n".join(lines)
 
@@ -178,19 +109,6 @@ def refused(root: Path, laws: list[dict[str, Any]], **kwargs: Any) -> str:
     except module.LawTableError as exc:
         return f"{exc} {exc.context}"
     raise AssertionError("the table loaded, where a refusal was expected")
-
-
-def cleared(**changes: Any) -> dict[str, Any]:
-    """The audit's clearance for a block move, meeting the bar."""
-    row: dict[str, Any] = {
-        "audit_sha256": AUDIT,
-        "evaluated_clean": 12,
-        "designs": ["practice-set", "g11-run-4"],
-        "unexplained": 0,
-        "approved": "2026-11-20",
-    }
-    row.update(changes)
-    return row
 
 
 def table_of(root: Path, statuses: Mapping[str, str]) -> Any:

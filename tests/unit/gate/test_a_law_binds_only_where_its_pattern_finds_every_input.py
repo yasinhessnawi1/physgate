@@ -273,6 +273,27 @@ def test_a_subject_no_member_names_is_unchecked_never_an_empty_sum(
     assert [r.outcome for r in of_law(records, "reaction_moment_sum")] == ["unchecked"]
 
 
+@pytest.mark.parametrize("moment", [2, 3])
+def test_a_subject_that_is_an_interface_node_is_unchecked_whatever_its_members_sum_to(
+    tmp_path: Path, moment: float
+) -> None:
+    # An interface holds values fixed when the design was decomposed, not a part's own: the law
+    # refuses nothing there, as an edge into an interface refuses nothing. With members summing
+    # to 3, a carrier declaring 2 would be refused and one declaring 3 passed; neither is judged.
+    laws = table(tmp_path / "t", [reaction_sum()])
+    bus = node(
+        "mechanical.chassis",
+        kind="interface",
+        domain="mechanical",
+        quantities={"reaction_moment": (moment, "N*m")},
+    )
+    records = laws_records(laws, view_of(tmp_path, bus, unit("left", 1), unit("right", 2)))
+    assert judged_of(records, "reaction_moment_sum") == []
+    record = one(unchecked_of(records, "reaction_moment_sum"))
+    assert "interface" in record.message and "mechanical.chassis" in record.message
+    assert [r.outcome for r in of_law(records, "reaction_moment_sum")] == ["unchecked"]
+
+
 # --- inputs the law cannot evaluate --------------------------------------------------------
 
 
