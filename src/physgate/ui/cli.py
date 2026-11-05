@@ -39,6 +39,11 @@ def _ui_root() -> Path | None:
     return None if root is None else root / "ui"
 
 
+def _default_library() -> Path | None:
+    """The library the server reads when none is named."""
+    return None
+
+
 def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Register ``physgate ui`` on the top-level command."""
     p = subparsers.add_parser(
@@ -60,6 +65,7 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         default=[],
         help="an absolute path of a corpus carrying its answers, never read",
     )
+    p.add_argument("--library", default=None, help="the library folder to read")
     p.add_argument("--bind", default=DEFAULT_BIND, help="127.0.0.1 or ::1; nothing else")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p.add_argument(

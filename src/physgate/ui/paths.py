@@ -144,6 +144,8 @@ class Allowlist:
 
     roots: tuple[Root, ...]
     refused: tuple[str, ...]
+    library: Root | None = None
+    withheld: tuple[str, ...] = ()
 
     @classmethod
     def build(
@@ -153,6 +155,7 @@ class Allowlist:
         held_out: Sequence[str],
         answer_keys: Sequence[str],
         harness: Path | None,
+        library: str | None = None,
     ) -> Allowlist:
         """Check the command line's paths and build the allowlist, or refuse to start.
 

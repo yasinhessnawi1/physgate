@@ -225,10 +225,19 @@ def serving(context: Context, routes: tuple[Route, ...] = ROUTES) -> Iterator[Li
         thread.join(timeout=10)
 
 
-def context_over(*roots: Path, ui_root: Path, held_out: tuple[str, ...] = ()) -> Context:
-    """A context over ``roots`` with the fixture build loaded."""
+def context_over(
+    *roots: Path,
+    ui_root: Path,
+    held_out: tuple[str, ...] = (),
+    library: Path | None = None,
+) -> Context:
+    """A context over ``roots`` with the fixture build loaded, and a library if one is named."""
     allowlist = Allowlist.build(
-        [str(r) for r in roots], held_out=held_out, answer_keys=(), harness=None
+        [str(r) for r in roots],
+        held_out=held_out,
+        answer_keys=(),
+        harness=None,
+        library=None if library is None else str(library),
     )
     return Context(allowlist=allowlist, assets=assets.load(ui_root))
 
