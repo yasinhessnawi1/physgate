@@ -79,16 +79,24 @@ function section(page: Page, name: string) {
   return page.locator('[aria-label="Library sections"]').getByRole("button", { name });
 }
 
-/** Nothing on the page scrolls sideways: not the page, not the content, not a table. */
+/**
+ * Nothing on the page scrolls sideways: not the page, the content, the inspector, a file's text
+ * or the changed lines, and, with no inspector open, no table either. With the inspector open the
+ * content is 360 px narrower, and a table may then scroll inside its own region, which takes the
+ * keyboard's focus for it.
+ */
 async function noSidewaysScroll(page: Page) {
   const wide = await page.evaluate(() => {
     const found: string[] = [];
     const root = document.scrollingElement;
     if (root !== null && root.scrollWidth > root.clientWidth + 1) found.push("the page");
-    for (const el of document.querySelectorAll<HTMLElement>(
-      ".pg-content, .pg-inspector-slot, .pg-table-wrap, .pg-lib-text, .pg-lib-diff",
-    ))
-      if (el.scrollWidth > el.clientWidth + 1) found.push(el.className);
+    const inspecting = document.querySelector(".pg-inspector-region:not([hidden])") !== null;
+    const selector = `.pg-content, .pg-inspector-slot, .pg-lib-text, .pg-lib-diff${
+      inspecting ? "" : ", .pg-table-wrap"
+    }`;
+    for (const el of document.querySelectorAll<HTMLElement>(selector))
+      if (el.scrollWidth > el.clientWidth + 1)
+        found.push(`${el.className} ${el.getAttribute("aria-label") ?? ""}`.trim());
     return found;
   });
   expect(wide).toEqual([]);
