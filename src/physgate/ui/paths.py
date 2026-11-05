@@ -28,6 +28,20 @@ record can be forged, so each is held to three tests in a fixed order:
 At start, a root that contains a refused path or lies inside one refuses to
 start, so the two sets can never overlap.
 
+**The library.** Besides the run roots, the allowlist may name one more folder: the
+curated library, the checkout's ``knowledge`` folder. It is a slot of its own and never a
+run root, so nothing scans it for runs and no request addresses it by position. It sits in
+the checkout beside the evaluation corpora, the private document tier, the source tree and
+the environment file, so it is held to start checks of its own: a real folder named
+``knowledge``, outside any corpus, overlapping no refused path and no run root. Inside it,
+every refusal above holds as it does beneath a run root. One folder inside it is
+**withheld**: ``reviewers``, the tree only reviewers read. Any local process can reach the
+server, a builder's shell among them, and a builder that fetched its reviewer's rubric over
+loopback would no longer be judged blind. The withheld folder is refused like the held-out
+tier, by the resolver and therefore by the guard's read rule; it is not part of the start
+overlap check, since it lies inside the library by construction. The descriptor walk that
+writes go through reaches the run roots only, so no write can be aimed inside the library.
+
 **The window between a check and an open.** :meth:`Allowlist.resolve` judges a path
 and returns it; a reader then opens it by name. A same-user process that swaps a
 checked file, or a directory above it, for a link in that moment would have the
@@ -61,6 +75,12 @@ SECRET_NAMES = frozenset(name.casefold() for name in (LOGIN_FILE, KEY_FILE, KEY_
 
 #: A directory of this name holds evaluation corpora, which carry their answers.
 CORPUS_DIR = "corpora"
+
+#: The name the library folder has, as a checkout's own does.
+LIBRARY_NAME = "knowledge"
+
+#: The folder inside the library that only reviewers read, withheld from every request.
+REVIEWERS_DIR = "reviewers"
 
 #: Files a request may open besides the roots: the interpreter's own (a module imported late)
 #: and this package's (its recorded price sheets). Nothing in a run directory is among them.
@@ -140,7 +160,11 @@ class Root:
 
 @dataclass(frozen=True)
 class Allowlist:
-    """The roots the server may read beneath, and the paths it never reads."""
+    """The roots the server may read beneath, and the paths it never reads.
+
+    ``library`` is the curated library's slot, or ``None``; ``withheld`` holds the folders
+    inside it no request may read.
+    """
 
     roots: tuple[Root, ...]
     refused: tuple[str, ...]
@@ -161,11 +185,13 @@ class Allowlist:
 
         Held-out paths and answer keys are taken the way the hooks take them:
         explicit and absolute. The harness checkout's ``corpora`` is always refused.
+        ``library``, when named, is the curated library's folder, held to its own checks
+        (:func:`_library_slot`); its ``reviewers`` folder is withheld.
 
         Raises:
             StartupRefusedError: no root; a root missing, not a directory, or holding a
-                NUL; a refused path not absolute; or a root that contains a refused
-                path or lies inside one.
+                NUL; a refused path not absolute; a root that contains a refused
+                path or lies inside one; or a library that fails a check.
         """
         if not roots:
             msg = "name at least one root to read"
@@ -198,7 +224,15 @@ class Allowlist:
                     raise StartupRefusedError(msg, root=given, refused=path)
             st = os.stat(real)
             built.append(Root(path=Path(real), ids=(st.st_dev, st.st_ino)))
-        return cls(roots=tuple(built), refused=tuple(refused))
+        if library is None:
+            return cls(roots=tuple(built), refused=tuple(refused))
+        slot = _library_slot(library, refused, built)
+        return cls(
+            roots=tuple(built),
+            refused=tuple(refused),
+            library=slot,
+            withheld=(str(slot.path / REVIEWERS_DIR),),
+        )
 
     def readable(self, path: str) -> bool:
         """Whether a request may open or list ``path``: the guard's rule for every such call.
@@ -237,6 +271,9 @@ class Allowlist:
         for refused in self.refused:
             if reaches(real, refused) or reaches(text, refused):
                 return "the path reaches a path nothing may read"
+        for withheld in self.withheld:
+            if reaches(real, withheld) or reaches(text, withheld):
+                return "the path lies in the reviewers' folder, which builders may not read"
         if _has_corpus_component(real) or _has_corpus_component(text):
             return "the path lies inside an evaluation corpus"
         if os.path.basename(real).casefold() in SECRET_NAMES:
@@ -275,7 +312,7 @@ class Allowlist:
         """:meth:`resolve`'s checks on an absolute path free of NUL bytes."""
         real = os.path.realpath(text)
         ids = set(_ancestor_ids(real))
-        if not any(root.ids in ids for root in self.roots):
+        if not any(root.ids in ids for root in self._slots()):
             msg = "the path is outside every root the server was given"
             raise PathRefusedError(msg, path=text)
         refusal = self._refusal(text, real)
@@ -289,6 +326,10 @@ class Allowlist:
             msg = "the file has more than one name on disk, so its other name may be refused"
             raise PathRefusedError(msg, path=text)
         return Path(real)
+
+    def _slots(self) -> tuple[Root, ...]:
+        """Every folder a request may read beneath: the run roots, then the library if any."""
+        return self.roots if self.library is None else (*self.roots, self.library)
 
     def open_directory(self, path: Path | str) -> int:
         """A descriptor of the directory at ``path``, reached so that no swap can redirect it.
@@ -349,7 +390,10 @@ class Allowlist:
             os.close(fd)
 
     def _beneath(self, real: Path) -> tuple[Root, tuple[str, ...]]:
-        """The nearest root at or above ``real``, by (device, inode), and the names below it.
+        """The nearest run root at or above ``real``, by (device, inode), and the names below it.
+
+        Run roots only, never the library: this is the walk a write goes through, and nothing
+        is ever written inside the library.
 
         Raises:
             PathRefusedError: no directory at or above ``real`` is a root any longer.
@@ -365,3 +409,43 @@ class Allowlist:
                     return root, tuple(parts[depth:])
         msg = "the path is outside every root the server was given"
         raise PathRefusedError(msg, path=str(real))
+
+
+def _library_slot(given: str, refused: Sequence[str], roots: Sequence[Root]) -> Root:
+    """The library's slot, after its start checks, or refuse to start.
+
+    The library is the checkout's curated folder. It lies beside folders the server must never
+    read, so it is held to more than a run root is: it must be a real folder named like a
+    checkout's own, outside any corpus, overlapping no refused path, and overlapping no run
+    root either way, so that every file is reached through exactly one slot.
+
+    Raises:
+        StartupRefusedError: the library holds a NUL, is not an existing directory, lies in a
+            corpus, is not named ``knowledge``, or overlaps a refused path or a run root.
+    """
+    if _has_nul(given):
+        msg = "a library holding a NUL byte names no directory"
+        raise StartupRefusedError(msg, library=repr(given))
+    real = os.path.realpath(os.path.abspath(given))
+    if not os.path.isdir(real):
+        msg = "the library must be an existing directory"
+        raise StartupRefusedError(msg, library=given)
+    if _has_corpus_component(real):
+        msg = "the library may not lie inside an evaluation corpus"
+        raise StartupRefusedError(msg, library=given)
+    if os.path.basename(real) != LIBRARY_NAME:
+        msg = f"the library is a folder named {LIBRARY_NAME}, as a checkout's own is"
+        raise StartupRefusedError(msg, library=given)
+    for path in refused:
+        if reaches(real, path) or reaches(path, real):
+            msg = "the library overlaps a path nothing may read: it contains it or lies inside it"
+            raise StartupRefusedError(msg, library=given, refused=path)
+    for root in roots:
+        if reaches(real, str(root.path)) or reaches(str(root.path), real):
+            msg = (
+                "the library overlaps a run root: it contains it or lies inside it, so a file "
+                "would be reached through two slots"
+            )
+            raise StartupRefusedError(msg, library=given, root=str(root.path))
+    st = os.stat(real)
+    return Root(path=Path(real), ids=(st.st_dev, st.st_ino))
