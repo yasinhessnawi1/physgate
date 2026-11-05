@@ -78,7 +78,9 @@ function ItemList({
             {listed.map((view) => {
               const next = new URLSearchParams(query);
               next.set("item", view.item.itemId);
-              const on = view === chosen;
+              // By id, not by object: the chosen item's view is read again when it is chosen, so
+              // the one shown is a different object from the listed one for the same item.
+              const on = view.item.itemId === chosen?.item.itemId;
               return (
                 <li key={view.item.itemId}>
                   <a
