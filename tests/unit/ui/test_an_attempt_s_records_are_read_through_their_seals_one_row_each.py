@@ -25,6 +25,7 @@ import statistics
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -264,6 +265,39 @@ def test_a_later_session_s_record_is_served_in_place_of_the_one_it_superseded(
     ]
     assert {session for _, session in rows} == {retry.session_id}
     assert len(rows) == 6
+
+
+def test_a_frequency_record_without_the_loop_s_two_traces_is_not_a_loop(
+    world: dict[str, Path],
+) -> None:
+    subtask, attempt = _sealed(world["runs"] / "run-series-large")[0]
+    rows = {
+        r["record_id"]: r for r in _read(world, "run-series-large", subtask, attempt)["records"]
+    }
+    assert (rows["sweep_gain"]["axis"], rows["sweep_gain"]["loop"]) == ("frequency", False)
+    assert rows["long_run"]["loop"] is False
+
+
+def test_every_record_path_is_held_to_the_allowlist_before_it_is_read(
+    world: dict[str, Path], tmp_path: Path
+) -> None:
+    root, run = _copy(world, "run-series", tmp_path)
+    entry = _first(run)
+    context = _context(world, root)
+    # The allowlist refuses the first record's own path, though nothing else would: the route
+    # must ask it, and so refuse that record as a row of its own.
+    refusing = replace(
+        context.allowlist,
+        refused=(*context.allowlist.refused, os.path.realpath(entry.path(run))),
+    )
+    with serving(replace(context, allowlist=refusing)) as live:
+        status, _, body = live.request(
+            "GET", f"/api/runs/0/run-series/series/{entry.subtask_id}/{entry.attempt}"
+        )
+    assert status == 200, body
+    refused, *kept = json.loads(body)["records"]
+    assert refused["refused"] == "seal", refused
+    assert kept and all("refused" not in row for row in kept)
 
 
 def _change(entry: SealedEntry, run: Path, tmp_path: Path, how: str) -> None:

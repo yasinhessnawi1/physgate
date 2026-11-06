@@ -28,7 +28,8 @@ rather than leaving a test with nothing to look at:
   again in a fresh session, which records every id again. So six records are superseded, one
   file is refused and the temporary file discarded, beside the interpreter's cache of the writer
   that the collector discards from every session;
-- ``run-series-large``: one record at the format's sample bound;
+- ``run-series-large``: one record at the format's sample bound, and one frequency record that
+  is not a loop's frequency response;
 - ``run-series-tampered``: a copy of ``run-series`` with one byte of one sealed record changed.
 
 ``bound_run`` makes one more, ``run-series-bound``, whose sessions each leave as many records as
@@ -113,6 +114,15 @@ series_writer.record(
     ],
     inputs={{"seed": (int(os.environ.get("STAND_IN_SEED", "7")), "dimensionless")}},
     group="long_runs",
+)
+series_writer.record(
+    "sweep_gain",
+    title="Stand-in gain sweep, made-up numbers, not a loop's frequency response",
+    axis="frequency",
+    x=("frequency", "Hz", [1.0, 2.0, 4.0]),
+    traces=[("gain", "dimensionless", [1.0, 0.5, 0.25])],
+    inputs={{"seed": (7, "dimensionless")}},
+    group="sweeps",
 )
 """
 
@@ -289,8 +299,8 @@ def series_runs(root: Path, runs: Path) -> dict[str, Path]:
 
     made["run-series-large"] = series_run(root, runs, repo, "run-series-large", script=LARGE_SCRIPT)
     large = _kinds(made["run-series-large"], SessionEnded)[0].series.records
-    assert [r.record_id for r in large] == ["long_run"]
-    assert large[0].length <= MAX_FILE_BYTES
+    assert [r.record_id for r in large] == ["long_run", "sweep_gain"]
+    assert all(r.length <= MAX_FILE_BYTES for r in large)
 
     made["run-series-tampered"] = tamper(made["run-series"], runs / "run-series-tampered")
     return made
