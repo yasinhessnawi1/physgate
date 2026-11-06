@@ -10,6 +10,11 @@ samples, an integer input beyond what a float holds exactly).
 
 The reader's identifier patterns are public too, so the UI's routes spell a subtask and a
 session exactly as the reader does, and cannot drift from it.
+
+The reader's checked read of a record's bytes is a function of its own as well, so the UI can
+serve the very bytes the reader held to their seal, from the one open, rather than a re-encoding
+of what it parsed. Reading a record is that read followed by the format's one parser, so the two
+admit and refuse exactly the same files, and neither reads past the format's byte bound.
 """
 
 from __future__ import annotations
@@ -17,13 +22,19 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pytest
 from series_fixture import DIGEST, encode, frequency_record_dict, record_dict
 
+from physgate.orchestrator.trajectory import Seal
 from physgate.series import reader, summary
+from physgate.series.exceptions import RecordRefusedError, RecordTamperedError, SeriesError
 from physgate.series.reader import SealedEntry, read_record
+from physgate.series.record import MAX_FILE_BYTES, parse_record
 from physgate.series.seal import AttemptRecord, AttemptSeries, SealedRecord, SeriesCheck
 
 #: The listing's bytes as written before its column arithmetic became a shared function.
@@ -187,3 +198,124 @@ def test_a_tie_between_zero_and_negative_zero_keeps_the_first_as_the_listing_doe
     assert signs["signed_zero"] == (-1.0, -1.0)
     assert signs["zero_first"] == (1.0, 1.0)
     assert json.loads(json.dumps(column_summary(record.traces[0]).first)) == 0.0
+
+
+def _sealed_bytes() -> Callable[[Path, Seal], bytes]:
+    found = getattr(reader, "read_sealed_bytes", None)
+    assert callable(found), "the reader's checked read of a record's bytes is a function of its own"
+    return found  # type: ignore[no-any-return]
+
+
+def test_the_checked_bytes_are_the_sealed_file_s_and_parse_to_the_record_the_reader_reads(
+    tmp_path: Path,
+) -> None:
+    read_sealed_bytes = _sealed_bytes()
+    series = _series(tmp_path)
+    for held in series.records:
+        entry = SealedEntry(SUBTASK, 1, held.session_id, held.record)
+        path, sealed = entry.path(tmp_path), entry.seal()
+        data = read_sealed_bytes(path, sealed)
+        assert data == path.read_bytes()
+        assert (hashlib.sha256(data).hexdigest(), len(data)) == (sealed.sha256, sealed.length)
+        assert parse_record(data) == read_record(path, sealed)
+    assert len(series.records) == len(_records())
+
+
+def _one(run_dir: Path, data: bytes) -> tuple[Path, Seal]:
+    """``data`` written where a session's end would seal it, with its seal."""
+    sealed = SealedRecord(
+        record_id="step_nominal",
+        sha256=hashlib.sha256(data).hexdigest(),
+        length=len(data),
+        script="modules/control/sim.py",
+        script_sha256=DIGEST,
+        script_blob="0" * 40,
+    )
+    entry = SealedEntry(SUBTASK, 1, SESSION, sealed)
+    path = entry.path(run_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path, entry.seal()
+
+
+def _counting(reads: list[int]) -> Callable[[int, int], bytes]:
+    """``os.read``, recording how many bytes each call asked for."""
+    real = os.read
+
+    def read(fd: int, size: int) -> bytes:
+        reads.append(size)
+        return real(fd, size)
+
+    return read
+
+
+HOW = (
+    "a byte changed",
+    "its length changed",
+    "gone",
+    "a link",
+    "a second name",
+    "a fifo in its place",
+    "a directory in its place",
+    "over the byte bound",
+    "a relative path",
+)
+
+
+@pytest.mark.parametrize("how", HOW)
+def test_the_checked_bytes_refuse_exactly_what_reading_the_record_refuses(
+    tmp_path: Path, how: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    read_sealed_bytes = _sealed_bytes()
+    data = encode(record_dict())
+    path, sealed = _one(
+        tmp_path, b" " * (MAX_FILE_BYTES + 1) if how == "over the byte bound" else data
+    )
+    if how == "a byte changed":
+        at = data.index(b"0.05")
+        path.write_bytes(data[:at] + b"9" + data[at + 1 :])
+    elif how == "its length changed":
+        path.write_bytes(data + b" ")
+    elif how == "gone":
+        path.unlink()
+    elif how == "a link":
+        elsewhere = path.with_name("elsewhere.json")
+        path.rename(elsewhere)
+        path.symlink_to(elsewhere)
+    elif how == "a second name":
+        os.link(path, path.with_name("second_name.json"))
+    elif how == "a fifo in its place":
+        path.unlink()
+        os.mkfifo(path)
+    elif how == "a directory in its place":
+        path.unlink()
+        path.mkdir()
+    elif how == "a relative path":
+        path = Path(os.path.relpath(path))
+    refusals: list[SeriesError] = []
+    reads: list[int] = []
+    monkeypatch.setattr(os, "read", _counting(reads))
+    for read in (read_sealed_bytes, read_record):
+        with pytest.raises((RecordTamperedError, RecordRefusedError)) as caught:
+            read(path, sealed)
+        refusals.append(caught.value)
+    checked, whole = refusals
+    assert (type(checked), str(checked), checked.context) == (
+        type(whole),
+        str(whole),
+        whole.context,
+    )
+    if how in ("its length changed", "over the byte bound", "a relative path"):
+        assert reads == [], "refused before a byte is read"
+    assert all(size <= MAX_FILE_BYTES + 1 for size in reads)
+
+
+def test_sealed_bytes_that_are_not_a_record_are_returned_as_sealed_and_refused_by_the_parser(
+    tmp_path: Path,
+) -> None:
+    read_sealed_bytes = _sealed_bytes()
+    data = b'{"format": "series.v1"}'
+    path, sealed = _one(tmp_path, data)
+    assert read_sealed_bytes(path, sealed) == data
+    with pytest.raises(RecordRefusedError, match="does not validate"):
+        read_record(path, sealed)
