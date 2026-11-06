@@ -1,0 +1,147 @@
+# Law card: reaction_moment_sum. Drafted from the literature; the
+# adversarial review is added below the page by the reviewer, never by the drafter.
+
+[card]
+format = 1
+drafted_by = "claude-opus-5-5"
+
+[law]
+id = "reaction_moment_sum"
+statement = "a carrier reacts the sum of the reaction moments of the torque units that constrain it"
+expression = "M == T"
+pattern = "members"
+anchor = "M"
+tolerance = "rounding"
+overlaps = "torque_unit"
+idealisation = "statics of the carrier alone: every unit's torque acts about parallel axes in the same sense and is written as a size under one sign convention; nothing else puts a moment on the carrier (its own weight off its support, a load force, an inertia term while it accelerates); two units turning against each other, as in a spin turn, do not add"
+literals = []
+requires = [
+  { name = "torque_peak", place = "each", reason = "a member is a torque unit, as check 3 reads one, only where it declares both torque_peak and reaction_moment; a member with a reaction_moment and no torque_peak is not a unit whose torque the carrier reacts, so the instance is left unjudged" },
+]
+unless = [
+  { name = "torque_peak", place = "subject", reason = "a subject that declares torque_peak is itself a torque unit: check 3 reads its reaction_moment against its own torque and gear ratio (whole unit, gearbox housing, output mount), so its reaction is not the sum of what it carries" },
+  { name = "support_position", place = "subject", reason = "a subject that declares a support_position is a support in check 3's mount balance: its reaction_moment is the moment it reacts at that mount, held to that mount's loads, not the sum of the units it carries" },
+  { name = "support_position", place = "each", reason = "a member that declares a support_position is a support of this node in check 3's mount balance: its reaction_moment balances the node's loads and is not a torque the node carries" },
+  { name = "load_force", place = "subject", reason = "a subject that declares a load_force has a force on it whose moment about its support is part of what it reacts, so its reaction_moment is not the sum of the units' moments alone" },
+  { name = "mount_position", place = "each", reason = "a member that declares a mount_position is a load placed at an arm on the carrier, as check 3's mount balance reads it: the moment of its weight or force about the carrier's support is part of what the carrier reacts, so the sum of the units' moments alone misses it" },
+  { name = "load_force", place = "each", reason = "a member that declares a load_force pushes on the carrier with a force whose moment about the carrier's support is part of what the carrier reacts, so the sum of the units' moments alone misses it" },
+]
+
+[law.symbols]
+M = { name = "reaction_moment", place = "subject" }
+T = { name = "reaction_moment", place = "each" }
+
+[law.source]
+kind = "textbook"
+title = "University Physics Volume 1 (S. J. Ling, J. Sanny, W. Moebs; OpenStax)"
+edition = "OpenStax, 2016, web edition"
+section = "12.1 Conditions for Static Equilibrium, Second Equilibrium Condition, equation 12.5"
+read = 2026-11-05
+reading = "in full"
+
+[[law.example]]
+outcome = "pass"
+source = "Pololu 10:1 Micro Metal Gearmotor HPCB 6V (item #3061), product specifications: stall torque 0.17 kg·cm at 6 V = 0.0167 N·m (0.17 x 9.80665 x 0.01 = 0.016671). Two such units constrain one carrier, which declares their sum, 0.0333 N·m"
+values = { M = { value = 0.0333, unit = "N*m" }, T = [ { value = 0.0167, unit = "N*m" }, { value = 0.0167, unit = "N*m" } ] }
+
+[[law.example]]
+outcome = "fail"
+source = "the same two Pololu #3061 units, 0.0167 N·m each; the carrier declares one unit's moment, 0.0167 N·m, as if it carried one motor"
+values = { M = { value = 0.0167, unit = "N*m" }, T = [ { value = 0.0167, unit = "N*m" }, { value = 0.0167, unit = "N*m" } ] }
+
+[page]
+text = """
+WHAT IT SAYS
+A body that carries motors (a chassis carrying two drive gearmotors, say) must hold still
+against the torque each motor pushes back on it with. If the motors' torques point the same
+way, the moment the carrier itself has to react is their sum. The law checks that a carrier's
+declared reaction_moment equals the sum of the reaction_moment of the torque units whose
+constrains edges name it, within the rounding of the numbers as written (equality, rounding
+class). It enters the table at status warn, as every law does.
+
+HOW IT BINDS (members pattern)
+An instance forms at every node that declares reaction_moment (the subject). Its members are
+the nodes whose constrains edges name the subject and that declare reaction_moment.
+
+THE ANCHOR IS NARROWED (a content choice, said plainly)
+The bare members pattern would form an instance at every node with a reaction_moment, and
+would sum every member with one. That reads three things the law is not about, so I narrowed it:
+- requires torque_peak on each member: only a torque unit, as check 3 defines one (a node
+  declaring torque_peak and reaction_moment), is summed. A member without torque_peak leaves
+  the instance unjudged, never failed.
+- unless torque_peak on the subject: a subject that is itself a torque unit is check 3's to
+  read (its own torque and gear-ratio readings); the per-mount reading at stall (reaction =
+  gear ratio x stall torque) is check 3's reading, not a law.
+- unless support_position on the subject or on a member: a support's reaction_moment belongs
+  to check 3's mount balance, where it balances loads; it is not a carried torque.
+- unless load_force on the subject, and unless mount_position or load_force on a member: a
+  load at an arm (a motor, a battery, any weight or force placed on the carrier) adds the
+  moment of its weight or force about the carrier's support to what the carrier reacts. A
+  differential-drive chassis whose axle is the motors' axis reacts the motors' torques and the
+  moment of the motors' and battery's weight about that axle; written as one reaction_moment
+  that is a correct design the bare sum would refuse. Check 3's mount balance already marks
+  those loads by these names, so the law steps aside wherever one is present.
+Why: each narrowing removes a place where the same name means something else, or where a
+moment the sum cannot see is present, so the law can only judge the chassis-sums-its-motors
+case with no placed load. The cost is reach (below): most placed designs are excused.
+
+WHERE IT DOES NOT HOLD
+- Torques of opposite sense (one wheel forward, one back, as in a turn): the moments partly
+  cancel and the sum of sizes overstates the carrier's reaction.
+- Axes that are not parallel: moments add as vectors, not as numbers.
+- Other moments on the carrier: its own weight acting off its support, a load force, or an
+  inertia term while the carrier accelerates.
+- Signs (a limit the law does not fix): the law sums the values as written. Check 3 reads
+  every reaction_moment as a size and treats the sign as a convention ("a reaction moment
+  written with the opposite sign is the same balance"). A plan that mounts the two motors
+  mirrored and writes their reactions with opposite signs (+0.0167 and -0.0167 N·m) beside a
+  carrier written as a size (0.0333 N·m) is a correct design that this law refuses: the sum is
+  0. The law must stay at warn and must not move to block before an audit has run on plans
+  that write signed moments.
+
+SOURCE (read 05.11.2026, primary text)
+OpenStax, University Physics Volume 1, §12.1 Conditions for Static Equilibrium, "Second
+Equilibrium Condition": "The second equilibrium condition for the static equilibrium of a
+rigid body expresses rotational equilibrium:" sum over k of tau_k = 0 (equation 12.5), and the
+text says it is "generally valid for rotational equilibrium about any axis of rotation (fixed
+or otherwise)". Applied to the carrier alone, with the units' reactions as the only moments
+other than the carrier's own support, the support reacts their sum. The text does not itself
+say that torques about parallel axes add as numbers; that is the same-sense, parallel-axis
+idealisation above.
+
+WORKED EXAMPLES (Pololu #3061 product specifications, 10:1 Micro Metal Gearmotor HPCB 6V:
+stall torque 0.17 kg·cm at 6 V; 0.17 x 9.80665 x 0.01 = 0.0167 N·m)
+- pass: two units at 0.0167 N·m each; the carrier declares 0.0333 N·m. 0.0333 vs 0.0334 is
+  within the rounding allowance (about 0.00033 N·m).
+- fail: same two units; the carrier declares 0.0167 N·m, one unit's moment. Miss 0.0167 N·m.
+
+REACH (how little it covers; do not read more into it)
+- R-LAW-01 names 7 L flaws in this group (Appendix A). Appendix A gives each flaw's law name
+  only, not the quantity names its relation was written over. Two of the 7 are the per-mount
+  reading at stall ("the housing reacts the motor's output torque at stall"), which this law
+  does not judge: they are check 3's. For the other 5 I did not count how many were written
+  over reaction_moment on a carrier and on units that also declare torque_peak with no placed
+  load, which is what this law needs. Some of the group's forms on record are over torque
+  names instead (T_pk == tau_L + tau_R, M_r == tau_L + tau_R), and this law does not form
+  those. So the reach is not counted: at most 5 by name, possibly none.
+- The library's reach research found that this first group of laws forms almost no complete
+  instance on any design the builders may read. This law needs a carrier with
+  reaction_moment and, naming it, units that declare both reaction_moment and torque_peak and
+  no mount_position or load_force; the narrowing above makes that rarer still.
+- False-positive record: medium for the group. The sum forms on record (M_ch == M_l + M_r and
+  four like it) blocked no clean twin; the form that blocked every clean twin it was tried on,
+  R_ch == 2 * r * tau_s, carries a literal 2 and a gear ratio, and this law is not that form.
+- Overlap: each member's reaction_moment is also read by check 3's torque-unit readings
+  (relation torque_unit), so one wrong member value can be reported by both.
+"""
+
+[review]
+by = "claude-sonnet-5-5"
+verdict = "accept"
+findings = """
+Second review of reaction_moment_sum, 05.11.2026, of 382bd42e (the card format has no date field, so the date is here). Accept at warn. Each earlier finding and what became of it:
+1. Weight and load moments: FIXED. unless load_force on the subject, and unless mount_position and load_force on each member, with reasons that name check 3's mount balance. All three are exact catalogue names at places the members pattern has. The row loads and both examples give their outcomes (pass 0.0333 against 0.0334 N*m, allowance 3.3e-4; fail 0.0167 against 0.0334).
+2. Signs: FIXED as a stated limit. The page gives the mirrored-mounting case (+0.0167 and -0.0167 against 0.0333), keeps the law at warn and says it must not move to block before an audit on plans that write signed moments. This remains the main route to a refused correct design, and it is not detectable by any name; it is the reason the card must stay at warn.
+3. Reach: FIXED. It now says "at most 5 by name, possibly none", with the reasons, instead of "four or five".
+New ways to refuse a correct design from the fix: none, the unless only removes instances. Residual, not blocking: a member that declares mass and no mount_position (every motor has a mass) loads the carrier somewhere the graph does not say, and a carrier whose reaction_moment includes that weight moment is still refused. Excusing mass would remove nearly every instance, so I do not ask for it; the idealisation already lists "its own weight off its support" and the page should say the placed-load excuse sees only declared positions. Source holds (OpenStax Vol. 1 section 12.1, equation 12.5, verbatim; the support-reacts-the-sum step is the card's own and says so). Names, form and overlaps = "torque_unit" hold.
+"""
