@@ -45,8 +45,10 @@ from physgate.series.seal import NAME_PATTERN, SealedRecord
 #: The directory beneath a run that holds its sealed records.
 SERIES_DIR = "series"
 
-_SUBTASK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
-_SESSION = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+#: A subtask id and a session id as a run writes them. The operator UI's routes spell their
+#: parameters with these very patterns, so a route can never name what this reader refuses.
+SUBTASK_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+SESSION_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _RECORD = re.compile(NAME_PATTERN)
 
 
@@ -59,8 +61,8 @@ def record_path(
         RecordRefusedError: an identifier is not one the run could have written.
     """
     for value, pattern, what in (
-        (subtask_id, _SUBTASK, "subtask id"),
-        (session_id, _SESSION, "session id"),
+        (subtask_id, SUBTASK_PATTERN, "subtask id"),
+        (session_id, SESSION_PATTERN, "session id"),
         (record_id, _RECORD, "record id"),
     ):
         if not pattern.fullmatch(value):
