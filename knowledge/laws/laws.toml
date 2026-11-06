@@ -34,6 +34,27 @@ status = "warn"
 approved = { candidate_id = "4f68d63663854eaf851142627e52b09e", date = 2026-11-06 }
 
 [[law]]
+id = "rate_throughput_output_data_rate"
+statement = "a consumer updated once per delivered sample updates no faster than the output data rate of the sensor its edge names"
+expression = "U <= R"
+pattern = "edge"
+anchor = "U"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "a single-rate consumer that takes exactly one new sample from the named sensor per update (read, compute, output, once per period); a multi-rate loop that updates on predictions between samples, interpolates, or reuses a held sample is a correct design this law refuses"
+literals = []
+requires = []
+unless = []
+symbols = { U = { name = "update_rate", place = "self" }, R = { name = "output_data_rate", place = "target" } }
+source = { kind = "textbook", title = "Advanced PID Control (K. J. Åström, T. Hägglund)", edition = "ISA, 2006", section = "13.3 Computer Implementations, Sampling, p. 413", read = 2026-11-05, reading = "in full" }
+example = [
+  { outcome = "pass", source = "ST LSM6DS33 data sheet, DocID027423 Rev 4 (October 2015), Table 44 Accelerometer ODR register setting: ODR 104 Hz; the consumer loop runs at 52 Hz, the table's next lower ODR step", values = { U = { value = 52, unit = "Hz" }, R = { value = 104, unit = "Hz" } } },
+  { outcome = "fail", source = "the same Table 44, ODR 104 Hz; the consumer loop runs at 208 Hz, the table's next higher ODR step, while the sensor is still set to 104 Hz", values = { U = { value = 208, unit = "Hz" }, R = { value = 104, unit = "Hz" } } },
+]
+status = "warn"
+approved = { candidate_id = "6fe34da0df4a4e128ef32070fbe1d916", date = 2026-11-06 }
+
+[[law]]
 id = "rate_throughput_sample_rate"
 statement = "a consumer updated once per delivered sample updates no faster than the sample rate of the producer its edge names"
 expression = "U <= F"
