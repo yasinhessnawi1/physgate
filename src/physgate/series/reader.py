@@ -82,6 +82,20 @@ def read_record(path: Path, seal: Seal) -> Record:
             reached through a link, or is not a regular file with one name.
         RecordRefusedError: the sealed bytes are not a record this format admits.
     """
+    return parse_record(read_sealed_bytes(path, seal))
+
+
+def read_sealed_bytes(path: Path, seal: Seal) -> bytes:
+    """The bytes of the file at ``path``, if they are the ones ``seal`` names; not yet parsed.
+
+    The operator UI serves a record as these very bytes, from this one open, after the format's
+    parser has admitted them, so what it sends is what was sealed and never a re-encoding.
+
+    Raises:
+        RecordTamperedError: the file is gone or cannot be read, is not the sealed bytes, is
+            reached through a link, or is not a regular file with one name.
+        RecordRefusedError: the path is relative, or the file is over the format's byte bound.
+    """
     if not Path(path).is_absolute():
         msg = "a record is read by its absolute path"
         raise RecordRefusedError(msg, path=str(path))
@@ -111,7 +125,7 @@ def read_record(path: Path, seal: Seal) -> Record:
     if found != seal.sha256:
         msg = "a record is not what it was when its session ended"
         raise RecordTamperedError(msg, path=spelt, sealed=seal.sha256, found=found)
-    return parse_record(data)
+    return data
 
 
 def _read_bounded(fd: int, path: str, seal: Seal) -> bytes:
