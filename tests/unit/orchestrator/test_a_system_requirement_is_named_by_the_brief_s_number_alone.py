@@ -41,6 +41,10 @@ from physgate.orchestrator.decompose import (
 from physgate.orchestrator.run_config import ModelStrings
 from physgate.reviewers.contract import issued_criteria
 
+#: The bytes pinned here are the prompt with no law in the table: a promoted law adds its
+#: own paragraph, which the law prompt's tests pin against the table in this checkout.
+pytestmark = pytest.mark.usefixtures("no_law_table")
+
 #: The run role sets with integration: without sizing, and with it.
 WITH_INTEGRATION = [("control", "firmware", "integration"), pairs.BOTH]
 #: The run role sets without integration, whose prompt has no system requirements at all.

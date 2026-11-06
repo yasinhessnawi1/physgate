@@ -140,9 +140,10 @@ def _as_the_gate_now_judges(event: dict[str, Any]) -> dict[str, Any]:
     record itself is dropped when its list is empty. Which quantities have a bound is read
     from the gate's own tables, so the rule is the one sentence above, not a list of names.
 
-    The closed-form laws check runs after propagation, at module and system scope. The tracked
-    law table holds no law, so at each of those scopes the gate ran at it writes one pass that
-    judged nothing, after every other record.
+    The closed-form laws check runs after propagation, at module and system scope. The test
+    holds the law table empty, so at each of those scopes the gate ran at it writes one pass that
+    judged nothing, after every other record: what a law writes is the laws check's tests'
+    business, and this test's is the loop.
     """
     if event.get("kind") not in ("gate_ran", "integration_gate_ran"):
         return event
@@ -278,6 +279,7 @@ def test_every_path_reaches_the_queue_exactly_as_before(name: str, tmp_path: Pat
     assert differences(comparable(golden), comparable(now)) == []
 
 
+@pytest.mark.usefixtures("no_law_table")
 def test_the_real_gate_s_three_modes_reach_the_queue_exactly_as_before(tmp_path: Path) -> None:
     from ui_three_mode_rig import three_mode_runs  # noqa: PLC0415 - real git and gate
 

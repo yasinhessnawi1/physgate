@@ -7,9 +7,10 @@ the integration call ask for, and every check must be seen failing. This is also
 what refuses a gate that passes everything: the registered one must fail here.
 
 The closed-form laws check is registered too, after propagation, and runs at module and system
-scope. Its laws are data: the table the command's gate is built with is the tracked one, which
-holds no law until a person promotes one, so on the registered gate the laws check runs, records
-that it judged nothing, and cannot fire. That it fires is shown on the same graph by the same
+scope. Its laws are data, which a person promotes into the tracked table: with no law in the
+table the laws check runs on the registered gate, records that it judged nothing, and cannot
+fire; with the tracked table as it stands, whatever laws it holds, the six still fire and a law
+at warn never fails a design. That the laws check fires is shown on the same graph by the same
 gate built with a table of test laws, one of which the graph breaks.
 """
 
@@ -17,14 +18,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from gate_fixtures import all_six, given, graph
 from law_fixtures import cleared, load, sound_law
 
 from physgate.gate.graph import GraphView
+from physgate.gate.laws import load_laws
 from physgate.gate.registry import REGISTRY
 from physgate.gate.runner import PhysicsGate
 from physgate.orchestrator.cli import default_registrations
-from physgate.orchestrator.protocols import CHECK_NUMBERS, Artefact
+from physgate.orchestrator.protocols import CHECK_NUMBERS, Artefact, CheckRecord
 
 SIX = {"units", "magnitude", "equilibrium", "power", "conservation", "thermal"}
 #: Checks that have their number and their row in the architecture's table but no evaluator
@@ -53,6 +56,35 @@ def test_every_check_is_registered_in_the_architecture_s_order() -> None:
     assert set(CHECK_NUMBERS) - SIX - UNREGISTERED == {"propagation", "laws"}
 
 
+def _registered_run(tmp_path: Path) -> list[CheckRecord]:
+    """Every record of the registered gate's attempt and integration calls on the six's graph."""
+    gate = default_registrations().gate
+    assert isinstance(gate, PhysicsGate)
+    root = tmp_path / "g"
+    graph(root, *all_six())
+    attempt = gate.run(GraphView.read(root, base_revision=0), ["subtask", "module"], "on")
+    integrated = gate.check_integration(given(root), mode="on")
+    return [*attempt.checks, *integrated.checks]
+
+
+def test_the_registered_gate_with_the_tracked_law_table_fires_the_six_and_no_law_at_warn_fails(
+    tmp_path: Path,
+) -> None:
+    statuses = load_laws().statuses()
+    checks = _registered_run(tmp_path)
+    fired = {r.name for r in checks if r.outcome in ("fail", "warn")}
+    assert fired - {"laws"} == SIX
+    laws = [r for r in checks if r.name == "laws"]
+    assert {r.scope for r in laws} == {"module", "system"}
+    at_warn = {law_id for law_id, status in statuses.items() if status == "warn"}
+    assert [
+        r for r in laws if r.outcome == "fail" and getattr(r.details, "law_id", None) in at_warn
+    ] == []
+    # A law at warn that a design breaks is a warning that never blocks.
+    assert [r for r in laws if r.outcome == "warn" and r.blocking] == []
+
+
+@pytest.mark.usefixtures("no_law_table")
 def test_the_registered_gate_fires_all_six_checks_on_a_graph_that_breaks_them_all(
     tmp_path: Path,
 ) -> None:

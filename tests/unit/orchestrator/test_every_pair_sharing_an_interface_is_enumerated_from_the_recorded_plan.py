@@ -52,6 +52,10 @@ from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.replay import RunState
 from physgate.orchestrator.run_config import ModelStrings
 
+#: The bytes pinned here are the prompt with no law in the table: a promoted law adds its
+#: own paragraph, which the law prompt's tests pin against the table in this checkout.
+pytestmark = pytest.mark.usefixtures("no_law_table")
+
 BOTH = ("control", "firmware", "integration", "sizing")
 DOMAINS = ("control", "firmware")
 SEED = 7

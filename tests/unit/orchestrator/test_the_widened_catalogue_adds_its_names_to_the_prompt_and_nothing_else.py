@@ -39,6 +39,10 @@ from physgate.orchestrator.decompose import (
     relations_sentence,
 )
 
+#: The bytes pinned here are the prompt with no law in the table: a promoted law adds its
+#: own paragraph, which the law prompt's tests pin against the table in this checkout.
+pytestmark = pytest.mark.usefixtures("no_law_table")
+
 BRIEF = "Build a robot."
 
 #: The catalogue sentence's frame: the words around the groups.

@@ -325,6 +325,8 @@ def test_the_hook_s_vocabulary_holds_the_new_names() -> None:
     assert tuple(sorted(QUANTITIES)) == QUANTITY_NAMES
 
 
+@pytest.mark.usefixtures("no_law_table")
 def test_the_catalogue_digest_moves_off_a64e805f_s() -> None:
+    # The catalogue's digest alone, with no law in the table: a promoted law moves it again.
     assert catalogue_digest(load_laws()) != BASE_DIGEST
     assert catalogue_digest(load_laws()) == WIDENED_DIGEST
