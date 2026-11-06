@@ -44,11 +44,13 @@ from physgate.ui.table import ROUTES, RUN
 HOSTILE = ("..", "%2e%2e", "%252e%252e", "..%2f..%2fheld", "%2fetc", "a%00b", ".hidden", "%", "%ZZ")
 #: The budget a cold read of an attempt is held to: this many times the time a plain JSON parse
 #: of the same records' bytes takes, measured in the same process, interleaved. Both sides are
-#: the processor parsing the same bytes, so the ratio carries from one machine to another
-#: (measured 7.9x on an arm64 laptop and 8.5x to 8.7x on an x86 server). Reading and hashing the
-#: bytes was the first measure, and it was not one: hardware hashing made the same read 34x on
-#: one machine and 96x on another.
-BUDGET_RATIO = 12
+#: the processor parsing the same bytes, so the ratio carries from one machine to another.
+#: Reading and hashing the bytes was the first measure, and it was not one: hardware hashing made
+#: the same read 34x on one machine and 96x on another. The bound holds both shapes: one record
+#: near the byte bound (measured 7.8x to 8.7x on three machines) and an attempt of many small
+#: records, which also pays per record for its seal, the allowlist and an open that a plain parse
+#: does not (9.5x to 12.6x). It is there to catch a cost that grows per sample or quadratically.
+BUDGET_RATIO = 20
 
 
 @pytest.fixture(scope="module")
