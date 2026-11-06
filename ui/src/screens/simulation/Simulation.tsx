@@ -213,17 +213,17 @@ function Body({
             {SERIES_COPY.slotBody}
           </EmptyState>
         )}
-        {attempt !== null && (
-          <BoundTable
-            checks={checks}
-            tolerance={listing.tolerance}
-            run={run}
-            graphSource={runSource(config)}
-            titles={titles}
-            notSealed={notSealed}
-          />
-        )}
       </div>
+      {attempt !== null && (
+        <BoundTable
+          checks={checks}
+          tolerance={listing.tolerance}
+          run={run}
+          graphSource={runSource(config)}
+          titles={titles}
+          notSealed={notSealed}
+        />
+      )}
     </div>
   );
 }

@@ -138,9 +138,15 @@ export function agreementWords(outcome: string, tolerance: string): string {
   }
 }
 
-/** A recorded reason as a sentence: its first letter raised, a full stop if it has none. */
+/**
+ * A recorded reason as a sentence: its first letter raised when it opens with a word, a full
+ * stop if it has none.
+ */
 export function asSentence(reason: string): string {
-  const raised = `${(reason[0] ?? "").toUpperCase()}${reason.slice(1)}`;
+  // A reason that opens with an id (a key, a path) keeps it as written.
+  const raised = /^[a-z]+\s/.test(reason)
+    ? `${(reason[0] ?? "").toUpperCase()}${reason.slice(1)}`
+    : reason;
   return /[.!?]$/.test(raised) ? raised : `${raised}.`;
 }
 

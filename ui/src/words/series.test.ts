@@ -137,6 +137,9 @@ describe("agreement, the gate column and the states, in words", () => {
     expect(asSentence("names the record x, which this attempt did not seal")).toBe(
       "Names the record x, which this attempt did not seal.",
     );
+    expect(asSentence("control.loop.phase_margin names the record x")).toBe(
+      "control.loop.phase_margin names the record x.",
+    );
     expect(setAsideWords("refused", "not a regular file")).toBe("Not sealed: not a regular file.");
     expect(setAsideWords("discarded", "left in the outbox before this session began")).toBe(
       "Discarded, not sealed: left in the outbox before this session began.",

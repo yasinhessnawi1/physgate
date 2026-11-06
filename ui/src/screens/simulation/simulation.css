@@ -10,6 +10,11 @@
   min-width: 0;
 }
 
+/* The table of what was read off a record spans the whole width beneath the rail and record. */
+.pg-sim > .pg-sim-bound {
+  grid-column: 1 / -1;
+}
+
 /* -- the rail -------------------------------------------------------------------------------- */
 .pg-sim-rail {
   display: flex;
@@ -292,6 +297,11 @@
 
 .pg-sim-cell-lead {
   font-weight: 600;
+}
+
+/* A neutral tag in the table wraps rather than widening its column past the page. */
+.pg-sim-bound .pg-status {
+  white-space: normal;
 }
 
 .pg-sim-gates {
