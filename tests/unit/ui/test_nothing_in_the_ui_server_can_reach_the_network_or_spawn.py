@@ -104,7 +104,8 @@ ALLOWED_MODULES = {
     # a loop's frequency response. It imports the standard-library series writer, which runs
     # nothing when imported.
     "physgate.series.extract",
-    # The record format's column and record shapes, as the reader returns them.
+    # The record format's column and record shapes, as the reader returns them, and its one
+    # parser, which admits the sealed bytes the record route then serves unchanged.
     "physgate.series.record",
     # The review listing's per-column arithmetic, so the screen states the reviewer's numbers.
     "physgate.series.summary",

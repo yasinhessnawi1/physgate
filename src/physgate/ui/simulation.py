@@ -35,6 +35,13 @@ configuration.
 **Numbers as the records hold them.** Values go out as JSON numbers, which Python writes in the
 shortest form that reads back as the same double. An integer larger than a browser's number holds
 exactly goes out as its decimal numeral, so the page shows the integer the record holds.
+
+**One record, as its seal names it.** The record route finds the record as the attempt route
+does, reads it once through the reader's checked read, has the format's one parser admit those
+bytes, and answers with exactly them: never a re-encoding of what was parsed, so the page draws
+what the session sealed. A record that cannot be served as sealed is refused with the seal it
+was held to and what the reader found, named by its place in the run and never by where the run
+lies on disk, exactly as the attempt route's row for it says.
 """
 
 from __future__ import annotations
@@ -64,12 +71,18 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.series.exceptions import RecordRefusedError, RecordTamperedError
 from physgate.series.extract import MAGNITUDE_TRACE, PHASE_TRACE
-from physgate.series.reader import SERIES_DIR, SealedEntry, attempt_records, read_record
-from physgate.series.record import Column, Record
+from physgate.series.reader import (
+    SERIES_DIR,
+    SealedEntry,
+    attempt_records,
+    read_record,
+    read_sealed_bytes,
+)
+from physgate.series.record import Column, Record, parse_record
 from physgate.series.seal import SeriesCheck
 from physgate.series.summary import column_summary
 from physgate.series.tolerance import RELATIVE_TOLERANCE
-from physgate.ui.exceptions import NotFoundError, PathRefusedError
+from physgate.ui.exceptions import NotFoundError, PathRefusedError, UIError
 from physgate.ui.readers import EVENTS, run_dir_of
 from physgate.ui.routes import Context, Response, json_response
 
@@ -417,3 +430,70 @@ def attempt(context: Context, params: Mapping[str, str]) -> Response:
             ],
         }
     )
+
+
+class SeriesRefusedError(UIError):
+    """A sealed record the record route will not serve: it changed, or this version cannot read it.
+
+    Its context names the record by its place in the run, the seal it was held to, the reader's
+    reason, and what the reader found, as the attempt route's row for the same record does.
+    """
+
+
+#: What a refusal of the record route says it is: the record is not the sealed bytes, or it is
+#: but they are not a record this version reads.
+BROKEN = "broken"
+HELD = "held"
+
+
+def _not_served(entry: SealedEntry, seal: str, error: Exception) -> SeriesRefusedError:
+    """The refusal of ``entry``, said as the attempt route's row says it; no absolute path."""
+    row = _refused(entry, "seal" if seal == BROKEN else "format", error)
+    context = {key: str(value) for key, value in row.items() if key not in ("refused", "error")}
+    msg = (
+        "the record is not what its session sealed, so it is not served"
+        if seal == BROKEN
+        else "the record is sealed, but this version cannot read it"
+    )
+    return SeriesRefusedError(msg, seal=seal, reason=row["error"], **context)
+
+
+def record(context: Context, params: Mapping[str, str]) -> Response:
+    """One sealed record, as the very bytes its seal names, once the format's parser admits them.
+
+    Raises:
+        NotFoundError: the run is not there, has no event log, has no such attempt, or the
+            attempt sealed no record of that id.
+        PathRefusedError: the allowlist refuses the record's path; named relative to the run.
+        SeriesRefusedError: the record is not the sealed bytes, or is not one this version reads.
+    """
+    run_dir = run_dir_of(context, params)
+    subtask, number, wanted = params["subtask"], int(params["attempt"]), params["record"]
+    if number > ATTEMPT_LIMIT:
+        msg = f"no such attempt: a subtask has at most {ATTEMPT_LIMIT} attempts"
+        raise NotFoundError(msg, subtask=subtask, attempt=params["attempt"])
+    events = _events(context, run_dir, params)
+    found = [
+        entry
+        for entry in attempt_records(events, subtask, number)
+        if entry.record.record_id == wanted
+    ]
+    if not found:
+        msg = "this attempt sealed no record of that id"
+        raise NotFoundError(msg, subtask=subtask, attempt=params["attempt"], record=wanted)
+    (entry,) = found
+    try:
+        path = entry.path(run_dir)
+        # Held to the allowlist first, then read by the path as built, as the attempt route does.
+        context.allowlist.resolve(path)
+        data = read_sealed_bytes(path, entry.seal())
+        # Admitted by the format's one parser; the bytes it admitted are the ones served.
+        parse_record(data)
+    except PathRefusedError as exc:
+        # The allowlist's own refusal names the absolute path; the client gets the relative one.
+        raise PathRefusedError(str(exc), record=_refused(entry, "seal", exc)["record"]) from None
+    except RecordTamperedError as exc:
+        raise _not_served(entry, BROKEN, exc) from None
+    except RecordRefusedError as exc:
+        raise _not_served(entry, HELD, exc) from None
+    return Response(200, data, "application/json")

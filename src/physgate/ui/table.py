@@ -43,6 +43,12 @@ ROUTES: tuple[Route, ...] = (
     Route(
         "GET", f"{RUN}/series/{{subtask:subtask}}/{{attempt:attempt}}", "read", simulation.attempt
     ),
+    Route(
+        "GET",
+        f"{RUN}/series/{{subtask:subtask}}/{{attempt:attempt}}/{{record:record}}",
+        "read",
+        simulation.record,
+    ),
     # The one route that acts: a decision, through the approval queue's own function.
     Route("POST", f"{RUN}/queue/decisions", "act", actions.decide),
 )

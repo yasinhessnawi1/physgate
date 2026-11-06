@@ -36,6 +36,7 @@ from urllib.parse import unquote
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.run_config import load_run_config
 from physgate.series.reader import SUBTASK_PATTERN
+from physgate.series.seal import NAME_PATTERN
 from physgate.state.schema import NODE_ID_PATTERN
 from physgate.ui.assets import Assets
 from physgate.ui.exceptions import PathRefusedError, UIError
@@ -58,6 +59,8 @@ PARAMETERS: Mapping[str, re.Pattern[str]] = {
     # subtask's attempts, so a simulation route never names what the reader would refuse.
     "subtask": SUBTASK_PATTERN,
     "attempt": re.compile(r"^[1-9]$"),
+    # A record's id as the record format names it, from the format's own rule.
+    "record": re.compile(NAME_PATTERN),
 }
 
 #: The run's configuration file, whose presence makes a directory a run directory.
