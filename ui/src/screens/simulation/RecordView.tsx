@@ -37,7 +37,7 @@ import {
   unreadWords,
 } from "../../words/series";
 import { useJson } from "../common/read";
-import { plotsOf } from "./model";
+import { type PlotPlan, plotsOf, SamplesMismatchError } from "./model";
 import { Tag } from "./Tag";
 
 /** What the reader reported about a record it would not serve: shown under "Details". */
@@ -249,15 +249,12 @@ function Produced({ record }: { readonly record: ShownRecord }) {
 }
 
 function Plots({
-  record,
-  samples,
+  plans,
   source,
 }: {
-  readonly record: ShownRecord;
-  readonly samples: RecordSamples;
+  readonly plans: readonly PlotPlan[];
   readonly source: Source;
 }): ReactNode {
-  const plans = useMemo(() => plotsOf(record, samples, source), [record, samples, source]);
   return (
     <div className="pg-sim-plots">
       {plans.map((plan) => (
@@ -276,6 +273,20 @@ function Plots({
       ))}
     </div>
   );
+}
+
+/** The record's plots, or why its sealed columns cannot be drawn as its summary describes them. */
+function planned(
+  record: ShownRecord,
+  samples: RecordSamples,
+  source: Source,
+): { readonly plans: readonly PlotPlan[] } | { readonly error: string } {
+  try {
+    return { plans: plotsOf(record, samples, source) };
+  } catch (error) {
+    if (error instanceof SamplesMismatchError) return { error: error.message };
+    throw error;
+  }
 }
 
 function Shown({
@@ -311,6 +322,10 @@ function Shown({
     [runId, record.attemptCommit],
   );
   const result = samples.result;
+  const drawn = useMemo(
+    () => (result?.ok === true ? planned(record, result.value, source) : null),
+    [record, result, source],
+  );
   if (result !== null && !result.ok) {
     const refused = sealOf(result.refusal);
     return refused === null ? (
@@ -340,11 +355,13 @@ function Shown({
           <Id value={record.sha256} />
         </p>
       </header>
-      {result === null ? (
+      {drawn === null ? (
         <LoadingState reading={SERIES_COPY.readingRecord} />
+      ) : "error" in drawn ? (
+        <ErrorState title={SERIES_COPY.recordError} error={drawn.error} route={samples.route} />
       ) : (
         <>
-          <Plots record={record} samples={result.value} source={source} />
+          <Plots plans={drawn.plans} source={source} />
           <ReadOff checks={checks} tolerance={tolerance} onShowRow={onShowRow} />
           <Produced record={record} />
         </>

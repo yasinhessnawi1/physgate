@@ -810,6 +810,19 @@ describe("a record", () => {
     expect(host.textContent).not.toContain("501 samples from");
   });
 
+  it("whose sealed columns are not the ones its summary describes is refused, and nothing drawn", async () => {
+    serve({
+      [`${BASE}/series/${S1}/3/step_nominal`]: [
+        200,
+        { ...STEP_SAMPLES, traces: STEP_SAMPLES.traces.slice(0, 1) },
+      ],
+    });
+    const host = await mount(`subtask=${S1}&attempt=3&record=step_nominal`);
+    expect(text(host.querySelector('[role="alert"] h2'))).toBe("The record could not be read");
+    expect(host.querySelector(".pg-plot")).toBeNull();
+    expect(host.querySelector(".pg-sim-produced")).toBeNull();
+  });
+
   it("gets focus when the person chooses it, and not on the screen's first draw", async () => {
     const host = await mount(`subtask=${S1}&attempt=3&record=step_nominal`);
     expect(document.activeElement).not.toBe(host.querySelector(".pg-sim-record-heading"));
