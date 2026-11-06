@@ -367,9 +367,10 @@ def test_a_record_not_as_sealed_is_a_refused_row_and_every_other_row_stays(
     assert "title" not in refused and "traces" not in refused
     assert all("refused" not in row and row["traces"] for row in kept)
     if how == "a byte changed":
-        assert refused["found_sha256"] != entry.record.sha256
+        found = refused.get("found_sha256")
+        assert found is not None and found != entry.record.sha256, refused
     if how == "its length changed":
-        assert refused["found_length"] == entry.record.length + 1
+        assert refused.get("found_length") == entry.record.length + 1, refused
     assert os.path.realpath(tmp_path).encode() not in body
     assert str(tmp_path).encode() not in body
 
