@@ -62,3 +62,26 @@ example = [
 ]
 status = "warn"
 approved = { candidate_id = "2d86d44200e74427bafbb9fa89a198d9", date = 2026-11-06 }
+
+[[law]]
+id = "within_rating_current"
+statement = "a node's steady operating output current is within its own maximum rated output current"
+expression = "I <= L"
+pattern = "node"
+anchor = "L"
+tolerance = "inequality"
+overlaps = "current_limit"
+idealisation = "current_draw is the steady current the node delivers at its output in operation (a load's continuous or rms draw, not a stall or inrush peak) and current_limit the maximum output current its data sheet rates, both on the same node and the same terminals; a current the node chops or regulates below what is written, a derated limit, and transients above the steady current are not judged"
+literals = []
+requires = []
+unless = [
+  { name = "power_supply", place = "self", reason = "a node that declares power_supply is a source or converter: its current_limit rates its output while a current_draw written on it may be at its input (a boost stage from a 3.7 V cell to 5 V with a 1 A output limit draws about 1.5 A from the cell), so the two are not one terminal's current" },
+]
+symbols = { I = { name = "current_draw", place = "self" }, L = { name = "current_limit", place = "self" } }
+source = { kind = "standard", title = "ECSS-Q-ST-30-11C Rev.2, Space product assurance: Derating - EEE components", edition = "Rev.2, 23 June 2021", section = "3.2.8 rating (with its note); 5.1 Overview and 5.2 Principles of derating", read = 2026-11-05, reading = "in full" }
+example = [
+  { outcome = "pass", source = "TI DRV8830 data sheet, SLVSAB2G (revised December 2015), §6.3 Recommended Operating Conditions: IOUT continuous or peak H-bridge output current, max 1 A; the driver runs a Pololu 25D Metal Gearmotor LP 6V, 4.4:1 (items #1581 and #4821), whose current at maximum efficiency is 0.32 A (Pololu 25D Metal Gearmotors data sheet, Rev 2.0, performance summary table, p. 3)", values = { I = { value = 0.32, unit = "A" }, L = { value = 1, unit = "A" } } },
+  { outcome = "fail", source = "the same DRV8830 limit, 1 A, with the driver running Pololu item #4801, 4.4:1 Metal Gearmotor 25Dx63L mm HP 6V with 48 CPR Encoder, whose current at maximum efficiency is 1.4 A (same Pololu data sheet, Rev 2.0, performance summary table, p. 3, row HP 6V 4.4:1, items 1570 and 4801)", values = { I = { value = 1.4, unit = "A" }, L = { value = 1, unit = "A" } } },
+]
+status = "warn"
+approved = { candidate_id = "576dabf321a64d60998c40322092ab72", date = 2026-11-06 }
