@@ -3,20 +3,27 @@
 The hooks refuse, at write time, a name that misspells one a relation reads, so a writer cannot
 step out of a relation by a typo. A law's inputs are read by name the same way, so every name a
 loaded law reads, requires or is excused by is one of the catalogue's relation names, which the
-hooks' vocabulary mirrors; a promotion that adds a name turns this red until both lists hold it.
+hooks' vocabulary mirrors. The names go in before the law does: every name a law card staged
+for promotion reads is held too, so a card whose names the hooks do not guard turns this red
+before a person promotes it, and the promotion, which only moves the law from staging into the
+table, leaves the relation names as they were.
 
 The relations the checks already form are written down by the names each reads and its
 comparator, so the loader can refuse a law that restates one. That list is held to what the
 checks read: over a graph that forms every relation, each relation reads exactly its names, and
-the relation names are the union of those and of the loaded laws' names, nothing else.
+the relation names are the union of those, the loaded laws' names and the staged cards' names,
+nothing else.
 
 Widening the guarded names must not refuse a name a real plan wrote. Every name written in the
-practice set and in the G11 runs that left a graph is held unrefused.
+practice set and in the G11 runs that left a graph is held unrefused, by the catalogue's rule
+and by the hooks' own spelling of it.
 """
 
 from __future__ import annotations
 
+import datetime
 import json
+import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -29,10 +36,12 @@ from physgate.gate import relations
 from physgate.gate.catalogue import RELATION_NAMES, RELATIONS, shadowing_names
 from physgate.gate.graph import GraphView
 from physgate.gate.relations import instances
-from physgate.state.vocabulary import RELATION_QUANTITY_NAMES
+from physgate.state.vocabulary import RELATION_QUANTITY_NAMES, shadowing_quantity_names
 
 ROOT = Path(__file__).resolve().parents[3]
 PRACTICE = ROOT / "experiments" / "R-PG-02" / "practice" / "corpus-v1"
+#: Where a drafting agent stages a law card for a person to promote.
+STAGED = ROOT / "knowledge" / "staging" / "laws"
 
 
 def relation_inputs() -> Any:
@@ -113,12 +122,34 @@ def test_the_relations_read_exactly_the_names_written_down_for_them(tmp_path: Pa
 UNGUARDED = {"rated_output_power"}
 
 
+def staged_input_names() -> dict[str, frozenset[str]]:
+    """Every name each staged law card's law reads, requires or is excused by, by card file.
+
+    The card's row is read as the promotion will write it, at ``warn`` with its approval, so
+    the names are the ones the loaded law will hold; a card that would not load fails a test.
+    """
+    module = laws_module()
+    names: dict[str, frozenset[str]] = {}
+    for path in sorted(STAGED.glob("*.toml")):
+        row = tomllib.loads(path.read_text(encoding="utf-8")).get("law")
+        if not isinstance(row, dict):
+            pytest.fail(f"the staged card {path.name} holds no [law] row")
+        approved = {"candidate_id": path.stem, "date": datetime.date(2026, 11, 6)}
+        try:
+            law = module.Law.model_validate({**row, "status": "warn", "approved": approved})
+        except ValueError as exc:
+            pytest.fail(f"the staged card {path.name} would not load: {exc}")
+        names[path.name] = law.input_names()
+    return names
+
+
 def test_the_relation_names_are_the_relations_and_the_laws_names_and_nothing_else() -> None:
     written = relation_inputs()
     table = laws_module().load_laws()
     from_relations = {name for entry in written.values() for name in entry.names}
+    staged = {name for names in staged_input_names().values() for name in names}
     assert from_relations >= UNGUARDED
-    assert set(RELATION_NAMES) == (from_relations - UNGUARDED) | set(table.input_names())
+    assert set(RELATION_NAMES) == (from_relations - UNGUARDED) | set(table.input_names()) | staged
     assert RELATION_QUANTITY_NAMES == RELATION_NAMES
 
 
@@ -126,6 +157,23 @@ def test_every_name_a_loaded_law_reads_is_a_relation_name_the_hooks_guard() -> N
     table = laws_module().load_laws()
     assert set(table.input_names()) <= set(RELATION_NAMES)
     assert set(table.input_names()) <= set(RELATION_QUANTITY_NAMES)
+
+
+def test_every_name_a_staged_law_card_reads_is_a_relation_name_the_hooks_guard() -> None:
+    # Before a person promotes a card, so the promoted law reads only guarded names. Each card's
+    # unguarded names are listed by card, to say which card the hooks would let a writer
+    # step out of by a misspelling.
+    unguarded = {
+        card: sorted(names - set(RELATION_NAMES))
+        for card, names in staged_input_names().items()
+        if names - set(RELATION_NAMES)
+    }
+    assert unguarded == {}
+    assert {
+        card: sorted(names - set(RELATION_QUANTITY_NAMES))
+        for card, names in staged_input_names().items()
+        if names - set(RELATION_QUANTITY_NAMES)
+    } == {}
 
 
 def _quantity_names(value: Any) -> Iterator[str]:
@@ -155,3 +203,4 @@ def test_no_name_a_real_plan_wrote_is_refused_as_a_misspelling() -> None:
     names = real_names()
     assert len(names) > 200
     assert shadowing_names(names) == ()
+    assert shadowing_quantity_names(sorted(names)) == ()

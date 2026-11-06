@@ -80,6 +80,12 @@ def test_a_catalogued_name_is_allowed(config: SessionConfig) -> None:
         ("mess", "mass"),
         ("moss", "mass"),
         ("mask", "mass"),
+        # A law's inputs are guarded the same way: the names the law cards read.
+        ("supply_voltag", "supply_voltage"),
+        ("current_drw", "current_draw"),
+        ("update_rat", "update_rate"),
+        ("sample_rat", "sample_rate"),
+        ("output_data_rat", "output_data_rate"),
     ],
 )
 def test_a_misspelling_of_a_relation_s_quantity_is_refused_naming_both(
