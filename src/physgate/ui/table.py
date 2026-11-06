@@ -9,7 +9,7 @@ declared.
 
 from __future__ import annotations
 
-from physgate.ui import actions, readers
+from physgate.ui import actions, readers, simulation
 from physgate.ui.routes import Route, asset, index, runs
 
 #: The path every route over one run starts with.
@@ -38,6 +38,8 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", f"{RUN}/graph/diff/{{from:revision}}/{{to:revision}}", "read", readers.diff),
     Route("GET", f"{RUN}/queue", "read", readers.queue),
     Route("GET", f"{RUN}/queue/items/{{position:index}}", "read", readers.queue_item),
+    # The run's simulation records: what each attempt sealed, read from the event log alone.
+    Route("GET", f"{RUN}/series", "read", simulation.listing),
     # The one route that acts: a decision, through the approval queue's own function.
     Route("POST", f"{RUN}/queue/decisions", "act", actions.decide),
 )

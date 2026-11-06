@@ -88,6 +88,16 @@ ALLOWED_MODULES = {
     # The attempts a subtask gets, sent beside the run's configuration: a constant, which the
     # event log's own model already imports.
     "physgate.orchestrator.budget",
+    # The simulation routes. The gate's record shapes, read to join a checked quantity to the
+    # gate records that name it; pydantic models, which the event log's model already imports.
+    "physgate.orchestrator.protocols",
+    # The series reader's own rule for which records an attempt sealed: the one the change check
+    # and the review packet use, so a file no session's end seals is never named.
+    "physgate.series.reader",
+    # The shape of a quantity's check against its record, as the change check wrote it.
+    "physgate.series.seal",
+    # The frozen agreement tolerance, shown in words, never copied.
+    "physgate.series.tolerance",
 }
 #: Names that load or evaluate code however they are reached.
 FORBIDDEN_NAMES = {"eval", "exec", "compile", "__import__", "import_module", "breakpoint"}
