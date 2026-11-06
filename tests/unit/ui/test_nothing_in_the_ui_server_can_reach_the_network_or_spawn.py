@@ -98,6 +98,16 @@ ALLOWED_MODULES = {
     "physgate.series.seal",
     # The frozen agreement tolerance, shown in words, never copied.
     "physgate.series.tolerance",
+    # The reader's two refusals, each turned into a row of its own or a refusal, never a 500.
+    "physgate.series.exceptions",
+    # The names of a loop's two traces, so the harness's own extractors decide what is drawn as
+    # a loop's frequency response. It imports the standard-library series writer, which runs
+    # nothing when imported.
+    "physgate.series.extract",
+    # The record format's column and record shapes, as the reader returns them.
+    "physgate.series.record",
+    # The review listing's per-column arithmetic, so the screen states the reviewer's numbers.
+    "physgate.series.summary",
 }
 #: Names that load or evaluate code however they are reached.
 FORBIDDEN_NAMES = {"eval", "exec", "compile", "__import__", "import_module", "breakpoint"}

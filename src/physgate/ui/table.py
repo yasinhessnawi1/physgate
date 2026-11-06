@@ -40,6 +40,9 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", f"{RUN}/queue/items/{{position:index}}", "read", readers.queue_item),
     # The run's simulation records: what each attempt sealed, read from the event log alone.
     Route("GET", f"{RUN}/series", "read", simulation.listing),
+    Route(
+        "GET", f"{RUN}/series/{{subtask:subtask}}/{{attempt:attempt}}", "read", simulation.attempt
+    ),
     # The one route that acts: a decision, through the approval queue's own function.
     Route("POST", f"{RUN}/queue/decisions", "act", actions.decide),
 )

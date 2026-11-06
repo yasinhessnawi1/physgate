@@ -39,10 +39,12 @@ exactly goes out as its decimal numeral, so the page shows the integer the recor
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from physgate.orchestrator.budget import ATTEMPT_LIMIT
 from physgate.orchestrator.events import (
     AttemptRejected,
     Event,
@@ -60,10 +62,14 @@ from physgate.orchestrator.protocols import (
     NumericOutput,
     UncheckedDetails,
 )
-from physgate.series.reader import attempt_records
+from physgate.series.exceptions import RecordRefusedError, RecordTamperedError
+from physgate.series.extract import MAGNITUDE_TRACE, PHASE_TRACE
+from physgate.series.reader import SERIES_DIR, SealedEntry, attempt_records, read_record
+from physgate.series.record import Column, Record
 from physgate.series.seal import SeriesCheck
+from physgate.series.summary import column_summary
 from physgate.series.tolerance import RELATIVE_TOLERANCE
-from physgate.ui.exceptions import NotFoundError
+from physgate.ui.exceptions import NotFoundError, PathRefusedError
 from physgate.ui.readers import EVENTS, run_dir_of
 from physgate.ui.routes import Context, Response, json_response
 
@@ -271,5 +277,143 @@ def listing(context: Context, params: Mapping[str, str]) -> Response:
         {
             "tolerance": f"{float(RELATIVE_TOLERANCE):g}",
             "attempts": [_attempt(events, key, owners.get(key[0])) for key in order],
+        }
+    )
+
+
+#: A digest as the reader reports one it found, beside a length, which is all digits.
+_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _summary(column: Column) -> dict[str, Any]:
+    """One column as the review's listing summarises it, by the listing's own function."""
+    shown = column_summary(column)
+    return {
+        "name": column.name,
+        "unit": shown.unit,
+        "samples": shown.samples,
+        "first": shown.first,
+        "last": shown.last,
+        "smallest": shown.smallest,
+        "largest": shown.largest,
+    }
+
+
+def _shown(record: Record, entry: SealedEntry, commit: str | None) -> dict[str, Any]:
+    """A record read as sealed: what it is, how it was produced, and each column's summary."""
+    blobs = {code.path: code.blob for code in entry.record.loaded}
+    names = {trace.name for trace in record.traces}
+    return {
+        "title": record.title,
+        "group": record.group,
+        "axis": record.axis,
+        # Drawn as a loop's frequency response exactly when the harness's own extractors would
+        # read it as one: a frequency record carrying both of the loop's traces.
+        "loop": record.axis == "frequency" and {MAGNITUDE_TRACE, PHASE_TRACE} <= names,
+        "x": _summary(record.x),
+        "traces": [_summary(trace) for trace in record.traces],
+        "inputs": {
+            name: {"value": _number(given.value), "unit": given.unit}
+            for name, given in record.inputs.items()
+        },
+        "producer": {
+            "script": {
+                "path": record.producer.script.path,
+                "sha256": record.producer.script.sha256,
+                "blob": entry.record.script_blob,
+            },
+            "loaded": [
+                {"path": code.path, "sha256": code.sha256, "blob": blobs.get(code.path)}
+                for code in record.producer.loaded
+            ],
+        },
+        "environment": [
+            {"path": code.path, "sha256": code.sha256} for code in entry.record.environment
+        ],
+        "attempt_commit": commit,
+    }
+
+
+def _refused(entry: SealedEntry, kind: str, error: Exception) -> dict[str, Any]:
+    """A record that could not be read as sealed: why, its seal, and what the reader found.
+
+    The record is named by its path relative to the run, never by where the run lies on disk,
+    and nothing of its bytes is sent.
+    """
+    row: dict[str, Any] = {
+        "record": "/".join(
+            (
+                SERIES_DIR,
+                entry.subtask_id,
+                str(entry.attempt),
+                entry.session_id,
+                f"{entry.record.record_id}.json",
+            )
+        ),
+        "refused": kind,
+        "error": str(error),
+        "sealed_sha256": entry.record.sha256,
+        "sealed_length": entry.record.length,
+    }
+    found = getattr(error, "context", {}).get("found")
+    if isinstance(found, str) and _DIGEST.fullmatch(found):
+        row["found_sha256"] = found
+    elif isinstance(found, str) and found.isdigit():
+        row["found_length"] = int(found)
+    return row
+
+
+def _row(context: Context, run_dir: Path, entry: SealedEntry, commit: str | None) -> dict[str, Any]:
+    """One sealed record, read through its seal, or the reason it could not be."""
+    base = {
+        "record_id": entry.record.record_id,
+        "session_id": entry.session_id,
+        "sha256": entry.record.sha256,
+        "length": entry.record.length,
+    }
+    try:
+        path = entry.path(run_dir)
+        # Held to the allowlist first, then read by the path as built: the reader refuses a
+        # path that is not its own real path, so a link is never followed to what it names.
+        context.allowlist.resolve(path)
+        record = read_record(path, entry.seal())
+    except PathRefusedError as exc:
+        return {**base, **_refused(entry, "seal", exc)}
+    except RecordTamperedError as exc:
+        return {**base, **_refused(entry, "seal", exc)}
+    except RecordRefusedError as exc:
+        return {**base, **_refused(entry, "format", exc)}
+    return {**base, **_shown(record, entry, commit)}
+
+
+def attempt(context: Context, params: Mapping[str, str]) -> Response:
+    """One attempt's sealed records, each read through its seal; a refused one is its own row.
+
+    Raises:
+        NotFoundError: the run is not there, has no event log, has no such attempt, or the
+            attempt sealed no record.
+    """
+    run_dir = run_dir_of(context, params)
+    subtask, number = params["subtask"], int(params["attempt"])
+    if number > ATTEMPT_LIMIT:
+        msg = f"no such attempt: a subtask has at most {ATTEMPT_LIMIT} attempts"
+        raise NotFoundError(msg, subtask=subtask, attempt=params["attempt"])
+    events = _events(context, run_dir, params)
+    sealed = attempt_records(events, subtask, number)
+    if not sealed:
+        msg = "this attempt sealed no simulation record"
+        raise NotFoundError(msg, subtask=subtask, attempt=params["attempt"])
+    commits = {
+        event.session_id: event.attempt_commit
+        for event in events
+        if isinstance(event, SessionEnded)
+    }
+    return json_response(
+        {
+            "subtask_id": subtask,
+            "attempt": number,
+            "records": [
+                _row(context, run_dir, entry, commits.get(entry.session_id)) for entry in sealed
+            ],
         }
     )
