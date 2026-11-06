@@ -11,6 +11,29 @@
 format = 1
 
 [[law]]
+id = "electrical_power"
+statement = "the power a node draws from a DC supply is its supply voltage times the current it draws"
+expression = "P == V * I"
+pattern = "node"
+anchor = "P"
+tolerance = "rounding"
+overlaps = "none"
+idealisation = "all three values are taken at one operating point, on one rail (the node's own input terminals) and as one statistic (typical with typical, maximum with maximum), with the rail voltage constant while the current flows: a voltage that sags or ripples with the draw, values from different rails, or a typical power beside a maximum current is not this law"
+literals = []
+requires = []
+unless = [
+  { name = "power_supply", place = "self", reason = "a node that declares power_supply is a source or converter: its supply_voltage is the voltage it supplies at its output, while its power_draw is what it draws at its input and its current_draw may be at either terminal, so the product of the two is not its draw (a 12 V to 3.3 V buck drawing 0.4 A at its input writes 4.8 W, not 3.3 V x 0.4 A)" },
+]
+symbols = { P = { name = "power_draw", place = "self" }, V = { name = "supply_voltage", place = "self" }, I = { name = "current_draw", place = "self" } }
+source = { kind = "textbook", title = "University Physics Volume 2 (S. J. Ling, J. Sanny, W. Moebs; OpenStax)", edition = "OpenStax, 2016, web edition", section = "9.5 Electrical Energy and Power, Electric Power, equation 9.12", read = 2026-11-05, reading = "in full" }
+example = [
+  { outcome = "pass", source = "TI ADS1115 data sheet, SBAS444E (revised December 2024), §5.5 Electrical Characteristics, at VDD = 3.3 V, data rate 8 SPS, TA = 25 °C: supply current IVDD operating, typical 150 µA; power dissipation PD at VDD = 3.3 V, typical 0.5 mW (typical with typical)", values = { P = { value = 0.5, unit = "mW" }, V = { value = 3.3, unit = "V" }, I = { value = 0.15, unit = "mA" } } },
+  { outcome = "fail", source = "the same table, with the typical power dissipation of its VDD = 5.0 V row, 0.9 mW, written beside the 3.3 V supply and the typical 150 µA specified at 3.3 V", values = { P = { value = 0.9, unit = "mW" }, V = { value = 3.3, unit = "V" }, I = { value = 0.15, unit = "mA" } } },
+]
+status = "warn"
+approved = { candidate_id = "4f68d63663854eaf851142627e52b09e", date = 2026-11-06 }
+
+[[law]]
 id = "reaction_moment_sum"
 statement = "a carrier reacts the sum of the reaction moments of the torque units that constrain it"
 expression = "M == T"
