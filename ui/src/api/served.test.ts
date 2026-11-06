@@ -110,7 +110,7 @@ describe("a failed contract's item is read as the route sends it, keys sorted", 
 });
 
 describe("what the item's positions must hold is still held", () => {
-  it("a position missing, one added, one of another kind, or a duplicate in disguise is refused", () => {
+  it("a position missing, one added, or one of another kind is refused as the item's positions", () => {
     for (const stated of [
       { producer: "reopen" },
       { consumer: "record_only" },
@@ -118,8 +118,13 @@ describe("what the item's positions must hold is still held", () => {
       { consumer: "record_only", domain: "resize" },
       { sizing: "retry", domain: "resize" },
       {},
-    ])
+    ]) {
       expect(() => itemView(withChoices(stated))).toThrow(ShapeError);
+      // Refused as a set of another shape, not later as one position's effect.
+      expect(() => itemView(withChoices(stated)), JSON.stringify(stated)).toThrow(
+        "the server's answer is not an item's positions",
+      );
+    }
   });
 
   it("what choosing does must be one the record knows", () => {

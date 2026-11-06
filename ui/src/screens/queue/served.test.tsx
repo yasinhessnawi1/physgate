@@ -63,11 +63,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function mounted(listing: unknown, query = ""): Promise<HTMLElement> {
+/** The screen over ``listing``; with ``itemsHang``, no item's view is ever answered. */
+async function mounted(listing: unknown, query = "", itemsHang = false): Promise<HTMLElement> {
   const served = answers(listing);
   vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
     const url = typeof input === "string" ? input : (input as Request).url;
     if (url === `${BASE}/events`) return Promise.resolve(new Response(""));
+    if (itemsHang && url.startsWith(`${BASE}/queue/items/`))
+      return new Promise<Response>(() => undefined);
     return Promise.resolve(new Response(JSON.stringify(served[url]), { status: 200 }));
   });
   const host = document.createElement("div");
@@ -95,6 +98,14 @@ describe("a failed contract's open item, as the route sends it", () => {
     expect(host.querySelector(".pg-queue-entry-on")?.getAttribute("href")).toContain(
       "item=run-7-contract-4",
     );
+  });
+});
+
+describe("a listing read whole, its items not yet", () => {
+  it("is still being read, and nothing is said to be refused", async () => {
+    const host = await mounted(contractOpen, "", true);
+    expect(host.textContent).toContain("Reading the queue");
+    expect(host.textContent).not.toContain("could not be read");
   });
 });
 
