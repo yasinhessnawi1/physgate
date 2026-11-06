@@ -337,15 +337,15 @@ def test_a_record_not_as_sealed_is_refused_with_its_seal_and_as_the_attempt_s_ro
     answer = json.loads(body)
     row = json.loads(listed[2])["records"][0]
     assert (row["record_id"], row["refused"]) == (entry.record.record_id, "seal"), row
-    assert answer["record"] == _relative(entry) == row["record"]
+    assert answer.get("record") == _relative(entry) == row["record"]
     assert "path" not in answer
     if status == 403:
         # The allowlist's own refusal, named by the record's place in the run alone.
-        assert answer["error"] == row["error"]
+        assert answer.get("error") == row["error"]
     else:
-        assert answer["seal"] == "broken"
-        assert answer["error"] and answer["reason"] == row["error"]
-        assert (answer["sealed_sha256"], answer["sealed_length"]) == (
+        assert answer.get("seal") == "broken"
+        assert answer.get("error") and answer.get("reason") == row["error"]
+        assert (answer.get("sealed_sha256"), answer.get("sealed_length")) == (
             entry.record.sha256,
             str(entry.record.length),
         )
@@ -377,8 +377,8 @@ def test_the_other_records_of_an_attempt_are_served_beside_a_changed_one(
         kept = [live.request("GET", _target("run-series-tampered", e)) for e in others]
     assert status == 422, body[:300]
     answer = json.loads(body)
-    assert answer["seal"] == "broken"
-    assert answer["found_sha256"] != entry.record.sha256
+    assert answer.get("seal") == "broken"
+    assert answer.get("found_sha256") != entry.record.sha256
     assert len(kept) == 5
     for (got, _, data), other in zip(kept, others, strict=True):
         assert got == 200 and hashlib.sha256(data).hexdigest() == other.record.sha256
@@ -399,11 +399,11 @@ def test_sealed_bytes_this_version_cannot_read_are_refused_as_held_with_none_of_
     assert status == 422, body[:300]
     answer = json.loads(body)
     row = json.loads(listed[2])["records"][0]
-    assert answer["seal"] == "held"
-    assert answer["reason"] == row["error"] and "does not validate" in answer["reason"]
-    assert answer["record"] == _relative(resealed)
-    assert answer["sealed_sha256"] == hashlib.sha256(unreadable).hexdigest()
-    assert answer["sealed_length"] == str(len(unreadable))
+    assert answer.get("seal") == "held"
+    assert answer.get("reason") == row["error"] and "does not validate" in row["error"]
+    assert answer.get("record") == _relative(resealed)
+    assert answer.get("sealed_sha256") == hashlib.sha256(unreadable).hexdigest()
+    assert answer.get("sealed_length") == str(len(unreadable))
     assert b"not a record" not in body
     assert os.path.realpath(tmp_path).encode() not in body
 
@@ -434,7 +434,7 @@ def test_a_record_planted_as_a_link_where_nothing_may_be_read_is_refused_unopene
     with serving(_context(world, root)) as live, RECORDER.recording():
         status, _, body = live.request("GET", _target("run-series", entry))
     assert status == 403, (toward, status, body[:300])
-    assert json.loads(body)["record"] == _relative(entry)
+    assert json.loads(body).get("record") == _relative(entry)
     assert marker.encode() not in body
     assert os.path.realpath(tmp_path).encode() not in body
     assert os.path.realpath(world["held"]).encode() not in body
@@ -468,7 +468,7 @@ def test_a_record_sealed_over_the_byte_bound_is_refused_before_a_byte_of_it_is_r
         monkeypatch.undo()
     assert status == 422, body[:300]
     answer = json.loads(body)
-    assert answer["seal"] == "held" and "at most" in answer["reason"]
+    assert answer.get("seal") == "held" and "at most" in str(answer.get("reason"))
     assert returned == [], "a record over the bound is refused before any of it is read"
 
 
