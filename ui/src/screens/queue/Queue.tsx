@@ -174,7 +174,9 @@ export default function Queue({ setHeader, query }: ViewProps) {
       showAll={chosen.showAll}
     />
   );
-  if (config === null || listing === null || views === null)
+  // The items are read only once the listing is: a refused listing is shown as refused, and
+  // never waits on items it will not ask for.
+  if (config === null || listing === null || (listing.ok && views === null))
     return (
       <div className="pg-screen">
         {switcher}
@@ -185,10 +187,10 @@ export default function Queue({ setHeader, query }: ViewProps) {
     ? { title: "The run's configuration could not be read", refusal: config.refusal }
     : !listing.ok
       ? { title: "The queue could not be read", refusal: listing.refusal }
-      : !views.ok
+      : views !== null && !views.ok
         ? { title: "An item of the queue could not be read", refusal: views.refusal }
         : null;
-  if (refused !== null || !config.ok || !listing.ok || !views.ok)
+  if (refused !== null || !config.ok || !listing.ok || views === null || !views.ok)
     return (
       <div className="pg-screen">
         {switcher}

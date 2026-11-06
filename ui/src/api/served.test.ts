@@ -25,13 +25,13 @@ import status from "./served/status.json";
 const copy = <T>(value: T): T => structuredClone(value);
 
 /** The contract item's consequence, as served, with ``on_choose`` replaced. */
-function withChoices(onChoose: unknown, source = "contract"): Record<string, unknown> {
+function withChoices(onChoose: unknown, source = "contract"): unknown {
   const view = copy(contractItem) as unknown as {
     item: { source: string; consequence: Record<string, unknown> };
   };
   view.item.source = source;
   view.item.consequence.on_choose = onChoose;
-  return view as unknown as Record<string, unknown>;
+  return view;
 }
 
 describe("a review the ledger records as blocked is read, and only a review", () => {

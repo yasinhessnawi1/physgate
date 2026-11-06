@@ -88,7 +88,10 @@ describe("a failed contract's open item, as the route sends it", () => {
     const host = await mounted(contractOpen, "item=run-7-contract-4");
     expect(host.textContent).not.toContain("could not be read");
     const labels = [...host.querySelectorAll(".pg-queue-actions button")].map((b) => b.textContent);
-    expect(labels.filter((l) => l.startsWith("Choose"))).toHaveLength(2);
+    expect(labels.filter((l) => l.startsWith("Choose") && l.endsWith("…"))).toEqual([
+      "Choose the producer's work…",
+      "Choose the consumer's work…",
+    ]);
     expect(host.querySelector(".pg-queue-entry-on")?.getAttribute("href")).toContain(
       "item=run-7-contract-4",
     );

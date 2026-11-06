@@ -351,10 +351,12 @@ describe("a review the ledger records as blocked", () => {
         <LedgerTable rows={rows()} lines={BLOCKED.length} mode="on" run="0/run" />,
       );
     }).not.toThrow();
-    const row = html.slice(html.indexOf('data-subtask="firmware-2"'));
-    const review = row.split("<td>")[5] ?? "";
-    expect(review).toContain('class="pg-status"');
-    expect(review).toContain("blocked: the specification lacks an input");
-    expect(review).not.toMatch(/pg-verdict|✓|✕/);
+    const page = new DOMParser().parseFromString(html, "text/html");
+    const review = page.querySelector('tr[data-subtask="firmware-2"] td:nth-child(5)');
+    expect(review?.querySelector(".pg-status")?.textContent).toBe(
+      "blocked: the specification lacks an input",
+    );
+    expect(review?.querySelector(".pg-verdict, .pg-badge")).toBeNull();
+    expect(review?.textContent).not.toMatch(/[✓✕!○]/);
   });
 });
