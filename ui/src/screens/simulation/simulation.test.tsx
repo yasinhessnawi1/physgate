@@ -690,6 +690,20 @@ describe("a record", () => {
     expect(plots[0]?.getAttribute("data-source")).toBe(`run r-series@${COMMIT}`);
   });
 
+  it("names the attempt's commit on every plot's chip, and a dashed no commit when it made none", async () => {
+    serve({
+      [`${BASE}/series/${S1}/3`]: [
+        200,
+        { ...RECORDS, records: [shown("step_nominal", { attempt_commit: null })] },
+      ],
+    });
+    const host = await mount(`subtask=${S1}&attempt=3&record=step_nominal`);
+    const chips = [...host.querySelectorAll("figure.pg-plot .pg-source")];
+    expect(chips).toHaveLength(1);
+    expect(chips[0]?.classList.contains("pg-source-missing")).toBe(true);
+    expect(text(chips[0])).toContain("no commit");
+  });
+
   it("draws a loop's magnitude and phase as two plots, in its own units", async () => {
     const host = await mount(`subtask=${S1}&attempt=3&record=loop_nominal`);
     const titles = [...host.querySelectorAll("figure.pg-plot .pg-plot-title")].map(text);
