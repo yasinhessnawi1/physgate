@@ -1,0 +1,47 @@
+{
+  "item": {
+    "artefact_diff": "The run branch from 1111111 to 3333333: see `git diff 1111111 3333333` in the target repository.",
+    "consequence": {
+      "attempt": null,
+      "attempt_commit": null,
+      "confirmed_indicators": [],
+      "on_approve": "record_only",
+      "on_choose": {
+        "consumer": "record_only",
+        "producer": "reopen"
+      },
+      "on_reject": "record_only",
+      "scan_hits": [],
+      "why_record_only": "source"
+    },
+    "decision_required": "The interface contract of module `sizing` (producer, subtask sizing-3ac1b9) to module `firmware` (consumer, subtask firmware-a7cd7e) failed after both merged. The interfaces are fixed at decomposition, and no run changes them. The consumer's nodes deviate from the interface. Decide whose merged work stands: choose producer or choose consumer.",
+    "item_id": "run-7-contract-4",
+    "kind": "item",
+    "quantities": [],
+    "run_id": "run-7",
+    "source": "contract",
+    "subtask_id": "contract",
+    "trajectories": [
+      "<run>/sessions/session-2/stdout.jsonl",
+      "<run>/sessions/session-3/stdout.jsonl"
+    ],
+    "triggering_finding": "Interface `sizing_to_firmware`: a clause failed, ruled for a person.",
+    "ts": "2026-11-06T11:40:00.000000Z"
+  },
+  "item_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "open": true,
+  "position": 2,
+  "trajectories": [
+    {
+      "link": "<run>/sessions/session-2/stdout.jsonl",
+      "session_id": "session-2",
+      "status": "holds"
+    },
+    {
+      "link": "<run>/sessions/session-3/stdout.jsonl",
+      "session_id": "session-3",
+      "status": "holds"
+    }
+  ],
+  "view_id": "WWWWWWWWWWWWWWWWWWWWWW"
+}
