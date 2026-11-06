@@ -4,7 +4,38 @@
 # drafted from the literature, reviewed adversarially, and approved, with a promotion line in
 # knowledge/promotions.jsonl. Every law enters at status "warn"; it moves to "block" only by a
 # person, after an audit over clean designs, with its clearance recorded on the row. The gate
-# refuses to build on a row that does not load. No law is held yet.
+# refuses to build on a row that does not load. The promotion command writes this file whole,
+# rows in id order.
 
 [meta]
 format = 1
+
+[[law]]
+id = "reaction_moment_sum"
+statement = "a carrier reacts the sum of the reaction moments of the torque units that constrain it"
+expression = "M == T"
+pattern = "members"
+anchor = "M"
+tolerance = "rounding"
+overlaps = "torque_unit"
+idealisation = "statics of the carrier alone: every unit's torque acts about parallel axes in the same sense and is written as a size under one sign convention; nothing else puts a moment on the carrier (its own weight off its support, a load force, an inertia term while it accelerates); two units turning against each other, as in a spin turn, do not add"
+literals = []
+requires = [
+  { name = "torque_peak", place = "each", reason = "a member is a torque unit, as check 3 reads one, only where it declares both torque_peak and reaction_moment; a member with a reaction_moment and no torque_peak is not a unit whose torque the carrier reacts, so the instance is left unjudged" },
+]
+unless = [
+  { name = "torque_peak", place = "subject", reason = "a subject that declares torque_peak is itself a torque unit: check 3 reads its reaction_moment against its own torque and gear ratio (whole unit, gearbox housing, output mount), so its reaction is not the sum of what it carries" },
+  { name = "support_position", place = "subject", reason = "a subject that declares a support_position is a support in check 3's mount balance: its reaction_moment is the moment it reacts at that mount, held to that mount's loads, not the sum of the units it carries" },
+  { name = "support_position", place = "each", reason = "a member that declares a support_position is a support of this node in check 3's mount balance: its reaction_moment balances the node's loads and is not a torque the node carries" },
+  { name = "load_force", place = "subject", reason = "a subject that declares a load_force has a force on it whose moment about its support is part of what it reacts, so its reaction_moment is not the sum of the units' moments alone" },
+  { name = "mount_position", place = "each", reason = "a member that declares a mount_position is a load placed at an arm on the carrier, as check 3's mount balance reads it: the moment of its weight or force about the carrier's support is part of what the carrier reacts, so the sum of the units' moments alone misses it" },
+  { name = "load_force", place = "each", reason = "a member that declares a load_force pushes on the carrier with a force whose moment about the carrier's support is part of what the carrier reacts, so the sum of the units' moments alone misses it" },
+]
+symbols = { M = { name = "reaction_moment", place = "subject" }, T = { name = "reaction_moment", place = "each" } }
+source = { kind = "textbook", title = "University Physics Volume 1 (S. J. Ling, J. Sanny, W. Moebs; OpenStax)", edition = "OpenStax, 2016, web edition", section = "12.1 Conditions for Static Equilibrium, Second Equilibrium Condition, equation 12.5", read = 2026-11-05, reading = "in full" }
+example = [
+  { outcome = "pass", source = "Pololu 10:1 Micro Metal Gearmotor HPCB 6V (item #3061), product specifications: stall torque 0.17 kg·cm at 6 V = 0.0167 N·m (0.17 x 9.80665 x 0.01 = 0.016671). Two such units constrain one carrier, which declares their sum, 0.0333 N·m", values = { M = { value = 0.0333, unit = "N*m" }, T = [{ value = 0.0167, unit = "N*m" }, { value = 0.0167, unit = "N*m" }] } },
+  { outcome = "fail", source = "the same two Pololu #3061 units, 0.0167 N·m each; the carrier declares one unit's moment, 0.0167 N·m, as if it carried one motor", values = { M = { value = 0.0167, unit = "N*m" }, T = [{ value = 0.0167, unit = "N*m" }, { value = 0.0167, unit = "N*m" }] } },
+]
+status = "warn"
+approved = { candidate_id = "2d86d44200e74427bafbb9fa89a198d9", date = 2026-11-06 }
