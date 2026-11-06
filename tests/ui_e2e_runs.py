@@ -8,7 +8,8 @@ own records, unchecked ones and a pass over nothing among them, reach the browse
 package could have written, so the server refuses its ledger and the browser tests see the error
 state render. Five more are copies of one run whose first subtask the loop escalated, for the
 Queue view's tests (see ``QUEUE_RUNS``), and one more run that acts on decisions,
-``run-esc-act``, whose item says what each verb will do. The browser tests start
+``run-esc-act``, whose item says what each verb will do. The runs whose control sessions record
+simulations come last (see ``ui_series_rig``), for the Simulation screen. The browser tests start
 ``physgate ui`` over the root this prints, so what they check is the real server reading real
 records.
 
@@ -24,6 +25,7 @@ from pathlib import Path
 
 from stand_in_roles import register
 from ui_rig import escalated_run, real_runs
+from ui_series_rig import series_runs
 from ui_three_mode_rig import cut_after_first_gate_stage, three_mode_runs, two_domain_run
 
 #: The escalated runs the Queue view's browser tests use, one per test that decides, so no test
@@ -75,6 +77,7 @@ def main(argv: list[str]) -> int:
     with (refused / "ledger.jsonl").open("ab") as ledger:
         ledger.write(b'{"not": "a ledger line"}\n')
     escalated(out, runs)
+    series_runs(out, runs)
     print(runs, flush=True)
     return 0
 
