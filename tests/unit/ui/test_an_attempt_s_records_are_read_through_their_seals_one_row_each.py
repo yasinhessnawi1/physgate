@@ -42,9 +42,13 @@ from physgate.ui.table import ROUTES, RUN
 
 #: Spellings no parameter may match, in every slot of the attempt route.
 HOSTILE = ("..", "%2e%2e", "%252e%252e", "..%2f..%2fheld", "%2fetc", "a%00b", ".hidden", "%", "%ZZ")
-#: The budget a cold read of an attempt is held to: this many times the time it takes to read
-#: the same records' bytes and hash them, measured in the same process, interleaved.
-BUDGET_RATIO = 45
+#: The budget a cold read of an attempt is held to: this many times the time a plain JSON parse
+#: of the same records' bytes takes, measured in the same process, interleaved. Both sides are
+#: the processor parsing the same bytes, so the ratio carries from one machine to another
+#: (measured 7.9x on an arm64 laptop and 8.5x to 8.7x on an x86 server). Reading and hashing the
+#: bytes was the first measure, and it was not one: hardware hashing made the same read 34x on
+#: one machine and 96x on another.
+BUDGET_RATIO = 12
 
 
 @pytest.fixture(scope="module")
@@ -551,7 +555,7 @@ def test_the_first_record_read_in_a_fresh_process_writes_nothing_and_starts_noth
 
 
 def _ratio(world: dict[str, Path], name: str) -> tuple[float, float, float]:
-    """The cold read of an attempt against reading and hashing its records' bytes, interleaved."""
+    """The cold read of an attempt against a plain JSON parse of its records' bytes, interleaved."""
     handler = getattr(simulation, "attempt", None)
     assert callable(handler), "the attempt route's handler exists"
     run = world["runs"] / name
@@ -564,7 +568,7 @@ def _ratio(world: dict[str, Path], name: str) -> tuple[float, float, float]:
     for _ in range(7):
         started = time.perf_counter()
         for entry in entries:
-            hashlib.sha256(entry.path(run).read_bytes()).hexdigest()
+            json.loads(entry.path(run).read_bytes())
         floors.append(time.perf_counter() - started)
         started = time.perf_counter()
         answered = handler(context, params)
@@ -579,7 +583,6 @@ def test_reading_an_attempt_stays_within_its_budget(world: dict[str, Path], name
     ratio, read, floor = _ratio(world, name)
     # Reported beside the ratio, which is what is held: an absolute time carries its machine.
     print(
-        f"{name}: read {read * 1000:.1f} ms, read-and-hash floor {floor * 1000:.1f} ms, "
-        f"{ratio:.1f}x"
+        f"{name}: read {read * 1000:.1f} ms, plain JSON parse {floor * 1000:.1f} ms, {ratio:.1f}x"
     )
     assert ratio <= BUDGET_RATIO, (name, ratio, read, floor)
