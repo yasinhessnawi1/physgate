@@ -459,3 +459,13 @@ def test_the_simulation_routes_import_nothing_from_the_evaluation_machinery() ->
     }
     assert "physgate.series.reader" in imported, "records are found through the reader's own rule"
     assert not [m for m in imported if m.startswith("physgate.evaluation")]
+
+
+def test_a_run_with_no_event_log_yet_is_404_with_a_sentence(
+    world: dict[str, Path], tmp_path: Path
+) -> None:
+    root, run = _copy(world, "run-series", tmp_path)
+    (run / "events.jsonl").unlink()
+    status, _, body = _get(root, world["ui"], "run-series")
+    assert status == 404, body
+    assert "event log" in json.loads(body)["error"]

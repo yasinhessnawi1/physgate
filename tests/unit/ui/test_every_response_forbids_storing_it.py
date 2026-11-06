@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from ui_rig import METHODS, context_over, escalated_run, fake_ui, real_runs, sealed_session, serving
 
+from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.state.store import journal_records_after
 from physgate.ui.routes import Context
 from physgate.ui.table import ROUTES
@@ -43,6 +44,11 @@ def _targets(world: dict[str, Path]) -> list[str]:
         "date": "2026-09-27",
         "revision": "1",
         "node": journal_records_after(run / "store", 0)[-1].node_id,
+        # The simulation routes: a subtask and an attempt the run's log names.
+        "subtask": next(
+            e.subtask_id for e in read_events(run / "events.jsonl") if isinstance(e, SessionEnded)
+        ),
+        "attempt": "1",
     }
     targets = ["/", "/no/such/route", "/api/runs/0/..%2f/ledger", "/?query=1"]
     for route in ROUTES:

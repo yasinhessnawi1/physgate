@@ -30,6 +30,9 @@ rather than leaving a test with nothing to look at:
   that the collector discards from every session;
 - ``run-series-large``: one record at the format's sample bound;
 - ``run-series-tampered``: a copy of ``run-series`` with one byte of one sealed record changed.
+
+``bound_run`` makes one more, ``run-series-bound``, whose sessions each leave as many records as
+one session may; its first record takes a seed larger than a browser's number holds exactly.
 """
 
 from __future__ import annotations
@@ -54,7 +57,7 @@ from physgate.orchestrator.events import (
     read_events,
 )
 from physgate.orchestrator.run_config import RunBounds
-from physgate.series.record import MAX_FILE_BYTES, MAX_SAMPLES
+from physgate.series.record import MAX_FILE_BYTES, MAX_RECORDS_PER_SESSION, MAX_SAMPLES
 
 #: The seed the stand-in sessions pass to their scripts.
 SEED = 7
@@ -62,6 +65,9 @@ SEED = 7
 #: peak, one not. Made up for the tests, never a source.
 PEAK_IN_RANGE = (0.1, 10.0)
 PEAK_OUT_OF_RANGE = (0.1, 1.0)
+
+#: A seed larger than a browser's number holds exactly, and within a record's integer bound.
+BIG_SEED = 2**63 - 1
 
 #: The script a repair attempt runs that records nothing, yet reports a phase margin it says
 #: it read off a record of the earlier attempt: the real runs' unreadable case.
@@ -108,6 +114,26 @@ series_writer.record(
     inputs={{"seed": (int(os.environ.get("STAND_IN_SEED", "7")), "dimensionless")}},
     group="long_runs",
 )
+"""
+
+#: A script that records as many runs as one session may leave, each small, with made-up numbers;
+#: the first takes a seed larger than a browser's number holds exactly.
+BOUND_SCRIPT = f"""import os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+while not os.path.isfile(os.path.join(here, ".physgate", "lib", "series_writer.py")):
+    here = os.path.dirname(here)
+sys.path.insert(0, os.path.join(here, ".physgate", "lib"))
+import series_writer
+for k in range({MAX_RECORDS_PER_SESSION}):
+    series_writer.record(
+        f"run_{{k:03d}}",
+        title=f"Stand-in short run {{k}}, made-up numbers, not a simulation",
+        axis="time",
+        x=("time", "s", [i / 100 for i in range(200)]),
+        traces=[("position", "m", [(i * k) / 1000 for i in range(200)])],
+        inputs={{"seed": ({BIG_SEED} if k == 0 else k, "dimensionless")}},
+        group="short_runs",
+    )
 """
 
 _TABLE = """[meta]
@@ -268,6 +294,15 @@ def series_runs(root: Path, runs: Path) -> dict[str, Path]:
 
     made["run-series-tampered"] = tamper(made["run-series"], runs / "run-series-tampered")
     return made
+
+
+def bound_run(root: Path, runs: Path) -> Path:
+    """``run-series-bound``: each session leaves as many records as one session may."""
+    repo = evaluation_rig().target_repo(root / "bound-repo")
+    run = series_run(root, runs, repo, "run-series-bound", script=BOUND_SCRIPT)
+    for ended in _kinds(run, SessionEnded):
+        assert len(ended.series.records) == MAX_RECORDS_PER_SESSION
+    return run
 
 
 def cut_after_first_check(source: Path, target: Path) -> Path:
