@@ -776,13 +776,15 @@ def unknown_names(names: Iterable[str]) -> tuple[str, ...]:
     return tuple(sorted({n for n in names if n not in QUANTITIES}))
 
 
-#: The quantity names a relation, or one of check 3's readings, reads by name: the names a
+#: The quantity names a relation, one of check 3's readings, or a law reads by name: the names a
 #: writer steps out of by renaming. Every one is catalogued. The relations' names are read
 #: off :mod:`physgate.gate.relations`; the statics names off :mod:`physgate.gate.check_equilibrium`
-#: and its load readings. Spelled again for the hooks in :mod:`physgate.state.vocabulary`,
-#: held equal by a test.
+#: and its load readings; a law's off its row, those of every law in the table and of every law
+#: card staged for a person to promote, so a law's names are guarded before it is promoted.
+#: Spelled again for the hooks in :mod:`physgate.state.vocabulary`, held equal by a test.
 RELATION_NAMES: tuple[str, ...] = (
     "ambient_temperature",
+    "current_draw",
     "current_limit",
     "energy_capacity",
     "external_gear_ratio",
@@ -795,16 +797,20 @@ RELATION_NAMES: tuple[str, ...] = (
     "max_discharge_power",
     "max_temperature",
     "mount_position",
+    "output_data_rate",
     "output_power",
     "power_draw",
     "power_supply",
     "reaction_force",
     "reaction_moment",
+    "sample_rate",
     "stall_current",
+    "supply_voltage",
     "support_position",
     "supported_mass",
     "thermal_resistance",
     "torque_peak",
+    "update_rate",
 )
 
 

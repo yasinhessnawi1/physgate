@@ -62,10 +62,11 @@ QUANTITY_NAMES: tuple[str, ...] = (
 )
 
 
-#: The names a relation, or one of the equilibrium check's readings, reads by name. Held
+#: The names a relation, one of the equilibrium check's readings, or a law reads by name. Held
 #: equal to the catalogue's RELATION_NAMES by a test.
 RELATION_QUANTITY_NAMES: tuple[str, ...] = (
     "ambient_temperature",
+    "current_draw",
     "current_limit",
     "energy_capacity",
     "external_gear_ratio",
@@ -78,16 +79,20 @@ RELATION_QUANTITY_NAMES: tuple[str, ...] = (
     "max_discharge_power",
     "max_temperature",
     "mount_position",
+    "output_data_rate",
     "output_power",
     "power_draw",
     "power_supply",
     "reaction_force",
     "reaction_moment",
+    "sample_rate",
     "stall_current",
+    "supply_voltage",
     "support_position",
     "supported_mass",
     "thermal_resistance",
     "torque_peak",
+    "update_rate",
 )
 
 

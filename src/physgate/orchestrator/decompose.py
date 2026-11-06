@@ -26,7 +26,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -103,6 +103,9 @@ from physgate.series.collect import series_library
 from physgate.state.exceptions import MalformedNodeIdError
 from physgate.state.schema import Node, validate_node_id
 from physgate.state.store import Store, payload_digest
+
+if TYPE_CHECKING:
+    from physgate.gate.laws import LawTable
 
 #: Where the run branch holds each interface node the decomposition planned, one JSON file
 #: per node named by its id, written in the commit that issues the specifications. Every
@@ -596,6 +599,61 @@ def relations_sentence() -> str:
     )
 
 
+#: Where a law reads a name, by the place its binding pattern gives the name.
+LAW_PLACE_WORDS: Mapping[str, str] = {
+    "self": "on one node",
+    "target": "on the node its constrains edge names",
+    "subject": "on one node",
+    "each": "on each node whose constrains edge names it",
+}
+
+
+def _listed(words: Sequence[str]) -> str:
+    """``a``, ``a and b``, or ``a, b and c``."""
+    return words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
+
+
+def laws_sentence(laws: LawTable | None = None) -> str:
+    """Each law the gate judges, generated from its law table; empty when the table holds none.
+
+    Each law by its id, its statement and the names it reads at each place its binding pattern
+    gives them, in id order, from the table the gate loads unless ``laws`` is given. Generated,
+    never copied by hand, so the prompt names every law the gate holds and no other, and a
+    prompt for a gate with no law is the prompt as it was before laws existed. What excuses a
+    law, or what it needs besides the names it reads, is not given: the plan is asked for the
+    design's values under their catalogue names, not for the law's exceptions.
+    """
+    if laws is None:
+        # Imported here: the gate's law table brings its unit library, which only a prompt for
+        # a gate with laws needs.
+        from physgate.gate.laws import load_laws
+
+        laws = load_laws()
+    if not laws.laws:
+        return ""
+    from physgate.gate.laws import PLACES
+
+    stated = []
+    for law_id in sorted(laws.laws):
+        law = laws.laws[law_id]
+        places: dict[str, list[str]] = {}
+        for symbol in law.symbols.values():
+            named = places.setdefault(symbol.place, [])
+            if f"`{symbol.name}`" not in named:
+                named.append(f"`{symbol.name}`")
+        reads = " and ".join(
+            f"{_listed(places[place])} {LAW_PLACE_WORDS[place]}"
+            for place in PLACES[law.pattern]
+            if place in places
+        )
+        stated.append(f"`{law_id}`: {law.statement}, reading {reads}")
+    return (
+        "The gate also judges these laws, each only where the nodes and their constrains edges "
+        f"form it and only under these exact names: {'; '.join(stated)}. A law the nodes do not "
+        "form is not judged."
+    )
+
+
 #: Who writes interface nodes, as every decomposition prompt of a run without the role that
 #: owns the cross nodes states it.
 INTERFACE_WRITER_SENTENCE = (
@@ -645,6 +703,8 @@ def prompt_for(brief: str, roles: Sequence[str]) -> str:
     writers = (
         interface_writer_sentence(owners[0]) if len(owners) == 1 else INTERFACE_WRITER_SENTENCE
     )
+    judged = laws_sentence()
+    laws = f"{judged}\n\n" if judged else ""
     if completion:
         form = requirement_form_sentence(brief)
         asked = REQUIREMENTS_SENTENCE if form is None else f"{REQUIREMENTS_SENTENCE} {form}"
@@ -662,6 +722,7 @@ def prompt_for(brief: str, roles: Sequence[str]) -> str:
         f"{catalogue_sentence()}\n\n"
         f"{bounds_sentence()}\n\n"
         f"{relations_sentence()}\n\n"
+        f"{laws}"
         f"{writers}\n\n"
         f"{added}"
         "Answer by calling StructuredOutput once.\n\n"
