@@ -1,0 +1,309 @@
+/* The Simulation screen: a rail of subtasks, attempts and records beside the chosen record, its
+   plots, the tool-view slot and the table of what was read off a record. Every colour, size and
+   duration is a token. */
+
+.pg-sim {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+  min-width: 0;
+}
+
+/* -- the rail -------------------------------------------------------------------------------- */
+.pg-sim-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.pg-sim-rail-title {
+  margin: 0;
+  font-size: var(--type-section-title-size);
+  line-height: var(--type-section-title-line);
+  font-weight: 600;
+}
+
+.pg-sim-subtask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.pg-sim-subtask-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--type-section-title-size);
+  line-height: var(--type-section-title-line);
+  font-weight: 600;
+}
+
+.pg-sim-attempts,
+.pg-sim-records,
+.pg-sim-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pg-sim-attempt,
+.pg-sim-record-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-height: var(--size-touch-min);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.pg-sim-record-link {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.pg-sim-attempt:hover,
+.pg-sim-record-link:hover {
+  background: var(--color-surface-2);
+}
+
+.pg-sim-on {
+  background: var(--color-accent-bg);
+}
+
+.pg-sim-count,
+.pg-sim-record-meta {
+  font-size: var(--type-label-size);
+  color: var(--color-text-2);
+}
+
+/* A title is the role's own text: it wraps and is never cut. */
+.pg-sim-record-title {
+  overflow-wrap: anywhere;
+}
+
+.pg-sim-attempt-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--color-border);
+}
+
+.pg-sim-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.pg-sim-group-title {
+  margin: 0;
+  font-size: var(--type-label-size);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--type-badge-tracking);
+  color: var(--color-text-2);
+}
+
+.pg-sim-notes li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--type-label-size);
+  color: var(--color-text-2);
+}
+
+.pg-sim-file {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-small-size);
+  overflow-wrap: anywhere;
+}
+
+.pg-sim-unread {
+  margin: 0;
+  color: var(--color-text-2);
+}
+
+/* -- the record ------------------------------------------------------------------------------ */
+.pg-sim-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.pg-sim-record {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.pg-sim-record-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.pg-sim-record-heading {
+  margin: 0;
+  font-size: var(--type-section-title-size);
+  line-height: var(--type-section-title-line);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pg-sim-titled,
+.pg-sim-ids {
+  margin: 0;
+}
+
+.pg-sim-ids {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pg-sim-plots {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.pg-sim-plot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.pg-sim-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* A recorded series: solid, in the accent. */
+.pg-sim-swatch {
+  display: inline-block;
+  width: var(--space-5);
+  border-top: 2px solid var(--color-accent);
+}
+
+.pg-sim-section-title {
+  margin: 0;
+  font-size: var(--type-label-size);
+  font-weight: 600;
+  color: var(--color-text-2);
+}
+
+.pg-sim-readoff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pg-sim-readoff-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.pg-sim-readoff-main {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pg-sim-produced-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.pg-sim-inputs {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-5);
+  margin: 0;
+}
+
+.pg-sim-input {
+  display: contents;
+}
+
+.pg-sim-input dd {
+  margin: 0;
+}
+
+.pg-sim-file-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pg-sim-provenance,
+.pg-sim-seal {
+  margin: 0;
+  color: var(--color-text-2);
+}
+
+.pg-sim-seal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* A record refused on its seal: a refusal in neutral ink, not a verdict. */
+.pg-sim-refused .pg-state-title {
+  color: var(--color-text);
+}
+
+/* -- the table ------------------------------------------------------------------------------- */
+.pg-sim-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.pg-sim-cell-lead {
+  font-weight: 600;
+}
+
+.pg-sim-gates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pg-sim-gate,
+.pg-sim-gate-words {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
