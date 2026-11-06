@@ -61,8 +61,21 @@ def _example(outcome: str, **values: Any) -> dict[str, Any]:
     }
 
 
-#: One law of each pattern, the tests' own: a node law, an edge law and a members law.
+#: One law of each pattern, the tests' own: a members law, a node law and an edge law, written
+#: out of id order, so the sentence's order is its own.
 TEST_LAWS = (
+    sound_law(
+        "reaction_moment_sum",
+        statement="a carrier reacts the sum of the moments of the units it carries",
+        expression="M == T",
+        pattern="members",
+        anchor="M",
+        symbols=_symbols(M=("reaction_moment", "subject"), T=("reaction_moment", "each")),
+        example=[
+            _example("pass", M=(3, "N*m"), T=[(1, "N*m"), (2, "N*m")]),
+            _example("fail", M=(4, "N*m"), T=[(1, "N*m"), (2, "N*m")]),
+        ],
+    ),
     sound_law(),
     sound_law(
         "rate_throughput",
@@ -77,18 +90,20 @@ TEST_LAWS = (
             _example("fail", U=(400, "Hz"), R=(200, "Hz")),
         ],
     ),
-    sound_law(
-        "reaction_moment_sum",
-        statement="a carrier reacts the sum of the moments of the units it carries",
-        expression="M == T",
-        pattern="members",
-        anchor="M",
-        symbols=_symbols(M=("reaction_moment", "subject"), T=("reaction_moment", "each")),
-        example=[
-            _example("pass", M=(3, "N*m"), T=[(1, "N*m"), (2, "N*m")]),
-            _example("fail", M=(4, "N*m"), T=[(1, "N*m"), (2, "N*m")]),
-        ],
-    ),
+)
+
+#: The law sentence for ``TEST_LAWS``, word for word: each law in id order, the names it reads
+#: listed at each place its pattern binds them.
+TEST_LAWS_SENTENCE = (
+    "The gate also judges these laws, each only where the nodes and their constrains edges form "
+    "it and only under these exact names: "
+    "`electrical_power`: the power a node draws is its supply voltage times the current it "
+    "draws, reading `power_draw`, `supply_voltage` and `current_draw` on one node; "
+    "`rate_throughput`: a consumer is updated no faster than its producer delivers, reading "
+    "`update_rate` on one node and `output_data_rate` on the node its constrains edge names; "
+    "`reaction_moment_sum`: a carrier reacts the sum of the moments of the units it carries, "
+    "reading `reaction_moment` on one node and `reaction_moment` on each node whose constrains "
+    "edge names it. A law the nodes do not form is not judged."
 )
 
 
@@ -170,17 +185,12 @@ def test_every_law_in_the_table_is_named_with_its_statement_and_the_names_it_rea
 ) -> None:
     table = table_of(TEST_LAWS)
     assert len(table.laws) == len(TEST_LAWS)
+    assert list(table.laws) != sorted(table.laws)
     sentence = laws_sentence()
     for law in table.laws.values():
         _named(sentence, law)
-    # Where each pattern reads its names: a node's own, the node its edge names, its members.
-    assert "constrains edge names" in sentence
-    assert "whose constrains edge names it" in sentence
-    assert sentence.endswith("A law the nodes do not form is not judged.")
-    # In id order, each once.
-    places = [sentence.index(f"`{law_id}`") for law_id in sorted(table.laws)]
-    assert places == sorted(places)
-    assert all(sentence.count(f"`{law_id}`:") == 1 for law_id in table.laws)
+    # Where each pattern reads its names, in id order, each law once.
+    assert sentence == TEST_LAWS_SENTENCE
 
 
 @pytest.mark.parametrize("run_roles", sorted(before.PROMPT_SHA256), ids=", ".join)
