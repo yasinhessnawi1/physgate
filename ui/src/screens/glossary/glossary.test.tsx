@@ -52,6 +52,25 @@ describe("the glossary", () => {
       expect(GLOSSARY[key].means.length).toBeGreaterThan(10);
   });
 
+  it("explains every term the Simulation screen uses, and says a record is not re-run", () => {
+    for (const key of [
+      "simulation-record",
+      "read-off",
+      "agreement",
+      "set-aside",
+      "superseded",
+      "tool-view",
+      "sealed",
+      "attempt",
+      "unchecked",
+      "observe",
+    ] as const)
+      expect(GLOSSARY[key].means.length).toBeGreaterThan(10);
+    expect(GLOSSARY["simulation-record"].means).toMatch(/does not re-run/);
+    expect(GLOSSARY.agreement.means).not.toMatch(/\d/);
+    expect(html).toContain("Simulation record");
+  });
+
   it("says warn is a failed check whose failure does not block the attempt, as the gate records it", () => {
     expect(GLOSSARY.verdicts.means).toContain(
       "Warn is a check that failed where its failure does not block the attempt.",

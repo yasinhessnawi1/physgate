@@ -168,6 +168,36 @@ export const GLOSSARY = {
       "The digest of a run's whole configuration: models, gate mode, limits. Runs with the same manifest were set up the same way.",
     group: "Drafts and records",
   },
+  "simulation-record": {
+    term: "Simulation record",
+    means: "",
+    group: "Drafts and records",
+  },
+  "read-off": {
+    term: "Read off a record",
+    means: "",
+    group: "Drafts and records",
+  },
+  agreement: {
+    term: "Agreement",
+    means: "",
+    group: "Drafts and records",
+  },
+  "set-aside": {
+    term: "Set aside",
+    means: "",
+    group: "Drafts and records",
+  },
+  superseded: {
+    term: "Superseded",
+    means: "",
+    group: "Drafts and records",
+  },
+  "tool-view": {
+    term: "Tool view",
+    means: "",
+    group: "Drafts and records",
+  },
   "list-price": {
     term: "List-price estimate",
     means:

@@ -1,0 +1,21 @@
+/** The Simulation screen's words: not written yet. */
+export const EXTRACTOR_WORDS: Readonly<Record<string, string>> = {};
+export const GATE_WORDS: Readonly<Record<string, string>> = {};
+export const SERIES_COPY: Readonly<Record<string, string>> = {};
+export const inWords = (_name: string): string => "";
+export const traceLabel = (_name: string): string => "";
+export const extractorWords = (_extract: string, _trace: string | null): string => "";
+export const groupLabel = (_group: string | null): string => "";
+export const axisWords = (_axis: string): string => "";
+export const titledBy = (_role: string): string => "";
+export const joinedLabels = (_names: readonly string[]): string => "";
+export const againstWords = (_traces: readonly string[], _x: string): string => "";
+export const summarySentence = (_trace: unknown, _x: unknown): string => "";
+export const toleranceWords = (_tolerance: string) => ({ short: "", full: "" });
+export const agreementWords = (_outcome: string, _tolerance: string): string => "";
+export const asSentence = (_reason: string): string => "";
+export const gateWords = (_state: string): string => "";
+export const setAsideWords = (_how: string, _reason: string): string => "";
+export const supersededWords = (_id: string): string => "";
+export const heldWords = (_reason: string): string => "";
+export const recordsCount = (_n: number, _partial: boolean): string => "";
