@@ -27,6 +27,7 @@ from law_rows import sound_law, toml_value
 
 from physgate.gate import laws
 from physgate.knowledge import law_promotion
+from physgate.knowledge.promote import PromotionError
 from physgate.orchestrator import decompose
 
 BRIEF = "Build a robot."
@@ -254,7 +255,7 @@ def test_every_staged_law_card_once_promoted_is_named_in_the_prompt(
             law_promotion._apply_law(
                 candidate_id, by="a person", on=ON, notice=None, **staged_library
             )
-        except law_promotion.PromotionError as exc:
+        except PromotionError as exc:
             raise AssertionError(f"the staged card {candidate_id} was refused: {exc}") from None
         table = gate_loads(
             staged_library["knowledge_root"] / "laws" / "laws.toml",
