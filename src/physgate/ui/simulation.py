@@ -40,6 +40,7 @@ exactly goes out as its decimal numeral, so the page shows the integer the recor
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from physgate.orchestrator.events import (
@@ -62,6 +63,7 @@ from physgate.orchestrator.protocols import (
 from physgate.series.reader import attempt_records
 from physgate.series.seal import SeriesCheck
 from physgate.series.tolerance import RELATIVE_TOLERANCE
+from physgate.ui.exceptions import NotFoundError
 from physgate.ui.readers import EVENTS, run_dir_of
 from physgate.ui.routes import Context, Response, json_response
 
@@ -238,13 +240,26 @@ def _attempt(events: list[Event], key: tuple[str, int], owner: str | None) -> di
     }
 
 
+def _events(context: Context, run_dir: Path, params: Mapping[str, str]) -> list[Event]:
+    """The run's event log, read through the allowlist; a run with none yet is not found.
+
+    Raises:
+        NotFoundError: the run has no event log yet.
+    """
+    log = context.allowlist.resolve(run_dir / EVENTS)
+    if not log.is_file():
+        msg = "the run has no event log yet, so no session of it has ended"
+        raise NotFoundError(msg, root=params["root"], name=params["name"])
+    return read_events(log)
+
+
 def listing(context: Context, params: Mapping[str, str]) -> Response:
     """Every attempt one of whose sessions ended, from the run's event log alone.
 
     Attempts come in the order their first session ended. No record is opened.
     """
     run_dir = run_dir_of(context, params)
-    events = read_events(context.allowlist.resolve(run_dir / EVENTS))
+    events = _events(context, run_dir, params)
     owners: dict[str, str] = {}
     order: dict[tuple[str, int], None] = {}
     for event in events:
