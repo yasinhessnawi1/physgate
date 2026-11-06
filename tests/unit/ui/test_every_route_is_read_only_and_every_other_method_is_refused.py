@@ -72,6 +72,7 @@ def _valid(world: dict[str, Path], run: str) -> dict[str, str]:
         # no simulation, so the routes refuse each request; the series runs' own tests read them.
         "subtask": _first_subtask(world["root"] / run),
         "attempt": "1",
+        "record": "step_nominal",
     }
 
 

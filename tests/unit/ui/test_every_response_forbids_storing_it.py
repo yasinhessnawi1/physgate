@@ -49,6 +49,8 @@ def _targets(world: dict[str, Path]) -> list[str]:
             e.subtask_id for e in read_events(run / "events.jsonl") if isinstance(e, SessionEnded)
         ),
         "attempt": "1",
+        # A record id a control session records; this run recorded none, so it is refused.
+        "record": "step_nominal",
     }
     targets = ["/", "/no/such/route", "/api/runs/0/..%2f/ledger", "/?query=1"]
     for route in ROUTES:
