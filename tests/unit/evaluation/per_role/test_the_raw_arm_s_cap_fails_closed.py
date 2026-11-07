@@ -72,6 +72,7 @@ def _usage_line(tokens: int) -> str:
 def test_the_bounds_are_the_ones_decided() -> None:
     assert getattr(raw, "HEARTBEAT_S", None) == 5.0
     assert getattr(raw, "NO_STREAM_S", None) == 10.0
+    assert getattr(raw, "CHECKPOINT_S", None) == 120.0
 
 
 def test_a_stream_that_cannot_be_read_stops_the_session(
@@ -136,6 +137,24 @@ def test_a_reading_that_does_not_complete_within_the_heartbeat_stops_the_session
     watch = _start(stream, session, cap=10**6)
     stopped = _ended_within(session)
     assert stopped, "a reading that never completed left the session running"
+    assert _end(watch) == "watch_stalled"
+
+
+def test_a_checkpoint_that_hangs_stops_the_session(
+    tmp_path: Path, session: subprocess.Popen[bytes], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stream = tmp_path / "stdout.jsonl"
+    stream.write_text("")
+
+    def hanging(_total: int) -> str | None:
+        time.sleep(60)
+        return None
+
+    # The cap's reader keeps its heartbeat: only the checkpoint's own bound can stop it here.
+    monkeypatch.setattr(raw, "CHECKPOINT_S", 1.0)
+    watch = _start(stream, session, cap=10**6, check=hanging)
+    stopped = _ended_within(session)
+    assert stopped, "a checkpoint that hung left the session running"
     assert _end(watch) == "watch_stalled"
 
 

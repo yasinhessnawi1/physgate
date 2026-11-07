@@ -74,6 +74,10 @@ HEARTBEAT_S = 5.0
 #: The longest a session may run with no stream to count: a session whose stream has not
 #: appeared this long after the watch started is stopped (``no_stream``).
 NO_STREAM_S = 10.0
+#: The longest one call of the checkpoint may run. It runs on a thread of its own, so a slow
+#: call never delays the cap; a call past this has hung, and the session is stopped
+#: (``watch_stalled``). An author's checkpoint scores the tasks that changed, seconds each.
+CHECKPOINT_S = 120.0
 #: The token ceiling the hook installer requires. The raw agent loads nothing always, so it
 #: never binds; the token cap is the watcher's.
 NO_ALWAYS_LOADED_CEILING = 1_000_000
@@ -136,8 +140,8 @@ class BudgetWatch:
     - a reason the ``check`` returned; :attr:`stopped_for` holds it with the count then;
     - ``watch_failed``: a reading of the stream or the checkpoint raised; :attr:`failure`
       says what;
-    - ``watch_stalled``: no reading completed within :data:`HEARTBEAT_S`, or a watch thread
-      is gone while the session runs;
+    - ``watch_stalled``: no reading completed within :data:`HEARTBEAT_S`, a checkpoint call
+      ran past :data:`CHECKPOINT_S`, or a watch thread is gone while the session runs;
     - ``no_stream``: the stream had not appeared :data:`NO_STREAM_S` after the start.
 
     Three threads: the reader counts the stream every :data:`WATCH_S`; the checkpoint, when
@@ -168,6 +172,8 @@ class BudgetWatch:
         self._total = 0
         self._since = time.monotonic()
         self._last_read = self._since
+        #: When the checkpoint's call in progress began; ``None`` between calls.
+        self._asking_since: float | None = None
         self._lock = threading.Lock()
         self._done = threading.Event()
         self._reader = threading.Thread(target=self._read, daemon=True)
@@ -226,8 +232,10 @@ class BudgetWatch:
                 if self._process.poll() is not None:
                     return
                 with self._lock:
-                    total = self._total
+                    total, self._asking_since = self._total, time.monotonic()
                 reason = self._check(total)
+                with self._lock:
+                    self._asking_since = None
                 if reason is not None:
                     self.stopped_for = (reason, total)
                     self._stop(reason)
@@ -247,7 +255,10 @@ class BudgetWatch:
                 return
             now = time.monotonic()
             with self._lock:
-                last_read = self._last_read
+                last_read, asking_since = self._last_read, self._asking_since
+            if asking_since is not None and now - asking_since > CHECKPOINT_S:
+                self._stop("watch_stalled")
+                return
             if not self.stream.exists():
                 if now - self._since > NO_STREAM_S:
                     self._stop("no_stream")
