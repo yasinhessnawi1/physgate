@@ -82,6 +82,15 @@ WHERE IT DOES NOT HOLD (refused at warn)
   is written under its name.
 - No torque, speed or current is read, so the stall pairing note does not arise.
 
+STANDARDS SENTENCE THE LAW NEEDS (added 07.11 at the review's request; K-track, the owner's)
+The approved definitions reach the writer only through the standards, and today no standards
+text says what gear_ratio and external_gear_ratio hold beside overall_gear_ratio (sizing section
+10 lists gear_ratio only; the practice gearbox wrote the whole train under it). Proposed for
+sizing standards section 10, beside the overall_gear_ratio sentence: "gear_ratio is the built-in
+gearbox of the motor as bought, external_gear_ratio the stages the design adds after it, written
+as their product where there are several; overall_gear_ratio is the two multiplied." Until it is
+promoted, a writer who follows the practice convention is refused at warn (above).
+
 SOURCE (read 07.11.2026, in full, the equations as the page's images)
 Zhang, Finger and Behrens, Introduction to Mechanisms (Carnegie Mellon), chapter 7, section 7.6.1
 Velocity Ratio: "the velocity ratio of a pair of gears is the inverse ratio of their number of
