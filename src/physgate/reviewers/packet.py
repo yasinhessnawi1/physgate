@@ -170,6 +170,15 @@ def _named(header: bytes, side: bytes) -> str | None:
     return name.removeprefix(side).decode("utf-8", errors="replace")
 
 
+def _both_sides(names: bytes) -> str:
+    """The path a ``diff --git a/<path> b/<path>`` line names, when both sides name one path."""
+    half = (len(names) - 5) // 2
+    path = names[2 : 2 + half]
+    if names != b"a/" + path + b" b/" + path:
+        return _UNNAMED
+    return path.decode("utf-8", errors="replace")
+
+
 def first_long_line(diff: bytes) -> LongLine | None:
     """The first line of ``diff`` that :func:`split_parts` cannot issue, by file and line.
 
@@ -180,12 +189,11 @@ def first_long_line(diff: bytes) -> LongLine | None:
     path, header, old, new = _UNNAMED, True, 0, 0
     for raw in diff.split(b"\n"):
         if raw.startswith(b"diff --git "):
-            path, header = _UNNAMED, True
+            path, header = _both_sides(raw.removeprefix(b"diff --git ")), True
         elif header and raw.startswith((b"--- ", b"+++ ")):
             path = _named(raw, b"a/" if raw.startswith(b"-") else b"b/") or path
         elif (hunk := _HUNK.match(raw)) is not None:
             header, old, new = False, int(hunk.group(1)), int(hunk.group(2))
-            continue
         if any(len(piece) > PART_MAX_BYTES for piece in (raw + b"\n").splitlines(keepends=True)):
             if header:
                 return LongLine(path=path, line=None, before=False, bytes=len(raw))

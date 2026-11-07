@@ -32,7 +32,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evaluation"))
 from observe_rig import Reviewer, fake_run, target_repo  # noqa: E402
 
-from physgate.orchestrator.apply import GitChangeChecker  # noqa: E402
+from physgate.orchestrator.apply import GitChangeChecker, too_long  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
     AttemptRejected,
     Escalated,
@@ -48,7 +48,12 @@ from physgate.orchestrator.merge import RunGit, commit_attempt  # noqa: E402
 from physgate.orchestrator.repair import repair_instruction  # noqa: E402
 from physgate.orchestrator.replay import replay  # noqa: E402
 from physgate.reviewers.exceptions import ReviewError  # noqa: E402
-from physgate.reviewers.packet import PART_MAX_BYTES, split_parts  # noqa: E402
+from physgate.reviewers.packet import (  # noqa: E402
+    PART_MAX_BYTES,
+    LongLine,
+    first_long_line,
+    split_parts,
+)
 
 #: Run 7's line: 23 475 bytes on one line, a number export written without a line break.
 LONG = b"x = '" + b"9" * 23_469 + b"'\n"
@@ -138,6 +143,35 @@ def test_a_long_line_the_attempt_removes_is_named_as_it_stood_before_the_attempt
     assert subject == path
 
 
+@pytest.mark.parametrize(
+    ("base", "now", "said"),
+    [
+        (b"a\nb\nc\n", b"a\nb\nc\nd\n" + LONG, "line 5 of {path} is"),
+        (b"a\nb\nc\n" + LONG, b"a\nb\nc\n", "line 4 of {path}, as it stood before this attempt,"),
+    ],
+    ids=["added after unchanged lines", "removed after unchanged lines"],
+)
+def test_the_line_is_counted_in_its_file_past_the_lines_the_diff_shows_unchanged(
+    tmp_path: Path, base: bytes, now: bytes, said: str
+) -> None:
+    path = f"{MODULE}/table.txt"
+    run, commit = _attempt(tmp_path, {path: now}, base={path: base})
+    refused_by, reason, _ = _check(tmp_path, run, commit)
+    assert refused_by == "long_line", reason
+    assert reason is not None
+    assert said.format(path=path) in reason
+
+
+def test_a_header_line_no_part_holds_is_named_as_the_diff_s_own() -> None:
+    """A path can make a header line too long only in a crafted diff; it is still named."""
+    name = "m/" + "p" * PART_MAX_BYTES
+    diff = f"diff --git a/{name} b/{name}\n--- a/{name}\n+++ b/{name}\n@@ -1 +1 @@\n-a\n+b\n"
+    found = first_long_line(diff.encode())
+    header = len(f"diff --git a/{name} b/{name}")
+    assert found == LongLine(path=name, line=None, before=False, bytes=header)
+    assert too_long(found).startswith(f"a header line of the diff for {name} is ")
+
+
 def test_the_check_refuses_exactly_the_lines_the_review_s_parts_cannot_hold(
     tmp_path: Path,
 ) -> None:
@@ -224,6 +258,8 @@ def test_the_log_replays_and_a_long_line_rejection_with_no_refusal_before_it_doe
     events = read_events(run_dir / "events.jsonl")
     checked = [e for e in events if isinstance(e, ProposalsChecked) and e.refused_by == "long_line"]
     assert len(checked) == 1, "no change check refused the long line"
+    # The refusal comes last, so the line still names what the attempt proposed.
+    assert checked[0].proposed != ()
     replay(events)
     forged = [
         e.model_copy(update={"refused_by": None, "reason": None, "subject": None})
