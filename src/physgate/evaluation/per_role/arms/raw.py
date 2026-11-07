@@ -74,8 +74,15 @@ HEARTBEAT_S = 5.0
 NO_STREAM_S = 10.0
 #: The longest one call of the checkpoint may run. It runs on a thread of its own, so a slow
 #: call never delays the cap; a call past this has hung, and the session is stopped
-#: (``watch_stalled``). An author's checkpoint scores the tasks that changed, seconds each.
+#: (``watch_stalled``). The bound is on one call, and one call of an author's checkpoint
+#: scores every task that changed since the last, seconds each: a burst of tasks written
+#: between two readings, or a scorer slowed by contention for the interpreter, can pass it on
+#: a sound session. That stall is false, and it fails closed: the session is stopped and none
+#: of its tasks is pooled; nothing runs on uncounted.
 CHECKPOINT_S = 120.0
+#: The ends at which the watch could not hold the session to its cap: what the session did
+#: was not counted as the watch meant it to be, and what it made is not taken.
+WATCH_FAILURES = frozenset({"watch_failed", "watch_stalled", "no_stream"})
 #: The token ceiling the hook installer requires. The raw agent loads nothing always, so it
 #: never binds; the token cap is the watcher's.
 NO_ALWAYS_LOADED_CEILING = 1_000_000

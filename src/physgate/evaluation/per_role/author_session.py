@@ -8,7 +8,10 @@ anywhere under it would have the session refused every tool call, so the runner 
 first, at no cost. While it runs, a checkpoint on the budget watch holds each task to its
 references as soon as it is written (on a copy, never in the worktree), and stops the
 session when no task holds after a quarter of the cap, or when more than a task's worth
-of tokens has gone by since the last task came to hold. When it ends, the runner:
+of tokens has gone by since the last task came to hold. When it ends, the runner closes
+the checkpoint, so a call of it that outlived the session changes nothing; a session its
+watch could not hold to its cap (``WATCH_FAILURES``) is refused, and only step 5 runs.
+Otherwise the runner:
 
 1. copies each task it left into a staging directory beside its work, refusing a task
    that holds a link, a special file or more than a task's worth of files;
@@ -42,6 +45,7 @@ import os
 import random
 import shutil
 import stat
+import threading
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -50,7 +54,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, RootModel, ValidationError
 
-from physgate.evaluation.per_role.arms.raw import RawSetup, run_session
+from physgate.evaluation.per_role.arms.raw import WATCH_FAILURES, RawSetup, run_session
 from physgate.evaluation.per_role.authoring import (
     PER_TIER,
     AuthoringError,
@@ -369,6 +373,11 @@ class AuthorProgress:
     What it counts is what the runner keeps: a task written and then broken is no longer
     held. Nothing of a task leaves this object but its directory name's presence in
     ``held``, for the record's count.
+
+    A call runs on the watch's thread, and one that hangs outlives the stop of the session.
+    Once the session is over the runner closes it (:meth:`close`), and from then on no call
+    writes a copy, removes one or changes ``held``: what the runner reads and removes is
+    the session's alone.
     """
 
     def __init__(self, worktree: Path, scratch: Path, *, cap: int, per_task: int):
@@ -381,6 +390,25 @@ class AuthorProgress:
         #: The count when the last task came to hold; none yet while the quarter governs.
         self._held_at: int | None = None
         self._n = 0
+        #: Held while a copy is written or removed and while ``held`` changes, never while
+        #: the scorer runs: a close waits for a copy, never for a scorer that hangs.
+        self._lock = threading.Lock()
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """Whether the session is over, so that no call changes anything any more."""
+        return self._closed
+
+    def close(self) -> int:
+        """Take no further reading, once the session is over; how many tasks held then.
+
+        A call still in progress changes nothing after this: it copies no further task,
+        leaves the copy it made for the runner's removal of the work, and records nothing.
+        """
+        with self._lock:
+            self._closed = True
+            return len(self.held)
 
     def examine(self) -> None:
         """Hold every task directory that changed since it was last seen."""
@@ -394,23 +422,41 @@ class AuthorProgress:
                 signature = _signature(self.worktree / name)
                 if self._seen.get(name) == signature:
                     continue
-                self._seen[name] = signature
-                self.checked += 1
-                self._n += 1
-                copy = self.scratch / f"check-{self._n}"
-                self.scratch.mkdir(mode=0o700, exist_ok=True)
+                with self._lock:
+                    if self._closed:
+                        return
+                    self._seen[name] = signature
+                    self.checked += 1
+                    self._n += 1
+                    copy = self.scratch / f"check-{self._n}"
+                    self.scratch.mkdir(mode=0o700, exist_ok=True)
+                    try:
+                        staged = stage(self.worktree, copy, only=[name]) == 0
+                    except BaseException:
+                        shutil.rmtree(copy, ignore_errors=True)
+                        raise
                 try:
-                    taken = stage(self.worktree, copy, only=[name]) == 0 and (copy / name).is_dir()
-                    holds = taken and name in sound(copy)
-                finally:
+                    holds = staged and (copy / name).is_dir() and name in sound(copy)
+                except BaseException:
+                    with self._lock:
+                        if not self._closed:
+                            shutil.rmtree(copy, ignore_errors=True)
+                    raise
+                with self._lock:
+                    if self._closed:
+                        # The session is over: the copy is the runner's to remove with the
+                        # work, and what this call found is not counted.
+                        return
                     shutil.rmtree(copy, ignore_errors=True)
-                if holds:
-                    self.held.add(name)
-                else:
-                    self.held.discard(name)
+                    if holds:
+                        self.held.add(name)
+                    else:
+                        self.held.discard(name)
         finally:
             os.close(source)
-        self.held &= set(names)
+        with self._lock:
+            if not self._closed:
+                self.held &= set(names)
 
     def check(self, total: int) -> str | None:
         """The watch's checkpoint: a reason to stop the session at ``total`` tokens, or none."""
@@ -578,7 +624,8 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
     Raises:
         AuthoringError: the author's model is the implementers', a place is inside a held-out
             root or already exists, the cap is over :data:`MOST_CAP`, the session does not
-            withhold the protected root, or the root would trip the session's tripwire.
+            withhold the protected root, the root would trip the session's tripwire, or the
+            session's watch could not hold it to its cap (none of its tasks is pooled).
     """
     require_author_model(setup.model, plan.implementer_model)
     _require_apart(plan, setup)
@@ -591,13 +638,26 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
         plan.work / "worktree", plan.work / "checks", cap=plan.cap, per_task=plan.task_cap
     )
     try:
-        record = run_session(
-            author_brief(plan.role, count=plan.count, id_prefix=plan.id_prefix),
-            setup,
-            plan.work,
-            cap=plan.cap,
-            check=progress.check,
-        )
+        try:
+            record = run_session(
+                author_brief(plan.role, count=plan.count, id_prefix=plan.id_prefix),
+                setup,
+                plan.work,
+                cap=plan.cap,
+                check=progress.check,
+            )
+        finally:
+            # However the session ended: a checkpoint call that outlived it changes nothing
+            # from here on.
+            held_while_running = progress.close()
+        if record["end"] in WATCH_FAILURES:
+            # The watch could not hold the session to its cap: what it did was not counted as
+            # meant, so none of its tasks is taken. Its stream is still secured below.
+            msg = (
+                f"the session's watch could not hold it ({record['end']}); none of the tasks "
+                "it wrote is pooled"
+            )
+            raise AuthoringError(msg, end=str(record["end"]))
         staging = plan.work / "staging"
         refused = stage(plan.work / "worktree", staging)
         staged = sum(1 for p in staging.iterdir() if p.is_dir())
@@ -611,7 +671,7 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
             "written": staged + refused,
             "refused_as_files": refused,
             "held": len(held),
-            "held_while_running": len(progress.held),
+            "held_while_running": held_while_running,
             "refused_because": reasons,
             "pooled": added,
             "pool": sum(1 for p in pool.iterdir() if p.is_dir()),

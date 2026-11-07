@@ -32,6 +32,7 @@ from physgate.evaluation.per_role.author_session import (
     pool_dir,
 )
 from physgate.evaluation.per_role.authoring import AuthoringError
+from physgate.evaluation.per_role.validate import sound
 
 #: Long enough for every wait in this file, which all end within a second.
 WITHIN_S = 30.0
@@ -52,7 +53,7 @@ def test_a_checkpoint_call_still_running_when_the_session_is_over_changes_nothin
 
     # The next call hangs in the scorer, past the end of the session.
     _write_task(worktree / "control.t01", 1)
-    real = author_session.sound
+    real = sound
     entered, release = threading.Event(), threading.Event()
 
     def hung(tier: Path) -> list[str]:
