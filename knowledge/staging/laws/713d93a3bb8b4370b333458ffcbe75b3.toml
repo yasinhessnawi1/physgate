@@ -136,25 +136,22 @@ REACH (how little it covers; do not read more into it)
 
 [review]
 by = "claude-sonnet-5-5"
-verdict = "reject"
+verdict = "accept"
 findings = """
-Adversarial review, 07.11.2026. Verdict: reject; the physics is right but the excuses are incomplete in ways the approved definitions already point to.
+Adversarial review of the revision (7617d152), 07.11.2026, replacing the first review. Verdict: accept, with the residual refusals below stated for the owner.
 
-REFUSES A CORRECT DESIGN
-- A motor behind a driver that does not write stall_voltage. The card excuses only stall_voltage. The definition of supply_voltage makes a motor's supply_voltage the driver's rail; a motor's absolute maximum is at the winding, which sees only the duty times the rail. stall_voltage is optional (no real plan writes it; the practice motor node writes rated_voltage, stall_current and no_load_current but no stall_voltage). A 6 V winding maximum on a 7.2 V rail at duty 0.75 is correct and is refused (checked: 7.2 > 6). The card admits this in its does-not-hold list. rated_voltage is scoped to a motor's data sheet and is declared on motor nodes, so adding it (and perhaps stall_current and rated_stall_current) to the unless would excuse these nodes without hiding anything else.
-- Converters and batteries without power_supply. The supply_voltage definition lists power_supply, energy_capacity and rated_output_power as the declarations of a node that supplies others, whose supply_voltage is its output. The card excuses power_supply only. A boost stage that declares rated_output_power (or none: the practice 5 V regulator declares only supply_voltage) with a 6 V input maximum and a 12 V output is a correct design and is refused. Add rated_output_power at least.
-- Parts with two supply terminals. The DRV8838 sheet (opened, section 6.1): VM -0.3 to 12 V, VCC (logic) -0.3 to 7 V, footnote 1 as quoted; recommended VM 0 to 11 V, VCC 1.8 to 7 V. One node holds one absolute_maximum_voltage and one supply_voltage; a writer who gives the motor rail 7.2 V and the first row 12 V passes, one who gives 7.2 V and the logic 7 V maximum is refused on a correct design, and the definition does not say which terminal supply_voltage is on for the driver node itself. The card says this. Not fixable by an unless; it needs a sentence in the standards that the two figures are of one terminal, and the owner should accept it knowingly at warn.
+WHAT THE REVISION FIXED (loaded and run through the loader's own evaluate; examples still hold: 7.2 V <= 12 V passes, 14.4 V > 12 V fails)
+- The unless now has stall_voltage, rated_voltage, power_supply and rated_output_power, all exact catalogue names. rated_voltage is scoped to a motor's data sheet, so a motor behind a driver that writes no stall_voltage (the practice motor node) is excused; a winding maximum of 6 V on a 7.2 V rail at duty 0.75 is no longer refused. The cost is that motors are never judged (missed, not refused): the safe side, and stated. rated_output_power is in the supply_voltage definition's list, so a converter or bench supply is excused as the definition implies.
+- The two-supply-terminal driver is now a stated limit with a proposed sentence. I confirmed the facts again in the DRV8838 sheet (SLVSBA4F section 6.1: VM -0.3 to 12 V, VCC -0.3 to 7 V, footnote 1; section 6.3 VM 0 to 11 V recommended). A node with its 7.2 V motor rail and the 7 V logic maximum is refused on a correct design and no unless can tell it apart. Accepting this depends on the owner taking it knowingly at warn and on the proposed standards sentence reaching writers; it is in no approved text yet. Note the sentence ties absolute_maximum_voltage to the terminal supply_voltage is at, but no text says which terminal that is for a driver node (the rail, by the practice node's 7.2 V); the sentence should say VM or the motor rail.
 
-SAFE DIRECTION
-- Nominal against absolute maximum errs toward passing; a fresh pack above the rating is missed and stated. Correct.
+RESIDUAL REFUSALS OF A CORRECT DESIGN (small, stated or near it)
+- The card says energy_capacity is not an excuse because a store's rated maximum is at the same terminals as its nominal output. That fails for a store with a converter that declares only energy_capacity (a power bank with output 5 V and cells' maximum 4.2 V): 5 V > 4.2 V is refused (checked). The card's list of cases that cannot be told apart covers regulators with neither excusing name but not this store; add one line. Also a driver, regulator or controller judged against a maximum copied from another terminal is the same limit as above.
+- Interface nodes are judged by node-pattern laws; no real interface holds absolute_maximum_voltage.
 
-SOURCE
-- ECSS-Q-ST-30-11C Rev.2, 3.2.8: I could not retrieve the text (the ECSS site gives only a PDF link and the PDF was not read). I cannot confirm the quoted definition or its note; it rests on the drafter's reading and on batch A's card citing the same text. Even as quoted it is a derating standard's definition of a rating as a limit not to be exceeded; it does not say the rating is the absolute maximum rating of the IEC system, which the card admits it did not read. For a rule this plain it is enough to hold the card, but it is the weakest source in this batch.
+SOURCE (the weakest in the batch, now verified)
+- I downloaded the ecss.nl PDF the card names into a clean directory and extracted it: page 13, section 3.2, the eighth term (after ambient temperature, bundle, case temperature, hot spot temperature, junction temperature, load ratio, operating conditions), rating: "maximum parameter value specified and guaranteed by the component manufacturer and component procurement specification", NOTE "Rating is considered as a limit not to be exceeded during operation and constitutes in most cases the reference for derating." The quote is exact. The card now says plainly that ECSS defines a rating generally and that identifying an Absolute Maximum Ratings row with it rests on the data sheet's footnote 1; that is the correct reading. Acceptable for a rule this plain; IEC 60134 would be the better citation before block.
 
-EXAMPLES
-- DRV8838 values checked from the data sheet: VM 12 V absolute, 11 V recommended. NH15 nominal 1.2 V gives 7.2 V for six cells. Pass 7.2 <= 12 and fail 14.4 > 12 are right. The fail is two packs in series, a real design error.
-
-REACH
-- Honest: no real plan writes absolute_maximum_voltage, so the law judges nothing today. Practice max_supply_voltage 6.0 V and max_input_voltage 10.8 V are other names.
-- Dropped laws: agree with deferring voltage_margin and the rated-voltage form. rated_voltage is a nominal and exceeding it is a design choice.
+EXAMPLES AND REACH
+- Numbers as before and right. Reach honest: no real plan writes absolute_maximum_voltage, so the law judges nothing today.
+- Dropped laws: agree with deferring voltage_margin and the rated-voltage form.
 """
