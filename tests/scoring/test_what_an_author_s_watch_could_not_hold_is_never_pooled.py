@@ -88,6 +88,42 @@ def test_a_checkpoint_call_still_running_when_the_session_is_over_changes_nothin
     assert _listed(scratch) == left, "a call after the session was over wrote a copy"
 
 
+def test_a_checkpoint_call_that_fails_after_the_session_is_over_leaves_its_copy_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worktree, scratch = tmp_path / "worktree", tmp_path / "checks"
+    worktree.mkdir()
+    progress = AuthorProgress(worktree, scratch, cap=8_000_000, per_task=1_000_000)
+    _write_task(worktree / "control.t00", 0)
+    entered, release = threading.Event(), threading.Event()
+
+    def failing(_tier: Path) -> list[str]:
+        entered.set()
+        release.wait(WITHIN_S)
+        raise RuntimeError("the scorer failed")
+
+    raised: list[BaseException] = []
+
+    def call() -> None:
+        try:
+            progress.check(0)
+        except RuntimeError as exc:
+            raised.append(exc)
+
+    monkeypatch.setattr(author_session, "sound", failing)
+    caller = threading.Thread(target=call, daemon=True)
+    caller.start()
+    try:
+        assert entered.wait(WITHIN_S)
+        progress.close()
+        left = _listed(scratch)
+    finally:
+        release.set()
+    caller.join(WITHIN_S)
+    assert not caller.is_alive() and len(raised) == 1
+    assert left and _listed(scratch) == left, "a failing call removed a copy after the session"
+
+
 class _Keeping(FakeSession):
     """The scripted session, keeping the checkpoint it was given."""
 
