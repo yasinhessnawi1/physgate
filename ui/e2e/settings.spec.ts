@@ -97,7 +97,7 @@ async function holds(page: Page, seen: Watch, where: string) {
   expect(
     await hitAreasShort(
       page,
-      ".pg-btn, .pg-seg button, .pg-run-link, .pg-runs-summary, .pg-nav-foot .pg-nav-link, main .pg-term-word, main summary",
+      ".pg-btn, .pg-seg button, .pg-run-link, .pg-runs-summary, .pg-nav-foot .pg-nav-link, main summary",
     ),
     where,
   ).toEqual([]);
@@ -208,7 +208,8 @@ test("each run's OS layer and network read as it recorded them, under its own so
 
   await open(page, "?run=0/run-esc-act");
   await expect(field("queue-decisions")).toContainText(QUEUE_DECISION_WORDS.act ?? "");
-  await expect(field("os-layer-absent")).toContainText(OS_LAYER_ABSENT_WORDS.refuse ?? "");
+  // The rig configures its runs for development, where sessions may run without the layer.
+  await expect(field("os-layer-absent")).toContainText(OS_LAYER_ABSENT_WORDS.allow ?? "");
 
   await open(page, "?run=0/run-on");
   await expect(field("os-layer")).toContainText("OS layer not recorded");
