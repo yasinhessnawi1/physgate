@@ -22,25 +22,13 @@ import { OsLayerBadge } from "../design/components/system/OsLayerBadge";
 import { GateModeBadge } from "../design/components/verdict/GateMode";
 import markUrl from "../design/brand/mark.svg?url";
 import type { ViewDef } from "../screens/registry";
+import { DisplayContext, useDisplayState } from "./display";
 import { GROUPS, groupById } from "./groups";
 import type { Header } from "./header";
 import { InspectorContext } from "./inspector";
 import { Notifications } from "./notifications";
 import { Palette, type PaletteEntry, PaletteProvider, usePaletteRegistry } from "./palette";
-import {
-  DENSITY_KEY,
-  type DensityChoice,
-  densityChoice,
-  nextTheme,
-  prefersDark,
-  readStored,
-  resolvedTheme,
-  THEME_KEY,
-  type ThemeChoice,
-  themeChoice,
-  themeOverride,
-  writeStored,
-} from "./prefs";
+import type { ThemeChoice } from "./prefs";
 import { hrefFor, parseHash, type Route } from "./route";
 import { chordTarget, notAShortcut } from "./shortcuts";
 
@@ -88,55 +76,6 @@ function useShortcuts(query: URLSearchParams) {
   }, []);
 }
 
-/** The display choices, stored per viewer, following the system's theme until one is chosen. */
-function useDisplay() {
-  const override = themeOverride(window.location.search);
-  const [theme, setTheme] = useState<ThemeChoice>(
-    () => override ?? themeChoice(readStored(THEME_KEY)),
-  );
-  const [density, setDensity] = useState<DensityChoice>(() =>
-    densityChoice(readStored(DENSITY_KEY)),
-  );
-  const [dark, setDark] = useState(prefersDark);
-  useEffect(() => {
-    let query: MediaQueryList | null = null;
-    try {
-      query = window.matchMedia("(prefers-color-scheme: dark)");
-    } catch {
-      return;
-    }
-    const onChange = (event: MediaQueryListEvent) => {
-      setDark(event.matches);
-    };
-    query.addEventListener("change", onChange);
-    return () => {
-      query.removeEventListener("change", onChange);
-    };
-  }, []);
-  const drawn = resolvedTheme(theme, dark);
-  useEffect(() => {
-    document.documentElement.dataset.theme = drawn;
-  }, [drawn]);
-  useEffect(() => {
-    document.documentElement.dataset.density = density;
-  }, [density]);
-  return {
-    theme,
-    drawn,
-    density,
-    cycleTheme: () => {
-      const next = nextTheme(theme);
-      setTheme(next);
-      if (override === null) writeStored(THEME_KEY, next);
-    },
-    toggleDensity: () => {
-      const next = density === "compact" ? "comfortable" : "compact";
-      setDensity(next);
-      writeStored(DENSITY_KEY, next);
-    },
-  };
-}
-
 const THEME_WORDS: Readonly<Record<ThemeChoice, string>> = {
   light: "Light",
   dark: "Dark",
@@ -163,7 +102,7 @@ export function Shell({
 }) {
   const route = useRoute();
   useShortcuts(route.query);
-  const display = useDisplay();
+  const display = useDisplayState();
   /** The content region, which the skip link focuses. */
   const contentRef = useRef<HTMLElement>(null);
   const registry = usePaletteRegistry();
@@ -284,7 +223,7 @@ export function Shell({
       </Suspense>
     );
 
-  return (
+  const shell = (
     <PaletteProvider registry={registry}>
       <InspectorContext.Provider value={inspector}>
         <div
@@ -530,4 +469,7 @@ export function Shell({
       </InspectorContext.Provider>
     </PaletteProvider>
   );
+  // The display choices are the page's one state: the top bar's toggles here, and any view that
+  // offers the same choices, read and change it through this provider.
+  return <DisplayContext.Provider value={display}>{shell}</DisplayContext.Provider>;
 }
