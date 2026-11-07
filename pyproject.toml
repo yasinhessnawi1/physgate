@@ -73,6 +73,12 @@ constraint-dependencies = [
   # newest release at least a week old.
   "fonttools<=4.66.1",
   "pillow<=12.3.0",
+  # Added on 07.11.2026 when the evaluation group was lifted onto master: matplotlib's
+  # dependency python-dateutil had released 4.0.0 on 01.11.2026, younger than a week,
+  # and 3.0.0 (21.10.2026) after the scorers were reviewed. Bounded to 2.9.0.post0, the
+  # version those scorers were built and reviewed on, so the lift changes no resolved
+  # version of the group.
+  "python-dateutil<=2.9.0.post0",
 ]
 
 
