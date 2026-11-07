@@ -3,9 +3,12 @@
 The cap is a thread that reads the session's stream and stops the session past its budget.
 Every way that thread can stop counting stops the session too, and says so in the record:
 a reading or a checkpoint that raises (``watch_failed``), a reading that does not complete
-within the heartbeat or a thread that is gone (``watch_stalled``), a stream that never
-appears (``no_stream``). A stop that itself fails kills the session's process group and the
-run refuses its result. A session left running uncapped would be a budget in name only.
+within the heartbeat, a checkpoint call that hangs or a thread that is gone
+(``watch_stalled``), a stream that never appears (``no_stream``); a reason the checkpoint
+gives stops it for that reason. A session that ends by itself as the watch looks is not a
+stall. A stop that itself fails kills the session's process group with the dispatcher's own
+kill, and the run refuses its result. A session left running uncapped would be a budget in
+name only.
 
 The author's checkpoint's own listing, which needs the evaluation environment, is held in
 ``tests/scoring``.
@@ -13,6 +16,7 @@ The author's checkpoint's own listing, which needs the evaluation environment, i
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import subprocess
@@ -20,12 +24,13 @@ import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.per_role.arms.raw import BudgetWatch
+from physgate.orchestrator import processes
 from physgate.orchestrator.processes import started_at
 
 #: Long enough for every stop in this file, which all happen within a second or two.
@@ -120,6 +125,45 @@ def test_a_checkpoint_that_raises_stops_the_session(
     watch.stop()
     assert stopped, "a checkpoint that raised left the session running"
     assert _end(watch) == "watch_failed"
+
+
+def test_a_checkpoint_s_reason_stops_the_session_with_that_reason(
+    tmp_path: Path, session: subprocess.Popen[bytes]
+) -> None:
+    stream = tmp_path / "stdout.jsonl"
+    stream.write_text("")
+    asked: list[int] = []
+
+    def off_pace(total: int) -> str | None:
+        asked.append(total)
+        return "off_pace"
+
+    watch = _start(stream, session, cap=10**6, check=off_pace)
+    stopped = _ended_within(session)
+    watch.stop()
+    assert stopped, "a checkpoint's reason to stop left the session running"
+    assert _end(watch) == "off_pace", "the session was not stopped for the checkpoint's reason"
+    assert getattr(watch, "stopped_for", None) == ("off_pace", 0)
+    assert asked == [0]
+
+
+def test_a_checkpoint_whose_thread_is_gone_stops_the_session(
+    tmp_path: Path, session: subprocess.Popen[bytes], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stream = tmp_path / "stdout.jsonl"
+    stream.write_text("")
+
+    def gone(_total: int) -> str | None:
+        raise SystemExit  # ends the checkpoint's thread, and no ordinary handler catches it
+
+    # The reader keeps its heartbeat and the call's own bound is far beyond this test's wait:
+    # only the checkpoint's thread being gone can stop the session here.
+    monkeypatch.setattr(raw, "CHECKPOINT_S", 600.0)
+    watch = _start(stream, session, cap=10**6, check=gone)
+    stopped = _ended_within(session)
+    watch.stop()
+    assert stopped, "a watch whose checkpoint's thread had ended left the session running"
+    assert _end(watch) == "watch_stalled"
 
 
 def test_a_reading_that_does_not_complete_within_the_heartbeat_stops_the_session(
@@ -228,6 +272,31 @@ def test_a_stop_that_fails_kills_the_session_s_group_and_refuses_the_result(
         refuse(watch)
 
 
+def test_a_stop_that_fails_falls_back_on_the_shared_kill_of_the_session_s_group(
+    tmp_path: Path, session: subprocess.Popen[bytes], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stream = tmp_path / "stdout.jsonl"
+    stream.write_text(_usage_line(600))
+
+    def cannot(*_args: object, **_kwargs: object) -> int:
+        raise OSError("the process table could not be read")
+
+    killed: list[int] = []
+
+    def shared(process: subprocess.Popen[bytes]) -> None:
+        killed.append(process.pid)
+        processes.kill_own(process)
+
+    monkeypatch.setattr(raw, "stop_tree", cannot)
+    monkeypatch.setattr(raw, "kill_own", shared, raising=False)
+    watch = _start(stream, session, cap=500)
+    stopped = _ended_within(session)
+    watch.stop()
+    assert stopped, "a stop that failed left the session running"
+    assert killed == [session.pid], "the fallback is not the dispatcher's kill of its own child"
+    assert "killpg" not in inspect.getsource(raw), "the raw arm keeps a group kill of its own"
+
+
 def test_the_run_refuses_a_session_its_watch_could_not_stop(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -265,6 +334,53 @@ def test_a_session_stopped_cleanly_is_not_refused(
     refuse = getattr(raw, "require_stopped", None)
     assert refuse is not None
     refuse(watch)
+
+
+class _EndingAsLooked:
+    """A session that ends between the guard's look at it and its look at the watch's threads.
+
+    Only the guard looks at it here (the reader is gone at once, as a reader is once it has
+    seen the end): the first look finds it running, every later one finds it ended.
+    """
+
+    #: No process has this id (beyond every platform's largest): nothing is signalled by it.
+    pid = 2**22 + 12_345
+
+    def __init__(self) -> None:
+        self.looks = 0
+
+    def poll(self) -> int | None:
+        self.looks += 1
+        return None if self.looks == 1 else 0
+
+
+def test_a_session_that_ends_as_the_guard_looks_is_not_recorded_as_stalled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stream = tmp_path / "stdout.jsonl"
+    stream.write_text("")
+    stops: list[int] = []
+
+    def seen_the_end(_self: BudgetWatch) -> None:
+        return None
+
+    def stop(pid: int, _started: str | None = None) -> int:
+        stops.append(pid)
+        return 0
+
+    monkeypatch.setattr(BudgetWatch, "_read_loop", seen_the_end)
+    monkeypatch.setattr(raw, "stop_tree", stop)
+    ending = _EndingAsLooked()
+    watch = BudgetWatch(
+        stream, cap=10**6, process=cast("subprocess.Popen[bytes]", ending), started="then"
+    )
+    watch.start()
+    deadline = time.monotonic() + WITHIN_S
+    while ending.looks < 2 and _end(watch) is None and time.monotonic() < deadline:
+        time.sleep(0.1)
+    watch.stop()
+    assert _end(watch) is None, "a session that ended by itself was recorded as a watch's stall"
+    assert stops == []
 
 
 def test_the_raw_session_declares_its_reaper_canary_wherever_the_reaper_runs(
