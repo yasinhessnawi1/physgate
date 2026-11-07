@@ -25,6 +25,23 @@ dev = [
   "ruff>=0.16,<0.17",
   "pytest-xdist>=3.8,<4",
 ]
+# The evaluation side's own tools, never the product's: the per-role scorers compute
+# closed-loop margins, settling times and errors with python-control. Pinned exactly
+# to the versions the public ControlEval benchmark pins (its requirements file), so
+# our independent scorer runs on the numerics that benchmark was built with.
+#
+# NOT a default group, and never installed into the harness's own environment:
+# pint imports numpy whenever it can, and with numpy present the physics gate's
+# unit handling changes (a logarithmic unit given an exact Fraction crashes in a
+# numpy ufunc instead of being refused; five series tests go red; measured
+# 17.10.2026, pint 0.26.1, numpy 2.1.2). The scorers and their tests therefore run
+# in an environment of their own:
+#   UV_PROJECT_ENVIRONMENT=.venv-evaluation uv run --group evaluation pytest tests/scoring
+evaluation = [
+  "control==0.10.1",
+  "numpy==2.1.2",
+  "scipy==1.14.1",
+]
 
 [build-system]
 # Pinned exactly, and this is the one dependency the lockfile does not
@@ -48,7 +65,16 @@ build-backend = "hatchling.build"
 # 20.09.2026) it then refused, and the oldest installer that reads this file
 # (0.6.6) has no per-package form of it. Re-examine this bound whenever a
 # dependency is added, and lift it once the week has passed for a newer release.
-constraint-dependencies = ["platformdirs<=4.11.11"]
+constraint-dependencies = [
+  "platformdirs<=4.11.11",
+  # Added on 17.10.2026 with the evaluation group: python-control requires
+  # matplotlib, whose dependencies fonttools (4.67.0, 14.10.2026) and pillow
+  # (13.0.0, 16.10.2026) had releases younger than a week. Each is bounded to its
+  # newest release at least a week old.
+  "fonttools<=4.66.1",
+  "pillow<=12.3.0",
+]
+
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/physgate"]
@@ -112,6 +138,13 @@ exclude = ["^experiments/"]
 module = ["sympy", "sympy.*"]
 ignore_missing_imports = true
 
+# python-control ships no type information either (no marker file, checked on
+# 0.10.1). Only the evaluation side's control scorer imports it, with numpy and
+# scipy, none of which the harness's environment, where the types are checked, has.
+[[tool.mypy.overrides]]
+module = ["control", "control.*", "scipy", "scipy.*", "numpy", "numpy.*"]
+ignore_missing_imports = true
+
 [tool.pydantic-mypy]
 init_forbid_extra = true
 init_typed = true
@@ -134,4 +167,6 @@ markers = [
 # Belt and braces. Nothing under the experiment directories matches a
 # collection pattern today; this is here for the fourth experiment, not the
 # three that exist.
-norecursedirs = ["experiments", ".venv", "build", "dist", "node_modules"]
+# `scoring` holds the tests that need the evaluation group, which the default
+# environment must not have (see that group); they run in their own environment.
+norecursedirs = ["experiments", ".venv", ".venv-*", "build", "dist", "node_modules", "scoring"]
