@@ -154,7 +154,9 @@ def test_an_unavailable_review_holds_without_a_replan(tmp_path: Path, cause: str
     assert len(_held(ran)) == 1
 
 
-@pytest.mark.parametrize("cause", ["invalid_plan", "wall_clock", "schema_refused", "plan_refused"])
+# A call refused by its schema is made once more first, and ends the run only when refused again:
+# held in the rows of a decomposition refused by its schema.
+@pytest.mark.parametrize("cause", ["invalid_plan", "wall_clock", "plan_refused"])
 def test_a_no_plan_round_ends_the_run_without_a_replan(tmp_path: Path, cause: str) -> None:
     second = Step(refusal=cause) if cause == "plan_refused" else Step(call=cause)
     ran = decompose(tmp_path, "repair:3", [Step(), second, Step()])
@@ -275,7 +277,10 @@ def test_every_round_survives_what_comes_after_it(
     tmp_path: Path, shorter: dict[int, Ran], j: int, ending: str
 ) -> None:
     assert shorter[j].code == 0, shorter[j].code
-    ran = decompose(tmp_path, "repair:3", [*[Step()] * (j - 1), _step(ending)])
+    # A call refused by its schema is made once more, inside its round: the round ends refused
+    # only when its second call is refused too.
+    again = 2 if ending == "call:schema_refused" else 1
+    ran = decompose(tmp_path, "repair:3", [*[Step()] * (j - 1), *[_step(ending)] * again])
     end, follows, cause = _expected(ending, j)
     started = ending != "kill" and follows != "void"
     # Rounds 1 … j − 1 are what the shorter run recorded, whatever round j did.
@@ -297,7 +302,7 @@ def test_every_round_survives_what_comes_after_it(
     # The run ends with a record that names how it ended, and at which round.
     assert last["kind"] == "rounds_ended"
     assert (last["round"], last["follows"], last["cause"]) == (end, follows, cause)
-    assert len(ran.script.calls) == end
+    assert len(ran.script.calls) == end + again - 1
     if follows == "void":
         assert ran.code == 2, ran.code
         assert not (ran.run_dir / "events.jsonl").exists()
