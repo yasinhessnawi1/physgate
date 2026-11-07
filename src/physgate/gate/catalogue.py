@@ -940,6 +940,7 @@ def unknown_names(names: Iterable[str]) -> tuple[str, ...]:
 #: card staged for a person to promote, so a law's names are guarded before it is promoted; and the
 #: names the owner approved for the laws drafted next (07.11.2026), guarded before any card for them
 #: is written: the law library's new names, and rated_voltage, duty_cycle and no_load_speed.
+#: Every name a relation reads is one, the source rating's rated_output_power included.
 #: Spelled again for the hooks in :mod:`physgate.state.vocabulary`, held equal by a test.
 RELATION_NAMES: tuple[str, ...] = (
     "absolute_maximum_voltage",
@@ -972,6 +973,7 @@ RELATION_NAMES: tuple[str, ...] = (
     "plant_mass",
     "power_draw",
     "power_supply",
+    "rated_output_power",
     "rated_stall_current",
     "rated_voltage",
     "reaction_force",

@@ -107,6 +107,7 @@ RELATION_QUANTITY_NAMES: tuple[str, ...] = (
     "plant_mass",
     "power_draw",
     "power_supply",
+    "rated_output_power",
     "rated_stall_current",
     "rated_voltage",
     "reaction_force",
