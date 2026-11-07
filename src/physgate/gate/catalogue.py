@@ -593,6 +593,13 @@ HEADROOM = (
     "I_OUT motor peak current 1.8 A; section 6.5 overcurrent protection trip 1.9 A minimum), "
     "so a stall above it is beyond the driver's rating at every start and reversal"
 )
+#: Why a motor's peak stall is held to the same limit: the owner's basis for a driver's and a
+#: fuse's ratings (07.11.2026), the stall at full duty and the supply's highest voltage.
+PEAK_HEADROOM = (
+    f"{HEADROOM}; a driver's peak rating and a fuse are judged at the motor's peak stall, at full "
+    "duty and the supply's highest voltage, the current it draws if the command limit's duty is "
+    "bypassed and during each PWM on-time, while the design sizes for the stall at that duty"
+)
 #: Why a store's discharge rating is held to what it stores.
 DISCHARGE = (
     "a store's discharge is bounded by its class: no part of any class in the catalogue's "
@@ -658,6 +665,16 @@ RELATIONS: Mapping[str, Relation] = MappingProxyType(
                 ),
                 judged_by=4,
                 source=HEADROOM,
+            ),
+            Relation(
+                name="peak_current_limit",
+                statement=(
+                    "a consumer's peak stall current, at full duty and its supply's highest "
+                    "voltage, is at most the current limit on its own node, and at most that of "
+                    "each supply its constrains edges name"
+                ),
+                judged_by=4,
+                source=PEAK_HEADROOM,
             ),
             Relation(
                 name="discharge_rate",

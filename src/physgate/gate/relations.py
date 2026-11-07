@@ -108,6 +108,9 @@ RELATION_INPUTS: Mapping[str, RelationInputs] = MappingProxyType(
             "<=",
         ),
         "current_limit": RelationInputs(frozenset({"stall_current", "current_limit"}), "<="),
+        "peak_current_limit": RelationInputs(
+            frozenset({"peak_stall_current", "current_limit"}), "<="
+        ),
         "discharge_rate": RelationInputs(
             frozenset({"max_discharge_power", "energy_capacity"}), "<="
         ),
@@ -193,6 +196,17 @@ def _bounded(view: GraphView, node_id: str) -> bool:
     )
 
 
+#: The stalls held to a current limit, each with the relation that holds it: the stall the design
+#: sizes for, at the command limit's duty, and the peak, at full duty, which a driver's peak
+#: rating and a fuse are judged against. Both are taken at the supply's highest voltage. The
+#: peak's relation forms only where a node holds the peak, so a graph without it forms what it
+#: formed before.
+STALLS: tuple[tuple[str, str], ...] = (
+    ("stall_current", "current_limit"),
+    ("peak_stall_current", "peak_current_limit"),
+)
+
+
 def instances(view: GraphView) -> list[Instance]:
     """Every relation instance in the graph, in a stable order."""
     found: list[Instance] = []
@@ -256,42 +270,43 @@ def instances(view: GraphView) -> list[Instance]:
                     ),
                 )
             )
-        if "current_limit" in q:
-            found.extend(
-                Instance(
-                    relation=RELATIONS["current_limit"],
-                    subject=node_id,
-                    left=(consumer,),
-                    op="<=",
-                    right=(TermRef(node_id, "current_limit"),),
+        for stall, headroom in STALLS:
+            if "current_limit" in q:
+                found.extend(
+                    Instance(
+                        relation=RELATIONS[headroom],
+                        subject=node_id,
+                        left=(consumer,),
+                        op="<=",
+                        right=(TermRef(node_id, "current_limit"),),
+                    )
+                    for consumer in _members(view, node_id, stall)
                 )
-                for consumer in _members(view, node_id, "stall_current")
-            )
-        if "stall_current" in q and "current_limit" in q:
-            # A node holding both is held to its own limit: a consumer aggregated with the
-            # supply that carries it, which its stall must not overrun either.
-            found.append(
-                Instance(
-                    relation=RELATIONS["current_limit"],
-                    subject=node_id,
-                    left=(TermRef(node_id, "stall_current"),),
-                    op="<=",
-                    right=(TermRef(node_id, "current_limit"),),
+            if stall in q and "current_limit" in q:
+                # A node holding both is held to its own limit: a consumer aggregated with the
+                # supply that carries it, which its stall must not overrun either.
+                found.append(
+                    Instance(
+                        relation=RELATIONS[headroom],
+                        subject=node_id,
+                        left=(TermRef(node_id, stall),),
+                        op="<=",
+                        right=(TermRef(node_id, "current_limit"),),
+                    )
                 )
-            )
-        elif "stall_current" in q and not _bounded(view, node_id):
-            # A stall current no limit bounds, on its node or on a node its edges name, is
-            # kept with the limit missing, so it is recorded as unchecked, never passed.
-            found.append(
-                Instance(
-                    relation=RELATIONS["current_limit"],
-                    subject=node_id,
-                    left=(TermRef(node_id, "stall_current"),),
-                    op="<=",
-                    right=(),
-                    missing=("current_limit",),
+            elif stall in q and not _bounded(view, node_id):
+                # A stall no limit bounds, on its node or on a node its edges name, is kept
+                # with the limit missing, so it is recorded as unchecked, never passed.
+                found.append(
+                    Instance(
+                        relation=RELATIONS[headroom],
+                        subject=node_id,
+                        left=(TermRef(node_id, stall),),
+                        op="<=",
+                        right=(),
+                        missing=("current_limit",),
+                    )
                 )
-            )
         members = _members(view, node_id, "mass")
         if node.kind == "module" and members:
             found.append(

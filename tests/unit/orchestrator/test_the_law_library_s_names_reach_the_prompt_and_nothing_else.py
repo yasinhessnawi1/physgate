@@ -6,8 +6,9 @@ groups the sentence already has (three currents, two voltages, a mass, three dim
 counts and ratios, an angular velocity); two bring a kind label of their own: ``charge_capacity``
 under the new charge capacity kind, in coulombs, and ``discharge_time`` under the duration kind,
 which until now no catalogued name held. The rows add no relation, no bound and no qualifier, so
-the bounds and relations sentences, and every byte outside the catalogue sentence, are as they
-were (the widening's own test holds those against the sentence it sent).
+the bounds sentence, and every byte outside the catalogue and relations sentences, is as it was
+(the widening's own test holds those against the sentence it sent). The relations sentence gains
+one statement, the peak headroom check 4 judges where a node holds ``peak_stall_current``.
 
 A name's definition does not reach the prompt: the sentence lists names and units only.
 """
@@ -77,9 +78,11 @@ ADDED: dict[str, set[str]] = {
     "duration (s)": {"discharge_time"},
 }
 
-#: The bounds and relations sentences as the widened catalogue sent them.
+#: The bounds sentence as the widened catalogue sent it, and the relations sentence since check 4
+#: gained the peak headroom (07.11.2026): one statement more, the peak stall current against the
+#: current limit. Before it: 1bdb67adb3a5....
 BOUNDS_SENTENCE_SHA256 = "734a3fa97a18af153fa3c00b5d5ebfff79834308e21d9ac41bb99b597932ab20"
-RELATIONS_SENTENCE_SHA256 = "1bdb67adb3a55d9d8c239bb451e48f82264b08b5c5942a44dbcbe06159f7ebe5"
+RELATIONS_SENTENCE_SHA256 = "4d5dacfd6a12b65e9da511d4e5295564971a012bb2dd2d41e531745b2a9612c4"
 
 
 def _groups(sentence: str) -> dict[str, set[str]]:
@@ -111,6 +114,6 @@ def test_no_definition_reaches_the_prompt() -> None:
     assert "never written one for the other" not in catalogue_sentence()
 
 
-def test_the_bounds_and_relations_sentences_are_unchanged() -> None:
+def test_the_bounds_sentence_is_unchanged_and_the_relations_gain_the_peak_headroom() -> None:
     assert hashlib.sha256(bounds_sentence().encode()).hexdigest() == BOUNDS_SENTENCE_SHA256
     assert hashlib.sha256(relations_sentence().encode()).hexdigest() == RELATIONS_SENTENCE_SHA256

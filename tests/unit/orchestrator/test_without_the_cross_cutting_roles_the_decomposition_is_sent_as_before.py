@@ -58,16 +58,18 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: Since the law library's rows (07.11.2026), the catalogue sentence also holds their twelve names
 #: and two kind labels (charge capacity, duration), and every other byte is as above
 #: (test_the_law_library_s_names_reach_the_prompt_and_nothing_else). Before those rows:
-#: c14dba963d6c..., ad94ba0d6bbe... and d713661a9904..., in this order.
+#: c14dba963d6c..., ad94ba0d6bbe... and d713661a9904..., in this order. Since check 4 gained the
+#: peak headroom (07.11.2026), the relations sentence holds its statement too; with the rows alone:
+#: 48f1f778de09..., 777b1e121b63... and 44c5f7c626eb..., in this order.
 PROMPT_SHA256 = {
-    ("control", "firmware"): "48f1f778de09a81d0aa245fa7a0bb13490eafee6b5d8fda322face8fa1f8d496",
-    ("electrical",): "777b1e121b6321afe2d9283389fe66063938e2d4e6069c958fd4ac04148e3e0d",
+    ("control", "firmware"): "56526c8ddda348b4ff32b16427807f21a33e3159ea5d5bda91d30f115d188862",
+    ("electrical",): "f93071084230aeca1b355db822aaafd01dcd5d04673470a62f38457c522d65b8",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "44c5f7c626eb0c3dbce9046adf429d6098fd9c43962f74fe4590b4bc86a4b186",
+    ): "f8040260bc86c6031b6abd76d68352652d751216fb1234be7bf65693216a4686",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.

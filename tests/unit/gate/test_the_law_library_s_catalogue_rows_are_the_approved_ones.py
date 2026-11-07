@@ -36,8 +36,9 @@ from physgate.state.vocabulary import QUANTITY_NAMES, RELATION_QUANTITY_NAMES
 
 #: The catalogue's digest with no law, before these rows (the widened catalogue's) and with them.
 #: With the five laws the table held when the rows landed: a5351dcb... before, 201c855a... after.
+#: Since check 4 gained the peak headroom relation (07.11.2026); with the rows alone, 3014ed68....
 WIDENED_DIGEST = "0ec405db80746115a88db9676f737661030b62ef6a080c8e444746a63ebd4edd"
-LAW_LIBRARY_DIGEST = "3014ed68fc9786ab07e56900f70a0c9d1ab992a65c8b1c5478be404d88665ac0"
+LAW_LIBRARY_DIGEST = "9d26cbdb61bfabf988ab6209a7acc4c25101716bfdad5f517c1e59df233f15e3"
 
 
 def _new_kind() -> Kind:
