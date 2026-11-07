@@ -52,6 +52,7 @@ import hmac
 import secrets
 import socket
 import sys
+import time
 from collections.abc import Mapping
 from dataclasses import replace
 from http import HTTPStatus
@@ -368,6 +369,10 @@ def make_server(
     require_operator(context.operator)
     token = secrets.token_urlsafe(32)
     context = replace(context, assets=context.assets.with_operator(context.operator))
+    # Python imports its time parser on the first parse. Once the guard is installed that import
+    # is an open of a compiled cache, refused wherever the cache sits outside the roots (a fresh
+    # ``PYTHONPYCACHEPREFIX``): the trace route's first answer would be a 500. Parsed once here.
+    time.strptime("2026", "%Y")
     guard.install()
     server_class = _Server6 if ":" in bind else UIServer
     server = server_class((bind, port), Handler)
