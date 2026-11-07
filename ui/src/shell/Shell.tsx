@@ -23,7 +23,7 @@ import { GateModeBadge } from "../design/components/verdict/GateMode";
 import markUrl from "../design/brand/mark.svg?url";
 import type { ViewDef } from "../screens/registry";
 import { DisplayContext, useDisplayState } from "./display";
-import { GROUPS, groupById } from "./groups";
+import { type Group, GROUPS, groupById } from "./groups";
 import type { Header } from "./header";
 import { InspectorContext } from "./inspector";
 import { Notifications } from "./notifications";
@@ -223,6 +223,37 @@ export function Shell({
       </Suspense>
     );
 
+  /**
+   * A group's section of the navigation, or nothing when no view is registered under it. A foot
+   * group's heading is read but not shown: the foot draws its views as the design does, plainly.
+   */
+  const navGroup = (g: Group) => {
+    const listed = views.filter((v) => v.group === g.id);
+    if (listed.length === 0) return null;
+    return (
+      <section key={g.id} className="pg-nav-group" aria-label={g.name}>
+        <h2 className={g.foot === true ? "pg-nav-heading pg-visually-hidden" : "pg-nav-heading"}>
+          {g.name}
+        </h2>
+        <ul className="pg-nav-items">
+          {listed.map((v) => (
+            <li key={`${v.area}/${v.slug}`}>
+              <a
+                className={v === view ? "pg-nav-link pg-nav-link-on" : "pg-nav-link"}
+                aria-current={v === view ? "page" : undefined}
+                href={hrefFor(v.area, v.slug)}
+                title={v.title}
+              >
+                <Icon name={v.icon} size={16} />
+                <span className="pg-nav-word">{v.title}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  };
+
   const shell = (
     <PaletteProvider registry={registry}>
       <InspectorContext.Provider value={inspector}>
@@ -268,31 +299,9 @@ export function Shell({
                 }}
               />
             </div>
-            {GROUPS.map((g) => {
-              const listed = views.filter((v) => v.group === g.id);
-              if (listed.length === 0) return null;
-              return (
-                <section key={g.id} className="pg-nav-group" aria-label={g.name}>
-                  <h2 className="pg-nav-heading">{g.name}</h2>
-                  <ul className="pg-nav-items">
-                    {listed.map((v) => (
-                      <li key={`${v.area}/${v.slug}`}>
-                        <a
-                          className={v === view ? "pg-nav-link pg-nav-link-on" : "pg-nav-link"}
-                          aria-current={v === view ? "page" : undefined}
-                          href={hrefFor(v.area, v.slug)}
-                          title={v.title}
-                        >
-                          <Icon name={v.icon} size={16} />
-                          <span className="pg-nav-word">{v.title}</span>
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              );
-            })}
+            {GROUPS.filter((g) => g.foot !== true).map(navGroup)}
             <div className="pg-nav-foot">
+              {GROUPS.filter((g) => g.foot === true).map(navGroup)}
               <a className="pg-nav-link" href="#/about" title="About physgate and its licences">
                 <Icon name="book-open" size={16} />
                 <span className="pg-nav-word">About and licences</span>
