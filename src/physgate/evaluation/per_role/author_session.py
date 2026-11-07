@@ -10,7 +10,8 @@ references as soon as it is written (on a copy, never in the worktree), and stop
 session when no task holds after a quarter of the cap, or when more than a task's worth
 of tokens has gone by since the last task came to hold. When it ends, the runner closes
 the checkpoint, so a call of it that outlived the session changes nothing; a session its
-watch could not hold to its cap (``WATCH_FAILURES``) is refused, and only step 5 runs.
+watch could not hold to its cap (``WATCH_FAILURES``), or whose stream showed a held-out
+canary however it ended, is refused, and only step 5 runs.
 Otherwise the runner:
 
 1. copies each task it left into a staging directory beside its work, refusing a task
@@ -625,7 +626,8 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
         AuthoringError: the author's model is the implementers', a place is inside a held-out
             root or already exists, the cap is over :data:`MOST_CAP`, the session does not
             withhold the protected root, the root would trip the session's tripwire, or the
-            session's watch could not hold it to its cap (none of its tasks is pooled).
+            session's watch could not hold it to its cap or its stream showed a held-out
+            canary (none of its tasks is pooled; ``refused_because`` says which).
     """
     require_author_model(setup.model, plan.implementer_model)
     _require_apart(plan, setup)
@@ -650,6 +652,15 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
             # However the session ended: a checkpoint call that outlived it changes nothing
             # from here on.
             held_while_running = progress.close()
+        if record.get("held_out_seen") is not False:
+            # A held-out canary showed in the session's stream, or the record cannot say it
+            # did not: what the session wrote may hold what it saw, however it ended, so none
+            # of its tasks is taken. Its stream is still secured below.
+            msg = (
+                "the session's stream showed a held-out canary (held_out_seen); none of the "
+                "tasks it wrote is pooled"
+            )
+            raise AuthoringError(msg, end=str(record["end"]), refused_because="held_out_seen")
         if record["end"] in WATCH_FAILURES:
             # The watch could not hold the session to its cap: what it did was not counted as
             # meant, so none of its tasks is taken. Its stream is still secured below.
@@ -657,7 +668,7 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
                 f"the session's watch could not hold it ({record['end']}); none of the tasks "
                 "it wrote is pooled"
             )
-            raise AuthoringError(msg, end=str(record["end"]))
+            raise AuthoringError(msg, end=str(record["end"]), refused_because=str(record["end"]))
         staging = plan.work / "staging"
         refused = stage(plan.work / "worktree", staging)
         staged = sum(1 for p in staging.iterdir() if p.is_dir())
