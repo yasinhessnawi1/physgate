@@ -19,6 +19,7 @@ import http.client
 import json
 import os
 import sys
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -111,8 +112,20 @@ def _allow(
     return Allowlist.build([str(runs)], held_out=held_out, answer_keys=answer_keys, harness=None)
 
 
+def _read(checkout: Path | None, allowlist: Allowlist) -> EngineCatalogue:
+    """The start-time read, held to its promise: whatever the file is, it answers, never raises.
+
+    A read that raised would stop the command, and a malformed catalogue must never take the
+    operator UI down; so a raise fails the test that met it, on this assertion.
+    """
+    try:
+        return engines.load(checkout, allowlist)
+    except Exception as exc:  # noqa: BLE001 - any raise at all breaks the promise
+        pytest.fail(f"the catalogue's read raised {exc!r}: a refusal is a result, never a raise")
+
+
 def _load(tmp: Path, checkout: Path, **refused: tuple[str, ...]) -> EngineCatalogue:
-    return engines.load(checkout, _allow(tmp, **refused))
+    return _read(checkout, _allow(tmp, **refused))
 
 
 # Each refused case: it builds a checkout under ``tmp`` and returns it with the allowlist's
@@ -156,6 +169,19 @@ def _fifo(tmp: Path) -> tuple[Path, dict[str, tuple[str, ...]]]:
     return checkout, {}
 
 
+def _folder_is_a_file(tmp: Path) -> tuple[Path, dict[str, tuple[str, ...]]]:
+    checkout = tmp / "checkout"
+    checkout.mkdir()
+    (checkout / "desktop").write_text(MARKER)
+    return checkout, {}
+
+
+def _unreadable(tmp: Path) -> tuple[Path, dict[str, tuple[str, ...]]]:
+    checkout = _checkout(tmp, _valid_bytes())
+    (checkout / CATALOGUE_FILE).chmod(0)
+    return checkout, {}
+
+
 def _directory(tmp: Path) -> tuple[Path, dict[str, tuple[str, ...]]]:
     checkout = _checkout(tmp)
     (checkout / CATALOGUE_FILE).mkdir()
@@ -192,9 +218,10 @@ REFUSED: dict[str, tuple[Case, str]] = {
     "a link out of the checkout": (_link_outside, "it is a link"),
     "a folder on the way that is a link": (_folder_is_a_link, "a folder on the way"),
     "a second name on disk": (_second_name, "a second name"),
-    "a pipe": (_fifo, "not a regular file"),
+    "a folder on the way that is a file": (_folder_is_a_file, "a folder on the way"),
     "a directory": (_directory, "not a regular file"),
     "a file over 64 KiB": (_too_large, "larger than 64 KiB"),
+    "a file that may not be read": (_unreadable, "could not be read"),
     "inside a held-out root": (_in_held_out, "where nothing may be read"),
     "inside an answer key": (_in_answer_key, "where nothing may be read"),
     "inside a corpus": (_in_corpora, "where nothing may be read"),
@@ -259,7 +286,7 @@ def test_a_catalogue_of_exactly_64_kib_is_read(tmp_path: Path) -> None:
 
 
 def test_this_checkout_s_own_catalogue_is_read_and_held_to_its_bytes(tmp_path: Path) -> None:
-    held = engines.load(REPO, _allow(tmp_path))
+    held = _read(REPO, _allow(tmp_path))
     data = REAL.read_bytes()
     assert held.state == "read", held.reason
     assert held.sha256 == hashlib.sha256(data).hexdigest()
@@ -285,7 +312,7 @@ def test_with_no_checkout_or_no_file_there_the_catalogue_is_absent(
     tmp_path: Path, where: str
 ) -> None:
     if where == "no checkout":
-        held = engines.load(None, _allow(tmp_path))
+        held = _read(None, _allow(tmp_path))
     elif where == "no file":
         held = _load(tmp_path, _checkout(tmp_path))
     else:
@@ -300,7 +327,7 @@ def test_the_read_walks_descriptors_and_opens_the_file_once_never_through_a_link
     checkout = _checkout(tmp_path, _valid_bytes())
     allowlist = _allow(tmp_path)
     with OPENS.watching() as seen:
-        held = engines.load(checkout, allowlist)
+        held = _read(checkout, allowlist)
     assert held.state == "read", held.reason
     names = [name for name, _ in seen.opened]
     assert names == [str(checkout), "desktop", "onboarding", "engines.json"], names
@@ -327,11 +354,90 @@ def test_the_read_writes_nothing_and_starts_no_thread_or_process(tmp_path: Path)
     allowlist = _allow(tmp_path)
     before = snapshot(checkout)
     with RECORDER.recording() as writes, OPENS.watching() as seen:
-        held = engines.load(checkout, allowlist)
+        held = _read(checkout, allowlist)
     assert held.state == "read"
     assert writes == []
     assert seen.started == []
     assert snapshot(checkout) == before
+
+
+def _in_a_thread(read: Callable[[], EngineCatalogue]) -> EngineCatalogue | None:
+    """``read()``'s answer, or ``None`` if it has not answered within five seconds.
+
+    A read that waits on a pipe never returns, so it runs in a daemon thread: the test fails on
+    its assertion and the rest of the suite still runs.
+    """
+    found: list[EngineCatalogue] = []
+    worker = threading.Thread(target=lambda: found.append(read()), daemon=True)
+    worker.start()
+    worker.join(timeout=5)
+    return found[0] if found else None
+
+
+def test_a_pipe_planted_at_the_path_is_refused_without_waiting_for_a_writer(
+    tmp_path: Path,
+) -> None:
+    checkout, _ = _fifo(tmp_path)
+    allowlist = _allow(tmp_path)
+    held = _in_a_thread(lambda: engines.load(checkout, allowlist))
+    assert held is not None, "the read waited on the pipe: the command would never start"
+    assert held.state == "refused"
+    assert held.reason is not None
+    assert "not a regular file" in held.reason
+
+
+def test_a_pipe_planted_at_the_path_is_a_422_and_the_server_still_answers(
+    world: dict[str, Path], tmp_path: Path
+) -> None:
+    checkout, _ = _fifo(tmp_path)
+    allowlist = _allow(tmp_path)
+    held = _in_a_thread(lambda: engines.load(checkout, allowlist))
+    assert held is not None, "the read waited on the pipe"
+    with serving(_over(world, held)) as live:
+        status, raw = _get(live.port, "/api/engines")
+        runs_status, _ = _get(live.port, "/api/runs")
+    assert (status, runs_status) == (422, 200)
+    assert "not a regular file" in json.loads(raw)["error"]
+
+
+def test_a_catalogue_swapped_for_another_file_after_it_was_judged_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The file opened must be the file judged: one replaced in between is not read."""
+    checkout = _checkout(tmp_path, _valid_bytes())
+    swapped = tmp_path / "swapped.json"
+    swapped.write_bytes(b'{"engines": [], "m": "' + MARKER.encode() + b'"}')
+    reading = engines._read_file
+
+    def swap_then_read(folder: int, identity: tuple[int, int]) -> bytes:
+        os.replace(swapped, checkout / CATALOGUE_FILE)
+        return reading(folder, identity)
+
+    monkeypatch.setattr(engines, "_read_file", swap_then_read)
+    held = _load(tmp_path, checkout)
+    assert held.state == "refused", held
+    assert held.reason is not None
+    assert "changed while it was being read" in held.reason
+
+
+def test_a_checkout_swapped_for_another_folder_after_the_read_began_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The walk starts at the checkout the read began with: one put in its place is refused."""
+    checkout = _checkout(tmp_path, _valid_bytes())
+    _checkout(tmp_path, b'{"engines": [], "m": "' + MARKER.encode() + b'"}', name="impostor")
+    opening = engines._open_root
+
+    def swap_then_open(path: Path) -> int:
+        os.rename(checkout, tmp_path / "moved-away")
+        os.rename(tmp_path / "impostor", checkout)
+        return opening(path)
+
+    monkeypatch.setattr(engines, "_open_root", swap_then_open)
+    held = _load(tmp_path, checkout)
+    assert held.state == "refused", held
+    assert held.reason is not None
+    assert "the checkout changed" in held.reason
 
 
 def test_a_record_whose_fields_do_not_fit_its_state_cannot_be_made() -> None:
