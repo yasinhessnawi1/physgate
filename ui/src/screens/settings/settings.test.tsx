@@ -245,7 +245,13 @@ function fact(where: HTMLElement, field: string): HTMLElement {
   return found ?? document.createElement("div");
 }
 
-const text = (el: Element | null | undefined) => (el?.textContent ?? "").replace(/\s+/g, " ");
+/** What ``el`` reads, without the glossary's explanations its terms carry for hover and focus. */
+function text(el: Element | null | undefined): string {
+  if (el === null || el === undefined) return "";
+  const copy = el.cloneNode(true) as Element;
+  for (const tip of copy.querySelectorAll('[role="tooltip"]')) tip.remove();
+  return copy.textContent.replace(/\s+/g, " ");
+}
 
 const CONTROLS = "a, button, input, select, textarea, summary, details, [tabindex], [role=radio]";
 

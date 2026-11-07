@@ -178,6 +178,7 @@ export const SETTINGS_COPY = {
   // Engines
   enginesTitle: "Engines",
   enginesLead: "The engines the desktop app's engine step offers, as this checkout lists them.",
+  catalogueSourceLabel: "Source",
   catalogueDigest: "Digest",
   catalogueSize: "Size",
   models: "Models",
@@ -231,6 +232,8 @@ export const SETTINGS_COPY = {
   systemEmpty: "No run yet",
   systemEmptyBody: "A run's recorded system appears here once one exists.",
   systemError: "The run's recorded configuration could not be read.",
+  noReadableRun: "No run here can be read",
+  noReadableRunBody: "Each run's reason is beside it in the list of runs.",
   notRecorded: "not recorded by this run",
   engineGroup: "Engine",
   credential: "Credential",
