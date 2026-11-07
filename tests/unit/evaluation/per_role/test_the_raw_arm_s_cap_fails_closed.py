@@ -149,7 +149,8 @@ def test_a_watch_whose_thread_is_gone_stops_the_session(
         raise SystemExit  # ends a thread, and no ordinary handler catches it
 
     monkeypatch.setattr(BudgetWatch, "_read_loop", gone, raising=False)
-    monkeypatch.setattr(raw, "HEARTBEAT_S", 1.0, raising=False)
+    # A heartbeat far beyond this test's wait: only the thread being gone can stop it here.
+    monkeypatch.setattr(raw, "HEARTBEAT_S", 60.0, raising=False)
     watch = _start(stream, session, cap=10**6)
     stopped = _ended_within(session)
     watch.stop()
@@ -189,6 +190,30 @@ def test_a_stop_that_fails_kills_the_session_s_group_and_refuses_the_result(
     assert refuse is not None, "nothing refuses the result of a session the watch could not stop"
     with pytest.raises(raw.RawArmError, match="could not be stopped"):
         refuse(watch)
+
+
+def test_the_run_refuses_a_session_its_watch_could_not_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from task_fixtures import own_task
+    from test_the_raw_arm_s_credential_is_handled_as_a_role_session_s import _script, _setup
+
+    from physgate.evaluation.per_role.task import parse_task
+
+    # A session that spends past its cap at once and then keeps running.
+    line = _usage_line(600).strip()
+    binary = _script(tmp_path / "claude", f"echo '{line}'\nsleep 30\n")
+
+    def cannot(*_args: object, **_kwargs: object) -> int:
+        raise OSError("the process table could not be read")
+
+    monkeypatch.setattr(raw, "stop_tree", cannot)
+    task = parse_task(json.dumps(own_task()).encode())
+    began = time.monotonic()
+    with pytest.raises(raw.RawArmError, match="could not be stopped"):
+        raw.run_raw(task, _setup(tmp_path, binary), tmp_path / "work", cap=500)
+    assert time.monotonic() - began < 20, "the session ran on to its wall clock"
+    assert not (tmp_path / "work" / "raw.json").exists()
 
 
 def test_a_session_stopped_cleanly_is_not_refused(
