@@ -149,6 +149,9 @@ class BudgetWatch:
       ran past :data:`CHECKPOINT_S`, or a watch thread is gone while the session runs;
     - ``no_stream``: the stream had not appeared :data:`NO_STREAM_S` after the start.
 
+    The last three are :data:`WATCH_FAILURES`. A session that ends by itself as the guard
+    looks keeps its own end.
+
     Three threads: the reader counts the stream every :data:`WATCH_S`; the checkpoint, when
     there is one, is asked with the latest count, on a thread of its own, so a slow check
     never delays the count the cap is held to; a guard holds both to their heartbeat and
@@ -262,19 +265,29 @@ class BudgetWatch:
             with self._lock:
                 last_read, asking_since = self._last_read, self._asking_since
             if asking_since is not None and now - asking_since > CHECKPOINT_S:
-                self._stop("watch_stalled")
+                self._stall("watch_stalled")
                 return
             if not self.stream.exists():
                 if now - self._since > NO_STREAM_S:
-                    self._stop("no_stream")
+                    self._stall("no_stream")
                     return
                 continue
             gone = not self._reader.is_alive() or (
                 self._check is not None and not self._checker.is_alive()
             )
             if gone or now - last_read > HEARTBEAT_S:
-                self._stop("watch_stalled")
+                self._stall("watch_stalled")
                 return
+
+    def _stall(self, end: str) -> None:
+        """Stop the session for ``end``, unless it has ended since the guard looked at it.
+
+        The reader and the checkpoint return once the session has ended, and the guard looks
+        at the session before it looks at them: a thread gone, or a bound passed, because the
+        session ended in between is no failure of the watch, and the session's own end stands.
+        """
+        if self._process.poll() is None:
+            self._stop(end)
 
     # ---------------------------------------------------------------------- the stop
 
