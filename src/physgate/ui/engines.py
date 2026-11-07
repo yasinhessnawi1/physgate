@@ -53,6 +53,9 @@ _NAME = "engines.json"
 #: The largest catalogue read, in bytes. Today's file is 2,243.
 MAX_BYTES = 64 * 1024
 
+#: The most of a repeated key a refusal shows: a key may be nearly as long as the file.
+SHOWN_KEY = 40
+
 State = Literal["read", "absent", "refused"]
 
 

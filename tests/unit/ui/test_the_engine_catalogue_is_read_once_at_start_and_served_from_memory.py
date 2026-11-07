@@ -24,6 +24,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 from ui_rig import RECORDER, context_over, fake_ui, serving, snapshot, write_run
@@ -33,11 +34,11 @@ from physgate.cli import main
 from physgate.ui import cli as ui_cli
 from physgate.ui import engines
 from physgate.ui import paths as ui_paths
-from physgate.ui.engines import ABSENT, CATALOGUE_FILE, MAX_BYTES, EngineCatalogue
+from physgate.ui.engines import ABSENT, CATALOGUE_FILE, MAX_BYTES, SHOWN_KEY, EngineCatalogue
 from physgate.ui.exceptions import UIError
 from physgate.ui.guard import SPAWN_EVENTS
 from physgate.ui.paths import Allowlist
-from physgate.ui.routes import Context, engine_catalogue
+from physgate.ui.routes import Context, engine_catalogue, json_response
 
 REPO = Path(__file__).resolve().parents[3]
 REAL = REPO / CATALOGUE_FILE
@@ -214,6 +215,18 @@ def _bytes(body: bytes) -> Case:
     return lambda tmp: (_checkout(tmp, body), {})
 
 
+def _nested(depth: int) -> bytes:
+    """A catalogue that passes every check but its depth: one list nested ``depth`` deep."""
+    deep = b"[" * depth + b"]" * depth
+    return b'{"engines": [], "m": "' + MARKER.encode() + b'", "x": ' + deep + b"}"
+
+
+def _repeating(key: str) -> bytes:
+    """A catalogue that holds ``key`` twice and is otherwise sound."""
+    name = json.dumps(key).encode()
+    return b'{"engines": [], ' + name + b": 1, " + name + b": 2}"
+
+
 REFUSED: dict[str, tuple[Case, str]] = {
     "a link inside the checkout": (_link_inside, "it is a link"),
     "a link out of the checkout": (_link_outside, "it is a link"),
@@ -237,6 +250,10 @@ REFUSED: dict[str, tuple[Case, str]] = {
     "a repeated key inside an entry": (
         _bytes(b'{"engines": [{"id": "a", "id": "b"}]}'),
         "repeats the key 'id'",
+    ),
+    "a repeated key as long as the file": (
+        _bytes(_repeating("k" * SHOWN_KEY + MARKER + "k" * 30_000)),
+        "repeats the key",
     ),
     "a top level that is not an object": (
         _bytes(b'["' + MARKER.encode() + b'"]'),
@@ -306,6 +323,24 @@ def test_a_catalogue_that_fails_a_check_is_refused_with_its_reason(
     assert words in held.reason, held.reason
     assert (held.value, held.sha256, held.length) == (None, None, None)
     assert MARKER not in held.reason
+
+
+@pytest.mark.parametrize(
+    ("key", "shown"),
+    [
+        ("id", "'id'"),
+        ("k" * SHOWN_KEY, "'" + "k" * SHOWN_KEY + "'"),
+        ("k" * (SHOWN_KEY + 1), "'" + "k" * SHOWN_KEY + "\N{HORIZONTAL ELLIPSIS}'"),
+        ("k" * 30_000, "'" + "k" * SHOWN_KEY + "\N{HORIZONTAL ELLIPSIS}'"),
+        ("it's", "'it's'"),
+    ],
+    ids=["short", "exactly as long as is shown", "one longer", "as long as the file", "a quote"],
+)
+def test_a_repeated_key_is_named_in_the_one_shape_and_cut_short(
+    tmp_path: Path, key: str, shown: str
+) -> None:
+    held = _load(tmp_path, _checkout(tmp_path, _repeating(key)))
+    assert held.reason == f"it repeats the key {shown}"
 
 
 @pytest.mark.parametrize("where", ["no checkout", "no file", "no folder"])
@@ -581,6 +616,33 @@ def test_a_refused_catalogue_never_stops_the_server_and_is_a_422_with_no_file_by
     assert (runs_status, page_status) == (200, 200)
 
 
+@pytest.mark.parametrize(
+    "key",
+    [
+        "\x1b[31mred",
+        "a\nb",
+        "\x00",
+        "\x7f",
+        "\x85",
+        "\u2028",
+        "\u202e",
+        "\ud83d",
+        "k" * (SHOWN_KEY - 1) + "\x1b",
+    ],
+    ids=["ESC", "newline", "NUL", "DEL", "C1", "line sep", "bidi", "surrogate", "at the cut"],
+)
+def test_a_control_character_in_a_repeated_key_reaches_the_screen_escaped(
+    world: dict[str, Path], tmp_path: Path, key: str
+) -> None:
+    held = _load(tmp_path, _checkout(tmp_path, _repeating(key)))
+    with serving(_over(world, held)) as live:
+        status, raw = _get(live.port, "/api/engines")
+    assert status == 422, raw[:300]
+    error = json.loads(raw)["error"]
+    assert "it repeats the key '" in error
+    assert error.isprintable(), ascii(error)
+
+
 def test_with_no_catalogue_the_route_is_a_404_with_its_sentence_and_nothing_else_changes(
     world: dict[str, Path],
 ) -> None:
@@ -593,6 +655,93 @@ def test_with_no_catalogue_the_route_is_a_404_with_its_sentence_and_nothing_else
     assert json.loads(raw) == {"error": "this checkout lists no engines"}
     assert runs_status == 200
     assert [r["run_id"] for r in json.loads(runs)["runs"]] == ["run-1"]
+
+
+# -- the depth: the answer is written once, at the read ----------------------------------------
+
+
+def test_a_catalogue_that_parses_but_cannot_be_written_is_a_422_in_words(
+    world: dict[str, Path], tmp_path: Path
+) -> None:
+    """Past the interpreter's limit the writer fails on any stack, and the parser does not."""
+    body = _nested(sys.getrecursionlimit())
+    parsed = json.loads(body)
+    with pytest.raises(RecursionError):
+        json.dumps(parsed, sort_keys=True, indent=1)
+    held = _load(tmp_path, _checkout(tmp_path, body))
+    with serving(_over(world, held)) as live:
+        status, raw = _get(live.port, "/api/engines")
+        runs_status, _ = _get(live.port, "/api/runs")
+    assert (status, runs_status) == (422, 200), raw[:300]
+    assert json.loads(raw) == {
+        "error": "the engine catalogue could not be read: it is nested too deeply to read"
+    }
+    assert held.state == "refused"
+
+
+def test_the_deepest_catalogue_the_read_accepts_is_served_and_one_deeper_is_refused(
+    world: dict[str, Path], tmp_path: Path
+) -> None:
+    """The limit is found, not named: the read's own answer, from a stack as shallow as the start's.
+
+    A request's stack is deeper than the read's. So a route that wrote the answer itself would
+    fail on exactly this catalogue, which the read has let through.
+    """
+    allowlist = _allow(tmp_path)
+    checkout = _checkout(tmp_path, b"")
+
+    def read(depth: int) -> EngineCatalogue:
+        (checkout / CATALOGUE_FILE).write_bytes(_nested(depth))
+        held = _in_a_thread(lambda: engines.load(checkout, allowlist))
+        assert held is not None, f"the read gave no answer at depth {depth}"
+        return held
+
+    accepted, past = 1, sys.getrecursionlimit()
+    while past - accepted > 1:
+        middle = (accepted + past) // 2
+        if read(middle).state == "read":
+            accepted = middle
+        else:
+            past = middle
+    held = read(accepted)
+    with serving(_over(world, held)) as live:
+        status, raw = _get(live.port, "/api/engines")
+    assert status == 200, raw[:300]
+    answer = json.loads(raw)
+    assert answer["sha256"] == hashlib.sha256(_nested(accepted)).hexdigest()
+    node, levels = answer["catalogue"]["x"], 1
+    while node:
+        (node,) = node
+        levels += 1
+    assert levels == accepted
+    assert read(accepted + 1).reason == "it is nested too deeply to read"
+
+
+def test_the_answer_is_written_at_the_read_and_never_at_a_request(
+    world: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = _valid_bytes()
+    held = _load(tmp_path, _checkout(tmp_path, body))
+    context = _over(world, held)
+    written: list[object] = []
+    dumps = json.dumps
+
+    def counting(payload: object, **options: Any) -> str:
+        written.append(payload)
+        return dumps(payload, **options)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(json, "dumps", counting)
+        response = engine_catalogue(context, {})
+    assert written == []
+    assert response == json_response(
+        {
+            "file": CATALOGUE_FILE,
+            "sha256": hashlib.sha256(body).hexdigest(),
+            "length": len(body),
+            "catalogue": json.loads(body),
+        }
+    )
 
 
 # -- the module --------------------------------------------------------------------------------
