@@ -113,6 +113,7 @@ class FakeSession:
             "tokens": 1234,
             "cap": cap,
             "wall_clock_s": 1.5,
+            "held_out_seen": False,
         }
 
 
