@@ -117,11 +117,11 @@ def test_the_relations_read_exactly_the_names_written_down_for_them(tmp_path: Pa
         assert written[relation].comparator in ("<=", "==")
 
 
-#: A name a relation reads that the hooks do not guard as a relation name: the source rating
-#: reads a bench supply's rated output, and a misspelling of it is written, not refused. Found
-#: when the relations' names were first written down; listed here, by name, so the gap is a
-#: stated fact until the guard is widened or the reason it is not is written beside it.
-UNGUARDED = {"rated_output_power"}
+#: Names a relation reads that the hooks do not guard as relation names: none. The source
+#: rating's ``rated_output_power`` was the one, found when the relations' names were first
+#: written down; it is guarded since a law card reads it (07.11.2026), so a misspelling of it is
+#: refused like any other relation name's.
+UNGUARDED: set[str] = set()
 
 
 def staged_input_names() -> dict[str, frozenset[str]]:
@@ -150,7 +150,8 @@ def test_the_relation_names_are_the_relations_and_the_laws_names_and_nothing_els
     table = laws_module().load_laws()
     from_relations = {name for entry in written.values() for name in entry.names}
     staged = {name for names in staged_input_names().values() for name in names}
-    assert from_relations >= UNGUARDED
+    assert UNGUARDED == set()
+    assert "rated_output_power" in from_relations
     assert set(RELATION_NAMES) == (
         (from_relations - UNGUARDED) | set(table.input_names()) | staged | FOR_LAWS
     )

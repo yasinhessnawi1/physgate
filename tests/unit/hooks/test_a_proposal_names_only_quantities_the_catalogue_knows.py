@@ -102,6 +102,8 @@ def test_a_catalogued_name_is_allowed(config: SessionConfig) -> None:
         ("charge_capacit", "charge_capacity"),
         ("discharge_tim", "discharge_time"),
         ("duty_cycl", "duty_cycle"),
+        # The source rating's name, guarded since a law card reads it.
+        ("rated_output_powr", "rated_output_power"),
     ],
 )
 def test_a_misspelling_of_a_relation_s_quantity_is_refused_naming_both(
