@@ -148,8 +148,14 @@ def test_a_long_line_the_attempt_removes_is_named_as_it_stood_before_the_attempt
     [
         (b"a\nb\nc\n", b"a\nb\nc\nd\n" + LONG, "line 5 of {path} is"),
         (b"a\nb\nc\n" + LONG, b"a\nb\nc\n", "line 4 of {path}, as it stood before this attempt,"),
+        # A removed line that reads as a header once the diff marks it, and an added one.
+        (b"a\n-- note\n", b"a\n++ note\n" + LONG, "line 3 of {path} is"),
     ],
-    ids=["added after unchanged lines", "removed after unchanged lines"],
+    ids=[
+        "added after unchanged lines",
+        "removed after unchanged lines",
+        "after lines the diff's marks make look like headers",
+    ],
 )
 def test_the_line_is_counted_in_its_file_past_the_lines_the_diff_shows_unchanged(
     tmp_path: Path, base: bytes, now: bytes, said: str
