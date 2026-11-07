@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { forgetToken, takeTokenFromAddress } from "../../api/client";
+import { engineCatalogue } from "../../api/engines";
 import { DisplayProvider } from "../../shell/display";
 import type { Header } from "../../shell/header";
 import { Shell } from "../../shell/Shell";
@@ -20,6 +21,7 @@ import {
   SETTINGS_COPY,
 } from "../../words/settings";
 import type { ViewDef } from "../registry";
+import { DefaultsSection } from "./Defaults";
 import { pairKind } from "./pairs";
 import Settings from "./Settings";
 
@@ -486,6 +488,19 @@ describe("Defaults for new runs: drawn, disabled, and set nowhere", () => {
     expect(text(ceiling.querySelector("label, dt"))).toContain(SETTINGS_COPY.tokenCeiling);
     expect(text(ceiling)).toContain("tokens");
     expect(text(defaults)).not.toMatch(/budget|USD/i);
+  });
+
+  it("drawn over a catalogue already read, the model choices still hold no model", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    roots.push(root);
+    act(() => {
+      root.render(<DefaultsSection catalogue={{ ok: true, value: engineCatalogue(ENGINES) }} />);
+    });
+    const selects = [...host.querySelectorAll("select")];
+    expect(selects.map((s) => s.options.length)).toEqual([4, 4]);
+    for (const select of selects) expect(select.value).toBe("");
   });
 
   it("nothing on the screen acts: no act, no '…' label, no confirmation, in source or drawn", async () => {
