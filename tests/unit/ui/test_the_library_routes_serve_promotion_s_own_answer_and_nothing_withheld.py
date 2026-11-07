@@ -858,16 +858,21 @@ def test_a_role_folder_that_goes_or_cannot_be_looked_at_while_listed_is_left_out
 
     monkeypatch.setattr(os, "lstat", looked)
     context = _context(world)
+
+    def listed() -> Any:
+        """The listing's answer, or what escaped it: either is the assertion's subject."""
+        try:
+            return json.loads(library_routes.listing(context, {}).body)
+        except Exception as exc:  # noqa: BLE001 - what escapes is asserted on below
+            return exc
+
     raised.append(FileNotFoundError(2, "gone"))
-    answer = json.loads(library_routes.listing(context, {}).body)
+    answer = listed()
+    assert isinstance(answer, dict), repr(answer)
     assert "control" not in {d["role"] for d in answer["documents"]}
     assert "sizing" in {d["role"] for d in answer["documents"]}
     raised[0] = PermissionError(13, "refused")
-    refused: Exception | None = None
-    try:
-        library_routes.listing(context, {})
-    except Exception as exc:  # noqa: BLE001 - what escapes is the assertion's subject
-        refused = exc
+    refused = listed()
     assert isinstance(refused, PathRefusedError), repr(refused)
     assert "not permitted" in str(refused)
     assert refused.context["path"] == "knowledge/control"
