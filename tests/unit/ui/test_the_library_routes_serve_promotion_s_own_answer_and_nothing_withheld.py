@@ -863,9 +863,14 @@ def test_a_role_folder_that_goes_or_cannot_be_looked_at_while_listed_is_left_out
     assert "control" not in {d["role"] for d in answer["documents"]}
     assert "sizing" in {d["role"] for d in answer["documents"]}
     raised[0] = PermissionError(13, "refused")
-    with pytest.raises(PathRefusedError, match="not permitted") as refused:
+    refused: Exception | None = None
+    try:
         library_routes.listing(context, {})
-    assert refused.value.context["path"] == "knowledge/control"
+    except Exception as exc:  # noqa: BLE001 - what escapes is the assertion's subject
+        refused = exc
+    assert isinstance(refused, PathRefusedError), repr(refused)
+    assert "not permitted" in str(refused)
+    assert refused.context["path"] == "knowledge/control"
 
 
 def test_an_error_other_than_a_permission_is_named_by_its_reason() -> None:
@@ -950,10 +955,15 @@ def test_a_missing_last_newline_is_shown_as_a_changed_line(world: dict[str, Any]
     target = _candidate("cand-last-newline")
     status, answer = _ask_all(world, [target])[target]
     assert status == 200, answer
-    lines = answer["lines"]
-    assert " # M" in lines, lines
-    removed = lines.index("-rule")
-    assert lines[removed + 1 : removed + 3] == ["\\ No newline at end of file", "+rule"], lines
+    assert answer["lines"] == [
+        "--- knowledge/mechanical/standards.md",
+        "+++ knowledge/mechanical/standards.md",
+        "@@ -1,2 +1,2 @@",
+        " # M",
+        "-rule",
+        "\\ No newline at end of file",
+        "+rule",
+    ]
 
 
 # -- a log line nested deeper than the parser goes --------------------------------------------
