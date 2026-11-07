@@ -6,18 +6,19 @@ brief and nothing else, and works in a fresh directory outside every held-out ro
 root is surveyed as the session's tripwire will survey it: a link or an unreadable file
 anywhere under it would have the session refused every tool call, so the runner refuses
 first, at no cost. It refuses too unless the session looks for every canary that the lists
-under the root name, at any depth (:func:`root_canaries`), and a list that cannot be taken
-whole, or a directory that cannot be listed, is never read as naming none. While it runs,
-a checkpoint on the budget watch holds each task to its references as soon as it is written
-(on a copy, never in the worktree), and stops the session when no task holds after a quarter
-of the cap, or when more than a task's worth of tokens has gone by since the last task came
-to hold. When it ends, the runner closes the checkpoint, so a call of it that outlived the
-session changes nothing; a session its watch could not hold to its cap (``WATCH_FAILURES``),
-or whose stream showed a held-out canary however it ended (or cannot say, where the root
-names canaries), is refused, and only step 5 runs. Otherwise the runner:
+the harness wrote under the root name, at any depth (:func:`root_canaries`), and a list that
+cannot be taken whole, or a directory that cannot be listed, is never read as naming none.
+While it runs, a checkpoint on the budget watch holds each task to its references as soon as
+it is written (on a copy, never in the worktree), and stops the session when no task holds
+after a quarter of the cap, or when more than a task's worth of tokens has gone by since the
+last task came to hold. When it ends, the runner closes the checkpoint, so a call of it that
+outlived the session changes nothing; a session its watch could not hold to its cap
+(``WATCH_FAILURES``), or whose stream showed a held-out canary however it ended (or cannot
+say, where the root names canaries), is refused, and only step 5 runs. Otherwise the runner:
 
 1. copies each task it left into a staging directory beside its work, refusing a task
-   that holds a link, a special file or more than a task's worth of files;
+   that holds a link, a special file, a canary list's name or more than a task's worth of
+   files;
 2. holds every staged task to its references and its brief (:func:`.validate.sound`), and
    never prints one: what leaves is counts and digests;
 3. moves every task that holds into the pool inside the protected root (a task whose id
@@ -53,9 +54,9 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
-from pydantic import BaseModel, ConfigDict, RootModel, ValidationError
+from pydantic import BaseModel, ConfigDict, RootModel, TypeAdapter, ValidationError
 
 from physgate.evaluation.per_role.arms.raw import WATCH_FAILURES, RawSetup, run_session
 from physgate.evaluation.per_role.authoring import (
@@ -67,7 +68,7 @@ from physgate.evaluation.per_role.authoring import (
     split,
 )
 from physgate.evaluation.per_role.firmware.sandbox import open_directory
-from physgate.evaluation.per_role.task import Role, load_task
+from physgate.evaluation.per_role.task import Canary, Role, load_task
 from physgate.evaluation.per_role.validate import id_digest, refusal_reasons, sound, validate
 from physgate.hooks.withheld import survey
 
@@ -192,6 +193,20 @@ def _require_clear(root: Path) -> None:
 
 #: The largest canary list read: a few dozen canaries per tier, a few tiers per root.
 MOST_CANARY_LIST_BYTES = 1024 * 1024
+#: What a canary list holds. A short entry would match nearly any stream, so nothing else
+#: passes for one.
+_CANARIES: TypeAdapter[list[str]] = TypeAdapter(list[Canary])
+#: The folders directly under a protected root that hold what sessions wrote: the pool, its
+#: draw, and the streams of the author and the blind check. No list the harness writes lies
+#: in one, and a list a session planted there would refuse every later session.
+_SESSION_FOLDERS = frozenset(
+    f"{role}.{kind}" for role in get_args(Role) for kind in ("pool", "draw", "author", "check")
+)
+
+
+def _names_a_list(name: str) -> bool:
+    """Whether ``name`` is what a canary list is called."""
+    return name == CANARIES_NAME or name.endswith(f".{CANARIES_NAME}")
 
 
 def _refuse_list(reason: str, path: str, detail: str) -> AuthoringError:
@@ -207,8 +222,9 @@ def _canary_list(path: str) -> set[str]:
 
     Raises:
         AuthoringError: the list is a link, not a regular file with one name, too large or
-            unreadable (``canary_list_unreadable``), not a list of non-empty strings
-            (``canary_list_unparsed``), or names none (``canary_list_empty``).
+            unreadable (``canary_list_unreadable``), not a list of canaries, each exactly
+            :data:`.task.Canary` (``canary_list_unparsed``), or names none
+            (``canary_list_empty``).
     """
     try:
         fd = os.open(path, _READ)
@@ -230,20 +246,23 @@ def _canary_list(path: str) -> set[str]:
         listed = json.loads(data)
     except (ValueError, RecursionError) as exc:
         raise _refuse_list("canary_list_unparsed", path, "not JSON") from exc
-    if not isinstance(listed, list) or not all(isinstance(c, str) and c for c in listed):
-        raise _refuse_list("canary_list_unparsed", path, "not a list of canaries")
+    try:
+        _CANARIES.validate_python(listed)
+    except ValidationError as exc:
+        raise _refuse_list("canary_list_unparsed", path, "not a list of canaries") from exc
     if not listed:
         raise _refuse_list("canary_list_empty", path, "empty")
     return set(listed)
 
 
 def root_canaries(root: Path) -> tuple[str, ...]:
-    """Every canary the lists under ``root`` name, at any depth; none while it holds no list.
+    """Every canary the lists the harness wrote under ``root`` name; none while it holds none.
 
     A split leaves each held-out tier's list beside it, as ``<tier>.canaries.json``, and a
-    tier may hold one as ``canaries.json``. Of everything else only names are looked at, by
-    the runner, never a task; the pool's tasks carry no canary yet. A link is judged as the
-    list it is named as, and never followed.
+    tier may hold one as ``canaries.json``, at any depth. :data:`_SESSION_FOLDERS` are not
+    entered: what a session wrote is no list of ours. Of everything else only names are
+    looked at, by the runner, never a task; the pool's tasks carry no canary yet. A link is
+    judged as the list it is named as, and never followed.
 
     Raises:
         AuthoringError: a list cannot be taken whole (:func:`_canary_list`), or a directory
@@ -260,14 +279,16 @@ def root_canaries(root: Path) -> tuple[str, ...]:
         return ()
     found: set[str] = set()
     for where, directories, files in os.walk(root, onerror=unlisted):
+        if where == str(root):
+            directories[:] = [d for d in directories if d not in _SESSION_FOLDERS]
         for name in sorted((*directories, *files)):
-            if name == CANARIES_NAME or name.endswith(f".{CANARIES_NAME}"):
+            if _names_a_list(name):
                 found |= _canary_list(str(Path(where) / name))
     return tuple(sorted(found))
 
 
 class _NotPlainError(Exception):
-    """A staged task holds something that is not a plain directory or a singly named file."""
+    """A staged task holds what no task may: not a plain, singly named entry, or a list's name."""
 
 
 def _classify(name: str, dir_fd: int) -> os.stat_result:
@@ -292,9 +313,12 @@ def _copy_into(source_fd: int, target_fd: int, budget: list[int]) -> None:
     no longer part of the task, and is left out of the copy, as a task is from the listing.
 
     Raises:
-        _NotPlainError: an entry is a link of either kind, a special file, or past the budget.
+        _NotPlainError: an entry is a link of either kind, a special file, past the budget,
+            or named as a canary list, which must not reach the pool or a tier.
     """
     for name in sorted(os.listdir(source_fd)):
+        if _names_a_list(name):
+            raise _NotPlainError(name)
         try:
             kind = _classify(name, source_fd).st_mode
         except FileNotFoundError:
@@ -345,9 +369,12 @@ def _copy_into(source_fd: int, target_fd: int, budget: list[int]) -> None:
 def _stage_one(name: str, source: int, target: int) -> bool:
     """Copy the task directory ``name`` under ``source`` into ``target``; whether it was taken.
 
-    A task holding a symbolic or a hard link, a special file or more than a task's worth
-    is refused, and what was copied of it removed.
+    A task holding a symbolic or a hard link, a special file, a canary list's name or more
+    than a task's worth, or named as a list itself, is refused, and what was copied of it
+    removed. A task's id is its directory's name, or the task does not hold.
     """
+    if _names_a_list(name):
+        return False
     try:
         task = open_directory(name, source)
     except OSError:
@@ -397,7 +424,8 @@ def stage(worktree: Path, staging: Path, only: Sequence[str] | None = None) -> i
     is a file made new under the staging directory's descriptor. Only top-level
     directories are looked at, those whose names begin with a dot aside, and only those
     named in ``only`` when it is given. A task holding a symbolic or a hard link, a special
-    file or more than a task's worth is refused, and what was copied of it removed.
+    file, a canary list's name or more than a task's worth is refused, and what was copied
+    of it removed.
 
     Raises:
         OSError: the staging directory cannot be made new (something stands there).
