@@ -3,10 +3,14 @@
 The tiers already cut under the protected root leave their canary lists there, beside a tier
 or inside one. The authoring command passes every canary they name, at any depth, to the
 session's watch, and the runner refuses a session that would not look for one of them. A list
-that cannot be read, does not parse, names no canary, or is a link or not a regular file with
-one name refuses the session, and so does a directory that cannot be listed: neither is ever
-read as naming none. Only a root that holds no list at all lets a session whose record cannot
-say what it saw (it had no canary to look for) be pooled.
+that cannot be read, does not parse, names no canary or anything that is not a canary, or is
+a link or not a regular file with one name refuses the session, and so does a directory that
+cannot be listed: neither is ever read as naming none. Only a root that holds no list at all
+lets a session whose record cannot say what it saw (it had no canary to look for) be pooled.
+
+Only lists the harness wrote count. The folders the root keeps for what sessions wrote are not
+read, so a session cannot plant a list that refuses every later one, and a task that holds a
+list's name is refused at staging, so one cannot reach a tier either.
 """
 
 from __future__ import annotations
@@ -19,7 +23,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_the_task_author_s_session_is_staged_held_and_split_blind import _plan, _setup, _tasks
+from test_the_task_author_s_session_is_staged_held_and_split_blind import (
+    _plan,
+    _setup,
+    _tasks,
+    _write_task,
+)
 from test_what_an_author_s_watch_could_not_hold_is_never_pooled import _Ending, _listed
 
 from physgate.evaluation.per_role import author_session
@@ -30,8 +39,22 @@ CANARY = "5f0c3a9e1b7d4c2a8e6f0b1d3c5a7e9f"
 OTHER = "0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a"
 #: Another role's canary list, where a split leaves it: beside that role's tier.
 LIST_NAME = "actuator.canaries.json"
-#: Lists further down: inside a tier, and beside a tier a level below the root.
-NESTED = ["actuator/canaries.json", "older/round-1/actuator.canaries.json"]
+#: Lists further down: inside a tier, beside a tier a level below the root, and in a folder
+#: that only shares its name with one a session fills.
+NESTED = [
+    "actuator/canaries.json",
+    "older/round-1/actuator.canaries.json",
+    "actuator/control.pool/canaries.json",
+]
+#: A planted list that would match everything, in each folder a session's work ends up in.
+SESSION_FILLED = [
+    "control.pool/canaries.json",
+    "control.pool/control.t09/x.canaries.json",
+    "control.author/s-0/canaries.json",
+    "control.check/s-0/x.canaries.json",
+    "control.draw/canaries.json",
+    "firmware.pool/canaries.json",
+]
 
 
 def _root(tmp_path: Path) -> Path:
@@ -46,9 +69,10 @@ def _author(
     *,
     canaries: tuple[str, ...] = (),
     seen: bool | None = False,
+    write: Any = None,  # noqa: ANN401
 ) -> tuple[_Ending, dict[str, Any] | None, dict[str, str] | None]:
     """Run the author on a scripted session; the session, the result, or the refusal's context."""
-    session = _Ending(_tasks(2), "ended", seen)
+    session = _Ending(write or _tasks(2), "ended", seen)
     session.calls.clear()
     monkeypatch.setattr(author_session, "run_session", session)
     (tmp_path / "scratch").mkdir(exist_ok=True)
@@ -112,6 +136,11 @@ def _bad_list(root: Path, outside: Path, case: str) -> None:
         ("[1]", "canary_list_unparsed"),
         ('[""]', "canary_list_unparsed"),
         ("[]", "canary_list_empty"),
+        ('["a"]', "canary_list_unparsed"),
+        (json.dumps([CANARY, "short"]), "canary_list_unparsed"),
+        (json.dumps([CANARY.upper()]), "canary_list_unparsed"),
+        (json.dumps([CANARY + "0"]), "canary_list_unparsed"),
+        (json.dumps([CANARY + "\n"]), "canary_list_unparsed"),
     ],
 )
 def test_a_canary_list_that_cannot_be_taken_whole_refuses_the_session(
@@ -197,6 +226,79 @@ def test_a_directory_under_the_root_that_cannot_be_listed_refuses_the_session(
         f"a directory a list may lie in, which cannot be listed, was passed: {refused or result}"
     )
     assert session.calls == [], "the session ran"
+
+
+@pytest.mark.parametrize("name", SESSION_FILLED)
+def test_a_list_in_a_folder_a_session_fills_is_not_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    root = _root(tmp_path)
+    (root / name).parent.mkdir(parents=True)
+    (root / name).write_text('["a"]')
+    session, result, refused = _author(tmp_path, monkeypatch, seen=None)
+    assert refused is None, f"a list planted at {name} refused the session: {refused}"
+    assert result is not None and result["pooled"] == 2
+    assert len(session.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "planted",
+    [
+        "canaries.json",
+        "x.canaries.json",
+        ".canaries.json",
+        "references/canaries.json",
+        "references/good/x.canaries.json",
+        "references/x.canaries.json/note.txt",
+    ],
+)
+def test_a_task_that_holds_a_list_s_name_is_refused_at_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, planted: str
+) -> None:
+    def write(worktree: Path) -> None:
+        _tasks(2)(worktree)
+        target = worktree / "control.t00" / planted
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text('["a"]')
+
+    _root(tmp_path)
+    _, result, refused = _author(tmp_path, monkeypatch, write=write)
+    assert refused is None and result is not None
+    assert (result["refused_as_files"], result["pooled"]) == (1, 1), (
+        f"a task that holds {planted} was taken: {result}"
+    )
+    pool = pool_dir(_plan(tmp_path).held_out_root, "control")
+    assert _listed(pool) == ["control.t01"]
+    assert list(pool.rglob("*canaries.json")) == []
+
+
+def test_a_task_named_as_a_list_is_refused_at_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def write(worktree: Path) -> None:
+        _tasks(1)(worktree)
+        _write_task(worktree / "control.canaries.json", 1)
+
+    _root(tmp_path)
+    _, result, refused = _author(tmp_path, monkeypatch, write=write)
+    assert refused is None and result is not None
+    assert (result["refused_as_files"], result["pooled"]) == (1, 1), f"it was taken: {result}"
+    assert _listed(pool_dir(_plan(tmp_path).held_out_root, "control")) == ["control.t00"]
+
+
+def test_a_task_whose_id_is_a_list_s_name_is_not_pooled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Control: a task's id names its directory, or the task does not hold.
+    def write(worktree: Path) -> None:
+        _tasks(2)(worktree)
+        path = worktree / "control.t00" / "task.json"
+        path.write_text(json.dumps({**json.loads(path.read_text()), "id": "x.canaries.json"}))
+
+    _root(tmp_path)
+    _, result, refused = _author(tmp_path, monkeypatch, write=write)
+    assert refused is None and result is not None and result["pooled"] == 1
+    assert _listed(pool_dir(_plan(tmp_path).held_out_root, "control")) == ["control.t01"]
 
 
 def test_a_session_that_would_not_look_for_a_canary_under_its_root_is_refused(
