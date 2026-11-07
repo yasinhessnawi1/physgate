@@ -18,8 +18,9 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-#: The trees whose text is code or describes code: the package, its tests and the UI's source.
-SCANNED = ("src", "tests", "ui/src")
+#: The trees whose text is code or describes code: the package, its tests and the UI's source,
+#: and the knowledge tables the gate reads, whose notes the operator's Library screen shows.
+SCANNED = ("src", "tests", "ui/src", "knowledge")
 #: Directories a run of the tools fills, which hold no text anyone wrote.
 SKIPPED_DIRS = frozenset({"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"})
 
