@@ -1,0 +1,101 @@
+# Law card: no_load_below_stall. Drafted from the literature; the adversarial review is added below
+# the page by the reviewer, never by the drafter.
+
+[card]
+format = 1
+drafted_by = "claude-opus-5-5"
+
+[law]
+id = "no_load_below_stall"
+statement = "a DC motor's no-load current is no greater than its stall current, both as its data sheet states them at its rated voltage"
+expression = "I0 <= Ir"
+pattern = "node"
+anchor = "I0"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "both figures are the same motor's data-sheet figures at one voltage, its rated voltage: at stall the back-EMF is zero and the winding carries the whole voltage over its resistance, the most current it draws at that voltage, while with nothing on the shaft it turns until the back-EMF nearly equals the supply and draws only what overcomes friction; a no_load_current stated at another voltage than rated_stall_current is two conditions, and a motor whose friction current exceeds its stall current cannot start and has no no-load point"
+literals = []
+requires = []
+unless = []
+
+[law.symbols]
+I0 = { name = "no_load_current", place = "self" }
+Ir = { name = "rated_stall_current", place = "self" }
+
+[law.source]
+kind = "textbook"
+title = "College Physics 2e (P. P. Urone, R. Hinrichs; OpenStax)"
+edition = "OpenStax, 2022, web edition"
+section = "23.6 Back Emf: the maximum current when on but not turning, and the no-load motor that uses only enough energy to overcome friction"
+read = 2026-11-07
+reading = "in full"
+
+[[law.example]]
+outcome = "pass"
+source = "Pololu 50:1 Micro Metal Gearmotor HPCB 6V with Extended Motor Shaft (item #3073), key specifications at 6 V: no-load performance 650 RPM, 150 mA; stall extrapolation 0.74 kg.cm, 1.5 A"
+values = { I0 = { value = 150, unit = "mA" }, Ir = { value = 1.5, unit = "A" } }
+
+[[law.example]]
+outcome = "fail"
+source = "the same sheet, with the no-load figure's number 150 written in amperes instead of milliamperes beside the 1.5 A stall"
+values = { I0 = { value = 150, unit = "A" }, Ir = { value = 1.5, unit = "A" } }
+
+[page]
+text = """
+WHAT IT SAYS
+Rank 9. A DC motor draws its most current at stall and its least turning freely, so its no-load
+current is at most its stall current: no_load_current <= rated_stall_current on one node
+(inequality, no allowance). It enters at warn.
+
+WHY rated_stall_current AND NOT stall_current (the stall pairing note)
+The spec's table writes the law against stall_current. Under the approved definitions that pairs
+two conditions: no_load_current is the data sheet's figure, at the rated voltage unless the
+node's source says otherwise, while stall_current is at the largest average voltage the drive can
+apply, which on a duty-limited drive can be far below the rated voltage. At a low enough voltage a
+real motor's stall current falls below its friction (no-load) current: the motor then cannot
+start, but both numbers are true, and the law would refuse them. rated_stall_current is the data
+sheet's stall at the rated voltage, the same condition as the no-load figure, so the pair is one
+condition and the inequality holds for any motor that runs at its rated voltage. No torque or
+speed is read.
+
+HOW IT BINDS (node pattern)
+An instance forms on every node that declares no_load_current, judged where the node also
+declares rated_stall_current; otherwise unchecked, naming rated_stall_current.
+
+WHAT IT CATCHES
+Unit and name slips on the two data-sheet currents: a no-load figure in mA written in A (the fail
+example), the two figures swapped, or the stall written under no_load_current. The physics is
+never at risk on a real motor's own sheet; the law is a guard on what was copied.
+
+WHERE IT DOES NOT HOLD (refused at warn)
+- A no_load_current from a source stated at a voltage far above the one rated_stall_current is
+  at: no-load current rises only slightly with speed, so in practice still below the stall, but
+  the law no longer compares one condition.
+- Nothing excuses it; no current-regulating driver or duty limit enters, because both figures are
+  the maker's at the rated voltage.
+
+SOURCE (read 07.11.2026, primary text, in full)
+Urone and Hinrichs, College Physics 2e (OpenStax, 2022), section 23.6 Back Emf: back emf "is zero
+when the motor is first turned on, meaning that the coil receives the full driving voltage and the
+motor draws maximum current when it is on but not turning", and "if there is no mechanical load
+on the motor, it will increase its angular velocity until the back emf is nearly equal to the
+driving emf. Then the motor uses only enough energy to overcome friction." The inequality between
+the two currents at one voltage is that pair of sentences.
+
+WORKED EXAMPLES (Pololu #3073 product page, read 07.11.2026: "6 V 650 RPM, 150 mA 0.74 kg.cm
+(10 oz.in), 1.5 A", stall marked "stall extrapolation*", "theoretical values")
+- pass: 150 mA <= 1.5 A.
+- fail: 150 A > 1.5 A, the mA figure written in amperes.
+
+REACH (how little it covers; do not read more into it)
+- R-LAW-01 names 2 L flaws for this law ("DC motor current is highest at stall: no-load current <=
+  stall current"). Both are stated against the stall current; this card reads the rated stall, so
+  it reaches them only where the plan writes the data-sheet stall under rated_stall_current.
+- Real plans: the practice motor node writes no_load_current 0.15 A but its stall as stall_current
+  (1.5 A, the data sheet's at 6 V), so the instance is unchecked, missing rated_stall_current. Run 4
+  writes rated_stall_current 1.5 A beside rated_no_load_current 0.15 A, a name no law reads. On the
+  evidence the law judges no instance on any real plan today.
+- False-positive record: I_nl <= I_st and I_nl <= I_stall blocked no clean twin (spec table); that
+  was the stall_current form.
+- Overlap: none.
+"""

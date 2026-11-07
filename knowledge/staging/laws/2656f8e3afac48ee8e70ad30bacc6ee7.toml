@@ -1,0 +1,109 @@
+# Law card: stall_current_within_peak_stall. Drafted from the literature; the adversarial review is
+# added below the page by the reviewer, never by the drafter.
+
+[card]
+format = 1
+drafted_by = "claude-opus-5-5"
+
+[law]
+id = "stall_current_within_peak_stall"
+statement = "a DC motor's stall current at the duty limit is no greater than its stall current at full duty, both at the supply's highest voltage"
+expression = "I <= P"
+pattern = "node"
+anchor = "P"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "both stalls are of one motor, at the same top supply voltage and the same winding resistance and temperature: peak_stall_current at full duty (that voltage over the winding resistance) and stall_current at the duty limit (the duty times that voltage, over the same resistance); a stalled winding has no back-EMF, so its current rises with the average voltage across it, and a duty is at most 1. Two different resistances for the two figures (the data sheet's ratio for one, a terminal resistance for the other) can put a correct pair the wrong way round where no duty limit is fixed"
+literals = []
+requires = []
+unless = []
+
+[law.symbols]
+I = { name = "stall_current", place = "self" }
+P = { name = "peak_stall_current", place = "self" }
+
+[law.source]
+kind = "textbook"
+title = "College Physics 2e (P. P. Urone, R. Hinrichs; OpenStax)"
+edition = "OpenStax, 2022, web edition"
+section = "23.6 Back Emf, Figure 23.24 and the worked current I = V/R = (48.0 V)/(0.400 ohm) = 120 A"
+read = 2026-11-07
+reading = "in full"
+
+[[law.example]]
+outcome = "pass"
+source = "Pololu #3073 (50:1 Micro Metal Gearmotor HPCB 6V with Extended Motor Shaft), stall extrapolation at 6 V: 1.5 A, so a winding resistance of 6 V / 1.5 A = 4 ohm; six Energizer NH15 cells in series (nominal 1.2 V each), taken at 7.2 V as the example's top: peak_stall_current = 7.2 V / 4 ohm = 1.8 A; a duty limit of 0.75 (300 of 400 counts, the Balboa library limit sizing standards section 6 cites): stall_current = 0.75 x 1.8 A = 1.35 A"
+values = { I = { value = 1.35, unit = "A" }, P = { value = 1.8, unit = "A" } }
+
+[[law.example]]
+outcome = "fail"
+source = "the same motor, pack and duty limit, with the two figures written one for the other: stall_current 1.8 A (the full-duty stall) and peak_stall_current 1.35 A (the duty-limited one)"
+values = { I = { value = 1.8, unit = "A" }, P = { value = 1.35, unit = "A" } }
+
+[page]
+text = """
+WHAT IT SAYS
+The two stalls the owner named apart ("both, named apart", 07.11) are one motor's stall at two
+duties, at the same top supply voltage: peak_stall_current at full duty (the supply's top over
+the winding resistance, against which a driver's peak rating and a fuse are judged), and
+stall_current at the duty limit (the duty times that top, over the same resistance, the current
+the design sizes for). A stalled winding has no back-EMF, so its current is the average voltage
+across it over its resistance, and a duty is at most 1. So stall_current <= peak_stall_current
+(inequality, no allowance), with equality where no duty limit is fixed (the catalogue: "where no
+duty limit is fixed they are one figure"). It enters at warn.
+
+WHAT IT CATCHES
+The two figures written one for the other: the full-duty stall under stall_current and the
+duty-limited one under peak_stall_current. That swap moves check 4: the driver's peak rating
+would then be judged against the smaller current. It is part of rank 1 (Ohm's law at stall), on
+the names the owner approved, not a separate R-LAW-01 law.
+
+HOW IT BINDS (node pattern)
+An instance forms on every node that declares peak_stall_current, judged where the node also
+declares stall_current; otherwise unchecked, naming stall_current.
+
+NO EXCUSE IS DECLARED, AND WHY
+- A duty limit: it only lowers stall_current, the side that passes.
+- Coast-mode PWM and a current-regulating driver: both make the true duty-limited stall lower
+  still, so they pass. A regulating driver also caps the full-duty stall; a writer who puts the
+  regulated level under peak_stall_current while stall_current stays the duty times V/R would be
+  refused. That reading contradicts peak_stall_current's definition (the top voltage over the
+  terminal resistance), so the law does not excuse it.
+- A hot winding: both stalls rise and fall together if taken at one temperature.
+
+WHERE IT DOES NOT HOLD (refused at warn)
+- Two resistances for the two figures. Where no duty limit is fixed, the two are one figure; if
+  stall_current comes from the data sheet's ratio (rated_voltage / rated_stall_current) and
+  peak_stall_current from a smaller terminal resistance it is larger, which passes; from a
+  larger terminal resistance it is smaller, and a correct pair is refused by the difference.
+- The two figures at different top voltages (for example stall_current at the duty times the
+  pack's top, as sizing section 7 takes it, but peak_stall_current at the nominal voltage). That
+  is against both definitions, which take the same highest voltage.
+- No torque or speed is read, so the stall pairing note (stall_torque and no_load_speed at the
+  nominal or brief's voltage, stall_current at the largest) does not arise.
+
+SOURCE (read 07.11.2026, primary text, in full)
+Urone and Hinrichs, College Physics 2e (OpenStax, 2022), section 23.6 Back Emf: back emf "is zero
+when the motor is first turned on, meaning that the coil receives the full driving voltage and
+the motor draws maximum current when it is on but not turning", with the coil a resistor
+(Figure 23.24) and I = V/R. That the average current of a duty-limited stalled winding is the
+duty times the full-duty current is sizing standards section 6's derived statement (D x V_supply
+on average while the driver brakes and the current is continuous); that step, and D <= 1, are
+the card's own reading, not the textbook's.
+
+WORKED EXAMPLES (Pololu #3073 product page: 1.5 A stall at 6 V, read 07.11.2026; Energizer NH15
+data sheet: nominal 1.2 V; the 0.75 duty is the Balboa library limit quoted in sizing standards
+section 6, which I did not read at its source)
+- pass: R = 4 ohm, top 7.2 V: peak 1.8 A, duty-limited stall 1.35 A; 1.35 <= 1.8.
+- fail: the two written one for the other; 1.8 > 1.35.
+
+REACH (how little it covers; do not read more into it)
+- peak_stall_current is new (07.11); no real plan writes it, so the law judges no instance on
+  any design the builders may read. Run 4 wrote the same pair under other names
+  (stall_current_turbo_charged 2.1 A = 8.4 V / 4 ohm, and stall_current_max 1.575 A), which no
+  law reads. It measures near zero in R-PG-03.
+- R-LAW-01 has no flaw named for this relation; it is the consistency the two-name ruling
+  creates, so it reaches 0 of the 50 by name.
+- Overlap: none. Check 4 holds each of the two to a current_limit (stall_current today,
+  peak_stall_current additively under ruling (1) of 07.11); this law holds them to each other.
+"""

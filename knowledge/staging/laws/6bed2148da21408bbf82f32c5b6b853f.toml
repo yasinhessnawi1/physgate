@@ -1,0 +1,119 @@
+# Law card: cell_energy. Drafted from the literature; the adversarial review is added below the page
+# by the reviewer, never by the drafter.
+
+[card]
+format = 1
+drafted_by = "claude-opus-5-5"
+
+[law]
+id = "cell_energy"
+statement = "a cell's or battery's rated energy is its rated charge capacity times its nominal voltage"
+expression = "E == V * Q"
+pattern = "node"
+anchor = "E"
+tolerance = "rounding"
+overlaps = "none"
+idealisation = "energy_capacity is the store's watt-hour rating, charge_capacity its rated capacity (to the maker's cut-off at the maker's rate) and supply_voltage its nominal voltage at its own terminals, all of one cell or one pack as a whole; a pack's charge is one series string's, not the sum over series cells. A data sheet's typical or measured energy (the integral of the discharge voltage, or a typical rather than a rated capacity) is refused where it differs from the rating by more than the propagated rounding"
+literals = []
+requires = []
+unless = [
+  { name = "power_supply", place = "self", reason = "a node that declares power_supply supplies others, and its supply_voltage is the voltage at its output; a store with a converter on it (a power bank whose cells are rated in mA*h at 3.7 V while its output is 5 V) has a charge capacity at its cells' voltage, so the product of its output voltage and that charge is not its energy" },
+]
+
+[law.symbols]
+E = { name = "energy_capacity", place = "self" }
+V = { name = "supply_voltage", place = "self" }
+Q = { name = "charge_capacity", place = "self" }
+
+[law.source]
+kind = "standard"
+title = "Recommendations on the Transport of Dangerous Goods, Manual of Tests and Criteria (ST/SG/AC.10/11/Rev.5)"
+edition = "Fifth revised edition, United Nations, 2009"
+section = "38.3.2.2 definitions: Watt-hour rating, and Rated capacity (pp. 394-395)"
+read = 2026-11-07
+reading = "in full"
+
+[[law.example]]
+outcome = "pass"
+source = "Energizer NH15 (AA NiMH) engineering data sheet: nominal voltage 1.2 volts; rated capacity 2500 mAh (to 1.0 volts), based on 500 mA (0.2C) discharge rate. Six cells in series: nominal 7.2 V, rated capacity 2500 mAh (one string), watt-hour rating by the Manual's definition 2.5 A*h x 7.2 V = 18 W*h"
+values = { E = { value = 18, unit = "W*h" }, V = { value = 7.2, unit = "V" }, Q = { value = 2500, unit = "mA*h" } }
+
+[[law.example]]
+outcome = "fail"
+source = "the same six-cell pack, with its charge capacity written as the six cells' capacities summed, 6 x 2500 mAh = 15000 mAh, as if the cells were in parallel, beside the series pack's 7.2 V and 18 W*h"
+values = { E = { value = 18, unit = "W*h" }, V = { value = 7.2, unit = "V" }, Q = { value = 15000, unit = "mA*h" } }
+
+[page]
+text = """
+WHAT IT SAYS
+Rank 7. A store's rated energy is its rated charge times its nominal voltage:
+energy_capacity == supply_voltage x charge_capacity on one node (equality, rounding class:
+the allowance is the propagated rounding of the three numbers as written). It enters at warn.
+
+THE NAMES
+- energy_capacity: the store's rating (sizing standards section 10 lists it among "the rating for
+  a capability").
+- charge_capacity (approved 07.11, kind charge_capacity, nonnegative): the charge a store is rated
+  to deliver from full to its cut-off at the stated rate, in A*h or C, never W*h.
+- supply_voltage: on a node that supplies others (one that declares energy_capacity among them) it
+  is the voltage at its output, the nominal one. The catalogue rows dropped a nominal_voltage name
+  for this reason, so the law reads supply_voltage.
+
+HOW IT BINDS (node pattern)
+An instance forms on every node that declares energy_capacity; judged where the node also
+declares supply_voltage and charge_capacity; otherwise unchecked.
+
+WHERE IT IS EXCUSED
+unless power_supply on the node: a store that declares power_supply may be a store with a
+converter, whose supply_voltage is its output while its charge is rated at its cells' voltage (a
+power bank: cells at 3.7 V, output 5 V). The product would refuse it. The cost: a plain battery
+node that also declares power_supply is excused too. The practice battery pack declares no
+power_supply, so it is still judged.
+
+WHERE IT DOES NOT HOLD (refused at warn)
+- A typical or measured energy. The Manual defines the watt-hour rating as rated capacity times
+  nominal voltage; a data sheet's energy taken from the discharge curve (mean voltage times
+  delivered charge) or a typical capacity above the rated one can differ by more than the
+  rounding allowance (about 1.5 %, below). A node that writes such a figure under energy_capacity is refused at warn. The batch B
+  review made the same point ("a data sheet's W*h is not always V_nom x A*h").
+- A converter store written without power_supply (the power bank above, with only its output
+  voltage): refused.
+- A pack's charge summed over series cells (the fail example): refused, correctly.
+- A cell count is never in the expression: a pack from cells needs a count from the graph (spec
+  section 4.2), so that form is not this card; this card reads a pack as a whole.
+- The Manual's definitions are in its lithium section (38.3). Applying the watt-hour rating's
+  definition to NiMH and other chemistries is the card's reading; the definition itself names no
+  chemistry ("a cell's or battery's rated capacity ... by its nominal voltage").
+- No torque, speed or stall current is read, so the stall pairing note does not arise.
+
+SOURCE (read 07.11.2026, the definitions in full)
+United Nations, Manual of Tests and Criteria, fifth revised edition (2009), section 38.3.2.2:
+"Watt-hour rating, expressed in Watt-hours, is calculated by multiplying a cell's or battery's
+rated capacity, in ampere-hours, by its nominal voltage." and "Rated capacity means the capacity,
+in ampere-hours, of a cell or battery as measured by subjecting it to a load, temperature and
+voltage cut-off point specified by the manufacturer." Read from a copy of the section's pages
+(pp. 394-401) hosted outside the UN's site; the UN's own copies refused the fetch. The physics
+(energy is charge times potential difference) is the definition's content; no textbook was read
+for this card.
+
+WORKED EXAMPLES (Energizer NH15 engineering data sheet, read 07.11.2026)
+- pass: six cells in series, 7.2 V, 2500 mAh, 18 W*h. 7.2 x 2.5 = 18.0 exactly (allowance
+  974 J, 0.27 W*h). The sheet states
+  no W*h figure; the 18 W*h is the Manual's rating computed from the sheet's two figures.
+- fail: 15000 mAh (six capacities summed) beside 7.2 V and 18 W*h: the product is 108 W*h, a miss of 90 W*h.
+A practice-set check (not an example): electrical.battery_pack writes supply_voltage 7.2 V,
+charge_capacity 2200 mA*h, energy_capacity 15.8 W*h; 7.2 x 2.2 = 15.84 W*h, a miss of 0.04 W*h
+(144 J), against the evaluator's propagated allowance of 856 J (0.24 W*h, about 1.5 %), run by the
+drafter through the loader's own evaluate. So any energy within about 1.5 % of the product passes,
+which also means a rating from a mean voltage a per cent or so above nominal passes.
+
+REACH (how little it covers; do not read more into it)
+- R-LAW-01 names 3 L flaws for this law ("Electrical energy of a cell = voltage x charge" 2,
+  "electrical energy of a cell = nominal voltage x charge capacity" 1). This card reads them by
+  name where the plan writes the three names on one store.
+- Real plans: the practice battery pack is the one node that writes all three; it passes. No G11
+  node writes charge_capacity (the name is new). So it judges one instance on the evidence.
+- False-positive record: the E = V*Q forms blocked 0 clean twins (spec table).
+- Overlap: none. energy_capacity is read by the discharge-rate relation against
+  max_discharge_power, not against charge times voltage.
+"""
