@@ -44,6 +44,7 @@ FindingSource = Literal[
     "dispute",
     "arbitration",
     "interface",
+    "long_line",
 ]
 
 _WHO = {
@@ -60,6 +61,8 @@ _WHO = {
     "value stands over a domain's first dispute)",
     "interface": "the interface check (an interface sizing produces follows a node of its own "
     "joined to it, holding every one of its quantities)",
+    "long_line": "the review's read limit (a line of the attempt's diff too long for a reviewer "
+    "to read whole stops the attempt before its review)",
 }
 
 #: The fixed line every instruction that quotes a person's words ends with: what a person

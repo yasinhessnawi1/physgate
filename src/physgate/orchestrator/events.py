@@ -529,7 +529,10 @@ class ProposalsChecked(_Event):
     attempt: Attempt
     checked_commit: Sha
     refused_by: (
-        Literal["proposal", "write_scope", "series", "declaration", "dispute", "interface"] | None
+        Literal[
+            "proposal", "write_scope", "series", "declaration", "dispute", "interface", "long_line"
+        ]
+        | None
     )
     reason: NonEmptyStr | None
     subject: NonEmptyStr | None

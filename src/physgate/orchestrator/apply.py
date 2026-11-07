@@ -36,7 +36,11 @@ the file as it is written. Here the orchestrator:
 - pre-checks **all** of an attempt's proposals against the store's own guards on
   a scratch copy of the graph built from the canonical journal, so an attempt is
   applied whole or not at all, and a refusal is a rejected attempt carrying the
-  store's own reason.
+  store's own reason;
+- last, refuses an attempt whose diff holds a line longer than one part of the
+  review's packet: the reviewer could not be shown it, so no review could be
+  issued. Refused here it is a counted rejection naming the file, the line and the
+  limit, which the next attempt can fix, before the gate and any review token.
 
 The canonical store is held by one handle across steps (opening it re-derives
 every node file). The journal's newest records are read without opening it, so
@@ -91,6 +95,7 @@ from physgate.orchestrator.git import (
 )
 from physgate.orchestrator.merge import RunGit, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
+from physgate.reviewers.packet import LINE_MAX_BYTES, PART_MAX_BYTES, LongLine, long_line
 from physgate.series.consistency import check_proposals
 from physgate.series.reader import SealedEntry, attempt_records
 from physgate.series.seal import FORMAT, MAX_FILE_BYTES, SealedRecord, SessionSeries
@@ -503,6 +508,25 @@ def _blob_id(data: bytes, length: int) -> str:
     return digest(b"blob %d\0" % len(data) + data).hexdigest()
 
 
+def too_long(long: LongLine) -> str:
+    """The finding of an attempt whose diff holds ``long``: the file, the line and the limit."""
+    if long.line is None:
+        where = f"a header line of the diff for {long.path} is {long.bytes} bytes long"
+    elif long.before:
+        where = (
+            f"line {long.line} of {long.path}, as it stood before this attempt, is "
+            f"{long.bytes} bytes long, and the attempt's diff shows it removed"
+        )
+    else:
+        where = f"line {long.line} of {long.path} is {long.bytes} bytes long"
+    return (
+        f"{where}. The reviewer reads the attempt's diff in parts of at most {PART_MAX_BYTES} "
+        "bytes, and a line is never cut across two, so this attempt cannot be shown to a "
+        f"reviewer. Commit files with no line longer than {LINE_MAX_BYTES} bytes, for example "
+        "one value or one row per line."
+    )
+
+
 def declares_completion(role: str) -> bool:
     """Whether ``role`` is the one role the register names as owning completion, asked now.
 
@@ -652,6 +676,17 @@ class GitChangeChecker:
                     proposed=proposed,
                     series_checks=checks,
                 )
+        # Last: the diff the review is issued, held to what one part of it can show.
+        long = long_line(pinned, base, attempt_commit)
+        if long is not None:
+            return ChangeCheck(
+                refused_by="long_line",
+                reason=too_long(long),
+                subject=long.path[:500],
+                graph_root=str(scratch),
+                proposed=proposed,
+                series_checks=checks,
+            )
         return ChangeCheck(
             refused_by=None,
             reason=None,

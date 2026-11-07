@@ -45,6 +45,7 @@ from physgate.orchestrator.events import (  # noqa: E402
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError  # noqa: E402
 from physgate.orchestrator.merge import RunGit, commit_attempt  # noqa: E402
+from physgate.orchestrator.repair import repair_instruction  # noqa: E402
 from physgate.orchestrator.replay import replay  # noqa: E402
 from physgate.reviewers.exceptions import ReviewError  # noqa: E402
 from physgate.reviewers.packet import PART_MAX_BYTES, split_parts  # noqa: E402
@@ -187,6 +188,9 @@ def test_the_refused_attempt_is_repaired_never_reviewed_and_the_fixed_one_merges
     assert first.finding.subject is not None
     assert first.finding.subject.endswith("/impl.py")
     assert "line 1 of" in first.finding.text
+    told = repair_instruction(1, first.finding)
+    assert "rejected by the review's read limit" in told
+    assert f"line 1 of {first.finding.subject} is {len(LONG) - 1} bytes long" in told
     # The reviewer was never handed the refused attempt; its next attempt was.
     seen = [a.attempt for a in reviewer.seen if a.subtask_id == first.subtask_id]
     assert seen == [2]

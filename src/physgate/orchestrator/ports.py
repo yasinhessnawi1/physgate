@@ -217,7 +217,10 @@ class ChangeCheck(_Frozen):
     """The verdict on an attempt's changes before the gate sees them."""
 
     refused_by: (
-        Literal["proposal", "write_scope", "series", "declaration", "dispute", "interface"] | None
+        Literal[
+            "proposal", "write_scope", "series", "declaration", "dispute", "interface", "long_line"
+        ]
+        | None
     )
     reason: NonEmptyStr | None
     #: The offending paths or node id, for the finding's key.
