@@ -6,15 +6,15 @@ brief and nothing else, and works in a fresh directory outside every held-out ro
 root is surveyed as the session's tripwire will survey it: a link or an unreadable file
 anywhere under it would have the session refused every tool call, so the runner refuses
 first, at no cost. It refuses too unless the session looks for every canary that the lists
-beside the tiers under the root name (:func:`root_canaries`), and a list that cannot be
-taken whole is never read as naming none. While it runs, a checkpoint on the budget watch
-holds each task to its references as soon as it is written (on a copy, never in the
-worktree), and stops the session when no task holds after a quarter of the cap, or when
-more than a task's worth of tokens has gone by since the last task came to hold. When it
-ends, the runner closes the checkpoint, so a call of it that outlived the session changes
-nothing; a session its watch could not hold to its cap (``WATCH_FAILURES``), or whose
-stream showed a held-out canary however it ended (or cannot say, where the root names
-canaries), is refused, and only step 5 runs. Otherwise the runner:
+under the root name, at any depth (:func:`root_canaries`), and a list that cannot be taken
+whole, or a directory that cannot be listed, is never read as naming none. While it runs,
+a checkpoint on the budget watch holds each task to its references as soon as it is written
+(on a copy, never in the worktree), and stops the session when no task holds after a quarter
+of the cap, or when more than a task's worth of tokens has gone by since the last task came
+to hold. When it ends, the runner closes the checkpoint, so a call of it that outlived the
+session changes nothing; a session its watch could not hold to its cap (``WATCH_FAILURES``),
+or whose stream showed a held-out canary however it ended (or cannot say, where the root
+names canaries), is refused, and only step 5 runs. Otherwise the runner:
 
 1. copies each task it left into a staging directory beside its work, refusing a task
    that holds a link, a special file or more than a task's worth of files;
@@ -228,7 +228,7 @@ def _canary_list(path: str) -> set[str]:
         os.close(fd)
     try:
         listed = json.loads(data)
-    except (ValueError, UnicodeDecodeError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise _refuse_list("canary_list_unparsed", path, "not JSON") from exc
     if not isinstance(listed, list) or not all(isinstance(c, str) and c for c in listed):
         raise _refuse_list("canary_list_unparsed", path, "not a list of canaries")
@@ -238,20 +238,31 @@ def _canary_list(path: str) -> set[str]:
 
 
 def root_canaries(root: Path) -> tuple[str, ...]:
-    """Every canary the lists beside the tiers in ``root`` name; none while it holds no list.
+    """Every canary the lists under ``root`` name, at any depth; none while it holds no list.
 
-    A split leaves each held-out tier's list beside it, as ``<tier>.canaries.json``. Only the
-    lists are read, by the runner, never a task; the pool's tasks carry no canary yet.
+    A split leaves each held-out tier's list beside it, as ``<tier>.canaries.json``, and a
+    tier may hold one as ``canaries.json``. Of everything else only names are looked at, by
+    the runner, never a task; the pool's tasks carry no canary yet. A link is judged as the
+    list it is named as, and never followed.
 
     Raises:
-        AuthoringError: a list cannot be taken whole (:func:`_canary_list`).
+        AuthoringError: a list cannot be taken whole (:func:`_canary_list`), or a directory
+            that could hold one cannot be listed (``canary_list_unreadable``).
     """
+
+    def unlisted(exc: OSError) -> None:
+        msg = f"{exc.filename} cannot be listed, so a canary list in it cannot be ruled out"
+        raise AuthoringError(
+            msg, refused_because="canary_list_unreadable", path=str(exc.filename)
+        ) from exc
+
     if not root.is_dir():
         return ()
     found: set[str] = set()
-    for name in sorted(os.listdir(root)):
-        if name == CANARIES_NAME or name.endswith(f".{CANARIES_NAME}"):
-            found |= _canary_list(str(root / name))
+    for where, directories, files in os.walk(root, onerror=unlisted):
+        for name in sorted((*directories, *files)):
+            if name == CANARIES_NAME or name.endswith(f".{CANARIES_NAME}"):
+                found |= _canary_list(str(Path(where) / name))
     return tuple(sorted(found))
 
 

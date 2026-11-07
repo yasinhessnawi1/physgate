@@ -151,7 +151,7 @@ def test_a_read_of_a_list_that_fails_refuses_the_session(
     def failing(*_args: Any, **_kwargs: Any) -> Any:  # noqa: ANN401
         raise OSError("the disk gave up")
 
-    monkeypatch.setattr(author_session.os, "fdopen", failing)
+    monkeypatch.setattr(os, "fdopen", failing)
     assert _reason(root) == "canary_list_unreadable"
 
 
