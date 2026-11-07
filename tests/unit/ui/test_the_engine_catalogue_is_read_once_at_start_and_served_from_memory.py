@@ -32,6 +32,7 @@ import physgate.ui.server as ui_server
 from physgate.cli import main
 from physgate.ui import cli as ui_cli
 from physgate.ui import engines
+from physgate.ui import paths as ui_paths
 from physgate.ui.engines import ABSENT, CATALOGUE_FILE, MAX_BYTES, EngineCatalogue
 from physgate.ui.exceptions import UIError
 from physgate.ui.guard import SPAWN_EVENTS
@@ -426,7 +427,7 @@ def test_a_checkout_swapped_for_another_folder_after_the_read_began_is_refused(
     """The walk starts at the checkout the read began with: one put in its place is refused."""
     checkout = _checkout(tmp_path, _valid_bytes())
     _checkout(tmp_path, b'{"engines": [], "m": "' + MARKER.encode() + b'"}', name="impostor")
-    opening = engines._open_root
+    opening = ui_paths._open_root
 
     def swap_then_open(path: Path) -> int:
         os.rename(checkout, tmp_path / "moved-away")
@@ -450,7 +451,7 @@ def test_a_record_whose_fields_do_not_fit_its_state_cannot_be_made() -> None:
         {"state": "other"},
     ):
         with pytest.raises(UIError, match="do not fit its state"):
-            EngineCatalogue(**wrong)  # type: ignore[arg-type]
+            EngineCatalogue(**wrong)
 
 
 # -- the command: once, before it listens ------------------------------------------------------
