@@ -23,9 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
-import signal
 import subprocess
 import threading
 import time
@@ -59,7 +57,7 @@ from physgate.orchestrator.dispatch import (
     write_record,
 )
 from physgate.orchestrator.invocation import isolated_env, role_argv
-from physgate.orchestrator.processes import stop_tree
+from physgate.orchestrator.processes import kill_own, stop_tree
 from physgate.orchestrator.role_python import RolePython, session_bin
 from physgate.orchestrator.run_config import Effort, Network, RunBounds, ThinkingDisplay
 from physgate.oslayer.probe import Absent, Present
@@ -283,20 +281,10 @@ class BudgetWatch:
             stop_tree(self._process.pid, self._started)
         except Exception as exc:  # noqa: BLE001 - recorded; the group is killed instead
             self.stop_error = repr(exc)
-            self._kill_group()
-
-    def _kill_group(self) -> None:
-        # The session was spawned as the leader of a process group of its own, and it has not
-        # been reaped while this runs (the watch ends before the wait that reaps it), so its
-        # pid is still its own and names its group.
-        if self._process.poll() is not None:
-            return
-        try:
-            os.killpg(self._process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            return
-        except OSError as exc:
-            self.stop_error = f"{self.stop_error}; killing the group: {exc!r}"
+            # The dispatcher's kill of a session it spawned leading a group of its own and
+            # has not reaped: the group by its id, with no process table. What left the
+            # group is not reached, and the result is refused (require_stopped).
+            kill_own(self._process)
 
 
 def require_stopped(watch: BudgetWatch) -> None:
