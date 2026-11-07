@@ -5,6 +5,7 @@ the allowlist, then handed to the package's own reader for that format:
 
 - the run configuration: ``load_run_config``, with its digest as the manifest id, and the
   harness's attempts per subtask (``REPAIR_BUDGET``), a constant of the code, not of the record;
+  every field but the held-out tier's (``HELD_OUT_FIELDS``), which no answer carries;
 - the event log: ``read_events``;
 - the task ledger: ``recorded_ledger``, read without writing and held to the log's projection,
   exactly what ``physgate ledger`` prints;
@@ -120,18 +121,28 @@ def _lines(body: str) -> Response:
     return Response(200, body.encode(), JSON_LINES)
 
 
+#: The record's fields that name the held-out tier: its roots, the canary each held-out task
+#: carries, and each root's digest. The UI shows nothing of the tier, and no answer carries them:
+#: a canary a session could read from this server might then appear in its stream, raising a
+#: false incident or telling it what to avoid, and a root names where the tier lives. Left out,
+#: not counted: no screen draws a count, and a count would still tell a reader that a tier exists.
+HELD_OUT_FIELDS = frozenset({"held_out", "held_out_canaries", "held_out_sha256"})
+
+
 def config(context: Context, params: Mapping[str, str]) -> Response:
-    """The run's recorded configuration and its manifest id, with the attempts a subtask gets.
+    """The run's recorded configuration less the held-out tier, its manifest id, and the attempts.
 
     The attempts are the harness's own constant, sent beside the record rather than inside it,
     so a screen that says "attempt 2 of 3" reads the 3 from the loop's code, not from a copy.
+    The manifest id is the digest of the whole record, as every event carries it; the tier's
+    fields are left out of the answer only (``HELD_OUT_FIELDS``).
     """
     run_dir = run_dir_of(context, params)
     recorded = load_run_config(_file(context, run_dir, RUN_CONFIG))
     return json_response(
         {
             "manifest_id": recorded.sha256(),
-            "config": recorded.model_dump(mode="json"),
+            "config": recorded.model_dump(mode="json", exclude=set(HELD_OUT_FIELDS)),
             "repair_budget": REPAIR_BUDGET,
         }
     )

@@ -7,13 +7,16 @@
  * server's own item model and passed through its own JSON response, because the run's contract
  * item was decided before its view could be kept. The route writes every object's keys sorted, so
  * an item's positions reach the page in the alphabet's order, not the order its kind states them.
+ * ``config.json`` is the config route's answer for a run with a held-out tier, written by the route's
+ * own code: the record less the tier's fields, which no answer carries.
  */
 import { describe, expect, it } from "vitest";
 
 import { ShapeError } from "./client";
 import { itemView, queueListing } from "./queue";
-import { ledgerLine } from "./records";
+import { ledgerLine, runConfig } from "./records";
 import { runStatus } from "./run";
+import config from "./served/config.json";
 import contractItem from "./served/item-contract.json";
 import reviewItem from "./served/item-review-unavailable.json";
 import ledger from "./served/ledger.json";
@@ -33,6 +36,18 @@ function withChoices(onChoose: unknown, source = "contract"): unknown {
   view.item.consequence.on_choose = onChoose;
   return view;
 }
+
+describe("a run's configuration is read without the held-out tier the route leaves out", () => {
+  it("the answer names no held-out field, and the page reads everything it draws from it", () => {
+    expect(Object.keys(config.config).filter((k) => k.startsWith("held_out"))).toEqual([]);
+    const read = runConfig(config);
+    expect(read.manifestId).toBe(config.manifest_id);
+    expect(read.runId).toBe("run-7");
+    expect(read.gateMode).toBe("observe");
+    expect(read.roleModels).toEqual({ electrical: "claude-sonnet-5" });
+    expect(read.repairBudget).toBe(3);
+  });
+});
 
 describe("a review the ledger records as blocked is read, and only a review", () => {
   const blocked = ledger.filter((l) => l.review_result === "blocked");
