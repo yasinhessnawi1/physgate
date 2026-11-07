@@ -17,6 +17,8 @@ import hashlib
 import json
 import os
 import shutil
+import stat
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -38,9 +40,9 @@ from physgate.gate.catalogue import STORE_CLASSES, catalogue_digest
 from physgate.knowledge.promote import _apply, canaries
 from physgate.knowledge.staging import Candidate
 from physgate.orchestrator.credentials import KEY_FILE, KEY_HELPER, LOGIN_FILE
-from physgate.ui import assets
+from physgate.ui import assets, guard
 from physgate.ui import library as library_routes
-from physgate.ui.exceptions import PathRefusedError
+from physgate.ui.exceptions import PathRefusedError, UIError
 from physgate.ui.library import CAP
 from physgate.ui.paths import Allowlist
 from physgate.ui.routes import Context
@@ -676,8 +678,10 @@ def test_a_bounds_table_changed_between_its_read_and_its_load_is_refused(
         return real_load(path)
 
     monkeypatch.setattr(library_routes, "load_table", changed)
-    with pytest.raises(PathRefusedError, match="changed while it was read"):
+    with pytest.raises(UIError, match="changed while it was read") as refused:
         library_routes.ratings(_context(world), {})
+    # A sentence (422), as the decision on the ratings states it, not a refusal of the path.
+    assert not isinstance(refused.value, PathRefusedError)
 
 
 # -- nothing is written ----------------------------------------------------------------------
@@ -736,3 +740,199 @@ def test_two_tables_giving_one_kind_an_envelope_refuse_the_tab_as_the_gate_would
     status, body = _ask_all(world, [RATINGS])[RATINGS]
     assert status == 422, body
     assert "envelope" in body["error"]
+
+
+# -- what the operating system refuses -------------------------------------------------------
+#
+# A folder or a file whose permission bits refuse the server is a refusal in words: a row's
+# error, or a 403 when the library itself cannot be listed. The superuser ignores those bits,
+# so these tests cannot hold there.
+
+needs_permission_bits = pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0, reason="the superuser ignores permission bits"
+)
+
+
+@pytest.fixture
+def locked() -> Iterator[Callable[[Path, int], None]]:
+    """Set a path's mode for the test, and give every path its mode back afterwards."""
+    held: list[tuple[Path, int]] = []
+
+    def lock(path: Path, mode: int) -> None:
+        held.append((path, stat.S_IMODE(os.lstat(path).st_mode)))
+        path.chmod(mode)
+
+    yield lock
+    for path, mode in reversed(held):
+        path.chmod(mode)
+
+
+@needs_permission_bits
+def test_a_staged_folder_the_server_may_not_list_is_its_own_row_and_the_rest_stand(
+    world: dict[str, Any], locked: Callable[[Path, int], None]
+) -> None:
+    locked(world["lib"] / "staging" / "skill", 0)
+    answers = _ask_all(world, [LISTING, STAGED])
+    assert answers[LISTING][0] == 200, answers[LISTING]
+    assert answers[LISTING][1]["staged"] == 2, "the standards and the antipattern still wait"
+    status, body = answers[STAGED]
+    assert status == 200, body
+    rows = {row["name"]: row for row in body["candidates"]}
+    assert "not permitted" in rows["knowledge/staging/skill"]["error"]
+    assert rows[f"{STANDARDS_CANDIDATE}.json"]["candidate_id"] == STANDARDS_CANDIDATE
+    assert rows[f"{ANTIPATTERN_CANDIDATE}.json"]["candidate_id"] == ANTIPATTERN_CANDIDATE
+
+
+@needs_permission_bits
+def test_a_library_the_server_may_not_list_is_refused_in_words(
+    world: dict[str, Any], locked: Callable[[Path, int], None]
+) -> None:
+    """Its files can still be read by name; what it holds cannot be listed."""
+    locked(world["lib"], stat.S_IWUSR | stat.S_IXUSR)
+    answers = _ask_all(world, [LISTING, RATINGS])
+    for target in (LISTING, RATINGS):
+        status, body = answers[target]
+        assert status == 403, (target, body)
+        assert "not permitted" in body["error"], target
+
+
+@needs_permission_bits
+def test_a_file_the_server_may_not_read_is_refused_as_such_and_never_as_a_swap(
+    world: dict[str, Any], locked: Callable[[Path, int], None]
+) -> None:
+    locked(world["lib"] / "control" / "standards.md", 0)
+    answers = _ask_all(world, [LISTING, _file("standards", "control")])
+    status, body = answers[_file("standards", "control")]
+    assert status == 403, body
+    assert "not permitted" in body["error"]
+    assert "changed" not in body["error"]
+    row = _row(answers[LISTING][1], "standards", "control")
+    assert "not permitted" in row["error"]
+    assert _row(answers[LISTING][1], "skill", "control")["state"] == "differs"
+
+
+# -- what a refusal says about where the library is -------------------------------------------
+
+
+def _no_machine_path(world: dict[str, Any], answers: dict[str, tuple[int, Any]]) -> None:
+    lib = world["lib"]
+    spellings = {str(lib), os.path.realpath(lib), str(world["checkout"])}
+    for target, (status, body) in answers.items():
+        if status == 200:
+            continue
+        sent = json.dumps(body)
+        for spelling in spellings:
+            assert spelling not in sent, (target, sent)
+
+
+def test_a_refusal_names_a_library_file_as_the_log_does_never_by_its_place_on_the_machine(
+    world: dict[str, Any],
+) -> None:
+    lib = world["lib"]
+    _plant_link(lib / "control" / "standards.md", world["checkout"] / ".docs" / "notes.md")
+    (lib / "electrical" / "bounds.toml").write_text("[meta\n")
+    staged = lib / "staging" / "skill" / f"{SKILL_CANDIDATE}.json"
+    _plant_link(staged, lib / "staging" / "standards" / f"{STANDARDS_CANDIDATE}.json")
+    answers = _ask_all(world, _every_target())
+    _no_machine_path(world, answers)
+    status, body = answers[_file("standards", "control")]
+    assert (status, body["path"]) == (403, "knowledge/control/standards.md")
+    status, body = answers[RATINGS]
+    assert (status, body["path"]) == (422, "knowledge/electrical/bounds.toml")
+    status, body = answers[_candidate(SKILL_CANDIDATE)]
+    assert (status, body["path"]) == (422, f"knowledge/staging/skill/{SKILL_CANDIDATE}.json")
+
+
+def test_two_tables_giving_one_kind_an_envelope_are_named_as_the_log_names_them(
+    world: dict[str, Any],
+) -> None:
+    electrical = world["lib"] / "electrical" / "bounds.toml"
+    cross = (world["lib"] / "cross" / "bounds.toml").read_text()
+    electrical.write_text(electrical.read_text() + "\n" + cross[cross.index("[[envelope]]") :])
+    answers = _ask_all(world, [RATINGS])
+    _no_machine_path(world, answers)
+    status, body = answers[RATINGS]
+    assert status == 422, body
+    assert body["tables"] == "knowledge/cross/bounds.toml, knowledge/electrical/bounds.toml"
+
+
+# -- changed lines that differ only in how they end ------------------------------------------
+
+
+def test_a_change_of_line_endings_alone_is_shown_as_changed_lines(world: dict[str, Any]) -> None:
+    """Promoting LF text over a CRLF file rewrites every byte that ends a line."""
+    lib = world["lib"]
+    (lib / "mechanical").mkdir()
+    (lib / "mechanical" / "standards.md").write_bytes(b"# M\r\nrule\r\n")
+    _stage(lib, "standards", "mechanical", "cand-line-ends", "# M\nrule\n")
+    status, answer = _ask_all(world, [_candidate("cand-line-ends")])[_candidate("cand-line-ends")]
+    assert status == 200, answer
+    assert answer["effect"] == "replaces whole"
+    assert answer["now"]["size"] == 11
+    assert answer["after"]["size"] == 9
+    lines = answer["lines"]
+    assert "-# M\u240d" in lines, lines
+    assert "-rule\u240d" in lines, lines
+    assert "+# M" in lines, lines
+    assert "+rule" in lines, lines
+
+
+def test_a_missing_last_newline_is_shown_as_a_changed_line(world: dict[str, Any]) -> None:
+    lib = world["lib"]
+    (lib / "mechanical").mkdir()
+    (lib / "mechanical" / "standards.md").write_bytes(b"# M\nrule")
+    _stage(lib, "standards", "mechanical", "cand-last-newline", "# M\nrule\n")
+    target = _candidate("cand-last-newline")
+    status, answer = _ask_all(world, [target])[target]
+    assert status == 200, answer
+    lines = answer["lines"]
+    assert " # M" in lines, lines
+    removed = lines.index("-rule")
+    assert lines[removed + 1 : removed + 3] == ["\\ No newline at end of file", "+rule"], lines
+
+
+# -- a log line nested deeper than the parser goes --------------------------------------------
+
+
+def test_a_log_line_nested_too_deep_to_parse_is_a_refusal_naming_its_line(
+    world: dict[str, Any],
+) -> None:
+    with (world["lib"] / "promotions.jsonl").open("a") as log:
+        log.write("[" * 200_000 + "]" * 200_000 + "\n")
+    status, body = _ask_all(world, [LISTING])[LISTING]
+    assert status == 422, body
+    assert body["line"] == "11"
+    assert "promotion log" in body["error"]
+
+
+# -- a folder swapped above a judged file -----------------------------------------------------
+
+
+def test_a_folder_swapped_for_a_link_out_after_its_file_was_judged_is_a_refusal_never_a_500(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The open then names a file outside every root, and the request's guard refuses it.
+
+    The swap is made inside the reader's own seam, with the guard set aside for the test's own
+    rename only; the open itself runs under the guard, as in any request.
+    """
+    lib = world["lib"]
+    outside = world["outside"] / "control"
+    outside.mkdir()
+    (outside / "standards.md").write_bytes(MARKER + b"\n")
+    real_open = library_routes._open_file
+
+    def swapped(path: str) -> int:
+        if path.endswith(os.path.join("control", "standards.md")):
+            token = guard._current.set(None)
+            try:
+                (lib / "control").rename(lib / "control-moved")
+                (lib / "control").symlink_to(outside)
+            finally:
+                guard._current.reset(token)
+        return real_open(path)
+
+    monkeypatch.setattr(library_routes, "_open_file", swapped)
+    status, body = _ask_all(world, [_file("standards", "control")])[_file("standards", "control")]
+    assert status == 403, body
+    assert "changed while it was read" in body["error"]
