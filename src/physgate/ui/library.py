@@ -31,8 +31,11 @@ request. It is judged by the allowlist (a refusal is a 403, or a row's error in 
 Every component below the library is then checked to be no link, the file to be a regular file,
 and its identity recorded. It is opened by its full path without following a link, and the
 opened file must be the one judged. So a file swapped between the judgement and the open is
-refused. A swap of a directory above it is the same-user window every read route has. A file
-larger than the cap is refused with a sentence.
+refused. A swap of a directory above it is the same-user window every read route has: the
+request's guard then refuses the open, and that refusal is answered as a 403 too, never a 500.
+A file larger than the cap is refused with a sentence. A file or folder whose permissions refuse
+the server is refused in those words, never as a swap. A refusal names a library file as the log
+does (``knowledge/...``), never by its place on the machine.
 """
 
 from __future__ import annotations
@@ -52,6 +55,7 @@ from pydantic import ValidationError
 
 from physgate.gate.bounds_table import BOUNDS_NAME, Bounds, Envelope, Range, load_table
 from physgate.gate.catalogue import STORE_CLASSES, catalogue_digest, kind_of
+from physgate.gate.exceptions import GateError
 from physgate.knowledge.exceptions import KnowledgeError, RoleNameError
 from physgate.knowledge.loader import always_loaded
 from physgate.knowledge.promote import (
@@ -62,7 +66,7 @@ from physgate.knowledge.promote import (
     promotion_bytes,
 )
 from physgate.knowledge.staging import Candidate, Kind
-from physgate.ui.exceptions import NotFoundError, PathRefusedError, UIError
+from physgate.ui.exceptions import GuardRefusedError, NotFoundError, PathRefusedError, UIError
 from physgate.ui.routes import PARAMETERS, Context, Handler, Response, json_response
 
 #: The most bytes one library file may hold to be read here.
@@ -90,6 +94,16 @@ RECORDED_ROOT = "knowledge"
 #: What a store class's rate is per: the field's own name says per hour.
 PER_HOUR = "1/h"
 
+#: How the changed lines show a carriage return that ends a line, so that a change of line
+#: endings alone is seen (U+240D, the symbol for a carriage return).
+CARRIAGE_RETURN = "\u240d"
+
+#: The line a unified diff puts after a line that ends the file with no newline.
+NO_NEWLINE = "\\ No newline at end of file"
+
+#: How the request's guard ends its refusal of a read outside every root it may read.
+GUARD_READ_REFUSAL = "outside the roots it may read"
+
 
 # -- errors as sentences ---------------------------------------------------------------------
 
@@ -115,12 +129,37 @@ def _as_sentences() -> Iterator[None]:
         raise UIError(msg) from None
 
 
+def _as_recorded(context: Context, error: UIError | GateError) -> None:
+    """Name every library path in ``error``'s context as the log does, never absolutely."""
+    library = context.allowlist.library
+    if library is None:
+        return
+    where = str(library.path)
+    error.context = {
+        key: value.replace(where, RECORDED_ROOT) for key, value in error.context.items()
+    }
+
+
 def _route(handler: Callable[[Context, Mapping[str, str]], dict[str, Any]]) -> Handler:
-    """A library handler: errors become sentences, the answer is JSON."""
+    """A library handler: errors become sentences, the answer is JSON.
+
+    Every path is judged before it is opened, so the request's guard refuses a read only when a
+    folder above a judged file was swapped between the judgement and the open: a refusal (403).
+    Any other guard refusal is this package's own fault, and is left to the server.
+    """
 
     def run(context: Context, params: Mapping[str, str]) -> Response:
-        with _as_sentences():
-            return json_response(handler(context, params))
+        try:
+            with _as_sentences():
+                return json_response(handler(context, params))
+        except GuardRefusedError as exc:
+            if not str(exc).endswith(GUARD_READ_REFUSAL):
+                raise
+            msg = "the library changed while it was read"
+            raise PathRefusedError(msg) from None
+        except (UIError, GateError) as exc:
+            _as_recorded(context, exc)
+            raise
 
     run.__name__ = run.__qualname__ = handler.__name__
     run.__doc__ = handler.__doc__
@@ -141,6 +180,18 @@ def _library(context: Context) -> Path:
 def _recorded(library: Path, path: Path) -> str:
     """``path`` as the promotion log names it: relative to the checkout, under ``knowledge``."""
     return "/".join((RECORDED_ROOT, *path.relative_to(library).parts))
+
+
+def _unreadable(exc: OSError, shown: str, *, listing: bool = False) -> PathRefusedError:
+    """The operating system's refusal to read or list ``shown``, in words."""
+    if exc.errno in (errno.EACCES, errno.EPERM):
+        if listing:
+            msg = "the server is not permitted to list this folder"
+        else:
+            msg = "the server is not permitted to read this file, or a folder it lies in"
+        return PathRefusedError(msg, path=shown)
+    msg = "the server could not list this folder" if listing else "the server could not read this"
+    return PathRefusedError(msg, path=shown, reason=os.strerror(exc.errno or 0))
 
 
 def _open_file(path: str) -> int:
@@ -165,6 +216,8 @@ def _read(context: Context, library: Path, path: Path) -> bytes | None:
             st = os.lstat(current)
         except FileNotFoundError:
             return None
+        except OSError as exc:
+            raise _unreadable(exc, shown) from None
         if stat.S_ISLNK(st.st_mode):
             msg = "a link inside the library is not read, so where it points is never shown"
             raise PathRefusedError(msg, path=shown)
@@ -179,6 +232,8 @@ def _read(context: Context, library: Path, path: Path) -> bytes | None:
         if exc.errno == errno.ELOOP:
             msg = "a link inside the library is not read, so where it points is never shown"
             raise PathRefusedError(msg, path=shown) from None
+        if exc.errno in (errno.EACCES, errno.EPERM):
+            raise _unreadable(exc, shown) from None
         msg = "the file changed while it was read"
         raise PathRefusedError(msg, path=shown, reason=os.strerror(exc.errno or 0)) from None
     try:
@@ -228,7 +283,8 @@ def _promotions(context: Context, library: Path) -> list[dict[str, Any]]:
             continue
         try:
             record = json.loads(raw)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):
+            # A line nested deeper than the parser goes is as unreadable as a torn one.
             record = None
         if not isinstance(record, dict):
             msg = "the promotion log has a line this version cannot read"
@@ -281,7 +337,11 @@ def _roles(context: Context, library: Path) -> list[str]:
     listing leaves out a refused run. So is a folder holding none of the library's files.
     """
     roles = []
-    for name in sorted(os.listdir(library)):
+    try:
+        names = os.listdir(library)
+    except OSError as exc:
+        raise _unreadable(exc, RECORDED_ROOT, listing=True) from None
+    for name in sorted(names):
         if not _is_role(name):
             continue
         folder = library / name
@@ -289,7 +349,12 @@ def _roles(context: Context, library: Path) -> list[str]:
             context.allowlist.resolve(folder)
         except PathRefusedError:
             continue
-        st = os.lstat(folder)
+        try:
+            st = os.lstat(folder)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise _unreadable(exc, _recorded(library, folder)) from None
         if not stat.S_ISDIR(st.st_mode):
             continue
         if any(os.path.lexists(folder / file) for file in LIBRARY_FILES.values()):
@@ -397,7 +462,13 @@ def _staged_rows(context: Context, library: Path) -> list[dict[str, Any]]:
         except PathRefusedError as exc:
             rows.append({"name": _recorded(library, folder), "kind": kind, "error": str(exc)})
             continue
-        for name in sorted(os.listdir(folder)):
+        try:
+            names = os.listdir(folder)
+        except OSError as exc:
+            error = _unreadable(exc, _recorded(library, folder), listing=True)
+            rows.append({"name": _recorded(library, folder), "kind": kind, "error": str(error)})
+            continue
+        for name in sorted(names):
             if not name.endswith(".json"):
                 continue
             rows.append(_staged_row(context, library, folder / name, kind))
@@ -414,6 +485,8 @@ def _read_folder(context: Context, library: Path, folder: Path) -> Path | None:
             st = os.lstat(current)
         except FileNotFoundError:
             return None
+        except OSError as exc:
+            raise _unreadable(exc, _recorded(library, folder)) from None
         if stat.S_ISLNK(st.st_mode):
             msg = "a link inside the library is not read, so where it points is never shown"
             raise PathRefusedError(msg, path=_recorded(library, folder))
@@ -463,6 +536,42 @@ def staged(context: Context, params: Mapping[str, str]) -> dict[str, Any]:
 # -- L4: one candidate -----------------------------------------------------------------------
 
 
+def _lines(data: bytes | None) -> list[str]:
+    """``data``'s lines as UTF-8 text, each with its end kept; only a newline ends a line."""
+    if data is None:
+        return []
+    parts = data.decode("utf-8").split("\n")
+    lines = [part + "\n" for part in parts[:-1]]
+    if parts[-1]:
+        lines.append(parts[-1])
+    return lines
+
+
+def _changed_lines(destination: str, now: bytes | None, after: bytes) -> list[str]:
+    """A unified diff of ``now`` and ``after`` that keeps how each line ends.
+
+    Lines are compared with their ends, so a change of line endings alone, or of the last
+    newline, is a changed line. Each line is then sent without its newline. A carriage return
+    that ends it is shown as a symbol, and a line that ends the file with no newline is followed
+    by the unified diff's own line saying so.
+    """
+    shown: list[str] = []
+    diff = difflib.unified_diff(
+        _lines(now), _lines(after), fromfile=destination, tofile=destination, lineterm=""
+    )
+    for index, line in enumerate(diff):
+        if index < 2 or line.startswith("@@"):
+            shown.append(line)
+            continue
+        text = line.removesuffix("\n")
+        if text.endswith("\r"):
+            text = text[:-1] + CARRIAGE_RETURN
+        shown.append(text)
+        if not line.endswith("\n"):
+            shown.append(NO_NEWLINE)
+    return shown
+
+
 @_route
 def candidate(context: Context, params: Mapping[str, str]) -> dict[str, Any]:
     """One staged candidate and what promoting it would do, by promotion's own code."""
@@ -477,7 +586,11 @@ def candidate(context: Context, params: Mapping[str, str]) -> dict[str, Any]:
             context.allowlist.resolve(probed)
     # The general staging folder for both: the finder never looks inside the reviewers' tree,
     # and a rubric it finds here is one promotion would never find.
-    found = find_staged(candidate_id, staging, staging)
+    try:
+        found = find_staged(candidate_id, staging, staging)
+    except OSError as exc:
+        # A kind's folder the server may not search: the finder's own checks cannot run.
+        raise _unreadable(exc, _recorded(library, staging)) from None
     if found is None or found[0] == "rubric":
         msg = "no candidate with this id is staged"
         raise NotFoundError(msg, candidate_id=candidate_id)
@@ -492,16 +605,6 @@ def candidate(context: Context, params: Mapping[str, str]) -> dict[str, Any]:
         effect = "replaces whole"
     else:
         effect = "adds to"
-    before_lines = [] if now is None else now.decode("utf-8").splitlines()
-    lines = list(
-        difflib.unified_diff(
-            before_lines,
-            after.decode("utf-8").splitlines(),
-            fromfile=destination,
-            tofile=destination,
-            lineterm="",
-        )
-    )
     return {
         "candidate": staged_candidate.model_dump(mode="json"),
         "kind": kind,
@@ -509,7 +612,7 @@ def candidate(context: Context, params: Mapping[str, str]) -> dict[str, Any]:
         "effect": effect,
         "now": None if now is None else _fingerprint(now),
         "after": _fingerprint(after),
-        "lines": lines,
+        "lines": _changed_lines(destination, now, after),
     }
 
 
@@ -553,9 +656,10 @@ def ratings(context: Context, params: Mapping[str, str]) -> dict[str, Any]:
             continue
         table = load_table(path)
         if table.sha256 != hashlib.sha256(data).hexdigest():
-            # The table was loaded from bytes other than the ones judged and read here.
+            # The table was loaded from bytes other than the ones judged and read here: a
+            # sentence (422), since the bytes read here were judged and the table is not shown.
             msg = "the file changed while it was read"
-            raise PathRefusedError(msg, path=_recorded(library, path))
+            raise UIError(msg, path=_recorded(library, path))
         tables.append((path, table))
     # Joined as the gate joins them, so the gate's own rules (one envelope per kind) hold here.
     Bounds({table.domain: table for _, table in tables})

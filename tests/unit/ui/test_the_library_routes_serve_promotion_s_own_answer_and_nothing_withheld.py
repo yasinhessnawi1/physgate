@@ -772,7 +772,13 @@ def test_a_staged_folder_the_server_may_not_list_is_its_own_row_and_the_rest_sta
     world: dict[str, Any], locked: Callable[[Path, int], None]
 ) -> None:
     locked(world["lib"] / "staging" / "skill", 0)
-    answers = _ask_all(world, [LISTING, STAGED])
+    answers = _ask_all(
+        world, [LISTING, STAGED, _candidate(STANDARDS_CANDIDATE), _candidate(SKILL_CANDIDATE)]
+    )
+    assert answers[_candidate(STANDARDS_CANDIDATE)][0] == 200, "found before the locked folder"
+    status, body = answers[_candidate(SKILL_CANDIDATE)]
+    assert status == 403, body
+    assert "not permitted" in body["error"]
     assert answers[LISTING][0] == 200, answers[LISTING]
     assert answers[LISTING][1]["staged"] == 2, "the standards and the antipattern still wait"
     status, body = answers[STAGED]
@@ -809,6 +815,65 @@ def test_a_file_the_server_may_not_read_is_refused_as_such_and_never_as_a_swap(
     row = _row(answers[LISTING][1], "standards", "control")
     assert "not permitted" in row["error"]
     assert _row(answers[LISTING][1], "skill", "control")["state"] == "differs"
+
+
+@needs_permission_bits
+def test_a_staging_folder_the_server_may_not_search_is_an_error_row_for_each_kind(
+    world: dict[str, Any], locked: Callable[[Path, int], None]
+) -> None:
+    locked(world["lib"] / "staging", 0)
+    status, body = _ask_all(world, [STAGED])[STAGED]
+    assert status == 200, body
+    assert [row["name"] for row in body["candidates"]] == [
+        "knowledge/staging/standards",
+        "knowledge/staging/skill",
+        "knowledge/staging/antipattern",
+    ]
+    assert all("not permitted" in row["error"] for row in body["candidates"]), body
+
+
+@needs_permission_bits
+def test_a_role_folder_the_server_may_not_search_refuses_its_files_in_words(
+    world: dict[str, Any], locked: Callable[[Path, int], None]
+) -> None:
+    locked(world["lib"] / "control", 0)
+    answers = _ask_all(world, [_file("standards", "control"), _candidate(STANDARDS_CANDIDATE)])
+    for target, (status, body) in answers.items():
+        assert status == 403, (target, body)
+        assert "not permitted" in body["error"], target
+
+
+def test_a_role_folder_that_goes_or_cannot_be_looked_at_while_listed_is_left_out_or_refused(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Between the listing of the library and the look at one of its folders."""
+    control = str(world["lib"] / "control")
+    real_lstat = os.lstat
+    raised: list[OSError] = []
+
+    def looked(path: Any, *args: Any, **kwargs: Any) -> os.stat_result:
+        if os.fspath(path) == control and raised:
+            raise raised[0]
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "lstat", looked)
+    context = _context(world)
+    raised.append(FileNotFoundError(2, "gone"))
+    answer = json.loads(library_routes.listing(context, {}).body)
+    assert "control" not in {d["role"] for d in answer["documents"]}
+    assert "sizing" in {d["role"] for d in answer["documents"]}
+    raised[0] = PermissionError(13, "refused")
+    with pytest.raises(PathRefusedError, match="not permitted") as refused:
+        library_routes.listing(context, {})
+    assert refused.value.context["path"] == "knowledge/control"
+
+
+def test_an_error_other_than_a_permission_is_named_by_its_reason() -> None:
+    error = library_routes._unreadable(OSError(5, "io"), "knowledge/control/standards.md")
+    assert str(error) == "the server could not read this"
+    assert error.context == {"path": "knowledge/control/standards.md", "reason": os.strerror(5)}
+    listed = library_routes._unreadable(OSError(5, "io"), "knowledge", listing=True)
+    assert str(listed) == "the server could not list this folder"
 
 
 # -- what a refusal says about where the library is -------------------------------------------
@@ -936,3 +1001,18 @@ def test_a_folder_swapped_for_a_link_out_after_its_file_was_judged_is_a_refusal_
     status, body = _ask_all(world, [_file("standards", "control")])[_file("standards", "control")]
     assert status == 403, body
     assert "changed while it was read" in body["error"]
+
+
+def test_a_guard_refusal_that_is_not_a_read_out_of_the_roots_is_still_the_server_s_alarm(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only a read the guard refuses as outside the roots is answered as the library's refusal."""
+
+    def writes(path: str) -> int:
+        return os.open(path, os.O_WRONLY | os.O_NOFOLLOW)
+
+    monkeypatch.setattr(library_routes, "_open_file", writes)
+    with serving(_context(world)) as live:
+        status, _, body = live.request("GET", _file("standards", "control"))
+    assert status == 500, body
+    assert b"for writing" in body
