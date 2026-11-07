@@ -219,11 +219,11 @@ def test_a_value_that_is_not_a_flag_is_shown_by_kind_and_size_only() -> None:
     )
     shown = diff_lines(changes, omitted)
     assert shown == [
-        "~ f: 1 -> true",
-        "+ k: null",
-        "~ n: a list of 1 entries -> a list of 2 entries",
-        "~ note: a string of 3 characters -> a string of 26 characters",
-        "+ on: true",
+        '~ "f": 1 -> true',
+        '+ "k": null',
+        '~ "n": a list of 1 entries -> a list of 2 entries',
+        '~ "note": a string of 3 characters -> a string of 26 characters',
+        '+ "on": true',
     ]
     assert not any(secret in line for line in shown)
     assert not stricter_only(changes, omitted)
@@ -283,7 +283,9 @@ def test_a_person_s_resolution_is_recorded_and_the_resume_accepts_the_run(tmp_pa
     with pytest.raises(RunStateError, match="a person resolves that before any resume"):
         _drive(rig, resume=True)
     resolved, shown = _resolve(tmp_path)
-    assert "- restrictions.enforce_web_search_mcp_isolation.allowed: false" in shown
+    assert '- "restrictions"."enforce_web_search_mcp_isolation"."allowed": false' in shown
+    changed = f"the policy limits changed from {_digest(BEFORE)} to {_digest(removed)}"
+    assert f"incident: {changed}" in shown
     assert f"before: {_digest(BEFORE)}" in shown
     assert f"after:  {_digest(removed)}" in shown
     (line,) = _lines(tmp_path, "incident_resolved")
@@ -344,6 +346,72 @@ def test_only_a_halt_on_a_change_of_policy_limits_is_resolved_and_only_once(
     with pytest.raises(RunStateError, match="resolved already"):
         _resolve(again)
     assert len(_lines(again, "incident_resolved")) == 1
+
+
+def test_a_change_beside_other_managed_settings_is_not_resolved_here(tmp_path: Path) -> None:
+    _new("physgate.orchestrator.incident", "record_resolution")
+    # Remote settings delivered and other limits, in one session: the incident is the drift's.
+    rig = _rig(tmp_path, {1: AFTER}, drift={1: "remote managed settings were delivered"})
+    assert _drive(rig) == "halted"
+    before = (tmp_path / "events.jsonl").read_bytes()
+    with pytest.raises(RunStateError, match="other managed settings changed"):
+        _resolve(tmp_path)
+    assert (tmp_path / "events.jsonl").read_bytes() == before
+    # And a resolution written beside it anyway is refused by the replay.
+    events = read_events(tmp_path / "events.jsonl")
+    resolved_type = _new("physgate.orchestrator.events", "IncidentResolved")
+    last = events[-1]
+    forged = resolved_type(
+        seq=last.seq + 1,
+        ts=last.ts,
+        run_id=last.run_id,
+        gate_mode=last.gate_mode,
+        subtask_id="s1",
+        session_id="sess-1",
+        by="yasin",
+        reason="forged",
+        rule=False,
+        old_sha256=_digest(BEFORE),
+        new_sha256=_digest(AFTER),
+        changes=(),
+    )
+    with pytest.raises(CorruptEventLogError):
+        replay([*events, forged])
+
+
+#: A restriction added as the rule allows, under a key that rewrites the terminal's line.
+SPOOFED = json.dumps(
+    {
+        "restrictions": {
+            **json.loads(BEFORE)["restrictions"],
+            "allow_x\u001b[2K\rnothing changed": {"allowed": False},
+        }
+    }
+).encode()
+
+
+def test_a_key_that_does_not_print_as_itself_is_neither_ruled_on_nor_shown(
+    tmp_path: Path,
+) -> None:
+    rig = _rig(tmp_path, {1: SPOOFED})
+    assert _drive(rig) == "halted"
+    assert _lines(tmp_path, "incident_resolved") == []
+    before = (tmp_path / "events.jsonl").read_bytes()
+    with pytest.raises(RunStateError, match="cannot be shown as written"):
+        _resolve(tmp_path)
+    assert (tmp_path / "events.jsonl").read_bytes() == before
+    entry = _new("physgate.orchestrator.managed", "PolicyEntry")
+    for key in ("a\x1bb", "rtl\u202eoverride", "line\nbreak"):
+        with pytest.raises(ValueError, match="does not print as itself"):
+            entry.model_validate_json(
+                json.dumps(
+                    {"path": ["restrictions", key, "allowed"], "before": None, "after": "false"}
+                )
+            )
+    # A key past ASCII prints escaped, so the line is what the file holds.
+    diff_lines = _new("physgate.orchestrator.managed", "diff_lines")
+    policy_diff = _new("physgate.orchestrator.managed", "policy_diff")
+    assert diff_lines(*policy_diff({}, {"caf\u00e9": True})) == ['+ "caf\\u00e9": true']
 
 
 # ── the replay ───────────────────────────────────────────────────────────────
