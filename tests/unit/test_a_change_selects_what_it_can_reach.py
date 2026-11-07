@@ -39,6 +39,17 @@ def test_a_test_tree_helper_selects_the_tests_that_import_it_by_its_bare_name() 
     assert POWER_TEST not in picked
 
 
+def test_a_test_that_needs_the_evaluation_environment_is_never_named_to_the_default_one() -> None:
+    # Pytest collects a file named on its command line whatever its exclusions say, and the
+    # scorers' tests cannot import in the default environment.
+    picked = affected.tests_for(["src/physgate/hooks/withheld.py"])
+    assert picked is not None
+    assert picked, "the change reaches tests in the default environment"
+    assert not [test for test in picked if test.startswith("tests/scoring/")]
+    left = affected.left_to_the_full_check(["src/physgate/hooks/withheld.py"])
+    assert left and all(test.startswith("tests/scoring/") for test in left)
+
+
 def test_a_changed_test_selects_itself() -> None:
     assert affected.tests_for([HOOK_TEST]) == [HOOK_TEST]
 
