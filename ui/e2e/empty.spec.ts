@@ -31,17 +31,30 @@ interface Started {
 const servers: ChildProcessWithoutNullStreams[] = [];
 
 /**
- * The real `physgate ui` over `root`, on a free port, with the operator named.
+ * The real `physgate ui` over `root`, on a free port, with the operator named, reading the empty
+ * library `library` and never the checkout's own.
  *
  * It runs in a process group of its own, which `uv` leads, so a stop reaches the server `uv`
  * starts. `uv run` neither stops on an interrupt sent to it alone nor passes one on, so a stop
  * that signalled `uv` alone ended by killing it, and the server, adopted by the system, kept
  * running for days.
  */
-async function serve(root: string): Promise<Started> {
+async function serve(root: string, library: string): Promise<Started> {
   const child = spawn(
     "uv",
-    ["run", "physgate", "ui", "--root", root, "--port", "0", "--operator", "e2e-operator"],
+    [
+      "run",
+      "physgate",
+      "ui",
+      "--root",
+      root,
+      "--library",
+      library,
+      "--port",
+      "0",
+      "--operator",
+      "e2e-operator",
+    ],
     { cwd: CHECKOUT, detached: true },
   );
   servers.push(child);
@@ -147,12 +160,15 @@ test.beforeAll(async () => {
   folder = mkdtempSync(join(tmpdir(), "physgate-ui-e2e-empty-"));
   const root = join(folder, "physgate-runs");
   mkdirSync(root, { mode: 0o700 });
-  started = await serve(root);
+  // A library with nothing in it yet, beside the runs: the first day's checkout.
+  const library = join(folder, "knowledge");
+  mkdirSync(library, { mode: 0o700 });
+  started = await serve(root, library);
   // A run folder whose one run cannot be read: its record is not JSON.
   const broken = join(folder, "unreadable-runs");
   mkdirSync(join(broken, "broken-run"), { recursive: true, mode: 0o700 });
   writeFileSync(join(broken, "broken-run", "run.json"), "{");
-  unreadable = await serve(broken);
+  unreadable = await serve(broken, library);
 });
 
 // Nothing this file started outlives it: each server is named by the folder its runs are in,

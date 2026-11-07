@@ -12,6 +12,7 @@ export const GLOSSARY_GROUPS = [
   "The queue",
   "Who did what",
   "Drafts and records",
+  "The library",
 ] as const;
 export type GlossaryGroup = (typeof GLOSSARY_GROUPS)[number];
 
@@ -173,6 +174,59 @@ export const GLOSSARY = {
     means:
       "What the run's tokens would cost at the provider's published prices on a dated price sheet. It is not a bill.",
     group: "Drafts and records",
+  },
+  library: {
+    term: "Library",
+    means:
+      "The standards, skills, reviewer rubrics and bounds tables in this checkout, which a run started from it reads. Standards, skills and rubrics enter it only by a person's promotion.",
+    group: "The library",
+  },
+  promotion: {
+    term: "Promotion",
+    means:
+      "A person's act, at a terminal, that writes a proposed change into the library and one line to the promotion log naming them. No agent session can promote, and this app cannot either.",
+    group: "The library",
+  },
+  "proposed-change": {
+    term: "Proposed change",
+    means:
+      "A change to the library that an agent staged after a run. It changes nothing until a person promotes it.",
+    group: "The library",
+  },
+  "standards-file": {
+    term: "Standards file",
+    means:
+      "One role's rules for its work. A run that plans the role gives them to its sessions. A promotion replaces the file whole.",
+    group: "The library",
+  },
+  "skill-file": {
+    term: "Skill file",
+    means:
+      "One role's patterns that worked. A promotion adds to the end of it, or replaces it whole when the change says so.",
+    group: "The library",
+  },
+  antipattern: {
+    term: "Antipattern",
+    means: "A pattern that failed. Promoting one adds it to the end of its role's skill file.",
+    group: "The library",
+  },
+  "reviewer-rubric": {
+    term: "Reviewer rubric",
+    means:
+      "What a role's reviewer judges the work by. Only reviewers read it, so this app shows when it was promoted and never its text.",
+    group: "The library",
+  },
+  "bounds-table": {
+    term: "Bounds table",
+    means:
+      "A file of sourced ratings the gate checks values against: for a class of component, the lowest and highest value it is rated for. It is curated by hand and not promoted.",
+    group: "The library",
+  },
+  "data-sheet-rating": {
+    term: "Data-sheet rating",
+    means:
+      "A range or a limit taken from a maker's data sheet or a standard, with the source it was taken from and the date it was confirmed.",
+    group: "The library",
   },
 } as const satisfies Record<string, GlossaryEntry>;
 
