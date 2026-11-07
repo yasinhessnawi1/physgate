@@ -279,12 +279,23 @@ def _stage_one(name: str, source: int, target: int) -> bool:
 
 
 def _task_names(source: int) -> list[str]:
-    """The top-level directories under ``source``, those whose names begin with a dot aside."""
-    return [
-        name
-        for name in sorted(os.listdir(source))
-        if not name.startswith(".") and stat.S_ISDIR(_classify(name, source).st_mode)
-    ]
+    """The top-level directories under ``source``, those whose names begin with a dot aside.
+
+    The session writes the directory while it is listed, by the checkpoint as it runs: an
+    entry removed between the listing and the look at it is no longer a task, and is left
+    out rather than ending the listing (and with it the checkpoint and the watch).
+    """
+    names = []
+    for name in sorted(os.listdir(source)):
+        if name.startswith("."):
+            continue
+        try:
+            kind = _classify(name, source).st_mode
+        except FileNotFoundError:
+            continue
+        if stat.S_ISDIR(kind):
+            names.append(name)
+    return names
 
 
 def stage(worktree: Path, staging: Path, only: Sequence[str] | None = None) -> int:
