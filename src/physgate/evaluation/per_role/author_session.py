@@ -5,14 +5,16 @@ brief and nothing else, and works in a fresh directory outside every held-out ro
 ``baseline`` profile it runs under refuses those roots). Before it starts, the protected
 root is surveyed as the session's tripwire will survey it: a link or an unreadable file
 anywhere under it would have the session refused every tool call, so the runner refuses
-first, at no cost. While it runs, a checkpoint on the budget watch holds each task to its
-references as soon as it is written (on a copy, never in the worktree), and stops the
-session when no task holds after a quarter of the cap, or when more than a task's worth
-of tokens has gone by since the last task came to hold. When it ends, the runner closes
-the checkpoint, so a call of it that outlived the session changes nothing; a session its
-watch could not hold to its cap (``WATCH_FAILURES``), or whose stream showed a held-out
-canary however it ended, is refused, and only step 5 runs.
-Otherwise the runner:
+first, at no cost. It refuses too unless the session looks for every canary that the lists
+beside the tiers under the root name (:func:`root_canaries`), and a list that cannot be
+taken whole is never read as naming none. While it runs, a checkpoint on the budget watch
+holds each task to its references as soon as it is written (on a copy, never in the
+worktree), and stops the session when no task holds after a quarter of the cap, or when
+more than a task's worth of tokens has gone by since the last task came to hold. When it
+ends, the runner closes the checkpoint, so a call of it that outlived the session changes
+nothing; a session its watch could not hold to its cap (``WATCH_FAILURES``), or whose
+stream showed a held-out canary however it ended (or cannot say, where the root names
+canaries), is refused, and only step 5 runs. Otherwise the runner:
 
 1. copies each task it left into a staging directory beside its work, refusing a task
    that holds a link, a special file or more than a task's worth of files;
@@ -57,6 +59,7 @@ from pydantic import BaseModel, ConfigDict, RootModel, ValidationError
 
 from physgate.evaluation.per_role.arms.raw import WATCH_FAILURES, RawSetup, run_session
 from physgate.evaluation.per_role.authoring import (
+    CANARIES_NAME,
     PER_TIER,
     AuthoringError,
     author_brief,
@@ -185,6 +188,71 @@ def _require_clear(root: Path) -> None:
             "remove these first: " + "; ".join(problems)
         )
         raise AuthoringError(msg, root=str(root), problems=" | ".join(problems))
+
+
+#: The largest canary list read: a few dozen canaries per tier, a few tiers per root.
+MOST_CANARY_LIST_BYTES = 1024 * 1024
+
+
+def _refuse_list(reason: str, path: str, detail: str) -> AuthoringError:
+    msg = (
+        f"the canary list {path} is {detail}; it is never read as naming no canary, so the "
+        "session does not run until it is put right"
+    )
+    return AuthoringError(msg, refused_because=reason, path=path)
+
+
+def _canary_list(path: str) -> set[str]:
+    """The canaries one list names, read whole through a descriptor that follows no link.
+
+    Raises:
+        AuthoringError: the list is a link, not a regular file with one name, too large or
+            unreadable (``canary_list_unreadable``), not a list of non-empty strings
+            (``canary_list_unparsed``), or names none (``canary_list_empty``).
+    """
+    try:
+        fd = os.open(path, _READ)
+    except OSError as exc:
+        raise _refuse_list("canary_list_unreadable", path, f"not readable ({exc})") from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise _refuse_list("canary_list_unreadable", path, "not a file with one name")
+        if info.st_size > MOST_CANARY_LIST_BYTES:
+            raise _refuse_list("canary_list_unreadable", path, "too large")
+        with os.fdopen(os.dup(fd), "rb") as handle:
+            data = handle.read(MOST_CANARY_LIST_BYTES + 1)
+    except OSError as exc:
+        raise _refuse_list("canary_list_unreadable", path, f"not readable ({exc})") from exc
+    finally:
+        os.close(fd)
+    try:
+        listed = json.loads(data)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise _refuse_list("canary_list_unparsed", path, "not JSON") from exc
+    if not isinstance(listed, list) or not all(isinstance(c, str) and c for c in listed):
+        raise _refuse_list("canary_list_unparsed", path, "not a list of canaries")
+    if not listed:
+        raise _refuse_list("canary_list_empty", path, "empty")
+    return set(listed)
+
+
+def root_canaries(root: Path) -> tuple[str, ...]:
+    """Every canary the lists beside the tiers in ``root`` name; none while it holds no list.
+
+    A split leaves each held-out tier's list beside it, as ``<tier>.canaries.json``. Only the
+    lists are read, by the runner, never a task; the pool's tasks carry no canary yet.
+
+    Raises:
+        AuthoringError: a list cannot be taken whole (:func:`_canary_list`).
+    """
+    if not root.is_dir():
+        return ()
+    found: set[str] = set()
+    for name in sorted(os.listdir(root)):
+        if name == CANARIES_NAME or name.endswith(f".{CANARIES_NAME}"):
+            found |= _canary_list(str(root / name))
+    return tuple(sorted(found))
 
 
 class _NotPlainError(Exception):
@@ -625,12 +693,22 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
     Raises:
         AuthoringError: the author's model is the implementers', a place is inside a held-out
             root or already exists, the cap is over :data:`MOST_CAP`, the session does not
-            withhold the protected root, the root would trip the session's tripwire, or the
+            withhold the protected root, the root would trip the session's tripwire, a
+            canary list under the root cannot be taken whole or names a canary the session
+            would not look for, or the
             session's watch could not hold it to its cap or its stream showed a held-out
             canary (none of its tasks is pooled; ``refused_because`` says which).
     """
     require_author_model(setup.model, plan.implementer_model)
     _require_apart(plan, setup)
+    canaries = root_canaries(plan.held_out_root)
+    missing = set(canaries) - set(setup.held_out_canaries)
+    if missing:
+        msg = (
+            f"the session would not look for {len(missing)} of the canaries its protected "
+            "root names, so its record could not say whether it saw a held-out task"
+        )
+        raise AuthoringError(msg, refused_because="canaries_missing", missing=str(len(missing)))
     _require_clear(plan.held_out_root)
     evidence = plan.held_out_root / f"{plan.role}.author"
     tier = held_out_tier(plan.held_out_root, plan.role)
@@ -652,10 +730,12 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
             # However the session ended: a checkpoint call that outlived it changes nothing
             # from here on.
             held_while_running = progress.close()
-        if record.get("held_out_seen") is not False:
+        seen = record.get("held_out_seen", "unrecorded")
+        if seen is not False and not (seen is None and not canaries):
             # A held-out canary showed in the session's stream, or the record cannot say it
-            # did not: what the session wrote may hold what it saw, however it ended, so none
-            # of its tasks is taken. Its stream is still secured below.
+            # did not while the root names canaries (it is unknown only where there is none
+            # to look for): what the session wrote may hold what it saw, however it ended,
+            # so none of its tasks is taken. Its stream is still secured below.
             msg = (
                 "the session's stream showed a held-out canary (held_out_seen); none of the "
                 "tasks it wrote is pooled"
