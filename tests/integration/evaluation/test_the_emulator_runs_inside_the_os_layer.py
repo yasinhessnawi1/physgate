@@ -18,6 +18,7 @@ import shutil
 import sys
 import tempfile
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -33,19 +34,17 @@ from physgate.evaluation.per_role.firmware.sandbox import (
     srt_settings,
 )
 
-pytestmark = [
-    pytest.mark.integration,
-    # Every integration test runs in CI, where the sandbox runtime is not installed: there
-    # these tests are reported skipped, never passed. They run where it is (``npm ci`` in
-    # ``tools/srt``, on Linux), and on macOS the ones that hold the refusal there still run.
-    pytest.mark.skipif(
-        sys.platform != "darwin" and not sandbox.SRT.exists(),
-        reason="the pinned sandbox runtime is not installed (npm ci in tools/srt)",
-    ),
-]
+pytestmark = pytest.mark.integration
 
 linux_only = pytest.mark.skipif(
     sys.platform == "darwin", reason="the firmware tier refuses on macOS"
+)
+#: Every integration test runs in CI, where the sandbox runtime is not installed: a test that
+#: starts the runtime is reported skipped there, never passed. A refusal that comes before the
+#: runtime is reached needs no runtime and runs everywhere it can.
+needs_runtime = pytest.mark.skipif(
+    not sandbox.SRT.exists(),
+    reason="the pinned sandbox runtime is not installed (npm ci in tools/srt)",
 )
 
 PROBE = """
@@ -105,15 +104,54 @@ def _setup(tmp_path: Path, body: str) -> tuple[Path, tuple[Path, ...], list[str]
     return scratch, (base, inputs), [str(interpreter), "-I", str(script)]
 
 
+#: The stand-ins' names in the system's temporary directory: ``held-out-`` and the name of the
+#: test's own directory, which is unique to the test.
+STAND_IN_PREFIX = "held-out-t-"
+#: A stand-in older than this belongs to no test still running (each test here is bounded by
+#: its emulator's wall clock, under a minute), so it is swept at the start.
+STAND_IN_STALE_S = 900.0
+
+
+def _stand_in(tmp_path: Path) -> Path:
+    return Path(tempfile.gettempdir()).resolve() / f"held-out-{tmp_path.name}"
+
+
+def sweep_stand_ins(temp: Path, now: float, stale_s: float = STAND_IN_STALE_S) -> list[str]:
+    """Remove the stand-ins left in ``temp`` by tests that ended long ago; the names removed.
+
+    A stand-in is removed after its own test (:func:`_no_stand_in_outlives_its_test`); one left
+    by a run that was killed first is swept here once it is old enough that no test of a run
+    going on beside this one can still be using it.
+    """
+    removed = []
+    for entry in sorted(temp.glob(f"{STAND_IN_PREFIX}*")):
+        if entry.is_dir() and not entry.is_symlink() and now - entry.stat().st_mtime > stale_s:
+            shutil.rmtree(entry, ignore_errors=True)
+            removed.append(entry.name)
+    return removed
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _stale_stand_ins_are_swept() -> None:
+    sweep_stand_ins(Path(tempfile.gettempdir()).resolve(), time.time())
+
+
+@pytest.fixture(autouse=True)
+def _no_stand_in_outlives_its_test(tmp_path: Path) -> Iterator[None]:
+    yield
+    shutil.rmtree(_stand_in(tmp_path), ignore_errors=True)
+
+
 def _held_out(tmp_path: Path) -> tuple[str]:
     """An inert stand-in for the held-out tier, outside the user's home.
 
     Not under ``tmp_path``: an integration test's directory is made outside every place the
     OS layer makes writable, which is under the user's home, and the sandbox withholds the
     home whole, so a stand-in there could not show that the tier itself is withheld. The
-    system's temporary directory is outside the home; one stand-in per test directory.
+    system's temporary directory is outside the home; one stand-in per test directory,
+    removed after its test.
     """
-    tier = Path(tempfile.gettempdir()).resolve() / f"held-out-{tmp_path.name}"
+    tier = _stand_in(tmp_path)
     tier.mkdir(exist_ok=True)
     (tier / "item.json").write_text('{"inert": "a stand-in held-out item"}')
     assert not tier.resolve().is_relative_to(Path.home().resolve())
@@ -136,6 +174,7 @@ def _device(session: sandbox.SandboxedEmulator) -> PipeDevice:
     return PipeDevice(session.run.process, WallClock().now_ms)
 
 
+@needs_runtime
 @linux_only
 def test_the_emulator_reads_writes_and_reaches_only_what_it_is_given(tmp_path: Path) -> None:
     import socket
@@ -175,6 +214,7 @@ def test_the_emulator_reads_writes_and_reaches_only_what_it_is_given(tmp_path: P
     assert session.record["os_layer"] == "bubblewrap"
 
 
+@needs_runtime
 @linux_only
 def test_a_held_out_tier_outside_home_is_withheld_from_the_emulator(tmp_path: Path) -> None:
     tier = _held_out(tmp_path)
@@ -212,6 +252,7 @@ def test_an_evaluation_run_that_names_no_held_out_tier_refuses(tmp_path: Path) -
     assert not marker.exists()
 
 
+@needs_runtime
 @linux_only
 def test_the_emulator_sees_none_of_the_harness_s_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -238,6 +279,7 @@ def test_the_emulator_sees_none_of_the_harness_s_environment(
     assert seen["HOME"] == str(scratch / "home")
 
 
+@needs_runtime
 @linux_only
 def test_the_emulator_s_address_space_is_limited(tmp_path: Path) -> None:
     scratch, readable, argv = _setup(
@@ -256,6 +298,7 @@ def test_the_emulator_s_address_space_is_limited(tmp_path: Path) -> None:
     assert seen and seen[0].startswith("MAP denied")
 
 
+@needs_runtime
 @linux_only
 def test_memory_the_emulator_stores_in_its_sandbox_s_own_files_is_capped(tmp_path: Path) -> None:
     # Inside the sandbox the user's home is a memory-backed file system: what is written
@@ -293,6 +336,7 @@ def test_memory_the_emulator_stores_in_its_sandbox_s_own_files_is_capped(tmp_pat
     assert session.record["memory_cap"].startswith("MemoryMax=")
 
 
+@needs_runtime
 @linux_only
 def test_files_the_emulator_writes_into_its_scratch_are_capped(tmp_path: Path) -> None:
     scratch, readable, argv = _setup(
@@ -324,6 +368,7 @@ def test_files_the_emulator_writes_into_its_scratch_are_capped(tmp_path: Path) -
     assert session.record["scratch"]["files"] >= 1
 
 
+@needs_runtime
 @linux_only
 def test_a_fork_bomb_is_held_to_the_process_cap(tmp_path: Path) -> None:
     scratch, readable, argv = _setup(tmp_path, FORK_BOMB)
@@ -363,6 +408,7 @@ def test_on_macos_the_firmware_tier_refuses(
     assert not marker.exists()
 
 
+@needs_runtime
 @linux_only
 def test_where_the_os_layer_is_absent_the_firmware_tier_refuses(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -387,6 +433,7 @@ def test_where_the_os_layer_is_absent_the_firmware_tier_refuses(
         pass
 
 
+@needs_runtime
 @linux_only
 def test_the_emulator_s_own_cpu_limit_is_set_and_its_end_is_the_answer_s(tmp_path: Path) -> None:
     scratch, readable, argv = _setup(tmp_path, "while True:\n    pass\n")
@@ -401,6 +448,7 @@ def test_the_emulator_s_own_cpu_limit_is_set_and_its_end_is_the_answer_s(tmp_pat
     assert session.record["infrastructure"] is None
 
 
+@needs_runtime
 @linux_only
 def test_a_sandbox_that_fails_its_check_is_the_machine_s_and_the_guest_never_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -446,6 +494,7 @@ CHOOSERS = {
 }
 
 
+@needs_runtime
 @linux_only
 @pytest.mark.parametrize("body", CHOOSERS.values(), ids=CHOOSERS.keys())
 def test_a_guest_cannot_make_its_end_the_machine_s(tmp_path: Path, body: str) -> None:
@@ -457,6 +506,7 @@ def test_a_guest_cannot_make_its_end_the_machine_s(tmp_path: Path, body: str) ->
     assert session.record["infrastructure"] is None
 
 
+@needs_runtime
 @linux_only
 @pytest.mark.parametrize(
     ("body", "quiet"),
@@ -476,6 +526,7 @@ def test_the_size_of_the_sandbox_s_error_stream_is_recorded(
     assert (session.record["sandbox_stderr_bytes"] == 0) is quiet
 
 
+@needs_runtime
 @linux_only
 @pytest.mark.parametrize("trap", ["link", "fifo"])
 def test_the_scratch_s_walk_follows_no_link_and_waits_on_no_fifo(tmp_path: Path, trap: str) -> None:
@@ -505,6 +556,7 @@ def test_the_scratch_s_walk_follows_no_link_and_waits_on_no_fifo(tmp_path: Path,
     assert outside.read_text() == "inert: must stay as it is"
 
 
+@needs_runtime
 @linux_only
 def test_a_non_empty_scratch_is_refused(tmp_path: Path) -> None:
     marker = tmp_path / "ran"
@@ -525,6 +577,7 @@ def test_a_non_empty_scratch_is_refused(tmp_path: Path) -> None:
     assert not marker.exists()
 
 
+@needs_runtime
 @linux_only
 def test_junk_in_the_scratch_cannot_fail_the_check_before_the_guest(tmp_path: Path) -> None:
     # Junk that makes the sandbox itself fail where it is the sandbox's directory: a link
@@ -551,6 +604,7 @@ def test_junk_in_the_scratch_cannot_fail_the_check_before_the_guest(tmp_path: Pa
     assert not marker.exists()
 
 
+@needs_runtime
 @linux_only
 def test_a_directory_in_the_scratch_is_opened_only_through_a_checked_descriptor(
     tmp_path: Path,
@@ -588,6 +642,7 @@ def _attempt(name: str, root: int) -> object:
     return fd
 
 
+@needs_runtime
 @linux_only
 def test_the_runtime_s_pin_is_read_from_what_is_installed(tmp_path: Path) -> None:
     pin = runtime_pin(sandbox.SRT)
@@ -642,3 +697,19 @@ def test_the_harness_checkout_is_withheld_from_the_emulator(tmp_path: Path) -> N
     settings = srt_settings(scratch, (), ("/nonexistent/held-out",))
     assert os.path.realpath(sandbox.CHECKOUT) in settings["filesystem"]["denyRead"]
     assert "/nonexistent/held-out" in settings["filesystem"]["denyRead"]
+
+
+def test_a_held_out_stand_in_is_removed_after_its_test_and_a_stale_one_is_swept(
+    tmp_path: Path,
+) -> None:
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    stale, fresh, other = temp / f"{STAND_IN_PREFIX}old", temp / f"{STAND_IN_PREFIX}new", temp / "x"
+    for place in (stale, fresh, other):
+        place.mkdir()
+    now = time.time()
+    os.utime(stale, (now - 2 * STAND_IN_STALE_S, now - 2 * STAND_IN_STALE_S))
+    assert sweep_stand_ins(temp, now) == [stale.name]
+    assert not stale.exists() and fresh.exists() and other.exists()
+    # This test's own stand-in exists while it runs; the fixture removes it once it ends.
+    assert Path(_held_out(tmp_path)[0]).is_dir()
