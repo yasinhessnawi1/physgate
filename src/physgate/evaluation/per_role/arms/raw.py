@@ -203,6 +203,9 @@ def _install(setup: RawSetup, worktree: Path, sdir: Path, temp: Path | None) -> 
         *(arg for root in setup.held_out for arg in ("--held-out", root)),
         *(arg for root in setup.withheld_reads for arg in ("--review-material", root)),
         *(["--os-layer-temp", str(temp)] if temp is not None else []),
+        # The session is spawned held (the dispatcher's spawn), which exports its pid as the
+        # survivor reaper's canary; the installer refuses a reaped session that does not say so.
+        "--spawns-with-canary",
         *(
             ["--os-layer-network", setup.network]
             if temp is not None and setup.network != "open"
