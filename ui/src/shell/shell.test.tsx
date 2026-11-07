@@ -374,4 +374,15 @@ describe("the navigation's foot: how this app is set up", () => {
     ].map((o) => o.textContent);
     expect(goTo).toEqual(["Home", "Settings"]);
   });
+
+  it("registers Settings last, under This app, at the home address", () => {
+    const last = VIEWS.at(-1);
+    expect([last?.group, last?.area, last?.slug, last?.title, last?.icon]).toEqual([
+      "settings",
+      "home",
+      "settings",
+      "Settings",
+      "settings",
+    ]);
+  });
 });
