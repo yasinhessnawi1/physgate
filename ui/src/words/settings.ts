@@ -86,10 +86,10 @@ export const MECHANISM_WORDS: Table = {
 };
 
 /** An engine's status in the catalogue. Only "available" can be chosen. */
-export const ENGINE_STATUS_WORDS: Table = {
+export const ENGINE_STATUS_WORDS = {
   available: "Available",
   "not-yet": "Not yet",
-};
+} as const satisfies Table;
 
 /** The gate mode's options, for a control that draws them. */
 export const GATE_MODE_WORDS: Table = {
