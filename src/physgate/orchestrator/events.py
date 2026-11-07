@@ -65,7 +65,7 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
-from physgate.orchestrator.managed import ObservedTraffic
+from physgate.orchestrator.managed import ObservedTraffic, PolicyEntry, stricter_only
 from physgate.orchestrator.plan import (
     CriterionWords,
     InterfaceConsumers,
@@ -856,6 +856,57 @@ class Incident(_Event):
     detail: NonEmptyStr
 
 
+#: Who resolves an incident by the owner's rule rather than by a person: never a person's name.
+RULE = "rule"
+#: Why the rule resolves a change: what the change is, in the owner's words.
+RULE_REASON = (
+    "the change only adds restrictions, each set to allowed: false, which the owner's rule "
+    "resolves on the record"
+)
+
+
+class IncidentResolved(_Event):
+    """A change of the run's policy limits, resolved on the record, and the new baseline.
+
+    A person resolves a ``managed_settings_changed`` halt at a terminal, naming who and why, and
+    the run's resume then accepts it; or the owner's rule resolves a change that only adds
+    restrictions set to ``allowed: false`` as the session ends, and the run goes on. Either way
+    the line carries both digests and the change by key and value: every later session is held to
+    the new limits, and the baseline moves by this line alone.
+    """
+
+    kind: Literal["incident_resolved"] = "incident_resolved"
+    subtask_id: NonEmptyStr | None
+    #: The session whose end showed the change.
+    session_id: NonEmptyStr
+    cause: Literal["managed_settings_changed"] = "managed_settings_changed"
+    by: NonEmptyStr
+    reason: NonEmptyStr
+    #: Whether the owner's rule resolved it, with no person.
+    rule: bool
+    old_sha256: Sha256 | None
+    new_sha256: Sha256 | None
+    changes: tuple[PolicyEntry, ...]
+    #: How many more keys differ than :attr:`changes` lists.
+    omitted: Annotated[int, Field(ge=0)] = 0
+
+    @model_validator(mode="after")
+    def _as_resolved(self) -> IncidentResolved:
+        if self.rule != (self.by == RULE):
+            msg = f"the rule, and only the rule, resolves as {RULE!r}"
+            raise ValueError(msg)
+        if self.old_sha256 == self.new_sha256:
+            msg = "a resolution moves the policy limits to other ones"
+            raise ValueError(msg)
+        if self.rule and (
+            None in (self.old_sha256, self.new_sha256)
+            or not stricter_only(self.changes, self.omitted)
+        ):
+            msg = "the rule resolves only a change that adds restrictions set to allowed: false"
+            raise ValueError(msg)
+        return self
+
+
 class SessionFinding(BaseModel):
     """One thing a session's end showed that a person must look at, as its incident says it."""
 
@@ -1473,6 +1524,7 @@ Event = Annotated[
     | FollowUpEnded
     | FindingsRecorded
     | Incident
+    | IncidentResolved
     | Resumed
     | Decomposed
     | PlanProposed

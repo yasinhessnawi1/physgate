@@ -37,7 +37,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from physgate.orchestrator.budget import SessionEnd
 from physgate.reviewers.transcript import SYNTHETIC_MODEL
@@ -282,3 +282,166 @@ def drift(config_dir: Path, system_before: tuple[SystemManagedFile, ...]) -> str
         if before != current:
             found.append(f"the system managed path {before.path} changed")
     return "; ".join(found) or None
+
+
+#: The key the account's restrictions sit under, and the flag each restriction carries.
+RESTRICTIONS = "restrictions"
+ALLOWED = "allowed"
+#: The most entries one resolution records; a change past it is counted, and never the rule's.
+MAX_ENTRIES = 200
+
+
+class PolicyEntry(BaseModel):
+    """One key whose value differs between two sets of policy limits, as the record shows it.
+
+    ``path`` is the key, outermost first. A value is shown as written when it is a flag, a number
+    or null, and otherwise only by its kind and size: these files hold flags, and nothing in them
+    that is not one is ever copied into the record or printed. ``None``: the key is not there.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    path: Annotated[
+        tuple[Annotated[str, StringConstraints(max_length=256)], ...],
+        Field(min_length=1, max_length=16),
+    ]
+    before: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None
+    after: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None
+
+    @model_validator(mode="after")
+    def _one_side_at_least(self) -> PolicyEntry:
+        if self.before is None and self.after is None:
+            msg = "an entry names a key on one side at least"
+            raise ValueError(msg)
+        return self
+
+
+def shown(value: object) -> str:
+    """``value`` as the record shows it: a flag, number or null as written, else kind and size."""
+    if value is None or isinstance(value, bool | int | float):
+        return json.dumps(value)
+    if isinstance(value, str):
+        return f"a string of {len(value)} characters"
+    if isinstance(value, list):
+        return f"a list of {len(value)} entries"
+    return "an empty object" if value == {} else "an object"
+
+
+def _leaves(value: object, path: tuple[str, ...] = ()) -> dict[tuple[str, ...], object]:
+    """Every key under ``value`` that holds no object of keys, by its path."""
+    if isinstance(value, dict) and value and len(path) < 16:
+        found: dict[tuple[str, ...], object] = {}
+        for key, inner in value.items():
+            found |= _leaves(inner, (*path, str(key)))
+        return found
+    return {path: value} if path else {}
+
+
+def policy_diff(
+    before: dict[str, object] | None, after: dict[str, object] | None
+) -> tuple[tuple[PolicyEntry, ...], int]:
+    """Every key whose value differs from ``before`` to ``after``, sorted, and how many more do.
+
+    ``None`` is no file: every key of the other side differs. Values are compared as read, and
+    recorded as :func:`shown` shows them.
+    """
+    old, new = _leaves(before or {}), _leaves(after or {})
+    differ = sorted(
+        p
+        for p in old.keys() | new.keys()
+        if p not in old or p not in new or (old[p] != new[p] or type(old[p]) is not type(new[p]))
+    )
+    entries = tuple(
+        PolicyEntry(
+            path=tuple(key[:256] for key in path),
+            before=shown(old[path]) if path in old else None,
+            after=shown(new[path]) if path in new else None,
+        )
+        for path in differ[:MAX_ENTRIES]
+    )
+    return entries, max(0, len(differ) - MAX_ENTRIES)
+
+
+def stricter_only(entries: tuple[PolicyEntry, ...], omitted: int) -> bool:
+    """The owner's one rule: the change only adds restrictions, each set to ``allowed: false``.
+
+    Nothing removed, nothing else changed, and at least one restriction added. Any other change,
+    stricter or not, waits for a person at a terminal.
+    """
+    return (
+        omitted == 0
+        and bool(entries)
+        and all(
+            entry.before is None
+            and entry.after == "false"
+            and len(entry.path) == 3
+            and entry.path[0] == RESTRICTIONS
+            and entry.path[2] == ALLOWED
+            for entry in entries
+        )
+    )
+
+
+def diff_lines(entries: tuple[PolicyEntry, ...], omitted: int) -> list[str]:
+    """The change as a person reads it, a line per key: ``+`` added, ``-`` gone, ``~`` changed."""
+    lines = []
+    for entry in entries:
+        key = ".".join(entry.path)
+        if entry.before is None:
+            lines.append(f"+ {key}: {entry.after}")
+        elif entry.after is None:
+            lines.append(f"- {key}: {entry.before}")
+        else:
+            lines.append(f"~ {key}: {entry.before} -> {entry.after}")
+    if omitted:
+        lines.append(f"and {omitted} more keys that differ")
+    return lines
+
+
+def read_limits(path: Path, sha256: str) -> dict[str, object] | None:
+    """The policy limits at ``path``, held to ``sha256``; ``None`` unless the file is exactly that.
+
+    A file whose bytes are not the recorded digest, or that is not one JSON object, is no
+    evidence of what a session received.
+    """
+    path = Path(path)
+    if not path.is_file() or path.is_symlink():
+        return None
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() != sha256:
+        return None
+    try:
+        limits = json.loads(data)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    return limits if isinstance(limits, dict) else None
+
+
+#: Where a run keeps each session's configuration directory, and the decomposition call's:
+#: ``<run>/sessions/<session id>/config`` and ``<run>/decomposition/config``.
+SESSIONS_DIR = "sessions"
+DECOMPOSITION_DIR = "decomposition"
+CONFIG_DIR = "config"
+
+
+def session_limits(run_dir: Path, session_id: str) -> Path:
+    """Where the session ``session_id`` of the run in ``run_dir`` was left its policy limits."""
+    return Path(run_dir) / SESSIONS_DIR / session_id / CONFIG_DIR / POLICY_LIMITS
+
+
+def limits_with(run_dir: Path, sha256: str) -> dict[str, object] | None:
+    """The policy limits some invocation of the run received whose digest is ``sha256``.
+
+    The decomposition call's first, then each session's in name order; each file is held to the
+    digest, so whichever is found is exactly what the record names. ``None`` if none is.
+    """
+    run_dir = Path(run_dir)
+    sessions = run_dir / SESSIONS_DIR
+    places = [run_dir / DECOMPOSITION_DIR / CONFIG_DIR / POLICY_LIMITS]
+    if sessions.is_dir() and not sessions.is_symlink():
+        places += sorted(p / CONFIG_DIR / POLICY_LIMITS for p in sessions.iterdir())
+    for place in places:
+        limits = read_limits(place, sha256)
+        if limits is not None:
+            return limits
+    return None

@@ -61,7 +61,8 @@ from physgate.orchestrator.dispute import DISPUTES_DIR, UNRECORDABLE, disputer_p
 from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
 from physgate.orchestrator.escalation_state import RUBRIC_ITEM, escalation_state
 from physgate.orchestrator.events import (
-    RESUMABLE_HALTS,
+    RULE,
+    RULE_REASON,
     ArbitrationDecided,
     AttemptRejected,
     AttemptReturned,
@@ -87,6 +88,7 @@ from physgate.orchestrator.events import (
     Halted,
     Incident,
     IncidentCause,
+    IncidentResolved,
     InfraRetryScheduled,
     IntegrationEscalated,
     IntegrationGateRan,
@@ -139,7 +141,15 @@ from physgate.orchestrator.follow_up import follow_up_order, owed
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.held_records import record_change, second_names, unaccounted
 from physgate.orchestrator.integration_state import issued_state
-from physgate.orchestrator.managed import policy_limits_change, policy_limits_unjudged
+from physgate.orchestrator.managed import (
+    limits_with,
+    policy_diff,
+    policy_limits_change,
+    policy_limits_unjudged,
+    read_limits,
+    session_limits,
+    stricter_only,
+)
 from physgate.orchestrator.merge import merge_message
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
@@ -567,7 +577,7 @@ class Loop:
         if self._took_an_owed_halt():
             return self._drive()
         halted = self.state.halted
-        if halted is not None and halted.reason not in RESUMABLE_HALTS:
+        if halted is not None and not self.state.halt_resumable():
             msg = f"the run halted for {halted.reason}; a person resolves that before any resume"
             raise RunStateError(msg, run_dir=str(self.run_dir), detail=halted.detail)
         self._require_confirmable(confirm, confirmed_by)
@@ -1693,6 +1703,12 @@ class Loop:
             self._incident(subtask_id, "os_layer_misplaced", str(exc))
             return False
         found = self._session_findings(report)
+        ruled = self._by_the_rule(subtask_id, report, found)
+        if ruled is not None:
+            # The owner's rule: a change that only adds restrictions is no incident. Recorded
+            # before the session's end line, and every later session is held to the new limits.
+            self._emit(ruled)
+            found = None
         if found is not None:
             # Before anything says the session ended: a process killed after this line owes the
             # halt, and one killed before it finds the session again (``stop_leftovers``).
@@ -1897,11 +1913,45 @@ class Loop:
         return next((e.spec_commit for e in self.log.events if isinstance(e, Decomposed)), None)
 
     def _policy_baseline(self) -> str | None:
-        """The policy limits the decomposition call received: what every session is held to."""
-        for event in self.log.events:
-            if isinstance(event, Decomposed):
-                return event.policy_limits_sha256
-        return None
+        """The policy limits every session is held to: the decomposition call's, as resolved since.
+
+        Moved only by a resolution on the record (:class:`IncidentResolved`), as the replay does.
+        """
+        return self.state.policy_baseline
+
+    def _by_the_rule(
+        self, subtask_id: str, report: SessionReport, found: object
+    ) -> IncidentResolved | None:
+        """The owner's rule's resolution of the session's change of policy limits, if it applies.
+
+        Only where that change is all the session's end shows (``found`` is its lone finding),
+        both limits are files held to their digests, and the change only adds restrictions set to
+        ``allowed: false``. Any other change is the incident it was, for a person to resolve.
+        """
+        baseline, now = self._policy_baseline(), report.policy_limits_sha256
+        changed = policy_limits_change(baseline, now) if _unjudged(report) is None else None
+        lone = ([("managed_settings_changed", changed)], "managed_settings_changed")
+        if changed is None or baseline is None or now is None or found != lone:
+            return None
+        before = limits_with(self.run_dir, baseline)
+        after = read_limits(session_limits(self.run_dir, report.session_id), now)
+        if before is None or after is None:
+            return None
+        changes, omitted = policy_diff(before, after)
+        if not stricter_only(changes, omitted):
+            return None
+        return IncidentResolved(
+            **self._env(),
+            subtask_id=subtask_id,
+            session_id=report.session_id,
+            by=RULE,
+            reason=RULE_REASON,
+            rule=True,
+            old_sha256=baseline,
+            new_sha256=now,
+            changes=changes,
+            omitted=omitted,
+        )
 
     def _repair_node_files(self, subtask_id: str, attempt: int) -> bool:
         """Reopen the store so recovery rebuilds node files from the journal, before any read."""

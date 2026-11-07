@@ -81,6 +81,7 @@ from physgate.orchestrator.events import (
     GateSkipped,
     Halted,
     Incident,
+    IncidentResolved,
     InfraRetryScheduled,
     InstallChecked,
     IntegrationEscalated,
@@ -432,6 +433,16 @@ class RunState:
         #: The interfaces that may follow, and the role whose opening pass they follow, as the
         #: decomposition recorded them; ``None`` where it recorded none, and then none follows.
         self.followable: Followable | None = None
+        #: The policy limits every session is held to: the decomposition call's, then each
+        #: resolution's new ones, and moved by nothing else.
+        self.policy_baseline: str | None = None
+        self._baseline_taken = False
+        #: The incidents since the run last resumed: those of the halt a person resolves.
+        self.open_incidents: list[Incident] = []
+        #: A person's resolution of the halt that stands, if one is recorded since it.
+        self.resolved: IncidentResolved | None = None
+        #: The rule's resolution of a session's change, before the session's end line.
+        self.ruled: IncidentResolved | None = None
 
     # -- following the log -------------------------------------------------------
 
@@ -483,6 +494,9 @@ class RunState:
             self.reviews_plan = event.design_review is not None
             self.holds_plan = self.reviews_plan and event.design_review != "observe"
             self.replans = replans(event.design_review or "off")
+            return
+        if isinstance(event, IncidentResolved):
+            self._incident_resolved(event)
             return
         if isinstance(event, Halted):
             listed = self.findings
@@ -558,6 +572,8 @@ class RunState:
             ):
                 _refuse("an incident after a findings line is the next finding it names")
             self.findings_written += 1
+        if isinstance(event, Incident):
+            self.open_incidents.append(event)
         if isinstance(event, Incident) and event.subtask_id is None:
             opening = self.reviews_plan and self.design_review is None
             if opening and event.cause == "held_out_read" and len(self.review_tokens) != 1:
@@ -590,6 +606,8 @@ class RunState:
             self._proposed(event)
             return
         if isinstance(event, Decomposed):
+            if not self._baseline_taken:
+                self.policy_baseline, self._baseline_taken = event.policy_limits_sha256, True
             if self.reviews_plan:
                 self._proposals_end(event)
             self.journal_head = self.base_revision = event.head_revision
@@ -690,6 +708,7 @@ class RunState:
             self._issued(sub, now, event)
         elif isinstance(event, SessionEnded):
             self._expect(now.cursor == "spawn" and now.session is None, "a session end")
+            self._limits_held(event)
             now.session = event
             now.ended.append(event)
         elif isinstance(event, InfraRetryScheduled):
@@ -1968,11 +1987,12 @@ class RunState:
             # its escalation decision and the route that decision gives. A resume there would
             # restart the attempt and drop a decision that is due, or one already recorded.
             _refuse("an attempt that ended without a merge is not resumed; it is decided")
-        if self.halted is not None and self.halted.reason not in RESUMABLE_HALTS:
+        if self.halted is not None and not self.halt_resumable():
             _refuse(f"a run halted for {self.halted.reason} is not resumed by the loop")
         if self.halted is not None:
             self.halted = None
             now.retries_done = 0
+        self.open_incidents, self.ruled = [], None
         if point != self.resume_point(now):
             _refuse(f"the attempt resumes at {self.resume_point(now)!r}, not {point!r}")
         # A resume follows the journal check, which has recorded a pending write
@@ -1985,6 +2005,81 @@ class RunState:
             now.restart("spawn")
         else:
             now.cursor, now.diff = "decide", None
+
+    def halt_resumable(self) -> bool:
+        """Whether the run's halt is one a resume continues from.
+
+        One the loop's schedule names (:data:`RESUMABLE_HALTS`), or an incident a person has
+        resolved on the record since it (:class:`IncidentResolved`).
+        """
+        halted = self.halted
+        if halted is None or halted.reason in RESUMABLE_HALTS:
+            return True
+        resolved = self.resolved
+        return halted.reason == "incident" and resolved is not None and resolved.seq > halted.seq
+
+    def _incident_resolved(self, event: IncidentResolved) -> None:
+        """Take a resolution: from the baseline as it stands, of the one change it names.
+
+        The rule's, while the run goes on and the session it judged has not yet ended; a
+        person's, after the halt of a lone ``managed_settings_changed`` incident, naming the
+        session whose end showed it and that end's limits. Either moves the baseline.
+        """
+        if event.old_sha256 != self.policy_baseline:
+            _refuse("a resolution starts from the run's policy limits as they stand")
+        sub = self.subtasks.get(event.subtask_id or "")
+        now = sub.attempts[-1] if sub is not None and sub.attempts else None
+        if event.rule:
+            running = self.halted is None and self.findings is None and self.owed_halt() is None
+            ending = now is not None and now.cursor == "spawn" and now.session is None
+            if not running or not ending or self.ruled is not None:
+                _refuse("the rule resolves a running session's change, before its end line")
+            self.ruled = event
+        else:
+            halted, incident = self.halted, self.incident
+            lone = (
+                halted is not None
+                and halted.reason == "incident"
+                and incident is not None
+                and self.open_incidents == [incident]
+                and incident.cause == "managed_settings_changed"
+                and incident.subtask_id == event.subtask_id
+                and (self.resolved is None or self.resolved.seq < halted.seq)
+            )
+            if not lone:
+                _refuse("a person resolves the halt of one managed-settings incident, once")
+            ended = now.session if now is not None else None
+            if (
+                ended is None
+                or ended.session_id != event.session_id
+                or ended.policy_limits_sha256 != event.new_sha256
+            ):
+                _refuse(
+                    "a resolution names the session whose end showed the change, and its limits"
+                )
+            self.resolved = event
+        self.policy_baseline = event.new_sha256
+
+    def _limits_held(self, event: SessionEnded) -> None:
+        """Refuse a session end under other limits than the baseline, with nothing recorded for it.
+
+        Its change is the rule's resolution just before it, or the incident the loop records
+        first and halts on. A session no model answered before it ended left limits unjudged.
+        """
+        ruled, self.ruled = self.ruled, None
+        if ruled is not None and (
+            ruled.session_id != event.session_id or ruled.new_sha256 != event.policy_limits_sha256
+        ):
+            _refuse("the rule's resolution names the session that ends next, and its limits")
+        if (
+            event.policy_limits_unjudged is None
+            and event.policy_limits_sha256 != self.policy_baseline
+            and self.findings is None
+            and self.owed_halt() is None
+        ):
+            _refuse(
+                "a session ended under other policy limits, and no incident or resolution says so"
+            )
 
     def resume_point(self, now: AttemptState) -> Literal["resolve", "verify_reading", "diff"]:
         """The checkpoint an interrupted attempt restarts from."""
@@ -2128,7 +2223,7 @@ class RunState:
                 continue
             now = sub.attempts[-1]
             if self.halted is not None:
-                return sub if self.halted.reason in RESUMABLE_HALTS else None
+                return sub if self.halt_resumable() else None
             clean = now.cursor is None or sub.next_resolve is not None
             failed = now.session is not None and now.session.outcome == "infrastructure"
             # An infrastructure failure not yet answered is answered by the retry
