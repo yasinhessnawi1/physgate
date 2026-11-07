@@ -203,13 +203,18 @@ def _new_file(name: str, dir_fd: int) -> int:
 def _copy_into(source_fd: int, target_fd: int, budget: list[int]) -> None:
     """Copy the directory ``source_fd`` into the empty directory ``target_fd``, by content.
 
-    ``budget`` is the files and bytes the task may still hold.
+    ``budget`` is the files and bytes the task may still hold. The session may be writing the
+    task while it is copied: an entry it removed between the listing and the look at it is
+    no longer part of the task, and is left out of the copy, as a task is from the listing.
 
     Raises:
         _NotPlainError: an entry is a link of either kind, a special file, or past the budget.
     """
     for name in sorted(os.listdir(source_fd)):
-        kind = _classify(name, source_fd).st_mode
+        try:
+            kind = _classify(name, source_fd).st_mode
+        except FileNotFoundError:
+            continue
         if stat.S_ISDIR(kind):
             try:
                 child = open_directory(name, source_fd)
