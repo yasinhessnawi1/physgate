@@ -1,11 +1,12 @@
-"""What the author's watch could not hold is never pooled, and a hung checkpoint changes nothing.
+"""What the author's watch could not hold, or what saw the held-out tier, is never pooled.
 
 The checkpoint runs on a thread of the watch, and a call of it that hangs outlives the stop
 of the session: once the session is over, it changes nothing the runner then reads (what is
 held, what lies in the work directory). A session the watch could not hold to its cap (its
 reading or checkpoint failed, it stalled, its stream never appeared) was not counted as the
 watch meant it to be, so the runner pools none of its tasks; it still keeps the session's
-stream inside the protected root and removes the work.
+stream inside the protected root and removes the work. The same holds for a session whose
+stream showed a held-out canary, however it ended: what it wrote may hold what it saw.
 """
 
 from __future__ import annotations
@@ -162,11 +163,11 @@ def test_the_runner_closes_the_checkpoint_before_it_looks_at_what_the_session_le
 
 
 class _Ending(FakeSession):
-    """The scripted session, ending as ``end`` says."""
+    """The scripted session, ending as ``end`` says; ``seen`` is its canary flag, or none."""
 
-    def __init__(self, write: Any, end: str) -> None:  # noqa: ANN401
+    def __init__(self, write: Any, end: str, seen: bool | None = False) -> None:  # noqa: ANN401
         super().__init__(write, checking=False)
-        self.end = end
+        self.end, self.seen = end, seen
 
     def __call__(
         self,
@@ -179,7 +180,43 @@ class _Ending(FakeSession):
         check: Any = None,  # noqa: ANN401
     ) -> dict[str, Any]:
         record = super().__call__(prompt, setup, work, cap=cap, files=files, check=check)
-        return {**record, "end": self.end}
+        record = {**record, "end": self.end, "held_out_seen": self.seen}
+        if self.seen is None:
+            del record["held_out_seen"]
+        return record
+
+
+def _refused(tmp_path: Path) -> str | None:
+    """Run the author; the refusal's text and context, after checking nothing was taken."""
+    plan = _plan(tmp_path)
+    (tmp_path / "scratch").mkdir()
+    refused: str | None = None
+    try:
+        author(plan, _setup(tmp_path / "private"))
+    except AuthoringError as exc:
+        refused = f"{exc} {exc.context}"
+    if refused is not None:
+        assert _listed(pool_dir(plan.held_out_root, "control")) == []
+        assert not held_out_tier(plan.held_out_root, "control").exists()
+        assert not plan.visible.exists()
+        # The stream is still secured and the work removed.
+        assert list((plan.held_out_root / "control.author").glob("*/stdout.jsonl"))
+        assert not plan.work.exists()
+    return refused
+
+
+@pytest.mark.parametrize(
+    ("end", "seen"),
+    [("ended", True), ("budget_exhausted", True), ("task_cap", True), ("ended", None)],
+)
+def test_a_session_whose_stream_showed_a_held_out_canary_pools_none_of_its_tasks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, end: str, seen: bool | None
+) -> None:
+    # However it ended, and when the record cannot say it saw none: nothing is taken.
+    monkeypatch.setattr(author_session, "run_session", _Ending(_tasks(16), end, seen))
+    refused = _refused(tmp_path)
+    assert refused is not None, f"the tasks of a session that saw a canary ({end}) were taken"
+    assert "held_out_seen" in refused
 
 
 @pytest.mark.parametrize("end", ["watch_failed", "watch_stalled", "no_stream"])
