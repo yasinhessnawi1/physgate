@@ -45,7 +45,10 @@ class Plant:
         self._range: dict[str, tuple[float, float]] = {}
         self._leak: dict[str, tuple[float, float]] = {}
         for name, measure in by_name.items():
-            rate = _RATE.match(name)
+            # Read whole, as every anchored pattern here is: `$` also matches before a
+            # trailing newline. A name is an identifier, so on every name the schema admits
+            # the two readings agree.
+            rate = _RATE.fullmatch(name)
             if rate is None:
                 continue
             var = rate["var"]
