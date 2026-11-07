@@ -297,7 +297,7 @@ def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
       two hops away, past a regulator that declares none, is not.
     """
     peak = instance.relation.name == "peak_current_limit"
-    which = "peak stall" if peak else "stall"
+    said = "peak stall" if peak else "stall"
     if instance.missing:
         return Observation(
             outcome="unchecked",
@@ -306,7 +306,7 @@ def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
             value=None,
             expected=None,
             message=(
-                f"the {which} current of {instance.subject} cannot be "
+                f"the {said} current of {instance.subject} cannot be "
                 "checked: no current_limit "
                 "is declared on its node or on a node its constrains edges name, so nothing "
                 "bounds it"
@@ -351,7 +351,7 @@ def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
         node=instance.subject,
         module=view.module_of(instance.subject),
         value=over,
-        expected=f"a {which} current of at most the {shown_limit} A current limit",
+        expected=f"a {said} current of at most the {shown_limit} A current limit",
         message=(
             f"{consumer.node} stalls at {shown_stall} A{at}, more than {whose} by {over.value} A: "
             "at stall a motor has no back-EMF and draws its stall current, which its supply "

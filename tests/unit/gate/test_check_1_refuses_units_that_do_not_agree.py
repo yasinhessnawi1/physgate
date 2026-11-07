@@ -219,7 +219,12 @@ ALL_RELATIONS = (
     ),
     node(
         "electrical.motor_left",
-        quantities={"power_draw": (9, "W"), "stall_current": (2.4, "A"), "mass": (0.2, "kg")},
+        quantities={
+            "power_draw": (9, "W"),
+            "stall_current": (2.4, "A"),
+            "peak_stall_current": (2.6, "A"),
+            "mass": (0.2, "kg"),
+        },
         constrains=["electrical.drive", "electrical.driver"],
     ),
 )
