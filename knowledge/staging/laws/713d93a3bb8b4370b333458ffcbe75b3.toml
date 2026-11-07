@@ -1,0 +1,157 @@
+# Law card: within_rating_voltage. Drafted from the literature; the adversarial review is added below
+# the page by the reviewer, never by the drafter.
+
+[card]
+format = 1
+drafted_by = "claude-opus-5-5"
+
+[law]
+id = "within_rating_voltage"
+statement = "the nominal voltage of the rail a part is connected to is within the part's absolute maximum voltage rating for that terminal"
+expression = "V <= M"
+pattern = "node"
+anchor = "M"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "supply_voltage is the nominal voltage at the part's power input and absolute_maximum_voltage the absolute maximum its data sheet rates for that same terminal; a part with several supply terminals (a driver's logic and motor supplies) is two terminals, and a rating copied from the other terminal is not this law. The nominal voltage is not the top of the rail's range: a rail whose top exceeds the rating while its nominal does not passes, so the law misses it rather than refusing a correct design"
+literals = []
+requires = []
+unless = [
+  { name = "stall_voltage", place = "self", reason = "a node that declares stall_voltage is a motor behind a driver: its supply_voltage is the driver's rail, the voltage the bridge switches, while a motor's maximum is at its winding, which sees on average only the duty times that rail; a 6 V motor on a 7.2 V rail at duty 0.75 is a correct design the comparison would refuse" },
+  { name = "rated_voltage", place = "self", reason = "rated_voltage is a motor's data-sheet voltage, so a node that declares it is a motor, and a motor behind a driver has the driver's rail as its supply_voltage while its maximum is at its winding, which sees on average only the duty times that rail; this covers the motor nodes that write no stall_voltage (the practice motor node writes rated_voltage and no stall_voltage)" },
+  { name = "power_supply", place = "self", reason = "a node that declares power_supply supplies others, and its supply_voltage is the voltage at its output, while a converter's absolute maximum rating is for its input (a boost stage from a 3.7 V cell with a 6 V input maximum and a 12 V output), so the two are not one terminal's" },
+  { name = "rated_output_power", place = "self", reason = "a node that declares rated_output_power supplies others (the supply_voltage definition lists it with power_supply), so its supply_voltage is the voltage at its output, while a converter's or bench supply's absolute maximum rating is for its input; the two are not one terminal's" },
+]
+
+[law.symbols]
+V = { name = "supply_voltage", place = "self" }
+M = { name = "absolute_maximum_voltage", place = "self" }
+
+[law.source]
+kind = "standard"
+title = "ECSS-Q-ST-30-11C Rev.2, Space product assurance: Derating - EEE components"
+edition = "Rev.2, 23 June 2021"
+section = "3.2 Terms specific to the present standard, 3.2.8 rating (with its note), p. 13"
+read = 2026-11-07
+reading = "in full"
+
+[[law.example]]
+outcome = "pass"
+source = "TI DRV8837/DRV8838 data sheet, SLVSBA4F (revised April 2021), section 6.1 Absolute Maximum Ratings: motor power-supply voltage VM, -0.3 to 12 V; the driver's VM rail is six Energizer NH15 NiMH cells in series (NH15 data sheet: nominal voltage 1.2 volts), 7.2 V"
+values = { V = { value = 7.2, unit = "V" }, M = { value = 12, unit = "V" } }
+
+[[law.example]]
+outcome = "fail"
+source = "the same DRV8838 VM maximum, 12 V, with the VM rail made of two such six-cell packs in series, 14.4 V nominal"
+values = { V = { value = 14.4, unit = "V" }, M = { value = 12, unit = "V" } }
+
+[page]
+text = """
+WHAT IT SAYS
+Rank 8's voltage half (batch A carded the current half, within_rating_current). A part's
+operating voltage stays within its rating: supply_voltage <= absolute_maximum_voltage on one node
+(inequality, no allowance). It enters at warn.
+
+WHICH MAXIMUM, AND WHY NOT rated_voltage
+- absolute_maximum_voltage (approved 07.11) is the absolute maximum a data sheet rates for the
+  named terminal, "the stress beyond which it may be damaged", never the recommended operating
+  maximum. The DRV8838 shows the two apart: VM -0.3 to 12 V absolute (section 6.1, footnote 1:
+  "Stresses beyond those listed under Absolute Maximum Ratings may cause permanent damage"),
+  0 to 11 V recommended (section 6.3).
+- rated_voltage is a motor's nominal, not a maximum; running above it is a design choice and is
+  not refused (spec section 4.2). So R-LAW-01's "operating voltage limit not above the motor's
+  rated voltage" is not this law.
+- Designing to the absolute maximum is still wrong (electrical standards section 1: an absolute maximum rating is not an operating limit); this law
+  refuses only exceeding it, the part of the rule a closed form can judge.
+
+HOW IT BINDS (node pattern)
+An instance forms on every node that declares absolute_maximum_voltage; judged where the node also
+declares supply_voltage; otherwise unchecked.
+
+WHERE IT IS EXCUSED (revised 07.11 after the review)
+- unless stall_voltage or rated_voltage: a motor behind a driver. Its supply_voltage is the
+  driver's rail (the approved definition), while a motor's limit is at its winding, which sees on
+  average the duty times the rail. A 6 V motor on a 7.2 V rail at duty 0.75 is a correct design;
+  the comparison would refuse it. stall_voltage alone missed every motor node that writes no
+  stall_voltage (no real plan writes it); rated_voltage is scoped to a motor's data sheet and the
+  practice motor node writes it, so the two together excuse motor nodes.
+- unless power_supply or rated_output_power: a source or converter. Its supply_voltage is its
+  output; its rating is for its input. The supply_voltage definition names three declarations of
+  a node that supplies others (power_supply, energy_capacity, rated_output_power); the law takes
+  the two that mark a converter or supply. energy_capacity is not an excuse: a store's rated
+  maximum (for example a cell's charge voltage) is at the same terminals as its nominal output,
+  so the comparison is one terminal's.
+- What remains judged: drivers, regulators that declare neither name, controllers, sensors and
+  stores, each against the maximum of its own supply terminal.
+
+WHERE IT DOES NOT HOLD
+- A part with two supply terminals (a stated limit; it needs a standards sentence). The DRV8838
+  has VM (motor supply, -0.3 to 12 V absolute) and VCC (logic, -0.3 to 7 V). One node holds one
+  supply_voltage and one absolute_maximum_voltage, and the definitions do not say which terminal
+  a driver node's supply_voltage is at. A node with its 7.2 V motor rail and the 7 V logic
+  maximum under the one name is refused at warn, though the design is correct. No unless can
+  tell this apart. The electrical standards need a sentence (K-track, the owner's to promote):
+  "absolute_maximum_voltage is written for the same terminal as the node's supply_voltage; a part
+  with several supply terminals states the others under suffixed names." Until then the owner
+  accepts this refusal knowingly at warn.
+- A regulator or converter that declares neither power_supply nor rated_output_power (the
+  practice 5 V regulator declares only supply_voltage): its output voltage is compared with an
+  input maximum, and refused at warn if the output is the larger. It cannot be told apart.
+- A motor node that writes neither stall_voltage nor rated_voltage but has a voltage maximum
+  below its driver's rail: refused at warn. No real plan writes a motor's absolute maximum.
+- The top of the range (a fresh pack, a charger connected): supply_voltage is the nominal, so a
+  top above the rating is missed. Missed, not refused: the safe side for this rule, the unsafe
+  side for the design, and stated.
+- No torque, speed or stall current is read, so the stall pairing note does not arise.
+
+SOURCE (read 07.11.2026, primary text, in full)
+ECSS-Q-ST-30-11C Rev.2 (23 June 2021), downloaded by the drafter on 07.11.2026 from
+https://ecss.nl/wp-content/uploads/2022/07/ECSS-Q-ST-30-11C-Rev.2(23June2021).pdf (the link on
+ecss.nl/standard/ecss-q-st-30-11c-rev-2-derating-eee-components-23-june-2021/), page 13, section
+3.2 Terms specific to the present standard, the eighth term (3.2.8), rating: "maximum parameter value specified and
+guaranteed by the component manufacturer and component procurement specification", NOTE: "Rating
+is considered as a limit not to be exceeded during operation and constitutes in most cases the
+reference for derating." The same text batch A's within_rating_current cites. IEC 60134 (the
+absolute maximum rating system) was not read.
+The standard defines a rating as the manufacturer's guaranteed maximum, not to be exceeded; it
+does not say that the rating is the IEC system's absolute maximum rating. That a data sheet's
+"Absolute Maximum Ratings" row is such a limit is the data sheet's own footnote (DRV8838,
+section 6.1, note 1: "Stresses beyond those listed under Absolute Maximum Ratings may cause
+permanent damage to the device"), so the identification is the card's reading of two texts.
+
+WORKED EXAMPLES (TI SLVSBA4F, section 6.1, read 07.11.2026; Energizer NH15 data sheet)
+- pass: VM rail 7.2 V (six NH15 cells) <= 12 V.
+- fail: VM rail 14.4 V (twelve cells, two packs in series) > 12 V.
+
+REACH (how little it covers; do not read more into it)
+- R-LAW-01 names 2 L flaws for this group's voltage half; one is against the motor's rated
+  voltage, which this law does not judge. So at most 1 by name.
+- absolute_maximum_voltage is new; no real plan writes it (practice max_supply_voltage 6.0 V and
+  max_input_voltage 10.8 V are other names, and their sources do not say which maximum they are).
+  On the evidence the law judges no instance on any real plan.
+- False-positive record: V_lim <= V_rated blocked 1 clean twin, but that is the rated-voltage form
+  this card does not carry.
+- Overlap: none.
+"""
+
+[review]
+by = "claude-sonnet-5-5"
+verdict = "accept"
+findings = """
+Adversarial review of the revision (7617d152), 07.11.2026, replacing the first review. Verdict: accept, with the residual refusals below stated for the owner.
+
+WHAT THE REVISION FIXED (loaded and run through the loader's own evaluate; examples still hold: 7.2 V <= 12 V passes, 14.4 V > 12 V fails)
+- The unless now has stall_voltage, rated_voltage, power_supply and rated_output_power, all exact catalogue names. rated_voltage is scoped to a motor's data sheet, so a motor behind a driver that writes no stall_voltage (the practice motor node) is excused; a winding maximum of 6 V on a 7.2 V rail at duty 0.75 is no longer refused. The cost is that motors are never judged (missed, not refused): the safe side, and stated. rated_output_power is in the supply_voltage definition's list, so a converter or bench supply is excused as the definition implies.
+- The two-supply-terminal driver is now a stated limit with a proposed sentence. I confirmed the facts again in the DRV8838 sheet (SLVSBA4F section 6.1: VM -0.3 to 12 V, VCC -0.3 to 7 V, footnote 1; section 6.3 VM 0 to 11 V recommended). A node with its 7.2 V motor rail and the 7 V logic maximum is refused on a correct design and no unless can tell it apart. Accepting this depends on the owner taking it knowingly at warn and on the proposed standards sentence reaching writers; it is in no approved text yet. Note the sentence ties absolute_maximum_voltage to the terminal supply_voltage is at, but no text says which terminal that is for a driver node (the rail, by the practice node's 7.2 V); the sentence should say VM or the motor rail.
+
+RESIDUAL REFUSALS OF A CORRECT DESIGN (small, stated or near it)
+- The card says energy_capacity is not an excuse because a store's rated maximum is at the same terminals as its nominal output. That fails for a store with a converter that declares only energy_capacity (a power bank with output 5 V and cells' maximum 4.2 V): 5 V > 4.2 V is refused (checked). The card's list of cases that cannot be told apart covers regulators with neither excusing name but not this store; add one line. Also a driver, regulator or controller judged against a maximum copied from another terminal is the same limit as above.
+- Interface nodes are judged by node-pattern laws; no real interface holds absolute_maximum_voltage.
+
+SOURCE (the weakest in the batch, now verified)
+- I downloaded the ecss.nl PDF the card names into a clean directory and extracted it: page 13, section 3.2, the eighth term (after ambient temperature, bundle, case temperature, hot spot temperature, junction temperature, load ratio, operating conditions), rating: "maximum parameter value specified and guaranteed by the component manufacturer and component procurement specification", NOTE "Rating is considered as a limit not to be exceeded during operation and constitutes in most cases the reference for derating." The quote is exact. The card now says plainly that ECSS defines a rating generally and that identifying an Absolute Maximum Ratings row with it rests on the data sheet's footnote 1; that is the correct reading. Acceptable for a rule this plain; IEC 60134 would be the better citation before block.
+
+EXAMPLES AND REACH
+- Numbers as before and right. Reach honest: no real plan writes absolute_maximum_voltage, so the law judges nothing today.
+- Dropped laws: agree with deferring voltage_margin and the rated-voltage form.
+"""
