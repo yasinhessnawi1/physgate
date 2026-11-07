@@ -216,9 +216,18 @@ def test_a_session_whose_stream_showed_a_held_out_canary_pools_none_of_its_tasks
 ) -> None:
     # However it ended, and when the record cannot say it saw none: nothing is taken.
     monkeypatch.setattr(author_session, "run_session", _Ending(_tasks(16), end, seen))
+    staged: list[Any] = []
+    stage = author_session.stage
+
+    def staging(*args: Any) -> int:  # noqa: ANN401
+        staged.append(args)
+        return stage(*args)
+
+    monkeypatch.setattr(author_session, "stage", staging)
     refused = _refused(tmp_path)
     assert refused is not None, f"the tasks of a session that saw a canary ({end}) were taken"
     assert "held_out_seen" in refused
+    assert staged == [], "what a session that saw a canary wrote was staged"
 
 
 @pytest.mark.parametrize("end", ["watch_failed", "watch_stalled", "no_stream"])

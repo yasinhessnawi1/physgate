@@ -6,9 +6,10 @@ a reading or a checkpoint that raises (``watch_failed``), a reading that does no
 within the heartbeat, a checkpoint call that hangs or a thread that is gone
 (``watch_stalled``), a stream that never appears (``no_stream``); a reason the checkpoint
 gives stops it for that reason. A session that ends by itself as the watch looks is not a
-stall. A stop that itself fails kills the session's process group with the dispatcher's own
-kill, and the run refuses its result. A session left running uncapped would be a budget in
-name only.
+stall, but a checkpoint that raises as it ends still says the watch failed: that fails
+closed, as a false refusal at worst. A stop that itself fails kills the session's process
+group with the dispatcher's own kill, and the run refuses its result. A session left running
+uncapped would be a budget in name only.
 
 The author's checkpoint's own listing, which needs the evaluation environment, is held in
 ``tests/scoring``.
@@ -125,6 +126,31 @@ def test_a_checkpoint_that_raises_stops_the_session(
     watch.stop()
     assert stopped, "a checkpoint that raised left the session running"
     assert _end(watch) == "watch_failed"
+
+
+def test_a_checkpoint_that_raises_after_a_clean_exit_fails_closed(tmp_path: Path) -> None:
+    stream = tmp_path / "stdout.jsonl"
+    stream.write_text("")
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import sys; sys.stdin.read()"],
+        stdin=subprocess.PIPE,
+        start_new_session=True,
+    )
+
+    def late(_total: int) -> str | None:
+        # The session exits by itself while this call is running, and then the call fails.
+        assert process.stdin is not None
+        process.stdin.close()
+        process.wait(timeout=WITHIN_S)
+        raise ValueError("what the call was looking at went with the session")
+
+    watch = _start(stream, process, cap=10**6, check=late)
+    deadline = time.monotonic() + WITHIN_S
+    while _end(watch) is None and time.monotonic() < deadline:
+        time.sleep(0.1)
+    watch.stop()
+    assert process.returncode == 0, "the session did not end by itself"
+    assert _end(watch) in raw.WATCH_FAILURES, "a call that failed left the session taken as clean"
 
 
 def test_a_checkpoint_s_reason_stops_the_session_with_that_reason(
