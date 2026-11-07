@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -65,6 +67,13 @@ from physgate.reviewers.ending import SessionEnd, await_session
 
 #: How often the watcher reads the stream.
 WATCH_S = 0.5
+#: The longest the cap may go without a completed reading of the stream: ten readings. A
+#: watch that has not read the stream in this long has stopped counting, whether it is stuck
+#: in a reading, behind, or gone, and the session is stopped (``watch_stalled``).
+HEARTBEAT_S = 5.0
+#: The longest a session may run with no stream to count: a session whose stream has not
+#: appeared this long after the watch started is stopped (``no_stream``).
+NO_STREAM_S = 10.0
 #: The token ceiling the hook installer requires. The raw agent loads nothing always, so it
 #: never binds; the token cap is the watcher's.
 NO_ALWAYS_LOADED_CEILING = 1_000_000
@@ -118,10 +127,25 @@ Checkpoint = Callable[[int], str | None]
 
 
 class BudgetWatch:
-    """A thread that stops the session once its stream's token count passes the cap.
+    """Threads that stop the session once its stream's token count passes the cap, failing closed.
 
-    Given a ``check``, the thread also asks it at each reading, and stops the session for
-    the reason it returns; ``stopped_for`` then holds that reason and the count then.
+    The cap is only as good as its counting, so every way the counting can stop stops the
+    session too, and the first reason is kept in :attr:`end`:
+
+    - ``budget_exhausted``: the count passed the cap; :attr:`exhausted_at` holds it;
+    - a reason the ``check`` returned; :attr:`stopped_for` holds it with the count then;
+    - ``watch_failed``: a reading of the stream or the checkpoint raised; :attr:`failure`
+      says what;
+    - ``watch_stalled``: no reading completed within :data:`HEARTBEAT_S`, or a watch thread
+      is gone while the session runs;
+    - ``no_stream``: the stream had not appeared :data:`NO_STREAM_S` after the start.
+
+    Three threads: the reader counts the stream every :data:`WATCH_S`; the checkpoint, when
+    there is one, is asked with the latest count, on a thread of its own, so a slow check
+    never delays the count the cap is held to; a guard holds both to their heartbeat and
+    stops the session for them when they cannot. A stop that fails kills the session's
+    process group instead, and :attr:`stop_error` says why the stop failed; the result of
+    such a session is refused (:func:`require_stopped`).
     """
 
     def __init__(
@@ -138,32 +162,145 @@ class BudgetWatch:
         self._check = check
         self.exhausted_at: int | None = None
         self.stopped_for: tuple[str, int] | None = None
+        self.end: str | None = None
+        self.failure: str | None = None
+        self.stop_error: str | None = None
+        self._total = 0
+        self._since = time.monotonic()
+        self._last_read = self._since
+        self._lock = threading.Lock()
         self._done = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._reader = threading.Thread(target=self._read, daemon=True)
+        self._checker = threading.Thread(target=self._ask, daemon=True)
+        self._guard = threading.Thread(target=self._hold, daemon=True)
 
     def start(self) -> None:
         """Begin watching."""
-        self._thread.start()
+        self._since = self._last_read = time.monotonic()
+        self._reader.start()
+        if self._check is not None:
+            self._checker.start()
+        self._guard.start()
 
     def stop(self) -> None:
-        """Stop watching, once the session has ended."""
-        self._done.set()
-        self._thread.join()
+        """Stop watching, once the session has ended.
 
-    def _run(self) -> None:
+        A thread stuck in a reading is not waited for beyond a heartbeat: the session it
+        watched has ended, and the thread is a daemon.
+        """
+        self._done.set()
+        for thread in (self._reader, self._checker, self._guard):
+            if thread.is_alive():
+                thread.join(timeout=HEARTBEAT_S)
+
+    # -------------------------------------------------------------------- the threads
+
+    def _read(self) -> None:
+        try:
+            self._read_loop()
+        except Exception as exc:  # noqa: BLE001 - a watch that cannot count stops the session
+            self._stop("watch_failed", failure=f"reading the stream: {exc!r}")
+
+    def _read_loop(self) -> None:
         while not self._done.wait(WATCH_S):
             if self._process.poll() is not None:
                 return
+            if not self.stream.exists():
+                # A look that found nothing yet is a completed reading too: the guard holds a
+                # stream that never appears to a bound of its own.
+                with self._lock:
+                    self._last_read = time.monotonic()
+                continue
             total = stream_total(self.stream)
+            with self._lock:
+                self._total, self._last_read = total, time.monotonic()
             if total > self.cap:
                 self.exhausted_at = total
-                stop_tree(self._process.pid, self._started)
+                self._stop("budget_exhausted")
                 return
-            reason = self._check(total) if self._check is not None else None
-            if reason is not None:
-                self.stopped_for = (reason, total)
-                stop_tree(self._process.pid, self._started)
+
+    def _ask(self) -> None:
+        assert self._check is not None  # started only with a checkpoint
+        try:
+            while not self._done.wait(WATCH_S):
+                if self._process.poll() is not None:
+                    return
+                with self._lock:
+                    total = self._total
+                reason = self._check(total)
+                if reason is not None:
+                    self.stopped_for = (reason, total)
+                    self._stop(reason)
+                    return
+        except Exception as exc:  # noqa: BLE001 - a checkpoint that raises stops the session
+            self._stop("watch_failed", failure=f"the checkpoint: {exc!r}")
+
+    def _hold(self) -> None:
+        try:
+            self._hold_loop()
+        except Exception as exc:  # noqa: BLE001 - a guard that cannot look stops the session
+            self._stop("watch_failed", failure=f"the guard: {exc!r}")
+
+    def _hold_loop(self) -> None:
+        while not self._done.wait(WATCH_S):
+            if self._process.poll() is not None or self.end is not None:
                 return
+            now = time.monotonic()
+            with self._lock:
+                last_read = self._last_read
+            if not self.stream.exists():
+                if now - self._since > NO_STREAM_S:
+                    self._stop("no_stream")
+                    return
+                continue
+            gone = not self._reader.is_alive() or (
+                self._check is not None and not self._checker.is_alive()
+            )
+            if gone or now - last_read > HEARTBEAT_S:
+                self._stop("watch_stalled")
+                return
+
+    # ---------------------------------------------------------------------- the stop
+
+    def _stop(self, end: str, *, failure: str | None = None) -> None:
+        """Stop the session for ``end``, once: the first reason is the one recorded."""
+        with self._lock:
+            if self.end is not None:
+                return
+            self.end, self.failure = end, failure
+        try:
+            stop_tree(self._process.pid, self._started)
+        except Exception as exc:  # noqa: BLE001 - recorded; the group is killed instead
+            self.stop_error = repr(exc)
+            self._kill_group()
+
+    def _kill_group(self) -> None:
+        # The session was spawned as the leader of a process group of its own, and it has not
+        # been reaped while this runs (the watch ends before the wait that reaps it), so its
+        # pid is still its own and names its group.
+        if self._process.poll() is not None:
+            return
+        try:
+            os.killpg(self._process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        except OSError as exc:
+            self.stop_error = f"{self.stop_error}; killing the group: {exc!r}"
+
+
+def require_stopped(watch: BudgetWatch) -> None:
+    """Refuse the result of a session the watch could not stop as it meant to.
+
+    Raises:
+        RawArmError: the watch's stop of the session failed; its group was killed instead,
+            and whatever ran in it after the cap is not accounted for.
+    """
+    if watch.stop_error is not None:
+        msg = (
+            f"the session could not be stopped when its watch said ({watch.end}): "
+            f"{watch.stop_error}"
+        )
+        raise RawArmError(msg, end=watch.end or "", stop_error=watch.stop_error)
 
 
 def raw_bounds(bounds: RunBounds) -> tuple[int, float]:
@@ -331,12 +468,7 @@ def _run(
     finally:
         _clean(work, sdir, setup.credential.secret, (stdout, stderr))
     captured = read_captured(stdout)
-    if watch.exhausted_at is not None:
-        end = "budget_exhausted"
-    elif watch.stopped_for is not None:
-        end = watch.stopped_for[0]
-    else:
-        end = "wall_clock" if ended.timed_out else "ended"
+    end = watch.end or ("wall_clock" if ended.timed_out else "ended")
     return {
         "session_id": session_id,
         "end": end,
@@ -348,6 +480,7 @@ def _run(
         "answered_by": sorted(captured.answered),
         "held_out_seen": review_material_seen(stdout, frozenset(setup.held_out_canaries))
         is not None,
+        "watch_failure": watch.failure,
         "sentinel_after_stop": after.get("refused"),
     }
 
@@ -417,6 +550,7 @@ def _session(
         finally:
             watch.stop()
     seconds = time.monotonic() - began
+    require_stopped(watch)
     after = check_after_stop(check, session_id, worktree, env, sdir / "state")
     return ended, watch, seconds, after
 
