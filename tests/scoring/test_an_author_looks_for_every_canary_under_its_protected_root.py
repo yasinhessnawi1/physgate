@@ -19,6 +19,7 @@ import argparse
 import dataclasses
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,8 @@ from physgate.evaluation.per_role.authoring import AuthoringError
 
 CANARY = "5f0c3a9e1b7d4c2a8e6f0b1d3c5a7e9f"
 OTHER = "0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a"
+#: Long enough for a look at a list that does not wait for anything.
+WITHIN_S = 5.0
 #: Another role's canary list, where a split leaves it: beside that role's tier.
 LIST_NAME = "actuator.canaries.json"
 #: Lists further down: inside a tier, beside a tier a level below the root, and in a folder
@@ -107,8 +110,6 @@ def _bad_list(root: Path, outside: Path, case: str) -> None:
         target.symlink_to(outside)
     elif case == "a directory":
         target.mkdir()
-    elif case == "a pipe":
-        os.mkfifo(target)
     elif case == "too large":
         target.write_text(json.dumps([CANARY] * 30_000))
     elif case == "a second name":
@@ -127,7 +128,6 @@ def _bad_list(root: Path, outside: Path, case: str) -> None:
         ("a link", "canary_list_unreadable"),
         ("a link to a directory", "canary_list_unreadable"),
         ("a directory", "canary_list_unreadable"),
-        ("a pipe", "canary_list_unreadable"),
         ("too large", "canary_list_unreadable"),
         ("a second name", "canary_list_unreadable"),
         ("unreadable", "canary_list_unreadable"),
@@ -161,6 +161,23 @@ def test_a_canary_list_that_cannot_be_taken_whole_refuses_the_session(
         f"a canary list that is {case} was not refused as {reason}: {refused or result}"
     )
     assert session.calls == [], "the session ran"
+
+
+def test_a_pipe_named_as_a_list_is_refused_without_waiting_for_a_writer(tmp_path: Path) -> None:
+    # A pipe no one writes to holds an open that waits forever, here and not in a row of the
+    # table above: a look that hangs must fail this row, not outlast the run.
+    root = _root(tmp_path)
+    os.mkfifo(root / LIST_NAME)
+    reasons: list[str] = []
+    looking = threading.Thread(target=lambda: reasons.append(_reason(root)), daemon=True)
+    looking.start()
+    looking.join(WITHIN_S)
+    waited = looking.is_alive()
+    if waited:
+        os.close(os.open(root / LIST_NAME, os.O_WRONLY | os.O_NONBLOCK))
+        looking.join(WITHIN_S)
+    assert not waited, "the runner waited on a pipe named as a canary list"
+    assert reasons == ["canary_list_unreadable"]
 
 
 def test_a_list_that_goes_on_past_the_parser_s_depth_is_refused_as_unparsed(
