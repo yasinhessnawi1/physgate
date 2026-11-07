@@ -9,7 +9,7 @@ declared.
 
 from __future__ import annotations
 
-from physgate.ui import actions, readers
+from physgate.ui import actions, library, readers
 from physgate.ui.routes import Route, asset, engine_catalogue, index, runs
 
 #: The path every route over one run starts with.
@@ -22,6 +22,11 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", "/api/engines", "read", engine_catalogue),
     Route("GET", "/api/runs", "read", runs),
     Route("GET", "/api/prices", "read", readers.prices),
+    Route("GET", "/api/library", "read", library.listing),
+    Route("GET", "/api/library/files/{kind:library_file}/{role:role}", "read", library.document),
+    Route("GET", "/api/library/staged", "read", library.staged),
+    Route("GET", "/api/library/staged/{candidate:candidate}", "read", library.candidate),
+    Route("GET", "/api/library/ratings", "read", library.ratings),
     Route("GET", f"{RUN}/config", "read", readers.config),
     Route("GET", f"{RUN}/events", "read", readers.events),
     Route("GET", f"{RUN}/ledger", "read", readers.ledger),

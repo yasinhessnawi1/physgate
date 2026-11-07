@@ -8,6 +8,11 @@ own ``corpora`` is always refused; and a root that overlaps any of them refuses
 the start. So does a missing or stale build of the app, and any address that is
 not loopback.
 
+The curated library, the checkout's ``knowledge`` folder, is read as well: what the next
+run from this checkout reads. ``--library`` names another; it is held to the same checks,
+and one that fails them refuses the start. Without a checkout holding that folder and
+without the flag, the server reads no library. Its reviewers' folder is never read.
+
 ``--operator`` names the person decisions taken in the UI are recorded under, and the
 command then prints ``operator_url``: the app's address with this start's action token in
 its fragment. Only a page opened at that address can decide; the token is served by no
@@ -39,6 +44,22 @@ def _ui_root() -> Path | None:
     return None if root is None else root / "ui"
 
 
+def _default_library() -> Path | None:
+    """The checkout's own library, or ``None`` without a checkout or without that folder.
+
+    The folder the gate loads its bounds tables from and decomposition copies role files
+    from, so the server shows what the next run from this checkout reads. Its own function so
+    a test can name another.
+    """
+    from physgate.ui.paths import LIBRARY_NAME
+
+    root = harness_root()
+    if root is None:
+        return None
+    library = root / LIBRARY_NAME
+    return library if library.is_dir() else None
+
+
 def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Register ``physgate ui`` on the top-level command."""
     p = subparsers.add_parser(
@@ -60,6 +81,11 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         default=[],
         help="an absolute path of a corpus carrying its answers, never read",
     )
+    p.add_argument(
+        "--library",
+        default=None,
+        help="the curated library folder to read, named knowledge; default: this checkout's",
+    )
     p.add_argument("--bind", default=DEFAULT_BIND, help="127.0.0.1 or ::1; nothing else")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p.add_argument(
@@ -68,6 +94,14 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         help="who decides in the UI, recorded on every decision; without it nothing acts",
     )
     p.set_defaults(func=_serve)
+
+
+def _library_argument(named: str | None) -> str | None:
+    """The library to read: the one named, else this checkout's own, else none."""
+    if named is not None:
+        return named
+    default = _default_library()
+    return None if default is None else str(default)
 
 
 def _fail(message: str, **context: str) -> int:
@@ -89,6 +123,7 @@ def _serve(args: argparse.Namespace) -> int:
             held_out=args.held_out,
             answer_keys=args.answer_key,
             harness=harness_root(),
+            library=_library_argument(args.library),
         )
         # Read once, here, before the server listens: no request reads the catalogue again.
         catalogue = engines.load(harness_root(), allowlist)
@@ -124,6 +159,7 @@ def _serve(args: argparse.Namespace) -> int:
                         else {}
                     ),
                     "refused": list(allowlist.refused),
+                    "library": None if allowlist.library is None else str(allowlist.library.path),
                 },
                 indent=1,
                 sort_keys=True,

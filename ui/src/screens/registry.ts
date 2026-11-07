@@ -77,6 +77,15 @@ export const VIEWS: readonly ViewDef[] = [
   {
     group: "reference",
     area: "reference",
+    slug: "library",
+    title: "Library",
+    icon: "library",
+    component: lazy(() => import("./library/Library")),
+    inspector: true,
+  },
+  {
+    group: "reference",
+    area: "reference",
     slug: "glossary",
     title: "Glossary",
     icon: "book-open",

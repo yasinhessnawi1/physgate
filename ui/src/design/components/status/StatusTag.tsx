@@ -1,3 +1,4 @@
+import { LIBRARY_COPY, STATE_WORDS } from "../../../words/library";
 import { ENGINE_STATUS_WORDS, PAIR_WORDS } from "../../../words/settings";
 import { Icon, type IconName } from "../icons/Icon";
 
@@ -22,6 +23,12 @@ export const STATUS_KINDS = {
   "seal-elsewhere": ["minus", "Not in this run"],
   "seal-too-large": ["minus", "Too large to check"],
   "coming-soon": ["clock", "Coming soon"],
+  // A library file's state, chosen by its bytes against the promotion log: none is a verdict.
+  "promotion-matches": ["circle-dot", STATE_WORDS.matches],
+  "promotion-differs": ["git-compare", STATE_WORDS.differs],
+  "never-promoted": ["minus", STATE_WORDS["never-promoted"]],
+  "no-digest": ["minus", STATE_WORDS["no-digest"]],
+  "wrote-this-file": ["file-text", LIBRARY_COPY.wroteThisFile],
   // How physgate is set up: an engine's status in the catalogue, and a reviewer's model string
   // beside its builder's. A comparison of two strings is not a review's verdict.
   "engine-available": ["circle-dot", ENGINE_STATUS_WORDS.available],

@@ -92,6 +92,17 @@ describe("the view registry", () => {
     expect(records?.area).toBe("home");
     expect(records?.group).toBe("run");
   });
+
+  it("lists the library under Reference, before the glossary, with an inspector", () => {
+    const library = VIEWS.find((v) => v.slug === "library");
+    expect(library?.group).toBe("reference");
+    expect(library?.area).toBe("reference");
+    expect(library?.title).toBe("Library");
+    expect(library?.icon).toBe("library");
+    expect(library?.inspector).toBe(true);
+    const reference = VIEWS.filter((v) => v.group === "reference").map((v) => v.slug);
+    expect(reference).toEqual(["library", "glossary"]);
+  });
 });
 
 describe("the shell", () => {
