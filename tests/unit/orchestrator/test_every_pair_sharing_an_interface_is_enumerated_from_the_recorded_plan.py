@@ -73,11 +73,13 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 #: and eefbf4fe50d6...; before the widening: 08a7e77a7464... and b26536a34818...; before D-A2-37
 #: and D-A2-38: f56406956965... and 1a3802deb6f1..., in this order.
 INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
+#: Since the law library's rows (07.11.2026), the catalogue sentence also holds their twelve names
+#: and two kind labels. Before those rows: f42a779e91ee... and 4faaf7ada5eb..., in this order.
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "f42a779e91eebce503ec79f9161bca13a4b34e560401e7996faa9f7167d2bd62"
+        "144a71155f84ebb32a7b4f15eedbdba3ea8141949f73c7db86e41b798cf49eb1"
     ),
-    BOTH: "4faaf7ada5ebaba6bb94eb97e45b0274b80c5eed8d58afaf561eba2c63aa6952",
+    BOTH: "6808f856328d4db742b81955b04025c3e89cda31da108ebce93107b3d5f8c1b3",
 }
 
 

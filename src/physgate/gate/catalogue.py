@@ -98,6 +98,12 @@ _SIGN_SOURCES = {
         "never negative: cycles or events per unit time; a signed frequency offset is another "
         "quantity and needs its own name"
     ),
+    # The law library's kind (07.11.2026).
+    "charge_capacity": (
+        "never negative: a store's rated charge is the integral of its discharge current over a "
+        "full discharge, the integral of I dt with I >= 0; a signed charge (a capacitor plate's) "
+        "is another quantity and needs its own kind; A*h converts (2200 mA*h = 7920 C)"
+    ),
 }
 
 
@@ -160,6 +166,12 @@ KINDS: Mapping[str, Kind] = _kinds(
     Kind(name="resistance", canonical="ohm", sign="nonnegative", source=_signed("resistance")),
     Kind(name="power", canonical="W", sign="nonnegative", source=SI_BROCHURE),
     Kind(name="energy", canonical="J", shape="energy", sign="positive", source=SI_BROCHURE),
+    Kind(
+        name="charge_capacity",
+        canonical="C",
+        sign="nonnegative",
+        source=_signed("charge_capacity"),
+    ),
     Kind(name="mass", canonical="kg", sign="nonnegative", source=SI_BROCHURE),
     Kind(
         name="moment_of_inertia",
@@ -239,12 +251,123 @@ CURRENT_LIMIT = (
     "not a continuous rating"
 )
 
+#: The names the law library added (07.11.2026), each the quantity a law drafted for it reads,
+#: defined so a writer and a law read one thing, with the source its definition rests on. Each was
+#: drafted from its source, reviewed twice on another model and approved by the owner.
+RATED_STALL_CURRENT = (
+    "the current a DC motor's data sheet states it draws with its shaft held, at its rated "
+    "voltage (rated_voltage on the same node), written beside stall_current and never instead "
+    "of it; a data sheet's stall is an extrapolation, not exactly the rated voltage over the "
+    "terminal resistance (Pololu, Micro Metal Gearmotors data sheet, Rev 6.2, February 2026, "
+    "items #3063 and #3073, performance at 6 V; maxon, A-max 22 part 352989, values at nominal "
+    "voltage)"
+)
+#: The pair the owner settled: one motor's stall, at the supply's highest voltage, under two
+#: names. ``stall_current`` is the stall at the command limit's duty, the current the design
+#: sizes for; this is the stall at full duty, the most the motor can draw.
+PEAK_STALL_CURRENT = (
+    "the current at a DC motor's terminals with its shaft held, at full duty and the supply's "
+    "highest voltage, that voltage over the motor's terminal resistance: the largest stall the "
+    "motor can draw, the one a driver's peak rating and a fuse are judged against. It is "
+    "stall_current's pair on the same node: stall_current is the stall at the command limit's "
+    "duty times that same highest voltage, and the two are never written one for the other; "
+    "where no duty limit is fixed they are one figure (a brushed motor at stall has no "
+    "back-EMF, so V = I R: Precision Microdrives 104-10L data sheet, rated 3.7 V, stall 0.114 A, "
+    "terminal resistance 32.4 ohm; TI DRV8838, SLVSBA4F, section 6.3, IOUT motor peak current "
+    "1.8 A)"
+)
+NO_LOAD_CURRENT = (
+    "the current a DC motor draws turning with nothing on its shaft, as its data sheet states it "
+    "at its rated voltage unless the node's source states another voltage; it depends on "
+    "friction and varies only slightly with speed (maxon, DC motor catalogue, April 1998, "
+    "'Comments regarding motor data', p. 36; Pololu, Micro Metal Gearmotors data sheet, Rev 6.2, "
+    "150 mA at 6 V)"
+)
+STALL_VOLTAGE = (
+    "the average voltage across a motor's terminals at which the stall_current on the same node "
+    "is stated: the largest the drive can apply, the command limit's duty times the top of the "
+    "supply range, or that top where no limit is fixed; not a voltage at which a motor starts "
+    "or stalls (the average of a switched voltage is the duty times the voltage switched: "
+    "Erickson and Maksimovic, Fundamentals of Power Electronics, chapter 2 slides, section 2.1)"
+)
+ABSOLUTE_MAXIMUM_VOLTAGE = (
+    "the absolute maximum voltage a part's data sheet rates for the named terminal, the stress "
+    "beyond which it may be damaged; never its recommended operating maximum (TI DRV8837/DRV8838, "
+    "SLVSBA4F, revised April 2021, section 6.1 and its footnote 1, against section 6.3)"
+)
+PLANT_MASS = (
+    "the actual mass of the body whose motion a control model describes, not an effective mass "
+    "that adds a reflected inertia (M + J/r**2) (Astrom and Murray, Feedback Systems, draft "
+    "v2.4a, 2006, section 7.3)"
+)
+OVERALL_GEAR_RATIO = (
+    "a whole gear train's ratio from the motor shaft (the armature) to its last output, any "
+    "built-in gearbox included: the product of every stage's input speed over its output speed, "
+    "above 1 for a reduction (the reciprocal of Shigley's train value), and output torque over "
+    "input torque for a lossless train (maxon, DC motor catalogue, April 1998, 'maxon gear', "
+    "p. 102; Pololu, Micro Metal Gearmotors data sheet, Rev 6.2, exact gear ratios, p. 3; "
+    "C. Bagci, Gear Technology, July/August 1990)"
+)
+COUNTS_PER_MOTOR_REVOLUTION = (
+    "the encoder counts the firmware registers per revolution of the shaft the encoder reads (on "
+    "a gearmotor with a rear encoder, the motor shaft, not the gearbox output), counting the "
+    "edges the firmware counts (Pololu, Micro Metal Gearmotors data sheet, Rev 6.2, February "
+    "2026, p. 2: 12 counts per revolution of the motor shaft when counting both edges of both "
+    "channels)"
+)
+COUNTS_PER_WHEEL_REVOLUTION = (
+    "the encoder counts the firmware registers per revolution of the drive's wheel, the last "
+    "output of its train, counting the same edges as counts_per_motor_revolution: that figure "
+    "times the ratio between the encoder's shaft and the wheel, which is overall_gear_ratio only "
+    "for an encoder on the armature; not a whole number in general (Pololu, Micro Metal "
+    "Gearmotors data sheet, Rev 6.2, p. 2: the gearbox output's counts are 12 times the gearbox "
+    "reduction)"
+)
+NO_LOAD_SPEED_WHEEL = (
+    "the no-load speed of a drive's wheel, the last output of its train: the no_load_speed at "
+    "the output shaft of the motor as bought divided by the ratio of the stages the design adds "
+    "after it, or the armature's speed divided by overall_gear_ratio (maxon, DC motor "
+    "catalogue, April 1998, 'maxon gear', p. 102: the motor speed is divided by the reduction "
+    "ratio)"
+)
+CHARGE_CAPACITY = (
+    "the charge an energy store is rated to deliver from full charge to its cut-off voltage at "
+    "the stated discharge rate, in A*h or C, never in W*h, which is energy_capacity (Energizer, "
+    "NH15 engineering data sheet, form EBC-7102L: rated capacity 2500 mAh to 1.0 volts, based "
+    "on a 500 mA discharge rate)"
+)
+DISCHARGE_TIME = (
+    "the time a design states a battery or cell runs it, from full charge to its cut-off "
+    "voltage, at the draw the design states; never a capacitor's bleed-down time (Energizer, "
+    "NH15 engineering data sheet, form EBC-7102L: discharge curves against hours of discharge)"
+)
+
 QUANTITIES: Mapping[str, Entry] = _entries(
+    #: The current at a DC motor's terminals with its shaft held, at the largest average voltage
+    #: the drive can apply across it: the command limit's duty times the supply's highest
+    #: voltage, with that voltage under stall_voltage on the same node. Its pair is
+    #: peak_stall_current, the stall at full duty and the same highest voltage, which a driver's
+    #: peak rating and a fuse are judged against; the two are never written one for the other.
+    #: It is a motor-side current: the bus feeding a PWM driver carries about the duty times it,
+    #: so held to the current limit of each supply its edges name, it over-states that supply's
+    #: load by the inverse of the duty.
     Entry(name="stall_current", kind="current", source=WORKLOAD),
+    Entry(name="rated_stall_current", kind="current", source=RATED_STALL_CURRENT),
+    Entry(name="peak_stall_current", kind="current", source=PEAK_STALL_CURRENT),
+    Entry(name="no_load_current", kind="current", source=NO_LOAD_CURRENT),
     Entry(name="current_draw", kind="current", source=FIXTURES),
     Entry(name="current_limit", kind="current", source=CURRENT_LIMIT),
+    #: The nominal DC voltage of the rail a node is connected to. For a load it is taken at the
+    #: load's power input; for a motor behind a driver, the driver's supply (the voltage the
+    #: bridge switches), never the average it applies. On a node that supplies others (one that
+    #: declares power_supply, energy_capacity or rated_output_power), it is the voltage at its
+    #: output.
     Entry(name="supply_voltage", kind="voltage", source=WORKLOAD),
+    #: The voltage a motor's data sheet states its figures at (its nominal voltage), not a
+    #: maximum.
     Entry(name="rated_voltage", kind="voltage", source=FIXTURES),
+    Entry(name="stall_voltage", kind="voltage", source=STALL_VOLTAGE),
+    Entry(name="absolute_maximum_voltage", kind="voltage", source=ABSOLUTE_MAXIMUM_VOLTAGE),
     Entry(name="motor_resistance", kind="resistance", source=MOTOR_RESISTANCE),
     Entry(name="power_draw", kind="power", source=FIXTURES),
     Entry(name="power_supply", kind="power", source=FIXTURES),
@@ -253,6 +376,7 @@ QUANTITIES: Mapping[str, Entry] = _entries(
     Entry(name="heat_dissipation", kind="power", source=FIXTURES),
     Entry(name="heat_rejection_capacity", kind="power", source=FIXTURES),
     Entry(name="energy_capacity", kind="energy", source=FIXTURES),
+    Entry(name="charge_capacity", kind="charge_capacity", source=CHARGE_CAPACITY),
     Entry(
         name="max_discharge_power",
         kind="power",
@@ -267,6 +391,7 @@ QUANTITIES: Mapping[str, Entry] = _entries(
         source="a bench or mains power supply's rated output, as its datasheet states it",
     ),
     Entry(name="mass", kind="mass", source=WORKLOAD),
+    Entry(name="plant_mass", kind="mass", source=PLANT_MASS),
     Entry(
         name="supported_mass",
         kind="mass",
@@ -285,11 +410,19 @@ QUANTITIES: Mapping[str, Entry] = _entries(
         kind="dimensionless",
         source="an external gear stage's ratio, output over input; read by the torque readings",
     ),
+    Entry(name="overall_gear_ratio", kind="dimensionless", source=OVERALL_GEAR_RATIO),
+    Entry(
+        name="counts_per_motor_revolution", kind="dimensionless", source=COUNTS_PER_MOTOR_REVOLUTION
+    ),
+    Entry(
+        name="counts_per_wheel_revolution", kind="dimensionless", source=COUNTS_PER_WHEEL_REVOLUTION
+    ),
     # The control quantities the series layer's published extractors read off a record
     # (``physgate.series.extract``), each in the unit the extractor publishes.
     Entry(name="phase_margin", kind="angle", source=EXTRACTORS),
     Entry(name="gain_crossover_frequency", kind="angular_velocity", source=EXTRACTORS),
     Entry(name="delay_margin", kind="time", source=EXTRACTORS),
+    Entry(name="discharge_time", kind="duration", source=DISCHARGE_TIME),
     Entry(name="sensitivity_peak", kind="modulus", source=SENSITIVITY_PEAK),
     Entry(name="gain_margin", kind="modulus", source=GAIN_MARGIN),
     Entry(
@@ -306,6 +439,9 @@ QUANTITIES: Mapping[str, Entry] = _entries(
     Entry(name="reaction_force", kind="force", source=FIXTURES),
     Entry(name="load_force", kind="force", source=FIXTURES),
     Entry(name="reaction_moment", kind="torque", source=FIXTURES),
+    #: At the output shaft of the motor as bought: on a gearmotor, its gearbox's output shaft,
+    #: not the motor shaft inside it. The voltage it is taken at is the one its source gives (the
+    #: brief's or the nominal value), so on one node it is not at the voltage of stall_current.
     Entry(name="stall_torque", kind="torque", source=FIXTURES),
     Entry(name="torque_peak", kind="torque", source=WORKLOAD),
     Entry(name="torque_constant", kind="torque_constant", source=TORQUE_CONSTANT),
@@ -314,7 +450,11 @@ QUANTITIES: Mapping[str, Entry] = _entries(
     Entry(name="update_rate", kind="frequency", source=UPDATE_RATE),
     Entry(name="efficiency", kind="efficiency", source=EFFICIENCY),
     Entry(name="duty_cycle", kind="duty_cycle", source=DUTY_CYCLE),
+    #: At the output shaft of the motor as bought: on a gearmotor, its gearbox's output shaft,
+    #: not the motor shaft inside it. The voltage it is taken at is the one its source gives (the
+    #: brief's or the nominal value), so on one node it is not at the voltage of stall_current.
     Entry(name="no_load_speed", kind="angular_velocity", source=FIXTURES),
+    Entry(name="no_load_speed_wheel", kind="angular_velocity", source=NO_LOAD_SPEED_WHEEL),
     Entry(name="max_temperature", kind="temperature", source=FIXTURES),
     Entry(name="ambient_temperature", kind="temperature", source=FIXTURES),
     Entry(name="thermal_margin", kind="temperature_difference", source=WORKLOAD),
@@ -780,12 +920,20 @@ def unknown_names(names: Iterable[str]) -> tuple[str, ...]:
 #: writer steps out of by renaming. Every one is catalogued. The relations' names are read
 #: off :mod:`physgate.gate.relations`; the statics names off :mod:`physgate.gate.check_equilibrium`
 #: and its load readings; a law's off its row, those of every law in the table and of every law
-#: card staged for a person to promote, so a law's names are guarded before it is promoted.
+#: card staged for a person to promote, so a law's names are guarded before it is promoted; and the
+#: names the owner approved for the laws drafted next (07.11.2026), guarded before any card for them
+#: is written: the law library's new names, and rated_voltage, duty_cycle and no_load_speed.
 #: Spelled again for the hooks in :mod:`physgate.state.vocabulary`, held equal by a test.
 RELATION_NAMES: tuple[str, ...] = (
+    "absolute_maximum_voltage",
     "ambient_temperature",
+    "charge_capacity",
+    "counts_per_motor_revolution",
+    "counts_per_wheel_revolution",
     "current_draw",
     "current_limit",
+    "discharge_time",
+    "duty_cycle",
     "energy_capacity",
     "external_gear_ratio",
     "gear_ratio",
@@ -797,14 +945,23 @@ RELATION_NAMES: tuple[str, ...] = (
     "max_discharge_power",
     "max_temperature",
     "mount_position",
+    "no_load_current",
+    "no_load_speed",
+    "no_load_speed_wheel",
     "output_data_rate",
     "output_power",
+    "overall_gear_ratio",
+    "peak_stall_current",
+    "plant_mass",
     "power_draw",
     "power_supply",
+    "rated_stall_current",
+    "rated_voltage",
     "reaction_force",
     "reaction_moment",
     "sample_rate",
     "stall_current",
+    "stall_voltage",
     "supply_voltage",
     "support_position",
     "supported_mass",

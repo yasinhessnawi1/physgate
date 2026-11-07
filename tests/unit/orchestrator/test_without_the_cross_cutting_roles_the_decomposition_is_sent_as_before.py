@@ -55,15 +55,19 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: before C3: ca0317a59ce7..., 8abeae4b5f23... and 44175ad46745...; before the widening, since
 #: D-A2-38 (03.11.2026): dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
 #: before D-A2-38: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
+#: Since the law library's rows (07.11.2026), the catalogue sentence also holds their twelve names
+#: and two kind labels (charge capacity, duration), and every other byte is as above
+#: (test_the_law_library_s_names_reach_the_prompt_and_nothing_else). Before those rows:
+#: c14dba963d6c..., ad94ba0d6bbe... and d713661a9904..., in this order.
 PROMPT_SHA256 = {
-    ("control", "firmware"): "c14dba963d6cf4c2398f7a063a4956790d8fa365d4bc298c4d55b598c221531b",
-    ("electrical",): "ad94ba0d6bbec1ea325fa445b579581d6392f054ee357d1b4edf0703b581d2f4",
+    ("control", "firmware"): "48f1f778de09a81d0aa245fa7a0bb13490eafee6b5d8fda322face8fa1f8d496",
+    ("electrical",): "777b1e121b6321afe2d9283389fe66063938e2d4e6069c958fd4ac04148e3e0d",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "d713661a9904e6f967d97604e2519e9c76884744cc2a0601b9d7371f6735547d",
+    ): "44c5f7c626eb0c3dbce9046adf429d6098fd9c43962f74fe4590b4bc86a4b186",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.

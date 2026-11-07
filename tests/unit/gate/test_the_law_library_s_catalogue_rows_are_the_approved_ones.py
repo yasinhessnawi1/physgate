@@ -34,8 +34,10 @@ from physgate.gate.laws import load_laws
 from physgate.gate.units import UnitRefusedError, measure
 from physgate.state.vocabulary import QUANTITY_NAMES, RELATION_QUANTITY_NAMES
 
-#: The catalogue's digest with no law, before these rows: the widened catalogue's.
+#: The catalogue's digest with no law, before these rows (the widened catalogue's) and with them.
+#: With the five laws the table held when the rows landed: a5351dcb... before, 201c855a... after.
 WIDENED_DIGEST = "0ec405db80746115a88db9676f737661030b62ef6a080c8e444746a63ebd4edd"
+LAW_LIBRARY_DIGEST = "3014ed68fc9786ab07e56900f70a0c9d1ab992a65c8b1c5478be404d88665ac0"
 
 
 def _new_kind() -> Kind:
@@ -149,3 +151,4 @@ def test_a_negative_charge_or_an_energy_is_refused_as_a_charge_capacity(
 @pytest.mark.usefixtures("no_law_table")
 def test_the_catalogue_digest_moves_off_the_widened_catalogue_s() -> None:
     assert catalogue_digest(load_laws()) != WIDENED_DIGEST
+    assert catalogue_digest(load_laws()) == LAW_LIBRARY_DIGEST
