@@ -307,6 +307,18 @@ class BudgetWatch:
             kill_own(self._process)
 
 
+def held_out_seen(stream: Path, canaries: tuple[str, ...]) -> bool | None:
+    """Whether a held-out canary showed in ``stream``; ``None`` with no canary to look for.
+
+    With nothing to look for, nothing in the stream can show a canary, and "not seen" is a
+    claim the record cannot make: it is unknown, for the reader of the record to refuse
+    where canaries exist.
+    """
+    if not canaries:
+        return None
+    return review_material_seen(stream, frozenset(canaries)) is not None
+
+
 def require_stopped(watch: BudgetWatch) -> None:
     """Refuse the result of a session the watch could not stop as it meant to.
 
@@ -497,8 +509,7 @@ def _run(
         "tokens": sum(m.usage.total() for m in captured.usage),
         "cap": cap,
         "answered_by": sorted(captured.answered),
-        "held_out_seen": review_material_seen(stdout, frozenset(setup.held_out_canaries))
-        is not None,
+        "held_out_seen": held_out_seen(stdout, setup.held_out_canaries),
         "watch_failure": watch.failure,
         "sentinel_after_stop": after.get("refused"),
     }
