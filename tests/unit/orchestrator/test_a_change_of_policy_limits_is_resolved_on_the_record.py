@@ -136,6 +136,24 @@ def test_the_live_run_s_change_is_the_rule_s_and_the_run_goes_on_under_the_new_l
     replay(read_events(tmp_path / "events.jsonl"))
 
 
+def test_a_second_stricter_change_is_judged_from_the_first_s_limits(tmp_path: Path) -> None:
+    stricter = json.dumps(
+        {"restrictions": {**json.loads(AFTER)["restrictions"], "later": {"allowed": False}}},
+        sort_keys=True,
+    ).encode()
+    rig = _rig(tmp_path, {1: AFTER, 2: stricter})
+    assert _drive(rig) == "done"
+    resolved = _lines(tmp_path, "incident_resolved")
+    assert [(r["old_sha256"], r["new_sha256"]) for r in resolved] == [
+        (_digest(BEFORE), _digest(AFTER)),
+        (_digest(AFTER), _digest(stricter)),
+    ]
+    assert resolved[1]["changes"] == [
+        {"path": ["restrictions", "later", "allowed"], "before": None, "after": "false"}
+    ]
+    replay(read_events(tmp_path / "events.jsonl"))
+
+
 #: Changes that are not only added restrictions set to ``allowed: false``.
 NOT_THE_RULE = {
     "a restriction removed": _limits(allow_connector_file_downloads=False),
@@ -196,11 +214,12 @@ def test_a_value_that_is_not_a_flag_is_shown_by_kind_and_size_only() -> None:
     stricter_only = _new("physgate.orchestrator.managed", "stricter_only")
     secret = "s3cr3t-value-never-printed"
     changes, omitted = policy_diff(
-        {"restrictions": {}, "note": "old", "n": [1]},
-        {"restrictions": {}, "note": secret, "n": [1, 2], "on": True, "k": None},
+        {"restrictions": {}, "note": "old", "n": [1], "f": 1},
+        {"restrictions": {}, "note": secret, "n": [1, 2], "on": True, "k": None, "f": True},
     )
     shown = diff_lines(changes, omitted)
     assert shown == [
+        "~ f: 1 -> true",
         "+ k: null",
         "~ n: a list of 1 entries -> a list of 2 entries",
         "~ note: a string of 3 characters -> a string of 26 characters",
