@@ -1,9 +1,9 @@
 """The engine catalogue is read once, at start, held to fixed checks, and served from memory.
 
 The command reads the checkout's ``desktop/onboarding/engines.json`` after the allowlist is built
-and before the server listens, and keeps its parse, digest and length. The route serves that
-copy and opens nothing. A catalogue the checks refuse never stops the server: the route answers
-422 with the reason, and every other route is as it was.
+and before the server listens, and keeps its digest and length and the route's answer as bytes.
+The route serves that copy, and opens and writes nothing. A catalogue the checks refuse never
+stops the server: the route answers 422 with the reason, and every other route is as it was.
 
 What the read does is watched by an audit hook of this module's own, independent of the
 server's guard (which is not even installed when the read happens, and polices requests only).
@@ -128,6 +128,12 @@ def _read(checkout: Path | None, allowlist: Allowlist) -> EngineCatalogue:
 
 def _load(tmp: Path, checkout: Path, **refused: tuple[str, ...]) -> EngineCatalogue:
     return _read(checkout, _allow(tmp, **refused))
+
+
+def _catalogue(held: EngineCatalogue) -> Any:
+    """The catalogue inside the held answer, as the route will send it."""
+    assert held.answer is not None, held.reason
+    return json.loads(held.answer)["catalogue"]
 
 
 # Each refused case: it builds a checkout under ``tmp`` and returns it with the allowlist's
@@ -277,7 +283,7 @@ def test_a_catalogue_that_passes_every_check_is_read_whole_with_its_digest_and_l
 ) -> None:
     held = _load(tmp_path, _checkout(tmp_path, body))
     assert held.state == "read", held.reason
-    assert held.value == json.loads(body)
+    assert _catalogue(held) == json.loads(body)
     assert held.sha256 == hashlib.sha256(body).hexdigest()
     assert held.length == len(body)
     assert held.reason is None
@@ -285,9 +291,9 @@ def test_a_catalogue_that_passes_every_check_is_read_whole_with_its_digest_and_l
 
 def test_unknown_keys_and_unknown_statuses_are_kept_as_written(tmp_path: Path) -> None:
     held = _load(tmp_path, _checkout(tmp_path, _valid_bytes()))
-    assert isinstance(held.value, dict)
-    assert held.value["generated_by"] == "a later version"
-    assert held.value["engines"][1] == {
+    catalogue = _catalogue(held)
+    assert catalogue["generated_by"] == "a later version"
+    assert catalogue["engines"][1] == {
         "id": "later",
         "name": "Later",
         "status": "unsupported",
@@ -308,7 +314,7 @@ def test_this_checkout_s_own_catalogue_is_read_and_held_to_its_bytes(tmp_path: P
     data = REAL.read_bytes()
     assert held.state == "read", held.reason
     assert held.sha256 == hashlib.sha256(data).hexdigest()
-    assert held.value == json.loads(data)
+    assert _catalogue(held) == json.loads(data)
 
 
 @pytest.mark.parametrize("case", list(REFUSED), ids=list(REFUSED))
@@ -321,7 +327,7 @@ def test_a_catalogue_that_fails_a_check_is_refused_with_its_reason(
     assert held.state == "refused", (case, held)
     assert held.reason is not None
     assert words in held.reason, held.reason
-    assert (held.value, held.sha256, held.length) == (None, None, None)
+    assert (held.answer, held.sha256, held.length) == (None, None, None)
     assert MARKER not in held.reason
 
 
@@ -479,7 +485,7 @@ def test_a_checkout_swapped_for_another_folder_after_the_read_began_is_refused(
 def test_a_record_whose_fields_do_not_fit_its_state_cannot_be_made() -> None:
     for wrong in (
         {"state": "read"},
-        {"state": "read", "sha256": "a" * 64, "length": 1, "value": {}, "reason": "x"},
+        {"state": "read", "sha256": "a" * 64, "length": 1, "answer": b"{}", "reason": "x"},
         {"state": "absent", "reason": "x"},
         {"state": "refused"},
         {"state": "refused", "reason": "x", "sha256": "a" * 64},
@@ -578,9 +584,7 @@ def test_the_route_opens_nothing_and_answers_the_same_bytes_every_time(
         assert _get(live.port, "/api/runs")[0] == 200
         with OPENS.watching() as seen, RECORDER.recording() as writes:
             answers = {_get(live.port, "/api/engines") for _ in range(5)}
-    assert len(answers) == 1
-    ((status, _),) = answers
-    assert status == 200
+    assert answers == {(200, held.answer)}
     assert seen.opened == [], seen.opened
     assert writes == []
 

@@ -2,10 +2,10 @@
 
 The file is the checkout's own ``desktop/onboarding/engines.json``, the one the desktop shell
 compiles into itself. The server reads it once, when the command starts and before it listens,
-and keeps the bytes' parse, digest and length in memory; the route that serves it reads nothing
-at request time. So no request may read in the checkout, and the guard's request-time rule
-needs no slot for it. The UI is served only from a source checkout, so the file is always where
-the server can look for it.
+and keeps the bytes' digest and length, and the route's whole answer as bytes, in memory; the
+route that serves it reads nothing and writes nothing at request time. So no request may read in
+the checkout, and the guard's request-time rule needs no slot for it. The UI is served only from
+a source checkout, so the file is always where the server can look for it.
 
 **The read is held to fixed checks, and a failed check never stops the server.** A malformed
 catalogue must not take the operator UI down for one file: the result is then ``refused``, with
@@ -25,6 +25,10 @@ a sentence, and only the screen's engine section shows the error. The checks, in
    refused, since the standard parser accepts all three, and the top level is an object holding
    an ``engines`` list. Nothing else of its shape is checked here: the screen's guard reads each
    field it draws on its own.
+5. The route's answer is written here, once. A request's stack is deeper than the start's, so a
+   catalogue written per request could pass the read and fail the request; one too deep to write
+   is refused here instead. How deep that is, is the interpreter's limit met from this stack,
+   and no number of this module's.
 """
 
 from __future__ import annotations
@@ -56,21 +60,25 @@ MAX_BYTES = 64 * 1024
 #: The most of a repeated key a refusal shows: a key may be nearly as long as the file.
 SHOWN_KEY = 40
 
+#: The one sentence for a catalogue too deep to parse or to write.
+_TOO_DEEP = "it is nested too deeply to read"
+
 State = Literal["read", "absent", "refused"]
 
 
 @dataclass(frozen=True)
 class EngineCatalogue:
-    """What the start-time read found: the parse with its digest and length, or why not.
+    """What the start-time read found: the route's answer with its digest and length, or why not.
 
-    ``read`` carries ``sha256``, ``length`` and ``value``; ``refused`` carries ``reason``;
-    ``absent`` carries nothing. Any other combination is refused when the record is made.
+    ``read`` carries ``sha256``, ``length`` and ``answer``, the bytes the route sends; ``refused``
+    carries ``reason``; ``absent`` carries nothing. Any other combination is refused when the
+    record is made.
     """
 
     state: State
     sha256: str | None = None
     length: int | None = None
-    value: object = None
+    answer: bytes | None = None
     reason: str | None = None
 
     def __post_init__(self) -> None:
@@ -79,13 +87,13 @@ class EngineCatalogue:
         Raises:
             UIError: the fields present are not the ones the state carries.
         """
-        read = self.sha256 is not None and self.length is not None and self.value is not None
+        read = self.sha256 is not None and self.length is not None and self.answer is not None
         fits = {
             "read": read and self.reason is None,
-            "absent": not read and self.value is None and self.reason is None,
+            "absent": not read and self.answer is None and self.reason is None,
             "refused": self.sha256 is None
             and self.length is None
-            and self.value is None
+            and self.answer is None
             and self.reason is not None,
         }
         if not fits.get(self.state, False):
@@ -105,11 +113,21 @@ def _refused(reason: str) -> EngineCatalogue:
     return EngineCatalogue(state="refused", reason=reason)
 
 
+def _shown(key: str) -> str:
+    """``key`` as a refusal names it: escaped, then cut to ``SHOWN_KEY`` characters.
+
+    The escaping comes first, so the cut bounds what reaches the screen whatever the key holds.
+    ``repr`` leaves no control character; its own quotes go, so the sentence's are the only pair.
+    """
+    escaped = repr(key)[1:-1]
+    return escaped if len(escaped) <= SHOWN_KEY else f"{escaped[:SHOWN_KEY]}\N{HORIZONTAL ELLIPSIS}"
+
+
 def _no_repeated_key(pairs: list[tuple[str, object]]) -> dict[str, object]:
     found: dict[str, object] = {}
     for key, value in pairs:
         if key in found:
-            msg = f"it repeats the key {key!r}"
+            msg = f"it repeats the key '{_shown(key)}'"
             raise _RefusedError(msg)
         found[key] = value
     return found
@@ -224,8 +242,7 @@ def _parse(data: bytes) -> object:
         msg = f"it is not JSON: line {exc.lineno} column {exc.colno}"
         raise _RefusedError(msg) from None
     except RecursionError:
-        msg = "it is nested too deeply to read"
-        raise _RefusedError(msg) from None
+        raise _RefusedError(_TOO_DEEP) from None
     if not isinstance(value, dict):
         msg = "its top level is not an object"
         raise _RefusedError(msg)
@@ -233,6 +250,19 @@ def _parse(data: bytes) -> object:
         msg = "it lists no engines"
         raise _RefusedError(msg)
     return value
+
+
+def _written(digest: str, length: int, value: object) -> bytes:
+    """The route's whole answer as the bytes it sends, in the form every JSON answer takes: step 5.
+
+    Raises:
+        _RefusedError: nested too deeply to write.
+    """
+    answer = {"file": CATALOGUE_FILE, "sha256": digest, "length": length, "catalogue": value}
+    try:
+        return json.dumps(answer, sort_keys=True, indent=1).encode() + b"\n"
+    except RecursionError:
+        raise _RefusedError(_TOO_DEEP) from None
 
 
 def load(harness: Path | None, refused: Allowlist) -> EngineCatalogue:
@@ -256,12 +286,13 @@ def load(harness: Path | None, refused: Allowlist) -> EngineCatalogue:
         start = os.stat(harness)
         data = _walk(harness, (start.st_dev, start.st_ino))
         value = _parse(data)
+        digest = hashlib.sha256(data).hexdigest()
+        length = len(data)
+        answer = _written(digest, length, value)
     except _RefusedError as exc:
         return _refused(str(exc))
     except FileNotFoundError:
         return ABSENT
     except OSError as exc:
         return _refused(f"it could not be read: {os.strerror(exc.errno or 0)}")
-    return EngineCatalogue(
-        state="read", sha256=hashlib.sha256(data).hexdigest(), length=len(data), value=value
-    )
+    return EngineCatalogue(state="read", sha256=digest, length=length, answer=answer)
