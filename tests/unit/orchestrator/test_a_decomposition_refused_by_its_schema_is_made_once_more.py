@@ -17,15 +17,20 @@ and a retry line only once, before the plan, in a run that does not review its p
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+from design_review_rig import outcome_of
+from loop_fakes import Rig, plan
 from replan_rig import Step, decompose, events, journal, round_dir
 
 from physgate.orchestrator.accounting import TokenAccount
-from physgate.orchestrator.events import read_events
-from physgate.orchestrator.exceptions import CorruptEventLogError
+from physgate.orchestrator.design_rounds import read_journal
+from physgate.orchestrator.events import Event, PlanProposed, TokensUsed, read_events
+from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError, RunStateError
+from physgate.orchestrator.record import DecompositionCall, DecompositionSummary, RetriedCall
 from physgate.orchestrator.replay import replay
 
 REFUSED = "schema_refused"
@@ -184,6 +189,54 @@ def test_the_replay_refuses_a_retry_line_the_record_does_not_support(tmp_path: P
         replay([*shown[:started], line, *shown[started:]])
 
 
+def _refusal(log: list[Event]) -> str:
+    """Why the replay refuses ``log``: the rule it names, or the row fails."""
+    got = outcome_of(lambda: replay(log))
+    assert isinstance(got, CorruptEventLogError), got
+    return str(got.context["reason"])
+
+
+def test_a_retry_line_is_taken_only_for_round_one_s_call_in_a_run_that_does_not_review_its_plan(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(tmp_path)
+    call = DecompositionCall(session_id="d1", usage=())
+    decomposed = DecompositionSummary(
+        session_id="d1",
+        model="claude-sonnet-5",
+        num_turns=1,
+        subtasks=1,
+        interface_nodes=("iface.bus",),
+        spec_commit="a" * 40,
+        head_revision=1,
+    )
+    loop = rig.open()
+    try:
+        # A run that does not review its plan has one round: a refused call of another round's
+        # would be dropped from its record, so the start refuses it and writes nothing.
+        again = RetriedCall(round=2, call=DecompositionCall(session_id="d0", usage=()), detail="x")
+        got = outcome_of(
+            lambda: loop.record.start(
+                plan("s1"), call=call, decomposed=decomposed, retried=(again,)
+            )
+        )
+        assert isinstance(got, RunConfigError), got
+        assert not (tmp_path / "events.jsonl").exists() or not events(tmp_path)
+        loop.record.start(
+            plan("s1"),
+            call=call,
+            decomposed=decomposed,
+            retried=(again.model_copy(update={"round": 1}),),
+        )
+    finally:
+        loop.close()
+    assert [e["kind"] for e in events(tmp_path)][:3] == [
+        "run_started",
+        "decomposition_retried",
+        "decomposed",
+    ]
+
+
 def test_the_replay_refuses_a_second_call_after_no_refused_first(tmp_path: Path) -> None:
     ran = decompose(tmp_path, "on", [Step(call=REFUSED), Step(review="pass")])
     log = read_events(ran.run_dir / "events.jsonl")
@@ -200,3 +253,93 @@ def test_the_replay_refuses_a_second_call_after_no_refused_first(tmp_path: Path)
     ):
         with pytest.raises(CorruptEventLogError):
             replay(forged)
+    # A second call that names another round than its refused first's.
+    assert "follows its first alone" in _refusal(
+        [*log[: at[1]], second.model_copy(update={"round": 2}), *log[at[1] + 1 :]]
+    )
+
+
+def test_the_replay_refuses_a_call_made_after_a_round_s_second(tmp_path: Path) -> None:
+    ran = decompose(tmp_path, "on", [Step(call=REFUSED), Step(call=REFUSED), Step()])
+    log = read_events(ran.run_dir / "events.jsonl")
+    at = [i for i, e in enumerate(log) if e.kind == "plan_proposed"]
+    assert len(at) == 2, "the round did not propose twice"
+    replay(log)
+    # The second call refused too, and a third made as its round's: never.
+    third = log[at[1]].model_copy(update={"session_id": "again"})
+    assert "follows its first alone" in _refusal([*log[: at[1] + 1], third, *log[at[1] + 1 :]])
+
+
+def test_the_replay_refuses_a_later_round_s_call_under_a_refused_call_s_session(
+    tmp_path: Path,
+) -> None:
+    # Round 1's first call is refused and made again; its plan is re-planned as round 2.
+    ran = decompose(tmp_path, "repair:1", [Step(call=REFUSED), Step(), Step(review="pass", said=2)])
+    assert ran.code == 0, ran.err
+    log = read_events(ran.run_dir / "events.jsonl")
+    proposed = [(i, e) for i, e in enumerate(log) if isinstance(e, PlanProposed)]
+    assert [(e.round, e.call) for _, e in proposed] == [(1, 1), (1, 2), (2, 1)]
+    (_, first), (at, later) = proposed[0], proposed[2]
+    refused = first.session_id
+    # Round 2's call, its tokens and its proposal, under the refused call's session.
+    mine = f"decomposition:{later.session_id}"
+    forged = [
+        e.model_copy(update={"attribution": f"decomposition:{refused}"})
+        if isinstance(e, TokensUsed) and e.attribution == mine
+        else e
+        for e in log[:at]
+    ]
+    replay(log[: at + 1])
+    reused = later.model_copy(update={"session_id": refused})
+    assert "a session of its own" in _refusal([*forged, reused])
+
+
+# ── the round journal ────────────────────────────────────────────────────────
+
+
+def _journal_read(run_dir: Path, lines: list[dict[str, Any]]) -> object:
+    path = run_dir / "decomposition" / "rounds.jsonl"
+    path.write_text("".join(json.dumps(one) + "\n" for one in lines))
+    return outcome_of(lambda: read_journal(run_dir, last=1))
+
+
+def test_the_journal_takes_one_refused_call_a_round_made_again_under_a_new_session(
+    tmp_path: Path,
+) -> None:
+    ran = decompose(tmp_path, "on", [Step(call=REFUSED), Step(review="pass")])
+    assert ran.code == 0, ran.err
+    first, second = _sessions(ran)
+    lines = journal(ran.run_dir)
+    kinds = [one["kind"] for one in lines]
+    at, ended = kinds.index("call_refused"), kinds.index("round_ended")
+    assert not isinstance(_journal_read(ran.run_dir, lines), Exception)
+
+    def ended_by(session: str) -> dict[str, Any]:
+        return lines[ended] | {"session_id": session}
+
+    refused = lines[at]
+    for forged, check in (
+        # The round's second call refused too, and made a third time.
+        (
+            [
+                *lines[: at + 1],
+                refused | {"session_id": second, "retry_session_id": "third"},
+                ended_by("third"),
+                *lines[ended + 1 :],
+            ],
+            "order",
+        ),
+        # The call made again under the refused call's own session.
+        (
+            [
+                *lines[:at],
+                refused | {"retry_session_id": first},
+                ended_by(first),
+                *lines[ended + 1 :],
+            ],
+            "session",
+        ),
+    ):
+        got = _journal_read(ran.run_dir, forged)
+        assert isinstance(got, RunStateError), got
+        assert got.context["check"] == check, got.context

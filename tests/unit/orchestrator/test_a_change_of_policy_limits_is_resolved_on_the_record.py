@@ -32,11 +32,28 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from design_review_rig import outcome_of
 from loop_fakes import FakeDispatcher, Rig, plan
 
 from physgate.cli import main
-from physgate.orchestrator.events import Halted, Incident, Resumed, SessionEnded, read_events
+from physgate.orchestrator.events import (
+    RULE,
+    RULE_REASON,
+    Halted,
+    Incident,
+    IncidentResolved,
+    Resumed,
+    SessionEnded,
+    read_events,
+)
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunStateError
+from physgate.orchestrator.managed import (
+    PolicyEntry,
+    UnshowableKeyError,
+    limits_with,
+    policy_diff,
+    stricter_only,
+)
 from physgate.orchestrator.record import DecompositionSummary
 from physgate.orchestrator.replay import replay
 
@@ -176,6 +193,26 @@ NOT_THE_RULE = {
         sort_keys=True,
     ).encode(),
     "the same keys, written otherwise": BEFORE.replace(b"\n", b" \n"),
+    "a restriction's flag nested a level deeper": json.dumps(
+        {"restrictions": {**json.loads(BEFORE)["restrictions"], "new": {"allowed": {"x": False}}}},
+        sort_keys=True,
+    ).encode(),
+    "a flag set false under another key than the restrictions": json.dumps(
+        {**json.loads(BEFORE), "limits": {"new": {"allowed": False}}}, sort_keys=True
+    ).encode(),
+    "another flag of an added restriction set false": json.dumps(
+        {"restrictions": {**json.loads(BEFORE)["restrictions"], "new": {"enforced": False}}},
+        sort_keys=True,
+    ).encode(),
+    "more restrictions added than one line lists": json.dumps(
+        {
+            "restrictions": {
+                **json.loads(BEFORE)["restrictions"],
+                **{f"new_{n:03}": {"allowed": False} for n in range(201)},
+            }
+        },
+        sort_keys=True,
+    ).encode(),
 }
 
 
@@ -190,13 +227,23 @@ def test_any_other_change_still_halts_as_an_incident_for_a_person(
     assert _lines(tmp_path, "incident_resolved") == []
 
 
+#: Each file the rule reads, as a run directory names it, and what it holds.
+RULED_FILES = {
+    "the session's": (Path("sessions") / "sess-1" / "config" / "policy-limits.json", AFTER),
+    "the decomposition call's": (Path("decomposition") / "config" / "policy-limits.json", BEFORE),
+}
+
+
+@pytest.mark.parametrize("which", RULED_FILES)
 def test_the_rule_does_not_resolve_a_change_whose_files_are_not_the_ones_recorded(
-    tmp_path: Path,
+    tmp_path: Path, which: str
 ) -> None:
     _new("physgate.orchestrator.events", "IncidentResolved")
     rig = _rig(tmp_path, {1: AFTER})
-    # The session's file is rewritten after its digest was taken: no evidence of the change.
-    _write(tmp_path / "sessions" / "sess-1" / "config" / "policy-limits.json", AFTER + b" ")
+    # The file is rewritten after its digest was taken: no evidence of what it held. Read as no
+    # file, the decomposition call's would make every key of the session's an added one.
+    where, data = RULED_FILES[which]
+    _write(tmp_path / where, data + b" ")
     assert _drive(rig) == "halted"
     assert _lines(tmp_path, "incident_resolved") == []
 
@@ -230,6 +277,70 @@ def test_a_value_that_is_not_a_flag_is_shown_by_kind_and_size_only() -> None:
     added, none_omitted = policy_diff(json.loads(BEFORE), json.loads(AFTER))
     assert stricter_only(added, none_omitted)
     assert [tuple(e.path) for e in added] == [ADDED]
+
+
+def _entry(path: tuple[str, ...], before: str | None = None, after: str = "false") -> PolicyEntry:
+    return PolicyEntry(path=path, before=before, after=after)
+
+
+#: Changes the rule never takes, each one step from a restriction added as ``allowed: false``.
+NOT_THE_RULE_S_ENTRIES = {
+    "a restriction there before, set false now": ((_entry(ADDED, before="true"),), 0),
+    "a key a level below a restriction's flag": ((_entry((*ADDED, "inner")),), 0),
+    "a restriction's flag under another key": ((_entry(("limits", *ADDED[1:])),), 0),
+    "another key of a restriction set false": ((_entry((*ADDED[:2], "enforced")),), 0),
+    "added restrictions, and more keys than listed": ((_entry(ADDED),), 1),
+    "no change at all": ((), 0),
+}
+
+
+@pytest.mark.parametrize("case", NOT_THE_RULE_S_ENTRIES)
+def test_the_rule_takes_only_restrictions_added_each_set_to_allowed_false(case: str) -> None:
+    assert stricter_only((_entry(ADDED),), 0)
+    entries, omitted = NOT_THE_RULE_S_ENTRIES[case]
+    assert not stricter_only(entries, omitted)
+
+
+def test_the_rule_s_name_and_the_rule_s_flag_go_together_on_a_resolution(tmp_path: Path) -> None:
+    rig = _rig(tmp_path, {1: AFTER, 2: AFTER})
+    assert _drive(rig) == "done"
+    (line,) = _lines(tmp_path, "incident_resolved")
+    assert IncidentResolved.model_validate_json(json.dumps(line)).rule
+    # A person's name on the rule's line, or the rule's name on a person's.
+    for given in ({"by": "yasin"}, {"rule": False}):
+        with pytest.raises(ValueError, match="the rule, and only the rule"):
+            IncidentResolved.model_validate_json(json.dumps(line | given))
+
+
+def test_a_key_that_does_not_print_as_itself_refuses_the_whole_diff_changed_or_not() -> None:
+    spoofed = json.loads(SPOOFED)
+    more: dict[str, object] = {
+        "restrictions": {**spoofed["restrictions"], "new": {"allowed": False}}
+    }
+    # The key is the same on both sides, and only another restriction is added: still refused.
+    with pytest.raises(UnshowableKeyError):
+        policy_diff(spoofed, more)
+    with pytest.raises(UnshowableKeyError):
+        policy_diff(more, spoofed)
+
+
+@pytest.mark.parametrize(
+    "where",
+    [
+        Path("decomposition") / "config",
+        Path("decomposition") / "round-2" / "retry" / "config",
+        Path("sessions") / "sess-3" / "config",
+    ],
+    ids=["the decomposition call's", "a later call's", "a session's"],
+)
+def test_the_baseline_s_limits_are_read_wherever_a_call_or_a_session_of_the_run_left_them(
+    tmp_path: Path, where: Path
+) -> None:
+    # Another call's limits at the decomposition's own place, unless ``where`` is that place.
+    _write(tmp_path / "decomposition" / "config" / "policy-limits.json", AFTER)
+    _write(tmp_path / where / "policy-limits.json", BEFORE)
+    assert limits_with(tmp_path, _digest(BEFORE)) == json.loads(BEFORE)
+    assert limits_with(tmp_path, _digest(b"{}")) is None
 
 
 # ── a person, at a terminal ──────────────────────────────────────────────────
@@ -276,12 +387,23 @@ def _resolve(tmp_path: Path, answer: str = "yes", **given: str) -> tuple[Any, li
     return resolved, shown
 
 
+def _refused(tmp_path: Path, words: str, answer: str = "yes", **given: str) -> None:
+    """The resolution is refused as a run-state error in ``words``, and nothing is written."""
+    log = tmp_path / "events.jsonl"
+    before = log.read_bytes()
+    got = outcome_of(lambda: _resolve(tmp_path, answer, **given))
+    assert isinstance(got, RunStateError), (answer, given, got)
+    assert words in str(got), got
+    assert log.read_bytes() == before, (answer, given)
+
+
 def test_a_person_s_resolution_is_recorded_and_the_resume_accepts_the_run(tmp_path: Path) -> None:
     removed = NOT_THE_RULE["a restriction removed"]
     rig = _rig(tmp_path, {1: removed, 2: removed})
     assert _drive(rig) == "halted"
-    with pytest.raises(RunStateError, match="a person resolves that before any resume"):
-        _drive(rig, resume=True)
+    early = outcome_of(lambda: _drive(rig, resume=True))
+    assert isinstance(early, RunStateError), early
+    assert "a person resolves that before any resume" in str(early)
     resolved, shown = _resolve(tmp_path)
     assert '- "restrictions"."enforce_web_search_mcp_isolation"."allowed": false' in shown
     changed = f"the policy limits changed from {_digest(BEFORE)} to {_digest(removed)}"
@@ -302,7 +424,7 @@ def test_a_person_s_resolution_is_recorded_and_the_resume_accepts_the_run(tmp_pa
     assert resolved.new_sha256 == _digest(removed)
     # The resume takes the run on: the halted attempt's session is judged, and the next
     # session, under the same new limits, is no incident.
-    assert _drive(rig, resume=True) == "done"
+    assert outcome_of(lambda: _drive(rig, resume=True)) == "done"
     events = read_events(tmp_path / "events.jsonl")
     assert [e.point for e in events if isinstance(e, Resumed)] == ["verify_reading"]
     assert len([e for e in events if isinstance(e, Incident)]) == 1
@@ -315,17 +437,14 @@ def test_a_resolution_not_confirmed_or_without_a_name_or_a_reason_records_nothin
 ) -> None:
     rig = _rig(tmp_path, {1: NOT_THE_RULE["a restriction removed"]})
     assert _drive(rig) == "halted"
-    before = (tmp_path / "events.jsonl").read_bytes()
-    for answer, given in (
-        ("no", {}),
-        ("", {}),
-        ("yes", {"by": "rule"}),
-        ("yes", {"by": " "}),
-        ("yes", {"reason": " "}),
+    for answer, given, words in (
+        ("no", {}, "not confirmed"),
+        ("", {}, "not confirmed"),
+        ("yes", {"by": RULE}, "is the rule's"),
+        ("yes", {"by": " "}, "by name and with a reason"),
+        ("yes", {"reason": " "}, "by name and with a reason"),
     ):
-        with pytest.raises(RunStateError):
-            _resolve(tmp_path, answer, **given)
-        assert (tmp_path / "events.jsonl").read_bytes() == before, (answer, given)
+        _refused(tmp_path, words, answer, **given)
 
 
 def test_only_a_halt_on_a_change_of_policy_limits_is_resolved_and_only_once(
@@ -353,10 +472,7 @@ def test_a_change_beside_other_managed_settings_is_not_resolved_here(tmp_path: P
     # Remote settings delivered and other limits, in one session: the incident is the drift's.
     rig = _rig(tmp_path, {1: AFTER}, drift={1: "remote managed settings were delivered"})
     assert _drive(rig) == "halted"
-    before = (tmp_path / "events.jsonl").read_bytes()
-    with pytest.raises(RunStateError, match="other managed settings changed"):
-        _resolve(tmp_path)
-    assert (tmp_path / "events.jsonl").read_bytes() == before
+    _refused(tmp_path, "other managed settings changed")
     # And a resolution written beside it anyway is refused by the replay.
     events = read_events(tmp_path / "events.jsonl")
     resolved_type = _new("physgate.orchestrator.events", "IncidentResolved")
@@ -379,6 +495,30 @@ def test_a_change_beside_other_managed_settings_is_not_resolved_here(tmp_path: P
         replay([*events, forged])
 
 
+def test_a_change_beside_another_incident_of_the_session_is_not_resolved_here(
+    tmp_path: Path,
+) -> None:
+    # The session's end shows held-out material too: two incidents, the change's the last.
+    removed = NOT_THE_RULE["a restriction removed"]
+    rig = _rig(tmp_path, {1: removed}, held_out={1: "CANARY-held-out-0000"})
+    assert _drive(rig) == "halted"
+    causes = [i["cause"] for i in _lines(tmp_path, "incident")]
+    assert causes == ["held_out_read", "managed_settings_changed"]
+    _refused(tmp_path, "only a run halted on one managed-settings incident")
+
+
+@pytest.mark.parametrize("which", RULED_FILES)
+def test_a_resolution_is_refused_where_a_file_the_record_names_is_not_on_disk_as_named(
+    tmp_path: Path, which: str
+) -> None:
+    removed = NOT_THE_RULE["a restriction removed"]
+    rig = _rig(tmp_path, {1: removed})
+    assert _drive(rig) == "halted"
+    where, _ = RULED_FILES[which]
+    _write(tmp_path / where, (tmp_path / where).read_bytes() + b" ")
+    _refused(tmp_path, "not on disk as it names them")
+
+
 #: A restriction added as the rule allows, under a key that rewrites the terminal's line.
 SPOOFED = json.dumps(
     {
@@ -394,12 +534,9 @@ def test_a_key_that_does_not_print_as_itself_is_neither_ruled_on_nor_shown(
     tmp_path: Path,
 ) -> None:
     rig = _rig(tmp_path, {1: SPOOFED})
-    assert _drive(rig) == "halted"
+    assert outcome_of(lambda: _drive(rig)) == "halted"
     assert _lines(tmp_path, "incident_resolved") == []
-    before = (tmp_path / "events.jsonl").read_bytes()
-    with pytest.raises(RunStateError, match="cannot be shown as written"):
-        _resolve(tmp_path)
-    assert (tmp_path / "events.jsonl").read_bytes() == before
+    _refused(tmp_path, "cannot be shown as written")
     entry = _new("physgate.orchestrator.managed", "PolicyEntry")
     for key in ("a\x1bb", "rtl\u202eoverride", "line\nbreak"):
         with pytest.raises(ValueError, match="does not print as itself"):
@@ -444,6 +581,31 @@ def test_the_replay_moves_the_baseline_by_the_resolution_alone(tmp_path: Path) -
     with pytest.raises(CorruptEventLogError):
         replay([*events[:found], resolved])
     assert any(isinstance(e, Halted) for e in events)
+    # The incident's words rewritten to name other limits, and a resolution naming those: the
+    # session's end is what the change is held to. The record up to the true resolution replays.
+    replay(events[: at + 1])
+    other = _digest(b"{}")
+    words = events[found].model_copy(
+        update={"detail": f"the policy limits changed from {_digest(BEFORE)} to {other}"}
+    )
+    named = resolved.model_copy(update={"new_sha256": other})
+    with pytest.raises(CorruptEventLogError):
+        replay([*events[:found], words, *events[found + 1 : at], named])
+
+
+def test_a_second_decomposition_line_never_moves_the_baseline_back(tmp_path: Path) -> None:
+    removed = NOT_THE_RULE["a restriction removed"]
+    rig = _rig(tmp_path, {1: removed, 2: removed})
+    assert _drive(rig) == "halted"
+    _resolve(tmp_path)
+    assert _drive(rig, resume=True) == "done"
+    events = read_events(tmp_path / "events.jsonl")
+    decomposed = next(e for e in events if e.kind == "decomposed")
+    resumed = next(i for i, e in enumerate(events) if isinstance(e, Resumed))
+    # The loop writes one decomposition line. One more, after the resolution moved the baseline,
+    # is refused, or leaves the baseline the resolution's: never the decomposition call's again.
+    got = outcome_of(lambda: replay([*events[: resumed + 1], decomposed]))
+    assert isinstance(got, CorruptEventLogError) or got.policy_baseline == _digest(removed), got
 
 
 def test_the_replay_refuses_the_rule_s_change_with_its_line_taken_out_or_forged(
@@ -458,10 +620,13 @@ def test_the_replay_refuses_the_rule_s_change_with_its_line_taken_out_or_forged(
     # Taken out: the session ended under other limits, and nothing says so.
     with pytest.raises(CorruptEventLogError):
         replay(events[:at] + events[at + 1 :])
-    # Naming other limits than the session's end.
-    forged = events[at].model_copy(update={"new_sha256": _digest(b"{}")})
-    with pytest.raises(CorruptEventLogError):
-        replay([*events[:at], forged, *events[at + 1 :]])
+    # Naming other limits than the session's end, or another session than the one that ends.
+    for forged in (
+        events[at].model_copy(update={"new_sha256": _digest(b"{}")}),
+        events[at].model_copy(update={"session_id": "sess-2"}),
+    ):
+        with pytest.raises(CorruptEventLogError):
+            replay([*events[:at], forged, *events[at + 1 :]])
     # The rule's line cannot name a change that is not its rule's.
     resolved_type = _new("physgate.orchestrator.events", "IncidentResolved")
     loosened = events[at].model_dump(mode="json") | {
@@ -469,3 +634,34 @@ def test_the_replay_refuses_the_rule_s_change_with_its_line_taken_out_or_forged(
     }
     with pytest.raises(ValueError, match="only a change that adds restrictions"):
         resolved_type.model_validate_json(json.dumps(loosened))
+
+
+def test_the_replay_refuses_the_rule_s_line_once_the_session_s_end_showed_an_incident(
+    tmp_path: Path,
+) -> None:
+    # The session that received the rule's change had remote settings delivered too: its
+    # incident is on the record before its end line, and the rule takes no running session's.
+    rig = _rig(tmp_path, {1: AFTER}, drift={1: "remote managed settings were delivered"})
+    assert _drive(rig) == "halted"
+    events = read_events(tmp_path / "events.jsonl")
+    found = next(i for i, e in enumerate(events) if isinstance(e, Incident))
+    ended = next(i for i, e in enumerate(events) if isinstance(e, SessionEnded))
+    assert found < ended
+    last = events[found]
+    ruled = IncidentResolved(
+        seq=last.seq,
+        ts=last.ts,
+        run_id=last.run_id,
+        gate_mode=last.gate_mode,
+        subtask_id="s1",
+        session_id="sess-1",
+        by=RULE,
+        reason=RULE_REASON,
+        rule=True,
+        old_sha256=_digest(BEFORE),
+        new_sha256=_digest(AFTER),
+        changes=(PolicyEntry(path=ADDED, before=None, after="false"),),
+    )
+    replay(events)
+    with pytest.raises(CorruptEventLogError):
+        replay([*events[:ended], ruled, *events[ended:]])
