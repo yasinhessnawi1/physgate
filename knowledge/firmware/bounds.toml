@@ -6,7 +6,7 @@
 # Firmware configures the inertial sensor and reads it, so its output data rate is written
 # in firmware's nodes as often as in electrical's. The range is the electrical table's
 # (the same six data sheets, confirmed 19.10.2026), held here under the same name so a
-# firmware node is judged as an electrical one is (D-A2-38, 03.11.2026).
+# firmware node is judged as an electrical one is (a ruling of 03.11.2026).
 
 [meta]
 domain = "firmware"
@@ -32,7 +32,7 @@ Bosch BMI088 (BST-BMI088-DS000-19, revision 1.9, January 2024): accelerometer 12
 retrieved = 2026-10-18
 confirmed = 2026-10-19
 note = """The electrical sample_rate range, its figures and sources unchanged, held under the \
-inertial sensor's own name (D-A2-38, 03.11.2026): every output data rate any of these parts \
-can be set to, across makers. The name is an inertial sensor's output data rate only; it is \
-not a control or firmware loop's rate, and a converter's sampling rate is not written under \
-it."""
+inertial sensor's own name, as designs write it (ruled 03.11.2026): every output data rate \
+any of these parts can be set to, across makers. The name is an inertial sensor's output data \
+rate only; it is not a control or firmware loop's rate, and a converter's sampling rate is not \
+written under it."""
