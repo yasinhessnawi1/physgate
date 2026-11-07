@@ -35,6 +35,8 @@ from physgate.evaluation.per_role.author_session import (
 from physgate.evaluation.per_role.authoring import AuthoringError
 from physgate.evaluation.per_role.validate import sound
 
+#: A canary flag the record does not carry at all.
+ABSENT = "absent"
 #: Long enough for every wait in this file, which all end within a second.
 WITHIN_S = 30.0
 
@@ -163,9 +165,9 @@ def test_the_runner_closes_the_checkpoint_before_it_looks_at_what_the_session_le
 
 
 class _Ending(FakeSession):
-    """The scripted session, ending as ``end`` says; ``seen`` is its canary flag, or none."""
+    """The scripted session, ending as ``end`` says; ``seen`` is its canary flag, or absent."""
 
-    def __init__(self, write: Any, end: str, seen: bool | None = False) -> None:  # noqa: ANN401
+    def __init__(self, write: Any, end: str, seen: bool | str | None = False) -> None:  # noqa: ANN401
         super().__init__(write, checking=False)
         self.end, self.seen = end, seen
 
@@ -181,7 +183,7 @@ class _Ending(FakeSession):
     ) -> dict[str, Any]:
         record = super().__call__(prompt, setup, work, cap=cap, files=files, check=check)
         record = {**record, "end": self.end, "held_out_seen": self.seen}
-        if self.seen is None:
+        if self.seen == ABSENT:
             del record["held_out_seen"]
         return record
 
@@ -207,10 +209,10 @@ def _refused(tmp_path: Path) -> str | None:
 
 @pytest.mark.parametrize(
     ("end", "seen"),
-    [("ended", True), ("budget_exhausted", True), ("task_cap", True), ("ended", None)],
+    [("ended", True), ("budget_exhausted", True), ("task_cap", True), ("ended", ABSENT)],
 )
 def test_a_session_whose_stream_showed_a_held_out_canary_pools_none_of_its_tasks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, end: str, seen: bool | None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, end: str, seen: bool | str
 ) -> None:
     # However it ended, and when the record cannot say it saw none: nothing is taken.
     monkeypatch.setattr(author_session, "run_session", _Ending(_tasks(16), end, seen))
