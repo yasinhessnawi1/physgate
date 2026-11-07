@@ -1078,7 +1078,7 @@ class PlanProposed(_Event):
 
 
 #: The one cause a decomposition call is made again for: its output refused by its schema.
-RETRIED_CAUSE = "schema_refused"
+RETRIED_CAUSE: Literal["schema_refused"] = "schema_refused"
 
 
 class DecompositionRetried(_Event):

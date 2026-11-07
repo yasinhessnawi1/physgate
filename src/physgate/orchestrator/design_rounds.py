@@ -699,18 +699,20 @@ def decompose_in_rounds(
         )
         # The round's end is journalled with what its review came to: its record goes now.
         review_over(run_dir)
-        first = ran.refused
-        if first is not None and ran.refused_ended is not None:
-            spent_first = DecompositionCall(session_id=first.session_id, usage=first.usage)
+        refused_first = ran.refused
+        if refused_first is not None and ran.refused_ended is not None:
+            spent_first = DecompositionCall(
+                session_id=refused_first.session_id, usage=refused_first.usage
+            )
             retried_calls.append(
-                RetriedCall(round=k, call=spent_first, detail=first.detail or RETRIED_CAUSE)
+                RetriedCall(round=k, call=spent_first, detail=refused_first.detail or RETRIED_CAUSE)
             )
             proposals.append(
                 Proposal(
                     round=k,
-                    session_id=first.session_id,
-                    model=first.model,
-                    num_turns=first.num_turns,
+                    session_id=refused_first.session_id,
+                    model=refused_first.model,
+                    num_turns=refused_first.num_turns,
                     plan_sha256=None,
                     cause=RETRIED_CAUSE,
                     started=started,
@@ -721,7 +723,7 @@ def decompose_in_rounds(
             )
         proposals.append(
             Proposal(
-                call=2 if first is not None else 1,
+                call=2 if refused_first is not None else 1,
                 round=k,
                 session_id=outcome.session_id,
                 model=outcome.model,
