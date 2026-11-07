@@ -21,6 +21,7 @@ leave the name one meaning, which one word rarely does (``_duty`` would have rea
 
 from __future__ import annotations
 
+import law_library_names
 import pytest
 from pydantic import ValidationError
 
@@ -36,10 +37,15 @@ from physgate.gate.catalogue import (
 from physgate.gate.laws import load_laws
 from physgate.state.vocabulary import QUANTITY_NAMES
 
+#: The rows the law library added since (07.11.2026), pinned in their own test: its twelve names
+#: and its one kind. They change none of the rows below.
+LAW_LIBRARY_ENTRIES = law_library_names.NAMES
+LAW_LIBRARY_KINDS = {law_library_names.KIND: law_library_names.KIND_ROW}
+
 #: The catalogue's digest at a64e805f, before the widening, and with it: the rows below, the
 #: closed qualifier list and, since the check round (04.11.2026), what is read at either power of
 #: the radian (EITHER_ANGLE: _frequency, and torque_constant for Ke). At 470b3f34, without
-#: EITHER_ANGLE: 87ff47377cf8....
+#: EITHER_ANGLE: 87ff47377cf8.... The widened digest held until the law library's rows.
 BASE_DIGEST = "3da500738f1e5a3fe3e523bf1e9fcd6fb689f1a3fe6ec1870d1cda6acf4324f7"
 WIDENED_DIGEST = "0ec405db80746115a88db9676f737661030b62ef6a080c8e444746a63ebd4edd"
 
@@ -218,7 +224,7 @@ def _row(kind: Kind) -> tuple[str, int, str | None, bool, str]:
 
 def test_the_eight_new_kinds_are_the_approved_ones_each_with_a_source() -> None:
     added = {name: _row(kind) for name, kind in KINDS.items() if name not in BASE_KINDS}
-    assert added == NEW_KINDS
+    assert added == {**NEW_KINDS, **LAW_LIBRARY_KINDS}
     assert all(KINDS[name].source for name in NEW_KINDS)
 
 
@@ -249,6 +255,7 @@ def test_the_catalogue_s_names_are_the_base_ones_and_the_new_ones_and_nothing_el
         **BASE_ENTRIES,
         **ENTRY_KIND_CHANGES,
         **NEW_ENTRIES,
+        **LAW_LIBRARY_ENTRIES,
     }
 
 
@@ -327,6 +334,6 @@ def test_the_hook_s_vocabulary_holds_the_new_names() -> None:
 
 @pytest.mark.usefixtures("no_law_table")
 def test_the_catalogue_digest_moves_off_a64e805f_s() -> None:
-    # The catalogue's digest alone, with no law in the table: a promoted law moves it again.
+    # The catalogue's digest alone, with no law in the table: a promoted law moves it again, and
+    # so did the law library's rows, whose test pins the digest since.
     assert catalogue_digest(load_laws()) != BASE_DIGEST
-    assert catalogue_digest(load_laws()) == WIDENED_DIGEST

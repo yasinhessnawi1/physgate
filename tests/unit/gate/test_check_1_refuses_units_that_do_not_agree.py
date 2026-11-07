@@ -475,4 +475,6 @@ def test_every_kind_declares_its_sign_and_the_thirteen_that_have_one_say_so() ->
         "modulus": "nonnegative",
         "temperature": "nonnegative",
         "frequency": "nonnegative",
+        # The law library's rows (07.11.2026): a store's rated charge is never negative.
+        "charge_capacity": "nonnegative",
     }

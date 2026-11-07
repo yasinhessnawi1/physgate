@@ -108,6 +108,8 @@ EXPECTED_KINDS: dict[str, str] = {
     "no_load_speed": "angular_velocity",
     "no_load_speed_max": "angular_velocity",
     "no_load_speed_min": "angular_velocity",
+    # The law library's rows (07.11.2026): the no-load speed at the wheel, by its exact name.
+    "no_load_speed_wheel": "angular_velocity",
     "overall_gear_ratio": "dimensionless",
     "phase_margin": "angle",
     "phase_margin_nominal": "angle",
@@ -161,6 +163,12 @@ NEW_SUFFIXES = (
     "_motor_current", "_no_load_speed", "_gain_crossover_frequency", "_gear_ratio",
     "_output_data_rate", "_sensitivity_peak", "_spectral_radius", "_gain_margin", "_utilisation",
 )  # fmt: skip
+
+#: The suffixes whose one run-4 name became an exact name with the law library's rows
+#: (07.11.2026): ``rated_stall_current`` and ``overall_gear_ratio``. Each reached it when it was
+#: added, and still reads any other name that ends in its words (``motor_stall_current``,
+#: ``final_gear_ratio``); its reach is now the exact name's.
+REACH_NOW_EXACT = {"_stall_current": "rated_stall_current", "_gear_ratio": "overall_gear_ratio"}
 
 #: The domains a value is judged in: every table the gate loads, and one with no table.
 DOMAINS = sorted({*load_bounds().tables, "control"})
@@ -278,17 +286,21 @@ def test_the_coverage_on_run_4_is_the_approved_row_set_s() -> None:
             tally["sign check"] += 1
         if kind.name in envelopes:
             tally["envelope"] += 1
+    # Since the law library's rows (07.11.2026), three run-4 names are exact: rated_stall_current
+    # and overall_gear_ratio (two values each), read by their suffixes before, and
+    # no_load_speed_wheel (one value), unchecked before. The widened catalogue gave 106, 27, 47,
+    # 32, 37, 2, 93 and 4, and 86 names.
     assert dict(tally) == {
-        "kind": 106,
-        "by exact name": 27,
-        "by suffix": 47,
+        "kind": 107,
+        "by exact name": 32,
+        "by suffix": 43,
         "by qualifier": 32,
         "sign check": 37,
         "envelope": 2,
-        "unchecked": 93,
+        "unchecked": 92,
         "unit refused by parse": 4,
     }
-    assert len({r["name"] for r in VALUES if kind_of(r["name"]) is not None}) == 86
+    assert len({r["name"] for r in VALUES if kind_of(r["name"]) is not None}) == 87
 
 
 def test_only_sample_rate_has_a_range_by_name_and_no_alias_adds_one() -> None:
@@ -308,4 +320,10 @@ def test_every_new_suffix_decides_the_kind_of_a_run_4_name(suffix: str) -> None:
         and (_suffix_of(n) or _suffix_of(_stripped(n, qualifiers))) == suffix
         and kind_of(n) is not None
     }
+    if suffix in REACH_NOW_EXACT:
+        assert deciding == set()
+        assert REACH_NOW_EXACT[suffix] in QUANTITIES
+        assert REACH_NOW_EXACT[suffix].endswith(suffix)
+        assert REACH_NOW_EXACT[suffix] in {r["name"] for r in VALUES}
+        return
     assert deciding, f"{suffix} reaches no value run 4 wrote"

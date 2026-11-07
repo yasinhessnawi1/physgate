@@ -11,8 +11,9 @@ table, leaves the relation names as they were.
 The relations the checks already form are written down by the names each reads and its
 comparator, so the loader can refuse a law that restates one. That list is held to what the
 checks read: over a graph that forms every relation, each relation reads exactly its names, and
-the relation names are the union of those, the loaded laws' names and the staged cards' names,
-nothing else.
+the relation names are the union of those, the loaded laws' names, the staged cards' names and
+the names the owner approved for the laws drafted next, which are guarded before any card for them
+is written, nothing else.
 
 Widening the guarded names must not refuse a name a real plan wrote. Every name written in the
 practice set and in the G11 runs that left a graph is held unrefused, by the catalogue's rule
@@ -31,6 +32,7 @@ from typing import Any
 import pytest
 from gate_fixtures import graph, node
 from law_fixtures import laws_module
+from law_library_names import FOR_LAWS
 
 from physgate.gate import relations
 from physgate.gate.catalogue import RELATION_NAMES, RELATIONS, shadowing_names
@@ -149,7 +151,9 @@ def test_the_relation_names_are_the_relations_and_the_laws_names_and_nothing_els
     from_relations = {name for entry in written.values() for name in entry.names}
     staged = {name for names in staged_input_names().values() for name in names}
     assert from_relations >= UNGUARDED
-    assert set(RELATION_NAMES) == (from_relations - UNGUARDED) | set(table.input_names()) | staged
+    assert set(RELATION_NAMES) == (
+        (from_relations - UNGUARDED) | set(table.input_names()) | staged | FOR_LAWS
+    )
     assert RELATION_QUANTITY_NAMES == RELATION_NAMES
 
 

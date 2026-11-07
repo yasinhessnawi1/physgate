@@ -154,7 +154,7 @@ def test_a_qualified_name_has_its_quantity_s_kind(name: str, kind: str) -> None:
         "stall_current_turbo_charged",
         "torque_constant_wheel",
         "torque_constant_armature",
-        "no_load_speed_wheel",
+        "stall_torque_wheel",
         "rotor_inertia_reflected",
         "mass_without_cells",
         "proposed_push_max_abs_tilt_nominal_fwd",

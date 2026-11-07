@@ -78,7 +78,7 @@ def test_the_list_is_closed_and_every_suffix_has_one_kind_and_a_source() -> None
         "loop_rate",
         "specific_power",
         "reduction_ratio",
-        "charge_capacity",
+        "battery_capacity",
         "winding_resistance",
         "eddy_current",
         "motor_current_draw",

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 
+import law_library_names
 import pytest
 
 from physgate import roles
@@ -172,7 +173,11 @@ def test_the_base_sentence_is_rebuilt_byte_for_byte() -> None:
 
 
 def test_the_catalogue_sentence_gains_the_new_names_and_kind_labels_and_nothing_else() -> None:
-    assert _groups(catalogue_sentence()) == WIDENED_GROUPS
+    # The law library's names (07.11.2026) came after, with their own test; without them, the
+    # sentence's groups are the widening's.
+    later = set(law_library_names.NAMES)
+    groups = {label: names - later for label, names in _groups(catalogue_sentence()).items()}
+    assert {label: names for label, names in groups.items() if names} == WIDENED_GROUPS
 
 
 def test_the_added_words_sentence_says_what_the_gate_reads_of_such_a_name() -> None:

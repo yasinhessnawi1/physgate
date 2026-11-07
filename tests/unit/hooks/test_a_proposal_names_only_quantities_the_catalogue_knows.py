@@ -8,7 +8,7 @@ when the orchestrator applies it, when a quantity's name is within two insertion
 deletions of a relation's quantity longer than five characters, underscores ignored, or one
 edit of a short one (``mess``, ``moss`` and ``mask`` for ``mass``); the refusal names the
 quantity, the relation's quantity it shadows and the nearest catalogued names. **Every other
-uncatalogued name is written** (``no_load_current``, ``idle_current``, ``motor_voltage_limit``,
+uncatalogued name is written** (``standby_current``, ``idle_current``, ``motor_voltage_limit``,
 ``motor_current_draw``, ``max``, ``dry_mass``), and the gate records it as unchecked: a
 different name is not a misspelling, and a session or a demo run is not blocked on it. The
 store itself does not refuse such names: a corpus written straight into a store, outside the
@@ -86,6 +86,22 @@ def test_a_catalogued_name_is_allowed(config: SessionConfig) -> None:
         ("update_rat", "update_rate"),
         ("sample_rat", "sample_rate"),
         ("output_data_rat", "output_data_rate"),
+        # The names the laws drafted next read, guarded before their cards are written.
+        ("rated_stall_curren", "rated_stall_current"),
+        ("peak_stall_curren", "peak_stall_current"),
+        ("no_load_curren", "no_load_current"),
+        ("stall_voltag", "stall_voltage"),
+        ("absolute_maximum_voltag", "absolute_maximum_voltage"),
+        ("rated_voltag", "rated_voltage"),
+        ("plant_mas", "plant_mass"),
+        ("overall_gear_rati", "overall_gear_ratio"),
+        ("counts_per_motor_revolutio", "counts_per_motor_revolution"),
+        ("counts_per_wheel_revolutio", "counts_per_wheel_revolution"),
+        ("no_load_speed_whee", "no_load_speed_wheel"),
+        ("no_load_spee", "no_load_speed"),
+        ("charge_capacit", "charge_capacity"),
+        ("discharge_tim", "discharge_time"),
+        ("duty_cycl", "duty_cycle"),
     ],
 )
 def test_a_misspelling_of_a_relation_s_quantity_is_refused_naming_both(
@@ -99,7 +115,7 @@ def test_a_misspelling_of_a_relation_s_quantity_is_refused_naming_both(
 @pytest.mark.parametrize(
     ("name", "value", "unit"),
     [
-        ("no_load_current", 0.07, "A"),
+        ("standby_current", 0.07, "A"),
         ("idle_current", 0.02, "A"),
         ("motor_voltage_limit", 6, "V"),
         ("motor_current_draw", 0.5, "A"),
