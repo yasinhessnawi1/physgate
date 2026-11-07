@@ -14,7 +14,9 @@ after a quarter of the cap, or when more than a task's worth of tokens has gone 
 last task came to hold. When it ends, the runner closes the checkpoint, so a call of it that
 outlived the session changes nothing; a session its watch could not hold to its cap
 (``WATCH_FAILURES``), or whose stream showed a held-out canary however it ended (or cannot
-say, where the root names canaries), is refused, and only step 5 runs. Otherwise the runner:
+say, where the root names canaries), is refused, and only step 5 runs. So is a session under
+whose root the canaries grew while it ran, or a list can no longer be taken whole: it was not
+looking for what came, so its record cannot say it saw none of it. Otherwise the runner:
 
 1. copies each task it left into a staging directory beside its work, refusing a task
    that holds a link, a special file, a canary list's name or more than a task's worth of
@@ -205,8 +207,13 @@ _SESSION_FOLDERS = frozenset(
 
 
 def _names_a_list(name: str) -> bool:
-    """Whether ``name`` is what a canary list is called."""
-    return name == CANARIES_NAME or name.endswith(f".{CANARIES_NAME}")
+    """Whether ``name`` is what a canary list is called, in any case.
+
+    The harness writes lower case, but a disk that ignores case opens ``Canaries.json`` by
+    that name all the same.
+    """
+    folded = name.casefold()
+    return folded == CANARIES_NAME or folded.endswith(f".{CANARIES_NAME}")
 
 
 def _refuse_list(reason: str, path: str, detail: str) -> AuthoringError:
@@ -259,7 +266,8 @@ def root_canaries(root: Path) -> tuple[str, ...]:
     """Every canary the lists the harness wrote under ``root`` name; none while it holds none.
 
     A split leaves each held-out tier's list beside it, as ``<tier>.canaries.json``, and a
-    tier may hold one as ``canaries.json``, at any depth. :data:`_SESSION_FOLDERS` are not
+    tier may hold one as ``canaries.json``, at any depth, in any case
+    (:func:`_names_a_list`). :data:`_SESSION_FOLDERS` are not
     entered: what a session wrote is no list of ours. Of everything else only names are
     looked at, by the runner, never a task; the pool's tasks carry no canary yet. A link is
     judged as the list it is named as, and never followed.
@@ -735,8 +743,9 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
             withhold the protected root, the root would trip the session's tripwire, a
             canary list under the root cannot be taken whole or names a canary the session
             would not look for, or the
-            session's watch could not hold it to its cap or its stream showed a held-out
-            canary (none of its tasks is pooled; ``refused_because`` says which).
+            session's watch could not hold it to its cap, its stream showed a held-out
+            canary, or the root's canaries grew while it ran or a list can no longer be taken
+            whole (none of its tasks is pooled; ``refused_because`` says which).
     """
     require_author_model(setup.model, plan.implementer_model)
     _require_apart(plan, setup)
@@ -788,6 +797,17 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
                 "it wrote is pooled"
             )
             raise AuthoringError(msg, end=str(record["end"]), refused_because=str(record["end"]))
+        # Another author's split may have left a list under the root while this session ran.
+        # Its canaries were not looked for, so the record above says nothing of them, and a
+        # session whose withhold failed could have read that tier. The same walk, so a list
+        # that can no longer be taken whole refuses here as it does before the session.
+        grown = set(root_canaries(plan.held_out_root)) - set(canaries)
+        if grown:
+            msg = (
+                f"the protected root came to name {len(grown)} canaries while the session ran "
+                "that it was not looking for; none of the tasks it wrote is pooled"
+            )
+            raise AuthoringError(msg, refused_because="canaries_missing", missing=str(len(grown)))
         staging = plan.work / "staging"
         refused = stage(plan.work / "worktree", staging)
         staged = sum(1 for p in staging.iterdir() if p.is_dir())
