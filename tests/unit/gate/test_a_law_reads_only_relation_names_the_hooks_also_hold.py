@@ -77,7 +77,7 @@ EVERY_RELATION = (
     ),
     node(
         "electrical.motor",
-        quantities={"stall_current": (1.6, "A")},
+        quantities={"stall_current": (1.6, "A"), "peak_stall_current": (1.7, "A")},
         constrains=["electrical.driver"],
     ),
     node("electrical.driver", quantities={"current_limit": (1.8, "A")}),
