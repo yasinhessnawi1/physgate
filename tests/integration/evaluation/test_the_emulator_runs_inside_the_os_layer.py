@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -32,7 +33,16 @@ from physgate.evaluation.per_role.firmware.sandbox import (
     srt_settings,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    # Every integration test runs in CI, where the sandbox runtime is not installed: there
+    # these tests are reported skipped, never passed. They run where it is (``npm ci`` in
+    # ``tools/srt``, on Linux), and on macOS the ones that hold the refusal there still run.
+    pytest.mark.skipif(
+        sys.platform != "darwin" and not sandbox.SRT.exists(),
+        reason="the pinned sandbox runtime is not installed (npm ci in tools/srt)",
+    ),
+]
 
 linux_only = pytest.mark.skipif(
     sys.platform == "darwin", reason="the firmware tier refuses on macOS"
@@ -96,8 +106,14 @@ def _setup(tmp_path: Path, body: str) -> tuple[Path, tuple[Path, ...], list[str]
 
 
 def _held_out(tmp_path: Path) -> tuple[str]:
-    """An inert stand-in for the held-out tier, outside the user's home."""
-    tier = tmp_path / "held-out"
+    """An inert stand-in for the held-out tier, outside the user's home.
+
+    Not under ``tmp_path``: an integration test's directory is made outside every place the
+    OS layer makes writable, which is under the user's home, and the sandbox withholds the
+    home whole, so a stand-in there could not show that the tier itself is withheld. The
+    system's temporary directory is outside the home; one stand-in per test directory.
+    """
+    tier = Path(tempfile.gettempdir()).resolve() / f"held-out-{tmp_path.name}"
     tier.mkdir(exist_ok=True)
     (tier / "item.json").write_text('{"inert": "a stand-in held-out item"}')
     assert not tier.resolve().is_relative_to(Path.home().resolve())
