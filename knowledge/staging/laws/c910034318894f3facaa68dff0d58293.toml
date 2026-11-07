@@ -99,3 +99,25 @@ REACH (how little it covers; do not read more into it)
   was the stall_current form.
 - Overlap: none.
 """
+
+[review]
+by = "claude-sonnet-5-5"
+verdict = "accept"
+findings = """
+Adversarial review, 07.11.2026. Verdict: accept, with a note on reach.
+
+PHYSICS
+- At stall back-EMF is zero and the winding carries V over R; turning freely the back-EMF nearly equals the supply and the current covers only friction (OpenStax College Physics 2e, 23.6, both sentences verified verbatim). Hence no-load current <= stall current at one voltage; this is the strongest of the six cards. I could not construct a correct motor data sheet that violates it. Brushed DC only, as stated; a node writing a brushless motor's no-load beside a current-limited figure under the stall name would be a misnamed value, not this law's concern.
+- Gearmotors: the no-load current of a gearmotor includes gearbox friction and is still well below stall. Dual-channel drivers, PWM duty limits and regulators do not enter because both figures are the maker's at the rated voltage; no unless is needed, agreed.
+
+THE CHOICE OF rated_stall_current
+- Sound and conservative. The table's stall_current form would pair a no-load current at the rated voltage with a stall at stall_voltage. It could only refuse when stall_voltage falls below about no_load_current x R, roughly 0.6 V for the 6 V Pololu motor (0.15 A x 4 ohm), a degenerate design, so that form was in practice also safe. Using the rated pair costs reach, not safety. Note the cost plainly to the owner: in real data no instance forms. The practice motor node writes no_load_current and stall_current (1.5 A) but no rated_stall_current; run 4 writes rated_stall_current beside rated_no_load_current, a name no law reads. The batch rows set rated_stall_current as written beside stall_current, so the practice node is non-conforming and unchecked, correctly. If the owner wants the law to bite on the existing convention, a second card on stall_current, requiring stall_voltage, would be defensible; I do not require it.
+- Residual refusal: a no_load_current stated at a much higher voltage than rated_stall_current (the definition allows a source-stated voltage). Still below the stall in practice; the card says it no longer compares one condition. Acceptable.
+
+SOURCES AND EXAMPLES
+- Source is primary and supports both halves; the inequality is a direct consequence. Pololu 3073 checked: 6 V, 650 RPM, 150 mA, 1.5 A, 0.74 kg.cm, stall labelled extrapolation and theoretical. Pass 150 mA <= 1.5 A is right. The fail example is a unit slip (150 A written for 150 mA), which fails for the right reason (the law's magnitude relation), though it tests a thousand-fold slip rather than a physical reversal; a swapped pair would be a better fail example. Not blocking.
+
+REACH
+- Honest: zero instances on real plans today. The R-LAW-01 count of 2 is correctly qualified.
+- Dropped laws: agree.
+"""

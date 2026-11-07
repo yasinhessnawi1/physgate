@@ -117,3 +117,25 @@ REACH (how little it covers; do not read more into it)
 - Overlap: none. energy_capacity is read by the discharge-rate relation against
   max_discharge_power, not against charge times voltage.
 """
+
+[review]
+by = "claude-sonnet-5-5"
+verdict = "reject"
+findings = """
+Adversarial review, 07.11.2026. Verdict: reject; two correct-design refusals have a fix the card could carry, and the example is circular.
+
+REFUSES A CORRECT DESIGN
+- Converter stores without power_supply. The approved supply_voltage definition says a node that declares power_supply, energy_capacity or rated_output_power supplies others and its supply_voltage is the voltage at its output. The card excuses only power_supply. A power bank written with energy_capacity 18.5 W*h, charge_capacity 10000 mA*h (at its 3.7 V cells), supply_voltage 5 V and rated_output_power (but no power_supply) is a correct design and is refused (checked through the loader: 5 V x 10 Ah = 50 W*h against 18.5, miss 31 W*h). The card lists this as "refused" under where it does not hold. It is avoidable: add rated_output_power to the unless, as the definition itself lists it. A converter store that declares none of these writes only an output voltage and cannot be told apart; say so.
+- Stores whose voltage is not flat. The definition of charge_capacity is "an energy store", not a cell, and nothing in the card's idealisation limits the law to electrochemical cells. A supercapacitor bank written with its charge to cut-off and its energy is a correct design and is refused: 58 F, 16.2 V to 8.1 V gives 1.59 W*h against V x Q = 130 W*h at the rated voltage (checked). Either state in the idealisation and statement that it is for cells and batteries whose nominal voltage is the one the rating uses, with a note that a capacitor is not this law, or give the owner a name to excuse it. Without that the card claims more than the UN definition (cells and batteries) supports.
+- Allowance is about 1.5 percent. A usable energy (derated, or from the discharge curve) or a nominal voltage rounded differently by the maker is refused: 7.8 W*h against 3.7 V x 2.2 A*h = 8.14 W*h is refused. The card states this; the batch rows warned that a data sheet's W*h is not always V_nom x A*h. Keep it stated; not a reason to reject alone.
+
+SOURCE
+- UN Manual 38.3.2.2: I could not retrieve a UN copy either (the UNECE host refused); a search found mirrors, and one Scribd copy words the definition in terms of a declared watt-hour rating and a nominal energy equal to nominal voltage times rated capacity, so the content agrees and a wording difference between editions is possible. I cannot confirm the card's verbatim quote or the page numbers 394-395. The vendor-hosted copy is a weak but not a wrong source for a definition this plain. The definition is for lithium cells and batteries; the NiMH use is the card's reading and says so. A battery handbook (Linden and Reddy) would be the better citation before block.
+
+EXAMPLES
+- The pass example's 18 W*h is computed by the law itself (2.5 A*h x 7.2 V), not read from a data sheet, so the pass proves only the arithmetic. NH15 gives 1.2 V and 2500 mAh to 1.0 V at 0.2C (the card's quote matches the batch rows' reading of that sheet). The fail example is a made-up pack, not a source's. An example with a stated energy from a real data sheet would test the law. The practice pack check (15.84 against 15.8) is fine.
+
+REACH
+- Honest (one practice node, none in the held runs). Overlap with the discharge-rate relation is correctly none.
+- Dropped laws: agree with dropping the runtime form for now (it needs discharge_time and an assumed constant draw) and the pack-from-cells form (it needs a count from the graph).
+"""

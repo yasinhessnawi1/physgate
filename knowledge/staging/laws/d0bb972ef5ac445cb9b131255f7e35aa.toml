@@ -111,3 +111,25 @@ REACH (how little it covers; do not read more into it)
 - Overlap: none. Check 3 reads gear_ratio and external_gear_ratio in its torque readings, but
   never their product against an overall ratio.
 """
+
+[review]
+by = "claude-sonnet-5-5"
+verdict = "accept"
+findings = """
+Adversarial review, 07.11.2026. Verdict: accept, with three residual refusals the owner should know and one sentence for the standards.
+
+PHYSICS
+- Speed ratios of stages in series multiply (each shaft is the output of one mesh and the input of the next), so overall = built-in x added when every ratio is input over output. Efficiency, backlash and planetary internals do not enter a speed ratio. Verified through the loader: 51.45 x 2.88 = 148.176 against 148.2 passes (allowance 2.23); 148 passes; run 4's trio 51.446 x 2.142857 = 110.2414 against 110.242 passes. Run 4's interface node drivetrain.motor holds all three names (51.446, 2.142857, 110.242) and is judged, since node laws are not excused on interface nodes; it passes. The allowance is about 1.5 percent, so only an inconsistency larger than that fails.
+- Residual refusals of a design that is correct under the catalogue text: (1) A drive with two or more added stages where only one is under external_gear_ratio and the other under a suffixed name: the catalogue defines external_gear_ratio as an external stage's ratio, singular, so the card's instruction (write the product there) is not in any approved text. (2) A signed overall ratio: the batch rows allow a reversing stage to be signed, and a writer who signs only overall_gear_ratio (for example -148.2 beside 51.45 and 2.88) is refused (checked: residual -296). (3) gear_ratio written as the whole train (the practice node's 148.3) beside external_gear_ratio and a new overall_gear_ratio: refused. I agree with the drafter that the project already reads 148.3 under gear_ratio as the double count, so I do not count it against the card, but gear_ratio's catalogue sentence ("a gear train's ratio") does not say built-in only; the standards sentence should. None of these has an exact-name excuse, which is why I do not ask for one.
+- Convention: gear_ratio is defined output over input and overall_gear_ratio input speed over output speed, above 1; for a reduction these are the same number, and check 3's reading calls both output over input, above 1. The card's statement is right.
+
+SOURCES
+- CMU course notes (Zhang, Finger, Behrens, chapter 7): I opened the page. It defines velocity ratio as input revolutions over output revolutions, gives the simple train and compound-train equations, and says idler tooth numbers cancel. The equations are images, and it does not say in words that compound ratios multiply; the product follows from combining equations 7-14 and 7-15. Weak but adequate for an elementary identity; a mechanism text (Shigley or Norton) would be better and the owner may want it before block.
+
+EXAMPLES
+- Balboa user guide checked: "gear ratios more accurately specified as 51.45:1", "plastic gears that give an additional 2.88:1 reduction", total by multiplying. Pass right. The fail example (144, from the nominal 50:1) fails only because the miss 4.18 exceeds the 2.21 allowance; a 2.8 percent slip, so it is sensitive to the gate's 3-figure assumption. Acceptable.
+
+REACH
+- Honest: one real node, passing. The practice set forms none.
+- Dropped laws: agree with all three. The speed form on the spec's own record blocked all 20 practice twins (a ratio-convention clash). The encoder-counts form holds only for an encoder on the armature (the wheel-count definition says so), and no catalogue name says where the encoder sits, so it would refuse a correct gearbox-output encoder. The torque bound likewise blocked all 20 practice twins in the spec's table, and check 3 already reads the ratios.
+"""

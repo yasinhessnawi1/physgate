@@ -107,3 +107,25 @@ REACH (how little it covers; do not read more into it)
 - Overlap: none. Check 4 holds each of the two to a current_limit (stall_current today,
   peak_stall_current additively under ruling (1) of 07.11); this law holds them to each other.
 """
+
+[review]
+by = "claude-sonnet-5-5"
+verdict = "accept"
+findings = """
+Adversarial review, 07.11.2026. Verdict: accept, with the notes below for the owner.
+
+PHYSICS AND DEFINITIONS
+- It follows from the two approved definitions (checked in catalogue.py): peak_stall_current is the top voltage over the terminal resistance at full duty; stall_current is the duty limit times that same top voltage. With one resistance and one top voltage, stall = D x peak and D is at most 1, so stall_current <= peak_stall_current, with equality where no duty limit is fixed. A stalled winding has no back-EMF (OpenStax College Physics 2e, 23.6, quotes verified). Duty limiting, coast-mode decay, a current-regulating driver, a hot winding, dual-channel drivers and converters all lower the duty-limited figure or move both together, so none needs an excuse. I tried to build a correct design that fails and found only the cases below.
+- Where it can refuse a correct pair (all stated on the card, none excusable by an exact name): (1) the two figures taken from different resistances, for example stall_current from the data sheet pair and peak_stall_current from a terminal resistance giving a smaller current. Pololu 3073 style pair-derived R against a terminal resistance is the realistic case. (2) Where no duty limit is fixed the two are one figure, and the inequality has no rounding allowance: the Precision Microdrives pair 0.114 A (data sheet) and 3.7 V / 32.4 ohm = 0.1142 A passes one way round and is refused the other (checked through the loader); likewise 1.575 against 1.57. This is a small risk because a writer who holds one figure copies it, but it is real. Stall figures at different top voltages (the pack's nominal for one, its top for the other) are against both definitions and rightly refused.
+- A regulating driver that caps only the full-duty figure is judged as the card says; reading peak_stall_current as the regulated level is against its definition (top voltage over terminal resistance). Agree.
+
+SOURCES
+- OpenStax gives I = V/R at stall and nothing about duty; the duty average is the repo's sizing standards section 6 (checked: D x V_supply in brake mode) and D at most 1 is trivial. Adequate for a one-line consequence of two definitions; the card is honest that these steps are its reading.
+
+EXAMPLES
+- Arithmetic checks: 6 V / 1.5 A = 4 ohm; 7.2 / 4 = 1.8 A; 0.75 x 1.8 = 1.35 A; the swap fails correctly. Pololu 3073 stall 1.5 A at 6 V verified. The 0.75 duty is the library limit in sizing standards section 6 (300 of 400), whose source the drafter says it did not open; I checked the repo text only. Minor: the example takes 7.2 V (the nominal) as the supply's top, while the definition says the highest voltage; the card says so, and it changes only numbers. The run-4 pair for the same motor is 2.1 A at 8.4 V and 1.575 A, a better example if the owner wants one.
+
+REACH
+- Stated honestly: zero by name in the held law set, no real plan writes peak_stall_current. Its value is guarding the swap the two-name ruling creates; low risk, low yield. Node-pattern laws are judged on interface nodes too; no real interface holds both names.
+- Dropped laws: agree with leaving out a summed stall form and a peak-draw and margin form.
+"""

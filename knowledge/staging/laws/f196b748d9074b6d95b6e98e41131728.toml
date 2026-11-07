@@ -144,3 +144,26 @@ REACH (how little it covers; do not read more into it)
 - Overlap: none. Check 4 holds stall_current to a current_limit; this law holds stall_current to
   the rated pair, and reads no limit.
 """
+
+[review]
+by = "claude-sonnet-5-5"
+verdict = "reject"
+findings = """
+Adversarial review, 07.11.2026. Verdict: reject. The law refuses correct designs in ordinary cases, not only at the edges, and the card's own reading of its tolerance leaves no way round it.
+
+REFUSES A CORRECT DESIGN (each run through the loader's own evaluate)
+- Rounding. The inequality allows nothing, and equality with the exact scaling is the normal case. Rated 1.5 A at 6 V, stall_voltage 6.3 V: the exact scaled stall is 1.575 A. Written 1.58 it passes, written 1.57 (3 figures, rounded down) it is refused, a miss of 0.03 on a correct value. Any written stall that is the scaled value rounded down fails, so roughly half of non-terminating correct values would be refused. The card names this ("rounded down it is refused") and accepts it; for the headline law that is not an edge case. The pass example sits exactly on the boundary (10.8 = 10.8), which hides it.
+- Series resistance. A stall computed honestly with the driver in the path is lower than the Ohm scaling of the data sheet's pair. DRV8838 (SLVSBA4F, section 6.5 table, checked): HS+LS rDS(on) 280 mohm typical, 330 mohm maximum. 7.2 V over (4 + 0.28) ohm = 1.68 A against the scaled 1.8 A: refused. A pack's internal resistance does the same. The card dismisses brush and switch drops as "the refused side", but a stall that includes them is a correct figure under the definition (the current at the motor's terminals).
+- Hot winding (a stall 1.8 A / 1.23 for a 60 K rise) and a current-regulating driver are refused; the card says so. No name marks either, so no unless can excuse them. These are three independent classes of correct design, none excusable.
+The law cannot tell a stall that is low because the writer forgot to scale from one that is low because it is modelled better. That is the whole content of the check and the reason an inequality in this direction cannot be made safe at this tolerance class.
+
+OTHER FINDINGS
+- The unless duty_cycle excuse removes every duty-limited design, which is the design the law's definitions are built around; what remains judged is the full-duty case. Reach statement is honest about this and about zero real plans writing stall_voltage. Real interface drivetrain.motor (kind interface) holds rated_stall_current 1.6, stall_current 1.44, rated_voltage 6 and no stall_voltage, so it is unchecked; had it written 5.4 V the pair is exact (8.64 = 8.64), which again sits on the boundary.
+- Node-pattern laws are judged on interface nodes (only members and edge laws excuse them). Not a defect of this card alone, but run 4's interface node carries this card's inputs.
+- Consistency with the approved definitions: sound. rated_stall_current and stall_voltage are used as defined; the Ohm scaling is the repo's own sizing standards section 5 model (R = V_rated / I_stall, stall at V is V / R), which I checked.
+- Source: OpenStax College Physics 2e 23.6, quotes verified verbatim (zero back emf at start, maximum current, I = V/R = 48.0 V / 0.400 ohm = 120 A, Figure 23.24). It supports a stalled winding being a resistor; the proportionality to voltage between two points of one motor, and the duty-average step, are the card's and the standards' own reading, as the card says. Adequate for the physics, not for the claim that a data sheet pair fixes R.
+- Examples: Pololu 3073 checked (6 V, 650 RPM, 150 mA, 0.74 kg.cm, 1.5 A, marked stall extrapolation and theoretical values). Pass 1.8 A and fail 1.5 A are right for the right reason. The 7.2 V pack is the nominal, not the top (the definitions use the top); acknowledged on the card.
+- Dropped laws: agree with leaving the summed stall forms out.
+
+WHAT WOULD CHANGE THE VERDICT: a form that tolerates modelling and rounding. The model tolerance class (equality within a stated share of the right side) would admit rounding, a driver's rDS(on) and a small thermal rise, at the price of also refusing a conservative overstated stall by more than the share; or the owner may accept the three refusal classes at warn knowingly. As drafted I cannot call it safe.
+"""
