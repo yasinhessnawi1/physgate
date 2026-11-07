@@ -115,8 +115,10 @@ def test_the_session_s_own_directories_are_private(tmp_path: Path) -> None:
 
 
 def test_the_raw_session_s_shell_is_denied_its_credential_files_by_the_os_layer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    # A sandboxed session's worktree may not lie in a place the OS layer makes writable,
+    # where pytest's own temporary directories are; the installer refuses one there.
     import subprocess
 
     from physgate.hooks.cli import add_parser
@@ -129,11 +131,11 @@ def test_the_raw_session_s_shell_is_denied_its_credential_files_by_the_os_layer(
         return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
 
     monkeypatch.setattr(subprocess, "run", capture)
-    worktree = tmp_path / "worktree"
+    worktree = outside_tmp / "worktree"
     worktree.mkdir()
-    sdir = tmp_path / "session"
+    sdir = outside_tmp / "session"
     raw._install(
-        _setup(tmp_path, tmp_path / "claude"), worktree, sdir, Path("/tmp/pg-0123456789ab")
+        _setup(outside_tmp, outside_tmp / "claude"), worktree, sdir, Path("/tmp/pg-0123456789ab")
     )
     monkeypatch.undo()
     parser = argparse.ArgumentParser()
