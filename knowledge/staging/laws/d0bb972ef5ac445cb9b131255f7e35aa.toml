@@ -64,8 +64,8 @@ HOW IT BINDS (node pattern)
 An instance forms on every node that declares overall_gear_ratio; judged where the node also
 declares gear_ratio and external_gear_ratio; otherwise unchecked. A node that writes only
 gear_ratio (the practice gearbox node, which writes 148.3 under gear_ratio meaning the whole
-train) forms no instance, so its double count is not refused here; that is RQ-P2-2's inherited
-flaw, read by the catalogue rows, not this card.
+train) forms no instance, so its double count is not refused here; that is a flaw the practice
+convention carries in, read by the catalogue rows, not this card.
 
 WHERE IT DOES NOT HOLD (refused at warn)
 - gear_ratio written as the whole train on a node that also writes overall_gear_ratio and
