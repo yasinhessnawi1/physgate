@@ -210,3 +210,44 @@ def test_a_route_that_starts_a_thread_is_refused(built: dict[str, Path], tmp_pat
     assert status == 500
     assert b"started a thread" in body
     assert not written.exists()
+
+
+# -- the engine catalogue, read at start --------------------------------------------------------
+
+
+@pytest.mark.parametrize("toward", ("held-out tier", "outside the checkout", "a credential"))
+def test_an_engine_catalogue_planted_as_a_link_is_refused_at_start_and_never_opened(
+    built: dict[str, Path], tmp_path: Path, toward: str
+) -> None:
+    """The catalogue is read once, at start, not by a route: a planted link is refused then.
+
+    Its route then answers 422 with the reason and none of the target's bytes, and nothing,
+    then or later, opens the target.
+    """
+    from dataclasses import replace
+
+    from physgate.orchestrator.credentials import LOGIN_FILE
+    from physgate.ui import engines
+
+    world = _world(built, tmp_path)
+    checkout = tmp_path / "checkout"
+    (checkout / "desktop" / "onboarding").mkdir(parents=True)
+    if toward == "held-out tier":
+        target = world["held"] / "target"
+    elif toward == "outside the checkout":
+        target = world["outside"] / "target"
+    else:
+        target = checkout / LOGIN_FILE
+        target.write_bytes(MARKER + b"\n")
+    (checkout / engines.CATALOGUE_FILE).symlink_to(target)
+    context = context_over(world["root"], ui_root=built["ui"], held_out=(str(world["held"]),))
+    with RECORDER.recording():
+        held = engines.load(checkout, context.allowlist)
+        with serving(replace(context, engines=held)) as live:
+            status, _, body = live.request("GET", "/api/engines")
+    assert held.state == "refused", held
+    assert status == 422, body[:200]
+    assert MARKER not in body
+    real_target = str(target.resolve())
+    tried = [p for p in RECORDER.opened if str(Path(p).resolve()) == real_target]
+    assert tried == [], f"the planted target was opened: {tried}"

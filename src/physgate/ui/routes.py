@@ -37,6 +37,7 @@ from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.run_config import load_run_config
 from physgate.state.schema import NODE_ID_PATTERN
 from physgate.ui.assets import Assets
+from physgate.ui.engines import ABSENT, CATALOGUE_FILE, EngineCatalogue
 from physgate.ui.exceptions import PathRefusedError, UIError
 from physgate.ui.guard import RouteKind, require_registered
 from physgate.ui.paths import Allowlist
@@ -78,12 +79,14 @@ class Context:
     """What every handler is given: the allowlist, the built app, and who acts, if anyone.
 
     ``operator`` is the name the server was started with; an action is recorded as theirs.
-    Without one, every action route is refused.
+    Without one, every action route is refused. ``engines`` is the checkout's engine catalogue
+    as the command read it at start, before listening; no request reads it again.
     """
 
     allowlist: Allowlist
     assets: Assets
     operator: str | None = None
+    engines: EngineCatalogue = ABSENT
 
 
 _body: ContextVar[bytes | None] = ContextVar("physgate_ui_request_body", default=None)
@@ -219,6 +222,28 @@ def asset(context: Context, params: Mapping[str, str]) -> Response:
         return error_response(404, "no such file in the built app")
     body, content_type = found
     return Response(200, body, content_type)
+
+
+def engine_catalogue(context: Context, params: Mapping[str, str]) -> Response:
+    """The engine catalogue read at start, from memory; never from disk here.
+
+    Its path inside the checkout, the bytes' digest and length, and their parse. A checkout
+    with none is a 404; one the start-time checks refused is a 422 with their sentence, so only
+    the screen's engine section shows an error, never the whole app.
+    """
+    held = context.engines
+    if held.state == "read":
+        return json_response(
+            {
+                "file": CATALOGUE_FILE,
+                "sha256": held.sha256,
+                "length": held.length,
+                "catalogue": held.value,
+            }
+        )
+    if held.state == "absent":
+        return error_response(404, "this checkout lists no engines")
+    return error_response(422, f"the engine catalogue could not be read: {held.reason}")
 
 
 def run_directories(allowlist: Allowlist) -> list[tuple[int, str, Path]]:
