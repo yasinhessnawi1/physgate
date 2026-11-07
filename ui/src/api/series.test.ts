@@ -104,8 +104,20 @@ const samples = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+/**
+ * ``guard()``, held to answering at all: a guard that refuses the whole answer fails here on an
+ * assertion, never as an error escaping the test.
+ */
+function whole<T>(guard: () => T): T {
+  let read: T | undefined;
+  expect(() => {
+    read = guard();
+  }).not.toThrow();
+  return read as T;
+}
+
 function readAttempt(value: unknown): ListedAttempt {
-  const listed = seriesListing({ tolerance: "0.005", attempts: [value] }).attempts[0];
+  const listed = whole(() => seriesListing({ tolerance: "0.005", attempts: [value] })).attempts[0];
   expect(listed?.kind, JSON.stringify(listed)).toBe("attempt");
   return listed as ListedAttempt;
 }
@@ -117,7 +129,8 @@ function readCheck(value: unknown): SeriesCheck {
 }
 
 function readShown(value: unknown): ShownRecord {
-  const found = attemptRecords({ subtask_id: "s1", attempt: 1, records: [value] }).records[0];
+  const found = whole(() => attemptRecords({ subtask_id: "s1", attempt: 1, records: [value] }))
+    .records[0];
   expect(found?.kind, JSON.stringify(found)).toBe("shown");
   return found as ShownRecord;
 }
@@ -135,7 +148,7 @@ describe("the routes", () => {
 
 describe("the run's listing", () => {
   it("reads an attempt, its sessions, records, checks and the tolerance as sent", () => {
-    const listing = seriesListing({ tolerance: "0.005", attempts: [attempt()] });
+    const listing = whole(() => seriesListing({ tolerance: "0.005", attempts: [attempt()] }));
     expect(listing.tolerance).toBe("0.005");
     const read = readAttempt(attempt());
     expect(read.subtaskId).toBe("s1-af41ca");
@@ -152,40 +165,42 @@ describe("the run's listing", () => {
 
   it("ignores a field it does not draw, at every level", () => {
     const extra = { a_field_added_later: { nested: [1, 2] } };
-    const listing = seriesListing({
-      tolerance: "0.005",
-      attempts: [
-        attempt({
-          ...extra,
-          sessions: [{ session_id: "s", outcome: "completed", attempt_commit: null, ...extra }],
-          records: [{ record_id: "r", session_id: "s", ...extra }],
-          superseded: [{ record_id: "r", session_id: "s0", ...extra }],
-          set_aside: [
-            { session_id: "s", kind: "refused", name: "n.json", reason: "why", ...extra },
-          ],
-          checks: [
-            check({
-              ...extra,
-              gate: [
-                {
-                  seq: 9,
-                  check: 2,
-                  name: "magnitude",
-                  outcome: "unchecked",
-                  gate_mode: "on",
-                  blocking: false,
-                  expected: null,
-                  low: null,
-                  high: null,
-                  ...extra,
-                },
-              ],
-            }),
-          ],
-        }),
-      ],
-      ...extra,
-    });
+    const listing = whole(() =>
+      seriesListing({
+        tolerance: "0.005",
+        attempts: [
+          attempt({
+            ...extra,
+            sessions: [{ session_id: "s", outcome: "completed", attempt_commit: null, ...extra }],
+            records: [{ record_id: "r", session_id: "s", ...extra }],
+            superseded: [{ record_id: "r", session_id: "s0", ...extra }],
+            set_aside: [
+              { session_id: "s", kind: "refused", name: "n.json", reason: "why", ...extra },
+            ],
+            checks: [
+              check({
+                ...extra,
+                gate: [
+                  {
+                    seq: 9,
+                    check: 2,
+                    name: "magnitude",
+                    outcome: "unchecked",
+                    gate_mode: "on",
+                    blocking: false,
+                    expected: null,
+                    low: null,
+                    high: null,
+                    ...extra,
+                  },
+                ],
+              }),
+            ],
+          }),
+        ],
+        ...extra,
+      }),
+    );
     const read = listing.attempts[0];
     expect(read?.kind).toBe("attempt");
     if (read?.kind !== "attempt") return;
@@ -232,20 +247,22 @@ describe("the run's listing", () => {
   });
 
   it("refuses one malformed check or attempt alone, and keeps the rest", () => {
-    const listing = seriesListing({
-      tolerance: "0.005",
-      attempts: [
-        attempt({
-          checks: [
-            check(),
-            check({ declared_unit: "" }),
-            check({ read_value: 1, read_unit: null }),
-          ],
-        }),
-        attempt({ attempt: "two" }),
-        attempt({ attempt: 3 }),
-      ],
-    });
+    const listing = whole(() =>
+      seriesListing({
+        tolerance: "0.005",
+        attempts: [
+          attempt({
+            checks: [
+              check(),
+              check({ declared_unit: "" }),
+              check({ read_value: 1, read_unit: null }),
+            ],
+          }),
+          attempt({ attempt: "two" }),
+          attempt({ attempt: 3 }),
+        ],
+      }),
+    );
     expect(listing.attempts.map((a) => a.kind)).toEqual(["attempt", "unread", "attempt"]);
     const first = listing.attempts[0];
     expect(first?.kind === "attempt" && first.checks.map((c) => c.kind)).toEqual([
@@ -342,37 +359,39 @@ describe("an attempt's records", () => {
   });
 
   it("reads a refused record as its own row, with the seal and what was found", () => {
-    const answer = attemptRecords({
-      subtask_id: "s1",
-      attempt: 1,
-      records: [
-        shown(),
-        {
-          record_id: "edge_01",
-          session_id: "sess-1",
-          sha256: "d".repeat(64),
-          length: 900,
-          record: "series/s1/1/sess-1/edge_01.json",
-          refused: "seal",
-          error: "the record's bytes are not the ones its session sealed",
-          sealed_sha256: "d".repeat(64),
-          sealed_length: 900,
-          found_sha256: "9".repeat(64),
-        },
-        {
-          record_id: "edge_02",
-          session_id: "sess-1",
-          sha256: "d".repeat(64),
-          length: 900,
-          record: "series/s1/1/sess-1/edge_02.json",
-          refused: "a_new_kind",
-          error: "why",
-          sealed_sha256: "d".repeat(64),
-          sealed_length: 900,
-          found_length: 12,
-        },
-      ],
-    });
+    const answer = whole(() =>
+      attemptRecords({
+        subtask_id: "s1",
+        attempt: 1,
+        records: [
+          shown(),
+          {
+            record_id: "edge_01",
+            session_id: "sess-1",
+            sha256: "d".repeat(64),
+            length: 900,
+            record: "series/s1/1/sess-1/edge_01.json",
+            refused: "seal",
+            error: "the record's bytes are not the ones its session sealed",
+            sealed_sha256: "d".repeat(64),
+            sealed_length: 900,
+            found_sha256: "9".repeat(64),
+          },
+          {
+            record_id: "edge_02",
+            session_id: "sess-1",
+            sha256: "d".repeat(64),
+            length: 900,
+            record: "series/s1/1/sess-1/edge_02.json",
+            refused: "a_new_kind",
+            error: "why",
+            sealed_sha256: "d".repeat(64),
+            sealed_length: 900,
+            found_length: 12,
+          },
+        ],
+      }),
+    );
     expect(answer.records.map((r) => r.kind)).toEqual(["shown", "refused", "refused"]);
     expect(answer.records[1]).toMatchObject({
       refused: "seal",
@@ -384,19 +403,21 @@ describe("an attempt's records", () => {
   });
 
   it("refuses one malformed record alone, by its id, and keeps the rest", () => {
-    const answer = attemptRecords({
-      subtask_id: "s1",
-      attempt: 1,
-      records: [
-        shown({ record_id: "no_unit", x: summary("time", "") }),
-        shown({ record_id: "bad_axis", axis: "space" }),
-        shown({ record_id: "infinite", traces: [summary("p", "m", { largest: "Infinity" })] }),
-        shown({ record_id: "short", traces: [summary("p", "m", { samples: 2 })] }),
-        shown({ record_id: "bare_input", inputs: { seed: 7 } }),
-        "not a row",
-        shown(),
-      ],
-    });
+    const answer = whole(() =>
+      attemptRecords({
+        subtask_id: "s1",
+        attempt: 1,
+        records: [
+          shown({ record_id: "no_unit", x: summary("time", "") }),
+          shown({ record_id: "bad_axis", axis: "space" }),
+          shown({ record_id: "infinite", traces: [summary("p", "m", { largest: "Infinity" })] }),
+          shown({ record_id: "short", traces: [summary("p", "m", { samples: 2 })] }),
+          shown({ record_id: "bare_input", inputs: { seed: 7 } }),
+          "not a row",
+          shown(),
+        ],
+      }),
+    );
     expect(answer.records.map((r) => [r.kind, r.recordId])).toEqual([
       ["unread", "no_unit"],
       ["unread", "bad_axis"],
@@ -416,9 +437,11 @@ describe("an attempt's records", () => {
 
 describe("a record's sealed bytes", () => {
   it("reads its axis and every column as recorded, a negative zero kept", () => {
-    const read = recordSamples(
-      JSON.parse(
-        '{"axis": "time", "x": {"name": "time", "unit": "s", "values": [0, 1e-05, 2]}, "traces": [{"name": "position", "unit": "m", "values": [-0.0, 0.123456789, 1]}], "extra": 1}',
+    const read = whole(() =>
+      recordSamples(
+        JSON.parse(
+          '{"axis": "time", "x": {"name": "time", "unit": "s", "values": [0, 1e-05, 2]}, "traces": [{"name": "position", "unit": "m", "values": [-0.0, 0.123456789, 1]}], "extra": 1}',
+        ),
       ),
     );
     expect(read.x.values).toEqual([0, 1e-5, 2]);
@@ -427,7 +450,7 @@ describe("a record's sealed bytes", () => {
   });
 
   it("never reads the record's inputs, so an integer it cannot hold exactly is never shown from here", () => {
-    expect(Object.keys(recordSamples(samples()))).toEqual(["axis", "x", "traces"]);
+    expect(Object.keys(whole(() => recordSamples(samples())))).toEqual(["axis", "x", "traces"]);
   });
 
   it.each([
