@@ -1055,6 +1055,9 @@ class PlanProposed(_Event):
     cause: NonEmptyStr | None = None
     started: Timestamp
     ended: Timestamp
+    #: The round's first call, or its second: made once, when the first's output was refused
+    #: by its schema. Left out of the line for a first call.
+    call: Literal[1, 2] = 1
 
     @model_validator(mode="after")
     def _a_plan_or_why_not(self) -> PlanProposed:
@@ -1069,7 +1072,27 @@ class PlanProposed(_Event):
         for absent in ("plan_sha256", "cause"):
             if data.get(absent) is None:
                 data.pop(absent, None)
+        if data.get("call") == 1:
+            data.pop("call", None)
         return data
+
+
+#: The one cause a decomposition call is made again for: its output refused by its schema.
+RETRIED_CAUSE = "schema_refused"
+
+
+class DecompositionRetried(_Event):
+    """A run that does not review its plan made its call again, once: the first was refused.
+
+    Written in the opening after the refused call's tokens and before the second call's: the
+    refused call's session and why. A second refusal fails the decomposition; nothing else is
+    retried, and no call a third time.
+    """
+
+    kind: Literal["decomposition_retried"] = "decomposition_retried"
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    cause: Literal["schema_refused"]
+    detail: NonEmptyStr
 
 
 class DesignUnavailable(BaseModel):
@@ -1527,6 +1550,7 @@ Event = Annotated[
     | IncidentResolved
     | Resumed
     | Decomposed
+    | DecompositionRetried
     | PlanProposed
     | DesignReviewRan
     | PlanRejected

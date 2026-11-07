@@ -464,12 +464,16 @@ def session_limits(run_dir: Path, session_id: str) -> Path:
 def limits_with(run_dir: Path, sha256: str) -> dict[str, object] | None:
     """The policy limits some invocation of the run received whose digest is ``sha256``.
 
-    The decomposition call's first, then each session's in name order; each file is held to the
-    digest, so whichever is found is exactly what the record names. ``None`` if none is.
+    The decomposition's calls first, round 1's before the rest, then each session's in name
+    order; each file is held to the digest, so whichever is found is exactly what the record
+    names. ``None`` if none is.
     """
     run_dir = Path(run_dir)
-    sessions = run_dir / SESSIONS_DIR
-    places = [run_dir / DECOMPOSITION_DIR / CONFIG_DIR / POLICY_LIMITS]
+    sessions, calls = run_dir / SESSIONS_DIR, run_dir / DECOMPOSITION_DIR
+    places = [calls / CONFIG_DIR / POLICY_LIMITS]
+    if calls.is_dir() and not calls.is_symlink():
+        # A later round's call, or a call made again, runs in a directory of its own beneath.
+        places += sorted(calls.rglob(f"{CONFIG_DIR}/{POLICY_LIMITS}"))
     if sessions.is_dir() and not sessions.is_symlink():
         places += sorted(p / CONFIG_DIR / POLICY_LIMITS for p in sessions.iterdir())
     for place in places:

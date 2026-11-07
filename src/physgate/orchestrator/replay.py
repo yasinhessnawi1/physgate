@@ -54,6 +54,7 @@ from physgate.orchestrator.escalation import (
 from physgate.orchestrator.escalation_state import EscalationState, escalation_state
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
+    RETRIED_CAUSE,
     ArbitrationDecided,
     AttemptRejected,
     AttemptReturned,
@@ -66,6 +67,7 @@ from physgate.orchestrator.events import (
     DecisionsSealed,
     DecisionTaken,
     Decomposed,
+    DecompositionRetried,
     DesignReviewRan,
     DiffChecked,
     DisputeRecorded,
@@ -438,6 +440,10 @@ class RunState:
         #: resolution's new ones, and moved by nothing else.
         self.policy_baseline: str | None = None
         self._baseline_taken = False
+        #: The rounds' first calls whose output was refused and that were made again, in turn.
+        self.retried_calls: list[PlanProposed] = []
+        #: A run that does not review its plan: its one call's refused first try, if it had one.
+        self.decomposition_retried: DecompositionRetried | None = None
         #: The incidents since the run last resumed: those of the halt a person resolves.
         self.open_incidents: list[Incident] = []
         #: A person's resolution of the halt that stands, if one is recorded since it.
@@ -605,6 +611,9 @@ class RunState:
             return
         if isinstance(event, PlanProposed):
             self._proposed(event)
+            return
+        if isinstance(event, DecompositionRetried):
+            self._retried(event)
             return
         if isinstance(event, Decomposed):
             if not self._baseline_taken:
@@ -841,22 +850,48 @@ class RunState:
             self._resume(sub, now, event.point)
 
     def _proposed(self, event: PlanProposed) -> None:
-        """Take a round's proposal: in turn, within the budget, its call its own session's."""
-        k = len(self.proposals) + 1
+        """Take a round's proposal: in turn, within the budget, its call its own session's.
+
+        A round's second call follows its first alone, once, where the first's output was refused
+        by its schema; it stands for the round in place of the refused one, which is kept apart.
+        """
+        last = self.proposals[-1] if self.proposals else None
+        retrying = event.call == 2
+        k = len(self.proposals) + (0 if retrying else 1)
         if not self.reviews_plan or self.design_review is not None or self.plan_sha256 is not None:
             _refuse(
                 "a round is proposed in a run that reviews its plan, before its plan is written"
             )
+        if retrying and (
+            last is None
+            or last.round != event.round
+            or last.call != 1
+            or last.cause != RETRIED_CAUSE
+        ):
+            _refuse("a round's second call follows its first alone, whose output was refused")
         if event.round != k or k > self.replans + 1 or len(self.earlier_reviews) != k - 1:
             _refuse("each round is proposed in turn, after its earlier round's review, in budget")
-        if event.session_id in {one.session_id for one in self.proposals}:
+        spent = [*self.proposals, *self.retried_calls]
+        if event.session_id in {one.session_id for one in spent}:
             _refuse("each round's call is a session of its own")
         if self.call_tokens - {f"decomposition:{event.session_id}"} or (
             event.plan_sha256 is not None and not self.call_tokens
         ):
             _refuse("a round's call tokens are its own session's, and a call that planned spent")
         self.call_tokens = set()
-        self.proposals.append(event)
+        if retrying and last is not None:
+            self.retried_calls.append(last)
+            self.proposals[-1] = event
+        else:
+            self.proposals.append(event)
+
+    def _retried(self, event: DecompositionRetried) -> None:
+        """Take a run's retried call: one that does not review its plan, once, before its plan."""
+        if self.reviews_plan or self.run_head is not None or self.decomposition_retried:
+            _refuse(
+                "a run that does not review its plan retries its one call once, before its plan"
+            )
+        self.decomposition_retried = event
 
     def _proposals_end(self, decomposed: Decomposed | None) -> None:
         """The opening's plan, or its failed decomposition, follows its last round's proposal.
