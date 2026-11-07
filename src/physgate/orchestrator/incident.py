@@ -32,9 +32,11 @@ from physgate.orchestrator.events import RULE, IncidentResolved
 from physgate.orchestrator.exceptions import RunStateError
 from physgate.orchestrator.managed import (
     PolicyEntry,
+    UnshowableKeyError,
     diff_lines,
     limits_with,
     policy_diff,
+    policy_limits_change,
     read_limits,
     session_limits,
 )
@@ -55,6 +57,8 @@ class Proposed(NamedTuple):
     new_sha256: str | None
     changes: tuple[PolicyEntry, ...]
     omitted: int
+    #: The incident's own words, which are the policy-limits check's for these two digests.
+    detail: str
 
 
 def proposed(state: RunState, run_dir: Path) -> Proposed:
@@ -81,7 +85,7 @@ def proposed(state: RunState, run_dir: Path) -> Proposed:
     sub = state.subtasks.get(incident.subtask_id or "")
     ended = sub.attempts[-1].session if sub is not None and sub.attempts else None
     old, new = state.policy_baseline, ended.policy_limits_sha256 if ended else None
-    if sub is None or ended is None or new == old:
+    if sub is None or ended is None or incident.detail != policy_limits_change(old, new):
         msg = (
             "the incident is not a change of the policy limits a session's end shows: other "
             "managed settings changed, and a person looks at those without this command"
@@ -92,8 +96,14 @@ def proposed(state: RunState, run_dir: Path) -> Proposed:
     if (old is not None and before is None) or (new is not None and after is None):
         msg = "the policy limits the record names are not on disk as it names them"
         raise RunStateError(msg, baseline=str(old), session=ended.session_id, found=str(new))
-    changes, omitted = policy_diff(before, after)
-    return Proposed(sub.plan.subtask_id, ended.session_id, old, new, changes, omitted)
+    try:
+        changes, omitted = policy_diff(before, after)
+    except UnshowableKeyError as exc:
+        msg = "the policy limits hold a key that cannot be shown as written: not resolved here"
+        raise RunStateError(msg, reason=str(exc)) from None
+    return Proposed(
+        sub.plan.subtask_id, ended.session_id, old, new, changes, omitted, incident.detail
+    )
 
 
 def shown(change: Proposed) -> list[str]:
@@ -101,6 +111,7 @@ def shown(change: Proposed) -> list[str]:
     lines = [
         f"session {change.session_id} of subtask {change.subtask_id} received other policy "
         "limits than the run's",
+        f"incident: {change.detail}",
         f"before: {change.old_sha256 or 'no policy limits'}",
         f"after:  {change.new_sha256 or 'no policy limits'}",
     ]

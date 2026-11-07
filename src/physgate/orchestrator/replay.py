@@ -124,6 +124,7 @@ from physgate.orchestrator.exceptions import (
     RunStateError,
 )
 from physgate.orchestrator.follow import rederived
+from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR, CriterionWords, SystemRequirement
 from physgate.orchestrator.protocols import ChosenValue, QuantityRef
 from physgate.orchestrator.queue import DECOMPOSITION_NAME, PLAN, contract_item_id, item_id_for
@@ -2044,6 +2045,8 @@ class RunState:
                 and self.open_incidents == [incident]
                 and incident.cause == "managed_settings_changed"
                 and incident.subtask_id == event.subtask_id
+                # The policy-limits check's own words for these two digests: no other drift.
+                and incident.detail == policy_limits_change(self.policy_baseline, event.new_sha256)
                 and (self.resolved is None or self.resolved.seq < halted.seq)
             )
             if not lone:

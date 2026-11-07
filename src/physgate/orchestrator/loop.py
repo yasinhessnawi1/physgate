@@ -142,6 +142,7 @@ from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.held_records import record_change, second_names, unaccounted
 from physgate.orchestrator.integration_state import issued_state
 from physgate.orchestrator.managed import (
+    UnshowableKeyError,
     limits_with,
     policy_diff,
     policy_limits_change,
@@ -1937,7 +1938,10 @@ class Loop:
         after = read_limits(session_limits(self.run_dir, report.session_id), now)
         if before is None or after is None:
             return None
-        changes, omitted = policy_diff(before, after)
+        try:
+            changes, omitted = policy_diff(before, after)
+        except UnshowableKeyError:
+            return None
         if not stricter_only(changes, omitted):
             return None
         return IncidentResolved(

@@ -37,7 +37,14 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 from physgate.orchestrator.budget import SessionEnd
 from physgate.reviewers.transcript import SYNTHETIC_MODEL
@@ -291,6 +298,22 @@ ALLOWED = "allowed"
 MAX_ENTRIES = 200
 
 
+class UnshowableKeyError(ValueError):
+    """A key of the policy limits holds a character a terminal would not show as written."""
+
+
+def _shown_key(key: str) -> str:
+    """``key``, if every character of it prints as itself: no control or format character."""
+    if not key.isprintable():
+        msg = f"a policy key holds a character that does not print as itself: {json.dumps(key)}"
+        raise UnshowableKeyError(msg)
+    return key
+
+
+#: One key of a path, as the record holds it: bounded, and printable as written.
+PolicyKey = Annotated[str, StringConstraints(max_length=256), AfterValidator(_shown_key)]
+
+
 class PolicyEntry(BaseModel):
     """One key whose value differs between two sets of policy limits, as the record shows it.
 
@@ -302,7 +325,7 @@ class PolicyEntry(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     path: Annotated[
-        tuple[Annotated[str, StringConstraints(max_length=256)], ...],
+        tuple[PolicyKey, ...],
         Field(min_length=1, max_length=16),
     ]
     before: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None
@@ -344,8 +367,15 @@ def policy_diff(
 
     ``None`` is no file: every key of the other side differs. Values are compared as read, and
     recorded as :func:`shown` shows them.
+
+    Raises:
+        UnshowableKeyError: a key of either side holds a control or format character, which a
+            terminal would not print as written: such limits are never shown, and never ruled on.
     """
     old, new = _leaves(before or {}), _leaves(after or {})
+    for path in old.keys() | new.keys():
+        for key in path:
+            _shown_key(key)
     differ = sorted(
         p
         for p in old.keys() | new.keys()
@@ -386,7 +416,9 @@ def diff_lines(entries: tuple[PolicyEntry, ...], omitted: int) -> list[str]:
     """The change as a person reads it, a line per key: ``+`` added, ``-`` gone, ``~`` changed."""
     lines = []
     for entry in entries:
-        key = ".".join(entry.path)
+        # Each key as JSON writes it, every character past ASCII escaped: what is printed is
+        # what the file holds, and nothing in a key can move or rewrite the line it is on.
+        key = ".".join(json.dumps(part) for part in entry.path)
         if entry.before is None:
             lines.append(f"+ {key}: {entry.after}")
         elif entry.after is None:
