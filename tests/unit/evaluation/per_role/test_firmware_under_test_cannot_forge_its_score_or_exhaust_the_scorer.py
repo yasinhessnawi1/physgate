@@ -302,7 +302,10 @@ def test_a_forbidden_state_on_a_piped_line_fails_its_window(tmp_path: Path) -> N
     from physgate.evaluation.per_role.task import parse_task
 
     raw = json.loads(_task().model_dump_json())
-    ms = lambda v: {"value": v, "unit": "ms"}  # noqa: E731
+
+    def ms(v: float) -> dict[str, object]:
+        return {"value": v, "unit": "ms"}
+
     raw["firmware"]["probes"].append(
         {
             "name": "pump_on_while_blind",

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ import pytest
 from control_fixtures import GOOD_PID, control_task, controller
 
 from physgate.evaluation.per_role import author_session
+from physgate.evaluation.per_role import validate as validate_module
 from physgate.evaluation.per_role.arms.raw import RawSetup
 from physgate.evaluation.per_role.author_session import (
     QUESTIONS,
@@ -126,7 +128,7 @@ def _tasks(count: int, broken: int = 0) -> Any:
 
 
 def _plan(tmp_path: Path, **changes: Any) -> AuthoringPlan:
-    base = {
+    base: dict[str, Any] = {
         "role": "control",
         "implementer_model": "claude-opus-5-5",
         "work": tmp_path / "scratch" / "work",
@@ -396,6 +398,7 @@ def test_a_held_out_tier_already_there_is_never_written_over(
 
 
 def _held_tier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AuthoringPlan:
+    plan: AuthoringPlan
     plan, _, _ = _run(tmp_path, monkeypatch, _tasks(16))
     return plan
 
@@ -549,14 +552,15 @@ def test_a_failing_session_leaves_nothing_it_wrote_outside_the_protected_root(
 def test_a_cleanup_that_cannot_remove_the_work_refuses_loudly_and_reports_no_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    real = author_session.shutil.rmtree
+    # The module's own shutil is this one: patched here, it is patched there.
+    real = shutil.rmtree
 
     def stuck(path: Any, *args: Any, **kwargs: Any) -> None:
         if Path(path).name == "work":
             raise PermissionError(f"cannot remove {path}")
         real(path, *args, **kwargs)
 
-    monkeypatch.setattr(author_session.shutil, "rmtree", stuck)
+    monkeypatch.setattr(shutil, "rmtree", stuck)
     with pytest.raises(AuthoringError, match="could not be removed"):
         _run(tmp_path, monkeypatch, _tasks(16))
 
@@ -568,7 +572,8 @@ def test_half_a_tier_that_cannot_be_removed_refuses_loudly_after_securing_the_st
         visible.mkdir(parents=True)
         raise OSError("the disk filled part-way")
 
-    real = author_session.shutil.rmtree
+    # The module's own shutil is this one: patched here, it is patched there.
+    real = shutil.rmtree
 
     def stuck(path: Any, *args: Any, **kwargs: Any) -> None:
         if Path(path).name == "visible":
@@ -576,7 +581,7 @@ def test_half_a_tier_that_cannot_be_removed_refuses_loudly_after_securing_the_st
         real(path, *args, **kwargs)
 
     monkeypatch.setattr(author_session, "split", half_a_split)
-    monkeypatch.setattr(author_session.shutil, "rmtree", stuck)
+    monkeypatch.setattr(shutil, "rmtree", stuck)
     with pytest.raises(AuthoringError, match="visible") as raised:
         _run(tmp_path, monkeypatch, _tasks(16))
     assert "remove these by hand" in str(raised.value)
@@ -603,7 +608,8 @@ def test_what_is_validated_shares_no_file_with_what_the_session_left(
     # A file shared with the worktree could be changed, after its check, by anything the
     # session left behind; staging is checked as it is when it is validated.
     seen: list[tuple[str, int]] = []
-    real = author_session.sound
+    # The author session calls the validator's own function, imported by name.
+    real = validate_module.sound
 
     def inspecting(staging: Path) -> list[str]:
         seen.extend((str(p), p.lstat().st_nlink) for p in staging.rglob("*") if not p.is_dir())

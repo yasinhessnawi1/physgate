@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -262,7 +263,7 @@ def test_the_wilson_interval_is_the_closed_form(
 def test_a_bootstrap_is_the_same_for_its_seed_and_label_and_apart_from_others() -> None:
     groups = [[0.0, 0.2, 0.4, 0.6, 1.0, 1.0, 0.8, 0.2]]
 
-    def mean(sample: Any) -> float:
+    def mean(sample: Sequence[Sequence[float]]) -> float:
         return sum(sample[0]) / len(sample[0])
 
     one = cluster_bootstrap(groups, mean, seed=3, label="a", draws=500)
