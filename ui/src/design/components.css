@@ -383,6 +383,15 @@ kbd,
   color: var(--color-surface);
 }
 
+/* A state that is not recorded as reached, such as an engine not offered yet: a dashed neutral
+   outline, as a queued banner is drawn. The unchecked verdict's colours are its own. */
+.pg-status-dashed {
+  border-style: dashed;
+  border-color: var(--color-border-strong);
+  background: transparent;
+  color: var(--color-text-2);
+}
+
 @keyframes pg-live-pulse {
   0%,
   100% {
