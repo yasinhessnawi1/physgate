@@ -211,7 +211,7 @@ describe("the sentences the screen says", () => {
   });
 
   it("names the menus where things are set, and no command", () => {
-    expect(SETTINGS_COPY.engineChosenWhere ?? "").toContain("physgate menu → Engine…");
+    expect(SETTINGS_COPY.engineChosenWhere).toContain("physgate menu → Engine…");
     expect(SETTINGS_COPY.operatorWhere).toBe("In the desktop app: physgate menu → Operator Name…");
   });
 
@@ -222,8 +222,8 @@ describe("the sentences the screen says", () => {
       "defaultGateMode",
       "defaultTokenCeiling",
     ] as const)
-      expect(SETTINGS_COPY[key] ?? "", key).toMatch(/A default kept here is coming\.$/);
-    expect(SETTINGS_COPY.defaultReviewer ?? "").toContain(
+      expect(SETTINGS_COPY[key], key).toMatch(/A default kept here is coming\.$/);
+    expect(SETTINGS_COPY.defaultReviewer).toContain(
       "the harness refuses it when the reviewer starts",
     );
   });
