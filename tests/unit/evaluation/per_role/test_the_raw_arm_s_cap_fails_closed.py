@@ -158,6 +158,23 @@ def test_a_watch_whose_thread_is_gone_stops_the_session(
     assert _end(watch) == "watch_stalled"
 
 
+def test_a_guard_that_cannot_look_stops_the_session(
+    tmp_path: Path, session: subprocess.Popen[bytes], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stream = tmp_path / "stdout.jsonl"
+    stream.write_text("")
+
+    def blind(_self: BudgetWatch) -> None:
+        raise PermissionError("the stream's directory cannot be looked at")
+
+    monkeypatch.setattr(BudgetWatch, "_hold_loop", blind, raising=False)
+    watch = _start(stream, session, cap=10**6)
+    stopped = _ended_within(session)
+    watch.stop()
+    assert stopped, "a guard that could not look left the session running"
+    assert _end(watch) == "watch_failed"
+
+
 def test_a_stream_that_never_appears_stops_the_session(
     tmp_path: Path, session: subprocess.Popen[bytes], monkeypatch: pytest.MonkeyPatch
 ) -> None:
