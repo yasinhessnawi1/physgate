@@ -266,11 +266,10 @@ def root_canaries(root: Path) -> tuple[str, ...]:
     """Every canary the lists the harness wrote under ``root`` name; none while it holds none.
 
     A split leaves each held-out tier's list beside it, as ``<tier>.canaries.json``, and a
-    tier may hold one as ``canaries.json``, at any depth, in any case
-    (:func:`_names_a_list`). :data:`_SESSION_FOLDERS` are not
-    entered: what a session wrote is no list of ours. Of everything else only names are
-    looked at, by the runner, never a task; the pool's tasks carry no canary yet. A link is
-    judged as the list it is named as, and never followed.
+    tier may hold one as ``canaries.json``, at any depth, in any case. :data:`_SESSION_FOLDERS`
+    are not entered: what a session wrote is no list of ours. Of everything else only names
+    are looked at, by the runner, never a task; the pool's tasks carry no canary yet. A link
+    is judged as the list it is named as, and never followed.
 
     Raises:
         AuthoringError: a list cannot be taken whole (:func:`_canary_list`), or a directory
