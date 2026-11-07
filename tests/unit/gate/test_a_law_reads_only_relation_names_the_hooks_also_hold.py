@@ -150,7 +150,7 @@ def test_the_relation_names_are_the_relations_and_the_laws_names_and_nothing_els
     table = laws_module().load_laws()
     from_relations = {name for entry in written.values() for name in entry.names}
     staged = {name for names in staged_input_names().values() for name in names}
-    assert UNGUARDED == set()
+    assert not UNGUARDED
     assert "rated_output_power" in from_relations
     assert set(RELATION_NAMES) == (
         (from_relations - UNGUARDED) | set(table.input_names()) | staged | FOR_LAWS
