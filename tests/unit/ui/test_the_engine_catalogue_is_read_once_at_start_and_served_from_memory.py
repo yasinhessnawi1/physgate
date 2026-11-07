@@ -338,9 +338,20 @@ def test_a_catalogue_that_fails_a_check_is_refused_with_its_reason(
         ("k" * SHOWN_KEY, "'" + "k" * SHOWN_KEY + "'"),
         ("k" * (SHOWN_KEY + 1), "'" + "k" * SHOWN_KEY + "\N{HORIZONTAL ELLIPSIS}'"),
         ("k" * 30_000, "'" + "k" * SHOWN_KEY + "\N{HORIZONTAL ELLIPSIS}'"),
+        (
+            "k" * (SHOWN_KEY - 1) + "\x1b",
+            "'" + "k" * (SHOWN_KEY - 1) + "\\\N{HORIZONTAL ELLIPSIS}'",
+        ),
         ("it's", "'it's'"),
     ],
-    ids=["short", "exactly as long as is shown", "one longer", "as long as the file", "a quote"],
+    ids=[
+        "short",
+        "exactly as long as is shown",
+        "one longer",
+        "as long as the file",
+        "longer only once escaped",
+        "a quote",
+    ],
 )
 def test_a_repeated_key_is_named_in_the_one_shape_and_cut_short(
     tmp_path: Path, key: str, shown: str
