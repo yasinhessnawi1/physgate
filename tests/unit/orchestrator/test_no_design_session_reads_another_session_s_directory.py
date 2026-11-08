@@ -12,6 +12,7 @@ configuration itself, not through a tool, so that is not refused.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import os
 import subprocess
@@ -29,12 +30,14 @@ from physgate.hooks.shell import parse
 from physgate.orchestrator import dispatch
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.ports import SessionRequest
+from physgate.orchestrator.protocols import IssuedState
 from physgate.oslayer.policy import sandbox_policy
 
 PROFILES = ("role", "baseline")
 #: A sibling session's login, as the subscription mode writes it.
 TOKEN = "sk-ant-oat01-not-a-credential-0c9d"
 SID = "7a6b5c4d-own-session"
+ISSUED = b"# Integration's issued state\n\nThe stand-in.\n"
 
 
 def _argv(base: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -74,6 +77,12 @@ def _argv(base: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
             model="claude-opus-5-5",
             repair_instruction=None,
             bounds=SCRIPTED_BOUNDS,
+            # Integration's issued state: the one file a session reads in its own directory.
+            issued_state=IssuedState(
+                text=ISSUED.decode(),
+                sha256=hashlib.sha256(ISSUED).hexdigest(),
+                length=len(ISSUED),
+            ),
         )
         worktree = base / "run" / "worktrees" / "s1"
         worktree.mkdir(parents=True, exist_ok=True)
@@ -158,17 +167,54 @@ def test_the_os_layer_denies_every_read_of_a_sibling_session_s_directory(
     assert not covered(str(login), fs["allowRead"]), fs["allowRead"]
 
 
+def _issued(base: Path) -> Path:
+    (found,) = (base / "run" / "sessions" / SID / "issued").iterdir()
+    return found
+
+
 @pytest.mark.parametrize("profile", PROFILES)
-def test_a_session_still_reads_its_own_home(
+def test_a_session_still_reads_what_it_is_given_in_its_own_directory(
     base: Path, monkeypatch: pytest.MonkeyPatch, profile: str
 ) -> None:
     config = _installed(base, monkeypatch, profile)
-    home = base / "run" / "sessions" / SID / "home"
-    note = home / "notes.txt"
+    issued = _issued(base)
+    assert issued.read_bytes() == ISSUED
+    assert paths.protection(str(issued), config.worktree, config, writing=False) is None
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_nothing_else_of_its_own_directory_is_read_not_even_its_home(
+    base: Path, monkeypatch: pytest.MonkeyPatch, profile: str
+) -> None:
+    config = _installed(base, monkeypatch, profile)
+    own = base / "run" / "sessions" / SID
+    note = own / "home" / "notes.txt"
     note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text("mine\n")
-    assert paths.protection(str(note), config.worktree, config, writing=False) is None
-    assert shell_paths.check(parse(f"cat {note}")[0], config.worktree, config) is None
+    for path in (note, own / "config", own / "issued"):
+        assert paths.protection(str(path), config.worktree, config, writing=False) is not None, path
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("kind", ["symlink", "hard link"])
+def test_a_link_in_its_own_directory_to_a_sibling_s_login_is_refused(
+    base: Path, monkeypatch: pytest.MonkeyPatch, profile: str, kind: str
+) -> None:
+    config = _installed(base, monkeypatch, profile)
+    login, _ = _sibling(base)
+    home = base / "run" / "sessions" / SID / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    issued = _issued(base)
+    issued.unlink()
+    # In its home, and in the very place of the file it is given to read.
+    for link in (home / "login.json", issued):
+        if kind == "symlink":
+            link.symlink_to(login)
+        else:
+            os.link(login, link)
+        assert paths.protection(str(link), config.worktree, config, writing=False) is not None, link
+        command = parse(f"cat {link}")[0]
+        assert shell_paths.check(command, config.worktree, config) is not None, link
 
 
 def test_the_dispatcher_s_install_names_the_run_s_sessions(
