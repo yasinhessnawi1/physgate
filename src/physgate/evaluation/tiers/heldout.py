@@ -8,10 +8,11 @@ all) is itself a problem, never a pass. What is checked:
 - **the root:** the run names it, as its real absolute path, and it is a real directory;
 - **the tier:** it is the bytes the run recorded, its digest recomputed now from what is on
   disk with no link followed (a link anywhere in it refuses the run), never taken from the
-  tier's own digest file; it holds only task directories, each named as its task, and its
-  digest file, which must agree too; every task loads whole (every field, unit,
-  reference and the tier marker, unknown fields refused), is marked held out, and carries
-  a canary; the canaries are exactly the run's, each carried once;
+  tier's own digest file; it holds only task directories, each named as its task, its
+  digest file, which must agree too, and its canary list, which must name exactly the
+  canaries its tasks carry; every task loads whole (every field, unit, reference and the
+  tier marker, unknown fields refused), is marked held out, and carries a canary; the
+  canaries are exactly the run's, each carried once;
 - **the visible tier:** it is apart from the held-out tier, neither inside it nor around it,
   and no task id is both visible and held out, however it is spelt;
 - **the places:** no place a session works in or reads is the root, lies under it or
@@ -31,6 +32,8 @@ import stat
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from pydantic import TypeAdapter, ValidationError
+
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.authoring import (
     CANARIES_NAME,
@@ -38,12 +41,14 @@ from physgate.evaluation.tiers.authoring import (
     AuthoringError,
     _open_chain,
 )
-from physgate.evaluation.tiers.task import load_task, task_from_files
+from physgate.evaluation.tiers.task import Canary, load_task, task_from_files
 from physgate.hooks.paths import reaches
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 from physgate.oslayer.policy import sandbox_policy
 
 PROFILES = ("role", "reviewer", "baseline")
+#: What a tier's canary list holds: canaries, and nothing else.
+_LISTED: TypeAdapter[list[str]] = TypeAdapter(list[Canary])
 
 
 def _relation(place: Path, root: Path) -> str | None:
@@ -183,7 +188,7 @@ def _tier_problems(
     for path, data in files.items():
         top, _, rest = path.partition("/")
         if not rest:
-            if top != SUMS_NAME:
+            if top not in (SUMS_NAME, CANARIES_NAME):
                 problems.append(f"the tier holds {top!r}, which is not a task")
             continue
         tasks.setdefault(top, {})[rest] = data
@@ -208,7 +213,24 @@ def _tier_problems(
         problems.append(f"no held-out task carries the run's canary {canary[:4]}…")
     if len(carried) != len(set(carried)):
         problems.append("two held-out tasks carry the same canary")
+    if CANARIES_NAME in files:
+        problems += _list_problems(files[CANARIES_NAME], carried)
     return problems, ids
+
+
+def _list_problems(listed: bytes, carried: list[str]) -> list[str]:
+    """Whether the tier's canary list names exactly the canaries its tasks carry, once each.
+
+    A list that says less would leave a session looking for too little, so anything else
+    is a problem, however it differs.
+    """
+    try:
+        named = _LISTED.validate_json(listed)
+    except ValidationError:
+        return ["the tier's canary list is not a list of canaries"]
+    if len(named) != len(set(named)) or set(named) != set(carried):
+        return ["the tier's canary list does not name exactly the canaries its tasks carry"]
+    return []
 
 
 def _visible_problems(visible: Path, root: Path, held_ids: set[str]) -> list[str]:
