@@ -312,12 +312,23 @@ def _own_reading(path: str, place: str) -> bool:
     ``place`` (as given or resolved), never case-folded, and the path is no symbolic link and no
     file with a second name: a link made in the session's own directory to another session's file
     is not the file it was given to read.
+
+    Every allowance lies where no command of the session writes (never in its home), so a path
+    there that does not exist reads nothing and cannot be made: it is no refusal. Nor is a
+    search-path list that starts with one (``<bin>:/usr/bin``, as ``$PATH`` expands), which names
+    no file of its own there.
     """
-    places = _spellings(place)
-    if not all(any(_under(s, p) for p in places) for s in (path, os.path.realpath(path))):
+    places = [p.rstrip("/") for p in _spellings(place)]
+
+    def beneath(spelling: str) -> bool:
+        return any(_under(spelling, p) or spelling.startswith(p + ":") for p in places)
+
+    if not (beneath(path) and beneath(os.path.realpath(path))):
         return False
     try:
         st = os.lstat(path)
+    except FileNotFoundError:
+        return True
     except OSError:
         return False
     return not stat.S_ISLNK(st.st_mode) and not (stat.S_ISREG(st.st_mode) and st.st_nlink > 1)
