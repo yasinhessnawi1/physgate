@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 from stand_in_roles import register
-from ui_rig import escalated_run, real_runs
+from ui_rig import contract_run, escalated_run, real_runs, unavailable_run
 from ui_three_mode_rig import cut_after_first_gate_stage, three_mode_runs, two_domain_run
 
 #: The escalated runs the Queue view's browser tests use, one per test that decides, so no test
@@ -57,6 +57,10 @@ def escalated(out: Path, runs: Path) -> None:
     window.write_bytes(b"".join(lines[: spawned + 1]))
     # One run that acts on decisions, so its item says what approve and reject will do.
     escalated_run(out, "run-esc-act", acts=True)
+    # The two kinds of item a person met in a recorded run: a failed contract's, with its two
+    # positions, and a review that reached no verdict.
+    contract_run(out, "run-contract")
+    unavailable_run(out, "run-unavailable")
 
 
 def main(argv: list[str]) -> int:
