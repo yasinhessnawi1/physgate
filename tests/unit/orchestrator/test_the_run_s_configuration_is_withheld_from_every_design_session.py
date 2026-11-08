@@ -110,12 +110,11 @@ def test_no_file_the_run_writes_that_a_role_session_could_read_holds_a_canary(
     # plan review; then the record a running review leaves when its command is killed.
     import replan_rig
     from replan_rig import Step, decompose
+    from test_the_physgate_command_starts_and_decides import PARAMS
 
     from physgate.orchestrator.decomposition_review import review_spawned
 
-    monkeypatch.setattr(
-        replan_rig, "PARAMS", {**replan_rig.PARAMS, "held_out_canaries": list(CANARIES)}
-    )
+    monkeypatch.setattr(replan_rig, "PARAMS", {**PARAMS, "held_out_canaries": list(CANARIES)})
     ran = decompose(tmp_path, "on", [Step(review="pass")])
     assert ran.code == 0, ran.err
     review_spawned(ran.run_dir, canaries=CANARIES)("review-1", 1, "2026-11-08T00:00:00Z")
