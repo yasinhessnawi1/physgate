@@ -500,6 +500,21 @@ def role_prompt(request: SessionRequest, state: Path | None = None) -> str:
             "file left in place disputes again on your next attempt, and deleting it withdraws "
             "it.\n"
         )
+    if request.interfaces:
+        # The edge a contract clause reads, which values alone never form.
+        from physgate.orchestrator.repair import interfaces_named
+
+        many = len(request.interfaces) > 1
+        text += (
+            f"\nYour module shares the design graph's {interfaces_named(request.interfaces)} "
+            "with other modules, and a contract test holds it to "
+            f"{'each' if many else 'it'} once both modules have merged. Join your module to "
+            f"{'each' if many else 'it'}: in a node of your own (never the interface node, which "
+            "no session writes), list the interface's id in the node's \"constrains\" array, and "
+            "carry there every one of the interface's quantities under the same name, as the "
+            'interface holds it. A node whose "constrains" names an interface is held to all of '
+            "that interface's quantities.\n"
+        )
     if state is not None:
         text += (
             f"\nYour issued state is {state}; read it in full first too. The harness built it "

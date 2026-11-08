@@ -92,6 +92,18 @@ def test_the_order_names_every_interface_the_module_is_not_joined_to() -> None:
     assert told.count('"constrains" array') == 1
 
 
+def test_a_joined_module_s_order_says_nothing_of_the_edge() -> None:
+    told = contract_conform_instruction(
+        "a-run-contract-2",
+        2,
+        ['Interface "iface.drive", quantity "v": node "fw.main" holds 11 "volt".'],
+        None,
+        (),
+    )
+    assert "constrains" not in told
+    assert "not joined" not in told
+
+
 def test_each_module_s_first_brief_names_the_interfaces_it_shares_and_how_to_join_them(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

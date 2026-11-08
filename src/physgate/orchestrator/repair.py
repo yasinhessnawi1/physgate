@@ -454,6 +454,26 @@ def arbitration_value_instruction(chosen: Sequence[ChosenValue], wrapped: str | 
     return "\n".join(lines)
 
 
+#: How a module joins an interface, in the graph's own terms: the edge a contract clause reads
+#: (``contracts.clause.joined``), and what every node so joined is held to.
+JOIN_HOW = (
+    "in a node of this module's own (never the interface node, which no session writes), list "
+    "the interface's id in the node's \"constrains\" array, and carry there every one of the "
+    "interface's quantities under the same name, as the interface holds it. A node whose "
+    '"constrains" names an interface is held to all of that interface\'s quantities.'
+)
+
+
+def interfaces_named(ids: Sequence[str]) -> str:
+    """``interface "a"``, or ``interfaces "a" and "b"``, each id held to the store's pattern."""
+    from physgate.orchestrator import integration_state as render
+
+    held = [render.held(i) for i in ids]
+    if len(held) == 1:
+        return f"interface {held[0]}"
+    return f"interfaces {', '.join(held[:-1])} and {held[-1]}"
+
+
 def conform_clause(
     ruling: ContractRuled,
     nodes: Sequence[str],
@@ -518,7 +538,9 @@ def contract_conform_instruction(
     """The reopened attempt's instruction: each clause its module fails, and the person's note.
 
     A fixed template, each part quoted as data; never a session's words, nor a node's free-text
-    provenance. ``attempt`` is the one the module merged at.
+    provenance. ``attempt`` is the one the module merged at. ``joins`` are the interfaces the
+    module is not joined to: the instruction names each and the edge that joins it, since a
+    clause reads only a joined node and values alone never join one.
     """
     from physgate.orchestrator import integration_state as render
 
@@ -528,6 +550,14 @@ def contract_conform_instruction(
         f"{item}, and reopened this module, merged at attempt {attempt}, to conform to the "
         "interface. The interfaces are fixed at decomposition. Write each value below into this "
         "module's node, as the interface holds it.",
+    ]
+    if joins:
+        named = interfaces_named(joins)
+        lines.append(
+            f"This module is not joined to {named}, so the contract reads none of its nodes. "
+            f"Join it{' to each' if len(joins) > 1 else ''}: {JOIN_HOW}"
+        )
+    lines += [
         "",
         "The clauses this module fails:",
         *quoted("\n".join(clauses)),

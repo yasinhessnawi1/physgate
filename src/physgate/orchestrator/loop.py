@@ -1695,6 +1695,7 @@ class Loop:
                 for s in self.state.subtasks.values()
             ),
             reopened=sub.reopens,
+            interfaces=self._shared_interfaces(sub.plan.assigned_role),
         )
         try:
             report = self._dispatcher.run(request, on_spawn=self._spawned)
@@ -1912,6 +1913,23 @@ class Loop:
     def _spec_commit(self) -> str | None:
         """The commit that issued every subtask's specification: the decomposition's."""
         return next((e.spec_commit for e in self.log.events if isinstance(e, Decomposed)), None)
+
+    def _shared_interfaces(self, role: str) -> tuple[str, ...]:
+        """The interfaces the recorded contract pairs hold ``role`` to, either side, in id order.
+
+        By role, as a clause reads a module's nodes: so a closing pass, which no pair names by
+        its subtask, is told the interfaces its role produces, as the opening pass is.
+        """
+        return tuple(
+            sorted(
+                {
+                    interface
+                    for pair in self.state.contract_pairs or ()
+                    if role in (pair.producer.role, pair.consumer.role)
+                    for interface in pair.interfaces
+                }
+            )
+        )
 
     def _policy_baseline(self) -> str | None:
         """The policy limits every session is held to: the decomposition call's, as resolved since.
