@@ -26,6 +26,10 @@ MOVED = {
     "heldout.py": "tiers/heldout.py",
     "authoring.py": "tiers/authoring.py",
 }
+#: The bootstrap, the gap and the Wilson interval, moved out of the per-role report.
+STATS = ("Z95", "wilson", "_generator", "_interval", "cluster_bootstrap", "_mean_of_first", "_gap")
+REPORT = PER_ROLE / "report.py"
+GAPS = EVALUATION / "gaps" / "stats.py"
 
 
 def _tree(path: Path) -> ast.Module:
@@ -47,6 +51,19 @@ def _in_a_home(module: str) -> bool:
     return any(module == home or module.startswith(home + ".") for home in HOMES)
 
 
+def _defined(path: Path) -> set[str]:
+    """The names a module defines at its top level."""
+    names: set[str] = set()
+    for node in _tree(path).body:
+        if isinstance(node, ast.FunctionDef | ast.ClassDef):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+    return names
+
+
 @pytest.mark.parametrize("old", sorted(MOVED))
 def test_the_old_module_under_per_role_is_gone(old: str) -> None:
     assert not (PER_ROLE / old).exists(), f"per_role/{old} is still there"
@@ -55,6 +72,15 @@ def test_the_old_module_under_per_role_is_gone(old: str) -> None:
 @pytest.mark.parametrize("old", sorted(MOVED))
 def test_the_module_lives_in_its_new_home(old: str) -> None:
     assert (EVALUATION / MOVED[old]).is_file(), f"{MOVED[old]} is missing"
+
+
+def test_the_report_defines_none_of_the_stats_it_held() -> None:
+    assert sorted(_defined(REPORT) & set(STATS)) == []
+
+
+def test_the_stats_live_in_gaps() -> None:
+    assert GAPS.is_file(), "gaps/stats.py is missing"
+    assert sorted(set(STATS) - _defined(GAPS)) == []
 
 
 def test_no_per_role_module_passes_on_a_name_it_takes_from_tiers_or_gaps() -> None:
