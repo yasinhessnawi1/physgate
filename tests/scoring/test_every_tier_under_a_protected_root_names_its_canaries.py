@@ -208,15 +208,17 @@ def test_a_directory_that_holds_no_task_is_no_tier_and_refuses_nothing(
 # ------------------------------------- the split's list, where the walk reads it
 
 
-def test_the_split_leaves_its_list_inside_the_tier_where_the_walk_reads_it(
+def test_the_split_leaves_each_list_inside_its_tier_where_the_walk_reads_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     plan = _held_tier(tmp_path, monkeypatch)
     root = plan.held_out_root
-    tier = root / "control"
-    carried = sorted(str(load_task(p).task.canary) for p in sorted(tier.iterdir()) if p.is_dir())
-    assert _harness_lists(root) == [tier / "canaries.json"], (
-        f"the split's list is not inside its tier: {_harness_lists(root)}"
+    tiers = [root / "control", root / "control.validation"]
+    carried = sorted(
+        str(load_task(p).task.canary) for tier in tiers for p in tier.iterdir() if p.is_dir()
+    )
+    assert _harness_lists(root) == [tier / "canaries.json" for tier in tiers], (
+        f"the split's lists are not one inside each tier: {_harness_lists(root)}"
     )
     assert list(root_canaries(root)) == carried
     pooled = [load_task(p).task for p in sorted(pool_dir(root, "control").glob("*")) if p.is_dir()]

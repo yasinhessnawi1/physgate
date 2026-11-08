@@ -397,10 +397,11 @@ def test_a_plan_that_would_expose_or_short_a_tier_is_refused_before_any_session(
     assert fake.calls == []
 
 
-def test_a_held_out_tier_already_there_is_never_written_over(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("tier", ["control", "control.validation"])
+def test_a_protected_tier_already_there_is_never_written_over(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tier: str
 ) -> None:
-    (tmp_path / "private" / "v1" / "control").mkdir(parents=True)
+    (tmp_path / "private" / "v1" / tier).mkdir(parents=True)
     fake = FakeSession(_tasks(24))
     monkeypatch.setattr(author_session, "run_session", fake)
     with pytest.raises(AuthoringError, match="made new for each session"):
@@ -535,11 +536,14 @@ def test_every_staged_file_is_a_new_file_copied_by_content(
 def test_a_split_that_fails_part_way_leaves_no_task_outside_the_protected_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def half_a_split(staging: Path, visible: Path, held_out: Path, *, seed: int) -> Any:
+    def half_a_split(
+        staging: Path, visible: Path, held_out: Path, *, validation: Path, seed: int
+    ) -> Any:
         visible.mkdir(parents=True)
         first = sorted(staging.iterdir())[0]
         (visible / first.name).mkdir()
         (visible / first.name / "task.json").write_bytes((first / "task.json").read_bytes())
+        validation.mkdir(parents=True)
         held_out.mkdir(parents=True)
         raise OSError("the disk filled part-way")
 
@@ -549,6 +553,7 @@ def test_a_split_that_fails_part_way_leaves_no_task_outside_the_protected_root(
     plan = _plan(tmp_path)
     assert not plan.visible.exists()
     assert not (plan.held_out_root / "control").exists()
+    assert not author_session.validation_tier(plan.held_out_root, "control").exists()
     assert not plan.work.exists()
     assert list((plan.held_out_root / "control.author").glob("*/stdout.jsonl"))
 
@@ -586,7 +591,9 @@ def test_a_cleanup_that_cannot_remove_the_work_refuses_loudly_and_reports_no_res
 def test_half_a_tier_that_cannot_be_removed_refuses_loudly_after_securing_the_stream(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def half_a_split(staging: Path, visible: Path, held_out: Path, *, seed: int) -> Any:
+    def half_a_split(
+        staging: Path, visible: Path, held_out: Path, *, validation: Path, seed: int
+    ) -> Any:
         visible.mkdir(parents=True)
         raise OSError("the disk filled part-way")
 
@@ -763,6 +770,8 @@ def test_the_commands_take_a_session_s_bounds_with_a_role_session_s_defaults(
         common += ["--role-python", "/p", "--visible", "/v", "--seed", "1"]
     given = parser.parse_args(["per-role", command, *common])
     assert (given.session_wall_clock_s, given.session_max_turns) == (1800.0, 150)
+    if command == "author":
+        assert given.count == 24, "an author is not asked for the three tiers' worth"
     assert given.binary_max_retries == 0
     longer = ["--session-wall-clock-s", "3600", "--session-max-turns", "300"]
     retries = ["--binary-max-retries", "5"]

@@ -49,7 +49,7 @@ def _answers(worktree: Path) -> None:
 
 def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, work: str) -> Any:  # noqa: ANN401
     root = _plan(tmp_path).held_out_root
-    fake = FakeSession(_answers)
+    fake = FakeSession(_answers, session_id=f"s-{work}")
     monkeypatch.setattr(author_session, "run_session", fake)
     setup = dataclasses.replace(_setup(tmp_path / "private"), held_out_canaries=root_canaries(root))
     try:

@@ -30,6 +30,7 @@ from physgate.evaluation.per_role import author_session
 from physgate.evaluation.per_role import validate as validate_module
 from physgate.evaluation.per_role.author_session import pool_dir
 from physgate.evaluation.per_role.validate import refusal_reasons, sound, validate
+from physgate.evaluation.tiers.authoring import AuthoringError
 from physgate.evaluation.tiers.task import load_task
 
 #: Fields that make a well-formed task one the split refuses, and the reason it is counted as.
@@ -150,7 +151,10 @@ def test_twenty_four_pooled_tasks_are_cut_into_three_tiers_of_eight_by_the_seed(
 def test_fewer_than_twenty_four_are_pooled_and_no_tier_is_cut(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    plan, _, out = _run(tmp_path, monkeypatch, _tasks(16))
+    try:
+        plan, _, out = _run(tmp_path, monkeypatch, _tasks(16))
+    except AuthoringError as exc:
+        pytest.fail(f"sixteen pooled tasks were drawn for a split: {exc}")
     assert out["status"] == "pooled" and out["pool"] == 16, (
         f"sixteen tasks cut tiers that need twenty-four: {out['status']}"
     )
