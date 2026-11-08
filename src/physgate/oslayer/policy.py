@@ -98,7 +98,7 @@ FIELD_RULES: dict[str, str] = {
         "completion declaration and its disputes, which only the file tools write"
     ),
     "store_root": "write-denied (named whole)",
-    "state_dir": "write- and read-denied to shell commands: the hooks' records",
+    "state_dir": "write- and read-denied (the file tools are the hooks'): the hooks' records",
     "protected_roots": (
         "write-denied unless `shell_writes` leaves it to scripts; read-denied as `reads` says "
         "(a root scripts write: whole on macOS, by its entries on Linux)"

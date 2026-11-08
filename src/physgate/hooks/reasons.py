@@ -71,6 +71,11 @@ WITHHELD_REASON = (
     "configuration names what the stream scan looks for to tell that the held-out tier was read"
 )
 
+#: Given for any tool's read or write of the session's hook state directory. The hooks keep there
+#: what the sentinel needs to put a protected path back, their log and, in the api_key mode, the
+#: credential's helper; they read and write it in their own processes, never through a tool.
+HOOK_STATE_REASON = "it holds the hook layer's own records of this session"
+
 #: Given to a reviewer for a read outside its allowance. Neutral on purpose: a
 #: reviewer is shown nothing that says what is being measured.
 OUTSIDE_REVIEW_REASON = "it is outside the files this review is given"

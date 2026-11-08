@@ -91,9 +91,10 @@ class ProtectedRoot(BaseModel):
     exceptions: tuple[AbsolutePath, ...] = ()
     #: Who may read it, as far as the OS layer is concerned. ``open``: anyone.
     #: ``shell_denied``: no shell command, because it holds what the session's runtime
-    #: keeps (a credential, the hooks' own records, another session's files); the
-    #: runtime itself reads it outside the sandbox. ``denied``: no shell command and no
-    #: file tool, because no session reads it at all.
+    #: keeps (a credential, another session's files); the runtime itself reads it outside
+    #: the sandbox. ``denied``: no shell command and no file tool, because no session reads
+    #: it at all (the hooks' own records among them, which the hooks read in their own
+    #: processes, outside every tool call and the sandbox).
     reads: Reads = "open"
     #: Whether the OS layer leaves shell writes to it alone: ``allowed`` only for a root
     #: that a script legitimately writes and whose contents something else judges (the

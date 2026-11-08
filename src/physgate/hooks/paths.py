@@ -2,8 +2,9 @@
 
 This hook covers the tools that name a file: Write, Edit and NotebookEdit, and
 Read for the held-out tier, which nothing may read before measurement
-(ARCH-141), and for an evaluation corpus that carries its own answers, which no
-reviewer may read. Shell commands are a separate check, and a sentinel behind both
+(ARCH-141), for an evaluation corpus that carries its own answers, which no
+reviewer may read, and for the session's own hook state directory, which the hooks
+alone read. Shell commands are a separate check, and a sentinel behind both
 catches what either misses.
 
 **What is protected is data, not code.** The session configuration lists
@@ -72,6 +73,7 @@ from typing import TYPE_CHECKING
 from physgate.hooks.reasons import (
     ANSWER_KEY_REASON,
     HELD_OUT_REASON,
+    HOOK_STATE_REASON,
     OUTSIDE_REVIEW_REASON,
     REVIEW_MATERIAL_REASON,
     WITHHELD_REASON,
@@ -319,6 +321,11 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
             if _reaches(absolute, material, chain):
                 return REVIEW_MATERIAL_REASON
     if not writing:
+        # The hook layer's own records of this session, for every profile: what the sentinel
+        # keeps to put a protected path back, the hooks' log, and the credential's helper. The
+        # hooks read and write them in their own processes, never through a tool of the session.
+        if _reaches(absolute, config.state_dir, chain):
+            return HOOK_STATE_REASON
         # A root that scripts write blind (the series outbox) is read by no tool of the
         # session either: what a script left there is the collector's to judge, and the OS
         # layer keeps the shell's reads from it by the same rule. Nor is a withheld run
@@ -376,6 +383,19 @@ def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str
         if _hard_linked(physical):
             return HARD_LINKED
     return None
+
+
+def read_refused(path: str, config: ConfigView) -> bool:
+    """Whether the listed rules refuse every tool of the session a read of the absolute ``path``.
+
+    The rules alone, not a reviewer's allowance: what the sentinel keeps no byte of, so that
+    its copies are never one more place to read a withheld file from. Judged on the path as
+    given and as the operating system resolves it, as :func:`protection` judges a read.
+    """
+    return any(
+        _rules(spelling, config, writing=False) is not None
+        for spelling in dict.fromkeys((path, os.path.realpath(path)))
+    )
 
 
 def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:

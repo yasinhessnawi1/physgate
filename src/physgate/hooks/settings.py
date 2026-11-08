@@ -51,6 +51,7 @@ from physgate.hooks.reasons import GATE_REASON as GATE_REASON
 from physgate.hooks.reasons import GIT_USER_CONFIG_REASON as GIT_USER_CONFIG_REASON
 from physgate.hooks.reasons import HARNESS_REASON as HARNESS_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
+from physgate.hooks.reasons import HOOK_STATE_REASON as HOOK_STATE_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
@@ -360,7 +361,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         request.target_dir: ("it holds this session's settings and configuration", "revert"),
         # Written by the hooks themselves, so only the layers that refuse a write
         # before it happens protect it.
-        request.state_dir: ("it holds the hook layer's own records of this session", "none"),
+        request.state_dir: (HOOK_STATE_REASON, "none"),
         # Written by Claude Code itself during the session.
         request.claude_config_dir: ("it is this session's Claude Code configuration", "none"),
         installation.package_dir: (hook_code, "halt"),
@@ -402,9 +403,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         for git_config in (home / ".gitconfig", home / ".config" / "git"):
             protected[str(git_config)] = (GIT_USER_CONFIG_REASON, "revert")
     #: Who may read each root, for the OS layer (see ``ProtectedRoot.reads``): the
-    #: session's credentials and the hooks' records are kept from its shell commands.
+    #: session's credentials are kept from its shell commands, and the hooks' records from
+    #: every tool of the session (the file tools' refusal is the hooks' own, in ``paths``).
     reads: dict[str, Reads] = {
-        request.state_dir: "shell_denied",
+        request.state_dir: "denied",
         request.claude_config_dir: "shell_denied",
     }
     reaper_on = request.os_layer_temp_dir is not None and reaper_install.wanted()
