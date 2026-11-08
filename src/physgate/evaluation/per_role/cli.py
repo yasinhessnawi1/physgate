@@ -16,8 +16,9 @@ the tier does not hold ``N`` tasks.
 
 ``physgate per-role author --role control --held-out-root R --visible V --work W --seed N``
 runs one authoring session on ``--author-model`` (never the implementers' model), splits
-the tasks that hold into the visible tier ``V`` and the held-out tier ``R/<role>``, and
-prints counts, the visible ids and the held-out tier's digest only. ``physgate per-role
+the tasks that hold into the visible tier ``V``, the validation tier ``R/<role>.validation``
+and the held-out tier ``R/<role>``, and prints counts, the visible ids and the protected
+tiers' digests only. ``physgate per-role
 blind-check --role control --held-out-root R --work W`` runs the blind yes/no check on the
 held-out tier and prints counts and the digests of flagged tasks only. Both read the
 credential from the environment variable its auth mode names, refuse where the OS layer
@@ -90,11 +91,11 @@ def add_parser(subparsers: Any) -> None:
             sub.add_argument("--role-python", required=True)
             sub.add_argument("--visible", type=Path, required=True)
             sub.add_argument("--seed", type=int, required=True)
-            sub.add_argument("--count", type=int, default=16)
+            sub.add_argument("--count", type=int, default=24)
             # The session is stopped once this many tokens pass without a new task
             # holding (an eighth of the cap when not given), and when no task holds after
             # a quarter of the cap. Tasks that hold are pooled inside the protected root
-            # across sessions; the tiers are cut once sixteen are pooled.
+            # across sessions; the tiers are cut once twenty-four are pooled.
             sub.add_argument("--per-task-cap", type=int)
             # What every id this session writes begins with, so sessions pooled together
             # never write the same id. When not given: "b<n>." with n the number of

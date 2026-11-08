@@ -21,16 +21,17 @@ it was not looking for what came, so its record cannot say it saw none of it. Ot
 runner:
 
 1. copies each task it left into a staging directory beside its work, refusing a task
-   that holds a link, a special file, a canary list's name or more than a task's worth of
-   files;
-2. holds every staged task to its references and its brief (:func:`.validate.sound`), and
-   never prints one: what leaves is counts and digests;
+   that holds a link, a special file, a canary list's name, more than a task's worth of
+   entries or depth, or whose copy fails;
+2. holds every staged task to the split's own entry check, its references and its brief
+   (:func:`.validate.sound`), and never prints one: what leaves is counts and digests;
 3. moves every task that holds into the pool inside the protected root (a task whose id
    is already there is refused), so nothing a session wrote well is lost to a short
    session; there is no self-check inside the session in round 1;
-4. once the pool holds the two tiers' worth, draws that many by the seed and splits them
-   by the same seed: the visible tier where asked, the held-out tier inside its protected
-   root. Otherwise it says how many are pooled, and a further session adds to them;
+4. once the pool holds the three tiers' worth, draws that many by the seed and splits them
+   by the same seed: the visible tier where asked, the validation and held-out tiers inside
+   the protected root. Otherwise it says how many are pooled, and a further session adds
+   to them;
 5. copies the session's stream and record inside the protected root, since they hold
    every task the session wrote, as regular files only (the session's own links, such as
    its interpreter's, would trip the next session's tripwire), and removes the work.
@@ -71,6 +72,7 @@ from physgate.evaluation.per_role.validate import id_digest, refusal_reasons, so
 from physgate.evaluation.tiers.authoring import (
     CANARIES_NAME,
     PER_TIER,
+    TIERS,
     AuthoringError,
     author_brief,
     require_author_model,
@@ -82,10 +84,13 @@ from physgate.hooks.withheld import survey
 _READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 _NEW = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
 
-#: The most files and bytes one staged task may hold: a task, a good reference and a few
-#: bad ones, each a small JSON file.
+#: The most entries (files and directories) and bytes one staged task may hold: a task, a
+#: good reference and a few bad ones, each a small JSON file.
 MOST_FILES_PER_TASK = 64
 MOST_BYTES_PER_TASK = 2 * 1024 * 1024
+#: The deepest a directory in a task lies below it: ``references/<reference>/`` and an
+#: answer's own few levels. Nothing deeper is opened.
+MOST_DEPTH_PER_TASK = 8
 
 #: The most tokens one authoring session may be capped at, every class counted. Tasks are
 #: pooled as they are written, so a session is short and a further one adds to it; the
@@ -97,7 +102,7 @@ FIRST_TASK_SHARE = 4
 
 @dataclass(frozen=True)
 class AuthoringPlan:
-    """Where one authoring session works and where its two tiers go."""
+    """Where one authoring session works and where its three tiers go."""
 
     role: Role
     implementer_model: str
@@ -111,7 +116,7 @@ class AuthoringPlan:
     #: The session's token cap, at most :data:`MOST_CAP`.
     cap: int
     #: How many tasks the session is asked for; the pool decides when the tiers are cut.
-    count: int = 2 * PER_TIER
+    count: int = len(TIERS) * PER_TIER
     #: The most tokens the session may spend between one task coming to hold and the next
     #: (and before the first, within the first quarter of the cap); an eighth of the cap
     #: when not given.
@@ -129,6 +134,11 @@ class AuthoringPlan:
 def held_out_tier(root: Path, role: Role) -> Path:
     """Where a role's held-out tier lives inside its protected root."""
     return root / role
+
+
+def validation_tier(root: Path, role: Role) -> Path:
+    """Where a role's validation tier lives inside its protected root, beside the held-out one."""
+    return root / f"{role}.validation"
 
 
 def pool_dir(root: Path, role: Role) -> Path:
@@ -163,9 +173,12 @@ def _require_apart(plan: AuthoringPlan, setup: RawSetup) -> None:
         if path.resolve() != path.absolute():
             msg = f"the {name} is reached through a link; give its resolved path"
             raise AuthoringError(msg, path=str(path))
-    tier = held_out_tier(plan.held_out_root, plan.role)
-    if plan.work.exists() or plan.visible.exists() or tier.exists():
-        msg = "the work directory and both tiers are made new for each session"
+    tiers = (
+        held_out_tier(plan.held_out_root, plan.role),
+        validation_tier(plan.held_out_root, plan.role),
+    )
+    if plan.work.exists() or plan.visible.exists() or any(t.exists() for t in tiers):
+        msg = "the work directory and the three tiers are made new for each session"
         raise AuthoringError(msg, work=str(plan.work), visible=str(plan.visible))
     if plan.count < 1:
         msg = "a session is asked for at least one task"
@@ -176,6 +189,51 @@ def _require_apart(plan: AuthoringPlan, setup: RawSetup) -> None:
     if not 0 < plan.task_cap <= plan.cap:
         msg = "the per-task cap is positive and no more than the session's cap"
         raise AuthoringError(msg, per_task_cap=str(plan.task_cap))
+
+
+#: What a record of work out of the protected root is called, beside the root's folders.
+_WORKING = ".working"
+
+
+def _require_no_work_left(root: Path) -> None:
+    """Refuse while an earlier author's or check's work may still lie outside ``root``.
+
+    Each records, inside the protected root, that its work is out before its session starts,
+    and clears the record only once that work is kept inside the root and removed
+    (:func:`_working`). A record still there means a runner stopped before that, so the work
+    it names (tasks before they are pooled, or the check's copy of the held-out tasks, with no
+    canary) may be where any session can read it. It is never guessed away: a person looks at
+    the work it names, removes what is left, and removes the record.
+
+    Raises:
+        AuthoringError: ``work_left``, naming the record and the work.
+    """
+    if not root.is_dir():
+        return
+    for record in sorted(root.iterdir()):
+        if not record.name.endswith(_WORKING):
+            continue
+        try:
+            work = str(json.loads(record.read_text())["work"])
+        except (OSError, ValueError, KeyError, TypeError):
+            work = "(the record cannot be read)"
+        msg = (
+            f"{record} says a session's work was left outside the protected root at {work}; "
+            "look at it, remove what is left there and then the record, before anything runs"
+        )
+        raise AuthoringError(msg, refused_because="work_left", work=work, record=str(record))
+
+
+def _working(root: Path, name: str, work: Path) -> Path:
+    """Record inside ``root`` that ``work`` is out of it; the record, to clear once secured."""
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    record = root / f"{name}{_WORKING}"
+    fd = os.open(record, _NEW, 0o600)
+    try:
+        os.write(fd, (json.dumps({"work": str(work)}) + "\n").encode())
+    finally:
+        os.close(fd)
+    return record
 
 
 def _require_clear(root: Path) -> None:
@@ -386,16 +444,23 @@ def _new_file(name: str, dir_fd: int) -> int:
 
 
 def _copy_into(source_fd: int, target_fd: int, budget: list[int]) -> None:
-    """Copy the directory ``source_fd`` into the empty directory ``target_fd``, by content.
+    """Copy the task directory ``source_fd`` into the empty directory ``target_fd``, by content.
 
-    ``budget`` is the files and bytes the task may still hold. The session may be writing the
-    task while it is copied: an entry it removed between the listing and the look at it is
-    no longer part of the task, and is left out of the copy, as a task is from the listing.
+    ``budget`` is the entries (files and directories) and bytes the task may still hold, and
+    no directory deeper than :data:`MOST_DEPTH_PER_TASK` below the task is opened. The session
+    may be writing the task while it is copied: an entry it removed between the listing and
+    the look at it is no longer part of the task, and is left out of the copy, as a task is
+    from the listing.
 
     Raises:
-        _NotPlainError: an entry is a link of either kind, a special file, past the budget,
-            or named as a canary list, which must not reach the pool or a tier.
+        _NotPlainError: an entry is a link of either kind, a special file, past the budget or
+            the depth, or named as a canary list, which must not reach the pool or a tier.
     """
+    _copy_level(source_fd, target_fd, budget, 1)
+
+
+def _copy_level(source_fd: int, target_fd: int, budget: list[int], depth: int) -> None:
+    """:func:`_copy_into` for the entries ``depth`` levels below the task."""
     for name in sorted(os.listdir(source_fd)):
         if _names_a_list(name):
             raise _NotPlainError(name)
@@ -404,6 +469,10 @@ def _copy_into(source_fd: int, target_fd: int, budget: list[int]) -> None:
         except FileNotFoundError:
             continue
         if stat.S_ISDIR(kind):
+            # Counted, and judged for its depth, before it is opened.
+            budget[0] -= 1
+            if budget[0] < 0 or depth > MOST_DEPTH_PER_TASK:
+                raise _NotPlainError(name)
             try:
                 child = open_directory(name, source_fd)
             except OSError as exc:
@@ -412,7 +481,7 @@ def _copy_into(source_fd: int, target_fd: int, budget: list[int]) -> None:
                 os.mkdir(name, 0o700, dir_fd=target_fd)
                 made = open_directory(name, target_fd)
                 try:
-                    _copy_into(child, made, budget)
+                    _copy_level(child, made, budget, depth + 1)
                 finally:
                     os.close(made)
             finally:
@@ -450,8 +519,14 @@ def _stage_one(name: str, source: int, target: int) -> bool:
     """Copy the task directory ``name`` under ``source`` into ``target``; whether it was taken.
 
     A task holding a symbolic or a hard link, a special file, a canary list's name or more
-    than a task's worth, or named as a list itself, is refused, and what was copied of it
-    removed. A task's id is its directory's name, or the task does not hold.
+    than a task's worth or depth, or named as a list itself, is refused, and what was copied
+    of it removed. So is a task whose copy fails on the way (the disk, a recursion): a
+    failure while one task is copied refuses that task, and never ends staging (or, in the
+    checkpoint, the watch). A task's id is its directory's name, or the task does not hold.
+
+    Raises:
+        OSError: what was copied of a refused task cannot be removed, so the staging
+            directory cannot be trusted to hold whole tasks only.
     """
     if _names_a_list(name):
         return False
@@ -464,7 +539,7 @@ def _stage_one(name: str, source: int, target: int) -> bool:
         made = open_directory(name, target)
         try:
             _copy_into(task, made, [MOST_FILES_PER_TASK, MOST_BYTES_PER_TASK])
-        except _NotPlainError:
+        except (_NotPlainError, OSError, RecursionError):
             shutil.rmtree(name, dir_fd=target)
             return False
         finally:
@@ -532,17 +607,43 @@ def stage(worktree: Path, staging: Path, only: Sequence[str] | None = None) -> i
 _Signature = tuple[tuple[str, int, int], ...]
 
 
+#: What a look past a task's bounds ends with: the task is more than a task, so staging
+#: will refuse it, and it is not walked further.
+_OVER: tuple[str, int, int] = ("…", -1, -1)
+
+
 def _signature(directory: Path) -> _Signature:
+    """Each file of the task under ``directory``, with its size and time, within its bounds.
+
+    The walk takes the budget and the depth staging takes (:data:`MOST_FILES_PER_TASK`,
+    :data:`MOST_DEPTH_PER_TASK`): past either, it ends with :data:`_OVER` instead of going on,
+    so a task too large to stage is never walked whole by the watch.
+    """
     seen: list[tuple[str, int, int]] = []
+    left = MOST_FILES_PER_TASK
     for here, dirs, files in os.walk(directory, followlinks=False):
+        relative_here = os.path.relpath(here, directory)
+        depth = 0 if relative_here == "." else relative_here.count(os.sep) + 1
         dirs.sort()
+        left -= len(dirs)
+        if depth + 1 > MOST_DEPTH_PER_TASK and dirs:
+            dirs[:] = []
+            seen.append(_OVER)
+            return tuple(seen)
         for name in sorted(files):
+            left -= 1
+            if left < 0:
+                seen.append(_OVER)
+                return tuple(seen)
             try:
                 info = os.lstat(Path(here) / name)
             except OSError:
                 continue
             relative = os.path.relpath(Path(here) / name, directory)
             seen.append((relative, info.st_size, info.st_mtime_ns))
+        if left < 0:
+            seen.append(_OVER)
+            return tuple(seen)
     return tuple(seen)
 
 
@@ -764,22 +865,23 @@ def _pool(staging: Path, held: Sequence[str], pool: Path) -> tuple[int, int]:
 
 
 def _draw(pool: Path, seed: int) -> list[str]:
-    """The two tiers' worth of the pool's tasks, by ``seed``, or nothing while it holds fewer."""
+    """The three tiers' worth of the pool's tasks, by ``seed``, or nothing while it holds fewer."""
     names = sorted(p.name for p in pool.iterdir() if p.is_dir()) if pool.is_dir() else []
-    if len(names) < 2 * PER_TIER:
+    if len(names) < len(TIERS) * PER_TIER:
         return []
     random.Random(seed).shuffle(names)
-    return names[: 2 * PER_TIER]
+    return names[: len(TIERS) * PER_TIER]
 
 
 def _cut_tiers(plan: AuthoringPlan, pool: Path, chosen: Sequence[str]) -> dict[str, Any]:
     """Copy ``chosen`` out of the pool into a draw beside it, split them, then drop them from it.
 
     The draw lives inside the protected root, like the pool: a task that may become a
-    held-out one is never outside it. The chosen tasks leave the pool only once both
-    tiers are written and checked; a split that fails leaves the pool whole.
+    held-out or validation one is never outside it. The chosen tasks leave the pool only once
+    all three tiers are written and checked; a split that fails leaves the pool whole.
     """
     tier = held_out_tier(plan.held_out_root, plan.role)
+    validation = validation_tier(plan.held_out_root, plan.role)
     draw = plan.held_out_root / f"{plan.role}.draw"
     if os.path.lexists(draw):
         msg = f"{draw} is left from an earlier split that did not finish; look before removing it"
@@ -790,13 +892,13 @@ def _cut_tiers(plan: AuthoringPlan, pool: Path, chosen: Sequence[str]) -> dict[s
         for name in chosen:
             shutil.copytree(pool / name, draw / name, symlinks=True)
         started = True
-        placed = split(draw, plan.visible, tier, seed=plan.seed)
+        placed = split(draw, plan.visible, tier, validation=validation, seed=plan.seed)
         started = False
     finally:
         problems: list[str | None] = [_remove(draw)]
         if started:
-            # Neither tier existed before this call; half a split is no tier at all.
-            problems += [_remove(plan.visible), _remove(tier)]
+            # No tier existed before this call; half a split is no tier at all.
+            problems += [_remove(plan.visible), _remove(validation), _remove(tier)]
         _closed(problems)
     for name in chosen:
         shutil.rmtree(pool / name)
@@ -825,6 +927,7 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
     """
     require_author_model(setup.model, plan.implementer_model)
     _require_apart(plan, setup)
+    _require_no_work_left(plan.held_out_root)
     canaries = root_canaries(plan.held_out_root)
     _require_looking(canaries, setup)
     _require_clear(plan.held_out_root)
@@ -835,6 +938,7 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
     progress = AuthorProgress(
         plan.work / "worktree", plan.work / "checks", cap=plan.cap, per_task=plan.task_cap
     )
+    working = _working(plan.held_out_root, f"{plan.role}.author", plan.work)
     try:
         try:
             record = run_session(
@@ -887,6 +991,7 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
         }
     finally:
         _closed(_keep_evidence(plan.work, record, evidence))
+        working.unlink()
     chosen = _draw(pool, plan.seed)
     if not chosen:
         return {**summary, "status": "pooled"}
@@ -896,9 +1001,13 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
         "status": "split",
         "pool": sum(1 for p in pool.iterdir() if p.is_dir()),
         "visible": placed["visible"],
-        "held_out_count": placed["held_out_count"],
-        "held_out_sha256": placed["held_out_sha256"],
+        **{
+            f"{name}_{what}": placed[f"{name}_{what}"]
+            for name in TIERS[1:]
+            for what in ("count", "sha256", "canaries_sha256")
+        },
         "visible_check": validate(plan.visible, show_ids=True),
+        "validation_check": validate(validation_tier(plan.held_out_root, plan.role)),
         "held_out_check": validate(tier),
     }
 
@@ -994,11 +1103,13 @@ def blind_check(
     if not _withheld(tier, held) or any(_inside(work, r) for r in roots):
         msg = "the check withholds the tier and works outside every held-out root"
         raise AuthoringError(msg, tier=str(tier), work=str(work))
+    _require_no_work_left(tier.parent)
     canaries = root_canaries(tier.parent)
     _require_looking(canaries, setup)
     tasks = bundle(tier)
     files = {"tasks.json": json.dumps(tasks, sort_keys=True, indent=1).encode()}
     record: dict[str, Any] | None = None
+    working = _working(tier.parent, f"{tier.name}.check", work)
     try:
         record = run_session(
             CHECK_BRIEF.format(count=len(tasks)), setup, work, cap=cap, files=files
@@ -1009,6 +1120,7 @@ def blind_check(
     finally:
         # The work holds the held-out tasks it was given: it never stays outside the root.
         _closed(_keep_evidence(work, record, evidence))
+        working.unlink()
     if answers is None:
         return {"tasks": len(tasks), "answered": False, "session": _spent(record)}
     flagged = sorted(key for key, a in answers.items() if not all(getattr(a, q) for q in QUESTIONS))
@@ -1032,4 +1144,5 @@ __all__ = [
     "pool_dir",
     "read_answers",
     "stage",
+    "validation_tier",
 ]
