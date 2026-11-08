@@ -201,3 +201,50 @@ def test_a_withheld_root_spelt_otherwise_is_the_same_root(tmp_path: Path) -> Non
     )
     facts = RunFacts(config=config, os_layer=PRESENT, shell_sessions=True)
     assert _withheld_refusal(facts) is None
+
+
+def _spelt(store: Path, how: str) -> str:
+    """The held-out tier of ``store``'s one control version, spelt as ``how`` says."""
+    if how == "dot":
+        return f"{store}/control/./{VERSION}/held_out"
+    if how == "dot-dot":
+        return f"{store}/control/elsewhere/../{VERSION}/held_out"
+    if how == "trailing slash":
+        return f"{store}/control/{VERSION}/held_out/"
+    if how == "another case":
+        return f"{store}/CONTROL/{VERSION.upper()}/held_out"
+    if how == "beneath the tier":
+        return f"{store}/control/{VERSION}/held_out/sub"
+    alias = store.parent / "alias"
+    alias.symlink_to(store / "control" / VERSION)
+    return f"{alias}/held_out"
+
+
+@pytest.mark.parametrize(
+    "how", ["dot", "dot-dot", "trailing slash", "another case", "beneath the tier", "a link"]
+)
+def test_a_tier_however_spelt_still_asks_for_its_withheld_root(tmp_path: Path, how: str) -> None:
+    store = _store(tmp_path)
+    config = make_config(
+        reportable=True,
+        harness=CLEAN,
+        held_out=(_spelt(store, how),),
+        held_out_sha256=("0" * 64,),
+    )
+    why = _withheld_refusal(RunFacts(config=config, os_layer=PRESENT, shell_sessions=True))
+    assert why is not None and "(withheld_root_not_named)" in why, f"{how}: the run starts"
+
+
+@pytest.mark.parametrize("how", ["dot-dot", "a link"])
+def test_a_tier_however_spelt_names_its_store_for_the_leftovers_too(
+    tmp_path: Path, how: str
+) -> None:
+    store = _store(tmp_path)
+    (store / "control" / "withheld" / "pool").mkdir(parents=True)
+    config = make_config(
+        reportable=True,
+        harness=CLEAN,
+        held_out=(_spelt(store, how), str(store / "control" / "withheld")),
+        held_out_sha256=("0" * 64, "0" * 64),
+    )
+    assert _refusal(RunFacts(config=config, os_layer=PRESENT, shell_sessions=True)) is not None
