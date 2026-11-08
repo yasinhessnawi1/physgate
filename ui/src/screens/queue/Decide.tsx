@@ -147,6 +147,8 @@ export function Decide({
 
   return (
     <section className="pg-queue-decide" aria-label="Decide">
+      {/* First, so a page that cannot decide says so before anything else of the item. */}
+      {why !== null && <p className="pg-queue-why-not">{why}</p>}
       <div className="pg-queue-actions">
         <Button
           variant="act"
@@ -184,7 +186,6 @@ export function Decide({
           />
         ))}
       </div>
-      {why !== null && <p className="pg-queue-why-not">{why}</p>}
       <p className="pg-panel-note">
         {DECISION_COPY.reasonRule} {DECISION_COPY.setAside}
       </p>
