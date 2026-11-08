@@ -154,6 +154,130 @@ def test_no_file_the_run_writes_that_a_role_session_could_read_holds_a_canary(
     assert readable == [], readable
 
 
+#: The held-out stand-in's bytes: nothing else in the tree holds them.
+HELD_BYTES = b"held-out stand-in 0d9e4c21, scenario one\n"
+
+
+def test_no_file_a_role_session_could_read_after_one_session_holds_a_canary_or_a_held_out_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The sweep above runs before any session: here one session is installed as the dispatcher
+    # installs it, with a held-out stand-in, and its hooks run their first calls. Its hook state
+    # directory then exists, under the run directory, with what the sentinel kept.
+    import contextlib
+    import io
+    import subprocess
+
+    import replan_rig
+    from replan_rig import Step, decompose
+    from test_the_physgate_command_starts_and_decides import PARAMS
+
+    from physgate.hooks import cli as hooks_cli
+    from physgate.hooks import sentinel
+    from physgate.hooks.config import HookInput
+    from physgate.orchestrator.credentials import Credential
+    from physgate.orchestrator.decomposition_review import review_spawned
+    from physgate.orchestrator.merge import RunGit
+    from physgate.orchestrator.ports import SessionRequest
+    from physgate.orchestrator.run_config import load_run_config
+
+    held = tmp_path.resolve() / "tiers" / "v1"
+    held.mkdir(parents=True)
+    (held / "scenario.json").write_bytes(HELD_BYTES)
+    monkeypatch.setattr(
+        replan_rig,
+        "PARAMS",
+        {
+            **PARAMS,
+            "held_out": [str(held)],
+            "held_out_canaries": list(CANARIES),
+            "held_out_sha256": ["0" * 64],
+        },
+    )
+    ran = decompose(tmp_path, "on", [Step(review="pass")])
+    assert ran.code == 0, ran.err
+    run_dir = ran.run_dir.resolve()
+    review_spawned(run_dir, canaries=CANARIES)("review-1", 1, "2026-11-08T00:00:00Z")
+
+    real_run = subprocess.run
+
+    def run(argv: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
+        # The installer is run in this process, as the command line would run it.
+        if list(argv[1:3]) == ["hooks", "install"]:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = hooks_cli.main(argv[1:])
+            return subprocess.CompletedProcess(argv, code, out.getvalue(), "")
+        return real_run(argv, **kw)  # type: ignore[call-overload,no-any-return]
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(dispatch, "harness_protection", lambda: [])
+    cfg = load_run_config(run_dir / "run.json")
+    assert cfg.held_out == (str(held),)
+    dispatcher = dispatch.ClaudeDispatcher(
+        config=cfg,
+        run=RunGit(repo=tmp_path / "target", run_dir=run_dir, run_id="run-1"),
+        store_root=run_dir / "store",
+        install_bin=tmp_path / "install" / "bin" / "physgate",
+        binary="claude",
+        base_url=None,
+        credential=Credential(mode="api_key", secret="not-a-key"),
+        review_root=tmp_path / "reviews",
+    )
+    # The interface contracts the session would also read are no part of this sweep.
+    monkeypatch.setattr(dispatcher, "_contracts", lambda _request: ())
+    worktree = run_dir / "worktrees" / "s1"
+    worktree.mkdir(parents=True)
+    sid = "7d0c5e1a-3b2f-4c6d-8e9f-0a1b2c3d4e5f"
+    sdir = run_dir / "sessions" / sid
+    request = SessionRequest(
+        subtask_id="s1",
+        attempt=1,
+        assigned_role="control",
+        spec_path=".physgate/specs/s1.md",
+        module_dir="modules/control",
+        model="claude-opus-5-5",
+        repair_instruction=None,
+        bounds=cfg.bounds,
+    )
+    installed = dispatcher._install(request, worktree, sdir, None)
+    config = SessionConfig.model_validate_json(Path(installed.config).read_bytes())
+    for event in ("SessionStart", "PreToolUse", "PostToolUse"):
+        hook_input = HookInput.model_validate(
+            {
+                "session_id": sid,
+                "cwd": str(worktree),
+                "hook_event_name": event,
+                "tool_name": "Read",
+                "tool_input": {"file_path": str(worktree / "notes.md")},
+            }
+        )
+        assert sentinel.check(hook_input, config).allow, event
+    state = Path(config.state_dir)
+    assert any(p.name.startswith("pack-") for p in state.rglob("*")), "the session kept nothing"
+
+    params = (tmp_path / "params.json").resolve()
+    secrets = (*(c.encode() for c in CANARIES), HELD_BYTES)
+    holding = sorted(
+        path
+        for path in (*run_dir.rglob("*"), params, *held.rglob("*"))
+        if path.is_file()
+        and not path.is_symlink()
+        and any(secret in path.read_bytes() for secret in secrets)
+    )
+    names = {path.name for path in holding}
+    # Not vacuous: the records that name the canaries, and the tier itself, are found.
+    assert {"run.json", "review_session.json", "params.json", "scenario.json"} <= names, names
+    deny = sandbox_policy(config, home=str(sdir / "home"), temp_dir="/tmp/pg-sweep").settings[
+        "sandbox"
+    ]["filesystem"]["denyRead"]
+    for path in holding:
+        assert paths.protection(str(path), str(worktree), config, writing=False) is not None, path
+        command = parse(f"cat {path}")[0]
+        assert shell_paths.check(command, str(worktree), config) is not None, path
+        assert any(str(path) == d or str(path).startswith(d.rstrip("/") + "/") for d in deny), path
+
+
 def _withheld(run_dir: Path) -> list[Path]:
     """What the dispatcher withholds from a role session of the run in ``run_dir``."""
     named = getattr(dispatch, "withheld_paths", None)

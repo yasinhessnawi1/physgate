@@ -129,4 +129,17 @@ describe("an item whose diff is the run branch between two commits", () => {
     // Any other diff is shown as the item recorded it.
     expect(diffWords("--- a/x\n+++ b/x\n")).toBe("--- a/x\n+++ b/x\n");
   });
+
+  it("names the two commits of a sha256 repository and shows no terminal command", async () => {
+    const { diffWords } = await import("../../words/queue");
+    const { namesACommand } = await import("../../rules/commands");
+    // A target repository in git's sha256 object format records 64-character commit ids.
+    const [a, b] = ["c".repeat(64), "0f".repeat(32)];
+    const said = diffWords(
+      `The run branch from ${a} to ${b}: see \`git diff ${a} ${b}\` in the target repository.`,
+    );
+    expect(said).toContain(a);
+    expect(said).toContain(b);
+    expect(namesACommand(said)).toBe(false);
+  });
 });
