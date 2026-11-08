@@ -11,8 +11,9 @@ all) is itself a problem, never a pass. What is checked:
   tier's own digest file; it holds only task directories, each named as its task, its
   digest file, which must agree too, and its canary list, which must name exactly the
   canaries its tasks carry; every task loads whole (every field, unit, reference and the
-  tier marker, unknown fields refused), is marked held out, and carries a canary; the
-  canaries are exactly the run's, each carried once;
+  tier marker, unknown fields refused), is marked with the tier the run records the root
+  as (held out, or validation, which is protected exactly as held out is), and carries a
+  canary; the canaries are exactly the run's, each carried once;
 - **the visible tier:** it is apart from the held-out tier, neither inside it nor around it,
   and no task id is both visible and held out, however it is spelt;
 - **the places:** no place a session works in or reads is the root, lies under it or
@@ -31,6 +32,7 @@ import os
 import stat
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Literal
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -47,6 +49,10 @@ from physgate.hooks.settings import InstallRequest, build_config, current_instal
 from physgate.oslayer.policy import sandbox_policy
 
 PROFILES = ("role", "reviewer", "baseline")
+#: What a protected root holds, as the run records it: the held-out tier or the validation
+#: tier, each read by no session.
+Protected = Literal["held_out", "validation"]
+_SPOKEN = {"held_out": "held out", "validation": "validation"}
 #: What a tier's canary list holds: canaries, and nothing else.
 _LISTED: TypeAdapter[list[str]] = TypeAdapter(list[Canary])
 
@@ -163,7 +169,7 @@ def _root_problems(root: Path, run_held_out: tuple[str, ...]) -> list[str]:
 
 
 def _tier_problems(
-    root: Path, run_canaries: tuple[str, ...], recorded: str | None
+    root: Path, run_canaries: tuple[str, ...], recorded: str | None, label: Protected = "held_out"
 ) -> tuple[list[str], set[str]]:
     """Every problem with the tier's contents, and its task ids, case-folded.
 
@@ -202,8 +208,8 @@ def _tier_problems(
             continue
         if name != task.id:
             problems.append(f"the directory {name!r} is not named as its task {task.id!r}")
-        if task.tier != "held_out" or task.canary is None:
-            problems.append(f"the task {task.id!r} is not marked held out with its canary")
+        if task.tier != label or task.canary is None:
+            problems.append(f"the task {task.id!r} is not marked {_SPOKEN[label]} with its canary")
         else:
             carried.append(task.canary)
         ids.add(task.id.casefold())
@@ -320,6 +326,7 @@ def scan(
     places: Mapping[str, Path],
     scratch: Path,
     visible_tier: Path | None = None,
+    label: Protected = "held_out",
 ) -> list[str]:
     """Every reason a run with these parameters and places could expose ``held_out``.
 
@@ -327,14 +334,18 @@ def scan(
     tier was written) and ``run_canaries`` are the run's parameters; ``places`` names every
     directory a session of the run works in or reads; ``scratch`` is an empty directory
     outside the tier where the sessions' configurations are generated to be looked at.
-    An empty list is the only answer that lets the run start.
+    ``label`` is what the run records the root as: the held-out tier, or the validation
+    tier, whose tasks must then all be marked so. An empty list is the only answer that lets
+    the run start.
     """
     problems = _checked("root", lambda: _root_problems(held_out, run_held_out))
     held_ids: set[str] = set()
     if held_out.is_dir() and not held_out.is_symlink():
 
         def tier() -> list[str]:
-            found, ids = _tier_problems(held_out, run_canaries, run_digests.get(str(held_out)))
+            found, ids = _tier_problems(
+                held_out, run_canaries, run_digests.get(str(held_out)), label
+            )
             held_ids.update(ids)
             return found
 

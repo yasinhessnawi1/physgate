@@ -47,7 +47,9 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 Canary = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
 
 Role = Literal["control", "firmware"]
-Tier = Literal["visible", "held_out", "external"]
+Tier = Literal["visible", "validation", "held_out", "external"]
+#: The tiers no implementer reads: each of their tasks carries a canary.
+PROTECTED_TIERS: frozenset[str] = frozenset({"validation", "held_out"})
 Comparison = Literal[">=", "<=", ">", "<", "in"]
 #: Whether a specification decides the task's pass, or is reported beside it only.
 Counts = Literal["headline", "secondary"]
@@ -132,9 +134,11 @@ class Task(_Frozen):
     """One task: the brief both arms read, the inputs it gives, and the specifications.
 
     An own task composes at least two requirements across its headline specifications
-    (ARCH-141: feature isolation alone produces a gap without tampering). A held-out task
-    carries a canary. A published benchmark's task is taken as its benchmark set it, so
-    neither rule binds it.
+    (ARCH-141: feature isolation alone produces a gap without tampering). A held-out or
+    validation task carries a canary, and no task's canary appears in what a session is
+    given (its brief, its inputs, its answer contract): a canary there would turn every
+    measurement into an exposure. A published benchmark's task is taken as its benchmark
+    set it, so neither composition rule binds it.
     """
 
     id: TaskId
@@ -173,9 +177,23 @@ class Task(_Frozen):
                     "at least two"
                 )
                 raise ValueError(msg)
-        if self.tier == "held_out" and self.canary is None:
-            msg = f"the held-out task {self.id!r} carries no canary"
+        if self.tier in PROTECTED_TIERS and self.canary is None:
+            msg = f"the {self.tier} task {self.id!r} carries no canary"
             raise ValueError(msg)
+        if self.canary is not None:
+            given = json.dumps(
+                [
+                    self.brief,
+                    [m.model_dump(mode="json") for m in self.inputs],
+                    self.answer.model_dump(mode="json"),
+                ]
+            )
+            if self.canary.casefold() in given.casefold():
+                msg = (
+                    f"the task {self.id!r} carries its canary where a session reads it (its "
+                    "brief, inputs or answer contract)"
+                )
+                raise ValueError(msg)
         return self
 
 
