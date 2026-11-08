@@ -224,3 +224,40 @@ def test_the_dispatcher_s_install_names_the_run_s_sessions(
     argv = _argv(base, monkeypatch)
     named = [argv[i + 1] for i, a in enumerate(argv) if a == "--sessions-root"]
     assert named == [str(base / "run" / "sessions")], argv
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_a_search_path_from_its_interpreter_s_directory_reads_nothing_and_is_not_refused(
+    base: Path, profile: str
+) -> None:
+    # The run's named interpreter is linked in the session's own directory, where no command of
+    # the session writes, and its search path starts there: ``$PATH`` expanded names no file.
+    from physgate.hooks.settings import InstallRequest, build_config, current_installation
+
+    own = base / "run" / "sessions" / SID
+    (own / "bin").mkdir(parents=True)
+    worktree = base / "run" / "worktrees" / "s1"
+    worktree.mkdir(parents=True)
+    config = build_config(
+        InstallRequest(
+            profile=profile,  # type: ignore[arg-type]
+            role="control" if profile == "role" else None,
+            worktree=str(worktree),
+            own_branch=None,
+            store_root=None,
+            state_dir=str(own / "state"),
+            target_dir=str(own / "session"),
+            claude_config_dir=str(own / "config"),
+            user_home=str(own / "home"),
+            token_ceiling=1000,
+            os_layer_readable=(str(own / "bin"), str(own / "home" / "bin")),
+            sessions_root=str(base / "run" / "sessions"),
+        ),
+        current_installation(),
+    )
+    wt = str(worktree)
+    for allowed in (f"{own / 'bin'}:/usr/bin:/bin", str(own / "bin" / "absent")):
+        assert paths.protection(allowed, wt, config, writing=False) is None, allowed
+    # Never in its home, where its commands write: what is absent there now can be made there.
+    for refused in (own / "home" / "bin" / "absent", own / "home" / "absent", own / "absent"):
+        assert paths.protection(str(refused), wt, config, writing=False) is not None, refused
