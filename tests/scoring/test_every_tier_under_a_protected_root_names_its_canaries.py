@@ -124,6 +124,23 @@ def test_a_tier_without_its_list_is_found_at_any_depth(tmp_path: Path, depth: st
     assert _reason(root) == "canary_list_missing"
 
 
+def test_a_list_beside_a_tier_is_not_that_tier_s_list(tmp_path: Path) -> None:
+    # A list beside a tier lies outside the root a run protects; it does not stand for one.
+    root = _root(tmp_path)
+    _tier_without_list(root)
+    (root / "actuator.canaries.json").write_text(json.dumps([CANARY]))
+    assert _reason(root) == "canary_list_missing"
+
+
+def test_a_task_file_named_in_another_case_still_makes_a_tier(tmp_path: Path) -> None:
+    # A disk that ignores case opens it as the task it is.
+    root = _root(tmp_path)
+    tier = _tier_without_list(root)
+    task = tier / "actuator.t00" / "task.json"
+    task.rename(task.with_name("Task.JSON"))
+    assert _reason(root) == "canary_list_missing"
+
+
 def test_a_tier_whose_list_was_removed_after_the_split_refuses_the_next_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
