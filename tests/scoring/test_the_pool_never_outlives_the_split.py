@@ -91,7 +91,7 @@ def test_twenty_four_pooled_tasks_become_one_version_and_no_pool_outlives_it(
     _, _, out = _author(tmp_path, monkeypatch, _tasks(26), count=26)
     assert out["status"] == "split" and out.get("version") is not None
     version = _root(tmp_path) / out["version"]
-    assert sorted(p.name for p in _root(tmp_path).iterdir()) == ["author", out["version"]]
+    assert sorted(p.name for p in _root(tmp_path).iterdir()) == sorted(["author", out["version"]])
     assert out["pool"] == 0 and out.get("left_with_the_pool") == 2
     held = sorted(p.name for p in (version / "held_out").iterdir() if p.is_dir())
     assert len(held) == 8 and out["visible"] == sorted(

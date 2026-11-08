@@ -113,6 +113,13 @@ def test_the_version_id_is_the_digest_of_the_manifest_without_its_id(tmp_path: P
     assert manifest.version == hashlib.sha256(canonical_json(without)).hexdigest()
 
 
+def test_the_id_leaves_out_the_id_field_and_nothing_else() -> None:
+    version_id = _api("physgate.evaluation.tiers.manifest.version_id")
+    fields = {"role": "control", "seed": 5}
+    assert version_id({**fields, "version": "0" * 64}) == version_id(fields)
+    assert version_id({**fields, "seed": 6}) != version_id(fields)
+
+
 @pytest.mark.parametrize(
     "change",
     [
