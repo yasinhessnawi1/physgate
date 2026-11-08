@@ -74,8 +74,23 @@ def test_a_file_tool_read_of_the_run_s_configuration_is_refused(base: Path, prof
 @pytest.mark.parametrize("profile", PROFILES)
 def test_a_shell_read_of_the_run_s_configuration_is_refused(base: Path, profile: str) -> None:
     config, wt, run_json = _session(base, profile)
-    for command in (f"cat {run_json}", "grep canaries ../../run.json", "head -c 99 ../../run.json"):
+    for command in (
+        f"cat {run_json}",
+        "grep canaries ../../run.json",
+        "head -c 99 ../../run.json",
+        # An interpreter's program, which the shell's parser takes as text: named is enough.
+        "python3 -c \"print(open('../../run.json').read())\"",
+    ):
         assert shell_paths.check(parse(command)[0], str(wt), config) is not None, command
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_a_command_fed_the_record_s_path_as_text_is_refused_as_for_the_held_out_tier(
+    base: Path, profile: str
+) -> None:
+    # A program's input that only names the record: as for the held-out tier, naming is enough.
+    config, wt, _ = _session(base, profile)
+    assert shell_paths.check(parse('cat <<< "../../run.json"')[0], str(wt), config) is not None
 
 
 @pytest.mark.parametrize("profile", PROFILES)
