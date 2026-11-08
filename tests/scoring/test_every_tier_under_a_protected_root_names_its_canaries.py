@@ -132,6 +132,14 @@ def test_a_list_beside_a_tier_is_not_that_tier_s_list(tmp_path: Path) -> None:
     assert _reason(root) == "canary_list_missing"
 
 
+def test_a_list_inside_one_of_a_tier_s_tasks_is_not_the_tier_s_list(tmp_path: Path) -> None:
+    # The tier's list lies directly in the tier; one further down names one task's canary.
+    root = _root(tmp_path)
+    tier = _tier_without_list(root)
+    (tier / "actuator.t00" / "canaries.json").write_text(json.dumps([CANARY]))
+    assert _reason(root) == "canary_list_missing"
+
+
 def test_a_task_file_named_in_another_case_still_makes_a_tier(tmp_path: Path) -> None:
     # A disk that ignores case opens it as the task it is.
     root = _root(tmp_path)
