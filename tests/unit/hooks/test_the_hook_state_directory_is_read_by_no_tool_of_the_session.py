@@ -187,3 +187,19 @@ def test_a_protected_file_the_session_may_read_is_still_put_back(root: Path, pro
     assert said != "allow" and "put back" in said and "could not" not in said
     assert sealed.read_bytes() == OPEN_BYTES
     assert _hook(root, config) == "allow"
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_a_held_out_file_whose_mode_alone_moved_has_its_mode_set_back(
+    root: Path, profile: str
+) -> None:
+    # A mode needs no kept byte to be set back: the file's bytes are checked by their digest.
+    config = _started(root, profile)
+    held = root / "tiers" / "v1" / "scenario.json"
+    before = held.stat().st_mode & 0o777
+    held.chmod(0o600 if before != 0o600 else 0o640)
+    said = _hook(root, config)
+    assert said != "allow" and "put back" in said and "could not" not in said, said
+    assert held.stat().st_mode & 0o777 == before
+    assert held.read_bytes() == HELD_BYTES
+    assert _hook(root, config) == "allow"
