@@ -218,6 +218,7 @@ def _session_setup(args: argparse.Namespace, install: Path) -> Any:
         role_python=_role_python(getattr(args, "role_python", None)),
         held_out=(str(args.held_out_root.resolve()),),
         withheld_reads=tuple(str(p.resolve()) for p in args.withhold),
+        # Each command gives the session every canary under its root (``root_canaries``).
         held_out_canaries=(),
         network="none",
         os_layer=layer,
@@ -295,15 +296,24 @@ def _author(args: argparse.Namespace) -> int:
 
 
 def _blind_check(args: argparse.Namespace) -> int:
-    from physgate.evaluation.per_role.author_session import blind_check, held_out_tier
+    import dataclasses
+
+    from physgate.evaluation.per_role.author_session import (
+        blind_check,
+        held_out_tier,
+        root_canaries,
+    )
 
     root = args.held_out_root.resolve()
     args.work = args.work.resolve()
+    # As the author's: the check looks for every canary the root's tiers name, and its
+    # answer is not taken unless its record says none showed.
+    canaries = root_canaries(root)
     return _with_install(
         args,
         lambda setup: blind_check(
             held_out_tier(root, args.role),
-            setup,
+            dataclasses.replace(setup, held_out_canaries=canaries),
             args.work,
             implementer_model=args.implementer_model,
             cap=args.cap,

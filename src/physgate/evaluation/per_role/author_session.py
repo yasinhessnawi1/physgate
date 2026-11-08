@@ -7,7 +7,8 @@ root is surveyed as the session's tripwire will survey it: a link or an unreadab
 anywhere under it would have the session refused every tool call, so the runner refuses
 first, at no cost. It refuses too unless the session looks for every canary that the lists
 the harness wrote under the root name, at any depth (:func:`root_canaries`), and a list that
-cannot be taken whole, or a directory that cannot be listed, is never read as naming none.
+cannot be taken whole, a directory that cannot be listed, or a tier that holds tasks but no
+list, is never read as naming none.
 While it runs, a checkpoint on the budget watch holds each task to its references as soon as
 it is written (on a copy, never in the worktree), and stops the session when no task holds
 after a quarter of the cap, or when more than a task's worth of tokens has gone by since the
@@ -15,8 +16,9 @@ last task came to hold. When it ends, the runner closes the checkpoint, so a cal
 outlived the session changes nothing; a session its watch could not hold to its cap
 (``WATCH_FAILURES``), or whose stream showed a held-out canary however it ended (or cannot
 say, where the root names canaries), is refused, and only step 5 runs. So is a session under
-whose root the canaries grew while it ran, or a list can no longer be taken whole: it was not
-looking for what came, so its record cannot say it saw none of it. Otherwise the runner:
+whose root the canaries grew while it ran, or a list can no longer be taken whole or has gone:
+it was not looking for what came, so its record cannot say it saw none of it. Otherwise the
+runner:
 
 1. copies each task it left into a staging directory beside its work, refusing a task
    that holds a link, a special file, a canary list's name or more than a task's worth of
@@ -38,8 +40,11 @@ reads the held-out tasks from a file placed in its own work directory (never its
 which any process of the same user can list), keyed by the digest of each id, without
 their references or canaries. It answers three questions per task with true or false and
 nothing else. Its answer is read strictly: anything but those booleans for exactly those
-keys is no answer. Its stream is moved inside the protected root as well. What leaves is
-counts and the digests of the tasks with a ``false``.
+keys is no answer. It is held to the canaries as the author is: it runs only looking for
+every canary under the tier's protected root, and a check whose stream showed one (or cannot
+say it did not), or under whose root they grew while it ran, gives no answer. Its stream is
+moved inside the protected root as well. What leaves is counts and the digests of the tasks
+with a ``false``.
 
 Both are tested against the scripted endpoint; a real session is started by a person.
 """
@@ -265,15 +270,22 @@ def _canary_list(path: str) -> set[str]:
 def root_canaries(root: Path) -> tuple[str, ...]:
     """Every canary the lists the harness wrote under ``root`` name; none while it holds none.
 
-    A split leaves each held-out tier's list beside it, as ``<tier>.canaries.json``, and a
-    tier may hold one as ``canaries.json``, at any depth, in any case. :data:`_SESSION_FOLDERS`
-    are not entered: what a session wrote is no list of ours. Of everything else only names
-    are looked at, by the runner, never a task; the pool's tasks carry no canary yet. A link
-    is judged as the list it is named as, and never followed.
+    A split leaves each held-out tier's list inside the tier, as ``canaries.json``; a list
+    named ``<tier>.canaries.json`` beside one is read as well, at any depth, in any case.
+    :data:`_SESSION_FOLDERS` are not entered: what a session wrote is no list of ours, and the
+    pool's tasks carry no canary, which is given at the split. Of everything else only names
+    are looked at, by the runner, never a task. A link is judged as the list it is named as,
+    and never followed.
+
+    A directory that holds a task (a directory with a ``task.json`` in it) is a tier, and a
+    tier holds its list: one that holds a task but no list (the split stopped before its list
+    was written, or the list was removed) leaves its canaries unknown, so it refuses rather
+    than reading as naming none. A directory that holds no task is no tier.
 
     Raises:
-        AuthoringError: a list cannot be taken whole (:func:`_canary_list`), or a directory
-            that could hold one cannot be listed (``canary_list_unreadable``).
+        AuthoringError: a list cannot be taken whole (:func:`_canary_list`), a directory that
+            could hold one cannot be listed (``canary_list_unreadable``), or a tier holds no
+            list (``canary_list_missing``).
     """
 
     def unlisted(exc: OSError) -> None:
@@ -285,13 +297,74 @@ def root_canaries(root: Path) -> tuple[str, ...]:
     if not root.is_dir():
         return ()
     found: set[str] = set()
+    tiers: set[str] = set()
+    listed: set[str] = set()
     for where, directories, files in os.walk(root, onerror=unlisted):
         if where == str(root):
             directories[:] = [d for d in directories if d not in _SESSION_FOLDERS]
+        elif any(name.casefold() == "task.json" for name in files):
+            tiers.add(os.path.dirname(where))
         for name in sorted((*directories, *files)):
             if _names_a_list(name):
                 found |= _canary_list(str(Path(where) / name))
+                listed.add(where)
+    unlisted_tiers = sorted(tiers - listed)
+    if unlisted_tiers:
+        msg = (
+            f"{unlisted_tiers[0]} holds tasks but no canary list, so its canaries cannot be "
+            "looked for; it is never read as naming none"
+        )
+        raise AuthoringError(msg, refused_because="canary_list_missing", path=unlisted_tiers[0])
     return tuple(sorted(found))
+
+
+def _require_looking(canaries: Sequence[str], setup: RawSetup) -> None:
+    """Refuse a session that would not look for every one of ``canaries``.
+
+    Raises:
+        AuthoringError: ``canaries_missing``, with how many.
+    """
+    missing = set(canaries) - set(setup.held_out_canaries)
+    if missing:
+        msg = (
+            f"the session would not look for {len(missing)} of the canaries its protected "
+            "root names, so its record could not say whether it saw a held-out task"
+        )
+        raise AuthoringError(msg, refused_because="canaries_missing", missing=str(len(missing)))
+
+
+def _require_unseen(record: dict[str, Any], canaries: Sequence[str], taken: str) -> None:
+    """Refuse what a session left, unless its record says it saw no canary of its root's.
+
+    The record must say no held-out canary showed in the stream; it may say it cannot tell
+    only where there was none to look for. ``taken`` says what is then not taken from it.
+
+    Raises:
+        AuthoringError: ``held_out_seen``.
+    """
+    seen = record.get("held_out_seen", "unrecorded")
+    if seen is not False and not (seen is None and not canaries):
+        msg = f"the session's stream showed a held-out canary (held_out_seen); {taken}"
+        raise AuthoringError(msg, end=str(record.get("end")), refused_because="held_out_seen")
+
+
+def _require_none_came(root: Path, canaries: Sequence[str], taken: str) -> None:
+    """Refuse what a session left if its root's canaries changed while it ran.
+
+    The root is walked again: a list that came while the session ran names canaries it was
+    not looking for, so its record says nothing of them, and a list that can no longer be
+    taken whole, or has gone, refuses as it does before the session.
+
+    Raises:
+        AuthoringError: ``canaries_missing``, or a list's own reason.
+    """
+    grown = set(root_canaries(root)) - set(canaries)
+    if grown:
+        msg = (
+            f"the protected root came to name {len(grown)} canaries while the session ran "
+            f"that it was not looking for; {taken}"
+        )
+        raise AuthoringError(msg, refused_because="canaries_missing", missing=str(len(grown)))
 
 
 class _NotPlainError(Exception):
@@ -730,6 +803,10 @@ def _cut_tiers(plan: AuthoringPlan, pool: Path, chosen: Sequence[str]) -> dict[s
     return placed
 
 
+#: What is not taken from a session its record or its root refuses.
+NOT_POOLED = "none of the tasks it wrote is pooled"
+
+
 def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
     """Run one authoring session, pool the tasks that hold, and cut the tiers once it can.
 
@@ -740,22 +817,16 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
         AuthoringError: the author's model is the implementers', a place is inside a held-out
             root or already exists, the cap is over :data:`MOST_CAP`, the session does not
             withhold the protected root, the root would trip the session's tripwire, a
-            canary list under the root cannot be taken whole or names a canary the session
-            would not look for, or the
-            session's watch could not hold it to its cap, its stream showed a held-out
-            canary, or the root's canaries grew while it ran or a list can no longer be taken
-            whole (none of its tasks is pooled; ``refused_because`` says which).
+            canary list under the root cannot be taken whole, a tier there holds none, or a
+            list names a canary the session would not look for, or the session's watch could
+            not hold it to its cap, its stream showed a held-out canary, or the root's
+            canaries grew while it ran or a list can no longer be taken whole or has gone
+            (none of its tasks is pooled; ``refused_because`` says which).
     """
     require_author_model(setup.model, plan.implementer_model)
     _require_apart(plan, setup)
     canaries = root_canaries(plan.held_out_root)
-    missing = set(canaries) - set(setup.held_out_canaries)
-    if missing:
-        msg = (
-            f"the session would not look for {len(missing)} of the canaries its protected "
-            "root names, so its record could not say whether it saw a held-out task"
-        )
-        raise AuthoringError(msg, refused_because="canaries_missing", missing=str(len(missing)))
+    _require_looking(canaries, setup)
     _require_clear(plan.held_out_root)
     evidence = plan.held_out_root / f"{plan.role}.author"
     tier = held_out_tier(plan.held_out_root, plan.role)
@@ -777,17 +848,11 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
             # However the session ended: a checkpoint call that outlived it changes nothing
             # from here on.
             held_while_running = progress.close()
-        seen = record.get("held_out_seen", "unrecorded")
-        if seen is not False and not (seen is None and not canaries):
-            # A held-out canary showed in the session's stream, or the record cannot say it
-            # did not while the root names canaries (it is unknown only where there is none
-            # to look for): what the session wrote may hold what it saw, however it ended,
-            # so none of its tasks is taken. Its stream is still secured below.
-            msg = (
-                "the session's stream showed a held-out canary (held_out_seen); none of the "
-                "tasks it wrote is pooled"
-            )
-            raise AuthoringError(msg, end=str(record["end"]), refused_because="held_out_seen")
+        # A held-out canary showed in the session's stream, or the record cannot say it did
+        # not while the root names canaries (it is unknown only where there is none to look
+        # for): what the session wrote may hold what it saw, however it ended, so none of its
+        # tasks is taken. Its stream is still secured below.
+        _require_unseen(record, canaries, NOT_POOLED)
         if record["end"] in WATCH_FAILURES:
             # The watch could not hold the session to its cap: what it did was not counted as
             # meant, so none of its tasks is taken. Its stream is still secured below.
@@ -799,14 +864,8 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
         # Another author's split may have left a list under the root while this session ran.
         # Its canaries were not looked for, so the record above says nothing of them, and a
         # session whose withhold failed could have read that tier. The same walk, so a list
-        # that can no longer be taken whole refuses here as it does before the session.
-        grown = set(root_canaries(plan.held_out_root)) - set(canaries)
-        if grown:
-            msg = (
-                f"the protected root came to name {len(grown)} canaries while the session ran "
-                "that it was not looking for; none of the tasks it wrote is pooled"
-            )
-            raise AuthoringError(msg, refused_because="canaries_missing", missing=str(len(grown)))
+        # that can no longer be taken whole, or has gone, refuses here as before the session.
+        _require_none_came(plan.held_out_root, canaries, NOT_POOLED)
         staging = plan.work / "staging"
         refused = stage(plan.work / "worktree", staging)
         staged = sum(1 for p in staging.iterdir() if p.is_dir())
@@ -916,9 +975,17 @@ def blind_check(
 ) -> dict[str, Any]:
     """Run the blind check on ``tier``; counts and the digests of tasks with a ``false``.
 
+    The check is held to the canaries under the tier's protected root, the directory the
+    tier was cut in, as an author is to its root's (:func:`root_canaries`): it runs only
+    looking for every one of them, and its answer is taken only when its record says none
+    showed in its stream and none came under the root while it ran.
+
     Raises:
         AuthoringError: the checking model is the implementers', ``work`` is inside a
-            held-out root, or the session does not withhold the tier.
+            held-out root, the session does not withhold the tier, a canary list under the
+            root cannot be taken whole or a tier there holds none, the session would not look
+            for every canary the root names, or (its answer not taken, ``refused_because``
+            says why) its stream showed one or the root's canaries changed while it ran.
         PerRoleError: a task in the tier does not load.
     """
     require_author_model(setup.model, implementer_model)
@@ -927,6 +994,8 @@ def blind_check(
     if not _withheld(tier, held) or any(_inside(work, r) for r in roots):
         msg = "the check withholds the tier and works outside every held-out root"
         raise AuthoringError(msg, tier=str(tier), work=str(work))
+    canaries = root_canaries(tier.parent)
+    _require_looking(canaries, setup)
     tasks = bundle(tier)
     files = {"tasks.json": json.dumps(tasks, sort_keys=True, indent=1).encode()}
     record: dict[str, Any] | None = None
@@ -934,6 +1003,8 @@ def blind_check(
         record = run_session(
             CHECK_BRIEF.format(count=len(tasks)), setup, work, cap=cap, files=files
         )
+        _require_unseen(record, canaries, "its answer is not taken")
+        _require_none_came(tier.parent, canaries, "its answer is not taken")
         answers = read_answers(work / "worktree" / "answers.json", list(tasks))
     finally:
         # The work holds the held-out tasks it was given: it never stays outside the root.

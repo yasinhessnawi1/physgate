@@ -8,6 +8,7 @@ the evaluation environment, since the runner holds every task to the control sco
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -219,6 +220,8 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
         task.update(tier="held_out", canary="c" * 32)
         (d / "task.json").write_text(json.dumps(task))
         d.rename(tier / d.name)
+    # The tier's canary list lies inside it, as a split leaves it, and the check looks for it.
+    (tier / "canaries.json").write_text(json.dumps(["c" * 32]))
     keys = sorted(bundle(tier))
     answers = {k: dict.fromkeys(QUESTIONS, True) for k in keys}
     answers[keys[0]]["answerable_as_asked"] = False
@@ -234,7 +237,7 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
     with serving(Script(main=steps)) as (api, url):
         out = blind_check(
             tier,
-            _setup(install_bin, url, root),
+            dataclasses.replace(_setup(install_bin, url, root), held_out_canaries=("c" * 32,)),
             work,
             implementer_model="claude-opus-5-5",
             cap=10**9,
