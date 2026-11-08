@@ -270,7 +270,7 @@ def _author(args: argparse.Namespace) -> int:
     import dataclasses
 
     from physgate.evaluation.per_role.author_session import AuthoringPlan, author, root_canaries
-    from physgate.evaluation.tiers.store import AUTHOR_EVIDENCE, role_root
+    from physgate.evaluation.tiers.store import author_evidence, role_root
 
     # The paths given are resolved once, before anything runs, so a system link such as
     # macOS's /var is followed here and never met by the split's refusal of links.
@@ -278,7 +278,7 @@ def _author(args: argparse.Namespace) -> int:
     root = role_root(store, args.role)
     prefix = args.id_prefix
     if prefix is None:
-        evidence = root / AUTHOR_EVIDENCE
+        evidence = author_evidence(store, args.role)
         recorded = sum(1 for p in evidence.iterdir() if p.is_dir()) if evidence.is_dir() else 0
         prefix = f"b{recorded + 1}."
     plan = AuthoringPlan(

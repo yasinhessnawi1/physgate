@@ -22,6 +22,9 @@ No run that names a version of a tier-set store starts while that store holds a 
 version still being written: either holds tasks that become held-out and validation ones and
 carry no canary yet, which no session of the run withholds. This holds for every run that
 names one, reportable or not, since a read of them spoils the tiers whatever run made it.
+Nor does one that names a tier of a store without naming, among the roots its sessions
+withhold, that store's withheld root for the same role, which holds the sessions' streams and
+the pool.
 
 These are the evaluation's rules, not the product's: the command's composition root
 registers them with the core, and removing the evaluation removes them.
@@ -31,7 +34,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from physgate.evaluation.tiers.store import leftover_refusal, store_of
+from physgate.evaluation.tiers.store import leftover_refusal, store_of, withheld_refusal
 from physgate.orchestrator.requirements import RunFacts, RunRequirement
 from physgate.orchestrator.run_config import network_enforced
 from physgate.oslayer.policy import NETWORK_UNENFORCED
@@ -106,6 +109,21 @@ def nothing_left_in_a_named_tier_set_store(facts: RunFacts) -> str | None:
     return None
 
 
+def every_named_store_s_withheld_root_is_withheld(facts: RunFacts) -> str | None:
+    """Refuse a run that names a tier of a store but not that store's withheld root.
+
+    The withheld root of a role (``<store>/<role>/withheld``) holds what sessions wrote: the
+    authoring and blind-check streams, with every task they saw, and the pool. A run that
+    names any tier of that role's versions withholds it too, among its held-out roots, so
+    every layer of the protection refuses it to the run's sessions as it refuses the tier.
+    """
+    refusal = withheld_refusal(facts.config.held_out)
+    if refusal is None:
+        return None
+    reason, words = refusal
+    return f"{words} ({reason})"
+
+
 #: The requirements the evaluation holds every run to.
 REQUIREMENTS: tuple[RunRequirement, ...] = (
     os_layer_for_reportable_runs,
@@ -113,4 +131,5 @@ REQUIREMENTS: tuple[RunRequirement, ...] = (
     network_none_for_reportable_runs,
     record_decisions_for_reportable_runs,
     nothing_left_in_a_named_tier_set_store,
+    every_named_store_s_withheld_root_is_withheld,
 )

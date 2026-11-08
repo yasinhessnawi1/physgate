@@ -1,8 +1,9 @@
 """The own tasks' authoring session, and the blind check of the held-out tier, end to end.
 
 Both work on a tier-set store (:mod:`.tiers.store`): the role's root in it, ``<store>/<role>``,
-holds the round's pool, the sessions' streams and every version of the role's tiers, and every
-session started on it withholds it.
+holds every version of the role's tiers and, under its withheld root (``withheld/``), the
+round's pool and the sessions' streams; every session started on it withholds the role's root,
+and every run that names a tier of it withholds the withheld root.
 
 **Authoring.** A session, on a model that is not the implementers', is given the author
 brief and nothing else, and works in a fresh directory outside every held-out root (the
@@ -39,8 +40,8 @@ runner:
    under a temporary name and renamed last, with its manifest and the round's provenance
    record; the pool is then removed, with the tasks the draw did not take. Otherwise it says
    how many are pooled, and a further session adds to them;
-5. copies the session's stream and record inside the role's root, since they hold every task
-   the session wrote, as regular files only (the session's own links, such as its
+5. copies the session's stream and record under the withheld root, since they hold every
+   task the session wrote, as regular files only (the session's own links, such as its
    interpreter's, would trip the next session's tripwire), notes the session in the pool for
    the provenance record, and removes the work.
 
@@ -52,7 +53,7 @@ nothing else. Its answer is read strictly: anything but those booleans for exact
 keys is no answer. It is held to the store and the canaries as the author is: it runs only
 looking for every canary under the role's root, and a check whose stream showed one (or
 cannot say it did not), or under whose root they grew while it ran, gives no answer. Its
-stream is kept inside the role's root as well. What leaves is counts and the digests of the
+stream is kept under the withheld root as well. What leaves is counts and the digests of the
 tasks with a ``false``.
 
 Both are tested against the scripted endpoint; a real session is started by a person.
@@ -91,6 +92,8 @@ from physgate.evaluation.tiers.store import (
     AUTHOR_EVIDENCE,
     CHECK_EVIDENCE,
     SESSION_FOLDERS,
+    author_evidence,
+    check_evidence,
     is_visible_tier,
     leftover_refusal,
     pool_dir,
@@ -887,6 +890,8 @@ def _pool(staging: Path, held: Sequence[str], pool: Path) -> tuple[int, int]:
 
 #: Where the pool records each session of its round, for the version's provenance record.
 SESSIONS = ".sessions.jsonl"
+#: What the provenance says of what the session record does not carry.
+NOT_RECORDED = "not recorded by the session record"
 
 
 def _note_session(pool: Path, kept: Path, record: dict[str, Any]) -> None:
@@ -905,6 +910,10 @@ def _note_session(pool: Path, kept: Path, record: dict[str, Any]) -> None:
         **{key: record.get(key) for key in ("session_id", "end", "tokens", "cap", "wall_clock_s")},
         "held_out_seen": record.get("held_out_seen"),
         "files": files,
+        # The session record carries neither, so the provenance says so rather than leave
+        # a reader to take their absence for a count of none or a clean scan.
+        "turns": NOT_RECORDED,
+        "secret_scan": NOT_RECORDED,
     }
     pool.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd = os.open(pool / SESSIONS, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
@@ -961,7 +970,7 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
     canaries = root_canaries(root)
     _require_looking(canaries, setup)
     _require_clear(root)
-    evidence = root / AUTHOR_EVIDENCE
+    evidence = author_evidence(plan.store, plan.role)
     pool = pool_dir(plan.store, plan.role)
     record: dict[str, Any] | None = None
     progress = AuthorProgress(
@@ -1178,7 +1187,7 @@ def blind_check(
         answers = read_answers(work / "worktree" / "answers.json", list(tasks))
     finally:
         # The work holds the held-out tasks it was given: it never stays outside the root.
-        _closed(_keep_evidence(work, record, root / CHECK_EVIDENCE))
+        _closed(_keep_evidence(work, record, check_evidence(store, role)))
         working.unlink()
     if answers is None:
         return {"tasks": len(tasks), "answered": False, "session": _spent(record)}

@@ -4,14 +4,22 @@
 
     <store>/
       <role>/                    the role's protected root, withheld from its authoring sessions
-        pool/                    the round's tasks that hold, and its sessions' provenance
-        author/, check/          the authoring and blind-check sessions' streams
+        withheld/                withheld from every run that names a tier of the store
+          pool/                  the round's tasks that hold, and its sessions' provenance
+          author/, check/        the authoring and blind-check sessions' streams
         <version>/               one round's three tiers, named by its manifest's id
           tierset.json           the manifest: counts and digests only
           provenance.json        the round's sessions: ids, ends, spend and stream digests
           visible/<task>/…       read by implementers
           validation/<task>/…    protected, as held out is; SHA256SUMS and canaries.json
           held_out/<task>/…      protected; SHA256SUMS and canaries.json
+
+**What sessions wrote is withheld from every run.** The authoring sessions' streams hold every
+task they wrote, the blind check's hold the held-out tasks it was given, and the pool holds
+tasks that become held-out ones; none carries a canary. So they lie under one root per role,
+``withheld/``, and a run that names any tier of the store must name that root too, for each
+role it names, among the roots its sessions withhold (the run's ``held_out``), where every
+layer of the protection refuses it as it refuses a tier (:func:`withheld_refusal`).
 
 **A version is written once.** The split writes it into a fresh temporary directory beside
 it (``.version-<random>``) and renames that into place last, once its tiers, its provenance
@@ -58,6 +66,8 @@ from physgate.evaluation.tiers.manifest import (
 )
 from physgate.evaluation.tiers.task import Role
 
+#: The one root per role that holds what sessions wrote: the pool and the sessions' streams.
+WITHHELD = "withheld"
 POOL = "pool"
 #: What the pool is called once the split has drawn from it, until it is removed.
 SPENT_POOL = "pool.spent"
@@ -67,7 +77,7 @@ AUTHOR_EVIDENCE = "author"
 CHECK_EVIDENCE = "check"
 #: The folders directly under a role's root that hold what sessions wrote. No canary list
 #: the harness writes lies in one.
-SESSION_FOLDERS = frozenset({POOL, SPENT_POOL, AUTHOR_EVIDENCE, CHECK_EVIDENCE})
+SESSION_FOLDERS = frozenset({WITHHELD})
 #: Why a store refuses a run or a session, counted: what only a split in progress holds.
 LEFT = ("pool_left", "temporary_version_left")
 
@@ -77,9 +87,24 @@ def role_root(store: Path, role: Role) -> Path:
     return store / role
 
 
+def withheld_root(store: Path, role: Role) -> Path:
+    """The root under which a role's pool and sessions' streams lie, withheld from every run."""
+    return role_root(store, role) / WITHHELD
+
+
 def pool_dir(store: Path, role: Role) -> Path:
     """Where a role's tasks that hold wait until the tiers are cut."""
-    return role_root(store, role) / POOL
+    return withheld_root(store, role) / POOL
+
+
+def author_evidence(store: Path, role: Role) -> Path:
+    """Where the role's authoring sessions' streams are kept."""
+    return withheld_root(store, role) / AUTHOR_EVIDENCE
+
+
+def check_evidence(store: Path, role: Role) -> Path:
+    """Where the role's blind-check sessions' streams are kept."""
+    return withheld_root(store, role) / CHECK_EVIDENCE
 
 
 def version_dir(store: Path, role: Role, version: str) -> Path:
@@ -93,6 +118,39 @@ def is_visible_tier(path: Path) -> bool:
         path.name == "visible"
         and VERSION_NAME.fullmatch(path.parent.name) is not None
         and path.parent.parent.name in get_args(Role)
+    )
+
+
+def tier_role(root: Path) -> tuple[Path, Role] | None:
+    """The store and role a protected tier root lies in, by its place alone; ``None`` outside."""
+    store = store_of(root)
+    if store is None:
+        return None
+    role: Role = root.parent.parent.name  # type: ignore[assignment]
+    return store, role
+
+
+def withheld_refusal(held_out: tuple[str, ...]) -> tuple[str, str] | None:
+    """Why a run withholding ``held_out`` may not start: a counted reason and its words.
+
+    Every tier of a store the run names asks for that store's withheld root of the same role
+    among the run's roots, compared as absolute, normalised paths; ``None`` if each is there.
+    """
+    named = {os.path.normpath(os.path.abspath(r)) for r in held_out}
+    missing = sorted(
+        {
+            str(withheld_root(*found))
+            for r in held_out
+            if (found := tier_role(Path(r))) is not None
+            and os.path.normpath(os.path.abspath(withheld_root(*found))) not in named
+        }
+    )
+    if not missing:
+        return None
+    return "withheld_root_not_named", (
+        f"the run names a tier of a store but not {len(missing)} withheld root(s) of it "
+        f"({', '.join(missing)}), which hold the sessions' streams and the pool: tasks that are "
+        "held-out ones, with no canary; a run withholds them with the tier"
     )
 
 
@@ -129,10 +187,14 @@ def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
         if not here.is_dir() or here.is_symlink():
             continue
         for name in os.listdir(here):
-            folded = name.casefold()
-            if folded.startswith(TEMPORARY):
+            if name.casefold().startswith(TEMPORARY):
                 counts["temporary_version_left"] += 1
-            elif folded in (POOL, SPENT_POOL) and here / name != continuing:
+        withheld = here / WITHHELD
+        if not withheld.is_dir() or withheld.is_symlink():
+            continue
+        for name in os.listdir(withheld):
+            folded = name.casefold()
+            if folded in (POOL, SPENT_POOL) and withheld / name != continuing:
                 counts["pool_left"] += 1
     return counts
 
@@ -255,7 +317,8 @@ def _publish(temporary: Path, target: Path, retire: Path | None) -> None:
     a spent pool and a temporary version, which refuse everything after it, rather than a
     pool that looks like one still filling (and whose tasks would be drawn again).
     """
-    spent = target.parent / SPENT_POOL
+    # Beside the pool, under the withheld root: a spent pool is still what sessions wrote.
+    spent = (retire or target.parent / WITHHELD / POOL).parent / SPENT_POOL
     refusal: tuple[str, str] | None = None
     if os.path.lexists(target):
         refusal = ("version_exists", f"{target} exists; a version is never written again")
