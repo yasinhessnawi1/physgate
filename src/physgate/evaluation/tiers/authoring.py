@@ -10,8 +10,11 @@ rubric, no visible task. Its model must differ from the model the run's implemen
 A seeded split then sends eight tasks to the visible tier and eight to the held-out tier,
 so both tiers come from one author, one brief and one distribution, and the gap between
 them measures overfitting to what was seen, not a difference in difficulty. Each held-out
-task gets a canary. The held-out tier is written under its protected root, outside the
-repository, and only its digest leaves it; the staging directory is removed.
+task gets a canary, and the tier's canary list lies inside the tier, beneath the root that
+protects it, where every layer refuses it to a session as it refuses a task: a canary a
+session could read would tell it what not to print. The held-out tier is written under its
+protected root, outside the repository, and only its digest and its list's digest leave it;
+the staging directory is removed.
 
 The validator (in the evaluation environment, since it runs the scorer) reports counts,
 task ids and digests only, so a person can approve the held-out tier without reading it.
@@ -216,6 +219,22 @@ def _write_file(dir_fd: int, name: str, data: bytes) -> None:
         os.close(fd)
 
 
+#: What a file is called while it is written, before it is whole and given its own name.
+_PARTIAL = ".{}.partial"
+
+
+def _write_whole(dir_fd: int, name: str, data: bytes) -> None:
+    """Write ``name`` under ``dir_fd`` so that, under that name, it is only ever whole.
+
+    It is written under a name of its own first, which no reader takes for it, and renamed
+    to ``name`` once every byte is down: a look at the directory finds the file whole, or
+    not at all.
+    """
+    partial = _PARTIAL.format(name)
+    _write_file(dir_fd, partial, data)
+    os.rename(partial, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+
+
 def _read_file(dir_fd: int, name: str) -> bytes:
     fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
     try:
@@ -289,11 +308,13 @@ def split(
 ) -> dict[str, Any]:
     """The staged tasks split by ``seed`` into the two tiers; the staging directory removed.
 
-    Returns what may be shown: the visible ids, the number held out and the held-out tier's
-    digest. The held-out tasks' canaries are written beside the held-out root, not inside it.
-    Every write goes through directory descriptors reached without following a link, each
-    task is read back and checked for its tier and canary, and the two tiers never share a
-    place.
+    Returns what may be shown: the visible ids, the number held out, the held-out tier's
+    digest and its canary list's digest. The list is written inside the held-out tier, as
+    ``canaries.json`` beside its digest file, so it lies beneath the root that protects the
+    tier; it is written whole (:func:`_write_whole`) and before any task, so the tier never
+    holds a task without its list. Every write goes through directory descriptors reached
+    without following a link, each task is read back and checked for its tier and canary,
+    and the two tiers never share a place.
 
     Raises:
         AuthoringError: the staging directory does not hold exactly ``2 * per_tier`` tasks
@@ -316,6 +337,7 @@ def split(
     order = list(range(len(entries)))
     random.Random(seed).shuffle(order)
     canaries = {ids[index]: secrets.token_hex(16) for index in order[per_tier:]}
+    listed = (json.dumps(sorted(canaries.values())) + "\n").encode()
     fds: dict[str, int] = {}
     try:
         for name, tier_path in (("visible", visible), ("held_out", held_out)):
@@ -331,6 +353,7 @@ def split(
             finally:
                 os.close(parent)
             fds[name] = _open_chain(tier_path, make=False)
+        _write_whole(fds["held_out"], CANARIES_NAME, listed)
         for index in order:
             task_id = ids[index]
             tier = "held_out" if task_id in canaries else "visible"
@@ -338,12 +361,6 @@ def split(
             _check_placed(fds[tier], task_id, tier, canaries.get(task_id))
         sums = sha256sums(held_out)
         _write_file(fds["held_out"], SUMS_NAME, sums.encode())
-        parent = _open_chain(held_out.parent, make=False)
-        try:
-            payload = json.dumps(sorted(canaries.values())) + "\n"
-            _write_file(parent, f"{held_out.name}.{CANARIES_NAME}", payload.encode())
-        finally:
-            os.close(parent)
     finally:
         for fd in fds.values():
             os.close(fd)
@@ -352,4 +369,5 @@ def split(
         "visible": sorted(p.name for p in visible.iterdir()),
         "held_out_count": len(canaries),
         "held_out_sha256": hashlib.sha256(sums.encode()).hexdigest(),
+        "held_out_canaries_sha256": hashlib.sha256(listed).hexdigest(),
     }
