@@ -133,6 +133,18 @@ def test_a_manifest_naming_a_task_or_misnaming_itself_is_refused_by_its_schema(
         _api("physgate.evaluation.tiers.manifest.TierSet").model_validate_json(json.dumps(stated))
 
 
+def test_a_manifest_made_with_a_task_id_is_refused_whatever_its_id_says(tmp_path: Path) -> None:
+    version, manifest = _version(tmp_path)
+    fields = {
+        **manifest.model_dump(mode="json", exclude={"format", "version"}),
+        "held_out_ids": ["control.t00"],
+    }
+    error = _api("physgate.evaluation.tiers.manifest.TierSetError")
+    with pytest.raises(error) as refused:
+        _api("physgate.evaluation.tiers.manifest.make_tierset")(**fields)
+    assert refused.value.context.get("refused_because") == "manifest_invalid"
+
+
 def _refused(version: Path) -> str:
     read_version = _api("physgate.evaluation.tiers.manifest.read_version")
     error = _api("physgate.evaluation.tiers.manifest.TierSetError")

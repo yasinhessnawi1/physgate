@@ -144,6 +144,28 @@ def test_an_author_adds_to_its_own_role_s_pool_and_the_version_takes_it_whole(
     assert not (_root(tmp_path) / "pool.spent").exists()
 
 
+def test_a_task_whose_id_folds_to_one_already_pooled_is_refused_at_the_pool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _author(tmp_path, monkeypatch, _tasks(3))
+
+    def respelt(worktree: Path) -> None:
+        _write_task(worktree / "control_t01", 5)
+        _write_task(worktree / "control.t03", 6)
+
+    _, _, out = _author(
+        tmp_path, monkeypatch, respelt, session_id="s-2", work=tmp_path / "scratch" / "work2"
+    )
+    assert out["pooled"] == 1 and out["refused_because"].get("id_already_pooled") == 1, out
+    pool = _store(tmp_path) / "control" / "pool"
+    assert sorted(p.name for p in pool.iterdir() if p.is_dir()) == [
+        "control.t00",
+        "control.t01",
+        "control.t02",
+        "control.t03",
+    ]
+
+
 def test_the_version_s_provenance_names_every_session_of_its_round_and_its_stream(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -194,8 +216,20 @@ def test_after_a_version_is_cut_a_further_round_starts_looking_for_its_canaries(
 
 @pytest.mark.parametrize(
     "place",
-    ["visible", "notes/visible", f"elsewhere/{'a' * 64}/visible", ".version-0123abcd/visible"],
-    ids=["at the root", "in a folder", "a version's name, not in a version's place", "unfinished"],
+    [
+        "visible",
+        "notes/visible",
+        f"elsewhere/{'a' * 64}/visible",
+        f"control/{'a' * 64}/visible",
+        ".version-0123abcd/visible",
+    ],
+    ids=[
+        "at the root",
+        "in a folder",
+        "a version's name, not in a version's place",
+        "a version's place, one level down",
+        "unfinished",
+    ],
 )
 def test_a_list_less_tier_called_visible_anywhere_but_a_version_refuses(
     tmp_path: Path, place: str
