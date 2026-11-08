@@ -83,6 +83,7 @@ from physgate.orchestrator.exceptions import (
     AccountingError,
     InvocationError,
     OrchestratorError,
+    RunStateError,
     WorktreeMisplacedError,
 )
 from physgate.orchestrator.git import common_dir, named_from, object_format, verified_git_dir
@@ -92,6 +93,8 @@ from physgate.orchestrator.integration_state import STATE_NAME
 from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
 from physgate.orchestrator.managed import drift, model_answered, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, attempt_head, attempt_message, commit_attempt
+from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
+from physgate.orchestrator.params_record import recorded_params
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
     Leftover,
@@ -249,6 +252,21 @@ DECOMPOSITION_DIR = "decomposition"
 #: running plan review names them so that a later command can scan its streams.
 WITHHELD_RECORDS = (RUN_CONFIG_NAME, DECOMPOSITION_DIR)
 
+
+def withheld_paths(run_dir: Path) -> tuple[Path, ...]:
+    """Everything a role session of the run in ``run_dir`` is installed with withheld.
+
+    The run's records that hold the canaries, and the parameters file the run was started with,
+    wherever it lies, as the run recorded it.
+
+    Raises:
+        RunStateError: the run's record of its parameters file cannot be read.
+    """
+    params = recorded_params(run_dir)
+    named = tuple(run_dir / name for name in WITHHELD_RECORDS)
+    return (*named, params) if params is not None else named
+
+
 #: The run's own records, in the run directory. The session's working directory is
 #: one level below it, so none of these contains the worktree.
 #: The run's records a role session may not write and the sentinel puts back. ``series`` holds
@@ -257,6 +275,7 @@ WITHHELD_RECORDS = (RUN_CONFIG_NAME, DECOMPOSITION_DIR)
 RUN_RECORDS = (
     RUN_CONFIG_NAME,
     DECOMPOSITION_DIR,
+    PARAMS_RECORD,
     "series",
 )
 #: The run's append-only records, which the orchestrator holds and appends to: its event log,
@@ -1440,10 +1459,16 @@ class ClaudeDispatcher:
         # Where reviews are prepared, each packet with its copy of a rubric: withheld
         # from the role session like the library's reviewer tree.
         protect += ["--review-material", str(self._review_root)]
-        # The run's records that name the held-out tier's canaries: no read of them, by any
-        # route, though they lie two levels above the worktree.
-        run_dir = self._run.run_dir
-        protect += [arg for name in WITHHELD_RECORDS for arg in ("--withheld", str(run_dir / name))]
+        # The run's records that name the held-out tier's canaries, and its parameters file:
+        # no read of them, by any route, though they lie within reach of the worktree.
+        try:
+            withheld_now = withheld_paths(self._run.run_dir)
+        except RunStateError as exc:
+            msg = (
+                "the run's records name no parameters file to withhold, so no session is installed"
+            )
+            raise InvocationError(msg, why=str(exc)) from exc
+        protect += [arg for path in withheld_now for arg in ("--withheld", str(path))]
         # The always-loaded set (cross's standards, the role's own standards and
         # skill) is a subset of required reading, which adds the module spec and every
         # interface contract the specification commit issued (a superset of the ones

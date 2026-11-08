@@ -83,6 +83,7 @@ from physgate.orchestrator.install import (
 from physgate.orchestrator.invocation import claude_binary, session_search_path
 from physgate.orchestrator.loop import Loop, escalation_for, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
+from physgate.orchestrator.params_record import record_params
 from physgate.orchestrator.protocols import Gate, PlanReviewer, Reviewer
 from physgate.orchestrator.queue import (
     POSITIONS,
@@ -731,6 +732,9 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
         return _fail(str(exc), **exc.context)
     try:
         require_fresh(run_dir)
+        # The parameters name the held-out canaries: recorded first, so every session of the run
+        # is installed with the file withheld, wherever it lies.
+        record_params(run_dir, args.params)
         reviewing = _plan_reviewer(args, config, credential, registrations)
         # The root the reviewer runs under, as every reader takes it: recorded before the review
         # runs, so a later command looks for this run's reviews where they are.
