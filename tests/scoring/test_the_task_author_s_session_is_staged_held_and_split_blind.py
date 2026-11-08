@@ -193,8 +193,10 @@ def _unfinished(plan: AuthoringPlan) -> list[str]:
     """Every version still being written, or a pool already drawn from, in the role's root."""
     if not plan.root.is_dir():
         return []
-    names = [p.name for p in plan.root.iterdir()]
-    return sorted(n for n in names if n.startswith(".version-") or n == "pool.spent")
+    names = [p.name for p in plan.root.iterdir() if p.name.startswith(".version-")]
+    withheld = plan.root / "withheld"
+    spent = [f"withheld/{p.name}" for p in withheld.glob("pool.spent")] if withheld.is_dir() else []
+    return sorted(names + spent)
 
 
 def test_twenty_four_sound_tasks_are_split_and_only_counts_and_visible_ids_leave(
@@ -223,7 +225,7 @@ def test_the_session_s_stream_is_kept_inside_the_protected_root_and_its_work_rem
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     plan, _, _ = _run(tmp_path, monkeypatch, _tasks(24))
-    kept = plan.root / "author" / "s-1"
+    kept = plan.root / "withheld" / "author" / "s-1"
     assert (kept / "stdout.jsonl").read_text() == "the stream\n"
     assert json.loads((kept / "record.json").read_text())["tokens"] == 1234
     assert not plan.work.exists()
@@ -291,7 +293,7 @@ def test_the_session_s_links_never_reach_the_protected_root_and_a_root_with_one_
     assert not [
         p for p in root.rglob("*") if p.is_symlink() or p.is_file() and p.stat().st_nlink != 1
     ]
-    kept = root / "author" / "s-1"
+    kept = root / "withheld" / "author" / "s-1"
     assert (kept / "stdout.jsonl").read_text() == "the stream\n"
     dropped = json.loads((kept / "record.json").read_text())["evidence_dropped"]
     assert len(dropped) == 1 and dropped[0].endswith("/bin/python3")
@@ -490,7 +492,7 @@ def test_the_check_reads_its_tasks_from_a_file_by_digest_and_answers_in_booleans
     assert out["answered"] and out["tasks"] == 8 and out["all_yes"] == 7
     assert out["flagged"] == [sorted(bundle)[0]]
     assert not (tmp_path / "scratch" / "check").exists()
-    assert (_plan(tmp_path).root / "check" / "s-1" / "stdout.jsonl").is_file()
+    assert (_plan(tmp_path).root / "withheld" / "check" / "s-1" / "stdout.jsonl").is_file()
 
 
 @pytest.mark.parametrize(
@@ -580,7 +582,7 @@ def test_a_split_that_fails_part_way_leaves_no_task_outside_the_protected_root(
     # A split that did not finish leaves the pool whole, for a person or a later session.
     assert len(_pooled(plan)) == 24
     assert not plan.work.exists()
-    assert list((plan.root / "author").glob("*/stdout.jsonl"))
+    assert list((plan.root / "withheld" / "author").glob("*/stdout.jsonl"))
 
 
 def test_a_failing_session_leaves_nothing_it_wrote_outside_the_protected_root(
@@ -594,7 +596,7 @@ def test_a_failing_session_leaves_nothing_it_wrote_outside_the_protected_root(
         _run(tmp_path, monkeypatch, write)
     plan = _plan(tmp_path)
     assert not plan.work.exists()
-    assert list((plan.root / "author").glob("*/stdout.jsonl"))
+    assert list((plan.root / "withheld" / "author").glob("*/stdout.jsonl"))
 
 
 def test_a_cleanup_that_cannot_remove_the_work_refuses_loudly_and_reports_no_result(
@@ -637,7 +639,7 @@ def test_half_a_tier_that_cannot_be_removed_refuses_loudly_after_securing_the_st
     assert "remove these by hand" in str(raised.value)
     plan = _plan(tmp_path)
     assert not plan.work.exists()
-    assert list((plan.root / "author").glob("*/stdout.jsonl"))
+    assert list((plan.root / "withheld" / "author").glob("*/stdout.jsonl"))
 
 
 def test_a_failing_check_session_leaves_no_held_out_task_outside_the_root(
@@ -649,7 +651,7 @@ def test_a_failing_check_session_leaves_no_held_out_task_outside_the_root(
     with pytest.raises(RuntimeError, match="check's session failed"):
         _check(tmp_path, monkeypatch, write)
     assert not (tmp_path / "scratch" / "check").exists()
-    assert list((_plan(tmp_path).root / "check").glob("*/stdout.jsonl"))
+    assert list((_plan(tmp_path).root / "withheld" / "check").glob("*/stdout.jsonl"))
 
 
 def test_what_is_validated_shares_no_file_with_what_the_session_left(

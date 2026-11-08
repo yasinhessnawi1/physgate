@@ -285,7 +285,7 @@ def test_a_blind_check_whose_stream_showed_a_canary_gives_no_answer(
     )
     assert not (tmp_path / "scratch" / "check").exists()
     held = _plan(tmp_path).root
-    assert list((held / "check").glob("*/stdout.jsonl")), "the check's stream was lost"
+    assert list((held / "withheld" / "check").glob("*/stdout.jsonl")), "the check's stream was lost"
 
 
 def test_a_blind_check_under_whose_root_the_canaries_grew_gives_no_answer(

@@ -40,7 +40,7 @@ def _api(name: str) -> Any:
 
 
 def _pool(root: Path, count: int = 24) -> Path:
-    pool = root / "control" / "pool"
+    pool = root / "control" / "withheld" / "pool"
     for i in range(count):
         write_task_dir(
             pool / f"control.t{i:02d}",
@@ -88,7 +88,10 @@ def test_a_split_writes_one_version_whole_under_its_id_and_its_manifest_names_no
         "validation",
         "visible",
     ]
-    assert sorted(p.name for p in (store / "control").iterdir()) == [manifest.version]
+    assert sorted(p.name for p in (store / "control").iterdir()) == sorted(
+        [manifest.version, "withheld"]
+    )
+    assert list((store / "control" / "withheld").iterdir()) == []
     assert [manifest.tier(t).count for t in ("visible", "validation", "held_out")] == [8, 8, 8]
     assert manifest.visible.canaries_sha256 is None
     assert (
@@ -257,7 +260,10 @@ def test_the_pool_is_marked_spent_before_the_rename_and_gone_after_it(
     assert len(moved) == 1 and renames[moved[0]][1] == manifest.version
     assert renames.index(("pool", "pool.spent")) < moved[0]
     # The pool is gone with the two tasks the draw did not take.
-    assert sorted(p.name for p in (store / "control").iterdir()) == [manifest.version]
+    assert sorted(p.name for p in (store / "control").iterdir()) == sorted(
+        [manifest.version, "withheld"]
+    )
+    assert list((store / "control" / "withheld").iterdir()) == []
 
 
 def test_a_split_that_fails_leaves_no_version_and_the_pool_whole(
@@ -277,5 +283,5 @@ def test_a_split_that_fails_leaves_no_version_and_the_pool_whole(
     monkeypatch.setattr(store_module, "split", half_a_split)
     with pytest.raises(OSError, match="part-way"):
         _write(store, pool)
-    assert sorted(p.name for p in (store / "control").iterdir()) == ["pool"]
+    assert sorted(p.name for p in (store / "control").iterdir()) == ["withheld"]
     assert len([p for p in pool.iterdir() if p.is_dir()]) == 24

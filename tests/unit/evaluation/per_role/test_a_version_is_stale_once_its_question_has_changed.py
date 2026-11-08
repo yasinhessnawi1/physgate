@@ -37,7 +37,7 @@ def _api(name: str) -> Any:
 
 def _store(tmp_path: Path) -> tuple[Path, Any]:
     store = tmp_path.resolve() / "store"
-    pool = store / "control" / "pool"
+    pool = store / "control" / "withheld" / "pool"
     ids = [f"control.t{i:02d}" for i in range(24)]
     for task_id in ids:
         write_task_dir(
@@ -134,7 +134,7 @@ def test_status_names_a_version_that_is_not_its_manifest_and_a_split_s_leftovers
 
     store, manifest = _store(tmp_path)
     (store / "control" / manifest.version / "notes.txt").write_text("a person's note")
-    (store / "control" / "pool").mkdir()
+    (store / "control" / "withheld" / "pool").mkdir(parents=True)
     assert main(["tiers", "status", "--store", str(store)]) == 1
     found = json.loads(capsys.readouterr().out)
     (row,) = found["versions"]

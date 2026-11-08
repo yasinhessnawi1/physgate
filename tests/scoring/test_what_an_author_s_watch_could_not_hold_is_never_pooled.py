@@ -201,7 +201,7 @@ def _refused(tmp_path: Path) -> str | None:
         assert _listed(pool_dir(plan.store, "control")) == []
         assert _versions(plan) == []
         # The stream is still secured and the work removed.
-        assert list((plan.root / "author").glob("*/stdout.jsonl"))
+        assert list((plan.root / "withheld" / "author").glob("*/stdout.jsonl"))
         assert not plan.work.exists()
     return refused
 
@@ -246,7 +246,7 @@ def test_a_session_its_watch_could_not_hold_pools_none_of_its_tasks(
     assert _listed(pool_dir(plan.store, "control")) == []
     assert _versions(plan) == []
     # The stream is still secured and the work removed.
-    assert list((plan.root / "author").glob("*/stdout.jsonl"))
+    assert list((plan.root / "withheld" / "author").glob("*/stdout.jsonl"))
     assert not plan.work.exists()
 
 

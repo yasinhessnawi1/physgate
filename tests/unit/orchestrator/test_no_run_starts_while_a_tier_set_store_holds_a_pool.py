@@ -65,9 +65,9 @@ def _refusal(facts: RunFacts) -> str | None:
 @pytest.mark.parametrize(
     ("left", "reason"),
     [
-        ("control/pool", "pool_left"),
-        ("control/pool.spent", "pool_left"),
-        ("firmware/pool", "pool_left"),
+        ("control/withheld/pool", "pool_left"),
+        ("control/withheld/pool.spent", "pool_left"),
+        ("firmware/withheld/pool", "pool_left"),
         ("control/.version-0123abcd", "temporary_version_left"),
     ],
     ids=["a pool filling", "a spent pool", "another role's pool", "a version being written"],
@@ -85,21 +85,23 @@ def test_a_run_naming_a_store_that_holds_a_split_s_leftovers_is_refused_with_its
 @pytest.mark.parametrize("tier", ["held_out", "validation"])
 def test_either_protected_tier_names_its_store(tmp_path: Path, tier: str) -> None:
     store = _store(tmp_path)
-    (store / "control" / "pool").mkdir()
+    (store / "control" / "withheld" / "pool").mkdir(parents=True)
     assert _refusal(_facts(store / "control" / VERSION / tier)) is not None
 
 
 def test_a_run_that_is_not_reportable_is_held_to_it_too(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    (store / "control" / "pool").mkdir()
+    (store / "control" / "withheld" / "pool").mkdir(parents=True)
     held_out = store / "control" / VERSION / "held_out"
     assert _refusal(_facts(held_out, reportable=False)) is not None
 
 
 def test_a_run_naming_a_clean_store_or_none_starts(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    (store / "control" / "author").mkdir()
-    (store / "control" / "check").mkdir()
+    (store / "control" / "withheld" / "author").mkdir(parents=True)
+    (store / "control" / "withheld" / "check").mkdir()
+    # A pool beside the withheld root, not in it, is no pool of the store.
+    (store / "control" / "pool").mkdir()
     assert _refusal(_facts(store / "control" / VERSION / "held_out")) is None
     elsewhere = tmp_path.resolve() / "private" / "held_out"
     (elsewhere.parent / "pool").mkdir(parents=True)
@@ -112,10 +114,15 @@ def test_the_leftovers_are_counted_by_reason_and_an_author_s_own_pool_is_its_to_
 ) -> None:
     leftovers = _api("physgate.evaluation.tiers.store.leftovers")
     store = _store(tmp_path)
-    for left in ("control/pool", "firmware/pool.spent", "control/.version-1", "control/.version-2"):
+    for left in (
+        "control/withheld/pool",
+        "firmware/withheld/pool.spent",
+        "control/.version-1",
+        "control/.version-2",
+    ):
         (store / left).mkdir(parents=True)
     assert leftovers(store) == {"pool_left": 2, "temporary_version_left": 2}
-    own = store / "control" / "pool"
+    own = store / "control" / "withheld" / "pool"
     assert leftovers(store, continuing=own) == {"pool_left": 1, "temporary_version_left": 2}
     assert leftovers(tmp_path / "no-store") == {"pool_left": 0, "temporary_version_left": 0}
 
@@ -135,3 +142,62 @@ def test_a_store_that_cannot_be_listed_refuses(
     monkeypatch.setattr(store_module.os, "listdir", unlistable)
     why = _refusal(_facts(store / "control" / VERSION / "held_out"))
     assert why is not None and "(store_unreadable)" in why
+
+
+# ------------------------------------------- what sessions wrote is withheld from every run
+
+
+def _withheld_refusal(facts: RunFacts) -> str | None:
+    requirement = _api(
+        "physgate.evaluation.requirements.every_named_store_s_withheld_root_is_withheld"
+    )
+    assert requirement in REQUIREMENTS, "the command does not hold runs to it"
+    found: str | None = requirement(facts)
+    return found
+
+
+@pytest.mark.parametrize("tier", ["held_out", "validation"])
+def test_a_run_naming_a_tier_but_not_its_store_s_withheld_root_is_refused(
+    tmp_path: Path, tier: str
+) -> None:
+    store = _store(tmp_path)
+    why = _withheld_refusal(_facts(store / "control" / VERSION / tier))
+    assert why is not None and "(withheld_root_not_named)" in why
+    assert str(store / "control" / "withheld") in why
+
+
+def test_a_run_naming_the_tiers_and_their_withheld_root_starts(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    version = store / "control" / VERSION
+    facts = _facts(version / "held_out", version / "validation", store / "control" / "withheld")
+    assert _withheld_refusal(facts) is None
+    assert _withheld_refusal(_facts()) is None
+    assert _withheld_refusal(_facts(tmp_path.resolve() / "private" / "held_out")) is None
+
+
+def test_each_role_s_withheld_root_is_asked_for_and_another_s_does_not_stand_in(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    (store / "firmware" / VERSION / "held_out").mkdir(parents=True)
+    facts = _facts(
+        store / "control" / VERSION / "held_out",
+        store / "firmware" / VERSION / "held_out",
+        store / "control" / "withheld",
+    )
+    why = _withheld_refusal(facts)
+    assert why is not None and str(store / "firmware" / "withheld") in why
+    assert str(store / "control" / "withheld") not in why
+
+
+def test_a_withheld_root_spelt_otherwise_is_the_same_root(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    spelt = f"{store}/control/./withheld/"
+    config = make_config(
+        reportable=True,
+        harness=CLEAN,
+        held_out=(str(store / "control" / VERSION / "held_out"), spelt),
+        held_out_sha256=("0" * 64, "0" * 64),
+    )
+    facts = RunFacts(config=config, os_layer=PRESENT, shell_sessions=True)
+    assert _withheld_refusal(facts) is None

@@ -91,7 +91,7 @@ def test_twenty_four_pooled_tasks_become_one_version_and_no_pool_outlives_it(
     _, _, out = _author(tmp_path, monkeypatch, _tasks(26), count=26)
     assert out["status"] == "split" and out.get("version") is not None
     version = _root(tmp_path) / out["version"]
-    assert sorted(p.name for p in _root(tmp_path).iterdir()) == sorted(["author", out["version"]])
+    assert sorted(p.name for p in _root(tmp_path).iterdir()) == sorted(["withheld", out["version"]])
     assert out["pool"] == 0 and out.get("left_with_the_pool") == 2
     held = sorted(p.name for p in (version / "held_out").iterdir() if p.is_dir())
     assert len(held) == 8 and out["visible"] == sorted(
@@ -108,8 +108,8 @@ def test_twenty_four_pooled_tasks_become_one_version_and_no_pool_outlives_it(
 @pytest.mark.parametrize(
     ("left", "reason"),
     [
-        ("firmware/pool", "pool_left"),
-        ("control/pool.spent", "pool_left"),
+        ("firmware/withheld/pool", "pool_left"),
+        ("control/withheld/pool.spent", "pool_left"),
         ("control/.version-0123abcd", "temporary_version_left"),
     ],
     ids=["another role's pool", "a spent pool", "a version being written"],
@@ -140,8 +140,8 @@ def test_an_author_adds_to_its_own_role_s_pool_and_the_version_takes_it_whole(
         tmp_path, monkeypatch, more, session_id="s-2", work=tmp_path / "scratch" / "work2"
     )
     assert second["status"] == "split" and second.get("left_with_the_pool") == 0
-    assert not (_root(tmp_path) / "pool").exists()
-    assert not (_root(tmp_path) / "pool.spent").exists()
+    assert not (_root(tmp_path) / "withheld" / "pool").exists()
+    assert not (_root(tmp_path) / "withheld" / "pool.spent").exists()
 
 
 def test_a_task_whose_id_folds_to_one_already_pooled_is_refused_at_the_pool(
@@ -157,7 +157,7 @@ def test_a_task_whose_id_folds_to_one_already_pooled_is_refused_at_the_pool(
         tmp_path, monkeypatch, respelt, session_id="s-2", work=tmp_path / "scratch" / "work2"
     )
     assert out["pooled"] == 1 and out["refused_because"].get("id_already_pooled") == 1, out
-    pool = _store(tmp_path) / "control" / "pool"
+    pool = _store(tmp_path) / "control" / "withheld" / "pool"
     assert sorted(p.name for p in pool.iterdir() if p.is_dir()) == [
         "control.t00",
         "control.t01",
@@ -185,6 +185,9 @@ def test_the_version_s_provenance_names_every_session_of_its_round_and_its_strea
     stream = hashlib.sha256(b"the stream\n").hexdigest()
     assert all(s["files"]["stdout.jsonl"] == stream for s in sessions)
     assert all(s["tokens"] == 1234 for s in sessions)
+    # What the session record does not carry is said to be missing, never left out.
+    gap = "not recorded by the session record"
+    assert all(s.get("turns") == gap and s.get("secret_scan") == gap for s in sessions)
     manifest = _api("physgate.evaluation.tiers.manifest.read_version")(version)
     assert (
         manifest.provenance_sha256
@@ -274,11 +277,11 @@ def test_the_blind_check_runs_on_a_version_and_keeps_its_stream_in_the_role_s_ro
     monkeypatch.setattr(author_session, "run_session", fake)
     checked = _blind_check(tmp_path, out["version"])
     assert checked["answered"] and checked["tasks"] == 8 and checked["all_yes"] == 8
-    assert (_root(tmp_path) / "check" / "c-1" / "stdout.jsonl").is_file()
+    assert (_root(tmp_path) / "withheld" / "check" / "c-1" / "stdout.jsonl").is_file()
     assert not (tmp_path / "scratch" / "check").exists()
 
 
-@pytest.mark.parametrize("left", ["firmware/pool", "control/.version-0123abcd"])
+@pytest.mark.parametrize("left", ["firmware/withheld/pool", "control/.version-0123abcd"])
 def test_the_blind_check_refuses_while_the_store_holds_a_split_s_leftovers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, left: str
 ) -> None:

@@ -60,10 +60,10 @@ NESTED = [
 ]
 #: A planted list that would match everything, in each folder a session's work ends up in.
 SESSION_FILLED = [
-    "pool/canaries.json",
-    "pool/control.t09/x.canaries.json",
-    "author/s-0/canaries.json",
-    "check/s-0/x.canaries.json",
+    "withheld/pool/canaries.json",
+    "withheld/pool/control.t09/x.canaries.json",
+    "withheld/author/s-0/canaries.json",
+    "withheld/check/s-0/x.canaries.json",
 ]
 #: A list's name in other cases, beside a tier and inside one.
 OTHER_CASES = [
@@ -73,7 +73,7 @@ OTHER_CASES = [
     "actuator/Canaries.Json",
 ]
 #: Where a stream is kept, for the session the scripted author runs.
-KEPT = "author/s-1/stdout.jsonl"
+KEPT = "withheld/author/s-1/stdout.jsonl"
 
 
 def _root(tmp_path: Path) -> Path:
