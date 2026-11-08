@@ -90,7 +90,7 @@ def _split(
     """The three-way split, with the validation tier beside the held-out one unless named."""
     beside = held.parent / f"{held.name}.validation" if validation is None else validation
     try:
-        return split(staging, visible, held, validation=beside, **kw)  # type: ignore[call-arg]
+        return split(staging, visible, held, validation=beside, **kw)
     except TypeError as exc:
         pytest.fail(f"the split takes no validation tier: {exc}")
 

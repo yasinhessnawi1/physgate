@@ -33,7 +33,7 @@ from physgate.oslayer.policy import sandbox_policy
 LIST_NAME = "canaries.json"
 
 
-def _stage(root: Path, count: int = 16) -> Path:
+def _stage(root: Path, count: int = 24) -> Path:
     staging = root / "staging"
     for i in range(count):
         write_task_dir(
@@ -58,7 +58,7 @@ def _held_canaries(tier: Path) -> list[str]:
     return sorted(str(load_task(p).task.canary) for p in sorted(tier.iterdir()) if p.is_dir())
 
 
-def _config(base: Path, profile: str, held: Path) -> Any:  # noqa: ANN401
+def _config(base: Path, profile: str, *held: Path) -> Any:  # noqa: ANN401
     for d in ("wt", "outside/state", "outside/session", "outside/config", "outside/home"):
         (base / d).mkdir(parents=True, exist_ok=True)
     request = InstallRequest(
@@ -72,7 +72,7 @@ def _config(base: Path, profile: str, held: Path) -> Any:  # noqa: ANN401
         claude_config_dir=str(base / "outside" / "config"),
         user_home=str(base / "outside" / "home"),
         token_ceiling=40960,
-        held_out=(str(held),),
+        held_out=tuple(str(root) for root in held),
     )
     return build_config(request, current_installation())
 
@@ -83,10 +83,11 @@ def test_a_session_is_refused_the_split_s_canary_list_on_every_route(
 ) -> None:
     base = tmp_path.resolve()
     held = base / "private" / "heldout"
-    split(_stage(base / "a"), base / "repo" / "visible", held, seed=3)
+    validation = base / "private" / "validation"
+    split(_stage(base / "a"), base / "repo" / "visible", held, validation=validation, seed=3)
     found = _lists(base)
     assert found, "the split wrote no canary list"
-    config = _config(base, profile, held)
+    config = _config(base, profile, held, validation)
     policy = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/tmp/pg-cl")
     deny_read = policy.settings["sandbox"]["filesystem"]["denyRead"]
     wt = str(base / "wt")
@@ -101,42 +102,60 @@ def test_a_session_is_refused_the_split_s_canary_list_on_every_route(
         assert denied, f"a {profile} session's OS layer does not deny the canary list at {where}"
 
 
-def test_the_list_lies_inside_the_tier_and_names_exactly_its_canaries(tmp_path: Path) -> None:
-    held = tmp_path / "private" / "heldout"
-    out = split(_stage(tmp_path), tmp_path / "repo" / "visible", held, seed=3)
-    assert _lists(tmp_path) == [held / LIST_NAME], (
-        f"the split's canary lists are not exactly the one inside the tier: {_lists(tmp_path)}"
+@pytest.mark.parametrize("name", ["held_out", "validation"])
+def test_each_list_lies_inside_its_tier_and_names_exactly_its_canaries(
+    tmp_path: Path, name: str
+) -> None:
+    tiers = {"held_out": tmp_path / "private" / "heldout"}
+    tiers["validation"] = tmp_path / "private" / "validation"
+    out = split(
+        _stage(tmp_path),
+        tmp_path / "repo" / "visible",
+        tiers["held_out"],
+        validation=tiers["validation"],
+        seed=3,
     )
-    data = (held / LIST_NAME).read_bytes()
-    assert sorted(json.loads(data)) == _held_canaries(held)
-    assert out.get("held_out_canaries_sha256") == hashlib.sha256(data).hexdigest(), (
+    assert _lists(tmp_path) == sorted(tier / LIST_NAME for tier in tiers.values()), (
+        f"the split's canary lists are not exactly one inside each tier: {_lists(tmp_path)}"
+    )
+    tier = tiers[name]
+    data = (tier / LIST_NAME).read_bytes()
+    assert sorted(json.loads(data)) == _held_canaries(tier)
+    assert out.get(f"{name}_canaries_sha256") == hashlib.sha256(data).hexdigest(), (
         "the split does not report the list's digest"
     )
 
 
-def test_the_list_is_whole_before_it_has_its_name_and_before_any_task(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("name", ["heldout", "validation"])
+def test_each_list_is_whole_before_it_has_its_name_and_before_any_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
 ) -> None:
-    held = tmp_path / "private" / "heldout"
+    tier = tmp_path / "private" / name
     real_write = os.write
     seen: list[dict[str, Any]] = []
 
     def watching(fd: int, data: Any) -> int:  # noqa: ANN401
-        if held.is_dir():
+        if tier.is_dir():
             seen.append(
                 {
                     "data": bytes(data),
-                    "named": _lists(held.parent),
-                    "tasks": sorted(p.name for p in held.iterdir() if p.is_dir()),
+                    "named": _lists(tier.parent),
+                    "tasks": sorted(p.name for p in tier.iterdir() if p.is_dir()),
                 }
             )
         return real_write(fd, data)
 
     monkeypatch.setattr(os, "write", watching)
-    split(_stage(tmp_path), tmp_path / "repo" / "visible", held, seed=3)
+    split(
+        _stage(tmp_path),
+        tmp_path / "repo" / "visible",
+        tmp_path / "private" / "heldout",
+        validation=tmp_path / "private" / "validation",
+        seed=3,
+    )
     monkeypatch.undo()
-    listed = _lists(held.parent)
-    assert len(listed) == 1, f"the split did not write one canary list: {listed}"
+    listed = [p for p in _lists(tier.parent) if p.parent == tier]
+    assert len(listed) == 1, f"the split did not write one canary list in the tier: {listed}"
     final = listed[0].read_bytes()
     writes = [s for s in seen if s["data"] == final]
     assert writes, "the list was not written in one piece"
