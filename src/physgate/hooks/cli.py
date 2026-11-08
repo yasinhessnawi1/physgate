@@ -182,6 +182,7 @@ def _install(args: argparse.Namespace) -> int:
         extra_protected=tuple(_abs(p) for p in args.protect),
         extra_protected_refuse_only=tuple(_abs(p) for p in args.protect_refuse_only),
         extra_protected_record=tuple(_abs(p) for p in args.protect_record),
+        withheld=tuple(_abs(p) for p in args.withheld),
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,
         harness_root=_abs(args.harness) if args.harness else None,
         harness_site_packages=tuple(_abs(p) for p in args.harness_site_packages),

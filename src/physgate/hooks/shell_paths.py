@@ -103,7 +103,12 @@ import stat
 from typing import TYPE_CHECKING
 
 from physgate.hooks.paths import protection, resolve_roots_once
-from physgate.hooks.reasons import ANSWER_KEY_REASON, HELD_OUT_REASON, REVIEW_MATERIAL_REASON
+from physgate.hooks.reasons import (
+    ANSWER_KEY_REASON,
+    HELD_OUT_REASON,
+    REVIEW_MATERIAL_REASON,
+    WITHHELD_REASON,
+)
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.shell import (
     BRACE_LIMIT,
@@ -371,7 +376,9 @@ def _cannot_reach(candidate: str, cwd: str, names: set[str], cwd_protected: bool
 
 
 #: What may not even be named, by any command: a mention in a reader's input is enough.
-_NAMED_ANYWHERE = frozenset({HELD_OUT_REASON, ANSWER_KEY_REASON, REVIEW_MATERIAL_REASON})
+_NAMED_ANYWHERE = frozenset(
+    {HELD_OUT_REASON, ANSWER_KEY_REASON, REVIEW_MATERIAL_REASON, WITHHELD_REASON}
+)
 
 
 def _first_protected(

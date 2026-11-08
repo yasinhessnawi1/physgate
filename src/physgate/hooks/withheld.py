@@ -22,11 +22,31 @@ from __future__ import annotations
 import os
 import stat
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from physgate.hooks.views import ConfigView
 
 _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
 
 #: A file's identity: its device and inode.
 Identity = tuple[int, int]
+
+
+def roots_of(config: ConfigView) -> tuple[str, ...]:
+    """Every path a session's configuration keeps from all its reads, which the tripwire holds.
+
+    The held-out tier, the answer-key corpora, and each run record withheld from the session
+    (its protected roots that carry the withheld reason, refused to every read).
+    """
+    from physgate.hooks.reasons import WITHHELD_REASON
+
+    records = tuple(
+        root.path
+        for root in config.protected_roots
+        if root.reason == WITHHELD_REASON and root.reads == "denied"
+    )
+    return (*config.held_out, *config.answer_keys, *records)
 
 
 def survey(roots: Iterable[str]) -> tuple[dict[str, Identity], list[str]]:

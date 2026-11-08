@@ -54,6 +54,7 @@ from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
+from physgate.hooks.reasons import WITHHELD_REASON as WITHHELD_REASON
 from physgate.hooks.reasons import series_outbox_reason
 from physgate.hooks.runtime import EVENTS, HookSpec
 from physgate.oslayer import reaper_install
@@ -447,6 +448,11 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             ),
         )
         reads.setdefault(path, "shell_denied")
+    for path in request.withheld:
+        # Assigned, not defaulted: a withheld record named as an ordinary protected root too
+        # is withheld all the same, put back and refused to every read on every layer.
+        protected[path] = (WITHHELD_REASON, "revert")
+        reads[path] = "denied"
     for path in request.held_out:
         protected.setdefault(path, (HELD_OUT_REASON, "revert"))
         reads[path] = "denied"

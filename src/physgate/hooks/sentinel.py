@@ -117,7 +117,7 @@ WITHHELD_EVENTS = frozenset({"SessionStart", "SessionEnd"})
 
 
 def _withheld_roots(config: ConfigView) -> tuple[str, ...]:
-    return (*config.held_out, *config.answer_keys)
+    return withheld.roots_of(config)
 
 
 def _roots(config: ConfigView, watch: str) -> list[str]:

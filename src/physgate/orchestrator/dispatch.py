@@ -244,8 +244,11 @@ def read_session_file(path: Path) -> bytes:
 #: The run's records a role session may not write and the sentinel puts back. ``series`` holds
 #: the simulation records sealed at each session's end, which the orchestrator writes only
 #: between sessions.
+#: The run's recorded configuration, withheld from every role session's reads.
+RUN_CONFIG_NAME = "run.json"
+
 RUN_RECORDS = (
-    "run.json",
+    RUN_CONFIG_NAME,
     "decomposition",
     "series",
 )
@@ -1430,6 +1433,9 @@ class ClaudeDispatcher:
         # Where reviews are prepared, each packet with its copy of a rubric: withheld
         # from the role session like the library's reviewer tree.
         protect += ["--review-material", str(self._review_root)]
+        # The run's configuration names the held-out tier's canaries: no read of it, by any
+        # route, though it lies two levels above the worktree.
+        protect += ["--withheld", str(self._run.run_dir / RUN_CONFIG_NAME)]
         # The always-loaded set (cross's standards, the role's own standards and
         # skill) is a subset of required reading, which adds the module spec and every
         # interface contract the specification commit issued (a superset of the ones
@@ -1838,7 +1844,7 @@ class ClaudeDispatcher:
         # The held-out and answer-key tripwire, once more before the attempt is committed:
         # a second name, a changed file or one that cannot be checked refuses the attempt.
         session_config = SessionConfig.model_validate_json(Path(installed.config).read_bytes())
-        _, problems = withheld.survey((*session_config.held_out, *session_config.answer_keys))
+        _, problems = withheld.survey(withheld.roots_of(session_config))
         withheld_problems = "; ".join(problems) if problems else None
         commit = (
             commit_attempt(

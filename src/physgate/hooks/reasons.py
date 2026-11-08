@@ -64,6 +64,13 @@ HARNESS_REASON = (
     "session in another worktree writes"
 )
 
+#: Given for a read or a write of a run record no session doing design work reads: the run's
+#: recorded configuration, which holds the canaries the stream scan looks for.
+WITHHELD_REASON = (
+    "it is one of the run's own records that no session doing design work reads: the run's "
+    "configuration names what the stream scan looks for to tell that the held-out tier was read"
+)
+
 #: Given to a reviewer for a read outside its allowance. Neutral on purpose: a
 #: reviewer is shown nothing that says what is being measured.
 OUTSIDE_REVIEW_REASON = "it is outside the files this review is given"
