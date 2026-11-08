@@ -91,13 +91,13 @@ def test_a_split_sends_eight_to_each_tier_and_the_same_seed_splits_alike(tmp_pat
     assert other["visible"] != first["visible"]
 
 
-def test_held_out_tasks_carry_canaries_kept_beside_the_tier_and_the_staging_is_gone(
+def test_held_out_tasks_carry_canaries_kept_inside_the_tier_and_the_staging_is_gone(
     tmp_path: Path,
 ) -> None:
     staging = _stage(tmp_path)
     split(staging, tmp_path / "visible", tmp_path / "heldout", seed=1)
     held = [load_task(p).task for p in sorted((tmp_path / "heldout").iterdir()) if p.is_dir()]
-    canaries = json.loads((tmp_path / "heldout.canaries.json").read_text())
+    canaries = json.loads((tmp_path / "heldout" / "canaries.json").read_text())
     assert sorted(t.canary for t in held) == sorted(canaries)  # type: ignore[type-var]
     assert {t.tier for t in held} == {"held_out"}
     assert (tmp_path / "heldout" / "SHA256SUMS").is_file()

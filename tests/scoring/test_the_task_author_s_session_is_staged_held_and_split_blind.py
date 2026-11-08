@@ -7,6 +7,7 @@ evidence moved inside the protected root, and the counts-only output.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import random
@@ -187,7 +188,7 @@ def test_the_session_s_stream_is_kept_inside_the_protected_root_and_its_work_rem
     assert (kept / "stdout.jsonl").read_text() == "the stream\n"
     assert json.loads((kept / "record.json").read_text())["tokens"] == 1234
     assert not plan.work.exists()
-    assert (plan.held_out_root / "control.canaries.json").is_file()
+    assert (plan.held_out_root / "control" / "canaries.json").is_file()
 
 
 def test_with_fewer_sound_tasks_than_two_tiers_they_are_pooled_inside_the_protected_root(
@@ -417,9 +418,14 @@ def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, write: Any) -> tuple
     plan = _held_tier(tmp_path, monkeypatch)
     fake = FakeSession(write)
     monkeypatch.setattr(author_session, "run_session", fake)
+    # The check looks for every canary under the root, as the command gives it them.
+    setup = dataclasses.replace(
+        _setup(tmp_path / "private"),
+        held_out_canaries=author_session.root_canaries(plan.held_out_root),
+    )
     out = blind_check(
         plan.held_out_root / "control",
-        _setup(tmp_path / "private"),
+        setup,
         tmp_path / "scratch" / "check",
         implementer_model="claude-opus-5-5",
         cap=500_000,
