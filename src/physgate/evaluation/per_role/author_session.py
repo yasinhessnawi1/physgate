@@ -92,13 +92,17 @@ from physgate.evaluation.tiers.store import (
     AUTHOR_EVIDENCE,
     CHECK_EVIDENCE,
     SESSION_FOLDERS,
+    WORKING,
     author_evidence,
     check_evidence,
     is_visible_tier,
     leftover_refusal,
     pool_dir,
+    protected_tier_refusal,
     role_root,
+    spelling_refusal,
     version_dir,
+    withheld_refusal,
     write_version,
 )
 from physgate.evaluation.tiers.task import Canary, Role, canonical_json, fold_id, load_task
@@ -194,10 +198,6 @@ def _require_apart(plan: AuthoringPlan, setup: RawSetup) -> None:
         raise AuthoringError(msg, per_task_cap=str(plan.task_cap))
 
 
-#: What a record of work out of the protected root is called, beside the root's folders.
-_WORKING = ".working"
-
-
 def _require_no_work_left(root: Path) -> None:
     """Refuse while an earlier author's or check's work may still lie outside ``root``.
 
@@ -214,7 +214,7 @@ def _require_no_work_left(root: Path) -> None:
     if not root.is_dir():
         return
     for record in sorted(root.iterdir()):
-        if not record.name.endswith(_WORKING):
+        if not record.name.endswith(WORKING):
             continue
         try:
             work = str(json.loads(record.read_text())["work"])
@@ -227,26 +227,46 @@ def _require_no_work_left(root: Path) -> None:
         raise AuthoringError(msg, refused_because="work_left", work=work, record=str(record))
 
 
-def _require_nothing_left(store: Path, role: Role) -> None:
-    """Refuse while the store holds what only a split in progress holds.
+def _require_nothing_left(store: Path, continuing: Path | None = None) -> None:
+    """Refuse while the store holds what only a split in progress holds, or work left.
 
-    A pool other than the role's own, which this session withholds and adds to, or a version
-    still being written, holds tasks that become held-out and validation ones, with no
-    canary yet: the next session to start must not be one that could read them
-    (:func:`.tiers.store.leftovers`).
+    A pool, a version still being written, or a record of a session's work out of a role's
+    root holds or points at tasks that are or become held-out and validation ones, with no
+    canary: the next session to start must not be one that could read them
+    (:func:`.tiers.store.leftovers`). ``continuing`` is the one pool an author may add to, its
+    own role's, which its session withholds; no other session is given one.
 
     Raises:
-        AuthoringError: ``pool_left``, ``temporary_version_left`` or ``store_unreadable``.
+        AuthoringError: ``pool_left``, ``temporary_version_left``, ``work_left`` or
+            ``store_unreadable``.
     """
-    refusal = leftover_refusal(store, continuing=pool_dir(store, role))
+    refusal = leftover_refusal(store, continuing=continuing)
     if refusal is not None:
         raise AuthoringError(refusal[1], refused_because=refusal[0], store=str(store))
+
+
+def _require_withheld_as_a_run(store: Path, role: Role, setup: RawSetup) -> None:
+    """Refuse a check whose session does not withhold what a run on the role's root must.
+
+    The role's withheld root and the validation and held-out tiers of every version under the
+    role's root, each spelt as on disk (:func:`.tiers.store.withheld_refusal`,
+    :func:`.tiers.store.protected_tier_refusal`, :func:`.tiers.store.spelling_refusal`).
+
+    Raises:
+        AuthoringError: ``held_out_not_spelt_as_on_disk``, ``withheld_root_not_named``,
+            ``protected_tier_not_named`` or ``store_unreadable``.
+    """
+    also = [(store, role)]
+    for judge in (spelling_refusal, withheld_refusal, protected_tier_refusal):
+        refusal = judge(setup.held_out, also=also)
+        if refusal is not None:
+            raise AuthoringError(refusal[1], refused_because=refusal[0], store=str(store))
 
 
 def _working(root: Path, name: str, work: Path) -> Path:
     """Record inside ``root`` that ``work`` is out of it; the record, to clear once secured."""
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    record = root / f"{name}{_WORKING}"
+    record = root / f"{name}{WORKING}"
     fd = os.open(record, _NEW, 0o600)
     try:
         os.write(fd, (json.dumps({"work": str(work)}) + "\n").encode())
@@ -966,7 +986,7 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
     _require_apart(plan, setup)
     root = plan.root
     _require_no_work_left(root)
-    _require_nothing_left(plan.store, plan.role)
+    _require_nothing_left(plan.store, continuing=pool_dir(plan.store, plan.role))
     canaries = root_canaries(root)
     _require_looking(canaries, setup)
     _require_clear(root)
@@ -1150,10 +1170,15 @@ def blind_check(
     of them, and its answer is taken only when its record says none showed in its stream and
     none came under the root while it ran. Its stream is kept inside the role's root.
 
+    Its session withholds what a run on the role's root withholds: the role's withheld root
+    and every version's validation and held-out tiers, spelt as on disk. No pool may be in
+    the store, its own role's included: the exception for that pool is an author's alone.
+
     Raises:
         AuthoringError: the checking model is the implementers', ``work`` is inside a
-            held-out root, the session does not withhold the tier, the store holds a pool
-            other than this role's or a version still being written, work an earlier session
+            held-out root, the session does not withhold the tier, the role's withheld root or
+            a protected tier under the role's root, or names one spelt otherwise than on disk,
+            the store holds a pool or a version still being written, work an earlier session
             left is recorded, a canary list under the root cannot be taken whole or a tier
             there holds none, the session would not look for every canary the root names, or
             (its answer not taken, ``refused_because`` says why) its stream showed one or the
@@ -1169,8 +1194,9 @@ def blind_check(
     if not _withheld(tier, held) or any(_inside(work, r) for r in roots):
         msg = "the check withholds the tier and works outside every held-out root"
         raise AuthoringError(msg, tier=str(tier), work=str(work))
+    _require_withheld_as_a_run(store, role, setup)
     _require_no_work_left(root)
-    _require_nothing_left(store, role)
+    _require_nothing_left(store)
     read_version(version_dir(store, role, version))
     canaries = root_canaries(root)
     _require_looking(canaries, setup)

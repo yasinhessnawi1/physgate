@@ -9,8 +9,10 @@ reader reads it (its manifest held to the bytes on disk) and prints, for each, i
 ``fresh``, ``stale`` (which tiers, and why: a changed author brief or requirements source),
 or ``refused`` (the version is not what its manifest says, and why). Beside each, the tiers'
 counts and digests, the model, the seed and the date; and for the store, what only a split in
-progress holds (pools, versions being written), counted. Never a task id, a brief or a
-canary. It exits 1 if a version is refused or the store holds a split's leftovers.
+progress holds (pools, versions being written) and records of a session's work out of a role's
+root, counted. Never a task id, a brief or a canary. It exits 1 if a version is refused or the
+store holds a split's leftovers or work left; and if the store cannot be read, it prints one
+refusal line (``store_unreadable``) instead and exits 1.
 
 An exposure, read from the store's register, marks a version stale as well; the register is
 read here once it exists.
@@ -34,7 +36,11 @@ def add_parser(subparsers: Any) -> None:
 
 
 def status(store: Path) -> dict[str, Any]:
-    """Every version in ``store`` with its state, counts and digests; the split's leftovers."""
+    """Every version in ``store`` with its state, counts and digests; the leftovers, counted.
+
+    Raises:
+        OSError: the store, or a role's root in it, cannot be read.
+    """
     from physgate.evaluation.tiers.authoring import TIERS
     from physgate.evaluation.tiers.manifest import VERSION_NAME, TierSetError, read_version
     from physgate.evaluation.tiers.manifest import staleness as stale
@@ -80,7 +86,13 @@ def status(store: Path) -> dict[str, Any]:
 
 
 def _status(args: argparse.Namespace) -> int:
-    found = status(args.store.resolve())
+    store = args.store.resolve()
+    try:
+        found = status(store)
+    except OSError as exc:
+        refusal = {"refused_because": "store_unreadable", "store": str(store), "error": str(exc)}
+        print(json.dumps(refusal, sort_keys=True))
+        return 1
     print(json.dumps(found, sort_keys=True))
     refused = any(v["state"] == "refused" for v in found["versions"])
     return 1 if refused or any(found["left"].values()) else 0

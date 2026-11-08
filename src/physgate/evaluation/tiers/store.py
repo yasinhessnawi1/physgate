@@ -14,12 +14,23 @@
           validation/<task>/…    protected, as held out is; SHA256SUMS and canaries.json
           held_out/<task>/…      protected; SHA256SUMS and canaries.json
 
-**What sessions wrote is withheld from every run.** The authoring sessions' streams hold every
-task they wrote, the blind check's hold the held-out tasks it was given, and the pool holds
-tasks that become held-out ones; none carries a canary. So they lie under one root per role,
-``withheld/``, and a run that names any tier of the store must name that root too, for each
-role it names, among the roots its sessions withhold (the run's ``held_out``), where every
-layer of the protection refuses it as it refuses a tier (:func:`withheld_refusal`).
+**A run that names anything under a role's root withholds all of it that is protected.** The
+authoring sessions' streams hold every task they wrote, the blind check's hold the held-out
+tasks it was given, and the pool holds tasks that become held-out ones; none carries a canary.
+So they lie under one root per role, ``withheld/``. A run that names anything under
+``<store>/<role>``, the role's root itself or the store, must name among the roots its sessions
+withhold (the run's ``held_out``), where every layer of the protection refuses them: that
+withheld root (:func:`withheld_refusal`), and the validation and held-out tiers of every
+version under the role's root, older ones too (:func:`protected_tier_refusal`). A tier the run
+does not withhold is read by its sessions with no canary of the run's to show it. Each such
+entry is spelt as the filesystem spells it (:func:`spelling_refusal`), so the spelling every
+layer is given is the one on disk, whatever case the volume ignores.
+
+**Work out of the role's root is a leftover too.** An author's tasks before they are pooled,
+and the blind check's copy of the held-out tasks, lie outside every protected root while their
+session runs; a record ``<name>.working`` in the role's root says so until the work is kept
+inside it and removed. While such a record stands, nothing starts on the store
+(:func:`leftovers`).
 
 **A version is written once.** The split writes it into a fresh temporary directory beside
 it (``.version-<random>``) and renames that into place last, once its tiers, its provenance
@@ -30,9 +41,9 @@ at all. A version already there is never written again (:func:`write_version`).
 ones, without their canaries, which are given at the split, so a session that read it would
 see future held-out work and nothing would detect it. The split marks it spent
 (``pool.spent``) before the version's rename and removes it after; the tasks the draw did
-not take go with it. While a pool or a temporary version is in a store, no run that names a
-version of that store starts, and no authoring or blind-check session either, except an
-author adding to its own role's pool, which its session withholds (:func:`leftovers`).
+not take go with it. While a pool or a temporary version is in a store, no run that names
+the store starts, and no authoring or blind-check session either, except an author adding to
+its own role's pool, which its session withholds (:func:`leftovers`).
 """
 
 from __future__ import annotations
@@ -75,11 +86,17 @@ SPENT_POOL = "pool.spent"
 TEMPORARY = ".version-"
 AUTHOR_EVIDENCE = "author"
 CHECK_EVIDENCE = "check"
+#: What a record of a session's work out of the role's root ends with: ``author.working``,
+#: ``check.working``.
+WORKING = ".working"
 #: The folders directly under a role's root that hold what sessions wrote. No canary list
 #: the harness writes lies in one.
 SESSION_FOLDERS = frozenset({WITHHELD})
-#: Why a store refuses a run or a session, counted: what only a split in progress holds.
-LEFT = ("pool_left", "temporary_version_left")
+#: Why a store refuses a run or a session, counted: what only a split in progress holds, and
+#: work a session has out of the role's root.
+LEFT = ("pool_left", "temporary_version_left", "work_left")
+#: The tiers of every version a run withholds once it names anything under the role's root.
+PROTECTED = ("validation", "held_out")
 
 
 def role_root(store: Path, role: Role) -> Path:
@@ -121,75 +138,124 @@ def is_visible_tier(path: Path) -> bool:
     )
 
 
-def _ignores_case(path: Path) -> bool:
-    """Whether the filesystem at ``path`` ignores case, judged on its nearest existing part.
-
-    A part with a letter in its name is looked up under the other case: the same file under
-    both names means the filesystem ignores case. Where nothing can be judged, it is taken to
-    heed case, so no spelling is accepted as another.
-    """
-    probe = path
-    while probe != probe.parent:
-        if probe.exists() and probe.name.swapcase() != probe.name:
-            other = probe.parent / probe.name.swapcase()
-            try:
-                return other.exists() and os.path.samefile(probe, other)
-            except OSError:
-                return False
-        probe = probe.parent
-    return False
-
-
 def _resolved(entry: str) -> Path:
     """A held-out entry as every check here judges it: absolute, normalised, links followed."""
     return Path(entry).resolve(strict=False)
 
 
+def _role(name: str) -> Role | None:
+    """The role a directory's name names, in any case; ``None`` if none."""
+    return {role.casefold(): role for role in get_args(Role)}.get(name.casefold())
+
+
+def _of_a_role_root(name: str) -> bool:
+    """Whether an entry called ``name`` lies only in a role's root: by its name alone."""
+    folded = name.casefold()
+    return (
+        VERSION_NAME.fullmatch(folded) is not None
+        or folded == WITHHELD
+        or folded.startswith(TEMPORARY)
+        or folded.endswith(WORKING)
+    )
+
+
+def _holds_a_role_root_s(path: Path) -> bool:
+    """Whether the directory ``path`` holds what only a role's root holds, by names on disk.
+
+    A directory that cannot be listed is taken to hold it: what it holds cannot be ruled out.
+    """
+    if not os.path.isdir(path):
+        return False
+    try:
+        return any(_of_a_role_root(name) for name in os.listdir(path))
+    except OSError:
+        return True
+
+
+def _named_role_roots(path: Path) -> list[tuple[Path, Role]]:
+    """The store and role of every role's root ``path`` lies in, is, or (as a store) holds.
+
+    ``path`` is resolved. It lies in a role's root when a part of it is named as a role, in
+    any case, and the part after it is one only a role's root holds (a version, the withheld
+    root, a version being written, a record of work), or that part holds one on disk; the
+    right-most such part is taken, so a store whose own path happens to hold such a pair is
+    still found. ``path`` names a store when a directory under it, named as a role, holds one.
+    """
+    parts = path.parts
+    for at in range(len(parts) - 1, 0, -1):
+        role = _role(parts[at])
+        if role is None:
+            continue
+        here = Path(*parts[: at + 1])
+        below = parts[at + 1] if at + 1 < len(parts) else None
+        if (below is not None and _of_a_role_root(below)) or _holds_a_role_root_s(here):
+            return [(Path(*parts[:at]), role)]
+    found: list[tuple[Path, Role]] = []
+    if os.path.isdir(path):
+        try:
+            names = sorted(os.listdir(path))
+        except OSError:
+            names = []
+        for name in names:
+            role = _role(name)
+            if role is not None and _holds_a_role_root_s(path / name):
+                found.append((path, role))
+    return found
+
+
 def role_roots(held_out: tuple[str, ...]) -> list[tuple[Path, Role]]:
-    """The store and role of every entry that lies at or under a version of a store.
+    """The store and role of every role's root an entry names: lies in, is, or holds.
 
     Each entry is resolved once (:func:`_resolved`) and only its resolved form is judged: a
-    run naming ``<store>/<role>/<version>``, a tier of it or anything beneath, however spelt
-    (``.``, ``..``, a trailing slash, a link, another case of the role's name), names that
-    role's root. A version is a component that is a version id, below one named as a role in
-    any case. Fail closed: such an entry is never read as naming nothing.
+    run naming ``<store>/<role>/<version>``, a tier of it or anything beneath, the withheld
+    root, the role's root itself or the store, however spelt (``.``, ``..``, a trailing slash,
+    a link, another case of the role's name), names that role's root
+    (:func:`_named_role_roots`). Fail closed: such an entry is never read as naming nothing.
     """
-    roles = {role.casefold(): role for role in get_args(Role)}
     found: dict[tuple[str, str], tuple[Path, Role]] = {}
     for entry in held_out:
-        resolved = _resolved(entry)
-        parts = resolved.parts
-        for at in range(1, len(parts) - 1):
-            role = roles.get(parts[at].casefold())
-            if role is not None and VERSION_NAME.fullmatch(parts[at + 1].casefold()):
-                store = Path(*parts[:at])
-                found[(str(store), role)] = (store, role)
-                break
+        for store, role in _named_role_roots(_resolved(entry)):
+            found[(str(store), role)] = (store, role)
     return [found[key] for key in sorted(found)]
 
 
 def _withholds(named: Path, place: Path) -> bool:
-    """Whether a run withholding ``named`` withholds ``place``: the same or beneath it."""
-    if _ignores_case(place):
-        one, other = str(place).casefold(), str(named).rstrip("/").casefold()
-    else:
-        one, other = str(place), str(named).rstrip("/")
+    """Whether a run withholding ``named`` withholds ``place``: the same or beneath it.
+
+    Compared as spelt: an entry spelt otherwise than on disk is refused before this counts
+    for anything (:func:`spelling_refusal`), so no case is taken for another.
+    """
+    one, other = str(place), str(named).rstrip("/")
     return one == other or one.startswith(other + "/")
 
 
-def withheld_refusal(held_out: tuple[str, ...]) -> tuple[str, str] | None:
+def _judged(
+    held_out: tuple[str, ...], also: Sequence[tuple[Path, Role]]
+) -> tuple[list[Path], list[tuple[Path, Role]]]:
+    """Every entry resolved, and every role's root to judge: those named, and ``also``."""
+    roots = {(str(store), role): (store, role) for store, role in role_roots(held_out)}
+    for given, role in also:
+        store = _resolved(str(given))
+        roots[(str(store), role)] = (store, role)
+    return [_resolved(entry) for entry in held_out], [roots[key] for key in sorted(roots)]
+
+
+def _missing(named: Sequence[Path], places: Sequence[Path]) -> list[str]:
+    """Every place in ``places`` that no root in ``named`` withholds, as text, sorted."""
+    return sorted(str(p) for p in places if not any(_withholds(root, p) for root in named))
+
+
+def withheld_refusal(
+    held_out: tuple[str, ...], *, also: Sequence[tuple[Path, Role]] = ()
+) -> tuple[str, str] | None:
     """Why a run withholding ``held_out`` may not start: a counted reason and its words.
 
-    Every role whose version the run names (:func:`role_roots`) asks for that role's withheld
-    root among the run's roots: one of them, resolved, is that root or holds it, compared in
-    any case where the filesystem ignores case; ``None`` if each is there.
+    Every role's root the run names (:func:`role_roots`), and each of ``also``, asks for that
+    role's withheld root among the run's roots: one of them, resolved, is that root or holds
+    it; ``None`` if each is there.
     """
-    named = [_resolved(entry) for entry in held_out]
-    missing = sorted(
-        str(withheld_root(store, role))
-        for store, role in role_roots(held_out)
-        if not any(_withholds(root, withheld_root(store, role)) for root in named)
-    )
+    named, roots = _judged(held_out, also)
+    missing = _missing(named, [withheld_root(store, role) for store, role in roots])
     if not missing:
         return None
     return "withheld_root_not_named", (
@@ -199,12 +265,98 @@ def withheld_refusal(held_out: tuple[str, ...]) -> tuple[str, str] | None:
     )
 
 
+def protected_tier_refusal(
+    held_out: tuple[str, ...], *, also: Sequence[tuple[Path, Role]] = ()
+) -> tuple[str, str] | None:
+    """Why a run withholding ``held_out`` may not start: a counted reason and its words.
+
+    Every role's root the run names (:func:`role_roots`), and each of ``also``, asks for the
+    validation and held-out tiers of every version under it, as the role's root lists them
+    on disk, among the run's roots; ``None`` if each is there. A role's root that cannot be
+    listed refuses (``store_unreadable``): a version under it cannot be ruled out.
+    """
+    named, roots = _judged(held_out, also)
+    places: list[Path] = []
+    for store, role in roots:
+        root = role_root(store, role)
+        try:
+            names = os.listdir(root) if os.path.lexists(root) else []
+        except OSError as exc:
+            return "store_unreadable", (
+                f"the role's root {root} cannot be listed ({exc}), so a version under it, "
+                "whose tiers the run would have to withhold, cannot be ruled out"
+            )
+        places += [
+            root / name / tier
+            for name in names
+            if VERSION_NAME.fullmatch(name.casefold())
+            for tier in PROTECTED
+        ]
+    missing = _missing(named, places)
+    if not missing:
+        return None
+    return "protected_tier_not_named", (
+        f"the run names a store's role but not {len(missing)} protected tier(s) under it "
+        f"({', '.join(missing)}): every version's validation and held-out tiers there, older "
+        "ones too, are withheld with what the run names, or its sessions read them with no "
+        "canary of the run's to show it"
+    )
+
+
+def _spelt_as_on_disk(path: Path) -> bool:
+    """Whether every part of ``path`` that exists is spelt as its directory lists it.
+
+    Raises:
+        OSError: a directory on the way cannot be listed, so the spelling cannot be judged.
+    """
+    here = Path(path.anchor)
+    for part in path.parts[1:]:
+        if not os.path.lexists(here / part):
+            return True
+        if part not in os.listdir(here):
+            return False
+        here = here / part
+    return True
+
+
+def spelling_refusal(
+    held_out: tuple[str, ...], *, also: Sequence[tuple[Path, Role]] = ()
+) -> tuple[str, str] | None:
+    """Why a run withholding ``held_out`` may not start: a counted reason and its words.
+
+    Once the run names a role's root (:func:`role_roots`), or ``also`` gives one, every entry
+    is spelt, resolved, as the filesystem spells each part of it that exists; ``None`` if so.
+    On a volume that ignores case another case reaches the same files, but whether every
+    layer of the protection refuses a root named so is not shown, so it is refused here.
+    """
+    named, roots = _judged(held_out, also)
+    if not roots:
+        return None
+    wrong: list[str] = []
+    for path in named:
+        try:
+            if not _spelt_as_on_disk(path):
+                wrong.append(str(path))
+        except OSError as exc:
+            wrong.append(f"{path} (cannot be judged: {exc})")
+    if not wrong:
+        return None
+    return "held_out_not_spelt_as_on_disk", (
+        f"{len(wrong)} root(s) the run withholds are not spelt as the filesystem spells them "
+        f"({', '.join(sorted(wrong))}); name each as it is on disk, so every layer of the "
+        "protection is given the spelling that is there"
+    )
+
+
 def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
-    """What only a split in progress holds, found in ``store``, counted by reason.
+    """What only a split in progress holds, and work out of a role's root, counted by reason.
 
     ``pool_left`` counts every pool, drawn from or not, but ``continuing``: the one pool an
     author may add to, its own role's, which its session withholds. ``temporary_version_left``
-    counts every version still being written. Only names are looked at, in any case.
+    counts every version still being written. ``work_left`` counts every record of a session's
+    work out of the role's root (``<name>.working``), its own role's too: that work (tasks
+    before they are pooled, the check's copy of the held-out tasks, with no canary) lies where
+    a session could read it. Only names are looked at, in any case.
 
     Raises:
         OSError: the store or a role's root cannot be listed, so nothing can be ruled out.
@@ -217,8 +369,11 @@ def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
         if not here.is_dir() or here.is_symlink():
             continue
         for name in os.listdir(here):
-            if name.casefold().startswith(TEMPORARY):
+            folded = name.casefold()
+            if folded.startswith(TEMPORARY):
                 counts["temporary_version_left"] += 1
+            elif folded.endswith(WORKING):
+                counts["work_left"] += 1
         withheld = here / WITHHELD
         if not withheld.is_dir() or withheld.is_symlink():
             continue
@@ -226,14 +381,16 @@ def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
             folded = name.casefold()
             if folded in (POOL, SPENT_POOL) and withheld / name != continuing:
                 counts["pool_left"] += 1
+            elif folded.endswith(WORKING):
+                counts["work_left"] += 1
     return counts
 
 
 def leftover_refusal(store: Path, *, continuing: Path | None = None) -> tuple[str, str] | None:
     """Why nothing may start on ``store``: a counted reason and its words; ``None`` if nothing.
 
-    Nothing starts while a split's leftovers are in the store (:func:`leftovers`), or while
-    the store cannot be listed (``store_unreadable``).
+    Nothing starts while a split's leftovers, or a record of work out of a role's root, are in
+    the store (:func:`leftovers`), or while the store cannot be listed (``store_unreadable``).
     """
     try:
         counts = leftovers(store, continuing=continuing)
@@ -246,10 +403,11 @@ def leftover_refusal(store: Path, *, continuing: Path | None = None) -> tuple[st
     if not left:
         return None
     return left[0], (
-        f"the tier-set store {store} holds {counts['pool_left']} pool(s) and "
-        f"{counts['temporary_version_left']} version(s) being written, whose tasks become "
-        "held-out and validation ones and carry no canary yet; nothing starts on it until a "
-        "person has looked at them and removed them"
+        f"the tier-set store {store} holds {counts['pool_left']} pool(s), "
+        f"{counts['temporary_version_left']} version(s) being written and "
+        f"{counts['work_left']} record(s) of a session's work out of a role's root, whose tasks "
+        "are or become held-out and validation ones and carry no canary; nothing starts on it "
+        "until a person has looked at them and removed them"
     )
 
 
