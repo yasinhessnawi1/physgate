@@ -67,6 +67,9 @@ class SessionRequest(_Frozen):
     #: How often a person's choice reopened the merged subtask: its session runs in that
     #: reopen's own worktree and branch.
     reopened: Annotated[int, Field(ge=0)] = 0
+    #: The interface nodes the plan's contract pairs hold the subtask's role to, as producer or
+    #: consumer, in id order: the session is told to join each.
+    interfaces: tuple[NonEmptyStr, ...] = ()
 
     @model_validator(mode="after")
     def _a_fix_is_told_what_to_fix(self) -> SessionRequest:

@@ -509,7 +509,11 @@ def conform_clause(
 
 
 def contract_conform_instruction(
-    item_id: str, attempt: int, clauses: Sequence[str], note: str | None
+    item_id: str,
+    attempt: int,
+    clauses: Sequence[str],
+    note: str | None,
+    joins: Sequence[str] = (),
 ) -> str:
     """The reopened attempt's instruction: each clause its module fails, and the person's note.
 
