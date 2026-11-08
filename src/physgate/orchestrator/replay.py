@@ -442,6 +442,8 @@ class RunState:
         self._baseline_taken = False
         #: The rounds' first calls whose output was refused and that were made again, in turn.
         self.retried_calls: list[PlanProposed] = []
+        #: Whether the run's one decomposition line has been taken.
+        self._decomposed = False
         #: A run that does not review its plan: its one call's refused first try, if it had one.
         self.decomposition_retried: DecompositionRetried | None = None
         #: The incidents since the run last resumed: those of the halt a person resolves.
@@ -616,6 +618,11 @@ class RunState:
             self._retried(event)
             return
         if isinstance(event, Decomposed):
+            # One line per run: a call its schema refused and that was made again is recorded
+            # by its own lines (the retry line, or its round's second proposal), never by this.
+            if self._decomposed:
+                _refuse("a run is decomposed once")
+            self._decomposed = True
             if not self._baseline_taken:
                 self.policy_baseline, self._baseline_taken = event.policy_limits_sha256, True
             if self.reviews_plan:
