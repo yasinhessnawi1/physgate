@@ -32,9 +32,7 @@ registers them with the core, and removing the evaluation removes them.
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from physgate.evaluation.tiers.store import leftover_refusal, store_of, withheld_refusal
+from physgate.evaluation.tiers.store import leftover_refusal, role_roots, withheld_refusal
 from physgate.orchestrator.requirements import RunFacts, RunRequirement
 from physgate.orchestrator.run_config import network_enforced
 from physgate.oslayer.policy import NETWORK_UNENFORCED
@@ -96,11 +94,11 @@ def record_decisions_for_reportable_runs(facts: RunFacts) -> str | None:
 def nothing_left_in_a_named_tier_set_store(facts: RunFacts) -> str | None:
     """Refuse a run while a tier-set store it names holds a pool or a version being written.
 
-    A store is named by a held-out root that is one of its versions' protected tiers
-    (:func:`.tiers.store.store_of`). Every role's root in it is looked at, by name only
-    (:func:`.tiers.store.leftovers`); a store that cannot be listed refuses too.
+    A store is named by a held-out root that lies at or under one of its versions, judged on
+    its resolved form (:func:`.tiers.store.role_roots`). Every role's root in it is looked at,
+    by name only (:func:`.tiers.store.leftovers`); a store that cannot be listed refuses too.
     """
-    stores = sorted({s for r in facts.config.held_out if (s := store_of(Path(r))) is not None})
+    stores = sorted({store for store, _ in role_roots(facts.config.held_out)})
     for store in stores:
         refusal = leftover_refusal(store)
         if refusal is not None:

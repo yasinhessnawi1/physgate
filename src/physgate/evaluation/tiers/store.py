@@ -121,29 +121,74 @@ def is_visible_tier(path: Path) -> bool:
     )
 
 
-def tier_role(root: Path) -> tuple[Path, Role] | None:
-    """The store and role a protected tier root lies in, by its place alone; ``None`` outside."""
-    store = store_of(root)
-    if store is None:
-        return None
-    role: Role = root.parent.parent.name  # type: ignore[assignment]
-    return store, role
+def _ignores_case(path: Path) -> bool:
+    """Whether the filesystem at ``path`` ignores case, judged on its nearest existing part.
+
+    A part with a letter in its name is looked up under the other case: the same file under
+    both names means the filesystem ignores case. Where nothing can be judged, it is taken to
+    heed case, so no spelling is accepted as another.
+    """
+    probe = path
+    while probe != probe.parent:
+        if probe.exists() and probe.name.swapcase() != probe.name:
+            other = probe.parent / probe.name.swapcase()
+            try:
+                return other.exists() and os.path.samefile(probe, other)
+            except OSError:
+                return False
+        probe = probe.parent
+    return False
+
+
+def _resolved(entry: str) -> Path:
+    """A held-out entry as every check here judges it: absolute, normalised, links followed."""
+    return Path(entry).resolve(strict=False)
+
+
+def role_roots(held_out: tuple[str, ...]) -> list[tuple[Path, Role]]:
+    """The store and role of every entry that lies at or under a version of a store.
+
+    Each entry is resolved once (:func:`_resolved`) and only its resolved form is judged: a
+    run naming ``<store>/<role>/<version>``, a tier of it or anything beneath, however spelt
+    (``.``, ``..``, a trailing slash, a link, another case of the role's name), names that
+    role's root. A version is a component that is a version id, below one named as a role in
+    any case. Fail closed: such an entry is never read as naming nothing.
+    """
+    roles = {role.casefold(): role for role in get_args(Role)}
+    found: dict[tuple[str, str], tuple[Path, Role]] = {}
+    for entry in held_out:
+        resolved = _resolved(entry)
+        parts = resolved.parts
+        for at in range(1, len(parts) - 1):
+            role = roles.get(parts[at].casefold())
+            if role is not None and VERSION_NAME.fullmatch(parts[at + 1].casefold()):
+                store = Path(*parts[:at])
+                found[(str(store), role)] = (store, role)
+                break
+    return [found[key] for key in sorted(found)]
+
+
+def _withholds(named: Path, place: Path) -> bool:
+    """Whether a run withholding ``named`` withholds ``place``: the same or beneath it."""
+    if _ignores_case(place):
+        one, other = str(place).casefold(), str(named).rstrip("/").casefold()
+    else:
+        one, other = str(place), str(named).rstrip("/")
+    return one == other or one.startswith(other + "/")
 
 
 def withheld_refusal(held_out: tuple[str, ...]) -> tuple[str, str] | None:
     """Why a run withholding ``held_out`` may not start: a counted reason and its words.
 
-    Every tier of a store the run names asks for that store's withheld root of the same role
-    among the run's roots, compared as absolute, normalised paths; ``None`` if each is there.
+    Every role whose version the run names (:func:`role_roots`) asks for that role's withheld
+    root among the run's roots: one of them, resolved, is that root or holds it, compared in
+    any case where the filesystem ignores case; ``None`` if each is there.
     """
-    named = {os.path.normpath(os.path.abspath(r)) for r in held_out}
+    named = [_resolved(entry) for entry in held_out]
     missing = sorted(
-        {
-            str(withheld_root(*found))
-            for r in held_out
-            if (found := tier_role(Path(r))) is not None
-            and os.path.normpath(os.path.abspath(withheld_root(*found))) not in named
-        }
+        str(withheld_root(store, role))
+        for store, role in role_roots(held_out)
+        if not any(_withholds(root, withheld_root(store, role)) for root in named)
     )
     if not missing:
         return None
@@ -152,21 +197,6 @@ def withheld_refusal(held_out: tuple[str, ...]) -> tuple[str, str] | None:
         f"({', '.join(missing)}), which hold the sessions' streams and the pool: tasks that are "
         "held-out ones, with no canary; a run withholds them with the tier"
     )
-
-
-def store_of(root: Path) -> Path | None:
-    """The store a protected root lies in, judged by its place alone; ``None`` outside one.
-
-    A version's protected tier is ``<store>/<role>/<version>/<tier>``. Nothing beneath the
-    root is opened.
-    """
-    if (
-        root.name in TIERS[1:]
-        and VERSION_NAME.fullmatch(root.parent.name) is not None
-        and root.parent.parent.name in get_args(Role)
-    ):
-        return root.parents[2]
-    return None
 
 
 def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
