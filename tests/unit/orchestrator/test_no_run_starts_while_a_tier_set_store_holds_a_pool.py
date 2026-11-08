@@ -11,6 +11,7 @@ person has looked.
 from __future__ import annotations
 
 import importlib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -121,10 +122,18 @@ def test_the_leftovers_are_counted_by_reason_and_an_author_s_own_pool_is_its_to_
         "control/.version-2",
     ):
         (store / left).mkdir(parents=True)
-    assert leftovers(store) == {"pool_left": 2, "temporary_version_left": 2}
+    assert leftovers(store) == {"pool_left": 2, "temporary_version_left": 2, "work_left": 0}
     own = store / "control" / "withheld" / "pool"
-    assert leftovers(store, continuing=own) == {"pool_left": 1, "temporary_version_left": 2}
-    assert leftovers(tmp_path / "no-store") == {"pool_left": 0, "temporary_version_left": 0}
+    assert leftovers(store, continuing=own) == {
+        "pool_left": 1,
+        "temporary_version_left": 2,
+        "work_left": 0,
+    }
+    assert leftovers(tmp_path / "no-store") == {
+        "pool_left": 0,
+        "temporary_version_left": 0,
+        "work_left": 0,
+    }
 
 
 def test_a_store_that_cannot_be_listed_refuses(
@@ -142,6 +151,72 @@ def test_a_store_that_cannot_be_listed_refuses(
     monkeypatch.setattr(store_module.os, "listdir", unlistable)
     why = _refusal(_facts(store / "control" / VERSION / "held_out"))
     assert why is not None and "(store_unreadable)" in why
+
+
+# ----------------------------------------------------- a session's work out of a role's root
+
+
+def _record(store: Path, name: str) -> None:
+    """A record that a session's work is out of a role's root, as an author or a check writes."""
+    (store / name).parent.mkdir(parents=True, exist_ok=True)
+    (store / name).write_text('{"work": "/elsewhere/work"}\n')
+
+
+def _whole(store: Path) -> tuple[Path, ...]:
+    """What a run on ``store``'s one control version withholds: both tiers, the withheld root."""
+    version = store / "control" / VERSION
+    return version / "held_out", version / "validation", store / "control" / "withheld"
+
+
+@pytest.mark.parametrize(
+    "record",
+    ["control/check.working", "control/author.working", "firmware/author.working"],
+    ids=["a check's", "an author's", "another role's"],
+)
+def test_a_run_naming_a_store_where_a_session_s_work_is_out_of_a_role_s_root_is_refused(
+    tmp_path: Path, record: str
+) -> None:
+    store = _store(tmp_path)
+    _record(store, record)
+    why = _refusal(_facts(*_whole(store)))
+    assert why is not None and "(work_left)" in why and str(store) in why
+
+
+def test_records_of_work_left_are_counted_and_no_role_s_own_is_its_to_ignore(
+    tmp_path: Path,
+) -> None:
+    leftovers = _api("physgate.evaluation.tiers.store.leftovers")
+    store = _store(tmp_path)
+    for record in ("control/check.working", "firmware/author.working"):
+        _record(store, record)
+    own = store / "control" / "withheld" / "pool"
+    assert leftovers(store).get("work_left") == 2
+    assert leftovers(store, continuing=own).get("work_left") == 2
+
+
+# ---------------------------------------- a role's root or the store itself names the store
+
+
+@pytest.mark.parametrize("named", ["the role's root", "the store"])
+def test_a_run_naming_a_role_s_root_or_the_store_itself_is_held_to_the_leftovers(
+    tmp_path: Path, named: str
+) -> None:
+    store = _store(tmp_path)
+    (store / "firmware" / "withheld" / "pool").mkdir(parents=True)
+    entry = store / "control" if named == "the role's root" else store
+    why = _refusal(_facts(entry))
+    assert why is not None and "(pool_left)" in why, f"{named}: the run starts"
+
+
+def test_a_store_whose_own_path_holds_a_role_and_a_version_s_name_is_still_the_store(
+    tmp_path: Path,
+) -> None:
+    store = tmp_path.resolve() / "control" / VERSION / "store"
+    for tier in ("visible", "validation", "held_out"):
+        (store / "control" / VERSION / tier).mkdir(parents=True)
+    (store / "control" / "withheld" / "pool").mkdir(parents=True)
+    why = _refusal(_facts(*_whole(store)))
+    assert why is not None and "(pool_left)" in why and f"store {store} " in why
 
 
 # ------------------------------------------- what sessions wrote is withheld from every run
@@ -248,3 +323,131 @@ def test_a_tier_however_spelt_names_its_store_for_the_leftovers_too(
         held_out_sha256=("0" * 64, "0" * 64),
     )
     assert _refusal(RunFacts(config=config, os_layer=PRESENT, shell_sessions=True)) is not None
+
+
+def test_a_run_naming_only_part_of_a_withheld_root_asks_for_all_of_it(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    (store / "control" / "withheld" / "author").mkdir(parents=True)
+    why = _withheld_refusal(_facts(store / "control" / "withheld" / "author"))
+    assert why is not None and "(withheld_root_not_named)" in why
+    assert str(store / "control" / "withheld") in why
+
+
+def test_a_withheld_root_named_in_another_case_does_not_stand_in_for_it(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    (store / "control" / "withheld").mkdir()
+    version = store / "control" / VERSION
+    other = store / "CONTROL" / "WITHHELD"
+    why = _withheld_refusal(_facts(version / "held_out", version / "validation", other))
+    assert why is not None and "(withheld_root_not_named)" in why
+
+
+# ------------------------------- every protected tier under a role's root is withheld with it
+
+
+def _tier_refusal(facts: RunFacts) -> str | None:
+    requirement = _api(
+        "physgate.evaluation.requirements.every_named_role_root_s_protected_tiers_are_withheld"
+    )
+    assert requirement in REQUIREMENTS, "the command does not hold runs to it"
+    found: str | None = requirement(facts)
+    return found
+
+
+def test_a_run_naming_held_out_without_its_validation_tier_is_refused(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    version = store / "control" / VERSION
+    why = _tier_refusal(_facts(version / "held_out", store / "control" / "withheld"))
+    assert why is not None and "(protected_tier_not_named)" in why
+    assert str(version / "validation") in why and str(version / "held_out") + "," not in why
+
+
+def test_a_run_on_one_version_not_naming_an_older_version_s_tiers_is_refused(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    newer = store / "control" / ("b" * 64)
+    for tier in ("visible", "validation", "held_out"):
+        (newer / tier).mkdir(parents=True)
+    named = (newer / "held_out", newer / "validation", store / "control" / "withheld")
+    why = _tier_refusal(_facts(*named))
+    older = store / "control" / VERSION
+    assert why is not None and "(protected_tier_not_named)" in why
+    assert str(older / "held_out") in why and str(older / "validation") in why
+    assert str(newer / "held_out") not in why
+
+
+def test_a_run_withholding_every_protected_tier_or_the_role_s_root_starts(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    newer = store / "control" / ("b" * 64)
+    for tier in ("visible", "validation", "held_out"):
+        (newer / tier).mkdir(parents=True)
+    older = store / "control" / VERSION
+    every = (
+        older / "held_out",
+        older / "validation",
+        newer / "held_out",
+        newer / "validation",
+        store / "control" / "withheld",
+    )
+    for named in (every, (older, newer, store / "control" / "withheld"), (store / "control",)):
+        facts = _facts(*named)
+        assert _tier_refusal(facts) is None, named
+        assert _withheld_refusal(facts) is None, named
+    assert _tier_refusal(_facts(tmp_path.resolve() / "private" / "held_out")) is None
+
+
+# ------------------------------------------ a named store's roots are spelt as they are on disk
+
+
+def _spelling_refusal(facts: RunFacts) -> str | None:
+    requirement = _api(
+        "physgate.evaluation.requirements.a_named_store_s_roots_are_spelt_as_on_disk"
+    )
+    assert requirement in REQUIREMENTS, "the command does not hold runs to it"
+    found: str | None = requirement(facts)
+    return found
+
+
+def test_a_withheld_root_not_spelt_as_it_is_on_disk_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _store(tmp_path)
+    (store / "control" / "withheld").mkdir()
+    store_module = _api("physgate.evaluation.tiers.store")
+    real = store_module.os.listdir
+
+    # The volume ignores case and spells the root ``Withheld``: the run's ``withheld`` reaches
+    # the same files, but is not the spelling on disk.
+    def spelt_otherwise(path: Any = ".") -> list[str]:
+        names = list(real(path))
+        if isinstance(path, str | os.PathLike) and Path(path) == store / "control":
+            return ["Withheld" if name == "withheld" else name for name in names]
+        return names
+
+    monkeypatch.setattr(store_module.os, "listdir", spelt_otherwise)
+    why = _spelling_refusal(_facts(*_whole(store)))
+    assert why is not None and "(held_out_not_spelt_as_on_disk)" in why
+    assert str(store / "control" / "withheld") in why
+    assert str(store / "control" / VERSION / "held_out") not in why
+
+
+def test_a_root_named_in_another_case_is_refused_where_the_volume_ignores_case(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    (store / "control" / "withheld").mkdir()
+    if not (store / "CONTROL").exists():
+        pytest.skip("this volume tells case apart, so another case is another path")
+    version = store / "control" / VERSION
+    other = store / "CONTROL" / "withheld"
+    why = _spelling_refusal(_facts(version / "held_out", version / "validation", other))
+    assert why is not None and "(held_out_not_spelt_as_on_disk)" in why
+
+
+def test_roots_spelt_as_on_disk_or_a_run_naming_no_store_start(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    (store / "control" / "withheld").mkdir()
+    assert _spelling_refusal(_facts(*_whole(store))) is None
+    assert _spelling_refusal(_facts(tmp_path.resolve() / "private" / "held_out")) is None
+    assert _spelling_refusal(_facts()) is None

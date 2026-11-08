@@ -159,3 +159,42 @@ def test_a_check_does_not_start_while_an_author_s_work_is_left(
         f"a check ran while an author's tasks lay outside the root: {refused}"
     )
     assert fake.calls == []
+
+
+def _another_role_s_work_left(tmp_path: Path) -> Path:
+    """A record that another role's session has its work out of that role's root."""
+    record = tmp_path / "private" / "store" / "firmware" / "check.working"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps({"work": str(tmp_path / "scratch" / "firmware-check")}) + "\n")
+    return record
+
+
+def test_an_author_does_not_start_while_another_role_s_work_is_left(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "scratch").mkdir()
+    _another_role_s_work_left(tmp_path)
+    fake = FakeSession(_tasks(2))
+    monkeypatch.setattr(author_session, "run_session", fake)
+    try:
+        out = author(_plan(tmp_path), _setup(tmp_path / "private"))
+    except AuthoringError as exc:
+        out = exc.context
+    except Exception as exc:  # noqa: BLE001 - anything but the named refusal fails the row
+        out = {"raised": repr(exc)}
+    assert out.get("refused_because") == "work_left", (
+        f"an author ran while another role's work lay outside its root: {out}"
+    )
+    assert fake.calls == []
+
+
+def test_a_check_does_not_start_while_another_role_s_work_is_left(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, version = _held_tier(tmp_path, monkeypatch)
+    _another_role_s_work_left(tmp_path)
+    fake, refused = _check(tmp_path, monkeypatch, "check", version)
+    assert isinstance(refused, dict) and refused.get("refused_because") == "work_left", (
+        f"a check ran while another role's work lay outside its root: {refused}"
+    )
+    assert fake.calls == []

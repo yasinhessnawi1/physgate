@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -118,7 +119,7 @@ def test_status_prints_each_version_s_state_with_counts_and_digests_only(
     assert (row["role"], row["version"], row["state"]) == ("control", manifest.version, "fresh")
     assert row["tiers"]["held_out"]["count"] == 8
     assert row["tiers"]["held_out"]["sha256"] == manifest.held_out.sha256
-    assert found["left"] == {"pool_left": 0, "temporary_version_left": 0}
+    assert found["left"] == {"pool_left": 0, "temporary_version_left": 0, "work_left": 0}
     assert not [task_id for task_id in held if task_id in printed]
     monkeypatch.setattr(authoring, "AUTHOR_BRIEF", authoring.AUTHOR_BRIEF + "\nchanged\n")
     assert main(["tiers", "status", "--store", str(store)]) == 0
@@ -139,4 +140,40 @@ def test_status_names_a_version_that_is_not_its_manifest_and_a_split_s_leftovers
     found = json.loads(capsys.readouterr().out)
     (row,) = found["versions"]
     assert row["state"] == "refused" and row["because"] == ["version_holds_other"]
-    assert found["left"] == {"pool_left": 1, "temporary_version_left": 0}
+    assert found["left"] == {"pool_left": 1, "temporary_version_left": 0, "work_left": 0}
+
+
+def test_status_counts_a_session_s_work_left_out_of_a_role_s_root(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from physgate.cli import main
+
+    store, _ = _store(tmp_path)
+    (store / "control" / "check.working").write_text('{"work": "/elsewhere/work"}\n')
+    code = main(["tiers", "status", "--store", str(store)])
+    found = json.loads(capsys.readouterr().out)
+    assert found["left"].get("work_left") == 1 and code == 1
+
+
+def test_status_on_a_store_that_cannot_be_read_prints_a_refusal_and_exits_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from physgate.cli import main
+
+    store, _ = _store(tmp_path)
+    store_module = importlib.import_module("physgate.evaluation.tiers.store")
+    real = store_module.os.listdir
+
+    def unlistable(path: Any = ".") -> list[str]:
+        if isinstance(path, str | os.PathLike) and Path(path) == store:
+            raise PermissionError(f"cannot list {path}")
+        return list(real(path))
+
+    monkeypatch.setattr(store_module.os, "listdir", unlistable)
+    try:
+        code = main(["tiers", "status", "--store", str(store)])
+    except OSError as exc:
+        pytest.fail(f"an unreadable store gives a traceback, not a refusal line: {exc!r}")
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert code == 1 and len(lines) == 1
+    assert json.loads(lines[0]).get("refused_because") == "store_unreadable"

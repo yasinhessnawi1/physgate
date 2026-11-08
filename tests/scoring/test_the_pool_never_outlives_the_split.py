@@ -244,11 +244,18 @@ def test_a_list_less_tier_called_visible_anywhere_but_a_version_refuses(
     assert refused.value.context.get("refused_because") == "canary_list_missing"
 
 
-def _blind_check(tmp_path: Path, version: str) -> dict[str, Any]:
-    """The blind check on ``version`` of the store, as the command runs it."""
+def _blind_check(
+    tmp_path: Path, version: str, held_out: tuple[Path, ...] | None = None
+) -> dict[str, Any]:
+    """The blind check on ``version`` of the store, as the command runs it.
+
+    Its session withholds the store's parent unless ``held_out`` names what it withholds.
+    """
     setup = dataclasses.replace(
         _setup(tmp_path / "private"), held_out_canaries=root_canaries(_root(tmp_path))
     )
+    if held_out is not None:
+        setup = dataclasses.replace(setup, held_out=tuple(str(p) for p in held_out))
     check: Any = author_session.blind_check
     try:
         out: dict[str, Any] = check(
@@ -281,7 +288,9 @@ def test_the_blind_check_runs_on_a_version_and_keeps_its_stream_in_the_role_s_ro
     assert not (tmp_path / "scratch" / "check").exists()
 
 
-@pytest.mark.parametrize("left", ["firmware/withheld/pool", "control/.version-0123abcd"])
+@pytest.mark.parametrize(
+    "left", ["firmware/withheld/pool", "control/.version-0123abcd", "control/withheld/pool"]
+)
 def test_the_blind_check_refuses_while_the_store_holds_a_split_s_leftovers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, left: str
 ) -> None:
@@ -310,3 +319,42 @@ def test_the_blind_check_refuses_a_version_that_is_not_its_manifest(
         _blind_check(tmp_path, out["version"])
     assert refused.value.context.get("refused_because") == "tier_changed"
     assert fake.calls == []
+
+
+@pytest.mark.parametrize(
+    ("withholds", "reason"),
+    [
+        ("the tier alone", "withheld_root_not_named"),
+        ("both tiers", "withheld_root_not_named"),
+        ("the tier and the withheld root", "protected_tier_not_named"),
+    ],
+)
+def test_the_blind_check_s_session_withholds_what_a_run_on_the_role_s_root_withholds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, withholds: str, reason: str
+) -> None:
+    _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    version = _root(tmp_path).resolve() / out["version"]
+    withheld = _root(tmp_path).resolve() / "withheld"
+    held = {
+        "the tier alone": (version / "held_out",),
+        "both tiers": (version / "held_out", version / "validation"),
+        "the tier and the withheld root": (version / "held_out", withheld),
+    }[withholds]
+    fake = FakeSession(_answers(_all_yes), session_id="c-1")
+    monkeypatch.setattr(author_session, "run_session", fake)
+    with pytest.raises(AuthoringError) as refused:
+        _blind_check(tmp_path, out["version"], held_out=held)
+    assert refused.value.context.get("refused_because") == reason
+    assert fake.calls == []
+
+
+def test_the_blind_check_runs_when_its_session_withholds_what_a_run_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    version = _root(tmp_path).resolve() / out["version"]
+    held = (version / "held_out", version / "validation", _root(tmp_path).resolve() / "withheld")
+    fake = FakeSession(_answers(_all_yes), session_id="c-1")
+    monkeypatch.setattr(author_session, "run_session", fake)
+    checked = _blind_check(tmp_path, out["version"], held_out=held)
+    assert checked["answered"] and len(fake.calls) == 1
