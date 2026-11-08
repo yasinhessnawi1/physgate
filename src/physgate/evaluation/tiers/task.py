@@ -31,9 +31,9 @@ from pydantic import (
     model_validator,
 )
 
-from physgate.evaluation.per_role.base import Identifier, Measure, NamedMeasure, _Frozen
 from physgate.evaluation.per_role.exceptions import TaskFormatError
 from physgate.evaluation.per_role.firmware.spec import FirmwareSpec
+from physgate.evaluation.tiers.base import Identifier, Measure, NamedMeasure, _Frozen
 
 #: The largest ``task.json`` read. A task is a brief and a few dozen numbers; anything
 #: larger is not one, and it is refused before it is parsed.

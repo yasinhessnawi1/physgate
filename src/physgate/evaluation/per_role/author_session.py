@@ -70,8 +70,8 @@ from physgate.evaluation.per_role.authoring import (
     split,
 )
 from physgate.evaluation.per_role.firmware.sandbox import open_directory
-from physgate.evaluation.per_role.task import Canary, Role, load_task
 from physgate.evaluation.per_role.validate import id_digest, refusal_reasons, sound, validate
+from physgate.evaluation.tiers.task import Canary, Role, load_task
 from physgate.hooks.withheld import survey
 
 _READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK

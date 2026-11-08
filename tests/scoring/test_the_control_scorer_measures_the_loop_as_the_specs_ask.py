@@ -18,7 +18,7 @@ from physgate.evaluation.per_role.scorers.control import (
     score,
     score_bytes,
 )
-from physgate.evaluation.per_role.task import load_task
+from physgate.evaluation.tiers.task import load_task
 
 
 def _row(record: dict[str, Any], name: str) -> dict[str, Any]:

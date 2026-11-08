@@ -12,7 +12,7 @@ from task_fixtures import own_task
 
 from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.per_role.arms.raw import BudgetWatch, RawSetup, raw_bounds, stream_total
-from physgate.evaluation.per_role.task import parse_task
+from physgate.evaluation.tiers.task import parse_task
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.run_config import RunBounds
 from physgate.oslayer.probe import Absent, Present

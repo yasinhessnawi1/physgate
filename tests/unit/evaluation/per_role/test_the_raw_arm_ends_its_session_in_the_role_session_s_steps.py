@@ -20,7 +20,7 @@ from task_fixtures import own_task
 from test_the_raw_arm_s_credential_is_handled_as_a_role_session_s import LEAKY, _script, _setup
 
 from physgate.evaluation.per_role.arms import raw
-from physgate.evaluation.per_role.task import parse_task
+from physgate.evaluation.tiers.task import parse_task
 from physgate.orchestrator.dispatch import ClaudeDispatcher
 
 END_STEPS = ("check_after_stop", "remove_secrets", "redact")

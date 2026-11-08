@@ -329,7 +329,7 @@ def test_the_run_refuses_a_session_its_watch_could_not_stop(
     from task_fixtures import own_task
     from test_the_raw_arm_s_credential_is_handled_as_a_role_session_s import _script, _setup
 
-    from physgate.evaluation.per_role.task import parse_task
+    from physgate.evaluation.tiers.task import parse_task
 
     # A session that spends past its cap at once and then keeps running.
     line = _usage_line(600).strip()

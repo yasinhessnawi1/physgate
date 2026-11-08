@@ -32,7 +32,6 @@ import control as ct
 import numpy as np
 
 from physgate.evaluation.per_role.answer import LtiTf, read_lti_tf
-from physgate.evaluation.per_role.base import Measure
 from physgate.evaluation.per_role.exceptions import ReferenceCheckError, TaskFormatError
 from physgate.evaluation.per_role.metrics import (
     ACTUATOR_LIMIT,
@@ -41,7 +40,8 @@ from physgate.evaluation.per_role.metrics import (
     CONTROL_SCORER_VERSION,
     REFERENCE_STEP,
 )
-from physgate.evaluation.per_role.task import LoadedTask, Spec, Task, canonical_json
+from physgate.evaluation.tiers.base import Measure
+from physgate.evaluation.tiers.task import LoadedTask, Spec, Task, canonical_json
 
 #: A real or complex numpy array. Spelt as ``Any``: the types are checked in the harness's
 #: environment, which never has numpy (see the evaluation group in ``pyproject.toml``).

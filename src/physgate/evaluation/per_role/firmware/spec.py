@@ -24,7 +24,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from physgate.evaluation.per_role.base import Identifier, Measure, NamedMeasure
+from physgate.evaluation.tiers.base import Identifier, Measure, NamedMeasure
 
 #: A sensor or actuator name, and an actuator state, as they appear on the line.
 LineWord = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{0,31}$")]

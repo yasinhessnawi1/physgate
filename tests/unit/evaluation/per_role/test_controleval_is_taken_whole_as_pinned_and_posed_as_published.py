@@ -10,7 +10,7 @@ import pytest
 
 from physgate.evaluation.per_role import controleval
 from physgate.evaluation.per_role.exceptions import ControlEvalError
-from physgate.evaluation.per_role.task import parse_task, task_bytes
+from physgate.evaluation.tiers.task import parse_task, task_bytes
 
 
 def _record(i: int, **changes: Any) -> dict[str, Any]:

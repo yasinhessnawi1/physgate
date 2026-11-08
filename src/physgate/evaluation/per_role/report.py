@@ -54,9 +54,9 @@ from typing import Annotated, Literal
 
 from pydantic import Field, StringConstraints, ValidationError, model_validator
 
-from physgate.evaluation.per_role.base import Identifier, _Frozen
 from physgate.evaluation.per_role.exceptions import PerRoleError
-from physgate.evaluation.per_role.task import Role, TaskId, Tier
+from physgate.evaluation.tiers.base import Identifier, _Frozen
+from physgate.evaluation.tiers.task import Role, TaskId, Tier
 
 Arm = Literal["harness", "observe", "raw"]
 #: The arms in the order the report shows them.

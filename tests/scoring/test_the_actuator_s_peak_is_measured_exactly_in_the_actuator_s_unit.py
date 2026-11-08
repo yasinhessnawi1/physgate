@@ -18,7 +18,7 @@ from control_fixtures import GOOD_PID, control_task, controller, write_answer
 
 from physgate.evaluation.per_role.exceptions import ReferenceCheckError, TaskFormatError
 from physgate.evaluation.per_role.scorers.control import check_references, score
-from physgate.evaluation.per_role.task import Task, load_task, parse_task
+from physgate.evaluation.tiers.task import Task, load_task, parse_task
 
 
 def _effort(limit: float = 5.0, unit: str = "N*m") -> dict[str, Any]:

@@ -13,7 +13,7 @@ from physgate.evaluation.per_role.authoring import (
     split,
 )
 from physgate.evaluation.per_role.metrics import CONTROL_METRIC_UNITS
-from physgate.evaluation.per_role.task import load_task
+from physgate.evaluation.tiers.task import load_task
 
 
 def test_an_author_on_the_implementers_model_is_refused() -> None:
@@ -162,7 +162,7 @@ def test_a_held_out_task_written_without_its_canary_is_caught_when_read_back(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from physgate.evaluation.per_role import authoring
-    from physgate.evaluation.per_role.task import Task, task_bytes
+    from physgate.evaluation.tiers.task import Task, task_bytes
 
     def losing_the_canary(task: Task) -> bytes:
         return task_bytes(task.model_copy(update={"canary": None, "tier": "visible"}))
