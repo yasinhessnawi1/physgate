@@ -61,6 +61,13 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         help="an append-only record the orchestrator holds open: compared, never written back",
     )
     p.add_argument(
+        "--withheld",
+        action="append",
+        default=[],
+        help="a run record no session doing design work reads by any route: put back, and "
+        "refused to every read",
+    )
+    p.add_argument(
         "--harness",
         help="the source checkout the orchestrator runs from: refused whole, its trusted trees "
         "put back",

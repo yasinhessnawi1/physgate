@@ -116,6 +116,10 @@ class InstallRequest(BaseModel):
     #: tool may write them, and the sentinel compares them and never writes them, since a
     #: put-back by replacing would leave the orchestrator writing to a file no path names.
     extra_protected_record: tuple[AbsolutePath, ...] = ()
+    #: The run's records that no session doing design work reads, by any route: the run's
+    #: recorded configuration, which holds the held-out tier's canaries. Each is put back
+    #: like any protected root, and refused to every read as well.
+    withheld: tuple[AbsolutePath, ...] = ()
     #: The source checkout the orchestrator runs from, when it runs from one: the
     #: gate's source, the curated library and the frozen experiments the run is
     #: judged by. A session in any other worktree may write none of it.
