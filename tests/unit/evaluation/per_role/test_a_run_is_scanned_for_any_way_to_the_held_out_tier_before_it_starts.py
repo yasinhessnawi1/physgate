@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from physgate.evaluation.per_role.authoring import sha256sums
+from physgate.evaluation.tiers.authoring import sha256sums
 from physgate.evaluation.tiers.heldout import scan
 from physgate.oslayer.policy import sandbox_policy as real_policy
 

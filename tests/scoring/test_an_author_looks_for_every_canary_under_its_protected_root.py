@@ -42,7 +42,7 @@ from test_what_an_author_s_watch_could_not_hold_is_never_pooled import _Ending, 
 
 from physgate.evaluation.per_role import author_session
 from physgate.evaluation.per_role.author_session import author, pool_dir, root_canaries
-from physgate.evaluation.per_role.authoring import AuthoringError
+from physgate.evaluation.tiers.authoring import AuthoringError
 
 CANARY = "5f0c3a9e1b7d4c2a8e6f0b1d3c5a7e9f"
 OTHER = "0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a"

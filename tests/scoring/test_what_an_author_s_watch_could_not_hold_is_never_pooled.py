@@ -32,8 +32,8 @@ from physgate.evaluation.per_role.author_session import (
     held_out_tier,
     pool_dir,
 )
-from physgate.evaluation.per_role.authoring import AuthoringError
 from physgate.evaluation.per_role.validate import sound
+from physgate.evaluation.tiers.authoring import AuthoringError
 
 #: A canary flag the record does not carry at all.
 ABSENT = "absent"

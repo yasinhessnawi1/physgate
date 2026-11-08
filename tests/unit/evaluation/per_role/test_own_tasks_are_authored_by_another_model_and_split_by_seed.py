@@ -6,13 +6,13 @@ from pathlib import Path
 import pytest
 from task_fixtures import controller, own_task, write_task_dir
 
-from physgate.evaluation.per_role.authoring import (
+from physgate.evaluation.per_role.metrics import CONTROL_METRIC_UNITS
+from physgate.evaluation.tiers.authoring import (
     AuthoringError,
     author_brief,
     require_author_model,
     split,
 )
-from physgate.evaluation.per_role.metrics import CONTROL_METRIC_UNITS
 from physgate.evaluation.tiers.task import load_task
 
 
@@ -161,7 +161,7 @@ def test_the_two_tiers_never_share_a_place(tmp_path: Path, visible: str, held: s
 def test_a_held_out_task_written_without_its_canary_is_caught_when_read_back(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from physgate.evaluation.per_role import authoring
+    from physgate.evaluation.tiers import authoring
     from physgate.evaluation.tiers.task import Task, task_bytes
 
     def losing_the_canary(task: Task) -> bytes:

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from task_fixtures import controller, own_task, write_task_dir
 
-from physgate.evaluation.per_role.authoring import sha256sums
+from physgate.evaluation.tiers.authoring import sha256sums
 from physgate.evaluation.tiers.heldout import scan
 
 CANARY_A = "a" * 32

@@ -24,6 +24,7 @@ MOVED = {
     "task.py": "tiers/task.py",
     "base.py": "tiers/base.py",
     "heldout.py": "tiers/heldout.py",
+    "authoring.py": "tiers/authoring.py",
 }
 
 
