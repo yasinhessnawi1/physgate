@@ -17,6 +17,11 @@ import { QueueItem } from "./QueueItem";
 
 let root: Root | null = null;
 
+/** The sentence a recorded contract item carries in place of a diff. */
+const ARTEFACT =
+  `The run branch from ${"e".repeat(40)} to ${"f".repeat(40)}: see ` +
+  `\`git diff ${"e".repeat(40)} ${"f".repeat(40)}\` in the target repository.`;
+
 afterEach(() => {
   act(() => {
     root?.unmount();
@@ -38,7 +43,7 @@ function view(source: "contract" | "review_unavailable") {
       subtask_id: source === "contract" ? "contract" : "s1",
       source,
       decision_required: "Decide.",
-      artefact_diff: "",
+      artefact_diff: ARTEFACT,
       // As long as a recorded contract item's: one clause per quantity, 23 of them.
       triggering_finding: Array.from(
         { length: 23 },
@@ -88,6 +93,13 @@ function before(host: HTMLElement, first: string, second: string): boolean {
 }
 
 describe.each(["contract", "review_unavailable"] as const)("a %s item", (source) => {
+  it("shows no terminal command, its diff's commits named instead", async () => {
+    const { namesACommand } = await import("../../rules/commands");
+    const host = mount(source, true);
+    expect(namesACommand(host.textContent)).toBe(false);
+    expect(host.textContent).toContain("f".repeat(40));
+  });
+
   it("puts the decision controls before the finding", () => {
     const host = mount(source, true);
     expect(before(host, ".pg-queue-actions", ".pg-queue-finding")).toBe(true);
@@ -100,5 +112,21 @@ describe.each(["contract", "review_unavailable"] as const)("a %s item", (source)
     expect(notice?.textContent).toContain("operator address from the run's ui.out");
     expect(before(host, ".pg-queue-why-not", ".pg-queue-actions")).toBe(true);
     expect(before(host, ".pg-queue-why-not", ".pg-queue-finding")).toBe(true);
+  });
+});
+
+describe("an item whose diff is the run branch between two commits", () => {
+  it("names the two commits and shows no terminal command", async () => {
+    const { diffWords } = await import("../../words/queue");
+    const { namesACommand } = await import("../../rules/commands");
+    const [a, b] = ["e".repeat(40), "3540db9765c4a3576d79fbd0a9c2a33e407ef89e"];
+    const said = diffWords(
+      `The run branch from ${a} to ${b}: see \`git diff ${a} ${b}\` in the target repository.`,
+    );
+    expect(said).toContain(a);
+    expect(said).toContain(b);
+    expect(namesACommand(said)).toBe(false);
+    // Any other diff is shown as the item recorded it.
+    expect(diffWords("--- a/x\n+++ b/x\n")).toBe("--- a/x\n+++ b/x\n");
   });
 });
