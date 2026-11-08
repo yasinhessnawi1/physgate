@@ -23,6 +23,7 @@ HOMES = ("physgate.evaluation.tiers", "physgate.evaluation.gaps")
 MOVED = {
     "task.py": "tiers/task.py",
     "base.py": "tiers/base.py",
+    "heldout.py": "tiers/heldout.py",
 }
 
 

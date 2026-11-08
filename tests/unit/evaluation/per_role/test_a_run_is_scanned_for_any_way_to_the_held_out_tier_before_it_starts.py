@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from physgate.evaluation.per_role.authoring import sha256sums
-from physgate.evaluation.per_role.heldout import scan
+from physgate.evaluation.tiers.heldout import scan
 from physgate.oslayer.policy import sandbox_policy as real_policy
 
 #: The digest of an empty tier, as the run records it.
@@ -128,7 +128,7 @@ def test_a_profile_whose_sessions_would_not_withhold_the_root_is_found(
         policy.settings["sandbox"]["filesystem"]["denyRead"] = []
         return policy
 
-    monkeypatch.setattr("physgate.evaluation.per_role.heldout.sandbox_policy", leaky)
+    monkeypatch.setattr("physgate.evaluation.tiers.heldout.sandbox_policy", leaky)
     problems = scan(
         root,
         run_held_out=(str(root),),
