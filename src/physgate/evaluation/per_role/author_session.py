@@ -1,14 +1,20 @@
 """The own tasks' authoring session, and the blind check of the held-out tier, end to end.
 
+Both work on a tier-set store (:mod:`.tiers.store`): the role's root in it, ``<store>/<role>``,
+holds the round's pool, the sessions' streams and every version of the role's tiers, and every
+session started on it withholds it.
+
 **Authoring.** A session, on a model that is not the implementers', is given the author
 brief and nothing else, and works in a fresh directory outside every held-out root (the
-``baseline`` profile it runs under refuses those roots). Before it starts, the protected
-root is surveyed as the session's tripwire will survey it: a link or an unreadable file
-anywhere under it would have the session refused every tool call, so the runner refuses
-first, at no cost. It refuses too unless the session looks for every canary that the lists
-the harness wrote under the root name, at any depth (:func:`root_canaries`), and a list that
-cannot be taken whole, a directory that cannot be listed, or a tier that holds tasks but no
-list, is never read as naming none.
+``baseline`` profile it runs under refuses those roots). Before it starts, the store is
+looked at for what only a split in progress holds: another role's pool, a spent pool, or a
+version still being written holds tasks that become held-out ones with no canary yet, and
+nothing starts while one is there. The role's root is surveyed as the session's tripwire will
+survey it: a link or an unreadable file anywhere under it would have the session refused
+every tool call, so the runner refuses first, at no cost. It refuses too unless the session
+looks for every canary that the lists the harness wrote under the root name, at any depth
+(:func:`root_canaries`), and a list that cannot be taken whole, a directory that cannot be
+listed, or a tier that holds tasks but no list, is never read as naming none.
 While it runs, a checkpoint on the budget watch holds each task to its references as soon as
 it is written (on a copy, never in the worktree), and stops the session when no task holds
 after a quarter of the cap, or when more than a task's worth of tokens has gone by since the
@@ -25,33 +31,36 @@ runner:
    entries or depth, or whose copy fails;
 2. holds every staged task to the split's own entry check, its references and its brief
    (:func:`.validate.sound`), and never prints one: what leaves is counts and digests;
-3. moves every task that holds into the pool inside the protected root (a task whose id
-   is already there is refused), so nothing a session wrote well is lost to a short
-   session; there is no self-check inside the session in round 1;
-4. once the pool holds the three tiers' worth, draws that many by the seed and splits them
-   by the same seed: the visible tier where asked, the validation and held-out tiers inside
-   the protected root. Otherwise it says how many are pooled, and a further session adds
-   to them;
-5. copies the session's stream and record inside the protected root, since they hold
-   every task the session wrote, as regular files only (the session's own links, such as
-   its interpreter's, would trip the next session's tripwire), and removes the work.
+3. moves every task that holds into the role's pool (a task whose id, however spelt, is
+   already there is refused), so nothing a session wrote well is lost to a short session;
+   there is no self-check inside the session in round 1;
+4. once the pool holds the three tiers' worth, draws that many by the seed and writes them as
+   a new version, split by the same seed (:func:`.tiers.store.write_version`): written whole
+   under a temporary name and renamed last, with its manifest and the round's provenance
+   record; the pool is then removed, with the tasks the draw did not take. Otherwise it says
+   how many are pooled, and a further session adds to them;
+5. copies the session's stream and record inside the role's root, since they hold every task
+   the session wrote, as regular files only (the session's own links, such as its
+   interpreter's, would trip the next session's tripwire), notes the session in the pool for
+   the provenance record, and removes the work.
 
 **The blind check.** A second session, on a model that is not the implementers' either,
-reads the held-out tasks from a file placed in its own work directory (never its prompt,
-which any process of the same user can list), keyed by the digest of each id, without
+reads a version's held-out tasks from a file placed in its own work directory (never its
+prompt, which any process of the same user can list), keyed by the digest of each id, without
 their references or canaries. It answers three questions per task with true or false and
 nothing else. Its answer is read strictly: anything but those booleans for exactly those
-keys is no answer. It is held to the canaries as the author is: it runs only looking for
-every canary under the tier's protected root, and a check whose stream showed one (or cannot
-say it did not), or under whose root they grew while it ran, gives no answer. Its stream is
-moved inside the protected root as well. What leaves is counts and the digests of the tasks
-with a ``false``.
+keys is no answer. It is held to the store and the canaries as the author is: it runs only
+looking for every canary under the role's root, and a check whose stream showed one (or
+cannot say it did not), or under whose root they grew while it ran, gives no answer. Its
+stream is kept inside the role's root as well. What leaves is counts and the digests of the
+tasks with a ``false``.
 
 Both are tested against the scripted endpoint; a real session is started by a person.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -62,7 +71,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, RootModel, TypeAdapter, ValidationError
 
@@ -76,9 +85,20 @@ from physgate.evaluation.tiers.authoring import (
     AuthoringError,
     author_brief,
     require_author_model,
-    split,
 )
-from physgate.evaluation.tiers.task import Canary, Role, load_task
+from physgate.evaluation.tiers.manifest import read_version
+from physgate.evaluation.tiers.store import (
+    AUTHOR_EVIDENCE,
+    CHECK_EVIDENCE,
+    SESSION_FOLDERS,
+    is_visible_tier,
+    leftover_refusal,
+    pool_dir,
+    role_root,
+    version_dir,
+    write_version,
+)
+from physgate.evaluation.tiers.task import Canary, Role, canonical_json, fold_id, load_task
 from physgate.hooks.withheld import survey
 
 _READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
@@ -102,16 +122,15 @@ FIRST_TASK_SHARE = 4
 
 @dataclass(frozen=True)
 class AuthoringPlan:
-    """Where one authoring session works and where its three tiers go."""
+    """Where one authoring session works, and the tier-set store its version goes into."""
 
     role: Role
     implementer_model: str
     #: A directory that does not exist yet, outside every held-out root.
     work: Path
-    #: The visible tier's directory, which must not exist yet.
-    visible: Path
-    #: The protected root the held-out tier goes inside, as ``<root>/<role>``.
-    held_out_root: Path
+    #: The tier-set store. The role's root in it (:attr:`root`) holds the pool, the sessions'
+    #: streams and every version, and the session withholds it.
+    store: Path
     seed: int
     #: The session's token cap, at most :data:`MOST_CAP`.
     cap: int
@@ -130,20 +149,10 @@ class AuthoringPlan:
         """The per-task cap in force."""
         return self.cap // 8 if self.per_task_cap is None else self.per_task_cap
 
-
-def held_out_tier(root: Path, role: Role) -> Path:
-    """Where a role's held-out tier lives inside its protected root."""
-    return root / role
-
-
-def validation_tier(root: Path, role: Role) -> Path:
-    """Where a role's validation tier lives inside its protected root, beside the held-out one."""
-    return root / f"{role}.validation"
-
-
-def pool_dir(root: Path, role: Role) -> Path:
-    """Where a role's tasks that hold wait, inside the protected root, until the tiers are cut."""
-    return root / f"{role}.pool"
+    @property
+    def root(self) -> Path:
+        """The role's protected root in the store."""
+        return role_root(self.store, self.role)
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -158,28 +167,19 @@ def _withheld(path: Path, roots: Sequence[Path]) -> bool:
 
 def _require_apart(plan: AuthoringPlan, setup: RawSetup) -> None:
     roots = [Path(r) for r in (*setup.held_out, *setup.withheld_reads)]
-    if not _withheld(plan.held_out_root, [Path(r) for r in setup.held_out]):
-        msg = "the session does not withhold the protected root the held-out tier goes in"
-        raise AuthoringError(msg, root=str(plan.held_out_root))
-    for name, path in (("work", plan.work), ("visible tier", plan.visible)):
-        if any(_inside(path, r) for r in roots):
-            msg = f"the {name} is inside a held-out root, or holds one"
-            raise AuthoringError(msg, path=str(path))
-    for name, path in (
-        ("work", plan.work),
-        ("visible tier", plan.visible),
-        ("protected root", plan.held_out_root),
-    ):
+    if not _withheld(plan.root, [Path(r) for r in setup.held_out]):
+        msg = "the session does not withhold the protected root the tiers are cut in"
+        raise AuthoringError(msg, root=str(plan.root))
+    if any(_inside(plan.work, r) for r in roots):
+        msg = "the work is inside a held-out root, or holds one"
+        raise AuthoringError(msg, path=str(plan.work))
+    for name, path in (("work", plan.work), ("tier-set store", plan.store)):
         if path.resolve() != path.absolute():
             msg = f"the {name} is reached through a link; give its resolved path"
             raise AuthoringError(msg, path=str(path))
-    tiers = (
-        held_out_tier(plan.held_out_root, plan.role),
-        validation_tier(plan.held_out_root, plan.role),
-    )
-    if plan.work.exists() or plan.visible.exists() or any(t.exists() for t in tiers):
-        msg = "the work directory and the three tiers are made new for each session"
-        raise AuthoringError(msg, work=str(plan.work), visible=str(plan.visible))
+    if plan.work.exists():
+        msg = "the work directory is made new for each session"
+        raise AuthoringError(msg, work=str(plan.work))
     if plan.count < 1:
         msg = "a session is asked for at least one task"
         raise AuthoringError(msg, count=str(plan.count))
@@ -224,6 +224,22 @@ def _require_no_work_left(root: Path) -> None:
         raise AuthoringError(msg, refused_because="work_left", work=work, record=str(record))
 
 
+def _require_nothing_left(store: Path, role: Role) -> None:
+    """Refuse while the store holds what only a split in progress holds.
+
+    A pool other than the role's own, which this session withholds and adds to, or a version
+    still being written, holds tasks that become held-out and validation ones, with no
+    canary yet: the next session to start must not be one that could read them
+    (:func:`.tiers.store.leftovers`).
+
+    Raises:
+        AuthoringError: ``pool_left``, ``temporary_version_left`` or ``store_unreadable``.
+    """
+    refusal = leftover_refusal(store, continuing=pool_dir(store, role))
+    if refusal is not None:
+        raise AuthoringError(refusal[1], refused_because=refusal[0], store=str(store))
+
+
 def _working(root: Path, name: str, work: Path) -> Path:
     """Record inside ``root`` that ``work`` is out of it; the record, to clear once secured."""
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -261,12 +277,6 @@ MOST_CANARY_LIST_BYTES = 1024 * 1024
 #: What a canary list holds. A short entry would match nearly any stream, so nothing else
 #: passes for one.
 _CANARIES: TypeAdapter[list[str]] = TypeAdapter(list[Canary])
-#: The folders directly under a protected root that hold what sessions wrote: the pool, its
-#: draw, and the streams of the author and the blind check. No list the harness writes lies
-#: in one, and a list a session planted there would refuse every later session.
-_SESSION_FOLDERS = frozenset(
-    f"{role}.{kind}" for role in get_args(Role) for kind in ("pool", "draw", "author", "check")
-)
 
 
 def _names_a_list(name: str) -> bool:
@@ -328,17 +338,20 @@ def _canary_list(path: str) -> set[str]:
 def root_canaries(root: Path) -> tuple[str, ...]:
     """Every canary the lists the harness wrote under ``root`` name; none while it holds none.
 
-    A split leaves each held-out tier's list inside the tier, as ``canaries.json``; a list
+    A split leaves each protected tier's list inside the tier, as ``canaries.json``; a list
     named ``<tier>.canaries.json`` beside one is read as well, at any depth, in any case.
-    :data:`_SESSION_FOLDERS` are not entered: what a session wrote is no list of ours, and the
-    pool's tasks carry no canary, which is given at the split. Of everything else only names
-    are looked at, by the runner, never a task. A link is judged as the list it is named as,
-    and never followed.
+    The session folders at the root's top (:data:`.tiers.store.SESSION_FOLDERS`) are not
+    entered: what a session wrote is no list of ours, and the pool's tasks carry no canary,
+    which is given at the split. Of everything else only names are looked at, by the runner,
+    never a task. A link is judged as the list it is named as, and never followed.
 
     A directory that holds a task (a directory with a ``task.json`` in it) is a tier, and a
     tier holds its list: one that holds a task but no list (the split stopped before its list
     was written, or the list was removed) leaves its canaries unknown, so it refuses rather
-    than reading as naming none. A directory that holds no task is no tier.
+    than reading as naming none. A directory that holds no task is no tier. The one tier
+    with no canaries is a version's visible tier, known by its place alone
+    (``<root>/<version>/visible``, :func:`.tiers.store.is_visible_tier`); a list-less tier
+    anywhere else, a version being written included, refuses.
 
     Raises:
         AuthoringError: a list cannot be taken whole (:func:`_canary_list`), a directory that
@@ -359,9 +372,11 @@ def root_canaries(root: Path) -> tuple[str, ...]:
     listed: set[str] = set()
     for where, directories, files in os.walk(root, onerror=unlisted):
         if where == str(root):
-            directories[:] = [d for d in directories if d not in _SESSION_FOLDERS]
+            directories[:] = [d for d in directories if d not in SESSION_FOLDERS]
         elif any(name.casefold() == "task.json" for name in files):
-            tiers.add(os.path.dirname(where))
+            tier = os.path.dirname(where)
+            if not (is_visible_tier(Path(tier)) and Path(tier).parent.parent == root):
+                tiers.add(tier)
         for name in sorted((*directories, *files)):
             if _names_a_list(name):
                 found |= _canary_list(str(Path(where) / name))
@@ -852,16 +867,58 @@ def _spent(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _pool(staging: Path, held: Sequence[str], pool: Path) -> tuple[int, int]:
-    """Move each held task from ``staging`` into ``pool``; how many went in, how many were there."""
+    """Move each held task from ``staging`` into ``pool``; how many went in, how many were there.
+
+    A task is there already when its id, folded (:func:`.task.fold_id`), is one the pool
+    holds: the split refuses two such ids, so the pool never takes a second.
+    """
     pool.mkdir(mode=0o700, parents=True, exist_ok=True)
+    taken = {fold_id(p.name) for p in pool.iterdir() if p.is_dir()}
     added = already = 0
     for name in sorted(held):
-        if os.path.lexists(pool / name):
+        if fold_id(name) in taken or os.path.lexists(pool / name):
             already += 1
             continue
         shutil.move(str(staging / name), str(pool / name))
+        taken.add(fold_id(name))
         added += 1
     return added, already
+
+
+#: Where the pool records each session of its round, for the version's provenance record.
+SESSIONS = ".sessions.jsonl"
+
+
+def _note_session(pool: Path, kept: Path, record: dict[str, Any]) -> None:
+    """Record, in the pool, one session of the round and the digest of every file it left.
+
+    The pool lasts as long as the round, so what it holds when the tiers are cut is every
+    session of that round: the version's provenance record (session ids, ends, spend, and
+    the digest of each file of its stream, as kept inside the protected root).
+    """
+    files = {
+        p.relative_to(kept).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(kept.rglob("*"))
+        if p.is_file() and not p.is_symlink()
+    }
+    line = {
+        **{key: record.get(key) for key in ("session_id", "end", "tokens", "cap", "wall_clock_s")},
+        "held_out_seen": record.get("held_out_seen"),
+        "files": files,
+    }
+    pool.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(pool / SESSIONS, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(fd, canonical_json(line))
+    finally:
+        os.close(fd)
+
+
+def _provenance(pool: Path) -> bytes:
+    """The round's provenance record: every session the pool noted, in order."""
+    path = pool / SESSIONS
+    lines = path.read_text().splitlines() if path.is_file() else []
+    return canonical_json({"sessions": [json.loads(line) for line in lines]})
 
 
 def _draw(pool: Path, seed: int) -> list[str]:
@@ -873,72 +930,44 @@ def _draw(pool: Path, seed: int) -> list[str]:
     return names[: len(TIERS) * PER_TIER]
 
 
-def _cut_tiers(plan: AuthoringPlan, pool: Path, chosen: Sequence[str]) -> dict[str, Any]:
-    """Copy ``chosen`` out of the pool into a draw beside it, split them, then drop them from it.
-
-    The draw lives inside the protected root, like the pool: a task that may become a
-    held-out or validation one is never outside it. The chosen tasks leave the pool only once
-    all three tiers are written and checked; a split that fails leaves the pool whole.
-    """
-    tier = held_out_tier(plan.held_out_root, plan.role)
-    validation = validation_tier(plan.held_out_root, plan.role)
-    draw = plan.held_out_root / f"{plan.role}.draw"
-    if os.path.lexists(draw):
-        msg = f"{draw} is left from an earlier split that did not finish; look before removing it"
-        raise AuthoringError(msg, draw=str(draw))
-    draw.mkdir(mode=0o700)
-    started = False
-    try:
-        for name in chosen:
-            shutil.copytree(pool / name, draw / name, symlinks=True)
-        started = True
-        placed = split(draw, plan.visible, tier, validation=validation, seed=plan.seed)
-        started = False
-    finally:
-        problems: list[str | None] = [_remove(draw)]
-        if started:
-            # No tier existed before this call; half a split is no tier at all.
-            problems += [_remove(plan.visible), _remove(validation), _remove(tier)]
-        _closed(problems)
-    for name in chosen:
-        shutil.rmtree(pool / name)
-    return placed
-
-
 #: What is not taken from a session its record or its root refuses.
 NOT_POOLED = "none of the tasks it wrote is pooled"
 
 
 def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
-    """Run one authoring session, pool the tasks that hold, and cut the tiers once it can.
+    """Run one authoring session, pool the tasks that hold, and cut a version once it can.
 
     Returns what may be shown: counts, what the session spent, how many tasks are pooled,
-    and once the tiers are cut the visible tier's ids and the held-out tier's digest.
+    and once a version is cut its id, the visible tier's ids and the protected tiers' counts
+    and digests.
 
     Raises:
-        AuthoringError: the author's model is the implementers', a place is inside a held-out
+        AuthoringError: the author's model is the implementers', the work is inside a held-out
             root or already exists, the cap is over :data:`MOST_CAP`, the session does not
-            withhold the protected root, the root would trip the session's tripwire, a
-            canary list under the root cannot be taken whole, a tier there holds none, or a
-            list names a canary the session would not look for, or the session's watch could
-            not hold it to its cap, its stream showed a held-out canary, or the root's
-            canaries grew while it ran or a list can no longer be taken whole or has gone
-            (none of its tasks is pooled; ``refused_because`` says which).
+            withhold the role's root, the store holds a pool other than this role's or a
+            version still being written (``pool_left``, ``temporary_version_left``), work an
+            earlier session left is recorded (``work_left``), the root would trip the
+            session's tripwire, a canary list under the root cannot be taken whole, a tier
+            there holds none, or a list names a canary the session would not look for, or the
+            session's watch could not hold it to its cap, its stream showed a held-out
+            canary, or the root's canaries grew while it ran or a list can no longer be taken
+            whole or has gone (none of its tasks is pooled; ``refused_because`` says which).
     """
     require_author_model(setup.model, plan.implementer_model)
     _require_apart(plan, setup)
-    _require_no_work_left(plan.held_out_root)
-    canaries = root_canaries(plan.held_out_root)
+    root = plan.root
+    _require_no_work_left(root)
+    _require_nothing_left(plan.store, plan.role)
+    canaries = root_canaries(root)
     _require_looking(canaries, setup)
-    _require_clear(plan.held_out_root)
-    evidence = plan.held_out_root / f"{plan.role}.author"
-    tier = held_out_tier(plan.held_out_root, plan.role)
-    pool = pool_dir(plan.held_out_root, plan.role)
+    _require_clear(root)
+    evidence = root / AUTHOR_EVIDENCE
+    pool = pool_dir(plan.store, plan.role)
     record: dict[str, Any] | None = None
     progress = AuthorProgress(
         plan.work / "worktree", plan.work / "checks", cap=plan.cap, per_task=plan.task_cap
     )
-    working = _working(plan.held_out_root, f"{plan.role}.author", plan.work)
+    working = _working(root, AUTHOR_EVIDENCE, plan.work)
     try:
         try:
             record = run_session(
@@ -969,7 +998,7 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
         # Its canaries were not looked for, so the record above says nothing of them, and a
         # session whose withhold failed could have read that tier. The same walk, so a list
         # that can no longer be taken whole, or has gone, refuses here as before the session.
-        _require_none_came(plan.held_out_root, canaries, NOT_POOLED)
+        _require_none_came(root, canaries, NOT_POOLED)
         staging = plan.work / "staging"
         refused = stage(plan.work / "worktree", staging)
         staged = sum(1 for p in staging.iterdir() if p.is_dir())
@@ -992,23 +1021,38 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
     finally:
         _closed(_keep_evidence(plan.work, record, evidence))
         working.unlink()
+        if record is not None:
+            # Every session of the round, however it ended, is in the version's provenance.
+            _note_session(pool, evidence / str(record["session_id"]), record)
     chosen = _draw(pool, plan.seed)
     if not chosen:
         return {**summary, "status": "pooled"}
-    placed = _cut_tiers(plan, pool, chosen)
+    manifest, placed = write_version(
+        root,
+        [pool / name for name in chosen],
+        role=plan.role,
+        seed=plan.seed,
+        model=setup.model,
+        runtime=setup.claude_version,
+        provenance=_provenance(pool),
+        retire=pool,
+    )
+    version = version_dir(plan.store, plan.role, manifest.version)
     return {
         **summary,
         "status": "split",
-        "pool": sum(1 for p in pool.iterdir() if p.is_dir()),
+        "version": manifest.version,
+        "pool": 0,
+        "left_with_the_pool": summary["pool"] - len(chosen),
         "visible": placed["visible"],
         **{
             f"{name}_{what}": placed[f"{name}_{what}"]
             for name in TIERS[1:]
             for what in ("count", "sha256", "canaries_sha256")
         },
-        "visible_check": validate(plan.visible, show_ids=True),
-        "validation_check": validate(validation_tier(plan.held_out_root, plan.role)),
-        "held_out_check": validate(tier),
+        "visible_check": validate(version / "visible", show_ids=True),
+        "validation_check": validate(version / "validation"),
+        "held_out_check": validate(version / "held_out"),
     }
 
 
@@ -1080,46 +1124,61 @@ def read_answers(path: Path, keys: Sequence[str]) -> dict[str, _Answer] | None:
 
 
 def blind_check(
-    tier: Path, setup: RawSetup, work: Path, *, implementer_model: str, cap: int, evidence: Path
+    store: Path,
+    role: Role,
+    version: str,
+    setup: RawSetup,
+    work: Path,
+    *,
+    implementer_model: str,
+    cap: int,
 ) -> dict[str, Any]:
-    """Run the blind check on ``tier``; counts and the digests of tasks with a ``false``.
+    """Run the blind check on a version's held-out tier; counts and the flagged tasks' digests.
 
-    The check is held to the canaries under the tier's protected root, the directory the
-    tier was cut in, as an author is to its root's (:func:`root_canaries`): it runs only
-    looking for every one of them, and its answer is taken only when its record says none
-    showed in its stream and none came under the root while it ran.
+    The version is read as every reader reads it, its manifest held to the bytes on disk
+    (:func:`.tiers.manifest.read_version`). The check is held to the canaries under the
+    role's root, as an author is (:func:`root_canaries`): it runs only looking for every one
+    of them, and its answer is taken only when its record says none showed in its stream and
+    none came under the root while it ran. Its stream is kept inside the role's root.
 
     Raises:
         AuthoringError: the checking model is the implementers', ``work`` is inside a
-            held-out root, the session does not withhold the tier, a canary list under the
-            root cannot be taken whole or a tier there holds none, the session would not look
-            for every canary the root names, or (its answer not taken, ``refused_because``
-            says why) its stream showed one or the root's canaries changed while it ran.
+            held-out root, the session does not withhold the tier, the store holds a pool
+            other than this role's or a version still being written, work an earlier session
+            left is recorded, a canary list under the root cannot be taken whole or a tier
+            there holds none, the session would not look for every canary the root names, or
+            (its answer not taken, ``refused_because`` says why) its stream showed one or the
+            root's canaries changed while it ran.
+        TierSetError: the version is not what its manifest says.
         PerRoleError: a task in the tier does not load.
     """
     require_author_model(setup.model, implementer_model)
+    root = role_root(store, role)
+    tier = version_dir(store, role, version) / "held_out"
     roots = [Path(r) for r in (*setup.held_out, *setup.withheld_reads)]
     held = [Path(r) for r in setup.held_out]
     if not _withheld(tier, held) or any(_inside(work, r) for r in roots):
         msg = "the check withholds the tier and works outside every held-out root"
         raise AuthoringError(msg, tier=str(tier), work=str(work))
-    _require_no_work_left(tier.parent)
-    canaries = root_canaries(tier.parent)
+    _require_no_work_left(root)
+    _require_nothing_left(store, role)
+    read_version(version_dir(store, role, version))
+    canaries = root_canaries(root)
     _require_looking(canaries, setup)
     tasks = bundle(tier)
     files = {"tasks.json": json.dumps(tasks, sort_keys=True, indent=1).encode()}
     record: dict[str, Any] | None = None
-    working = _working(tier.parent, f"{tier.name}.check", work)
+    working = _working(root, CHECK_EVIDENCE, work)
     try:
         record = run_session(
             CHECK_BRIEF.format(count=len(tasks)), setup, work, cap=cap, files=files
         )
         _require_unseen(record, canaries, "its answer is not taken")
-        _require_none_came(tier.parent, canaries, "its answer is not taken")
+        _require_none_came(root, canaries, "its answer is not taken")
         answers = read_answers(work / "worktree" / "answers.json", list(tasks))
     finally:
         # The work holds the held-out tasks it was given: it never stays outside the root.
-        _closed(_keep_evidence(work, record, evidence))
+        _closed(_keep_evidence(work, record, root / CHECK_EVIDENCE))
         working.unlink()
     if answers is None:
         return {"tasks": len(tasks), "answered": False, "session": _spent(record)}
@@ -1140,9 +1199,6 @@ __all__ = [
     "author",
     "blind_check",
     "bundle",
-    "held_out_tier",
-    "pool_dir",
     "read_answers",
     "stage",
-    "validation_tier",
 ]

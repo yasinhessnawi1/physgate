@@ -24,7 +24,6 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
     _plan,
     _setup,
     _tasks,
-    _write_task,
 )
 
 from physgate.evaluation.per_role import author_session
@@ -48,19 +47,22 @@ def _answers(worktree: Path) -> None:
     )
 
 
-def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, work: str) -> Any:  # noqa: ANN401
-    root = _plan(tmp_path).held_out_root
+def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, work: str, version: str) -> Any:  # noqa: ANN401
+    plan = _plan(tmp_path)
     fake = FakeSession(_answers, session_id=f"s-{work}")
     monkeypatch.setattr(author_session, "run_session", fake)
-    setup = dataclasses.replace(_setup(tmp_path / "private"), held_out_canaries=root_canaries(root))
+    setup = dataclasses.replace(
+        _setup(tmp_path / "private"), held_out_canaries=root_canaries(plan.root)
+    )
     try:
         out = blind_check(
-            root / "control",
+            plan.store,
+            plan.role,
+            version,
             setup,
             tmp_path / "scratch" / work,
             implementer_model="claude-opus-5-5",
             cap=500_000,
-            evidence=root / "control.check",
         )
     except AuthoringError as exc:
         return fake, exc.context
@@ -79,13 +81,13 @@ def _stopped_before_securing(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_a_check_stopped_before_its_work_was_secured_stops_the_next_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _held_tier(tmp_path, monkeypatch)
+    _, version = _held_tier(tmp_path, monkeypatch)
     with monkeypatch.context() as patched:
         _stopped_before_securing(patched)
         with pytest.raises(_Stopped):
-            _check(tmp_path, patched, "check")
+            _check(tmp_path, patched, "check", version)
     assert (tmp_path / "scratch" / "check" / "worktree" / "tasks.json").is_file()
-    fake, refused = _check(tmp_path, monkeypatch, "check-2")
+    fake, refused = _check(tmp_path, monkeypatch, "check-2", version)
     assert isinstance(refused, dict) and refused.get("refused_because") == "work_left", (
         f"a check ran while another's copy of the tier lay outside the root: {refused}"
     )
@@ -121,12 +123,12 @@ def test_an_author_stopped_before_its_work_was_secured_stops_the_next_session(
 def test_a_check_whose_cleanup_failed_stops_the_next_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _held_tier(tmp_path, monkeypatch)
+    _, version = _held_tier(tmp_path, monkeypatch)
     with monkeypatch.context() as patched:
         patched.setattr(author_session, "_remove", lambda path: f"{path}: still there")
-        _, first = _check(tmp_path, patched, "check")
+        _, first = _check(tmp_path, patched, "check", version)
     assert isinstance(first, dict) and "left" in first, f"the failed cleanup passed: {first}"
-    _, refused = _check(tmp_path, monkeypatch, "check-2")
+    _, refused = _check(tmp_path, monkeypatch, "check-2", version)
     assert isinstance(refused, dict) and refused.get("refused_because") == "work_left", refused
 
 
@@ -134,24 +136,12 @@ def test_checks_whose_work_was_secured_follow_one_another(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Control: the record is cleared once the work is secured, so the next one runs.
-    _held_tier(tmp_path, monkeypatch)
+    _, version = _held_tier(tmp_path, monkeypatch)
     for work in ("check", "check-2"):
-        fake, out = _check(tmp_path, monkeypatch, work)
+        fake, out = _check(tmp_path, monkeypatch, work, version)
         assert len(fake.calls) == 1 and out.get("answered"), out
-    root = _plan(tmp_path).held_out_root
+    root = _plan(tmp_path).root
     assert not [p for p in root.iterdir() if p.is_file()], "a record was left in the root"
-
-
-def _tier_by_hand(root: Path) -> None:
-    """A held-out tier of two tasks with its list, as a split leaves one."""
-    canaries = [f"{n:x}" * 32 for n in (10, 11)]
-    for n, canary in enumerate(canaries):
-        task = root / "control" / f"control.h{n}"
-        _write_task(task, n)
-        data = json.loads((task / "task.json").read_text())
-        data.update(id=task.name, tier="held_out", canary=canary)
-        (task / "task.json").write_text(json.dumps(data))
-    (root / "control" / "canaries.json").write_text(json.dumps(canaries))
 
 
 def test_a_check_does_not_start_while_an_author_s_work_is_left(
@@ -163,8 +153,8 @@ def test_a_check_does_not_start_while_an_author_s_work_is_left(
         patched.setattr(author_session, "run_session", FakeSession(_tasks(2)))
         with pytest.raises(_Stopped):
             author(_plan(tmp_path), _setup(tmp_path / "private"))
-    _tier_by_hand(_plan(tmp_path).held_out_root)
-    fake, refused = _check(tmp_path, monkeypatch, "check")
+    # The check is refused on the work left, before it looks for any version.
+    fake, refused = _check(tmp_path, monkeypatch, "check", "f" * 64)
     assert isinstance(refused, dict) and refused.get("refused_because") == "work_left", (
         f"a check ran while an author's tasks lay outside the root: {refused}"
     )

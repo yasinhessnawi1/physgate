@@ -7,9 +7,9 @@ removed by hand) would leave the gate looking for nothing while the record reads
 a tier refuses the session, before it starts and again once it is over, and so does a list
 that went while it ran; a directory that holds no task is no tier and refuses nothing.
 
-The split leaves each tier's list inside the tier, where the walk reads it and every layer
-of the protection refuses it to a session. The folders the walk leaves out (the pool, its
-draw, the sessions' streams) hold no canary of ours: canaries are given at the split.
+The split leaves each protected tier's list inside the tier, where the walk reads it and every
+layer of the protection refuses it to a session. The folders the walk leaves out (the pool and
+the sessions' streams) hold no canary of ours: canaries are given at the split.
 
 The blind check is held to the same: its setup carries every canary under the root, and a
 check whose stream showed one, or cannot say it did not, or under whose root the canaries
@@ -40,20 +40,18 @@ from physgate.evaluation.per_role.author_session import (
     QUESTIONS,
     author,
     blind_check,
-    pool_dir,
     root_canaries,
 )
 from physgate.evaluation.tiers.authoring import AuthoringError
+from physgate.evaluation.tiers.store import SESSION_FOLDERS, pool_dir
 from physgate.evaluation.tiers.task import load_task
 
 CANARY = "5f0c3a9e1b7d4c2a8e6f0b1d3c5a7e9f"
 OTHER = "0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a"
-#: The folders directly under a protected root that hold what sessions wrote.
-SESSION_FOLDERS = ("control.pool", "control.draw", "control.author", "control.check")
 
 
 def _root(tmp_path: Path) -> Path:
-    root = _plan(tmp_path).held_out_root
+    root = _plan(tmp_path).root
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -152,12 +150,12 @@ def test_a_task_file_named_in_another_case_still_makes_a_tier(tmp_path: Path) ->
 def test_a_tier_whose_list_was_removed_after_the_split_refuses_the_next_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    plan = _held_tier(tmp_path, monkeypatch)
-    lists = _harness_lists(plan.held_out_root)
+    plan, _ = _held_tier(tmp_path, monkeypatch)
+    lists = _harness_lists(plan.root)
     assert lists, "the split left no canary list"
     for listed in lists:
         listed.unlink()
-    assert _reason(plan.held_out_root) == "canary_list_missing", (
+    assert _reason(plan.root) == "canary_list_missing", (
         "a cut tier with its list removed was read as naming no canary"
     )
 
@@ -177,7 +175,7 @@ def test_a_list_that_goes_while_the_session_runs_refuses_it(
     assert refused is not None and refused.get("refused_because") == "canary_list_missing", (
         f"a list that went while the session ran was not missed: {refused or result}"
     )
-    assert _listed(pool_dir(root, "control")) == []
+    assert _listed(pool_dir(root.parent, "control")) == []
 
 
 @pytest.mark.parametrize(
@@ -211,18 +209,18 @@ def test_a_directory_that_holds_no_task_is_no_tier_and_refuses_nothing(
 def test_the_split_leaves_each_list_inside_its_tier_where_the_walk_reads_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    plan = _held_tier(tmp_path, monkeypatch)
-    root = plan.held_out_root
-    tiers = [root / "control", root / "control.validation"]
+    plan, version = _held_tier(tmp_path, monkeypatch)
+    root = plan.root
+    tiers = [root / version / "held_out", root / version / "validation"]
     carried = sorted(
         str(load_task(p).task.canary) for tier in tiers for p in tier.iterdir() if p.is_dir()
     )
-    assert _harness_lists(root) == [tier / "canaries.json" for tier in tiers], (
+    assert _harness_lists(root) == sorted(tier / "canaries.json" for tier in tiers), (
         f"the split's lists are not one inside each tier: {_harness_lists(root)}"
     )
-    assert list(root_canaries(root)) == carried
-    pooled = [load_task(p).task for p in sorted(pool_dir(root, "control").glob("*")) if p.is_dir()]
-    assert all(task.canary is None for task in pooled), "a pooled task carries a canary"
+    assert sorted(root_canaries(root)) == carried
+    # The pool is gone with the split, and no canary was ever given to a task in it.
+    assert not pool_dir(plan.store, "control").exists()
 
 
 # ---------------------------------------------- the blind check looks for them too
@@ -237,8 +235,8 @@ def _check(
     after: Any = None,  # noqa: ANN401
 ) -> tuple[FakeSession, dict[str, Any] | None, dict[str, str] | None]:
     """The blind check on a cut tier; the session, the result, or the refusal's context."""
-    plan = _held_tier(tmp_path, monkeypatch)
-    root = plan.held_out_root
+    plan, version = _held_tier(tmp_path, monkeypatch)
+    root = plan.root
 
     def answer(worktree: Path) -> None:
         keys = list(json.loads((worktree / "tasks.json").read_text()))
@@ -254,12 +252,13 @@ def _check(
     setup = dataclasses.replace(_setup(tmp_path / "private"), held_out_canaries=given)
     try:
         out = blind_check(
-            root / "control",
+            plan.store,
+            plan.role,
+            version,
             setup,
             tmp_path / "scratch" / "check",
             implementer_model="claude-opus-5-5",
             cap=500_000,
-            evidence=root / "control.check",
         )
     except AuthoringError as exc:
         return session, None, exc.context
@@ -285,8 +284,8 @@ def test_a_blind_check_whose_stream_showed_a_canary_gives_no_answer(
         f"a check whose record says {seen!r} gave an answer: {refused or out}"
     )
     assert not (tmp_path / "scratch" / "check").exists()
-    held = _plan(tmp_path).held_out_root
-    assert list((held / "control.check").glob("*/stdout.jsonl")), "the check's stream was lost"
+    held = _plan(tmp_path).root
+    assert list((held / "check").glob("*/stdout.jsonl")), "the check's stream was lost"
 
 
 def test_a_blind_check_under_whose_root_the_canaries_grew_gives_no_answer(
@@ -327,8 +326,8 @@ def test_the_blind_check_command_passes_every_canary_under_the_root(
         run(_setup(tmp_path / "private"))
         return 0
 
-    def recording(_tier: Any, setup: Any, *_args: Any, **_kwargs: Any) -> dict[str, Any]:  # noqa: ANN401
-        given.append(setup)
+    def recording(*args: Any, **_kwargs: Any) -> dict[str, Any]:  # noqa: ANN401
+        given.append(args[3])
         return {}
 
     monkeypatch.setattr(cli, "_with_install", installed)
@@ -337,7 +336,7 @@ def test_the_blind_check_command_passes_every_canary_under_the_root(
     cli.add_parser(parser.add_subparsers())
     args = parser.parse_args(
         ["per-role", "blind-check", "--role", "control", "--cap", "1"]
-        + ["--held-out-root", str(root), "--work", str(tmp_path / "w")]
+        + ["--store", str(root.parent), "--version", "v", "--work", str(tmp_path / "w")]
     )
     args.func(args)
     assert len(given) == 1

@@ -7,8 +7,8 @@ whose brief cannot be checked for giving its answer away (the check itself fails
 too, and counted, rather than ending the count or passing unchecked.
 
 One round pools twenty-four tasks and cuts three tiers of eight from them by one seed:
-visible, validation and held out, the two protected ones inside the protected root, each with
-its canaries and its own list.
+visible, validation and held out, one version of the store, the two protected tiers each with
+its canaries and its own list. The pool is gone once they are cut.
 """
 
 from __future__ import annotations
@@ -23,14 +23,15 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
     _plan,
     _run,
     _tasks,
+    _tier,
+    _versions,
     _write_task,
 )
 
-from physgate.evaluation.per_role import author_session
 from physgate.evaluation.per_role import validate as validate_module
-from physgate.evaluation.per_role.author_session import pool_dir
 from physgate.evaluation.per_role.validate import refusal_reasons, sound, validate
 from physgate.evaluation.tiers.authoring import AuthoringError
+from physgate.evaluation.tiers.store import pool_dir
 from physgate.evaluation.tiers.task import load_task
 
 #: Fields that make a well-formed task one the split refuses, and the reason it is counted as.
@@ -68,7 +69,8 @@ def test_a_session_s_task_the_split_would_refuse_is_never_pooled(
 
     plan, _, out = _run(tmp_path, monkeypatch, write)
     assert out["pooled"] == 1 and out["refused_because"].get(reason) == 1, out
-    pooled = [load_task(p).task for p in sorted(pool_dir(plan.held_out_root, "control").iterdir())]
+    pool = pool_dir(plan.store, "control")
+    pooled = [load_task(p).task for p in sorted(pool.iterdir()) if p.is_dir()]
     assert [(t.tier, t.canary) for t in pooled] == [("visible", None)]
 
 
@@ -121,13 +123,9 @@ def test_twenty_four_pooled_tasks_are_cut_into_three_tiers_of_eight_by_the_seed(
     plan, fake, out = _run(tmp_path, monkeypatch, _tasks(24))
     assert "up to 24 tasks" in fake.calls[0]["prompt"]
     assert out["status"] == "split", f"twenty-four sound tasks were not split: {out['status']}"
-    root = plan.held_out_root
-    where = getattr(author_session, "validation_tier", None)
-    assert where is not None, "there is no place for a role's validation tier"
     tiers = {
-        "visible": sorted(p.name for p in plan.visible.iterdir()),
-        "validation": sorted(p.name for p in where(root, "control").iterdir() if p.is_dir()),
-        "held_out": sorted(p.name for p in (root / "control").iterdir() if p.is_dir()),
+        name: sorted(p.name for p in _tier(plan, name).iterdir() if p.is_dir())
+        for name in ("visible", "validation", "held_out")
     }
     order = [f"control.t{n:02d}" for n in range(24)]
     random.Random(plan.seed).shuffle(order)
@@ -145,7 +143,7 @@ def test_twenty_four_pooled_tasks_are_cut_into_three_tiers_of_eight_by_the_seed(
         assert name not in printed, "a protected task's id was printed"
     assert out["validation_check"]["references_held"] == 8
     assert out["held_out_check"]["references_held"] == 8
-    assert not pool_dir(root, "control").exists() or not list(pool_dir(root, "control").iterdir())
+    assert not pool_dir(plan.store, "control").exists()
 
 
 def test_fewer_than_twenty_four_are_pooled_and_no_tier_is_cut(
@@ -158,5 +156,5 @@ def test_fewer_than_twenty_four_are_pooled_and_no_tier_is_cut(
     assert out["status"] == "pooled" and out["pool"] == 16, (
         f"sixteen tasks cut tiers that need twenty-four: {out['status']}"
     )
-    assert not plan.visible.exists() and not (plan.held_out_root / "control").exists()
+    assert _versions(plan) == []
     assert _plan(tmp_path).count == 24

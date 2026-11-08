@@ -18,12 +18,20 @@ A reportable run that asks for ``network: none`` is refused on the same ground: 
 the OS layer refuses a shell remote hosts, so without it the record would say ``none`` while
 the sessions stay online.
 
+No run that names a version of a tier-set store starts while that store holds a pool, or a
+version still being written: either holds tasks that become held-out and validation ones and
+carry no canary yet, which no session of the run withholds. This holds for every run that
+names one, reportable or not, since a read of them spoils the tiers whatever run made it.
+
 These are the evaluation's rules, not the product's: the command's composition root
 registers them with the core, and removing the evaluation removes them.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from physgate.evaluation.tiers.store import leftover_refusal, store_of
 from physgate.orchestrator.requirements import RunFacts, RunRequirement
 from physgate.orchestrator.run_config import network_enforced
 from physgate.oslayer.policy import NETWORK_UNENFORCED
@@ -82,10 +90,27 @@ def record_decisions_for_reportable_runs(facts: RunFacts) -> str | None:
     return None
 
 
+def nothing_left_in_a_named_tier_set_store(facts: RunFacts) -> str | None:
+    """Refuse a run while a tier-set store it names holds a pool or a version being written.
+
+    A store is named by a held-out root that is one of its versions' protected tiers
+    (:func:`.tiers.store.store_of`). Every role's root in it is looked at, by name only
+    (:func:`.tiers.store.leftovers`); a store that cannot be listed refuses too.
+    """
+    stores = sorted({s for r in facts.config.held_out if (s := store_of(Path(r))) is not None})
+    for store in stores:
+        refusal = leftover_refusal(store)
+        if refusal is not None:
+            reason, words = refusal
+            return f"{words} ({reason})"
+    return None
+
+
 #: The requirements the evaluation holds every run to.
 REQUIREMENTS: tuple[RunRequirement, ...] = (
     os_layer_for_reportable_runs,
     no_os_layer_allowance_for_reportable_runs,
     network_none_for_reportable_runs,
     record_decisions_for_reportable_runs,
+    nothing_left_in_a_named_tier_set_store,
 )

@@ -14,15 +14,16 @@ without being read. ``--show-ids`` prints the ids themselves, only where every t
 tier is a visible one. It exits 1 if a task is refused, a brief gives its answer away, or
 the tier does not hold ``N`` tasks.
 
-``physgate per-role author --role control --held-out-root R --visible V --work W --seed N``
-runs one authoring session on ``--author-model`` (never the implementers' model), splits
-the tasks that hold into the visible tier ``V``, the validation tier ``R/<role>.validation``
-and the held-out tier ``R/<role>``, and prints counts, the visible ids and the protected
-tiers' digests only. ``physgate per-role
-blind-check --role control --held-out-root R --work W`` runs the blind yes/no check on the
-held-out tier and prints counts and the digests of flagged tasks only. Both read the
-credential from the environment variable its auth mode names, refuse where the OS layer
-is absent, and call a model unless ``--endpoint`` names a scripted one.
+``physgate per-role author --role control --store S --work W --seed N`` runs one authoring
+session on ``--model`` (never the implementers' model), withholding the role's root
+``S/<role>``, pools the tasks that hold there, and once twenty-four are pooled writes them as
+a new version ``S/<role>/<version>/`` (visible, validation and held-out tiers, each of eight,
+and the manifest); it prints counts, the version id, the visible ids and the protected tiers'
+digests only. ``physgate per-role blind-check --role control --store S --version V --work W``
+runs the blind yes/no check on that version's held-out tier and prints counts and the digests
+of flagged tasks only. Both read the credential from the environment variable its auth mode
+names, refuse where the OS layer is absent, and call a model unless ``--endpoint`` names a
+scripted one.
 
 ``physgate per-role report --design D --trials T [--out O]`` writes the per-role table of
 the trial records in ``T`` (one JSON object per line) under the registered design ``D``,
@@ -67,7 +68,8 @@ def add_parser(subparsers: Any) -> None:
     ):
         sub = commands.add_parser(name, help=text)
         sub.add_argument("--role", choices=("control",), required=True)
-        sub.add_argument("--held-out-root", type=Path, required=True)
+        # The tier-set store: the session withholds the role's root in it.
+        sub.add_argument("--store", type=Path, required=True)
         sub.add_argument("--withhold", type=Path, action="append", default=[])
         sub.add_argument("--work", type=Path, required=True)
         sub.add_argument("--model", default="claude-sonnet-5")
@@ -89,18 +91,19 @@ def add_parser(subparsers: Any) -> None:
             # The interpreter the arms' sessions get, with the scorer's libraries: the
             # author computes with them, though the scorer itself is never given.
             sub.add_argument("--role-python", required=True)
-            sub.add_argument("--visible", type=Path, required=True)
             sub.add_argument("--seed", type=int, required=True)
             sub.add_argument("--count", type=int, default=24)
             # The session is stopped once this many tokens pass without a new task
             # holding (an eighth of the cap when not given), and when no task holds after
-            # a quarter of the cap. Tasks that hold are pooled inside the protected root
-            # across sessions; the tiers are cut once twenty-four are pooled.
+            # a quarter of the cap. Tasks that hold are pooled in the role's root across
+            # sessions; a version is cut once twenty-four are pooled.
             sub.add_argument("--per-task-cap", type=int)
             # What every id this session writes begins with, so sessions pooled together
             # never write the same id. When not given: "b<n>." with n the number of
-            # authoring sessions already recorded under the protected root, plus one.
+            # authoring sessions already recorded under the role's root, plus one.
             sub.add_argument("--id-prefix")
+        else:
+            sub.add_argument("--version", required=True)
         sub.set_defaults(func=func)
     rep = commands.add_parser("report", help="the per-role table of a run's trial records")
     rep.add_argument("--design", type=Path, required=True)
@@ -184,6 +187,7 @@ def _session_setup(args: argparse.Namespace, install: Path) -> Any:
     import os
 
     from physgate.evaluation.per_role.arms.raw import RawSetup
+    from physgate.evaluation.tiers.store import role_root
     from physgate.orchestrator.credentials import credential_for
     from physgate.orchestrator.decompose import binary_version
     from physgate.orchestrator.install import prepare_install
@@ -217,7 +221,7 @@ def _session_setup(args: argparse.Namespace, install: Path) -> Any:
         base_url=args.endpoint,
         install_bin=prepare_install(install / "hooks", CHECKOUT),
         role_python=_role_python(getattr(args, "role_python", None)),
-        held_out=(str(args.held_out_root.resolve()),),
+        held_out=(str(role_root(args.store.resolve(), args.role)),),
         withheld_reads=tuple(str(p.resolve()) for p in args.withhold),
         # Each command gives the session every canary under its root (``root_canaries``).
         held_out_canaries=(),
@@ -266,21 +270,22 @@ def _author(args: argparse.Namespace) -> int:
     import dataclasses
 
     from physgate.evaluation.per_role.author_session import AuthoringPlan, author, root_canaries
+    from physgate.evaluation.tiers.store import AUTHOR_EVIDENCE, role_root
 
     # The paths given are resolved once, before anything runs, so a system link such as
     # macOS's /var is followed here and never met by the split's refusal of links.
-    root = args.held_out_root.resolve()
+    store = args.store.resolve()
+    root = role_root(store, args.role)
     prefix = args.id_prefix
     if prefix is None:
-        evidence = root / f"{args.role}.author"
+        evidence = root / AUTHOR_EVIDENCE
         recorded = sum(1 for p in evidence.iterdir() if p.is_dir()) if evidence.is_dir() else 0
         prefix = f"b{recorded + 1}."
     plan = AuthoringPlan(
         role=args.role,
         implementer_model=args.implementer_model,
         work=args.work.resolve(),
-        visible=args.visible.resolve(),
-        held_out_root=root,
+        store=store,
         seed=args.seed,
         cap=args.cap,
         count=args.count,
@@ -299,25 +304,23 @@ def _author(args: argparse.Namespace) -> int:
 def _blind_check(args: argparse.Namespace) -> int:
     import dataclasses
 
-    from physgate.evaluation.per_role.author_session import (
-        blind_check,
-        held_out_tier,
-        root_canaries,
-    )
+    from physgate.evaluation.per_role.author_session import blind_check, root_canaries
+    from physgate.evaluation.tiers.store import role_root
 
-    root = args.held_out_root.resolve()
+    store = args.store.resolve()
     args.work = args.work.resolve()
     # As the author's: the check looks for every canary the root's tiers name, and its
     # answer is not taken unless its record says none showed.
-    canaries = root_canaries(root)
+    canaries = root_canaries(role_root(store, args.role))
     return _with_install(
         args,
         lambda setup: blind_check(
-            held_out_tier(root, args.role),
+            store,
+            args.role,
+            args.version,
             dataclasses.replace(setup, held_out_canaries=canaries),
             args.work,
             implementer_model=args.implementer_model,
             cap=args.cap,
-            evidence=root / f"{args.role}.check",
         ),
     )

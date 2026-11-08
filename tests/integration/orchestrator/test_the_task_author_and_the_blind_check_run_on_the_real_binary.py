@@ -1,9 +1,10 @@
 """The authoring runner and the blind check against the real binary, on the scripted endpoint.
 
 No model is called. The scripted author copies twenty-four prepared tasks into its worktree
-after trying to read a held-out tier already inside the protected root, which it is
-refused; the runner then splits them. The scripted checker writes its booleans. Runs in
-the evaluation environment, since the runner holds every task to the control scorer.
+after trying to read what lies inside the role's root, which it is refused; the runner then
+writes them as a version of the tier-set store. The scripted checker writes its booleans on
+a version's held-out tier. Runs in the evaluation environment, since the runner holds every
+task to the control scorer.
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ from physgate.evaluation.per_role.author_session import (  # noqa: E402
     blind_check,
     bundle,
 )
+from physgate.evaluation.tiers.store import write_version  # noqa: E402
+from physgate.evaluation.tiers.task import canonical_json  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
 from physgate.orchestrator.decompose import binary_version  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
@@ -151,7 +154,8 @@ def test_an_authoring_session_is_refused_the_protected_root_and_its_tasks_are_sp
     evidence (its stream, its home, its interpreter link) now lies under the protected
     root, and the second session must still be allowed every tool call.
     """
-    root = tmp_path / "private" / "v1"
+    store = tmp_path / "private" / "store"
+    root = store / "control"
     (root / "firmware").mkdir(parents=True)
     (root / "firmware" / "item.json").write_text(json.dumps({"item": OTHER_TIER}))
     prepared = _prepared(tmp_path / "prepared")
@@ -163,8 +167,7 @@ def test_an_authoring_session_is_refused_the_protected_root_and_its_tasks_are_sp
             role="control",
             implementer_model="claude-opus-5-5",
             work=tmp_path / "scratch" / f"author{n}",
-            visible=tmp_path / "repo" / "visible",
-            held_out_root=root,
+            store=store,
             seed=3,
             cap=8_000_000,
             id_prefix=f"b{n + 1}.",
@@ -191,9 +194,8 @@ def test_an_authoring_session_is_refused_the_protected_root_and_its_tasks_are_sp
     assert outs[0]["status"] == "pooled" and outs[0]["pool"] == 12
     assert outs[1]["status"] == "split" and outs[1]["pool"] == 0
     assert outs[1]["held_out_count"] == 8 and outs[1]["held_out_check"]["references_held"] == 8
-    streams = sorted(
-        (root / "control.author").glob("*/stdout.jsonl"), key=lambda p: p.stat().st_mtime
-    )
+    assert not (root / "pool").exists() and (root / outs[1]["version"] / "tierset.json").is_file()
+    streams = sorted((root / "author").glob("*/stdout.jsonl"), key=lambda p: p.stat().st_mtime)
     assert len(streams) == 2
     for stream in streams:
         text_ = stream.read_text()
@@ -211,17 +213,27 @@ def test_an_authoring_session_is_refused_the_protected_root_and_its_tasks_are_sp
 def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
     tmp_path: Path, install_bin: Path
 ) -> None:
-    root = tmp_path / "private" / "v1"
-    tier = root / "control"
-    tier.mkdir(parents=True)
+    store = tmp_path / "private" / "store"
+    root = store / "control"
+    root.mkdir(parents=True)
     prepared = _prepared(tmp_path / "prepared")
-    for d in sorted(prepared.iterdir())[:8]:
-        task = json.loads((d / "task.json").read_text())
-        task.update(tier="held_out", canary="c" * 32)
-        (d / "task.json").write_text(json.dumps(task))
-        d.rename(tier / d.name)
-    # The tier's canary list lies inside it, as a split leaves it, and the check looks for it.
-    (tier / "canaries.json").write_text(json.dumps(["c" * 32]))
+    manifest, _ = write_version(
+        root,
+        sorted(prepared.iterdir()),
+        role="control",
+        seed=3,
+        model="claude-sonnet-5",
+        runtime="2.1.301",
+        provenance=canonical_json({"sessions": []}),
+    )
+    tier = root / manifest.version / "held_out"
+    # Each protected tier's list lies inside it, as the split leaves it; the check looks for
+    # every canary they name.
+    canaries = tuple(
+        c
+        for name in ("validation", "held_out")
+        for c in json.loads((root / manifest.version / name / "canaries.json").read_text())
+    )
     keys = sorted(bundle(tier))
     answers = {k: dict.fromkeys(QUESTIONS, True) for k in keys}
     answers[keys[0]]["answerable_as_asked"] = False
@@ -236,12 +248,13 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
     ]
     with serving(Script(main=steps)) as (api, url):
         out = blind_check(
-            tier,
-            dataclasses.replace(_setup(install_bin, url, root), held_out_canaries=("c" * 32,)),
+            store,
+            "control",
+            manifest.version,
+            dataclasses.replace(_setup(install_bin, url, root), held_out_canaries=canaries),
             work,
             implementer_model="claude-opus-5-5",
             cap=10**9,
-            evidence=root / "control.check",
         )
         argv_prompt = api.requests[0].last_user if api.requests else ""
     assert out["answered"] and out["tasks"] == 8 and out["flagged"] == [keys[0]]

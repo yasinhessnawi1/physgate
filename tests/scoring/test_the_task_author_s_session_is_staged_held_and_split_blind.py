@@ -1,8 +1,9 @@
 """The authoring runner and the blind check, with the session replaced by a scripted one.
 
 The fake session writes into its worktree what an author (or a checker) would, so every
-step after it runs for real: staging, the reference check, the seeded draw, the split, the
-evidence moved inside the protected root, and the counts-only output.
+step after it runs for real: staging, the reference check, the seeded draw, the split into a
+version of the tier-set store, the evidence moved inside the role's root, and the counts-only
+output.
 """
 
 from __future__ import annotations
@@ -29,7 +30,10 @@ from physgate.evaluation.per_role.author_session import (
     blind_check,
 )
 from physgate.evaluation.per_role.validate import id_digest
-from physgate.evaluation.tiers.authoring import AuthoringError
+from physgate.evaluation.tiers import store as store_module
+from physgate.evaluation.tiers.authoring import TIERS, AuthoringError
+from physgate.evaluation.tiers.manifest import VERSION_NAME
+from physgate.evaluation.tiers.store import pool_dir
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.run_config import RunBounds
 from physgate.oslayer.probe import Absent
@@ -134,8 +138,7 @@ def _plan(tmp_path: Path, **changes: Any) -> AuthoringPlan:
         "role": "control",
         "implementer_model": "claude-opus-5-5",
         "work": tmp_path / "scratch" / "work",
-        "visible": tmp_path / "repo" / "visible",
-        "held_out_root": tmp_path / "private" / "v1",
+        "store": tmp_path / "private" / "store",
         "seed": 5,
         "cap": 4_000_000,
     }
@@ -158,19 +161,40 @@ def _run(
     return plan, fake, author(plan, _setup(tmp_path / "private"))
 
 
+def _versions(plan: AuthoringPlan) -> list[Path]:
+    """Every version of the role's tiers in the store."""
+    if not plan.root.is_dir():
+        return []
+    return sorted(p for p in plan.root.iterdir() if VERSION_NAME.fullmatch(p.name))
+
+
+def _tier(plan: AuthoringPlan, name: str) -> Path:
+    """The tier ``name`` of the one version the store holds."""
+    (version,) = _versions(plan)
+    return version / name
+
+
 def _placed(plan: AuthoringPlan) -> set[str]:
-    """Every task the split placed, in any of the three tiers."""
-    where = getattr(author_session, "validation_tier", None)
-    validation = (
-        where(plan.held_out_root, plan.role)
-        if where is not None
-        else plan.held_out_root / f"{plan.role}.validation"
-    )
+    """Every task the split placed, in any of the three tiers of any version."""
     placed: set[str] = set()
-    for tier in (plan.visible, validation, plan.held_out_root / plan.role):
-        if tier.is_dir():
-            placed |= {p.name for p in tier.iterdir() if p.is_dir()}
+    for version in _versions(plan):
+        for name in TIERS:
+            placed |= {p.name for p in (version / name).iterdir() if p.is_dir()}
     return placed
+
+
+def _pooled(plan: AuthoringPlan) -> list[str]:
+    """The tasks the role's pool holds."""
+    pool = pool_dir(plan.store, plan.role)
+    return sorted(p.name for p in pool.iterdir() if p.is_dir()) if pool.is_dir() else []
+
+
+def _unfinished(plan: AuthoringPlan) -> list[str]:
+    """Every version still being written, or a pool already drawn from, in the role's root."""
+    if not plan.root.is_dir():
+        return []
+    names = [p.name for p in plan.root.iterdir()]
+    return sorted(n for n in names if n.startswith(".version-") or n == "pool.spent")
 
 
 def test_twenty_four_sound_tasks_are_split_and_only_counts_and_visible_ids_leave(
@@ -178,8 +202,8 @@ def test_twenty_four_sound_tasks_are_split_and_only_counts_and_visible_ids_leave
 ) -> None:
     plan, fake, out = _run(tmp_path, monkeypatch, _tasks(24))
     assert out["status"] == "split" and out["held"] == 24 and out["held_out_count"] == 8
-    visible = sorted(p.name for p in plan.visible.iterdir())
-    held = sorted(p.name for p in (plan.held_out_root / "control").iterdir() if p.is_dir())
+    visible = sorted(p.name for p in _tier(plan, "visible").iterdir())
+    held = sorted(p.name for p in _tier(plan, "held_out").iterdir() if p.is_dir())
     assert out["visible"] == visible and len(visible) == 8 and len(held) == 8
     printed = json.dumps(out)
     for name in held:
@@ -199,11 +223,11 @@ def test_the_session_s_stream_is_kept_inside_the_protected_root_and_its_work_rem
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     plan, _, _ = _run(tmp_path, monkeypatch, _tasks(24))
-    kept = plan.held_out_root / "control.author" / "s-1"
+    kept = plan.root / "author" / "s-1"
     assert (kept / "stdout.jsonl").read_text() == "the stream\n"
     assert json.loads((kept / "record.json").read_text())["tokens"] == 1234
     assert not plan.work.exists()
-    assert (plan.held_out_root / "control" / "canaries.json").is_file()
+    assert (_tier(plan, "held_out") / "canaries.json").is_file()
 
 
 def test_with_fewer_sound_tasks_than_two_tiers_they_are_pooled_inside_the_protected_root(
@@ -214,11 +238,10 @@ def test_with_fewer_sound_tasks_than_two_tiers_they_are_pooled_inside_the_protec
     assert out["pooled"] == 23 and out["pool"] == 23
     assert out["refused_because"]["good_fails:max_real_pole"] == 1
     assert "control.t" not in json.dumps(out)
-    assert not plan.visible.exists()
-    assert not (plan.held_out_root / "control").exists()
+    assert _versions(plan) == []
     assert not plan.work.exists()
-    pool = plan.held_out_root / "control.pool"
-    assert sorted(p.name for p in pool.iterdir()) == [f"control.t{n:02d}" for n in range(1, 24)]
+    pool = pool_dir(plan.store, plan.role)
+    assert _pooled(plan) == [f"control.t{n:02d}" for n in range(1, 24)]
     assert all(
         p.is_dir() or (not p.is_symlink() and p.stat().st_nlink == 1) for p in pool.rglob("*")
     )
@@ -246,15 +269,16 @@ def test_a_further_session_adds_to_the_pool_and_the_tiers_are_cut_from_it_by_the
     assert 'beginning with "b2."' in fake.calls[0]["prompt"]
     assert out["status"] == "split" and out["held"] == 17 and out["pooled"] == 16
     assert out["refused_because"] == {"id_already_pooled": 1}
-    assert out["pool"] == 1 and out["held_out_count"] == 8
-    pool = plan.held_out_root / "control.pool"
-    left = {p.name for p in pool.iterdir()}
+    assert out["held_out_count"] == 8
+    # The pool never outlives the split: the one task the draw did not take goes with it.
+    assert out["pool"] == 0 and out["left_with_the_pool"] == 1
+    assert not pool_dir(plan.store, plan.role).exists()
     placed = _placed(plan)
     everything = sorted(f"control.t{n:02d}" for n in range(1, 26))
-    assert len(placed) == 24 and placed | left == set(everything) and not placed & left
+    assert len(placed) == 24
     random.Random(5).shuffle(everything)
     assert placed == set(everything[:24])
-    assert not (plan.held_out_root / "control.draw").exists()
+    assert _unfinished(plan) == []
     assert out["held_out_check"]["references_held"] == 8
 
 
@@ -263,11 +287,11 @@ def test_the_session_s_links_never_reach_the_protected_root_and_a_root_with_one_
 ) -> None:
     plan, _, out = _run(tmp_path, monkeypatch, _tasks(10))
     assert out["status"] == "pooled"
-    root = plan.held_out_root
+    root = plan.root
     assert not [
         p for p in root.rglob("*") if p.is_symlink() or p.is_file() and p.stat().st_nlink != 1
     ]
-    kept = root / "control.author" / "s-1"
+    kept = root / "author" / "s-1"
     assert (kept / "stdout.jsonl").read_text() == "the stream\n"
     dropped = json.loads((kept / "record.json").read_text())["evidence_dropped"]
     assert len(dropped) == 1 and dropped[0].endswith("/bin/python3")
@@ -377,9 +401,9 @@ def test_an_author_on_the_implementers_model_is_refused_before_any_session(
 @pytest.mark.parametrize(
     ("changes", "match"),
     [
-        ({"work": "private/v1/work"}, "inside a held-out root"),
-        ({"visible": "private/visible"}, "inside a held-out root"),
-        ({"held_out_root": "elsewhere/v1"}, "does not withhold the protected root"),
+        ({"work": "private/store/work"}, "inside a held-out root"),
+        ({"work": "private/work"}, "inside a held-out root"),
+        ({"store": "elsewhere/store"}, "does not withhold the protected root"),
         ({"count": 0}, "at least one task"),
         ({"cap": 8_000_001}, "at most 8000000 tokens"),
         ({"per_task_cap": 4_000_001}, "no more than the session's cap"),
@@ -397,11 +421,10 @@ def test_a_plan_that_would_expose_or_short_a_tier_is_refused_before_any_session(
     assert fake.calls == []
 
 
-@pytest.mark.parametrize("tier", ["control", "control.validation"])
-def test_a_protected_tier_already_there_is_never_written_over(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tier: str
+def test_a_work_directory_already_there_is_refused_before_any_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / "private" / "v1" / tier).mkdir(parents=True)
+    (tmp_path / "scratch" / "work").mkdir(parents=True)
     fake = FakeSession(_tasks(24))
     monkeypatch.setattr(author_session, "run_session", fake)
     with pytest.raises(AuthoringError, match="made new for each session"):
@@ -412,10 +435,11 @@ def test_a_protected_tier_already_there_is_never_written_over(
 # ------------------------------------------------------------------- the blind check
 
 
-def _held_tier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AuthoringPlan:
+def _held_tier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[AuthoringPlan, str]:
+    """A plan whose author has cut a version, and that version's id."""
     plan: AuthoringPlan
-    plan, _, _ = _run(tmp_path, monkeypatch, _tasks(24))
-    return plan
+    plan, _, out = _run(tmp_path, monkeypatch, _tasks(24))
+    return plan, str(out["version"])
 
 
 def _answers(value: Any) -> Any:
@@ -428,21 +452,22 @@ def _answers(value: Any) -> Any:
 
 
 def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, write: Any) -> tuple[Any, Any]:
-    plan = _held_tier(tmp_path, monkeypatch)
+    plan, version = _held_tier(tmp_path, monkeypatch)
     fake = FakeSession(write)
     monkeypatch.setattr(author_session, "run_session", fake)
     # The check looks for every canary under the root, as the command gives it them.
     setup = dataclasses.replace(
         _setup(tmp_path / "private"),
-        held_out_canaries=author_session.root_canaries(plan.held_out_root),
+        held_out_canaries=author_session.root_canaries(plan.root),
     )
     out = blind_check(
-        plan.held_out_root / "control",
+        plan.store,
+        plan.role,
+        version,
         setup,
         tmp_path / "scratch" / "check",
         implementer_model="claude-opus-5-5",
         cap=500_000,
-        evidence=plan.held_out_root / "control.check",
     )
     return out, fake
 
@@ -465,8 +490,7 @@ def test_the_check_reads_its_tasks_from_a_file_by_digest_and_answers_in_booleans
     assert out["answered"] and out["tasks"] == 8 and out["all_yes"] == 7
     assert out["flagged"] == [sorted(bundle)[0]]
     assert not (tmp_path / "scratch" / "check").exists()
-    held = tmp_path / "private" / "v1"
-    assert (held / "control.check" / "s-1" / "stdout.jsonl").is_file()
+    assert (_plan(tmp_path).root / "check" / "s-1" / "stdout.jsonl").is_file()
 
 
 @pytest.mark.parametrize(
@@ -490,15 +514,16 @@ def test_anything_but_booleans_for_exactly_the_tasks_is_no_answer(
 def test_a_check_on_the_implementers_model_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    plan = _held_tier(tmp_path, monkeypatch)
+    plan, version = _held_tier(tmp_path, monkeypatch)
     with pytest.raises(AuthoringError, match="implementers' own model"):
         blind_check(
-            plan.held_out_root / "control",
+            plan.store,
+            plan.role,
+            version,
             _setup(tmp_path / "private", model="claude-opus-5-5"),
             tmp_path / "scratch" / "check",
             implementer_model="claude-opus-5-5",
             cap=1,
-            evidence=plan.held_out_root / "control.check",
         )
 
 
@@ -527,7 +552,7 @@ def test_every_staged_file_is_a_new_file_copied_by_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     plan, _, _ = _run(tmp_path, monkeypatch, _tasks(24))
-    for tier in (plan.visible, plan.held_out_root / "control"):
+    for tier in (_tier(plan, name) for name in TIERS):
         for path in tier.rglob("*"):
             assert not path.is_symlink()
             assert path.is_dir() or path.stat().st_nlink == 1
@@ -547,15 +572,15 @@ def test_a_split_that_fails_part_way_leaves_no_task_outside_the_protected_root(
         held_out.mkdir(parents=True)
         raise OSError("the disk filled part-way")
 
-    monkeypatch.setattr(author_session, "split", half_a_split)
+    monkeypatch.setattr(store_module, "split", half_a_split)
     with pytest.raises(OSError, match="part-way"):
         _run(tmp_path, monkeypatch, _tasks(24))
     plan = _plan(tmp_path)
-    assert not plan.visible.exists()
-    assert not (plan.held_out_root / "control").exists()
-    assert not author_session.validation_tier(plan.held_out_root, "control").exists()
+    assert _versions(plan) == [] and _unfinished(plan) == []
+    # A split that did not finish leaves the pool whole, for a person or a later session.
+    assert len(_pooled(plan)) == 24
     assert not plan.work.exists()
-    assert list((plan.held_out_root / "control.author").glob("*/stdout.jsonl"))
+    assert list((plan.root / "author").glob("*/stdout.jsonl"))
 
 
 def test_a_failing_session_leaves_nothing_it_wrote_outside_the_protected_root(
@@ -569,7 +594,7 @@ def test_a_failing_session_leaves_nothing_it_wrote_outside_the_protected_root(
         _run(tmp_path, monkeypatch, write)
     plan = _plan(tmp_path)
     assert not plan.work.exists()
-    assert list((plan.held_out_root / "control.author").glob("*/stdout.jsonl"))
+    assert list((plan.root / "author").glob("*/stdout.jsonl"))
 
 
 def test_a_cleanup_that_cannot_remove_the_work_refuses_loudly_and_reports_no_result(
@@ -601,18 +626,18 @@ def test_half_a_tier_that_cannot_be_removed_refuses_loudly_after_securing_the_st
     real = shutil.rmtree
 
     def stuck(path: Any, *args: Any, **kwargs: Any) -> None:
-        if Path(path).name == "visible":
+        if Path(path).name.startswith(".version-"):
             raise PermissionError(f"cannot remove {path}")
         real(path, *args, **kwargs)
 
-    monkeypatch.setattr(author_session, "split", half_a_split)
+    monkeypatch.setattr(store_module, "split", half_a_split)
     monkeypatch.setattr(shutil, "rmtree", stuck)
-    with pytest.raises(AuthoringError, match="visible") as raised:
+    with pytest.raises(AuthoringError, match=r"\.version-") as raised:
         _run(tmp_path, monkeypatch, _tasks(24))
     assert "remove these by hand" in str(raised.value)
     plan = _plan(tmp_path)
     assert not plan.work.exists()
-    assert list((plan.held_out_root / "control.author").glob("*/stdout.jsonl"))
+    assert list((plan.root / "author").glob("*/stdout.jsonl"))
 
 
 def test_a_failing_check_session_leaves_no_held_out_task_outside_the_root(
@@ -624,7 +649,7 @@ def test_a_failing_check_session_leaves_no_held_out_task_outside_the_root(
     with pytest.raises(RuntimeError, match="check's session failed"):
         _check(tmp_path, monkeypatch, write)
     assert not (tmp_path / "scratch" / "check").exists()
-    assert list((tmp_path / "private" / "v1" / "control.check").glob("*/stdout.jsonl"))
+    assert list((_plan(tmp_path).root / "check").glob("*/stdout.jsonl"))
 
 
 def test_what_is_validated_shares_no_file_with_what_the_session_left(
@@ -648,11 +673,11 @@ def test_what_is_validated_shares_no_file_with_what_the_session_left(
 def test_a_tier_reached_through_a_link_is_refused_before_any_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / "real").mkdir()
-    (tmp_path / "linked").symlink_to(tmp_path / "real")
+    (tmp_path / "private").mkdir()
+    (tmp_path / "linked").symlink_to(tmp_path / "private")
     fake = FakeSession(_tasks(24))
     monkeypatch.setattr(author_session, "run_session", fake)
-    plan = _plan(tmp_path, visible=tmp_path / "linked" / "visible")
+    plan = _plan(tmp_path, store=tmp_path / "linked" / "store")
     with pytest.raises(AuthoringError, match="reached through a link"):
         author(plan, _setup(tmp_path / "private"))
     assert fake.calls == []
@@ -687,7 +712,7 @@ def test_a_file_swapped_for_a_link_after_it_was_listed_is_refused_not_followed(
     monkeypatch.setattr(author_session, "_classify", swap)
     plan, _, out = _run(tmp_path, monkeypatch, _tasks(25), count=25)
     assert swapped and out["refused_as_files"] == 1 and out["held"] == 24
-    for tier in (plan.visible, plan.held_out_root / "control"):
+    for tier in (_tier(plan, name) for name in TIERS):
         for path in tier.rglob("*"):
             assert path.is_dir() or "never staged" not in path.read_text()
 
@@ -765,9 +790,11 @@ def test_the_commands_take_a_session_s_bounds_with_a_role_session_s_defaults(
 
     parser = argparse.ArgumentParser()
     cli.add_parser(parser.add_subparsers())
-    common = ["--role", "control", "--held-out-root", "/r", "--work", "/w", "--cap", "1"]
+    common = ["--role", "control", "--store", "/s", "--work", "/w", "--cap", "1"]
     if command == "author":
-        common += ["--role-python", "/p", "--visible", "/v", "--seed", "1"]
+        common += ["--role-python", "/p", "--seed", "1"]
+    else:
+        common += ["--version", "v"]
     given = parser.parse_args(["per-role", command, *common])
     assert (given.session_wall_clock_s, given.session_max_turns) == (1800.0, 150)
     if command == "author":
