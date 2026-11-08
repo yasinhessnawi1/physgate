@@ -20,6 +20,7 @@ import { nodeLabel, quantityLabel } from "../../words/humanise";
 import {
   chooseWords,
   consequenceWords,
+  diffWords,
   POSITION_WORDS,
   queueHeadline,
   reviewTimeWords,
@@ -202,7 +203,7 @@ export function QueueItem({
               tabIndex={0}
               aria-label="The artefact diff as recorded"
             >
-              {item.artefactDiff}
+              {diffWords(item.artefactDiff)}
             </pre>
           )}
         </details>
