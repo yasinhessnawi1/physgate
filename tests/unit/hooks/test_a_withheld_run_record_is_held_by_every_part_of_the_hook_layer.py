@@ -106,3 +106,42 @@ def test_the_tripwire_holds_a_withheld_record_to_one_name(root: Path) -> None:
     os.link(root / "run" / "run.json", root / "run" / "worktrees" / "s1" / "copy.json")
     reason = check("SessionEnd")
     assert "more than one name" in reason and "run.json" in reason
+
+
+def test_the_check_before_a_commit_names_a_withheld_record_with_a_second_name(root: Path) -> None:
+    # The dispatcher's last check, after the session's own end check: a second name made in
+    # that window is named before the attempt is committed.
+    from physgate.orchestrator.dispatch import withheld_before_commit
+
+    config = _config(root)
+    path = root / "outside" / "session-config.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(config.model_dump_json())
+    assert withheld_before_commit(path) is None
+    os.link(root / "run" / "run.json", root / "second-name.json")
+    found = withheld_before_commit(path)
+    assert found is not None
+    assert "run.json: has more than one name (2)" in found
+
+
+def test_the_parameters_record_is_put_back_like_the_run_s_configuration(tmp_path: Path) -> None:
+    import subprocess
+
+    from physgate.orchestrator.dispatch import run_protected_roots
+    from physgate.orchestrator.merge import RunGit
+
+    repo = tmp_path / "target"
+    repo.mkdir()
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main", str(repo)],
+        env={"PATH": "/usr/bin:/bin", "HOME": os.devnull},
+        check=True,
+        capture_output=True,
+    )
+    run = RunGit(repo=repo, run_dir=tmp_path / "run", run_id="run-1")
+    reverted, refused = run_protected_roots(run)
+    # It names the file every session is installed with withheld: a session that rewrote it would
+    # make the next session withhold another file, so the sentinel puts it back.
+    assert tmp_path / "run" / "params_source.json" in reverted
+    assert tmp_path / "run" / "run.json" in reverted
+    assert tmp_path / "run" / "params_source.json" not in refused

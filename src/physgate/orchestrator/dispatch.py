@@ -290,6 +290,18 @@ HELD_RECORDS = (
 )
 
 
+def withheld_before_commit(config_path: Path) -> str | None:
+    """What the tripwire finds wrong with the files no session reads, before a commit.
+
+    The held-out tier, the answer-key corpora and the run's withheld records, as the session's
+    own configuration names them: one problem per file with a second name or that cannot be
+    checked, joined; ``None`` when there is none.
+    """
+    session_config = SessionConfig.model_validate_json(config_path.read_bytes())
+    _, problems = withheld.survey(withheld.roots_of(session_config))
+    return "; ".join(problems) if problems else None
+
+
 def run_record_roots(run: RunGit) -> tuple[Path, ...]:
     """The run's records a role session's sentinel compares and never writes.
 
@@ -1874,11 +1886,9 @@ class ClaudeDispatcher:
             # directories these are the places it can write besides its worktree.
             writable_roots=(sdir, *temporary_roots()),
         )
-        # The held-out and answer-key tripwire, once more before the attempt is committed:
+        # The tripwire on the files no session reads, once more before the attempt is committed:
         # a second name, a changed file or one that cannot be checked refuses the attempt.
-        session_config = SessionConfig.model_validate_json(Path(installed.config).read_bytes())
-        _, problems = withheld.survey(withheld.roots_of(session_config))
-        withheld_problems = "; ".join(problems) if problems else None
+        withheld_problems = withheld_before_commit(Path(installed.config))
         commit = (
             commit_attempt(
                 worktree,

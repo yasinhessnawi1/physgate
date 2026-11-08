@@ -781,6 +781,30 @@ def test_an_answer_key_file_given_a_second_name_before_the_commit_is_named_by_th
     assert f"{stand_in}: has more than one name (2)" in report.withheld_problems
 
 
+def test_the_run_s_configuration_given_a_second_name_before_the_commit_is_named_by_the_dispatcher(
+    tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same window for a withheld run record: the run's configuration, linked from outside."""
+    import physgate.orchestrator.dispatch as dispatch_module
+    from physgate.series.collect import collect as real_collect
+
+    record = tmp_path / "run" / "run.json"
+    second_name = tmp_path / "second-name-of-the-run-configuration.json"
+
+    def second_name_then_collect(*a: Any, **k: Any) -> Any:  # noqa: ANN401
+        os.link(record, second_name)
+        return real_collect(*a, **k)
+
+    monkeypatch.setattr(dispatch_module, "collect", second_name_then_collect)
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    assert second_name.exists(), "the second name was never made"
+    assert report.end.outcome == "completed", report
+    assert report.withheld_problems is not None, "the second name was not reported"
+    assert "run.json: has more than one name (2)" in report.withheld_problems
+
+
 def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
     tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
