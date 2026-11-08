@@ -68,6 +68,11 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         "refused to every read",
     )
     p.add_argument(
+        "--sessions-root",
+        help="the run's directory of every session's own directory: refused to every write, and "
+        "for a role or baseline session to every read but its own home and reading there",
+    )
+    p.add_argument(
         "--harness",
         help="the source checkout the orchestrator runs from: refused whole, its trusted trees "
         "put back",
@@ -181,6 +186,7 @@ def _install(args: argparse.Namespace) -> int:
         extra_review_material=tuple(_abs(p) for p in args.review_material),
         extra_protected=tuple(_abs(p) for p in args.protect),
         extra_protected_refuse_only=tuple(_abs(p) for p in args.protect_refuse_only),
+        sessions_root=_abs(args.sessions_root) if args.sessions_root else None,
         extra_protected_record=tuple(_abs(p) for p in args.protect_record),
         withheld=tuple(_abs(p) for p in args.withheld),
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,

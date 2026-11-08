@@ -76,6 +76,7 @@ from physgate.hooks.reasons import (
     HOOK_STATE_REASON,
     OUTSIDE_REVIEW_REASON,
     REVIEW_MATERIAL_REASON,
+    SESSIONS_REASON,
     WITHHELD_REASON,
 )
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
@@ -329,12 +330,18 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
         # A root that scripts write blind (the series outbox) is read by no tool of the
         # session either: what a script left there is the collector's to judge, and the OS
         # layer keeps the shell's reads from it by the same rule. Nor is a withheld run
-        # record, which names what the stream scan looks for.
+        # record, which names what the stream scan looks for, nor the run's session
+        # directories, which hold every session's login and stream, but for what the session
+        # reads of its own there.
         for root in config.protected_roots:
             if (
                 root.reads == "denied"
-                and (root.shell_writes == "allowed" or root.reason == WITHHELD_REASON)
+                and (
+                    root.shell_writes == "allowed"
+                    or root.reason in (WITHHELD_REASON, SESSIONS_REASON)
+                )
                 and _reaches(absolute, root.path, chain)
+                and not any(_reaches(absolute, own, chain) for own in root.read_exceptions)
             ):
                 return root.reason
         return None

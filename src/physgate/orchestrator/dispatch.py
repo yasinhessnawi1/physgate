@@ -1465,6 +1465,9 @@ class ClaudeDispatcher:
             arg for root in run_record_roots(self._run) for arg in ("--protect-record", str(root))
         ]
         protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
+        # Every session's own directory: its login, stream and records. No role session reads
+        # another's, nor its own but for its home; its binary reads its configuration itself.
+        protect += ["--sessions-root", str(self._run.run_dir / "sessions")]
         # A session in the target's worktree has nothing of its own in the harness
         # checkout, and the live gate reads from it.
         protect += harness_protection()

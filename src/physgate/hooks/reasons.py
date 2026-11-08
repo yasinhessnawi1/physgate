@@ -76,6 +76,13 @@ WITHHELD_REASON = (
 #: credential's helper; they read and write it in their own processes, never through a tool.
 HOOK_STATE_REASON = "it holds the hook layer's own records of this session"
 
+#: Given for a role or baseline session's read of the run's session directories: every session's
+#: login, captured stream, settings and hook records. Its own home there stays readable.
+SESSIONS_REASON = (
+    "it is the run's session directories, which hold each session's login, stream and records; "
+    "a session reads only its own home there"
+)
+
 #: Given to a reviewer for a read outside its allowance. Neutral on purpose: a
 #: reviewer is shown nothing that says what is being measured.
 OUTSIDE_REVIEW_REASON = "it is outside the files this review is given"

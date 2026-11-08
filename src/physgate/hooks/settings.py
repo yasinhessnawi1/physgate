@@ -54,6 +54,7 @@ from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
 from physgate.hooks.reasons import HOOK_STATE_REASON as HOOK_STATE_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
+from physgate.hooks.reasons import SESSIONS_REASON as SESSIONS_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.reasons import WITHHELD_REASON as WITHHELD_REASON
 from physgate.hooks.reasons import series_outbox_reason
@@ -114,6 +115,11 @@ class InstallRequest(BaseModel):
     #: sentinel must not put them back. Only the layers that refuse a write before
     #: it happens protect them.
     extra_protected_refuse_only: tuple[AbsolutePath, ...] = ()
+    #: The run's directory of every session's own directory (its ``sessions/``), which holds
+    #: each session's login, captured stream, settings and hook records. Refused to every write;
+    #: for a role or baseline session refused to every read too, but for its own home and what
+    #: it is given to read there. Written by the runtime while sessions run, so never put back.
+    sessions_root: AbsolutePath | None = None
     #: The run's append-only records the orchestrator holds open and appends to: no session
     #: tool may write them, and the sentinel compares them and never writes them, since a
     #: put-back by replacing would leave the orchestrator writing to a file no path names.
@@ -450,6 +456,25 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             ),
         )
         reads.setdefault(path, "shell_denied")
+    read_exceptions: dict[str, tuple[str, ...]] = {}
+    if request.sessions_root is not None:
+        sessions = request.sessions_root
+        if request.profile in ("role", "baseline"):
+            # Assigned, not defaulted: named as a refuse-only root too, it is still kept from
+            # every read. What the session reads of its own stays open: its home, and anything it
+            # is given to read beneath the root (integration's issued state).
+            protected[sessions] = (SESSIONS_REASON, "none")
+            reads[sessions] = "denied"
+            own = (
+                request.user_home,
+                *request.required_reading,
+                *request.always_loaded,
+                *request.os_layer_readable,
+            )
+            read_exceptions[sessions] = tuple(sorted({p for p in own if _inside(p, sessions)}))
+        else:
+            protected.setdefault(sessions, (SESSIONS_REASON, "none"))
+            reads.setdefault(sessions, "shell_denied")
     for path in request.withheld:
         # Assigned, not defaulted: a withheld record named as an ordinary protected root too
         # is withheld all the same, put back and refused to every read on every layer.
@@ -484,6 +509,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
                 watch=watch,
                 exceptions=root_exceptions.get(path, ()),
                 reads=reads.get(path, "open"),
+                read_exceptions=read_exceptions.get(path, ()),
                 shell_writes="allowed" if path == outbox else "denied",
             )
             for path, (reason, watch) in sorted(protected.items())
