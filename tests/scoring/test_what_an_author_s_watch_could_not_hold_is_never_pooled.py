@@ -215,7 +215,7 @@ def test_a_session_whose_stream_showed_a_held_out_canary_pools_none_of_its_tasks
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, end: str, seen: bool | str
 ) -> None:
     # However it ended, and when the record cannot say it saw none: nothing is taken.
-    monkeypatch.setattr(author_session, "run_session", _Ending(_tasks(16), end, seen))
+    monkeypatch.setattr(author_session, "run_session", _Ending(_tasks(24), end, seen))
     staged: list[Any] = []
     stage = author_session.stage
 
@@ -234,7 +234,7 @@ def test_a_session_whose_stream_showed_a_held_out_canary_pools_none_of_its_tasks
 def test_a_session_its_watch_could_not_hold_pools_none_of_its_tasks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, end: str
 ) -> None:
-    monkeypatch.setattr(author_session, "run_session", _Ending(_tasks(16), end))
+    monkeypatch.setattr(author_session, "run_session", _Ending(_tasks(24), end))
     plan = _plan(tmp_path)
     (tmp_path / "scratch").mkdir()
     refused: str | None = None

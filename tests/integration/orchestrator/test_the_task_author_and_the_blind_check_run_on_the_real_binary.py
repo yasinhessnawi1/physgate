@@ -1,6 +1,6 @@
 """The authoring runner and the blind check against the real binary, on the scripted endpoint.
 
-No model is called. The scripted author copies sixteen prepared tasks into its worktree
+No model is called. The scripted author copies twenty-four prepared tasks into its worktree
 after trying to read a held-out tier already inside the protected root, which it is
 refused; the runner then splits them. The scripted checker writes its booleans. Runs in
 the evaluation environment, since the runner holds every task to the control scorer.
@@ -103,12 +103,12 @@ def _task(task_id: str, letter: str) -> dict[str, object]:
 
 
 def _prepared(root: Path) -> Path:
-    """Sixteen tasks as an author would leave them, to be copied by the scripted session."""
-    for n in range(16):
+    """Twenty-four tasks as an author would leave them, to be copied by the scripted session."""
+    for n in range(24):
         d = root / f"control.case{n:02d}"
         (d / "references" / "good").mkdir(parents=True)
         (d / "references" / "bad_unstable").mkdir(parents=True)
-        (d / "task.json").write_text(json.dumps(_task(d.name, "abcdefghijklmnop"[n])))
+        (d / "task.json").write_text(json.dumps(_task(d.name, "abcdefghijklmnopqrstuvwx"[n])))
         (d / "references" / "good" / "answer.json").write_text(json.dumps(GOOD))
         (d / "references" / "bad_unstable" / "answer.json").write_text(json.dumps(UNSTABLE))
         (d / "references" / "bad_unstable" / "expect.json").write_text('{"fails": "stable"}')
@@ -145,7 +145,7 @@ def _setup(install_bin: Path, url: str, root: Path) -> RawSetup:
 def test_an_authoring_session_is_refused_the_protected_root_and_its_tasks_are_split(
     tmp_path: Path, install_bin: Path
 ) -> None:
-    """Two sessions on one root: the first pools eight tasks, the second completes the tiers.
+    """Two sessions on one root: the first pools twelve tasks, the second completes the tiers.
 
     The second session is the regression for the 80 M-token run: the first session's
     evidence (its stream, its home, its interpreter link) now lies under the protected
@@ -155,7 +155,7 @@ def test_an_authoring_session_is_refused_the_protected_root_and_its_tasks_are_sp
     (root / "firmware").mkdir(parents=True)
     (root / "firmware" / "item.json").write_text(json.dumps({"item": OTHER_TIER}))
     prepared = _prepared(tmp_path / "prepared")
-    halves = [sorted(prepared.iterdir())[:8], sorted(prepared.iterdir())[8:]]
+    halves = [sorted(prepared.iterdir())[:12], sorted(prepared.iterdir())[12:]]
     (tmp_path / "scratch").mkdir()
     outs = []
     for n, half in enumerate(halves):
@@ -184,11 +184,11 @@ def test_an_authoring_session_is_refused_the_protected_root_and_its_tasks_are_sp
         assert f'beginning with "b{n + 1}."' in api.requests[0].last_user
         # The scripted session copies its tasks and ends within seconds, so the checkpoint
         # sees some of them before the end; a real author takes minutes over each.
-        assert out["held"] == 8 and out["pooled"] == 8 and 0 <= out["held_while_running"] <= 8
+        assert out["held"] == 12 and out["pooled"] == 12 and 0 <= out["held_while_running"] <= 12
         assert out["session"]["end"] == "ended" and out["session"]["tokens"] > 0
         assert not plan.work.exists()
         outs.append(out)
-    assert outs[0]["status"] == "pooled" and outs[0]["pool"] == 8
+    assert outs[0]["status"] == "pooled" and outs[0]["pool"] == 12
     assert outs[1]["status"] == "split" and outs[1]["pool"] == 0
     assert outs[1]["held_out_count"] == 8 and outs[1]["held_out_check"]["references_held"] == 8
     streams = sorted(
