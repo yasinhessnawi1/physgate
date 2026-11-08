@@ -15,7 +15,7 @@ import pytest
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
 from physgate.evaluation.per_role.arms.raw import RawSetup, run_raw
-from physgate.evaluation.per_role.task import parse_task
+from physgate.evaluation.tiers.task import parse_task
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.decompose import binary_version
 from physgate.orchestrator.install import prepare_install

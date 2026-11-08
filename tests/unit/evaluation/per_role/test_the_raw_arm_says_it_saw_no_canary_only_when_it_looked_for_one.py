@@ -16,7 +16,7 @@ from task_fixtures import own_task
 from test_the_raw_arm_s_credential_is_handled_as_a_role_session_s import _script, _setup
 
 from physgate.evaluation.per_role.arms import raw
-from physgate.evaluation.per_role.task import parse_task
+from physgate.evaluation.tiers.task import parse_task
 
 CANARY = "5f0c3a9e1b7d4c2a8e6f0b1d3c5a7e9f"
 

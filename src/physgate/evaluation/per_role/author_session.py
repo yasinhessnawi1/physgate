@@ -61,7 +61,9 @@ from typing import Any, get_args
 from pydantic import BaseModel, ConfigDict, RootModel, TypeAdapter, ValidationError
 
 from physgate.evaluation.per_role.arms.raw import WATCH_FAILURES, RawSetup, run_session
-from physgate.evaluation.per_role.authoring import (
+from physgate.evaluation.per_role.firmware.sandbox import open_directory
+from physgate.evaluation.per_role.validate import id_digest, refusal_reasons, sound, validate
+from physgate.evaluation.tiers.authoring import (
     CANARIES_NAME,
     PER_TIER,
     AuthoringError,
@@ -69,9 +71,7 @@ from physgate.evaluation.per_role.authoring import (
     require_author_model,
     split,
 )
-from physgate.evaluation.per_role.firmware.sandbox import open_directory
-from physgate.evaluation.per_role.task import Canary, Role, load_task
-from physgate.evaluation.per_role.validate import id_digest, refusal_reasons, sound, validate
+from physgate.evaluation.tiers.task import Canary, Role, load_task
 from physgate.hooks.withheld import survey
 
 _READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK

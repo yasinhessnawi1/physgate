@@ -35,7 +35,7 @@ from typing import Any
 
 from physgate.evaluation.per_role.answer import MAX_ANSWER_BYTES
 from physgate.evaluation.per_role.exceptions import PerRoleError
-from physgate.evaluation.per_role.task import Task
+from physgate.evaluation.tiers.task import Task
 from physgate.hooks.settings import PROFILE_TOOLS
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.credentials import (

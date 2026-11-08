@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 from task_fixtures import controller, own_task, write_task_dir
 
-from physgate.evaluation.per_role.authoring import sha256sums
-from physgate.evaluation.per_role.heldout import scan
+from physgate.evaluation.tiers.authoring import sha256sums
+from physgate.evaluation.tiers.heldout import scan
 
 CANARY_A = "a" * 32
 CANARY_B = "b" * 32
@@ -154,7 +154,7 @@ def test_a_failure_inside_the_scan_refuses_rather_than_raising(
     def broken(*_a: object, **_k: object) -> object:
         raise ValueError("cannot build")
 
-    monkeypatch.setattr("physgate.evaluation.per_role.heldout.build_config", broken)
+    monkeypatch.setattr("physgate.evaluation.tiers.heldout.build_config", broken)
     assert any("could not be checked" in p for p in _scan(base, root))
 
 

@@ -16,7 +16,7 @@ from typing import Any, Literal
 from physgate.evaluation.per_role.exceptions import TaskFormatError
 from physgate.evaluation.per_role.firmware.loop import ACT_LINE, Trace
 from physgate.evaluation.per_role.firmware.spec import PROBE_UNITS, FirmwareSpec, Probe
-from physgate.evaluation.per_role.task import Spec, Task
+from physgate.evaluation.tiers.task import Spec, Task
 
 Verdict = Literal["pass", "fail", "flaky", "infrastructure"]
 Standing = Literal["pass", "fail", "flaky", "retry", "unscored"]

@@ -37,7 +37,7 @@ from scipy.optimize import differential_evolution
 from physgate.evaluation.per_role.answer import LtiTf, power_unit
 from physgate.evaluation.per_role.exceptions import SynthesisError
 from physgate.evaluation.per_role.scorers import control as scorer
-from physgate.evaluation.per_role.task import Task, canonical_json
+from physgate.evaluation.tiers.task import Task, canonical_json
 
 SEED = 0
 GENERATIONS = 60
@@ -254,7 +254,7 @@ def prepare(tasks: Sequence[Task], out: Path, *, seed: int = SEED) -> list[dict[
     """
     from physgate.evaluation.per_role.controleval import write_task
     from physgate.evaluation.per_role.exceptions import ReferenceCheckError
-    from physgate.evaluation.per_role.task import load_task
+    from physgate.evaluation.tiers.task import load_task
 
     rows: list[dict[str, Any]] = []
     for task in tasks:

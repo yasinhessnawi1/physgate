@@ -21,8 +21,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-from physgate.evaluation.per_role.base import NamedMeasure
 from physgate.evaluation.per_role.exceptions import TaskFormatError
+from physgate.evaluation.tiers.base import NamedMeasure
 
 _RATE = re.compile(
     r"^(?P<var>[a-z][a-z0-9]*)_rate_(?P<act>[a-z][a-z0-9_]*?)_(?P<state>[a-z][a-z0-9]*)$"

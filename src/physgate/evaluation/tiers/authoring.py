@@ -31,7 +31,7 @@ from typing import Any
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.metrics import CONTROL_METRIC_UNITS, CONTROL_SCORER_VERSION
-from physgate.evaluation.per_role.task import Role, load_task, parse_task, task_bytes
+from physgate.evaluation.tiers.task import Role, load_task, parse_task, task_bytes
 
 PER_TIER = 8
 CANARIES_NAME = "canaries.json"

@@ -16,7 +16,7 @@ from physgate.evaluation.per_role.exceptions import TaskFormatError
 from physgate.evaluation.per_role.firmware.loop import run_scenario
 from physgate.evaluation.per_role.firmware.plant import Plant
 from physgate.evaluation.per_role.firmware.score import probe_value, score, verdict
-from physgate.evaluation.per_role.task import Task, parse_task
+from physgate.evaluation.tiers.task import Task, parse_task
 
 
 class VirtualClock:

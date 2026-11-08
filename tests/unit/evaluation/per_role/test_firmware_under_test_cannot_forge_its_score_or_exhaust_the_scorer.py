@@ -299,7 +299,7 @@ def test_a_forbidden_state_on_a_piped_line_fails_its_window(tmp_path: Path) -> N
 
     from physgate.evaluation.per_role.firmware.guard import guarded
     from physgate.evaluation.per_role.firmware.loop import GRACE_MS, PipeDevice
-    from physgate.evaluation.per_role.task import parse_task
+    from physgate.evaluation.tiers.task import parse_task
 
     raw = json.loads(_task().model_dump_json())
 
