@@ -36,7 +36,7 @@ from typing import Any
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.metrics import CONTROL_METRIC_UNITS, CONTROL_SCORER_VERSION
-from physgate.evaluation.tiers.task import Role, Task, load_task, parse_task, task_bytes
+from physgate.evaluation.tiers.task import Role, Task, fold_id, load_task, parse_task, task_bytes
 
 PER_TIER = 8
 CANARIES_NAME = "canaries.json"
@@ -349,7 +349,8 @@ def split(
     Raises:
         AuthoringError: the staging directory does not hold exactly ``3 * per_tier`` tasks
             that each load whole with their references and nothing but plain files, a task
-            is one the entry check refuses (``refused_because`` says why) or repeats an id,
+            is one the entry check refuses (``refused_because`` says why) or repeats an id
+            however it is spelt (``id_fold_collision``: :func:`.task.fold_id`),
             the tiers are not apart, a target already exists, or a link is on the way to one.
     """
     places = {"visible": visible, "validation": validation, "held_out": held_out}
@@ -364,9 +365,9 @@ def split(
         raise AuthoringError(msg, staging=str(staging))
     loaded = [load_task(entry) for entry in entries]
     ids = [item.task.id for item in loaded]
-    if len(set(ids)) != len(ids):
-        msg = "the staged tasks repeat an id"
-        raise AuthoringError(msg, staging=str(staging))
+    if len({fold_id(task_id) for task_id in ids}) != len(ids):
+        msg = "the staged tasks repeat an id, however it is spelt (case, compatibility, separators)"
+        raise AuthoringError(msg, staging=str(staging), refused_because="id_fold_collision")
     for item in loaded:
         reason = entry_refusal(item.task)
         if reason is not None:

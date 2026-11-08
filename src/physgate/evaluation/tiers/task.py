@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -56,6 +57,22 @@ Counts = Literal["headline", "secondary"]
 #: The forms an answer takes. Each has its own schema in :mod:`.answer`.
 AnswerForm = Literal["lti_tf", "espidf_project"]
 ScorerId = Literal["control", "firmware"]
+#: The fewest distinct requirements an own task's headline specifications compose between
+#: them (ARCH-141): one requirement tested alone shows no gap when a feature is isolated.
+COMPOSES_AT_LEAST = 2
+#: The separators an id may use, each one the same as any other when ids are compared.
+_SEPARATORS = re.compile(r"[._-]+")
+
+
+def fold_id(name: str) -> str:
+    """What an id is compared as, so two spellings of one id are never two tasks.
+
+    Normalised by compatibility (NFKC: a full-width letter is the letter), case-folded, and
+    normalised again, as a caseless match of identifiers is; then every run of separators
+    (``.``, ``_``, ``-``) is one separator. ``ctl.1``, ``CTL_1`` and ``ctl-1`` fold alike.
+    """
+    folded = unicodedata.normalize("NFKC", unicodedata.normalize("NFKC", name).casefold())
+    return _SEPARATORS.sub("-", folded)
 
 
 class Spec(_Frozen):
@@ -171,7 +188,7 @@ class Task(_Frozen):
             served = {
                 req for spec in self.specs if spec.counts == "headline" for req in spec.composes
             }
-            if len(served) < 2:
+            if len(served) < COMPOSES_AT_LEAST:
                 msg = (
                     f"the task {self.id!r} tests one requirement alone; an own task composes "
                     "at least two"

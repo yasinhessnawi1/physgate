@@ -15,7 +15,8 @@ all) is itself a problem, never a pass. What is checked:
   as (held out, or validation, which is protected exactly as held out is), and carries a
   canary; the canaries are exactly the run's, each carried once;
 - **the visible tier:** it is apart from the held-out tier, neither inside it nor around it,
-  and no task id is both visible and held out, however it is spelt;
+  and no task id is both visible and held out, however it is spelt (case, compatibility,
+  separators: :func:`.task.fold_id`); nor are two of the held-out tier's tasks one id so spelt;
 - **the places:** no place a session works in or reads is the root, lies under it or
   holds it, and none holds a link that reaches it; each is judged by the hooks' own
   matcher (:func:`physgate.hooks.paths.reaches`: every spelling, case-folded, and the
@@ -43,7 +44,7 @@ from physgate.evaluation.tiers.authoring import (
     AuthoringError,
     _open_chain,
 )
-from physgate.evaluation.tiers.task import Canary, load_task, task_from_files
+from physgate.evaluation.tiers.task import Canary, fold_id, load_task, task_from_files
 from physgate.hooks.paths import reaches
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 from physgate.oslayer.policy import sandbox_policy
@@ -171,7 +172,7 @@ def _root_problems(root: Path, run_held_out: tuple[str, ...]) -> list[str]:
 def _tier_problems(
     root: Path, run_canaries: tuple[str, ...], recorded: str | None, label: Protected = "held_out"
 ) -> tuple[list[str], set[str]]:
-    """Every problem with the tier's contents, and its task ids, case-folded.
+    """Every problem with the tier's contents, and its task ids, folded (:func:`.task.fold_id`).
 
     The tier is read once, through descriptors (:func:`snapshot`), and everything below is
     judged on those bytes: its digest, recomputed and held to the digest the run recorded,
@@ -212,7 +213,9 @@ def _tier_problems(
             problems.append(f"the task {task.id!r} is not marked {_SPOKEN[label]} with its canary")
         else:
             carried.append(task.canary)
-        ids.add(task.id.casefold())
+        if fold_id(task.id) in ids:
+            problems.append(f"two tasks of the tier are one id, however spelt: {task.id!r}")
+        ids.add(fold_id(task.id))
     for canary in sorted(set(carried) - set(run_canaries)):
         problems.append(f"a held-out task carries a canary the run does not name ({canary[:4]}…)")
     for canary in sorted(set(run_canaries) - set(carried)):
@@ -245,10 +248,10 @@ def _visible_problems(visible: Path, root: Path, held_ids: set[str]) -> list[str
     if relation is not None:
         return [f"the visible tier {relation} the held-out root"]
     for entry in sorted(visible.iterdir()):
-        names = {entry.name.casefold()}
+        names = {fold_id(entry.name)}
         try:
             task = load_task(entry).task
-            names.add(task.id.casefold())
+            names.add(fold_id(task.id))
             if task.tier == "held_out" or task.canary is not None:
                 problems.append(f"the visible task {task.id!r} is marked as held out")
         except (PerRoleError, OSError, ValueError):
