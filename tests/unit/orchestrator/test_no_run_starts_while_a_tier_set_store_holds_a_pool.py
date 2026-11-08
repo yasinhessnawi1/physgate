@@ -406,7 +406,10 @@ def test_a_role_s_root_that_cannot_be_listed_refuses_the_run(
         return list(real(path))
 
     monkeypatch.setattr(store_module.os, "listdir", unlistable)
-    why = _tier_refusal(_facts(*_whole(store)))
+    try:
+        why = _tier_refusal(_facts(*_whole(store)))
+    except OSError as exc:
+        pytest.fail(f"an unlistable role's root raises, not a counted refusal: {exc!r}")
     assert why is not None and "(store_unreadable)" in why
 
 
