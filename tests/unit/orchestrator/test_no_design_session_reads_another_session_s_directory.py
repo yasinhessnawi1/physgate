@@ -35,7 +35,7 @@ from physgate.oslayer.policy import sandbox_policy
 
 PROFILES = ("role", "baseline")
 #: A sibling session's login, as the subscription mode writes it.
-TOKEN = "sk-ant-oat01-not-a-credential-0c9d"
+TOKEN = "login-stand-in-0c9d"
 SID = "7a6b5c4d-own-session"
 ISSUED = b"# Integration's issued state\n\nThe stand-in.\n"
 
@@ -50,7 +50,7 @@ def _argv(base: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
             seen.append(list(argv))
             out = '{"settings": "s", "config": "c", "spawn_args": [], "spawn_env": {}}'
             return subprocess.CompletedProcess(argv, 0, out, "")
-        return real_run(argv, **kw)  # type: ignore[call-overload,no-any-return]
+        return real_run(argv, **kw)
 
     with monkeypatch.context() as patch:
         patch.setattr(subprocess, "run", run)

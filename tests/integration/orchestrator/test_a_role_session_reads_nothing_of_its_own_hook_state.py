@@ -123,7 +123,7 @@ def test_a_read_of_a_sibling_session_s_login_is_refused_and_the_session_still_ru
 ) -> None:
     # An earlier session of the run left its directory, its login among it. This session's own
     # binary still reads its own configuration, which no tool does, so the session runs.
-    token = "sk-ant-oat01-not-a-credential-5e2f"
+    token = "login-stand-in-5e2f"
     sibling = tmp_path / "run" / "sessions" / "0b1c2d3e-sibling" / "config"
 
     def with_a_sibling(run: Any) -> None:  # noqa: ANN401 - the run's git, as the rig gives it
