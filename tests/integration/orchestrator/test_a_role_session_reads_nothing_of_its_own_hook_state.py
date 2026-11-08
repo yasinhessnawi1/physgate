@@ -115,3 +115,43 @@ def test_a_read_of_what_the_sentinel_kept_is_refused_and_no_readable_file_holds_
         assert paths.protection(str(path), str(worktree), session, writing=False) is not None, path
         command = parse(f"cat {path}")[0]
         assert shell_paths.check(command, str(worktree), session) is not None, path
+
+
+def test_a_read_of_a_sibling_session_s_login_is_refused_and_the_session_still_runs(
+    tmp_path: Path,
+    install_bin: Path,  # noqa: F811 - the fixture imported above
+) -> None:
+    # An earlier session of the run left its directory, its login among it. This session's own
+    # binary still reads its own configuration, which no tool does, so the session runs.
+    token = "sk-ant-oat01-not-a-credential-5e2f"
+    sibling = tmp_path / "run" / "sessions" / "0b1c2d3e-sibling" / "config"
+
+    def with_a_sibling(run: Any) -> None:  # noqa: ANN401 - the run's git, as the rig gives it
+        sibling.mkdir(parents=True)
+        (sibling / ".credentials.json").write_text(
+            '{"claudeAiOauth": {"accessToken": "' + token + '"}}\n'
+        )
+
+    run, store_root = layout(tmp_path)
+    with_a_sibling(run)
+    cfg = config()
+    write_run_config(run.run_dir / "run.json", cfg)
+    worktree = run.subtask_worktree("s1")
+    login = sibling / ".credentials.json"
+    steps = [*knowledge_reads(worktree), read_spec(run), tool("Read", file_path=str(login))]
+    with serving(Script(main=[*steps, text("done")])) as (api, url):
+        dispatcher = ClaudeDispatcher(
+            config=cfg,
+            run=run,
+            store_root=store_root,
+            install_bin=install_bin,
+            binary=claude_binary(),
+            base_url=url,
+            credential=Credential("api_key", DUMMY_KEY),
+            review_root=Path("/nonexistent/review-scratch"),
+        )
+        report = dispatcher.run(request(cfg))
+    assert report.end.outcome == "completed", report
+    told = next(r.last_user for r in api.requests if r.tool_results == len(steps))
+    assert str(login) in told and token not in told, told
+    assert "session" in told and "protected" in told.lower(), told
