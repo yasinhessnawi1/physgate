@@ -194,6 +194,13 @@ def test_records_of_work_left_are_counted_and_no_role_s_own_is_its_to_ignore(
     assert leftovers(store, continuing=own).get("work_left") == 2
 
 
+def test_a_record_of_work_left_under_a_withheld_root_counts_too(tmp_path: Path) -> None:
+    leftovers = _api("physgate.evaluation.tiers.store.leftovers")
+    store = _store(tmp_path)
+    _record(store, "control/withheld/check.working")
+    assert leftovers(store).get("work_left") == 1
+
+
 # ---------------------------------------- a role's root or the store itself names the store
 
 
@@ -333,6 +340,15 @@ def test_a_run_naming_only_part_of_a_withheld_root_asks_for_all_of_it(tmp_path: 
     assert str(store / "control" / "withheld") in why
 
 
+def test_a_run_naming_part_of_a_withheld_root_before_any_version_asks_for_all_of_it(
+    tmp_path: Path,
+) -> None:
+    store = tmp_path.resolve() / "store"
+    (store / "control" / "withheld" / "author").mkdir(parents=True)
+    why = _withheld_refusal(_facts(store / "control" / "withheld" / "author"))
+    assert why is not None and "(withheld_root_not_named)" in why
+
+
 def test_a_withheld_root_named_in_another_case_does_not_stand_in_for_it(tmp_path: Path) -> None:
     store = _store(tmp_path)
     (store / "control" / "withheld").mkdir()
@@ -375,6 +391,23 @@ def test_a_run_on_one_version_not_naming_an_older_version_s_tiers_is_refused(
     assert why is not None and "(protected_tier_not_named)" in why
     assert str(older / "held_out") in why and str(older / "validation") in why
     assert str(newer / "held_out") not in why
+
+
+def test_a_role_s_root_that_cannot_be_listed_refuses_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _store(tmp_path)
+    store_module = _api("physgate.evaluation.tiers.store")
+    real = store_module.os.listdir
+
+    def unlistable(path: Any = ".") -> list[str]:
+        if isinstance(path, str | os.PathLike) and Path(path) == store / "control":
+            raise PermissionError(f"cannot list {path}")
+        return list(real(path))
+
+    monkeypatch.setattr(store_module.os, "listdir", unlistable)
+    why = _tier_refusal(_facts(*_whole(store)))
+    assert why is not None and "(store_unreadable)" in why
 
 
 def test_a_run_withholding_every_protected_tier_or_the_role_s_root_starts(tmp_path: Path) -> None:
@@ -443,6 +476,25 @@ def test_a_root_named_in_another_case_is_refused_where_the_volume_ignores_case(
     other = store / "CONTROL" / "withheld"
     why = _spelling_refusal(_facts(version / "held_out", version / "validation", other))
     assert why is not None and "(held_out_not_spelt_as_on_disk)" in why
+
+
+def test_a_root_whose_spelling_cannot_be_judged_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _store(tmp_path)
+    (store / "control" / "withheld").mkdir()
+    store_module = _api("physgate.evaluation.tiers.store")
+    real = store_module.os.listdir
+
+    def unlistable(path: Any = ".") -> list[str]:
+        if isinstance(path, str | os.PathLike) and Path(path) == store / "control" / VERSION:
+            raise PermissionError(f"cannot list {path}")
+        return list(real(path))
+
+    monkeypatch.setattr(store_module.os, "listdir", unlistable)
+    why = _spelling_refusal(_facts(*_whole(store)))
+    assert why is not None and "(held_out_not_spelt_as_on_disk)" in why
+    assert "cannot be judged" in why
 
 
 def test_roots_spelt_as_on_disk_or_a_run_naming_no_store_start(tmp_path: Path) -> None:

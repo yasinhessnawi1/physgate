@@ -118,6 +118,8 @@ def test_an_author_stopped_before_its_work_was_secured_stops_the_next_session(
         f"an author ran while another's tasks lay outside the root: {out}"
     )
     assert fake.calls == []
+    # The refusal names the work to look at, not only that some work is left.
+    assert str(tmp_path / "scratch" / "work") in out.get("work", "")
 
 
 def test_a_check_whose_cleanup_failed_stops_the_next_check(
