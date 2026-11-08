@@ -461,16 +461,12 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         sessions = request.sessions_root
         if request.profile in ("role", "baseline"):
             # Assigned, not defaulted: named as a refuse-only root too, it is still kept from
-            # every read. What the session reads of its own stays open: its home, and anything it
-            # is given to read beneath the root (integration's issued state).
+            # every read, its own home included. Only a file it is given to read beneath the
+            # root stays open to its tools (integration's issued state); its binary reads its
+            # own configuration itself, and the OS layer opens its home to its commands.
             protected[sessions] = (SESSIONS_REASON, "none")
             reads[sessions] = "denied"
-            own = (
-                request.user_home,
-                *request.required_reading,
-                *request.always_loaded,
-                *request.os_layer_readable,
-            )
+            own = (*request.required_reading, *request.always_loaded)
             read_exceptions[sessions] = tuple(sorted({p for p in own if _inside(p, sessions)}))
         else:
             protected.setdefault(sessions, (SESSIONS_REASON, "none"))

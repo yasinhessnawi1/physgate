@@ -68,6 +68,7 @@ layer's use of it are the protection.
 from __future__ import annotations
 
 import os
+import stat
 from typing import TYPE_CHECKING
 
 from physgate.hooks.reasons import (
@@ -304,6 +305,24 @@ def _resolved(path: str, cwd: str) -> str:
 HELD_OUT_READERS_REFUSED = ("role", "reviewer", "baseline")
 
 
+def _own_reading(path: str, place: str) -> bool:
+    """Whether ``path`` is the file ``place`` names, or beneath it, and so read after all.
+
+    An allowance, so it is held on the path as spelt and as resolved, both exactly beneath
+    ``place`` (as given or resolved), never case-folded, and the path is no symbolic link and no
+    file with a second name: a link made in the session's own directory to another session's file
+    is not the file it was given to read.
+    """
+    places = _spellings(place)
+    if not all(any(_under(s, p) for p in places) for s in (path, os.path.realpath(path))):
+        return False
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return not stat.S_ISLNK(st.st_mode) and not (stat.S_ISREG(st.st_mode) and st.st_nlink > 1)
+
+
 def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
     """Why the one spelling ``absolute`` may not be touched this way, by the listed rules."""
     chain = _chain_ids(absolute)
@@ -341,7 +360,7 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
                     or root.reason in (WITHHELD_REASON, SESSIONS_REASON)
                 )
                 and _reaches(absolute, root.path, chain)
-                and not any(_reaches(absolute, own, chain) for own in root.read_exceptions)
+                and not any(_own_reading(absolute, own) for own in root.read_exceptions)
             ):
                 return root.reason
         return None
@@ -399,8 +418,11 @@ def read_refused(path: str, config: ConfigView) -> bool:
     its copies are never one more place to read a withheld file from. Judged on the path as
     given and as the operating system resolves it, as :func:`protection` judges a read.
     """
+    # The run's session directories are kept from a session for what the other sessions keep
+    # there; the session's own files there (its settings, its home's git configuration) are read
+    # by no other session, so their kept bytes need no seal.
     return any(
-        _rules(spelling, config, writing=False) is not None
+        _rules(spelling, config, writing=False) not in (None, SESSIONS_REASON)
         for spelling in dict.fromkeys((path, os.path.realpath(path)))
     )
 

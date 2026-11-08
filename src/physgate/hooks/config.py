@@ -96,9 +96,9 @@ class ProtectedRoot(BaseModel):
     #: it at all (the hooks' own records among them, which the hooks read in their own
     #: processes, outside every tool call and the sandbox).
     reads: Reads = "open"
-    #: Paths beneath a root no tool reads that the session still reads, by a tool and by a named
-    #: command: its own home and what it is given to read there, inside the run's session
-    #: directories. Empty by default; the OS layer opens them again where they hold the home.
+    #: Files beneath a root no tool reads that the session is given to read after all, inside the
+    #: run's session directories (integration's issued state). Held exactly: a link there, or a
+    #: file with a second name, is not one of them. Empty by default.
     read_exceptions: tuple[AbsolutePath, ...] = ()
     #: Whether the OS layer leaves shell writes to it alone: ``allowed`` only for a root
     #: that a script legitimately writes and whose contents something else judges (the

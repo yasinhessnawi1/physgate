@@ -77,10 +77,10 @@ WITHHELD_REASON = (
 HOOK_STATE_REASON = "it holds the hook layer's own records of this session"
 
 #: Given for a role or baseline session's read of the run's session directories: every session's
-#: login, captured stream, settings and hook records. Its own home there stays readable.
+#: login, captured stream, settings and hook records. Only what it is given to read there is open.
 SESSIONS_REASON = (
     "it is the run's session directories, which hold each session's login, stream and records; "
-    "a session reads only its own home there"
+    "a session reads there only what it is given to read"
 )
 
 #: Given to a reviewer for a read outside its allowance. Neutral on purpose: a
