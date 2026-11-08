@@ -239,17 +239,24 @@ def read_session_file(path: Path) -> bytes:
         os.close(fd)
 
 
+#: The run's recorded configuration, withheld from every role session's reads.
+RUN_CONFIG_NAME = "run.json"
+#: The decomposition call's and its plan review's directory in the run.
+DECOMPOSITION_DIR = "decomposition"
+
+#: The run's records that hold the held-out tier's canaries, each withheld from every role
+#: session's reads: the configuration, and the decomposition's directory, where the record of a
+#: running plan review names them so that a later command can scan its streams.
+WITHHELD_RECORDS = (RUN_CONFIG_NAME, DECOMPOSITION_DIR)
+
 #: The run's own records, in the run directory. The session's working directory is
 #: one level below it, so none of these contains the worktree.
 #: The run's records a role session may not write and the sentinel puts back. ``series`` holds
 #: the simulation records sealed at each session's end, which the orchestrator writes only
 #: between sessions.
-#: The run's recorded configuration, withheld from every role session's reads.
-RUN_CONFIG_NAME = "run.json"
-
 RUN_RECORDS = (
     RUN_CONFIG_NAME,
-    "decomposition",
+    DECOMPOSITION_DIR,
     "series",
 )
 #: The run's append-only records, which the orchestrator holds and appends to: its event log,
@@ -1433,9 +1440,10 @@ class ClaudeDispatcher:
         # Where reviews are prepared, each packet with its copy of a rubric: withheld
         # from the role session like the library's reviewer tree.
         protect += ["--review-material", str(self._review_root)]
-        # The run's configuration names the held-out tier's canaries: no read of it, by any
-        # route, though it lies two levels above the worktree.
-        protect += ["--withheld", str(self._run.run_dir / RUN_CONFIG_NAME)]
+        # The run's records that name the held-out tier's canaries: no read of them, by any
+        # route, though they lie two levels above the worktree.
+        run_dir = self._run.run_dir
+        protect += [arg for name in WITHHELD_RECORDS for arg in ("--withheld", str(run_dir / name))]
         # The always-loaded set (cross's standards, the role's own standards and
         # skill) is a subset of required reading, which adds the module spec and every
         # interface contract the specification commit issued (a superset of the ones

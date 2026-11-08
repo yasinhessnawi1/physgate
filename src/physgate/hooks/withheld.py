@@ -41,10 +41,15 @@ def roots_of(config: ConfigView) -> tuple[str, ...]:
     """
     from physgate.hooks.reasons import WITHHELD_REASON
 
+    # A withheld directory is kept from every read, but not tripwired: the harness itself puts a
+    # link in one (the decomposition's latest round), which the tripwire would take for a second
+    # name. A link to one of its files needs its path named, which the hooks refuse.
     records = tuple(
         root.path
         for root in config.protected_roots
-        if root.reason == WITHHELD_REASON and root.reads == "denied"
+        if root.reason == WITHHELD_REASON
+        and root.reads == "denied"
+        and not os.path.isdir(root.path)
     )
     return (*config.held_out, *config.answer_keys, *records)
 

@@ -22,6 +22,7 @@ from physgate.hooks import paths, shell_paths
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 from physgate.hooks.shell import parse
+from physgate.orchestrator import dispatch
 from physgate.oslayer.policy import sandbox_policy
 
 CANARY = "cd" * 16
@@ -91,7 +92,43 @@ def test_the_os_layer_denies_every_read_of_the_run_s_configuration(
 def test_every_role_session_is_installed_with_the_run_s_configuration_withheld(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run_json = str(tmp_path / "run" / "run.json")
+    named = [str(tmp_path / "run" / "run.json"), str(tmp_path / "run" / "decomposition")]
     for temp in (None, Path("/tmp/pg-0123456789ab")):
         argv = _install_argv(tmp_path, monkeypatch, temp=temp)
-        assert _values(argv, "--withheld") == [run_json], argv
+        assert _values(argv, "--withheld") == named, argv
+
+
+#: Two canaries, as a run with a held-out tier records them.
+CANARIES = ("ab" * 16, "ef" * 16)
+
+
+def test_no_file_the_run_writes_that_a_role_session_could_read_holds_a_canary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The run's places as the loop writes them: its configuration and its decomposition, with a
+    # plan review; then the record a running review leaves when its command is killed.
+    import replan_rig
+    from replan_rig import Step, decompose
+
+    from physgate.orchestrator.decomposition_review import review_spawned
+
+    monkeypatch.setattr(
+        replan_rig, "PARAMS", {**replan_rig.PARAMS, "held_out_canaries": list(CANARIES)}
+    )
+    ran = decompose(tmp_path, "on", [Step(review="pass")])
+    assert ran.code == 0, ran.err
+    review_spawned(ran.run_dir, canaries=CANARIES)("review-1", 1, "2026-11-08T00:00:00Z")
+    # What the dispatcher withholds (the row above holds it to the install it builds).
+    withheld = [ran.run_dir / name for name in getattr(dispatch, "WITHHELD_RECORDS", ())]
+    holding = sorted(
+        path
+        for path in ran.run_dir.rglob("*")
+        if path.is_file()
+        and not path.is_symlink()
+        and any(c.encode() in path.read_bytes() for c in CANARIES)
+    )
+    names = {path.relative_to(ran.run_dir).as_posix() for path in holding}
+    # Not vacuous: both records that name the canaries are found.
+    assert {"run.json", "decomposition/review_session.json"} <= names, names
+    readable = [p for p in holding if not any(p == w or w in p.parents for w in withheld)]
+    assert readable == [], readable
