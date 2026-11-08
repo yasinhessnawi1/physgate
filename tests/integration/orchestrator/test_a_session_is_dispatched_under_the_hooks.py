@@ -40,6 +40,7 @@ from physgate.orchestrator.install import prepare_install  # noqa: E402
 from physgate.orchestrator.invocation import claude_binary  # noqa: E402
 from physgate.orchestrator.managed import system_managed_paths  # noqa: E402
 from physgate.orchestrator.merge import RunGit  # noqa: E402
+from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD  # noqa: E402
 from physgate.orchestrator.ports import SessionRequest  # noqa: E402
 from physgate.orchestrator.run_config import RunConfig, write_run_config  # noqa: E402
 from physgate.state.store import Store  # noqa: E402
@@ -548,6 +549,10 @@ def test_a_session_cannot_write_the_run_s_records_streams_integration_worktree_o
     # The event log is one dispatch reads (whether the run recorded interface contracts),
     # and refuses when it cannot: it starts empty, as a run's log is before its first line.
     records["events.jsonl"] = ""
+    # The record of the run's parameters file is one dispatch reads too, and names the file.
+    params = tmp_path / "params.json"
+    params.write_text("{}\n")
+    records[PARAMS_RECORD] = json.dumps({"params": str(params)}) + "\n"
     run_dir.mkdir(parents=True)
     for name, content in records.items():
         (run_dir / name).write_text(content)
