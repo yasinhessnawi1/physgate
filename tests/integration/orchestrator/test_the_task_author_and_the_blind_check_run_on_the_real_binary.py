@@ -237,9 +237,9 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
     keys = sorted(bundle(tier))
     answers = {k: dict.fromkeys(QUESTIONS, True) for k in keys}
     answers[keys[0]]["answerable_as_asked"] = False
-    # The check works in the role's work root, and withholds the rest a run withholds.
+    # The check works in the role's work root, and withholds all of the role's root but it.
     work = work_root(store, "control") / "check"
-    held = tuple(str(p) for p in check_roots(store, "control"))
+    held = tuple(str(p) for p in check_roots(store, "control", work))
     steps = [
         tool("Read", file_path=str(work / "worktree" / "tasks.json")),
         tool(

@@ -53,7 +53,7 @@ def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, work: str, version: 
     plan = _plan(tmp_path)
     fake = FakeSession(_answers, session_id=f"s-{work}")
     monkeypatch.setattr(author_session, "run_session", fake)
-    setup = check_setup(plan.store, _setup(tmp_path / "private"))
+    setup = check_setup(plan.store, _setup(tmp_path / "private"), work)
     # The tier asked for, whether or not a version is there: the refusal looked for is
     # the work left, not the tier.
     tier = str(plan.root / version / "held_out")

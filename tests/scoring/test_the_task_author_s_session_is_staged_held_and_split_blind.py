@@ -466,9 +466,15 @@ def check_work(store: Path, name: str = "check") -> Path:
     return Path(_store_api("work_root")(store, "control")) / name
 
 
-def check_setup(store: Path, base: RawSetup) -> RawSetup:
-    """``base`` withholding what the command's blind check withholds: all but the work root."""
-    roots = _store_api("check_roots")(store, "control")
+def check_setup(store: Path, base: RawSetup, name: str = "check") -> RawSetup:
+    """``base`` withholding what the command's blind check working in ``name`` withholds.
+
+    All of the role's root but that check's own work (:func:`check_work`).
+    """
+    try:
+        roots = _store_api("check_roots")(store, "control", check_work(store, name))
+    except TypeError as exc:
+        pytest.fail(f"the check's roots are not given its own work: {exc}")
     return dataclasses.replace(base, held_out=tuple(str(p) for p in roots))
 
 

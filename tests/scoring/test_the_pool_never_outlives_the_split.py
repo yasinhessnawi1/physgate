@@ -351,12 +351,13 @@ def test_the_blind_check_s_session_withholds_what_a_run_on_the_role_s_root_withh
     assert fake.calls == []
 
 
-def test_the_blind_check_runs_when_its_session_withholds_what_a_run_does(
+def test_the_blind_check_runs_when_its_session_withholds_the_role_s_root_but_its_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    # The version whole and the withheld root: all of the role's root but the work root.
     version = _root(tmp_path).resolve() / out["version"]
-    held = (version / "held_out", version / "validation", _root(tmp_path).resolve() / "withheld")
+    held = (version, _root(tmp_path).resolve() / "withheld")
     fake = FakeSession(_answers(_all_yes), session_id="c-1")
     monkeypatch.setattr(author_session, "run_session", fake)
     checked = _blind_check(tmp_path, out["version"], held_out=held)
@@ -422,7 +423,47 @@ def test_the_blind_check_command_works_in_the_work_root_and_withholds_all_else(
     work_root = store / "control" / "work"
     assert work.parent == work_root, f"the check works at {work}, not in the work root"
     version = store / "control" / out["version"]
-    assert sorted(held) == sorted(
-        str(p)
-        for p in (store / "control" / "withheld", version / "validation", version / "held_out")
+    # All of the role's root but the check's own work: the version whole, its manifest and
+    # visible tier included, and the withheld root.
+    expected = (store / "control" / "withheld", version)
+    assert sorted(held) == sorted(str(p) for p in expected)
+
+
+def test_a_blind_check_whose_session_does_not_withhold_all_of_the_role_s_root_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    root = _root(tmp_path).resolve()
+    version = root / out["version"]
+    (root / "work" / "check-other" / "worktree").mkdir(parents=True)
+    # What a run withholds, without the version's manifest and visible tier or another
+    # check's work.
+    held = (version / "held_out", version / "validation", root / "withheld")
+    fake = FakeSession(_answers(_all_yes), session_id="c-1")
+    monkeypatch.setattr(author_session, "run_session", fake)
+    with pytest.raises(AuthoringError) as refused:
+        _blind_check(tmp_path, out["version"], held_out=held)
+    assert refused.value.context.get("refused_because") == "role_root_entry_not_withheld"
+    assert fake.calls == []
+
+
+def test_a_manifest_changed_while_the_check_ran_refuses_its_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    manifest = _root(tmp_path) / out["version"] / "tierset.json"
+
+    def answer_and_tamper(worktree: Path) -> None:
+        _answers(_all_yes)(worktree)
+        manifest.write_bytes(manifest.read_bytes().replace(b"control", b"Control", 1))
+
+    fake = FakeSession(answer_and_tamper, session_id="c-1")
+    monkeypatch.setattr(author_session, "run_session", fake)
+    try:
+        checked = _blind_check(tmp_path, out["version"])
+    except AuthoringError as exc:
+        checked = exc.context
+    assert checked.get("refused_because") == "version_changed", (
+        f"the check's answer was taken after its version changed: {checked}"
     )
+    assert (_root(tmp_path) / "withheld" / "check" / "c-1" / "stdout.jsonl").is_file()

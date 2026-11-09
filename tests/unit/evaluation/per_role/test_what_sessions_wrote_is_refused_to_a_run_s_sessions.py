@@ -156,3 +156,43 @@ def test_a_run_s_session_is_refused_the_blind_check_s_work_on_every_route(
     assert [d for d in deny_read if target.startswith(d.rstrip("/") + "/")], (
         f"{named}: a {profile} session's OS layer does not deny the check's work"
     )
+
+
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_a_check_s_session_is_refused_all_of_the_role_s_root_but_its_own_work(
+    tmp_path: Path, profile: str
+) -> None:
+    base = tmp_path.resolve()
+    store = base / "private" / "store"
+    version = store / "control" / VERSION
+    for tier in ("visible", "held_out", "validation"):
+        (version / tier).mkdir(parents=True)
+    (version / "tierset.json").write_text("{}")
+    _written(store)
+    work = Path(_api("physgate.evaluation.tiers.store.work_root")(store, "control"))
+    sibling = work / "check-other" / "worktree" / "tasks.json"
+    sibling.parent.mkdir(parents=True)
+    sibling.write_text("another check's held-out copy")
+    own = work / "check-own"
+    (own / "worktree").mkdir(parents=True)
+    try:
+        held = tuple(_api("physgate.evaluation.tiers.store.check_roots")(store, "control", own))
+    except TypeError as exc:
+        pytest.fail(f"the check's roots are not given its own work: {exc}")
+    config = _config(base, profile, held)
+    policy = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/tmp/pg-ck")
+    deny_read = policy.settings["sandbox"]["filesystem"]["denyRead"]
+    wt = str(base / "wt")
+    for place in (version / "tierset.json", version / "visible", sibling):
+        target, where = str(place), place.relative_to(base)
+        assert paths.protection(target, wt, config, writing=False), (
+            f"a check's {profile} session's file tool may read {where}"
+        )
+        assert shell_paths.check(parse(f"cat {target}")[0], wt, config), (
+            f"a check's {profile} session's shell may read {where}"
+        )
+        assert [d for d in deny_read if (target + "/").startswith(d.rstrip("/") + "/")], (
+            f"a check's {profile} session's OS layer does not deny {where}"
+        )
+    own_task = str(own / "worktree" / "tasks.json")
+    assert not paths.protection(own_task, wt, config, writing=False), "its own work is refused"
