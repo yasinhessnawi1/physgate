@@ -150,6 +150,7 @@ def test_the_session_is_spawned_with_no_worktree_settings_and_this_file_by_flag(
     assert done.spawn_env == {
         "CLAUDE_CONFIG_DIR": str(tmp_path / "claude-config"),
         "CLAUDE_CODE_TMPDIR": OWN_TEMP,
+        "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
     }
     assert not (tmp_path / "worktree" / ".claude").exists()
 

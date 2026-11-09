@@ -831,6 +831,11 @@ def install(
         # among them, and not in the directory every session of the user shares (``TMPDIR`` was
         # measured to move nothing).
         spawn_env["CLAUDE_CODE_TMPDIR"] = own_temp
+    if request.profile in OWN_TEMP_PROFILES:
+        # No command goes to the background, by any route the binary offers (asked for, past its
+        # timeout, or on its own): its output would be left in the session's own temporary
+        # directory for a Read, and no file tool reads there (see ``paths._rules``).
+        spawn_env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"
     temp = request.os_layer_temp_dir
     if temp is not None:
         readable = request.os_layer_readable

@@ -343,7 +343,9 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
     directory, in the kernel, where the OS layer judges every open. A file tool never does: its
     path is judged before the tool opens it, and the session's commands write there in between,
     so a file judged could be a link by then. That holds while no role or baseline session runs
-    a command in the background, whose output the binary leaves there for a Read.
+    a command in the background, whose output the binary leaves there for a Read: the shell hook
+    refuses ``run_in_background``, and the installer sets ``CLAUDE_CODE_DISABLE_BACKGROUND_TASKS``
+    for every such session, which closes the binary's other routes there.
     """
     chain = _chain_ids(absolute)
     for held in config.held_out:
