@@ -370,3 +370,24 @@ export function takenWords(t: Taken): string {
     );
   return done[t.effect] + by;
 }
+
+/**
+ * The sentence a contract's or a system-scope item records in place of a diff, as it is written.
+ * A commit id is 40 hexadecimal characters, or 64 in a repository of git's sha256 object format.
+ */
+const BRANCH_DIFF =
+  /^The run branch from ([0-9a-f]{64}|[0-9a-f]{40}) to ([0-9a-f]{64}|[0-9a-f]{40}): see `git diff \1 \2` in the target repository\.$/;
+
+/**
+ * An item's artefact diff as the page shows it. Where the item records the run branch between two
+ * commits in place of a diff, the page names both commits and no command: no screen shows a
+ * terminal command. Any other diff is shown as recorded.
+ */
+export function diffWords(artefactDiff: string): string {
+  const branch = BRANCH_DIFF.exec(artefactDiff);
+  if (branch === null) return artefactDiff;
+  return (
+    `The run branch in the target repository, from commit ${branch[1] ?? ""} to commit ` +
+    `${branch[2] ?? ""}. The item carries no diff of its own.`
+  );
+}

@@ -27,7 +27,6 @@ import hashlib
 import json
 import os
 import re
-import secrets
 import shlex
 import shutil
 import stat
@@ -83,6 +82,7 @@ from physgate.orchestrator.exceptions import (
     AccountingError,
     InvocationError,
     OrchestratorError,
+    RunStateError,
     WorktreeMisplacedError,
 )
 from physgate.orchestrator.git import common_dir, named_from, object_format, verified_git_dir
@@ -92,6 +92,8 @@ from physgate.orchestrator.integration_state import STATE_NAME
 from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
 from physgate.orchestrator.managed import drift, model_answered, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, attempt_head, attempt_message, commit_attempt
+from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
+from physgate.orchestrator.params_record import recorded_params
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
     Leftover,
@@ -119,6 +121,7 @@ from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
+from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
 from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
@@ -239,14 +242,40 @@ def read_session_file(path: Path) -> bytes:
         os.close(fd)
 
 
+#: The run's recorded configuration, withheld from every role session's reads.
+RUN_CONFIG_NAME = "run.json"
+#: The decomposition call's and its plan review's directory in the run.
+DECOMPOSITION_DIR = "decomposition"
+
+#: The run's records that hold the held-out tier's canaries, each withheld from every role
+#: session's reads: the configuration, and the decomposition's directory, where the record of a
+#: running plan review names them so that a later command can scan its streams.
+WITHHELD_RECORDS = (RUN_CONFIG_NAME, DECOMPOSITION_DIR)
+
+
+def withheld_paths(run_dir: Path) -> tuple[Path, ...]:
+    """Everything a role session of the run in ``run_dir`` is installed with withheld.
+
+    The run's records that hold the canaries, and the parameters file the run was started with,
+    wherever it lies, as the run recorded it.
+
+    Raises:
+        RunStateError: the run's record of its parameters file cannot be read.
+    """
+    params = recorded_params(run_dir)
+    named = tuple(run_dir / name for name in WITHHELD_RECORDS)
+    return (*named, params) if params is not None else named
+
+
 #: The run's own records, in the run directory. The session's working directory is
 #: one level below it, so none of these contains the worktree.
 #: The run's records a role session may not write and the sentinel puts back. ``series`` holds
 #: the simulation records sealed at each session's end, which the orchestrator writes only
 #: between sessions.
 RUN_RECORDS = (
-    "run.json",
-    "decomposition",
+    RUN_CONFIG_NAME,
+    DECOMPOSITION_DIR,
+    PARAMS_RECORD,
     "series",
 )
 #: The run's append-only records, which the orchestrator holds and appends to: its event log,
@@ -259,6 +288,18 @@ HELD_RECORDS = (
     "queue.jsonl",
     ACCOUNT_NAME,
 )
+
+
+def withheld_before_commit(config_path: Path) -> str | None:
+    """What the tripwire finds wrong with the files no session reads, before a commit.
+
+    The held-out tier, the answer-key corpora and the run's withheld records, as the session's
+    own configuration names them: one problem per file with a second name or that cannot be
+    checked, joined; ``None`` when there is none.
+    """
+    session_config = SessionConfig.model_validate_json(config_path.read_bytes())
+    _, problems = withheld.survey(withheld.roots_of(session_config))
+    return "; ".join(problems) if problems else None
 
 
 def run_record_roots(run: RunGit) -> tuple[Path, ...]:
@@ -499,6 +540,21 @@ def role_prompt(request: SessionRequest, state: Path | None = None) -> str:
             "The harness rules on it by a fixed precedence and shows it to no other session; a "
             "file left in place disputes again on your next attempt, and deleting it withdraws "
             "it.\n"
+        )
+    if request.interfaces:
+        # The edge a contract clause reads, which values alone never form.
+        from physgate.orchestrator.repair import interfaces_named
+
+        many = len(request.interfaces) > 1
+        text += (
+            f"\nYour module shares the design graph's {interfaces_named(request.interfaces)} "
+            "with other modules, and a contract test holds it to "
+            f"{'each' if many else 'it'} once both modules have merged. Join your module to "
+            f"{'each' if many else 'it'}: in a node of your own (never the interface node, which "
+            "no session writes), list the interface's id in the node's \"constrains\" array, and "
+            "carry there every one of the interface's quantities under the same name, as the "
+            'interface holds it. A node whose "constrains" names an interface is held to all of '
+            "that interface's quantities.\n"
         )
     if state is not None:
         text += (
@@ -1393,8 +1449,19 @@ class ClaudeDispatcher:
         return ()
 
     def _install(
-        self, request: SessionRequest, worktree: Path, sdir: Path, temp: Path | None
+        self,
+        request: SessionRequest,
+        worktree: Path,
+        sdir: Path,
+        temp: Path | None,
+        *,
+        own_temp: Path | None,
     ) -> Installed:
+        """Install the session's hooks; ``temp`` is the OS layer's directory, ``None`` without it.
+
+        ``own_temp`` is the session's own temporary directory, the layer's where it runs; a
+        session given none is refused by the installer.
+        """
         state = sdir / "state"
         state.mkdir(parents=True)
         helper: list[str] = []
@@ -1409,12 +1476,27 @@ class ClaudeDispatcher:
             arg for root in run_record_roots(self._run) for arg in ("--protect-record", str(root))
         ]
         protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
+        # Every session's own directory: its login, stream and records. No role session's hooks
+        # read another's, nor its own, its home included, but for what it is given to read
+        # there; the OS layer opens its home to its commands, and its binary reads its
+        # configuration itself.
+        protect += ["--sessions-root", str(self._run.run_dir / "sessions")]
         # A session in the target's worktree has nothing of its own in the harness
         # checkout, and the live gate reads from it.
         protect += harness_protection()
         # Where reviews are prepared, each packet with its copy of a rubric: withheld
         # from the role session like the library's reviewer tree.
         protect += ["--review-material", str(self._review_root)]
+        # The run's records that name the held-out tier's canaries, and its parameters file:
+        # no read of them, by any route, though they lie within reach of the worktree.
+        try:
+            withheld_now = withheld_paths(self._run.run_dir)
+        except RunStateError as exc:
+            msg = (
+                "the run's records name no parameters file to withhold, so no session is installed"
+            )
+            raise InvocationError(msg, why=str(exc)) from exc
+        protect += [arg for path in withheld_now for arg in ("--withheld", str(path))]
         # The always-loaded set (cross's standards, the role's own standards and
         # skill) is a subset of required reading, which adds the module spec and every
         # interface contract the specification commit issued (a superset of the ones
@@ -1470,6 +1552,9 @@ class ClaudeDispatcher:
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # Without the layer the session still keeps its temporary files in a directory of
+            # its own, never in the one every session of the user shares.
+            *(["--temp", str(own_temp)] if temp is None and own_temp is not None else []),
             # Without the layer the installer writes the settings only for a run whose recorded
             # configuration allows that, and reads it there.
             *(["--run-config", str(self._run.run_dir / "run.json")] if temp is None else []),
@@ -1531,9 +1616,8 @@ class ClaudeDispatcher:
                 configuration does not allow that; nothing of the session exists yet.
         """
         # The check a run is held to at its configuration, run and resume, held again where a
-        # role session is made, whatever led here: without the layer the session gets no
-        # temporary directory of its own, its settings no sandbox, and its shell is bounded by
-        # the text hooks alone.
+        # role session is made, whatever led here: without the layer the session's settings
+        # carry no sandbox, and its shell is bounded by the text hooks alone.
         why = os_layer_refusal(self._config, self.os_layer())
         if why is not None:
             raise InvocationError(why, subtask_id=request.subtask_id)
@@ -1559,11 +1643,16 @@ class ClaudeDispatcher:
         # collected) is moved aside first, so every record this session leaves is its own.
         left_over = empty_outbox(worktree, self._run.run_dir, session_id)
         sdir = self._run.run_dir / "sessions" / session_id
-        # Where the OS layer runs, the session gets a temporary directory of its own,
-        # short enough that Claude Code does not replace it with the shared default.
-        temp = Path("/tmp") / f"pg-{secrets.token_hex(6)}" if self._layer_on() else None
-        if temp is not None:
-            temp.mkdir(mode=0o700)
+        # Every session gets a temporary directory of its own, beneath the one parent no other
+        # session reads or writes, and short enough that Claude Code does not replace it with the
+        # one every session of the user shares (the session's own directory is far longer);
+        # where the OS layer runs, it is the layer's too.
+        try:
+            own_temp = make_session_temp()
+        except OSError as exc:
+            msg = "no temporary directory of the session's own could be made, so none is started"
+            raise InvocationError(msg, subtask_id=request.subtask_id, error=str(exc)) from exc
+        temp = own_temp if self._layer_on() else None
         try:
             return self._run_session(
                 request,
@@ -1574,10 +1663,10 @@ class ClaudeDispatcher:
                 temp,
                 on_spawn=on_spawn,
                 left_over=left_over,
+                own_temp=own_temp,
             )
         finally:
-            if temp is not None:
-                shutil.rmtree(temp, ignore_errors=True)
+            shutil.rmtree(own_temp, ignore_errors=True)
 
     def _layer_on(self) -> bool:
         return isinstance(self.os_layer(), Present)
@@ -1593,12 +1682,13 @@ class ClaudeDispatcher:
         *,
         on_spawn: SpawnHook | None,
         left_over: tuple[SetAside, ...],
+        own_temp: Path,
     ) -> SessionReport:
         system_before = self.environment().system_managed
         # Made before the installation, so the OS layer's rules name them as they will stand.
         (sdir / "home").mkdir(parents=True, exist_ok=True)
         runtime_paths(worktree, sdir / "home")
-        installed = self._install(request, worktree, sdir, temp)
+        installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
         # Read before the session starts, while nothing of it can have touched the file.
         end_check = session_end_command(Path(installed.settings))
         env = isolated_env(
@@ -1820,11 +1910,9 @@ class ClaudeDispatcher:
             # directories these are the places it can write besides its worktree.
             writable_roots=(sdir, *temporary_roots()),
         )
-        # The held-out and answer-key tripwire, once more before the attempt is committed:
+        # The tripwire on the files no session reads, once more before the attempt is committed:
         # a second name, a changed file or one that cannot be checked refuses the attempt.
-        session_config = SessionConfig.model_validate_json(Path(installed.config).read_bytes())
-        _, problems = withheld.survey((*session_config.held_out, *session_config.answer_keys))
-        withheld_problems = "; ".join(problems) if problems else None
+        withheld_problems = withheld_before_commit(Path(installed.config))
         commit = (
             commit_attempt(
                 worktree,

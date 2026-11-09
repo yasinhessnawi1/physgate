@@ -270,7 +270,7 @@ def test_a_plan_review_reaches_a_verdict_through_the_session_path(
     monkeypatch.setattr(
         ClaudeReviewer,
         "_install",
-        lambda self, p, sdir: Installed(settings="s", config="c", spawn_args=(), spawn_env={}),
+        lambda *_a: Installed(settings="s", config="c", spawn_args=(), spawn_env={}),
     )
     monkeypatch.setattr(ClaudeReviewer, "_spawn", spawn)
     monkeypatch.setattr(claude, "remove_secrets", lambda *a: None)

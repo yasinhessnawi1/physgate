@@ -248,7 +248,17 @@ class Handler(BaseHTTPRequestHandler):
         if sites and sites != ["same-origin"]:
             return 403, "an action is taken only from this server's own page"
         tokens = self.headers.get_all(ACT_TOKEN_HEADER) or []
-        if len(tokens) != 1 or not hmac.compare_digest(tokens[0].encode(), self.act_token.encode()):
+        if len(tokens) == 1 and not hmac.compare_digest(
+            tokens[0].encode(), self.act_token.encode()
+        ):
+            # A page that holds a token, and not this start's: a server started again since.
+            return (
+                403,
+                "this page's action token is not this server's: the server was restarted since "
+                "the page was opened, so open the newest operator's address in the run's ui.out "
+                "to decide",
+            )
+        if len(tokens) != 1:
             return (
                 403,
                 "an action carries the token from the operator's address this server printed",

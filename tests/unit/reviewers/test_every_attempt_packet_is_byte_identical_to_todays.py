@@ -78,7 +78,7 @@ def shown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, form: str) -> dict[st
         raise _SpawnedError
 
     installed = Installed(settings="s", config="c", spawn_args=(), spawn_env={})
-    monkeypatch.setattr(ClaudeReviewer, "_install", lambda self, packet, sdir: installed)
+    monkeypatch.setattr(ClaudeReviewer, "_install", lambda self, packet, sdir, temp: installed)
     monkeypatch.setattr(ClaudeReviewer, "_spawn", spawn)
     rubric = Rubric(
         role="control",

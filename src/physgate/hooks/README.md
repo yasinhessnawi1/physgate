@@ -54,6 +54,7 @@ session is started with them.
 physgate hooks install --profile role --role electrical \
     --worktree <worktree> --own-branch <branch> --store-root <store> \
     --state-dir <state> --target <settings dir> --claude-config-dir <dir> \
+    --sessions-root <run>/sessions \
     --os-layer-temp <session temp dir> --spawns-with-canary \
     --ceiling <tokens> --reading <file> ... --always-loaded <file> ...
 ```
@@ -67,6 +68,15 @@ allow` and does not act on queue decisions. `--spawns-with-canary` says the spaw
 exports the session's pid as the survivor reaper's canary before it starts the
 binary, as the dispatcher's held spawn does; on macOS, where the reaper runs, a
 sandboxed role session is refused without it.
+
+Every role, baseline and reviewer session is installed with a temporary directory of
+its own (`--os-layer-temp` with the layer, `--temp` without it), of 32 characters at
+most, and the printed environment points the binary at it (`CLAUDE_CODE_TMPDIR`;
+`TMPDIR` was measured to move nothing). Without one the install is refused: the
+binary would keep the session's temporary files, its background commands' output
+among them, in `/tmp/claude-<uid>`, which every session of the user on the machine
+shares and which these sessions may not read or write by any route. A role or
+baseline install is refused without `--sessions-root` too.
 
 It prints the spawn arguments: `--setting-sources ""` and `--settings <file>`,
 and a scratch `CLAUDE_CONFIG_DIR`. All of it is outside the worktree, and all of
@@ -120,7 +130,10 @@ without calling the Write tool. So the shell is covered twice.
    modification and change time, link count) with the record it took at the
    session's first hook, and acts by the root's watch class:
    - `revert`: put back from the bytes kept at the start, by replacing the
-     file; anything new is moved into a quarantine, never deleted;
+     file; anything new is moved into a quarantine, never deleted. No byte is
+     kept of a file the session may not read (the held-out tier, a withheld run
+     record): a change to one is found by its digest, nothing is put back, and
+     every later call is refused;
    - `journal` (the graph store): the journal's existing bytes must be
      unchanged; appends are the orchestrator's, and the store's own staleness
      guard refuses one that was not; node files must hold what the journal
@@ -321,7 +334,7 @@ uv run python tests/integration/hooks/measure_latency.py latency.json
   read moves no signature, so the sentinel cannot see one; where the OS layer
   runs, a shell command's read is refused by the operating system.
 - **The first hook of a session** takes the sentinel's record: it keeps the
-  bytes of every protected file in one pack, and finds the files of the code
+  bytes of every protected file the session may read in one pack, and finds the files of the code
   the rare paths load, without importing them, so a change to them is seen from
   the start. It costs about twice an ordinary hook, and more where the hook
   state directory sits on a network filesystem; keep it on a local disk.

@@ -139,7 +139,9 @@ def _install_argv(
         bounds=SCRIPTED_BOUNDS,
     )
     sdir = tmp_path / f"sdir-{len(list(tmp_path.glob('sdir-*')))}"
-    dispatcher._install(request, tmp_path / "worktree", sdir, temp)
+    dispatcher._install(
+        request, tmp_path / "worktree", sdir, temp, own_temp=temp or Path("/var/tmp/pgs/0123456789")
+    )
     return seen[0]
 
 
@@ -158,7 +160,7 @@ def test_every_role_session_is_installed_with_every_held_out_root(
 def test_a_role_session_inside_the_os_layer_is_taken_offline_when_the_run_asks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    temp = Path("/tmp/pg-0123456789ab")
+    temp = Path("/var/tmp/pgs/0123456789")
     offline = _install_argv(tmp_path, monkeypatch, temp=temp, network="none")
     assert _values(offline, "--os-layer-network") == ["none"]
     opened = _install_argv(tmp_path, monkeypatch, temp=temp, network="open")
@@ -216,7 +218,7 @@ def test_a_reviewer_s_session_is_installed_with_every_held_out_root(
     packet = SimpleNamespace(read_root=str(tmp_path / "packet"), required_reading=())
     sdir = tmp_path / "review"
     sdir.mkdir()
-    reviewer._install(packet, sdir)  # type: ignore[arg-type]
+    reviewer._install(packet, sdir, Path("/var/tmp/pgs/0123456789"))  # type: ignore[arg-type]
     assert _values(seen[0], "--held-out") == ["/elsewhere/heldout"]
 
 

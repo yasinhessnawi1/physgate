@@ -287,6 +287,7 @@ def conform_order(
         revision: (done.subtask_id, state.subtasks[done.subtask_id].plan.assigned_role)
         for revision, done in state.by_revision.items()
     }
+    joins = tuple(check.interface for check in tested.result.interfaces if side in check.not_joined)
     clauses = []
     for ruling in state.rulings_of(tested):
         check = checks[ruling.conflict.interface]
@@ -304,7 +305,7 @@ def conform_order(
         kind="contract_conform",
         item_id=item_id,
         of_attempt=of_attempt,
-        instruction=contract_conform_instruction(item_id, of_attempt, clauses, note),
+        instruction=contract_conform_instruction(item_id, of_attempt, clauses, note, joins),
     )
 
 
