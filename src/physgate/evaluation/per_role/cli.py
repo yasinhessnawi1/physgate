@@ -71,6 +71,8 @@ def add_parser(subparsers: Any) -> None:
         # The tier-set store: the session withholds the role's root in it.
         sub.add_argument("--store", type=Path, required=True)
         sub.add_argument("--withhold", type=Path, action="append", default=[])
+        # Outside every protected root. The author works there; the blind check works under
+        # the role's work root in the store, and only its hook installation is put here.
         sub.add_argument("--work", type=Path, required=True)
         sub.add_argument("--model", default="claude-sonnet-5")
         sub.add_argument("--implementer-model", default="claude-opus-5-5")
@@ -182,12 +184,26 @@ def _validate(args: argparse.Namespace) -> int:
 CHECKOUT = Path(__file__).resolve().parents[4]
 
 
+def session_held_out(args: argparse.Namespace) -> tuple[str, ...]:
+    """What the command's session withholds.
+
+    An author withholds the role's whole root. A blind check works under the role's work
+    root, so it withholds the rest a run withholds: the withheld root and every version's
+    protected tiers (:func:`.tiers.store.check_roots`).
+    """
+    from physgate.evaluation.tiers.store import check_roots, role_root
+
+    store = args.store.resolve()
+    if getattr(args, "func", None) is _blind_check:
+        return tuple(str(p) for p in check_roots(store, args.role))
+    return (str(role_root(store, args.role)),)
+
+
 def _session_setup(args: argparse.Namespace, install: Path) -> Any:
     """A session's pins, as a role session's: the pinned binary, the OS layer, offline."""
     import os
 
     from physgate.evaluation.per_role.arms.raw import RawSetup
-    from physgate.evaluation.tiers.store import role_root
     from physgate.orchestrator.credentials import credential_for
     from physgate.orchestrator.decompose import binary_version
     from physgate.orchestrator.install import prepare_install
@@ -221,7 +237,7 @@ def _session_setup(args: argparse.Namespace, install: Path) -> Any:
         base_url=args.endpoint,
         install_bin=prepare_install(install / "hooks", CHECKOUT),
         role_python=_role_python(getattr(args, "role_python", None)),
-        held_out=(str(role_root(args.store.resolve(), args.role)),),
+        held_out=session_held_out(args),
         withheld_reads=tuple(str(p.resolve()) for p in args.withhold),
         # Each command gives the session every canary under its root (``root_canaries``).
         held_out_canaries=(),
@@ -303,12 +319,15 @@ def _author(args: argparse.Namespace) -> int:
 
 def _blind_check(args: argparse.Namespace) -> int:
     import dataclasses
+    import secrets
 
     from physgate.evaluation.per_role.author_session import blind_check, root_canaries
-    from physgate.evaluation.tiers.store import role_root
+    from physgate.evaluation.tiers.store import role_root, work_root
 
     store = args.store.resolve()
     args.work = args.work.resolve()
+    # Its copy of the held-out tasks lies in the store, where every run withholds it.
+    work = work_root(store, args.role) / f"check-{secrets.token_hex(8)}"
     # As the author's: the check looks for every canary the root's tiers name, and its
     # answer is not taken unless its record says none showed.
     canaries = root_canaries(role_root(store, args.role))
@@ -319,7 +338,7 @@ def _blind_check(args: argparse.Namespace) -> int:
             args.role,
             args.version,
             dataclasses.replace(setup, held_out_canaries=canaries),
-            args.work,
+            work,
             implementer_model=args.implementer_model,
             cap=args.cap,
         ),

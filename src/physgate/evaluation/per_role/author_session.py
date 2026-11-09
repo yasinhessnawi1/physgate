@@ -103,6 +103,7 @@ from physgate.evaluation.tiers.store import (
     spelling_refusal,
     version_dir,
     withheld_refusal,
+    work_root,
     write_version,
 )
 from physgate.evaluation.tiers.task import Canary, Role, canonical_json, fold_id, load_task
@@ -1170,9 +1171,12 @@ def blind_check(
     of them, and its answer is taken only when its record says none showed in its stream and
     none came under the root while it ran. Its stream is kept inside the role's root.
 
-    Its session withholds what a run on the role's root withholds: the role's withheld root
-    and every version's validation and held-out tiers, spelt as on disk. No pool may be in
-    the store, its own role's included: the exception for that pool is an author's alone.
+    Its session withholds what a run on the role's root withholds but the work root: the
+    role's withheld root and every version's validation and held-out tiers, spelt as on disk.
+    ``work`` is a directory of its own directly under the role's work root
+    (:func:`.tiers.store.work_root`), which every run naming the role's root withholds, so its
+    copy of the held-out tasks is never where a run's session could read it. No pool may be
+    in the store, its own role's included: the exception for that pool is an author's alone.
 
     Raises:
         AuthoringError: the checking model is the implementers', ``work`` is inside a
@@ -1194,6 +1198,11 @@ def blind_check(
     if not _withheld(tier, held) or any(_inside(work, r) for r in roots):
         msg = "the check withholds the tier and works outside every held-out root"
         raise AuthoringError(msg, tier=str(tier), work=str(work))
+    # Its work holds a copy of the held-out tasks: it lies in the role's work root, which
+    # every run naming the role's root withholds, never where a run could read it.
+    if work.resolve().parent != work_root(store, role).resolve():
+        msg = f"the check works in a directory of its own directly under {work_root(store, role)}"
+        raise AuthoringError(msg, refused_because="work_outside_the_work_root", work=str(work))
     _require_withheld_as_a_run(store, role, setup)
     _require_no_work_left(root)
     _require_nothing_left(store)
@@ -1204,6 +1213,7 @@ def blind_check(
     files = {"tasks.json": json.dumps(tasks, sort_keys=True, indent=1).encode()}
     record: dict[str, Any] | None = None
     working = _working(root, CHECK_EVIDENCE, work)
+    work_root(store, role).mkdir(mode=0o700, exist_ok=True)
     try:
         record = run_session(
             CHECK_BRIEF.format(count=len(tasks)), setup, work, cap=cap, files=files

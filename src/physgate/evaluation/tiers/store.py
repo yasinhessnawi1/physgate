@@ -7,6 +7,8 @@
         withheld/                withheld from every run that names a tier of the store
           pool/                  the round's tasks that hold, and its sessions' provenance
           author/, check/        the authoring and blind-check sessions' streams
+        work/                    the blind check's work while it runs, its copy of the
+                                 held-out tasks included; withheld from every run
         <version>/               one round's three tiers, named by its manifest's id
           tierset.json           the manifest: counts and digests only
           provenance.json        the round's sessions: ids, ends, spend and stream digests
@@ -25,6 +27,13 @@ version under the role's root, older ones too (:func:`protected_tier_refusal`). 
 does not withhold is read by its sessions with no canary of the run's to show it. Each such
 entry is spelt as the filesystem spells it (:func:`spelling_refusal`), so the spelling every
 layer is given is the one on disk, whatever case the volume ignores.
+
+**The blind check works inside the store.** Its session reads a copy of the held-out tasks,
+with no canary, so it works under ``<store>/<role>/work/`` (:func:`work_root`): its session
+withholds the role's tiers and withheld root but not that root, where its worktree is, and
+every run that names anything under the role's root withholds it too
+(:func:`work_refusal`). A run whose entry lies above the store withholds all of it, the
+check's work included.
 
 **Work out of the role's root is a leftover too.** An author's tasks before they are pooled,
 and the blind check's copy of the held-out tasks, lie outside every protected root while their
@@ -86,6 +95,8 @@ SPENT_POOL = "pool.spent"
 TEMPORARY = ".version-"
 AUTHOR_EVIDENCE = "author"
 CHECK_EVIDENCE = "check"
+#: The root under a role's root where the blind check works while it runs.
+WORK = "work"
 #: What a record of a session's work out of the role's root ends with: ``author.working``,
 #: ``check.working``.
 WORKING = ".working"
@@ -122,6 +133,30 @@ def author_evidence(store: Path, role: Role) -> Path:
 def check_evidence(store: Path, role: Role) -> Path:
     """Where the role's blind-check sessions' streams are kept."""
     return withheld_root(store, role) / CHECK_EVIDENCE
+
+
+def work_root(store: Path, role: Role) -> Path:
+    """Where the role's blind check works while it runs: inside the store, withheld by runs."""
+    return role_root(store, role) / WORK
+
+
+def check_roots(store: Path, role: Role) -> list[Path]:
+    """What a blind check's session withholds: all a run does but the work root.
+
+    The role's withheld root and every protected tier of every version under the role's root,
+    as listed on disk; never the work root, where the check's worktree lies.
+
+    Raises:
+        OSError: the role's root cannot be listed.
+    """
+    root = role_root(store, role)
+    names = sorted(os.listdir(root)) if os.path.lexists(root) else []
+    return [withheld_root(store, role)] + [
+        root / name / tier
+        for name in names
+        if VERSION_NAME.fullmatch(name.casefold())
+        for tier in PROTECTED
+    ]
 
 
 def version_dir(store: Path, role: Role, version: str) -> Path:
@@ -267,6 +302,25 @@ def withheld_refusal(
     )
 
 
+def work_refusal(held_out: tuple[str, ...]) -> tuple[str, str] | None:
+    """Why a run withholding ``held_out`` may not start: a counted reason and its words.
+
+    Every role's root the run names (:func:`role_roots`) asks for that role's work root
+    (:func:`work_root`) among the run's roots: one of them, resolved, is that root or holds
+    it; ``None`` if each is there. The blind check's session is not held to this: its
+    worktree lies there.
+    """
+    named, roots = _judged(held_out, ())
+    missing = _missing(named, [work_root(store, role) for store, role in roots])
+    if not missing:
+        return None
+    return "work_root_not_named", (
+        f"the run names a store's role but not {len(missing)} work root(s) of it "
+        f"({', '.join(missing)}), where a blind check works with a copy of the held-out "
+        "tasks, with no canary; a run withholds it with the tiers"
+    )
+
+
 def protected_tier_refusal(
     held_out: tuple[str, ...], *, also: Sequence[tuple[Path, Role]] = ()
 ) -> tuple[str, str] | None:
@@ -356,9 +410,9 @@ def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
     ``pool_left`` counts every pool, drawn from or not, but ``continuing``: the one pool an
     author may add to, its own role's, which its session withholds. ``temporary_version_left``
     counts every version still being written. ``work_left`` counts every record of a session's
-    work out of the role's root (``<name>.working``), its own role's too: that work (tasks
-    before they are pooled, the check's copy of the held-out tasks, with no canary) lies where
-    a session could read it. Only names are looked at, in any case.
+    work (``<name>.working``), its own role's too, and everything in a role's work root: that
+    work (an author's tasks before they are pooled, the check's copy of the held-out tasks,
+    with no canary) is there until it is secured. Only names are looked at, in any case.
 
     Raises:
         OSError: the store or a role's root cannot be listed, or a role's root or withheld
@@ -380,6 +434,11 @@ def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
                 counts["temporary_version_left"] += 1
             elif folded.endswith(WORKING):
                 counts["work_left"] += 1
+        work = here / WORK
+        if work.is_symlink():
+            raise OSError(f"{work} is a link; a work root is a directory the harness made")
+        if work.is_dir():
+            counts["work_left"] += len(os.listdir(work))
         withheld = here / WITHHELD
         if withheld.is_symlink():
             raise OSError(f"{withheld} is a link; a withheld root is a directory the harness made")
