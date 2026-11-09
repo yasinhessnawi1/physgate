@@ -4,9 +4,10 @@ Every session of a run has a directory under the run's ``sessions/``: its Claude
 (in the subscription mode, the login), its captured stream, its settings and its hook state. A
 session's working directory lies beneath the run directory, so a file tool could reach a sibling's
 directory by a path from its own. So the whole of ``sessions/`` is refused to every read of a role
-or baseline session: the file tools, a shell command, and the OS layer's sandbox. What stays open
-is the session's own home and what it is given to read there. Its own binary reads its
-configuration itself, not through a tool, so that is not refused.
+or baseline session: the file tools, a shell command, and the OS layer's sandbox. The hooks refuse
+the session's own home too; what stays open to them is what it is given to read there, and the OS
+layer opens the home to its commands. Its own binary reads its configuration itself, not through a
+tool, so that is not refused.
 """
 
 from __future__ import annotations
@@ -86,7 +87,13 @@ def _argv(base: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
         )
         worktree = base / "run" / "worktrees" / "s1"
         worktree.mkdir(parents=True, exist_ok=True)
-        dispatcher._install(request, worktree, base / "run" / "sessions" / SID, None)
+        dispatcher._install(
+            request,
+            worktree,
+            base / "run" / "sessions" / SID,
+            None,
+            own_temp=Path("/tmp/pg-0123456789ab"),
+        )
     (argv,) = seen
     return argv
 

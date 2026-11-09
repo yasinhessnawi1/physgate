@@ -461,7 +461,7 @@ def _role_install(tmp_path: Path, *extra: str) -> list[str]:
         *("hooks", "install", "--profile", "role", "--role", "electrical"),
         *("--worktree", str(worktree), "--state-dir", str(tmp_path / "state")),
         *("--target", str(tmp_path / "session"), "--claude-config-dir", str(tmp_path / "cfg")),
-        *("--ceiling", "1000", *extra),
+        *("--ceiling", "1000", "--sessions-root", str(tmp_path / "sessions"), *extra),
     ]
 
 
@@ -507,7 +507,8 @@ def test_the_installer_writes_a_role_s_settings_without_the_sandbox_for_a_run_th
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     write_run_config(tmp_path / "run.json", make_config(os_layer_absent="allow"))
-    assert main(_role_install(tmp_path, "--run-config", str(tmp_path / "run.json"))) == 0
+    run_config = ("--run-config", str(tmp_path / "run.json"))
+    assert main(_role_install(tmp_path, *run_config, "--temp", "/tmp/pg-0123456789ab")) == 0
     settings = json.loads(Path(json.loads(capsys.readouterr().out)["settings"]).read_text())
     assert "sandbox" not in settings
 

@@ -45,6 +45,8 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
+import shutil
 import subprocess
 import time
 import uuid
@@ -560,11 +562,42 @@ class ClaudeReviewer:
         was_issued: bool,
         prompt: Callable[[str], str],
     ) -> ReviewResult:
-        """Run the review session on ``packet`` and read its verdict, resuming it to repair one."""
+        """Run the review session on ``packet`` and read its verdict, resuming it to repair one.
+
+        The session keeps its temporary files in a directory of its own, short enough that Claude
+        Code takes it, and never in the one every session of the user shares; it is removed when
+        the review is over, its repair resume included.
+        """
         sdir = review / SESSION_DIRNAME
         sdir.mkdir(parents=True)
         (sdir / OWNER_NAME).write_text(json.dumps({"run_id": self._setup.run_id}))
-        installed = self._install(packet, sdir)
+        temp = Path("/tmp") / f"pg-{secrets.token_hex(6)}"
+        temp.mkdir(mode=0o700)
+        try:
+            return self._in_own_temp(
+                sdir,
+                packet,
+                session_id,
+                temp,
+                criteria=criteria,
+                was_issued=was_issued,
+                prompt=prompt,
+            )
+        finally:
+            shutil.rmtree(temp, ignore_errors=True)
+
+    def _in_own_temp(  # noqa: PLR0913 - one review's material, and its temporary directory
+        self,
+        sdir: Path,
+        packet: Packet | PlanPacket,
+        session_id: str,
+        temp: Path,
+        *,
+        criteria: tuple[str, ...] | None,
+        was_issued: bool,
+        prompt: Callable[[str], str],
+    ) -> ReviewResult:
+        installed = self._install(packet, sdir, temp)
         needs = not_evaluable_needs(self._role)
         items = self._rubric.items
         schema = verdict_schema(
@@ -775,7 +808,7 @@ class ClaudeReviewer:
             reviewer_model=self._model,
         )
 
-    def _install(self, packet: Packet | PlanPacket, sdir: Path) -> Installed:
+    def _install(self, packet: Packet | PlanPacket, sdir: Path, temp: Path) -> Installed:
         state = sdir / "state"
         state.mkdir()
         helper: list[str] = []
@@ -802,6 +835,8 @@ class ClaudeReviewer:
             str(sdir / "config"),
             "--user-home",
             str(sdir / "home"),
+            "--temp",
+            str(temp),
             "--ceiling",
             str(self._setup.token_ceiling),
             *reading,

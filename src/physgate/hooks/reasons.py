@@ -83,6 +83,14 @@ SESSIONS_REASON = (
     "a session reads there only what it is given to read"
 )
 
+#: Given for a role, baseline or reviewer session's read or write of the temporary directory every
+#: Claude Code session of the user on the machine shares, which holds the other sessions' task
+#: outputs. The session's own binary is pointed at a directory of its own, so none of it is there.
+CLAUDE_TEMP_REASON = (
+    "it is the temporary directory every Claude Code session of this user on the machine shares, "
+    "which holds the other sessions' output; this session has a temporary directory of its own"
+)
+
 #: Given to a reviewer for a read outside its allowance. Neutral on purpose: a
 #: reviewer is shown nothing that says what is being measured.
 OUTSIDE_REVIEW_REASON = "it is outside the files this review is given"

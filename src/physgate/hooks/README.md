@@ -54,6 +54,7 @@ session is started with them.
 physgate hooks install --profile role --role electrical \
     --worktree <worktree> --own-branch <branch> --store-root <store> \
     --state-dir <state> --target <settings dir> --claude-config-dir <dir> \
+    --sessions-root <run>/sessions \
     --os-layer-temp <session temp dir> --spawns-with-canary \
     --ceiling <tokens> --reading <file> ... --always-loaded <file> ...
 ```
@@ -67,6 +68,15 @@ allow` and does not act on queue decisions. `--spawns-with-canary` says the spaw
 exports the session's pid as the survivor reaper's canary before it starts the
 binary, as the dispatcher's held spawn does; on macOS, where the reaper runs, a
 sandboxed role session is refused without it.
+
+Every role, baseline and reviewer session is installed with a temporary directory of
+its own (`--os-layer-temp` with the layer, `--temp` without it), of 32 characters at
+most, and the printed environment points the binary at it (`CLAUDE_CODE_TMPDIR`;
+`TMPDIR` was measured to move nothing). Without one the install is refused: the
+binary would keep the session's temporary files, its background commands' output
+among them, in `/tmp/claude-<uid>`, which every session of the user on the machine
+shares and which these sessions may not read or write by any route. A role or
+baseline install is refused without `--sessions-root` too.
 
 It prints the spawn arguments: `--setting-sources ""` and `--settings <file>`,
 and a scratch `CLAUDE_CONFIG_DIR`. All of it is outside the worktree, and all of

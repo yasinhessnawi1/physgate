@@ -106,6 +106,8 @@ def test_the_installer_command_takes_the_raw_agent_offline(
             str(outside / "home"),
             "--ceiling",
             "1000",
+            "--sessions-root",
+            str(outside / "sessions"),
             "--held-out",
             str(outside_tmp / "heldout"),
             "--os-layer-temp",
@@ -142,8 +144,9 @@ def test_offline_asked_for_without_the_os_layer_is_said_never_silently_dropped(
         *("--state-dir", str(outside / "state"), "--target", str(outside / "session")),
         *("--claude-config-dir", str(outside / "config"), "--user-home", str(outside / "home")),
         *("--ceiling", "1000", "--os-layer-network", "none"),
+        *("--sessions-root", str(outside / "sessions")),
     ]
-    args = parser.parse_args(common)
+    args = parser.parse_args([*common, "--temp", "/tmp/pg-0123456789ab"])
     assert args.func(args) == 0
     said = capsys.readouterr()
     printed = json.loads(said.out)

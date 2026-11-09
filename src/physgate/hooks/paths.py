@@ -73,6 +73,7 @@ from typing import TYPE_CHECKING
 
 from physgate.hooks.reasons import (
     ANSWER_KEY_REASON,
+    CLAUDE_TEMP_REASON,
     HELD_OUT_REASON,
     HOOK_STATE_REASON,
     OUTSIDE_REVIEW_REASON,
@@ -362,13 +363,14 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
         # layer keeps the shell's reads from it by the same rule. Nor is a withheld run
         # record, which names what the stream scan looks for, nor the run's session
         # directories, which hold every session's login and stream, but for what the session
-        # reads of its own there.
+        # reads of its own there, nor the temporary directory every Claude Code session of the
+        # user shares, which holds the other sessions' task outputs.
         for root in config.protected_roots:
             if (
                 root.reads == "denied"
                 and (
                     root.shell_writes == "allowed"
-                    or root.reason in (WITHHELD_REASON, SESSIONS_REASON)
+                    or root.reason in (WITHHELD_REASON, SESSIONS_REASON, CLAUDE_TEMP_REASON)
                 )
                 and _reaches(absolute, root.path, chain)
                 and not any(_own_reading(absolute, own) for own in root.read_exceptions)

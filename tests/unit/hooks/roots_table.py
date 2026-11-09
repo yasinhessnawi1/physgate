@@ -40,6 +40,9 @@ def config(base: Path) -> SessionConfig:
         extra_protected_refuse_only=(str(base / "run" / "sessions"),),
         harness_root=str(harness),
         harness_site_packages=(str(base / "sp"),),
+        # The table as at the branch point: the machine's shared Claude Code directory is the
+        # subject of its own rows.
+        shared_claude_temp=(),
     )
     return build_config(request, current_installation())
 

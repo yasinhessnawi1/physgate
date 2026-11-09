@@ -1449,8 +1449,19 @@ class ClaudeDispatcher:
         return ()
 
     def _install(
-        self, request: SessionRequest, worktree: Path, sdir: Path, temp: Path | None
+        self,
+        request: SessionRequest,
+        worktree: Path,
+        sdir: Path,
+        temp: Path | None,
+        *,
+        own_temp: Path | None,
     ) -> Installed:
+        """Install the session's hooks; ``temp`` is the OS layer's directory, ``None`` without it.
+
+        ``own_temp`` is the session's own temporary directory, the layer's where it runs; a
+        session given none is refused by the installer.
+        """
         state = sdir / "state"
         state.mkdir(parents=True)
         helper: list[str] = []
@@ -1465,8 +1476,10 @@ class ClaudeDispatcher:
             arg for root in run_record_roots(self._run) for arg in ("--protect-record", str(root))
         ]
         protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
-        # Every session's own directory: its login, stream and records. No role session reads
-        # another's, nor its own but for its home; its binary reads its configuration itself.
+        # Every session's own directory: its login, stream and records. No role session's hooks
+        # read another's, nor its own, its home included, but for what it is given to read
+        # there; the OS layer opens its home to its commands, and its binary reads its
+        # configuration itself.
         protect += ["--sessions-root", str(self._run.run_dir / "sessions")]
         # A session in the target's worktree has nothing of its own in the harness
         # checkout, and the live gate reads from it.
@@ -1539,6 +1552,9 @@ class ClaudeDispatcher:
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # Without the layer the session still keeps its temporary files in a directory of
+            # its own, never in the one every session of the user shares.
+            *(["--temp", str(own_temp)] if temp is None and own_temp is not None else []),
             # Without the layer the installer writes the settings only for a run whose recorded
             # configuration allows that, and reads it there.
             *(["--run-config", str(self._run.run_dir / "run.json")] if temp is None else []),
@@ -1600,9 +1616,8 @@ class ClaudeDispatcher:
                 configuration does not allow that; nothing of the session exists yet.
         """
         # The check a run is held to at its configuration, run and resume, held again where a
-        # role session is made, whatever led here: without the layer the session gets no
-        # temporary directory of its own, its settings no sandbox, and its shell is bounded by
-        # the text hooks alone.
+        # role session is made, whatever led here: without the layer the session's settings
+        # carry no sandbox, and its shell is bounded by the text hooks alone.
         why = os_layer_refusal(self._config, self.os_layer())
         if why is not None:
             raise InvocationError(why, subtask_id=request.subtask_id)
@@ -1628,11 +1643,12 @@ class ClaudeDispatcher:
         # collected) is moved aside first, so every record this session leaves is its own.
         left_over = empty_outbox(worktree, self._run.run_dir, session_id)
         sdir = self._run.run_dir / "sessions" / session_id
-        # Where the OS layer runs, the session gets a temporary directory of its own,
-        # short enough that Claude Code does not replace it with the shared default.
-        temp = Path("/tmp") / f"pg-{secrets.token_hex(6)}" if self._layer_on() else None
-        if temp is not None:
-            temp.mkdir(mode=0o700)
+        # Every session gets a temporary directory of its own, short enough that Claude Code
+        # does not replace it with the one every session of the user shares (the session's own
+        # directory is far longer); where the OS layer runs, it is the layer's too.
+        own_temp = Path("/tmp") / f"pg-{secrets.token_hex(6)}"
+        own_temp.mkdir(mode=0o700)
+        temp = own_temp if self._layer_on() else None
         try:
             return self._run_session(
                 request,
@@ -1643,10 +1659,10 @@ class ClaudeDispatcher:
                 temp,
                 on_spawn=on_spawn,
                 left_over=left_over,
+                own_temp=own_temp,
             )
         finally:
-            if temp is not None:
-                shutil.rmtree(temp, ignore_errors=True)
+            shutil.rmtree(own_temp, ignore_errors=True)
 
     def _layer_on(self) -> bool:
         return isinstance(self.os_layer(), Present)
@@ -1662,12 +1678,13 @@ class ClaudeDispatcher:
         *,
         on_spawn: SpawnHook | None,
         left_over: tuple[SetAside, ...],
+        own_temp: Path,
     ) -> SessionReport:
         system_before = self.environment().system_managed
         # Made before the installation, so the OS layer's rules name them as they will stand.
         (sdir / "home").mkdir(parents=True, exist_ok=True)
         runtime_paths(worktree, sdir / "home")
-        installed = self._install(request, worktree, sdir, temp)
+        installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
         # Read before the session starts, while nothing of it can have touched the file.
         end_check = session_end_command(Path(installed.settings))
         env = isolated_env(

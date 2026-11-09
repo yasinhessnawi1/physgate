@@ -457,8 +457,9 @@ def test_remote_settings_delivered_during_a_session_are_reported_as_drift(
 ) -> None:
     real = ClaudeDispatcher._install
 
-    def delivering(self: Any, request: Any, worktree: Path, sdir: Path, temp: Any) -> Any:  # noqa: ANN401
-        installed = real(self, request, worktree, sdir, temp)
+    def delivering(self: Any, *args: Any, **kw: Any) -> Any:  # noqa: ANN401
+        installed = real(self, *args, **kw)
+        sdir: Path = args[2]
         (sdir / "config").mkdir(parents=True, exist_ok=True)
         (sdir / "config" / "remote-settings.json").write_text('{"disableAllHooks": true}')
         return installed
@@ -480,8 +481,9 @@ def test_the_policy_limits_a_session_received_are_reported_by_their_digest(
     real = ClaudeDispatcher._install
     limits = b'{"restrictions": {"enforce_web_search_mcp_isolation": {"allowed": false}}}'
 
-    def fetching(self: Any, request: Any, worktree: Path, sdir: Path, temp: Any) -> Any:  # noqa: ANN401
-        installed = real(self, request, worktree, sdir, temp)
+    def fetching(self: Any, *args: Any, **kw: Any) -> Any:  # noqa: ANN401
+        installed = real(self, *args, **kw)
+        sdir: Path = args[2]
         (sdir / "config").mkdir(parents=True, exist_ok=True)
         (sdir / "config" / "policy-limits.json").write_bytes(limits)
         return installed

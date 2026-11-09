@@ -39,6 +39,8 @@ def _request(tmp_path: Path, temp: str | None, *, canary: bool = True) -> Instal
         user_home=str(out / "home"),
         token_ceiling=1000,
         os_layer_temp_dir=temp,
+        temp_dir=None if temp is not None else "/tmp/pg-0123456789cd",
+        sessions_root=str(out / "sessions"),
         # As the run's ``sessions/`` is for a dispatched session: kept from its shell.
         extra_protected_refuse_only=(str(out),),
         spawns_with_canary=canary,

@@ -101,7 +101,9 @@ def test_the_installed_session_config_carries_loaders_full_reading_set(tmp_path:
     request = _request(cfg)
     worktree = run.open_subtask(request.subtask_id)
     sdir = run.run_dir / "sessions" / "probe"
-    installed = dispatcher._install(request, worktree, sdir, None)  # noqa: SLF001 - the thing under test
+    installed = dispatcher._install(
+        request, worktree, sdir, None, own_temp=Path("/tmp/pg-0123456789ab")
+    )  # noqa: SLF001 - the thing under test
 
     written = SessionConfig.model_validate_json(Path(installed.config).read_text())
     expected_reading = {
@@ -144,7 +146,7 @@ def test_an_install_without_the_layer_for_a_run_that_does_not_allow_it_is_refuse
     worktree = run.open_subtask(request.subtask_id)
     sdir = run.run_dir / "sessions" / "probe-refused"
     with pytest.raises(InvocationError, match="installer refused") as refused:
-        dispatcher._install(request, worktree, sdir, None)  # noqa: SLF001 - the thing under test
+        dispatcher._install(request, worktree, sdir, None, own_temp=Path("/tmp/pg-0123456789ab"))  # noqa: SLF001 - the thing under test
     assert "runs only inside the OS layer" in refused.value.context["stderr"]
     assert not (sdir / "session").exists()
 
@@ -184,7 +186,9 @@ def test_a_role_whose_always_loaded_set_is_over_the_ceiling_fails_a_session_star
     request = _request(cfg)
     worktree = run.open_subtask(request.subtask_id)
     sdir = run.run_dir / "sessions" / "probe-over-ceiling"
-    installed = dispatcher._install(request, worktree, sdir, None)  # noqa: SLF001 - the thing under test
+    installed = dispatcher._install(
+        request, worktree, sdir, None, own_temp=Path("/tmp/pg-0123456789ab")
+    )  # noqa: SLF001 - the thing under test
     written = SessionConfig.model_validate_json(Path(installed.config).read_text())
 
     assert oversized is not None, "the fixture never found its own skill.md path"

@@ -41,6 +41,7 @@ def _request(root: Path, worktree: Path, *, profile: Profile = "role") -> Instal
         claude_config_dir=str(out / "config"),
         user_home=str(out / "home"),
         token_ceiling=1000,
+        sessions_root=str(out / "sessions"),
         os_layer_temp_dir=TEMP,
         spawns_with_canary=True,
     )
@@ -70,7 +71,9 @@ def test_a_sandboxed_session_outside_every_writable_place_is_installed(
 def test_a_session_without_the_layer_may_lie_anywhere() -> None:
     root = Path("/tmp") / f"pg-placement-{secrets.token_hex(6)}"
     try:
-        request = _request(root, root / "worktree").model_copy(update={"os_layer_temp_dir": None})
+        request = _request(root, root / "worktree").model_copy(
+            update={"os_layer_temp_dir": None, "temp_dir": TEMP}
+        )
         done = install(request, REGISTRY)
         assert "sandbox" not in json.loads(done.settings_path.read_text())
     finally:

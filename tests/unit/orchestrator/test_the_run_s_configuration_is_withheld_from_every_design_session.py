@@ -240,7 +240,9 @@ def test_no_file_a_role_session_could_read_after_one_session_holds_a_canary_or_a
         repair_instruction=None,
         bounds=cfg.bounds,
     )
-    installed = dispatcher._install(request, worktree, sdir, None)
+    installed = dispatcher._install(
+        request, worktree, sdir, None, own_temp=Path("/tmp/pg-0123456789ab")
+    )
     config = SessionConfig.model_validate_json(Path(installed.config).read_bytes())
     for event in ("SessionStart", "PreToolUse", "PostToolUse"):
         hook_input = HookInput.model_validate(

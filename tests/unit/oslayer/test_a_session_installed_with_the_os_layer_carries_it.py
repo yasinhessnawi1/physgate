@@ -26,6 +26,9 @@ from physgate.hooks.settings import (
 from physgate.hooks.settings import current_installation as installation
 
 
+OWN_TEMP = "/tmp/pg-0123456789cd"
+
+
 def _request(tmp_path: Path, temp: str | None) -> InstallRequest:
     worktree = tmp_path / "worktree"
     worktree.mkdir(exist_ok=True)
@@ -41,7 +44,10 @@ def _request(tmp_path: Path, temp: str | None) -> InstallRequest:
         claude_config_dir=str(out / "config"),
         user_home=str(out / "home"),
         token_ceiling=1000,
+        sessions_root=str(out / "sessions"),
         os_layer_temp_dir=temp,
+        # Without the layer the session still has a temporary directory of its own.
+        temp_dir=None if temp is not None else OWN_TEMP,
         spawns_with_canary=True,
     )
 
@@ -55,11 +61,13 @@ def test_with_a_temporary_directory_the_settings_carry_the_sandbox(outside_tmp: 
     assert done.spawn_env["CLAUDE_CODE_TMPDIR"] == "/tmp/pg-0123456789ab"
 
 
-def test_without_one_nothing_changes(tmp_path: Path) -> None:
+def test_without_one_nothing_changes_but_the_session_s_own_temporary_directory(
+    tmp_path: Path,
+) -> None:
     done = install(_request(tmp_path, None), REGISTRY)
     settings = json.loads(done.settings_path.read_text())
     assert "sandbox" not in settings and "permissions" not in settings
-    assert "CLAUDE_CODE_TMPDIR" not in done.spawn_env
+    assert done.spawn_env["CLAUDE_CODE_TMPDIR"] == OWN_TEMP
 
 
 def test_a_directory_claude_code_would_replace_is_refused(outside_tmp: Path) -> None:

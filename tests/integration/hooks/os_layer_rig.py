@@ -146,7 +146,10 @@ def run_session(
         held_out=(str(layout.held),),
         extra_protected=(str(layout.common),),
         extra_protected_refuse_only=(str(layout.root / "run" / "sessions"), str(layout.decisions)),
+        sessions_root=str(layout.root / "run" / "sessions"),
+        # The session's own temporary directory, the OS layer's where it runs.
         os_layer_temp_dir=str(layout.temp.resolve()) if layer else None,
+        temp_dir=None if layer else str(layout.temp.resolve()),
         os_layer_network=network,
         spawns_with_canary=True,
     )

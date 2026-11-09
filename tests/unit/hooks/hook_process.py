@@ -53,6 +53,8 @@ class InstalledSession:
                 token_ceiling=100_000,
                 required_reading=tuple(self.reading),
                 always_loaded=tuple(self.reading),
+                sessions_root=str(tmp / "outside" / "sessions"),
+                temp_dir="/tmp/pg-0123456789ab",
             ),
             REGISTRY,
         )

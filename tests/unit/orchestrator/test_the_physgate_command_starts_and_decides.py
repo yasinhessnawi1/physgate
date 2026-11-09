@@ -182,6 +182,10 @@ def test_the_hook_layer_is_still_reachable_through_the_one_command(
             "1000",
             "--run-config",
             str(tmp_path / "run.json"),
+            "--sessions-root",
+            str(tmp_path / "sessions"),
+            "--temp",
+            "/tmp/pg-0123456789ab",
         ]
     )
     assert code == 0

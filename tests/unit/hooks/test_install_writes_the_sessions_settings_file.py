@@ -44,6 +44,10 @@ REGISTRY = {
 }
 
 
+#: The session's own temporary directory, as the dispatcher makes one.
+OWN_TEMP = "/tmp/pg-0123456789ab"
+
+
 def _request(tmp: Path, **overrides: Any) -> InstallRequest:  # noqa: ANN401 - test fields
     worktree = tmp / "worktree"
     worktree.mkdir(exist_ok=True)
@@ -58,7 +62,10 @@ def _request(tmp: Path, **overrides: Any) -> InstallRequest:  # noqa: ANN401 - t
         "claude_config_dir": str(tmp / "claude-config"),
         "user_home": str(tmp / "home"),
         "token_ceiling": 4000,
+        "sessions_root": str(tmp / "sessions"),
     }
+    if "os_layer_temp_dir" not in overrides:
+        fields["temp_dir"] = OWN_TEMP
     fields.update(overrides)
     if fields["profile"] == "reviewer" and "read_roots" not in overrides:
         fields["read_roots"] = (str(worktree),)
@@ -140,7 +147,10 @@ def test_the_session_is_spawned_with_no_worktree_settings_and_this_file_by_flag(
 ) -> None:
     done = install(_request(tmp_path), REGISTRY)
     assert done.spawn_args == ("--setting-sources", "", "--settings", str(done.settings_path))
-    assert done.spawn_env == {"CLAUDE_CONFIG_DIR": str(tmp_path / "claude-config")}
+    assert done.spawn_env == {
+        "CLAUDE_CONFIG_DIR": str(tmp_path / "claude-config"),
+        "CLAUDE_CODE_TMPDIR": OWN_TEMP,
+    }
     assert not (tmp_path / "worktree" / ".claude").exists()
 
 
@@ -216,6 +226,8 @@ def test_the_command_line_writes_the_files_and_prints_the_spawn_arguments(tmp_pa
             f"--claude-config-dir={tmp_path / 'cfg'}",
             f"--user-home={tmp_path / 'home'}",
             "--ceiling=8000",
+            f"--sessions-root={tmp_path / 'sessions'}",
+            f"--temp={OWN_TEMP}",
             _allowing_run(tmp_path),
         ],
         capture_output=True,
@@ -255,6 +267,8 @@ def test_two_processes_with_different_hash_seeds_write_the_same_bytes(tmp_path: 
                 f"--protect={tmp_path / 'p1'}",
                 f"--protect={tmp_path / 'p2'}",
                 "--ceiling=8000",
+                f"--sessions-root={tmp_path / 'sessions'}",
+                f"--temp={OWN_TEMP}",
                 _allowing_run(tmp_path),
             ],
             capture_output=True,

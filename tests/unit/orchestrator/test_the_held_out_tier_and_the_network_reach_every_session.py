@@ -139,7 +139,9 @@ def _install_argv(
         bounds=SCRIPTED_BOUNDS,
     )
     sdir = tmp_path / f"sdir-{len(list(tmp_path.glob('sdir-*')))}"
-    dispatcher._install(request, tmp_path / "worktree", sdir, temp)
+    dispatcher._install(
+        request, tmp_path / "worktree", sdir, temp, own_temp=temp or Path("/tmp/pg-0123456789ab")
+    )
     return seen[0]
 
 
@@ -216,7 +218,7 @@ def test_a_reviewer_s_session_is_installed_with_every_held_out_root(
     packet = SimpleNamespace(read_root=str(tmp_path / "packet"), required_reading=())
     sdir = tmp_path / "review"
     sdir.mkdir()
-    reviewer._install(packet, sdir)  # type: ignore[arg-type]
+    reviewer._install(packet, sdir, Path("/tmp/pg-0123456789ab"))  # type: ignore[arg-type]
     assert _values(seen[0], "--held-out") == ["/elsewhere/heldout"]
 
 

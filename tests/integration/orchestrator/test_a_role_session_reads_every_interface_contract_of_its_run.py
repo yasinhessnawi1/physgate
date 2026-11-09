@@ -206,7 +206,11 @@ def test_the_installed_session_config_requires_every_interface_contract_of_the_r
     request = _request(cfg, subtask_id, issued)
     worktree = run.open_subtask(subtask_id)
     installed = _dispatcher(cfg, run, _dev_physgate_binary())._install(  # noqa: SLF001 - the thing under test
-        request, worktree, run.run_dir / "sessions" / "probe", None
+        request,
+        worktree,
+        run.run_dir / "sessions" / "probe",
+        None,
+        own_temp=Path("/tmp/pg-0123456789ab"),
     )
     written = SessionConfig.model_validate_json(Path(installed.config).read_text())
     contracts = {str(worktree / _contract(i)) for i in INTERFACES}
@@ -301,7 +305,11 @@ def test_where_no_contract_was_issued_the_installer_gets_the_reading_it_always_g
     for name, spec_commit in (("without", None), ("with", issued)):
         sdir = run.run_dir / "sessions" / name
         installed = _dispatcher(cfg, run, _dev_physgate_binary())._install(  # noqa: SLF001
-            _request(cfg, "s1", spec_commit), worktree, sdir, None
+            _request(cfg, "s1", spec_commit),
+            worktree,
+            sdir,
+            None,
+            own_temp=Path("/tmp/pg-0123456789ab"),
         )
         configs.append(Path(installed.config).read_bytes().replace(str(sdir).encode(), b"<s>"))
     installs = [argv for argv in seen if argv[1:3] == ["hooks", "install"]]
@@ -336,6 +344,10 @@ def test_a_decomposed_run_s_session_with_no_specification_commit_is_refused(
     sdir = run.run_dir / "sessions" / "probe"
     with pytest.raises(InvocationError, match="interface contracts"):
         _dispatcher(cfg, run, _dev_physgate_binary())._install(  # noqa: SLF001 - the thing under test
-            _request(cfg, subtask_id, None), worktree, sdir, None
+            _request(cfg, subtask_id, None),
+            worktree,
+            sdir,
+            None,
+            own_temp=Path("/tmp/pg-0123456789ab"),
         )
     assert not (sdir / "session").exists()

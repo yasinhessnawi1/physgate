@@ -47,6 +47,7 @@ from physgate.hooks.config import (
 )
 from physgate.hooks.graph import COMPLETION_DIR, DISPUTES_DIR, PROPOSALS_DIR
 from physgate.hooks.reasons import ANSWER_KEY_REASON as ANSWER_KEY_REASON
+from physgate.hooks.reasons import CLAUDE_TEMP_REASON as CLAUDE_TEMP_REASON
 from physgate.hooks.reasons import GATE_REASON as GATE_REASON
 from physgate.hooks.reasons import GIT_USER_CONFIG_REASON as GIT_USER_CONFIG_REASON
 from physgate.hooks.reasons import HARNESS_REASON as HARNESS_REASON
@@ -117,8 +118,10 @@ class InstallRequest(BaseModel):
     extra_protected_refuse_only: tuple[AbsolutePath, ...] = ()
     #: The run's directory of every session's own directory (its ``sessions/``), which holds
     #: each session's login, captured stream, settings and hook records. Refused to every write;
-    #: for a role or baseline session refused to every read too, but for its own home and what
-    #: it is given to read there. Written by the runtime while sessions run, so never put back.
+    #: for a role or baseline session refused to every read of the hooks too, its own home
+    #: included, but for what it is given to read there (the OS layer opens its home to its
+    #: commands). Written by the runtime while sessions run, so never put back. Required for a
+    #: role or baseline session, whose install is refused without it.
     sessions_root: AbsolutePath | None = None
     #: The run's append-only records the orchestrator holds open and appends to: no session
     #: tool may write them, and the sentinel compares them and never writes them, since a
@@ -151,6 +154,17 @@ class InstallRequest(BaseModel):
     #: shell commands then run inside Claude Code's sandbox, writing only in the worktree,
     #: this directory and the session's home. ``None`` where the layer does not run.
     os_layer_temp_dir: AbsolutePath | None = None
+    #: The session's own temporary directory where the OS layer does not run. Either this or
+    #: ``os_layer_temp_dir`` is the session's own, and its binary is pointed at it
+    #: (``CLAUDE_CODE_TMPDIR``): without one, Claude Code keeps the session's temporary files in
+    #: the directory every session of the user shares. Required for a role, baseline or reviewer
+    #: session, whose install is refused without one.
+    temp_dir: AbsolutePath | None = None
+    #: Claude Code's temporary directories that every session of the user on the machine shares
+    #: (``/tmp/claude-<uid>``), holding the other sessions' task outputs, the operator's among
+    #: them: refused to every read and write of a role, baseline or reviewer session, on every
+    #: layer. Taken from the machine, never from the spawner.
+    shared_claude_temp: tuple[AbsolutePath, ...] = Field(default_factory=lambda: claude_temp_dirs())
     #: Further places of the session's own that its shell commands read, where they sit
     #: inside a root the OS layer keeps from them (the run's ``sessions/``): the
     #: directory holding the run's named interpreter for this session.
@@ -169,8 +183,13 @@ class InstallRequest(BaseModel):
 
 #: The longest temporary directory Claude Code takes for a sandboxed session. A longer
 #: one is silently replaced by the per-user default, shared by every session of the
-#: user (measured on 2.1.301: 32 characters taken, 34 and more replaced).
+#: user (measured on 2.1.301: 32 characters taken, 34 and more replaced). Held for every
+#: session's own temporary directory, with the OS layer or without it.
 OS_LAYER_TEMP_LIMIT = 32
+
+#: The profiles given a temporary directory of their own and refused the shared one: every
+#: session under test, doing design work or judging it.
+OWN_TEMP_PROFILES: tuple[Profile, ...] = ("role", "baseline", "reviewer")
 
 
 @dataclass(frozen=True)
@@ -479,6 +498,15 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         else:
             protected.setdefault(sessions, (SESSIONS_REASON, "none"))
             reads.setdefault(sessions, "shell_denied")
+    if request.profile in OWN_TEMP_PROFILES:
+        # The temporary directory every Claude Code session of the user shares, which holds the
+        # other sessions' task outputs, the operator's among them. This session's binary is
+        # pointed at a directory of its own, so nothing of it lies there: refused to every read
+        # and write on every layer, and never put back, since the other sessions write it.
+        # Assigned, not defaulted, as the run's session directories are.
+        for path in request.shared_claude_temp:
+            protected[path] = (CLAUDE_TEMP_REASON, "none")
+            reads[path] = "denied"
     for path in request.withheld:
         # Assigned, not defaulted: a withheld record named as an ordinary protected root too
         # is withheld all the same, put back and refused to every read on every layer.
@@ -688,12 +716,57 @@ def _make_file_tool_dirs(worktree: str) -> None:
                 os.mkdir(step)
 
 
+def _own_temp(request: InstallRequest) -> str | None:
+    """The session's own temporary directory, refused where it is missing or unusable.
+
+    Raises:
+        ValueError: a role, baseline or reviewer session has none; two are given; or it is too
+            long for the binary to take, which would replace it with the shared one.
+    """
+    if request.os_layer_temp_dir is not None and request.temp_dir is not None:
+        msg = "a session has one temporary directory of its own: the OS layer's, or another"
+        raise ValueError(msg)
+    temp = request.os_layer_temp_dir or request.temp_dir
+    if temp is None:
+        if request.profile in OWN_TEMP_PROFILES:
+            msg = (
+                f"a {request.profile} session is installed only with a temporary directory of "
+                "its own (os_layer_temp_dir or temp_dir): without one, Claude Code keeps its "
+                "temporary files in the directory every session of the user shares, which the "
+                "session may not read"
+            )
+            raise ValueError(msg)
+        return None
+    if len(temp) > OS_LAYER_TEMP_LIMIT:
+        msg = (
+            f"the session's temporary directory ({temp}) is longer than "
+            f"{OS_LAYER_TEMP_LIMIT} characters, and Claude Code would replace it with "
+            "the directory every session of the user shares"
+        )
+        raise ValueError(msg)
+    return temp
+
+
 def install(
     request: InstallRequest,
     registry: Mapping[str, HookSpec],
     installation: Installation | None = None,
 ) -> Installed:
-    """Write the session's configuration and settings file; return how to spawn it."""
+    """Write the session's configuration and settings file; return how to spawn it.
+
+    Raises:
+        ValueError: among others, a role or baseline session without the run's session
+            directories, or a role, baseline or reviewer session without a temporary directory
+            of its own; nothing is written.
+    """
+    if request.profile in ("role", "baseline") and request.sessions_root is None:
+        msg = (
+            "a role or baseline session is installed only with the run's session directories "
+            "(sessions_root): without them its tools could read every other session's login "
+            "and stream"
+        )
+        raise ValueError(msg)
+    own_temp = _own_temp(request)
     helper = request.api_key_helper
     if helper is not None and not any(
         _inside(helper, root) for root in (request.target_dir, request.state_dir)
@@ -725,15 +798,13 @@ def install(
         config, str(config_path), digest(config_bytes), registry, request.api_key_helper
     )
     spawn_env = {"CLAUDE_CONFIG_DIR": request.claude_config_dir}
+    if own_temp is not None:
+        # The binary keeps the session's temporary files here, its background commands' output
+        # among them, and not in the directory every session of the user shares (``TMPDIR`` was
+        # measured to move nothing).
+        spawn_env["CLAUDE_CODE_TMPDIR"] = own_temp
     temp = request.os_layer_temp_dir
     if temp is not None:
-        if len(temp) > OS_LAYER_TEMP_LIMIT:
-            msg = (
-                f"the session's temporary directory ({temp}) is longer than "
-                f"{OS_LAYER_TEMP_LIMIT} characters, and Claude Code would replace it with "
-                "the directory every session of the user shares"
-            )
-            raise ValueError(msg)
         readable = request.os_layer_readable
         if config.survivor_reaper:
             # Nothing a command starts outlives it: the reaper runs as each sandboxed
@@ -757,15 +828,14 @@ def install(
             temp_dir=temp,
             readable=readable,
             shared_temp=shared_temp_dirs(),
-            claude_temp=claude_temp_dirs(),
+            claude_temp=request.shared_claude_temp,
             network=request.os_layer_network,
         )
         settings.update(policy.settings)
-        spawn_env["CLAUDE_CODE_TMPDIR"] = temp
     settings_path = target / SETTINGS_NAME
     settings_path.write_bytes(_dump(settings))
     unenforced = (
-        f"{NETWORK_UNENFORCED}: no OS layer was installed (no temporary directory of its own)"
+        f"{NETWORK_UNENFORCED}: no OS layer was installed (no --os-layer-temp was given)"
         if request.os_layer_network == "none" and temp is None
         else None
     )
