@@ -27,7 +27,7 @@ from physgate.evaluation.per_role.author_session import (  # noqa: E402
     blind_check,
     bundle,
 )
-from physgate.evaluation.tiers.store import write_version  # noqa: E402
+from physgate.evaluation.tiers.store import check_roots, work_root, write_version  # noqa: E402
 from physgate.evaluation.tiers.task import canonical_json  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
 from physgate.orchestrator.decompose import binary_version  # noqa: E402
@@ -237,8 +237,9 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
     keys = sorted(bundle(tier))
     answers = {k: dict.fromkeys(QUESTIONS, True) for k in keys}
     answers[keys[0]]["answerable_as_asked"] = False
-    work = tmp_path / "scratch" / "check"
-    (tmp_path / "scratch").mkdir()
+    # The check works in the role's work root, and withholds the rest a run withholds.
+    work = work_root(store, "control") / "check"
+    held = tuple(str(p) for p in check_roots(store, "control"))
     steps = [
         tool("Read", file_path=str(work / "worktree" / "tasks.json")),
         tool(
@@ -251,7 +252,9 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
             store,
             "control",
             manifest.version,
-            dataclasses.replace(_setup(install_bin, url, root), held_out_canaries=canaries),
+            dataclasses.replace(
+                _setup(install_bin, url, root), held_out=held, held_out_canaries=canaries
+            ),
             work,
             implementer_model="claude-opus-5-5",
             cap=10**9,

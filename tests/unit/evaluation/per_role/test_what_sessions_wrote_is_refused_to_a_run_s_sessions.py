@@ -111,3 +111,48 @@ def test_the_version_s_visible_tier_lies_outside_the_withheld_root(tmp_path: Pat
     withheld = _api("physgate.evaluation.tiers.store.withheld_root")(store, "control")
     visible = _api("physgate.evaluation.tiers.store.version_dir")(store, "control", VERSION)
     assert not (visible / "visible").is_relative_to(withheld)
+
+
+def _check_s_copy(store: Path) -> Path:
+    """The held-out copy a blind check works on, where the store keeps the check's work."""
+    work = Path(_api("physgate.evaluation.tiers.store.work_root")(store, "control"))
+    copy = work / "check-0" / "worktree" / "tasks.json"
+    copy.parent.mkdir(parents=True)
+    copy.write_text("the held-out tasks a check was given")
+    return copy
+
+
+@pytest.mark.parametrize("named", ["the role's roots", "the store's parent"])
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_a_run_s_session_is_refused_the_blind_check_s_work_on_every_route(
+    tmp_path: Path, profile: str, named: str
+) -> None:
+    base = tmp_path.resolve()
+    store = base / "private" / "store"
+    version = store / "control" / VERSION
+    for tier in ("held_out", "validation"):
+        (version / tier).mkdir(parents=True)
+    copy = _check_s_copy(store)
+    if named == "the store's parent":
+        held: tuple[Path, ...] = (store.parent,)
+    else:
+        held = (
+            version / "held_out",
+            version / "validation",
+            _api("physgate.evaluation.tiers.store.withheld_root")(store, "control"),
+            _api("physgate.evaluation.tiers.store.work_root")(store, "control"),
+        )
+    config = _config(base, profile, held)
+    policy = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/tmp/pg-wk")
+    deny_read = policy.settings["sandbox"]["filesystem"]["denyRead"]
+    wt = str(base / "wt")
+    target = str(copy)
+    assert paths.protection(target, wt, config, writing=False), (
+        f"{named}: a {profile} session's file tool may read the check's work"
+    )
+    assert shell_paths.check(parse(f"cat {target}")[0], wt, config), (
+        f"{named}: a {profile} session's shell may read the check's work"
+    )
+    assert [d for d in deny_read if target.startswith(d.rstrip("/") + "/")], (
+        f"{named}: a {profile} session's OS layer does not deny the check's work"
+    )

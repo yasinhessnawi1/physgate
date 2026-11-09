@@ -24,6 +24,8 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
     _plan,
     _setup,
     _tasks,
+    check_setup,
+    check_work,
 )
 
 from physgate.evaluation.per_role import author_session
@@ -51,8 +53,14 @@ def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, work: str, version: 
     plan = _plan(tmp_path)
     fake = FakeSession(_answers, session_id=f"s-{work}")
     monkeypatch.setattr(author_session, "run_session", fake)
+    setup = check_setup(plan.store, _setup(tmp_path / "private"))
+    # The tier asked for, whether or not a version is there: the refusal looked for is
+    # the work left, not the tier.
+    tier = str(plan.root / version / "held_out")
     setup = dataclasses.replace(
-        _setup(tmp_path / "private"), held_out_canaries=root_canaries(plan.root)
+        setup,
+        held_out=tuple(dict.fromkeys((*setup.held_out, tier))),
+        held_out_canaries=root_canaries(plan.root),
     )
     try:
         out = blind_check(
@@ -60,7 +68,7 @@ def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, work: str, version: 
             plan.role,
             version,
             setup,
-            tmp_path / "scratch" / work,
+            check_work(plan.store, work),
             implementer_model="claude-opus-5-5",
             cap=500_000,
         )
@@ -86,13 +94,13 @@ def test_a_check_stopped_before_its_work_was_secured_stops_the_next_check(
         _stopped_before_securing(patched)
         with pytest.raises(_Stopped):
             _check(tmp_path, patched, "check", version)
-    assert (tmp_path / "scratch" / "check" / "worktree" / "tasks.json").is_file()
+    assert (check_work(_plan(tmp_path).store) / "worktree" / "tasks.json").is_file()
     fake, refused = _check(tmp_path, monkeypatch, "check-2", version)
     assert isinstance(refused, dict) and refused.get("refused_because") == "work_left", (
         f"a check ran while another's copy of the tier lay outside the root: {refused}"
     )
     assert fake.calls == []
-    assert str(tmp_path / "scratch" / "check") in refused.get("work", "")
+    assert str(check_work(_plan(tmp_path).store)) in refused.get("work", "")
 
 
 def test_an_author_stopped_before_its_work_was_secured_stops_the_next_session(

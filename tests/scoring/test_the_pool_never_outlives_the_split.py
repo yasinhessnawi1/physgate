@@ -25,6 +25,8 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
     _setup,
     _tasks,
     _write_task,
+    check_setup,
+    check_work,
 )
 
 from physgate.evaluation.per_role import author_session
@@ -249,10 +251,11 @@ def _blind_check(
 ) -> dict[str, Any]:
     """The blind check on ``version`` of the store, as the command runs it.
 
-    Its session withholds the store's parent unless ``held_out`` names what it withholds.
+    Its session withholds what the command's does unless ``held_out`` names what it withholds.
     """
     setup = dataclasses.replace(
-        _setup(tmp_path / "private"), held_out_canaries=root_canaries(_root(tmp_path))
+        check_setup(_store(tmp_path), _setup(tmp_path / "private")),
+        held_out_canaries=root_canaries(_root(tmp_path)),
     )
     if held_out is not None:
         setup = dataclasses.replace(setup, held_out=tuple(str(p) for p in held_out))
@@ -263,7 +266,7 @@ def _blind_check(
             "control",
             version,
             setup,
-            tmp_path / "scratch" / "check",
+            check_work(_store(tmp_path)),
             implementer_model="claude-opus-5-5",
             cap=500_000,
         )
@@ -285,7 +288,7 @@ def test_the_blind_check_runs_on_a_version_and_keeps_its_stream_in_the_role_s_ro
     checked = _blind_check(tmp_path, out["version"])
     assert checked["answered"] and checked["tasks"] == 8 and checked["all_yes"] == 8
     assert (_root(tmp_path) / "withheld" / "check" / "c-1" / "stdout.jsonl").is_file()
-    assert not (tmp_path / "scratch" / "check").exists()
+    assert not check_work(_store(tmp_path)).exists()
 
 
 @pytest.mark.parametrize(
@@ -358,3 +361,68 @@ def test_the_blind_check_runs_when_its_session_withholds_what_a_run_does(
     monkeypatch.setattr(author_session, "run_session", fake)
     checked = _blind_check(tmp_path, out["version"], held_out=held)
     assert checked["answered"] and len(fake.calls) == 1
+
+
+def test_a_blind_check_working_outside_the_role_s_work_root_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    fake = FakeSession(_answers(_all_yes), session_id="c-1")
+    monkeypatch.setattr(author_session, "run_session", fake)
+    setup = dataclasses.replace(
+        check_setup(_store(tmp_path), _setup(tmp_path / "private")),
+        held_out_canaries=root_canaries(_root(tmp_path)),
+    )
+    with pytest.raises(AuthoringError) as refused:
+        author_session.blind_check(
+            _store(tmp_path),
+            "control",
+            out["version"],
+            setup,
+            tmp_path / "scratch" / "check",
+            implementer_model="claude-opus-5-5",
+            cap=500_000,
+        )
+    assert refused.value.context.get("refused_because") == "work_outside_the_work_root"
+    assert fake.calls == []
+
+
+def test_the_blind_check_command_works_in_the_work_root_and_withholds_all_else(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import argparse
+
+    from physgate.evaluation.per_role import cli
+
+    _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    store = _store(tmp_path).resolve()
+    given: list[Any] = []
+
+    def installed(args: argparse.Namespace, run: Any) -> int:  # noqa: ANN401
+        held = getattr(cli, "session_held_out", None)
+        assert held is not None, "the command's withheld roots are not built"
+        run(dataclasses.replace(_setup(tmp_path / "private"), held_out=held(args)))
+        return 0
+
+    def recording(*args: Any, **_kwargs: Any) -> dict[str, Any]:  # noqa: ANN401
+        given.append(args)
+        return {}
+
+    monkeypatch.setattr(cli, "_with_install", installed)
+    monkeypatch.setattr(author_session, "blind_check", recording)
+    parser = argparse.ArgumentParser()
+    cli.add_parser(parser.add_subparsers())
+    args = parser.parse_args(
+        ["per-role", "blind-check", "--role", "control", "--cap", "1", "--version"]
+        + [out["version"], "--store", str(store), "--work", str(tmp_path / "w")]
+    )
+    args.func(args)
+    (call,) = given
+    work, held = Path(call[4]), call[3].held_out
+    work_root = store / "control" / "work"
+    assert work.parent == work_root, f"the check works at {work}, not in the work root"
+    version = store / "control" / out["version"]
+    assert sorted(held) == sorted(
+        str(p)
+        for p in (store / "control" / "withheld", version / "validation", version / "held_out")
+    )

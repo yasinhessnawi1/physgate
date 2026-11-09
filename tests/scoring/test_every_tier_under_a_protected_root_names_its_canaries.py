@@ -32,6 +32,8 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
     _setup,
     _tasks,
     _write_task,
+    check_setup,
+    check_work,
 )
 from test_what_an_author_s_watch_could_not_hold_is_never_pooled import ABSENT, _Ending, _listed
 
@@ -249,14 +251,16 @@ def _check(
     session = _Ending(answer, "ended", seen)
     monkeypatch.setattr(author_session, "run_session", session)
     given = root_canaries(root) if canaries is None else canaries
-    setup = dataclasses.replace(_setup(tmp_path / "private"), held_out_canaries=given)
+    setup = dataclasses.replace(
+        check_setup(plan.store, _setup(tmp_path / "private")), held_out_canaries=given
+    )
     try:
         out = blind_check(
             plan.store,
             plan.role,
             version,
             setup,
-            tmp_path / "scratch" / "check",
+            check_work(plan.store),
             implementer_model="claude-opus-5-5",
             cap=500_000,
         )
@@ -283,7 +287,7 @@ def test_a_blind_check_whose_stream_showed_a_canary_gives_no_answer(
     assert refused is not None and refused.get("refused_because") == "held_out_seen", (
         f"a check whose record says {seen!r} gave an answer: {refused or out}"
     )
-    assert not (tmp_path / "scratch" / "check").exists()
+    assert not check_work(_plan(tmp_path).store).exists()
     held = _plan(tmp_path).root
     assert list((held / "withheld" / "check").glob("*/stdout.jsonl")), "the check's stream was lost"
 

@@ -560,3 +560,51 @@ def test_a_role_s_root_or_withheld_root_that_is_a_link_refuses(tmp_path: Path, l
     (store / link).symlink_to(elsewhere)
     why = _refusal(_facts(store))
     assert why is not None and "(store_unreadable)" in why, f"{link}: the link is skipped"
+
+
+# ------------------------------------------------- the blind check's work is withheld too
+
+
+def _work_refusal(facts: RunFacts) -> str | None:
+    requirement = _api(
+        "physgate.evaluation.requirements.every_named_role_root_s_work_root_is_withheld"
+    )
+    assert requirement in REQUIREMENTS, "the command does not hold runs to it"
+    found: str | None = requirement(facts)
+    return found
+
+
+def test_a_run_not_withholding_the_role_s_work_root_is_refused(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    why = _work_refusal(_facts(*_whole(store)))
+    assert why is not None and "(work_root_not_named)" in why
+    assert str(store / "control" / "work") in why
+
+
+def test_a_run_withholding_the_work_root_or_what_holds_it_starts(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    for named in (
+        (*_whole(store), store / "control" / "work"),
+        (store / "control",),
+        (store,),
+    ):
+        assert _work_refusal(_facts(*named)) is None, named
+    assert _work_refusal(_facts(tmp_path.resolve() / "private" / "held_out")) is None
+
+
+def test_a_check_s_work_in_the_work_root_is_work_left(tmp_path: Path) -> None:
+    leftovers = _api("physgate.evaluation.tiers.store.leftovers")
+    store = _store(tmp_path)
+    (store / "control" / "work" / "check-0" / "worktree").mkdir(parents=True)
+    assert leftovers(store).get("work_left") == 1
+    why = _refusal(_facts(*_whole(store), store / "control" / "work"))
+    assert why is not None and "(work_left)" in why
+
+
+def test_a_work_root_that_is_a_link_refuses(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    elsewhere = tmp_path.resolve() / "elsewhere"
+    elsewhere.mkdir()
+    (store / "control" / "work").symlink_to(elsewhere)
+    why = _refusal(_facts(store))
+    assert why is not None and "(store_unreadable)" in why, "the link is skipped"

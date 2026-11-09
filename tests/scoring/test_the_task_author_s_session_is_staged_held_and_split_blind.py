@@ -453,13 +453,32 @@ def _answers(value: Any) -> Any:
     return write
 
 
+def _store_api(name: str) -> Any:  # noqa: ANN401
+    """``store.<name>``, or the row fails: what it names is not built yet."""
+    found = getattr(store_module, name, None)
+    if found is None:
+        pytest.fail(f"physgate.evaluation.tiers.store.{name} is not built")
+    return found
+
+
+def check_work(store: Path, name: str = "check") -> Path:
+    """Where a blind check on ``store``'s control root works: under the role's work root."""
+    return Path(_store_api("work_root")(store, "control")) / name
+
+
+def check_setup(store: Path, base: RawSetup) -> RawSetup:
+    """``base`` withholding what the command's blind check withholds: all but the work root."""
+    roots = _store_api("check_roots")(store, "control")
+    return dataclasses.replace(base, held_out=tuple(str(p) for p in roots))
+
+
 def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, write: Any) -> tuple[Any, Any]:
     plan, version = _held_tier(tmp_path, monkeypatch)
     fake = FakeSession(write)
     monkeypatch.setattr(author_session, "run_session", fake)
     # The check looks for every canary under the root, as the command gives it them.
     setup = dataclasses.replace(
-        _setup(tmp_path / "private"),
+        check_setup(plan.store, _setup(tmp_path / "private")),
         held_out_canaries=author_session.root_canaries(plan.root),
     )
     out = blind_check(
@@ -467,7 +486,7 @@ def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, write: Any) -> tuple
         plan.role,
         version,
         setup,
-        tmp_path / "scratch" / "check",
+        check_work(plan.store),
         implementer_model="claude-opus-5-5",
         cap=500_000,
     )
@@ -491,7 +510,7 @@ def test_the_check_reads_its_tasks_from_a_file_by_digest_and_answers_in_booleans
     assert "Hold the plant" not in call["prompt"]  # the content is in the file, not argv
     assert out["answered"] and out["tasks"] == 8 and out["all_yes"] == 7
     assert out["flagged"] == [sorted(bundle)[0]]
-    assert not (tmp_path / "scratch" / "check").exists()
+    assert not check_work(_plan(tmp_path).store).exists()
     assert (_plan(tmp_path).root / "withheld" / "check" / "s-1" / "stdout.jsonl").is_file()
 
 
@@ -522,8 +541,8 @@ def test_a_check_on_the_implementers_model_is_refused(
             plan.store,
             plan.role,
             version,
-            _setup(tmp_path / "private", model="claude-opus-5-5"),
-            tmp_path / "scratch" / "check",
+            check_setup(plan.store, _setup(tmp_path / "private", model="claude-opus-5-5")),
+            check_work(plan.store),
             implementer_model="claude-opus-5-5",
             cap=1,
         )
@@ -650,7 +669,7 @@ def test_a_failing_check_session_leaves_no_held_out_task_outside_the_root(
 
     with pytest.raises(RuntimeError, match="check's session failed"):
         _check(tmp_path, monkeypatch, write)
-    assert not (tmp_path / "scratch" / "check").exists()
+    assert not check_work(_plan(tmp_path).store).exists()
     assert list((_plan(tmp_path).root / "withheld" / "check").glob("*/stdout.jsonl"))
 
 
