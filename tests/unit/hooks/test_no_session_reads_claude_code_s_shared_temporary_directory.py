@@ -181,15 +181,28 @@ def test_the_os_layer_denies_the_shared_directory_both_ways_from_the_configurati
 
 
 @pytest.mark.parametrize("profile", ["role", "baseline"])
-def test_the_session_s_own_temporary_directory_stays_open_to_it(
+def test_the_session_s_own_temporary_directory_is_open_to_its_shell_alone(
+    root: Path, shared: Path, monkeypatch: pytest.MonkeyPatch, profile: str
+) -> None:
+    # Its own directory, beneath the parent of every session's: a file tool is refused there as
+    # in every temporary directory, and its commands read there.
+    parent = root / "temps"
+    monkeypatch.setattr(settings, "session_temps_root", lambda: str(parent))
+    own_temp = parent / "a1a1a1a1a1"
+    own = _task_file(own_temp, OWN_MARKER)
+    config = build_config(_request(root, profile, temp_dir=str(own_temp)), installation())
+    assert _read(str(own), config) != "allow"
+    assert _shell(f"cat {own}", config) == "allow"
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_every_session_s_binary_is_told_to_move_no_command_to_the_background(
     root: Path, shared: Path, profile: str
 ) -> None:
-    # A reviewer has no shell, so no command of its own writes there, and it reads only its
-    # allowance.
-    config = _config(root, profile)
-    own = _task_file(root / "own-tmp", OWN_MARKER)
-    assert _read(str(own), config) == "allow"
-    assert _shell(f"cat {own}", config) == "allow"
+    # The file tools are refused in the session's own temporary directory, where the binary would
+    # leave a background command's output for a Read: so no command goes to the background.
+    done = install(_request(root, profile, temp_dir=OWN_TEMP), REGISTRY)
+    assert done.spawn_env.get("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS") == "1", done.spawn_env
 
 
 @pytest.mark.parametrize("profile", PROFILES)

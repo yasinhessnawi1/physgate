@@ -35,6 +35,8 @@ from fake_messages_api import DUMMY_KEY, Script, serving, text, tool
 from hook_session import claude_binary
 from os_layer_rig import SEARCH_PATH, Layout, layer_here, make_layout, python, run_session
 
+from physgate.hooks.registry import REGISTRY
+from physgate.hooks.settings import InstallRequest, install
 from physgate.oslayer.probe import claude_temp_dirs
 from physgate.oslayer.session_temp import make_session_temp
 
@@ -174,8 +176,9 @@ def test_a_session_s_shell_reads_its_own_task_output_and_nothing_of_another_sess
     # Its own output reaches it through its shell alone: the file tools are refused there.
     assert OWN_MARKER in own_cat
     assert OWN_MARKER not in own_read and "protected" in own_read, own_read
-    for refused in (read, read_resolved, cat, listed, sib):
+    for refused in (read, read_resolved, cat, listed):
         assert SHARED_MARKER not in refused and "protected" in refused, refused
+    assert SIBLING_MARKER not in sib and "protected" in sib, sib
     assert planted.name not in listed
     # The binary was pointed at the session's own directory, with the layer or without it.
     assert f"CCT={layout.temp.resolve()}" in env, env
@@ -187,3 +190,68 @@ def test_a_session_s_shell_reads_its_own_task_output_and_nothing_of_another_sess
         # Without the layer it reads: the probe reaches the file, so the refusals above mean it.
         assert SHARED_MARKER in built_read, built_read
         assert SIBLING_MARKER in built_sib, built_sib
+
+
+def test_the_binary_moves_no_command_of_a_role_session_to_the_background(layout: Layout) -> None:
+    """Every route the binary offers into the background, with the session's own environment.
+
+    Run without the hook settings, so the binary's own behaviour is what is shown: asked for a
+    background command, given one past its timeout, and with its automatic backgrounding asked for
+    too. Nothing reaches the session's own task directory, where its file tools could not read it.
+    """
+    request = InstallRequest(
+        profile="role",
+        role="electrical",
+        worktree=str(layout.worktree),
+        own_branch="subtask/sub1",
+        store_root=str(layout.root / "run" / "store"),
+        state_dir=str(layout.sdir / "state"),
+        target_dir=str(layout.sdir / "session"),
+        claude_config_dir=str(layout.root / "background-config"),
+        user_home=str(layout.sdir / "home"),
+        token_ceiling=100_000,
+        sessions_root=str(layout.root / "run" / "sessions"),
+        temp_dir=str(layout.temp.resolve()),
+    )
+    installed = install(request, REGISTRY)
+    binary = claude_binary()
+    steps = [
+        tool("Bash", command=f"echo {OWN_MARKER}", description="bg", run_in_background=True),
+        tool("Bash", command=f"sleep 8; echo {OWN_MARKER}", description="slow", timeout=2000),
+    ]
+    with serving(Script(main=[*steps, text("end")])) as (api, url):
+        env = {
+            "HOME": str(layout.sdir / "home"),
+            "PATH": f"{Path(binary).parent}:{SEARCH_PATH}",
+            "TERM": "dumb",
+            "ANTHROPIC_BASE_URL": url,
+            "ANTHROPIC_API_KEY": DUMMY_KEY,
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+            "DISABLE_AUTOUPDATER": "1",
+            "CLAUDE_CODE_MAX_RETRIES": "0",
+            # The binary's own switch for moving commands to the background on its own.
+            "CLAUDE_AUTO_BACKGROUND_TASKS": "1",
+            **installed.spawn_env,
+        }
+        subprocess.run(
+            [binary, "-p", "go", "--setting-sources", "", "--output-format", "stream-json"]
+            + [
+                "--verbose",
+                "--model",
+                "claude-sonnet-4-5",
+                "--permission-mode",
+                "bypassPermissions",
+            ],
+            cwd=layout.worktree,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=300,
+        )
+    told = {r.tool_results: r.last_user for r in api.requests if r.thread == "main"}
+    asked, slow = told.get(1, ""), told.get(2, "")
+    for said in (asked, slow):
+        assert "in background" not in said and "to the background" not in said, said
+        assert OWN_MARKER not in said, said
+    assert not list(layout.temp.rglob("*.output")), sorted(layout.temp.rglob("*"))
