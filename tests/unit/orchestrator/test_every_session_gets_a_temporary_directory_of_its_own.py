@@ -11,6 +11,7 @@ The installer itself is stood in for: what is asserted is what each spawner asks
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -106,13 +107,22 @@ def _dispatch(
     return argv, temps
 
 
+#: The one parent of every session's own temporary directory, which every session is refused
+#: but for its own child: outside every place the OS layer makes writable.
+SESSION_TEMPS = "/var/tmp/pgs"
+
+
 def _own(temps: dict[str, bool]) -> Path:
-    """The one temporary directory the install was given: there then, gone now, short enough."""
+    """The one temporary directory the install was given: there then, gone now, short enough.
+
+    It lies directly beneath the one parent, where no other session reads or writes it.
+    """
     assert len(temps) == 1, temps
     ((path, existed),) = temps.items()
     assert existed, f"{path} did not exist when the session was installed"
     assert len(path) <= OS_LAYER_TEMP_LIMIT, path
     assert not Path(path).exists(), f"{path} outlived its session"
+    assert os.path.realpath(Path(path).parent) == os.path.realpath(SESSION_TEMPS), path
     return Path(path)
 
 
@@ -122,7 +132,7 @@ def test_a_role_session_without_the_os_layer_gets_a_temporary_directory_of_its_o
     argv, temps = _dispatch(monkeypatch, tmp_path / "run", ABSENT)
     assert _value(argv, "--temp") is not None, argv
     assert _value(argv, "--os-layer-temp") is None, argv
-    assert _own(temps).name.startswith("pg-")
+    assert _own(temps).name
 
 
 def test_a_role_session_inside_the_os_layer_gets_its_layer_s_directory_and_no_second(
@@ -131,7 +141,7 @@ def test_a_role_session_inside_the_os_layer_gets_its_layer_s_directory_and_no_se
     argv, temps = _dispatch(monkeypatch, outside_tmp / "run", PRESENT)
     assert _value(argv, "--os-layer-temp") is not None, argv
     assert _value(argv, "--temp") is None, argv
-    assert _own(temps).name.startswith("pg-")
+    assert _own(temps).name
 
 
 def test_a_review_session_gets_a_temporary_directory_of_its_own(
@@ -169,4 +179,4 @@ def test_a_review_session_gets_a_temporary_directory_of_its_own(
         reviewer.review(SimpleNamespace())  # type: ignore[arg-type]
     ((argv, temps),) = seen
     assert _value(argv, "--temp") is not None, argv
-    assert _own(temps).name.startswith("pg-")
+    assert _own(temps).name
