@@ -211,7 +211,8 @@ def test_the_binary_is_pointed_at_the_session_s_own_temporary_directory_without_
     root: Path, shared: Path, profile: str
 ) -> None:
     done = install(_request(root, profile, temp_dir=OWN_TEMP), REGISTRY)
-    assert done.spawn_env["CLAUDE_CODE_TMPDIR"] == OWN_TEMP
+    # Asserted, not looked up: a missing variable is the failure, not an error.
+    assert done.spawn_env.get("CLAUDE_CODE_TMPDIR") == OWN_TEMP, done.spawn_env
 
 
 @pytest.mark.parametrize("profile", PROFILES)
