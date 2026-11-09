@@ -207,3 +207,16 @@ def test_the_parent_itself_is_never_a_session_s_own_directory(root: Path, profil
     fields = _fields(root, profile, root / "temps")
     with pytest.raises(ValueError, match="beneath"):
         install(InstallRequest.model_validate(fields), REGISTRY)
+
+
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_a_write_through_a_case_variant_or_a_link_of_its_own_directory_is_refused(
+    root: Path, profile: str
+) -> None:
+    # The write allowance is the read allowance, held exactly: never case-folded, never a link.
+    config = _config(root, profile)
+    own_dir = root / "temps" / OWN
+    (own_dir / "dir-link").symlink_to(root / "temps" / OTHER)
+    variant = str(own_dir).replace(f"/temps/{OWN}", f"/temps/{OWN.upper()}") + "/new.txt"
+    for target in (variant, str(own_dir / "dir-link" / "planted.txt")):
+        assert paths.protection(target, config.worktree, config, writing=True) is not None, target
