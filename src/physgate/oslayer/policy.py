@@ -185,14 +185,21 @@ def sandbox_policy(
             read-denied path, where the session could not work; or ``platform`` has no
             mechanism that keeps the series outbox unreadable.
     """
+    # Where it really is, as the parent of every session's temporary directory is named.
+    temp_dir = os.path.realpath(temp_dir)
     writable = (config.worktree, temp_dir, home, *shared_temp)
     read_denied = _read_denied(config, platform)
     # The one parent of every session's own temporary directory is denied, and the session's
     # own child there opened again: the one read-denied root a temporary directory may lie in.
     temps = {r.path for r in config.protected_roots if r.reason == SESSION_TEMPS_REASON}
+
+    def real_under(place: str, roots: Iterable[str]) -> bool:
+        # As the kernel finds it: /var is /private/var on macOS, and either may be spelt.
+        return any(_under(os.path.realpath(place), os.path.realpath(root)) for root in roots)
+
     for place in (config.worktree, temp_dir):
         others = read_denied - temps if place == temp_dir else read_denied
-        if any(_under(place, denied) for denied in others):
+        if real_under(place, others):
             what = "worktree" if place == config.worktree else "temporary directory"
             msg = f"the session's {what} ({place}) is inside a read-denied path"
             raise ValueError(msg)
@@ -201,12 +208,10 @@ def sandbox_policy(
     # inside a read-denied root (the run's sessions/), and its temporary directory inside the
     # parent of every session's: opened again.
     allow_read = sorted(
-        place
-        for place in {home, temp_dir, *readable}
-        if any(_under(place, denied) for denied in read_denied)
+        place for place in {home, temp_dir, *readable} if real_under(place, read_denied)
     )
     # Written by the session's commands, as its home is, where it lies in a denied parent.
-    own_writes = (temp_dir,) if any(_under(temp_dir, t) for t in temps) else ()
+    own_writes = (temp_dir,) if real_under(temp_dir, temps) else ()
     settings: dict[str, Any] = {
         "sandbox": {
             "enabled": True,

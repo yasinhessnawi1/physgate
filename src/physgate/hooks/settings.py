@@ -516,7 +516,9 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             reads[path] = "denied"
         # Every session's own temporary directory, the others' as much as its own: only its own
         # child stays open, exactly as the path is spelt and resolved, never through a link.
-        temps = request.session_temps
+        # Named where it really is (/var is /private/var on macOS), as the installer's own
+        # temporary directory is, so the sandbox finds the session's child beneath it.
+        temps = os.path.realpath(request.session_temps)
         protected[temps] = (SESSION_TEMPS_REASON, "none")
         reads[temps] = "denied"
         own_temp = request.os_layer_temp_dir or request.temp_dir

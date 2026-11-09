@@ -336,8 +336,15 @@ def _own_reading(path: str, place: str) -> bool:
     return not stat.S_ISLNK(st.st_mode) and not (stat.S_ISREG(st.st_mode) and st.st_nlink > 1)
 
 
-def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
-    """Why the one spelling ``absolute`` may not be touched this way, by the listed rules."""
+def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = False) -> str | None:
+    """Why the one spelling ``absolute`` may not be touched this way, by the listed rules.
+
+    ``shell`` is for a shell command's word: only a command opens the session's own temporary
+    directory, in the kernel, where the OS layer judges every open. A file tool never does: its
+    path is judged before the tool opens it, and the session's commands write there in between,
+    so a file judged could be a link by then. That holds while no role or baseline session runs
+    a command in the background, whose output the binary leaves there for a Read.
+    """
     chain = _chain_ids(absolute)
     for held in config.held_out:
         if _reaches(absolute, held, chain) and (
@@ -376,7 +383,12 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
                     in (WITHHELD_REASON, SESSIONS_REASON, CLAUDE_TEMP_REASON, SESSION_TEMPS_REASON)
                 )
                 and _reaches(absolute, root.path, chain)
-                and not any(_own_reading(absolute, own) for own in root.read_exceptions)
+                and not any(
+                    _own_reading(absolute, own)
+                    for own in (
+                        root.read_exceptions if shell or root.reason != SESSION_TEMPS_REASON else ()
+                    )
+                )
             ):
                 return root.reason
         return None
@@ -384,10 +396,13 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
         if _reaches(absolute, root.path, chain) and not any(
             _reaches(absolute, exception, chain) for exception in root.exceptions
         ):
-            # The session's own temporary directory is written by its own commands: held exactly,
-            # as its reads are, so no link there or case variant reaches another session's.
-            if root.reason == SESSION_TEMPS_REASON and any(
-                _own_reading(absolute, own) for own in root.read_exceptions
+            # The session's own temporary directory is written by its own commands, never by a
+            # file tool: held exactly, as their reads are, so no link or case variant there
+            # reaches another session's.
+            if (
+                shell
+                and root.reason == SESSION_TEMPS_REASON
+                and any(_own_reading(absolute, own) for own in root.read_exceptions)
             ):
                 continue
             return root.reason
@@ -406,8 +421,13 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
     return None
 
 
-def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str | None:
+def protection(
+    path: str, cwd: str, config: ConfigView, *, writing: bool, shell: bool = False
+) -> str | None:
     """Why ``path`` may not be touched this way, or ``None`` if it may.
+
+    ``shell`` is for a shell command's word, the one route the session's own temporary
+    directory is open to (see :func:`_rules`).
 
     Judged on two spellings: the path normalised, and the path as the operating
     system resolves it. They differ exactly when a symlink is followed by ``..``,
@@ -422,7 +442,7 @@ def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str
     parted = os.path.realpath(lexical) != physical
     spellings = (lexical, physical) if parted else (lexical,)
     for spelling in spellings:
-        reason = _rules(spelling, config, writing=writing)
+        reason = _rules(spelling, config, writing=writing, shell=shell)
         if reason is not None:
             return reason
     if config.profile == "reviewer" and not writing:
