@@ -318,9 +318,16 @@ def test_the_blind_check_refuses_a_version_that_is_not_its_manifest(
     fake = FakeSession(_answers(_all_yes), session_id="c-1")
     monkeypatch.setattr(author_session, "run_session", fake)
     error = _api("physgate.evaluation.tiers.manifest.TierSetError")
-    with pytest.raises(error) as refused:
+    raised: BaseException | None = None
+    try:
         _blind_check(tmp_path, out["version"])
-    assert refused.value.context.get("refused_because") == "tier_changed"
+    except Exception as exc:  # noqa: BLE001 - anything but the named refusal fails the row
+        raised = exc
+    # Read before the session starts: refused as the version it is, and no session ran.
+    assert isinstance(raised, error), (
+        f"not refused as a version that is not its manifest: {raised!r}"
+    )
+    assert raised.context.get("refused_because") == "tier_changed"
     assert fake.calls == []
 
 
