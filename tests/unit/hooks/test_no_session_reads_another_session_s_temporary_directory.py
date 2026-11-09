@@ -144,14 +144,46 @@ def test_a_write_into_another_session_s_temporary_directory_is_refused(
 
 
 @pytest.mark.parametrize("profile", ["role", "baseline"])
-def test_the_session_s_own_directory_stays_open_to_it_exactly(root: Path, profile: str) -> None:
+def test_no_file_tool_reads_or_writes_even_the_session_s_own_directory(
+    root: Path, profile: str
+) -> None:
+    # A check by path and the tool's open later are two moments, and the session's commands
+    # write there in between: a file the hook judged could be a link by the time it is read.
     config = _config(root, profile)
     own = _own(root)
-    assert _read(str(own), config) == "allow"
+    assert _read(str(own), config) != "allow"
+    for target in (own, own.parent / "new.txt"):
+        assert paths.protection(str(target), config.worktree, config, writing=True) is not None
+
+
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_a_shell_command_in_the_session_s_own_directory_is_allowed(
+    root: Path, profile: str
+) -> None:
+    # Its commands open the files there in the kernel, where the OS layer denies every other
+    # session's directory at the open itself.
+    config = _config(root, profile)
+    own = _own(root)
     assert _shell(f"cat {own}", config) == "allow"
-    assert (
-        paths.protection(str(own.parent / "new.txt"), config.worktree, config, writing=True) is None
+    assert _shell(f"echo x > {own.parent / 'new.txt'}", config) == "allow"
+
+
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_no_role_or_baseline_session_runs_a_command_in_the_background(
+    root: Path, profile: str
+) -> None:
+    # The file tools are refused in the session's own temporary directory because nothing of the
+    # session needs to read there: a background command's output, which the binary leaves there
+    # for a Read, is never made. Allowing the background breaks that reasoning.
+    config = _config(root, profile)
+    hook_input = HookInput.model_validate(
+        event(
+            tool_name="Bash",
+            tool_input={"command": "true", "description": "x", "run_in_background": True},
+            cwd=config.worktree,
+        )
     )
+    assert not shell_paths.pre_tool_use(hook_input, config).allow
 
 
 @pytest.mark.parametrize("profile", ["role", "baseline"])
@@ -213,10 +245,10 @@ def test_the_parent_itself_is_never_a_session_s_own_directory(root: Path, profil
 def test_a_write_through_a_case_variant_or_a_link_of_its_own_directory_is_refused(
     root: Path, profile: str
 ) -> None:
-    # The write allowance is the read allowance, held exactly: never case-folded, never a link.
+    # The shell's write allowance is its read allowance, held exactly: never case-folded or linked.
     config = _config(root, profile)
     own_dir = root / "temps" / OWN
     (own_dir / "dir-link").symlink_to(root / "temps" / OTHER)
     variant = str(own_dir).replace(f"/temps/{OWN}", f"/temps/{OWN.upper()}") + "/new.txt"
     for target in (variant, str(own_dir / "dir-link" / "planted.txt")):
-        assert paths.protection(target, config.worktree, config, writing=True) is not None, target
+        assert _shell(f"echo x > {target}", config) != "allow", target

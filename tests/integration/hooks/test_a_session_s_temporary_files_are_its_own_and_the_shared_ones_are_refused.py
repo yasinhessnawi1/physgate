@@ -5,7 +5,11 @@ every session of the user on the machine shares (``/tmp/claude-<uid>``) unless
 ``CLAUDE_CODE_TMPDIR`` names another. A role session is installed with a directory of its own, so:
 
 - the binary, given the session's environment, writes a background command's output there and
-  not in the shared directory, and the session reads that output by the file tool and the shell;
+  not in the shared directory; the session's shell reads it, and its file tools are refused there
+  as in every temporary directory, since a path judged before a tool opens it could be swapped for
+  a link in between;
+- another session's own temporary directory is refused to its shell, and, where the OS layer
+  runs, to a command that builds the path at run time;
 - a stand-in task output this test plants in the real shared directory is refused to the
   session's file tool and its shell, by either spelling of the directory, and, where the OS layer
   runs, to a command that builds the path at run time, which only that layer can see.
@@ -32,11 +36,13 @@ from hook_session import claude_binary
 from os_layer_rig import SEARCH_PATH, Layout, layer_here, make_layout, python, run_session
 
 from physgate.oslayer.probe import claude_temp_dirs
+from physgate.oslayer.session_temp import make_session_temp
 
 pytestmark = pytest.mark.integration
 
 OWN_MARKER = "OWN-TASK-OUTPUT-5d18"
 SHARED_MARKER = "SHARED-STAND-IN-9c42"
+SIBLING_MARKER = "SIBLING-STAND-IN-2e67"
 WRITTEN_TO = re.compile(r"Output is being written to: (\S+\.output)")
 
 
@@ -114,9 +120,22 @@ def _background_output(layout: Layout) -> Path:
     return out
 
 
+@pytest.fixture
+def sibling() -> Iterator[Path]:
+    """Another session's own temporary directory, with a task output of its own planted in it."""
+    other = make_session_temp()
+    out = other / "tasks" / "b0sibling.output"
+    out.parent.mkdir()
+    out.write_text(SIBLING_MARKER + "\n")
+    try:
+        yield out
+    finally:
+        shutil.rmtree(other, ignore_errors=True)
+
+
 @pytest.mark.parametrize("layer", [False, True], ids=["text-hooks-only", "with-the-os-layer"])
-def test_a_session_reads_its_own_task_output_and_nothing_in_the_shared_directory(
-    layout: Layout, planted: Path, layer: bool
+def test_a_session_s_shell_reads_its_own_task_output_and_nothing_of_another_session_s(
+    layout: Layout, planted: Path, sibling: Path, layer: bool
 ) -> None:
     if layer and not layer_here():
         pytest.skip("the OS layer cannot run here")
@@ -126,10 +145,12 @@ def test_a_session_reads_its_own_task_output_and_nothing_in_the_shared_directory
     assert OWN_MARKER in own.read_text()
     shared = Path(claude_temp_dirs()[0])
     resolved = Path(os.path.realpath(planted))
-    built = (
+    template = (
         "import os\np = os.path.join(*{parts!r})\ntry:\n    print(open(p).read())\n"
         "except OSError as e:\n    print('denied:', e.strerror)\n"
-    ).format(parts=["/", *planted.relative_to("/").parts])
+    )
+    built = template.format(parts=["/", *planted.relative_to("/").parts])
+    built_sibling = template.format(parts=["/", *sibling.resolve().relative_to("/").parts])
     steps = [
         tool("Read", file_path=str(own)),
         tool("Bash", command=f"cat {own}", description="own"),
@@ -138,6 +159,8 @@ def test_a_session_reads_its_own_task_output_and_nothing_in_the_shared_directory
         tool("Bash", command=f"cat {planted}", description="shared"),
         tool("Bash", command=f"ls {shared}", description="list"),
         tool("Bash", command=python(built), description="built"),
+        tool("Bash", command=f"cat {sibling}", description="sibling"),
+        tool("Bash", command=python(built_sibling), description="built-sibling"),
         tool(
             "Bash",
             command=python("import os; print('CCT=' + os.environ.get('CLAUDE_CODE_TMPDIR', '-'))"),
@@ -147,9 +170,11 @@ def test_a_session_reads_its_own_task_output_and_nothing_in_the_shared_directory
     run = run_session(layout, steps, layer=layer)
     told = run["told"]
     assert isinstance(told, list) and len(told) == len(steps)
-    own_read, own_cat, read, read_resolved, cat, listed, built_read, env = told
-    assert OWN_MARKER in own_read and OWN_MARKER in own_cat
-    for refused in (read, read_resolved, cat, listed):
+    own_read, own_cat, read, read_resolved, cat, listed, built_read, sib, built_sib, env = told
+    # Its own output reaches it through its shell alone: the file tools are refused there.
+    assert OWN_MARKER in own_cat
+    assert OWN_MARKER not in own_read and "protected" in own_read, own_read
+    for refused in (read, read_resolved, cat, listed, sib):
         assert SHARED_MARKER not in refused and "protected" in refused, refused
     assert planted.name not in listed
     # The binary was pointed at the session's own directory, with the layer or without it.
@@ -157,6 +182,8 @@ def test_a_session_reads_its_own_task_output_and_nothing_in_the_shared_directory
     if layer:
         # The residual the text hooks cannot see: only the OS layer refuses it.
         assert SHARED_MARKER not in built_read and "denied:" in built_read, built_read
+        assert SIBLING_MARKER not in built_sib and "denied:" in built_sib, built_sib
     else:
         # Without the layer it reads: the probe reaches the file, so the refusals above mean it.
         assert SHARED_MARKER in built_read, built_read
+        assert SIBLING_MARKER in built_sib, built_sib
