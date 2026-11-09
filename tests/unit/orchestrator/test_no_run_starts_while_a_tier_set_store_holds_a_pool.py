@@ -549,6 +549,20 @@ def test_a_run_naming_a_role_s_root_that_cannot_be_listed_is_refused(
     assert why is not None and "(store_unreadable)" in why, "the run starts"
 
 
+def test_a_run_naming_a_place_in_a_role_s_root_that_cannot_be_listed_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Only the directory named as a role cannot be listed: what it holds is taken to be a
+    # role's root, so its store is named, and its leftovers cannot be ruled out.
+    store = _store(tmp_path)
+    _unlistable_at(monkeypatch, store / "control")
+    try:
+        why = _refusal(_facts(store / "control" / "notes"))
+    except OSError as exc:
+        pytest.fail(f"an unlistable role's root raises, not a counted refusal: {exc!r}")
+    assert why is not None and "(store_unreadable)" in why, "the run starts"
+
+
 @pytest.mark.parametrize("link", ["firmware", "control/withheld"])
 def test_a_role_s_root_or_withheld_root_that_is_a_link_refuses(tmp_path: Path, link: str) -> None:
     store = _store(tmp_path)
