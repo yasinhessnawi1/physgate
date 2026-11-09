@@ -187,15 +187,15 @@ CHECKOUT = Path(__file__).resolve().parents[4]
 def session_held_out(args: argparse.Namespace) -> tuple[str, ...]:
     """What the command's session withholds.
 
-    An author withholds the role's whole root. A blind check works under the role's work
-    root, so it withholds the rest a run withholds: the withheld root and every version's
-    protected tiers (:func:`.tiers.store.check_roots`).
+    An author withholds the role's whole root. A blind check works in a directory of its
+    own under the role's work root (``args.check_work``), so it withholds all of the role's
+    root but that directory (:func:`.tiers.store.check_roots`).
     """
     from physgate.evaluation.tiers.store import check_roots, role_root
 
     store = args.store.resolve()
     if getattr(args, "func", None) is _blind_check:
-        return tuple(str(p) for p in check_roots(store, args.role))
+        return tuple(str(p) for p in check_roots(store, args.role, args.check_work))
     return (str(role_root(store, args.role)),)
 
 
@@ -328,6 +328,7 @@ def _blind_check(args: argparse.Namespace) -> int:
     args.work = args.work.resolve()
     # Its copy of the held-out tasks lies in the store, where every run withholds it.
     work = work_root(store, args.role) / f"check-{secrets.token_hex(8)}"
+    args.check_work = work
     # As the author's: the check looks for every canary the root's tiers name, and its
     # answer is not taken unless its record says none showed.
     canaries = root_canaries(role_root(store, args.role))

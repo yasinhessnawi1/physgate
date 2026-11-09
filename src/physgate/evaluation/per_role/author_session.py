@@ -87,7 +87,7 @@ from physgate.evaluation.tiers.authoring import (
     author_brief,
     require_author_model,
 )
-from physgate.evaluation.tiers.manifest import read_version
+from physgate.evaluation.tiers.manifest import VERSION_NAME, TierSetError, read_version
 from physgate.evaluation.tiers.store import (
     AUTHOR_EVIDENCE,
     CHECK_EVIDENCE,
@@ -95,6 +95,7 @@ from physgate.evaluation.tiers.store import (
     WORKING,
     author_evidence,
     check_evidence,
+    check_root_refusal,
     is_visible_tier,
     leftover_refusal,
     pool_dir,
@@ -1124,6 +1125,34 @@ class _Answers(RootModel[dict[str, _Answer]]):
 MAX_ANSWERS_BYTES = 64 * 1024
 
 
+def _require_versions_unchanged(root: Path) -> None:
+    """Refuse a check's answer unless every version under ``root`` is still its manifest.
+
+    Each is read as every reader reads it, its manifest and provenance record held to the
+    bytes on disk (:func:`.tiers.manifest.read_version`): a session that changed one is not
+    taken at its word.
+
+    Raises:
+        AuthoringError: ``version_changed``, naming the version and why.
+    """
+    for path in sorted(root.iterdir()):
+        if not VERSION_NAME.fullmatch(path.name):
+            continue
+        try:
+            read_version(path)
+        except TierSetError as exc:
+            msg = (
+                f"the version {path.name} changed while the check ran ({exc}); "
+                "its answer is not taken"
+            )
+            raise AuthoringError(
+                msg,
+                refused_because="version_changed",
+                version=path.name,
+                because=str(exc.context.get("refused_because", "unreadable")),
+            ) from exc
+
+
 def bundle(tier: Path) -> dict[str, dict[str, Any]]:
     """The tier's tasks as the check reads them: by id digest, without references or canary.
 
@@ -1204,6 +1233,9 @@ def blind_check(
         msg = f"the check works in a directory of its own directly under {work_root(store, role)}"
         raise AuthoringError(msg, refused_because="work_outside_the_work_root", work=str(work))
     _require_withheld_as_a_run(store, role, setup)
+    refusal = check_root_refusal(store, role, work, setup.held_out)
+    if refusal is not None:
+        raise AuthoringError(refusal[1], refused_because=refusal[0], store=str(store))
     _require_no_work_left(root)
     _require_nothing_left(store)
     read_version(version_dir(store, role, version))
@@ -1220,6 +1252,7 @@ def blind_check(
         )
         _require_unseen(record, canaries, "its answer is not taken")
         _require_none_came(root, canaries, "its answer is not taken")
+        _require_versions_unchanged(root)
         answers = read_answers(work / "worktree" / "answers.json", list(tasks))
     finally:
         # The work holds the held-out tasks it was given: it never stays outside the root.

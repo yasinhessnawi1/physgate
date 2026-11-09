@@ -29,9 +29,10 @@ entry is spelt as the filesystem spells it (:func:`spelling_refusal`), so the sp
 layer is given is the one on disk, whatever case the volume ignores.
 
 **The blind check works inside the store.** Its session reads a copy of the held-out tasks,
-with no canary, so it works under ``<store>/<role>/work/`` (:func:`work_root`): its session
-withholds the role's tiers and withheld root but not that root, where its worktree is, and
-every run that names anything under the role's root withholds it too
+with no canary, so it works in a directory of its own under ``<store>/<role>/work/``
+(:func:`work_root`): its session withholds all of the role's root but that directory, where
+its worktree is (:func:`check_roots`), and every run that names anything under the role's
+root withholds the work root
 (:func:`work_refusal`). A run whose entry lies above the store withholds all of it, the
 check's work included.
 
@@ -140,23 +141,48 @@ def work_root(store: Path, role: Role) -> Path:
     return role_root(store, role) / WORK
 
 
-def check_roots(store: Path, role: Role) -> list[Path]:
-    """What a blind check's session withholds: all a run does but the work root.
+def check_roots(store: Path, role: Role, work: Path) -> list[Path]:
+    """What a blind check's session working in ``work`` withholds: the role's root but ``work``.
 
-    The role's withheld root and every protected tier of every version under the role's root,
-    as listed on disk; never the work root, where the check's worktree lies.
+    Every entry directly under the role's root but the work root (every version whole, its
+    manifest, provenance record and visible tier included, and the withheld root), and every
+    entry in the work root but ``work``, another check's work. A blind check reads no task
+    but the copy it is given, and changes nothing in the store.
 
     Raises:
-        OSError: the role's root cannot be listed.
+        OSError: the role's root or its work root cannot be listed.
     """
-    root = role_root(store, role)
-    names = sorted(os.listdir(root)) if os.path.lexists(root) else []
-    return [withheld_root(store, role)] + [
-        root / name / tier
-        for name in names
-        if VERSION_NAME.fullmatch(name.casefold())
-        for tier in PROTECTED
+    root, works = role_root(store, role), work_root(store, role)
+    top = sorted(os.listdir(root)) if os.path.lexists(root) else []
+    beside = sorted(os.listdir(works)) if os.path.lexists(works) else []
+    return [root / name for name in top if name != WORK] + [
+        works / name for name in beside if name != work.name
     ]
+
+
+def check_root_refusal(
+    store: Path, role: Role, work: Path, held_out: tuple[str, ...]
+) -> tuple[str, str] | None:
+    """Why a blind check's session withholding ``held_out`` may not start; ``None`` if none.
+
+    Every place :func:`check_roots` names is withheld by a root in ``held_out``, resolved
+    (``role_root_entry_not_withheld``); a role's root that cannot be listed refuses
+    (``store_unreadable``).
+    """
+    try:
+        places = check_roots(_resolved(str(store)), role, work)
+    except OSError as exc:
+        return "store_unreadable", (
+            f"the role's root in {store} cannot be listed ({exc}), so what the check's session "
+            "must withhold cannot be ruled out"
+        )
+    missing = _missing([_resolved(entry) for entry in held_out], places)
+    if not missing:
+        return None
+    return "role_root_entry_not_withheld", (
+        f"the check's session does not withhold {len(missing)} place(s) under the role's root "
+        f"({', '.join(missing)}); it withholds all of it but its own work"
+    )
 
 
 def version_dir(store: Path, role: Role, version: str) -> Path:
