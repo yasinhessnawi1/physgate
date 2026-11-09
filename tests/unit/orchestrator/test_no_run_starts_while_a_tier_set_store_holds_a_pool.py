@@ -506,3 +506,57 @@ def test_roots_spelt_as_on_disk_or_a_run_naming_no_store_start(tmp_path: Path) -
     assert _spelling_refusal(_facts(*_whole(store))) is None
     assert _spelling_refusal(_facts(tmp_path.resolve() / "private" / "held_out")) is None
     assert _spelling_refusal(_facts()) is None
+
+
+# ----------------------------------------------- what cannot be listed or is a link refuses
+
+
+def _unlistable_at(monkeypatch: pytest.MonkeyPatch, place: Path) -> None:
+    """``os.listdir`` refuses ``place``, as a directory that can be passed but not read."""
+    store_module = _api("physgate.evaluation.tiers.store")
+    real = store_module.os.listdir
+
+    def unlistable(path: Any = ".") -> list[str]:
+        if isinstance(path, str | os.PathLike) and Path(path) == place:
+            raise PermissionError(f"cannot list {path}")
+        return list(real(path))
+
+    monkeypatch.setattr(store_module.os, "listdir", unlistable)
+
+
+def test_a_run_naming_a_store_that_cannot_be_listed_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _store(tmp_path)
+    _record(store, "control/check.working")
+    _unlistable_at(monkeypatch, store)
+    try:
+        why = _refusal(_facts(store))
+    except OSError as exc:
+        pytest.fail(f"an unlistable store raises, not a counted refusal: {exc!r}")
+    assert why is not None and "(store_unreadable)" in why, "the run starts"
+
+
+def test_a_run_naming_a_role_s_root_that_cannot_be_listed_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _store(tmp_path)
+    _unlistable_at(monkeypatch, store / "control")
+    try:
+        why = _refusal(_facts(store / "control"))
+    except OSError as exc:
+        pytest.fail(f"an unlistable role's root raises, not a counted refusal: {exc!r}")
+    assert why is not None and "(store_unreadable)" in why, "the run starts"
+
+
+@pytest.mark.parametrize("link", ["firmware", "control/withheld"])
+def test_a_role_s_root_or_withheld_root_that_is_a_link_refuses(tmp_path: Path, link: str) -> None:
+    store = _store(tmp_path)
+    elsewhere = tmp_path.resolve() / "elsewhere"
+    (elsewhere / "withheld" / "pool").mkdir(parents=True)
+    (elsewhere / "pool").mkdir()
+    (elsewhere / "check.working").write_text('{"work": "/elsewhere/work"}\n')
+    (store / link).parent.mkdir(parents=True, exist_ok=True)
+    (store / link).symlink_to(elsewhere)
+    why = _refusal(_facts(store))
+    assert why is not None and "(store_unreadable)" in why, f"{link}: the link is skipped"
