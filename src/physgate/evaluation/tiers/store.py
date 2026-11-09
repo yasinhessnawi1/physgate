@@ -195,7 +195,9 @@ def _named_role_roots(path: Path) -> list[tuple[Path, Role]]:
         try:
             names = sorted(os.listdir(path))
         except OSError:
-            names = []
+            # What it holds cannot be ruled out, so it is taken as a store of every role:
+            # the leftover check then refuses it as unreadable.
+            return [(path, role) for role in get_args(Role)]
         for name in names:
             role = _role(name)
             if role is not None and _holds_a_role_root_s(path / name):
@@ -359,14 +361,18 @@ def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
     a session could read it. Only names are looked at, in any case.
 
     Raises:
-        OSError: the store or a role's root cannot be listed, so nothing can be ruled out.
+        OSError: the store or a role's root cannot be listed, or a role's root or withheld
+            root is a link (the harness makes them with ``mkdir``), so nothing can be ruled
+            out.
     """
     counts = dict.fromkeys(LEFT, 0)
     if not os.path.lexists(store):
         return counts
     for role in sorted(os.listdir(store)):
         here = store / role
-        if not here.is_dir() or here.is_symlink():
+        if here.is_symlink():
+            raise OSError(f"{here} is a link; a role's root is a directory the harness made")
+        if not here.is_dir():
             continue
         for name in os.listdir(here):
             folded = name.casefold()
@@ -375,7 +381,9 @@ def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
             elif folded.endswith(WORKING):
                 counts["work_left"] += 1
         withheld = here / WITHHELD
-        if not withheld.is_dir() or withheld.is_symlink():
+        if withheld.is_symlink():
+            raise OSError(f"{withheld} is a link; a withheld root is a directory the harness made")
+        if not withheld.is_dir():
             continue
         for name in os.listdir(withheld):
             folded = name.casefold()
