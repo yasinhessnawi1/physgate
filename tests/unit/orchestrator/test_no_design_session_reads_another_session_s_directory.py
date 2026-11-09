@@ -261,3 +261,41 @@ def test_a_search_path_from_its_interpreter_s_directory_reads_nothing_and_is_not
     # Never in its home, where its commands write: what is absent there now can be made there.
     for refused in (own / "home" / "bin" / "absent", own / "home" / "absent", own / "absent"):
         assert paths.protection(str(refused), wt, config, writing=False) is not None, refused
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_a_symlinked_directory_inside_an_allowance_does_not_open_a_sibling_s_directory(
+    base: Path, profile: str
+) -> None:
+    # An allowance is held on the path as resolved too: a directory linked inside the
+    # interpreter's directory to a sibling session's directory is not the interpreter's.
+    from physgate.hooks.settings import InstallRequest, build_config, current_installation
+
+    own = base / "run" / "sessions" / SID
+    (own / "bin").mkdir(parents=True)
+    worktree = base / "run" / "worktrees" / "s1"
+    worktree.mkdir(parents=True)
+    login, _ = _sibling(base)
+    (own / "bin" / "sub").symlink_to(login.parent)
+    config = build_config(
+        InstallRequest(
+            profile=profile,  # type: ignore[arg-type]
+            role="control" if profile == "role" else None,
+            worktree=str(worktree),
+            own_branch=None,
+            store_root=None,
+            state_dir=str(own / "state"),
+            target_dir=str(own / "session"),
+            claude_config_dir=str(own / "config"),
+            user_home=str(own / "home"),
+            token_ceiling=1000,
+            os_layer_readable=(str(own / "bin"),),
+            sessions_root=str(base / "run" / "sessions"),
+        ),
+        current_installation(),
+    )
+    through = own / "bin" / "sub" / login.name
+    assert through.read_text() == login.read_text()
+    wt = str(worktree)
+    assert paths.protection(str(through), wt, config, writing=False) is not None
+    assert shell_paths.check(parse(f"cat {through}")[0], wt, config) is not None
