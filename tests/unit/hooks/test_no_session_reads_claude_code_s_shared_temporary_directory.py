@@ -34,7 +34,7 @@ SID = "4f3e2d1c-a-session"
 #: What the operator's own session printed, as a stand-in: no other file holds it.
 SHARED_MARKER = "operator-task-output-7e21"
 OWN_MARKER = "own-task-output-3b90"
-OWN_TEMP = "/tmp/pg-0123456789ab"
+OWN_TEMP = "/var/tmp/pgs/0123456789"
 
 
 def _uid_dir() -> str:
@@ -228,7 +228,7 @@ def test_a_temporary_directory_too_long_for_the_binary_is_refused_without_the_la
     root: Path, shared: Path, profile: str
 ) -> None:
     # A longer one is replaced by the shared directory itself.
-    request = _request(root, profile, temp_dir="/tmp/pg-" + "0" * 40)
+    request = _request(root, profile, temp_dir="/var/tmp/pgs/" + "0" * 40)
     with pytest.raises(ValueError, match="longer than"):
         install(request, REGISTRY)
 

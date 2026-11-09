@@ -70,7 +70,7 @@ def test_the_installer_command_withholds_the_record_it_is_told(
             *("--state-dir", str(outside / "state"), "--target", str(outside / "session")),
             *("--claude-config-dir", str(outside / "config"), "--user-home", str(outside / "home")),
             *("--ceiling", "1000", "--withheld", str(record)),
-            *("--sessions-root", str(outside / "sessions"), "--temp", "/tmp/pg-0123456789ab"),
+            *("--sessions-root", str(outside / "sessions"), "--temp", "/var/tmp/pgs/0123456789"),
         ]
     )
     assert args.func(args) == 0

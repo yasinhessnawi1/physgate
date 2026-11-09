@@ -27,7 +27,6 @@ import hashlib
 import json
 import os
 import re
-import secrets
 import shlex
 import shutil
 import stat
@@ -122,6 +121,7 @@ from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
+from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
 from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
@@ -1643,11 +1643,15 @@ class ClaudeDispatcher:
         # collected) is moved aside first, so every record this session leaves is its own.
         left_over = empty_outbox(worktree, self._run.run_dir, session_id)
         sdir = self._run.run_dir / "sessions" / session_id
-        # Every session gets a temporary directory of its own, short enough that Claude Code
-        # does not replace it with the one every session of the user shares (the session's own
-        # directory is far longer); where the OS layer runs, it is the layer's too.
-        own_temp = Path("/tmp") / f"pg-{secrets.token_hex(6)}"
-        own_temp.mkdir(mode=0o700)
+        # Every session gets a temporary directory of its own, beneath the one parent no other
+        # session reads or writes, and short enough that Claude Code does not replace it with the
+        # one every session of the user shares (the session's own directory is far longer);
+        # where the OS layer runs, it is the layer's too.
+        try:
+            own_temp = make_session_temp()
+        except OSError as exc:
+            msg = "no temporary directory of the session's own could be made, so none is started"
+            raise InvocationError(msg, subtask_id=request.subtask_id, error=str(exc)) from exc
         temp = own_temp if self._layer_on() else None
         try:
             return self._run_session(

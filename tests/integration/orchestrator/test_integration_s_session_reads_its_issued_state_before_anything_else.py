@@ -85,7 +85,7 @@ def test_the_integration_session_cannot_act_before_reading_its_state(tmp_path: P
     worktree = run.open_subtask(subtask_id)
     sdir = run.run_dir / "sessions" / "probe"
     installed = contracts._dispatcher(cfg, run, contracts._dev_physgate_binary())._install(  # noqa: SLF001
-        request, worktree, sdir, None, own_temp=Path("/tmp/pg-0123456789ab")
+        request, worktree, sdir, None, own_temp=Path("/var/tmp/pgs/0123456789")
     )
     path = issued_state_path(sdir)
     # Written in the session's own directory, outside the worktree, byte for byte.
@@ -124,7 +124,7 @@ def test_a_state_whose_bytes_on_disk_are_not_the_requests_is_refused_before_inst
     monkeypatch.setattr(dispatch_module, "write_issued_state", writer)
     with pytest.raises(InvocationError, match="issued state"):
         contracts._dispatcher(cfg, run, contracts._dev_physgate_binary())._install(  # noqa: SLF001
-            request, worktree, sdir, None, own_temp=Path("/tmp/pg-0123456789ab")
+            request, worktree, sdir, None, own_temp=Path("/var/tmp/pgs/0123456789")
         )
     assert not (sdir / "session").exists()
 
@@ -137,7 +137,7 @@ def test_a_request_with_no_state_is_installed_exactly_as_before(tmp_path: Path) 
         sdir = run.run_dir / "sessions" / name
         request = with_state(contracts._request(cfg, subtask_id, issued), state)  # noqa: SLF001
         installed = contracts._dispatcher(cfg, run, contracts._dev_physgate_binary())._install(  # noqa: SLF001
-            request, worktree, sdir, None, own_temp=Path("/tmp/pg-0123456789ab")
+            request, worktree, sdir, None, own_temp=Path("/var/tmp/pgs/0123456789")
         )
         configs.append(SessionConfig.model_validate_json(Path(installed.config).read_text()))
     without, with_ = configs

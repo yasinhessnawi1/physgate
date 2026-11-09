@@ -53,7 +53,7 @@ def test_every_registered_hook_is_named_in_the_settings_for_each_of_its_events(
             user_home=str(tmp_path / "home"),
             token_ceiling=1000,
             sessions_root=str(tmp_path / "sessions"),
-            temp_dir="/tmp/pg-0123456789ab",
+            temp_dir="/var/tmp/pgs/0123456789",
         ),
         REGISTRY,
     )

@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 from physgate.hooks.config import SessionConfig
+from physgate.hooks.reasons import SESSION_TEMPS_REASON
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 
 
@@ -52,6 +53,10 @@ def table(base: Path) -> list[dict[str, object]]:
     installation = current_installation()
     out: list[dict[str, object]] = []
     for r in config(base).protected_roots:
+        if r.reason == SESSION_TEMPS_REASON:
+            # The parent of every session's own temporary directory: placed by the machine, and
+            # the subject of its own rows.
+            continue
         path = r.path
         named = (
             ("<install-package>", installation.package_dir),

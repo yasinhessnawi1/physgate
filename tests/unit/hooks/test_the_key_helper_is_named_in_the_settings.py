@@ -27,7 +27,7 @@ def _request(tmp: Path, **overrides: Any) -> InstallRequest:  # noqa: ANN401 - t
         "user_home": str(tmp / "home"),
         "token_ceiling": 4000,
         "sessions_root": str(tmp / "sessions"),
-        "temp_dir": "/tmp/pg-0123456789ab",
+        "temp_dir": "/var/tmp/pgs/0123456789",
     }
     fields.update(overrides)
     return InstallRequest(**fields)

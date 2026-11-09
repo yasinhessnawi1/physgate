@@ -45,7 +45,7 @@ REGISTRY = {
 
 
 #: The session's own temporary directory, as the dispatcher makes one.
-OWN_TEMP = "/tmp/pg-0123456789ab"
+OWN_TEMP = "/var/tmp/pgs/0123456789"
 
 
 def _request(tmp: Path, **overrides: Any) -> InstallRequest:  # noqa: ANN401 - test fields

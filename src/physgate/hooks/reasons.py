@@ -91,6 +91,14 @@ CLAUDE_TEMP_REASON = (
     "which holds the other sessions' output; this session has a temporary directory of its own"
 )
 
+#: Given for a role, baseline or reviewer session's read or write of another session's own
+#: temporary directory: every one lies directly beneath one parent, and only the session's own
+#: child there is open to it.
+SESSION_TEMPS_REASON = (
+    "it is where each session keeps its own temporary files, which no other session reads or "
+    "writes; this session's own temporary directory is the one child there open to it"
+)
+
 #: Given to a reviewer for a read outside its allowance. Neutral on purpose: a
 #: reviewer is shown nothing that says what is being measured.
 OUTSIDE_REVIEW_REASON = "it is outside the files this review is given"

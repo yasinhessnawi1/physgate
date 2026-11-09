@@ -365,7 +365,7 @@ def test_a_fix_session_is_installed_with_exactly_a_role_sessions_hooks(
     for n, request in enumerate((base, fix)):
         sdir = tmp_path / f"sdir-{n}"
         dispatcher._install(
-            request, tmp_path / "worktree", sdir, None, own_temp=Path("/tmp/pg-0123456789ab")
+            request, tmp_path / "worktree", sdir, None, own_temp=Path("/var/tmp/pgs/0123456789")
         )
         installed.append([arg.replace(str(sdir), "<session>") for arg in seen[-1]])
     assert installed[0] == installed[1] and installed[0]

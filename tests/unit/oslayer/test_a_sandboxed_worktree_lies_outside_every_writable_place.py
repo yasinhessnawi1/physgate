@@ -24,7 +24,7 @@ from physgate.hooks.settings import InstallRequest, install
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
 
-TEMP = "/tmp/pg-0123456789ab"
+TEMP = "/var/tmp/pgs/0123456789"
 
 
 def _request(root: Path, worktree: Path, *, profile: Profile = "role") -> InstallRequest:

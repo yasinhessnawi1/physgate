@@ -210,7 +210,7 @@ def test_the_installed_session_config_requires_every_interface_contract_of_the_r
         worktree,
         run.run_dir / "sessions" / "probe",
         None,
-        own_temp=Path("/tmp/pg-0123456789ab"),
+        own_temp=Path("/var/tmp/pgs/0123456789"),
     )
     written = SessionConfig.model_validate_json(Path(installed.config).read_text())
     contracts = {str(worktree / _contract(i)) for i in INTERFACES}
@@ -309,7 +309,7 @@ def test_where_no_contract_was_issued_the_installer_gets_the_reading_it_always_g
             worktree,
             sdir,
             None,
-            own_temp=Path("/tmp/pg-0123456789ab"),
+            own_temp=Path("/var/tmp/pgs/0123456789"),
         )
         configs.append(Path(installed.config).read_bytes().replace(str(sdir).encode(), b"<s>"))
     installs = [argv for argv in seen if argv[1:3] == ["hooks", "install"]]
@@ -348,6 +348,6 @@ def test_a_decomposed_run_s_session_with_no_specification_commit_is_refused(
             worktree,
             sdir,
             None,
-            own_temp=Path("/tmp/pg-0123456789ab"),
+            own_temp=Path("/var/tmp/pgs/0123456789"),
         )
     assert not (sdir / "session").exists()

@@ -92,7 +92,7 @@ def _argv(base: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
             worktree,
             base / "run" / "sessions" / SID,
             None,
-            own_temp=Path("/tmp/pg-0123456789ab"),
+            own_temp=Path("/var/tmp/pgs/0123456789"),
         )
     (argv,) = seen
     return argv

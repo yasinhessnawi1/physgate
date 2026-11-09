@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
 import shutil
 import subprocess
 import sys
@@ -37,6 +36,7 @@ from physgate.hooks.registry import REGISTRY
 from physgate.hooks.runtime import HookSpec
 from physgate.hooks.settings import Installed, InstallRequest, install
 from physgate.oslayer.reaper_install import with_canary
+from physgate.oslayer.session_temp import make_session_temp
 
 #: The Claude Code version the hook contract was measured on: the one role
 #: sessions run on, so the hooks are proven on the binary that runs them.
@@ -163,8 +163,7 @@ def run_session(
     if {"os_layer_temp_dir", "temp_dir"} & set(request_fields):
         msg = "the session's temporary directory is made here, as the dispatcher makes it"
         raise HarnessError(msg)
-    temp = Path("/tmp") / f"pg-{secrets.token_hex(6)}"
-    temp.mkdir(mode=0o700)
+    temp = make_session_temp()
     which = "os_layer_temp_dir" if os_layer else "temp_dir"
     try:
         return _run_session(

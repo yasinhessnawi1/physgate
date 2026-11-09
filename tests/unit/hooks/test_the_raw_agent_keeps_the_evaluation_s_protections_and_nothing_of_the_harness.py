@@ -111,7 +111,7 @@ def test_the_installer_command_takes_the_raw_agent_offline(
             "--held-out",
             str(outside_tmp / "heldout"),
             "--os-layer-temp",
-            "/tmp/pg-0123456789ab",
+            "/var/tmp/pgs/0123456789",
             "--os-layer-network",
             "none",
             # Spawned with its pid exported as the survivor reaper's canary (macOS).
@@ -146,7 +146,7 @@ def test_offline_asked_for_without_the_os_layer_is_said_never_silently_dropped(
         *("--ceiling", "1000", "--os-layer-network", "none"),
         *("--sessions-root", str(outside / "sessions")),
     ]
-    args = parser.parse_args([*common, "--temp", "/tmp/pg-0123456789ab"])
+    args = parser.parse_args([*common, "--temp", "/var/tmp/pgs/0123456789"])
     assert args.func(args) == 0
     said = capsys.readouterr()
     printed = json.loads(said.out)
@@ -155,7 +155,7 @@ def test_offline_asked_for_without_the_os_layer_is_said_never_silently_dropped(
     assert "sandbox" not in json.loads(Path(printed["settings"]).read_text())
     # With the layer, nothing is said: the printed record is exactly what dispatch reads.
     args = parser.parse_args(
-        [*common, "--os-layer-temp", "/tmp/pg-0123456789ab", "--spawns-with-canary"]
+        [*common, "--os-layer-temp", "/var/tmp/pgs/0123456789", "--spawns-with-canary"]
     )
     assert args.func(args) == 0
     said = capsys.readouterr()

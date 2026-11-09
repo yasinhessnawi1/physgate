@@ -78,6 +78,7 @@ from physgate.hooks.reasons import (
     HOOK_STATE_REASON,
     OUTSIDE_REVIEW_REASON,
     REVIEW_MATERIAL_REASON,
+    SESSION_TEMPS_REASON,
     SESSIONS_REASON,
     WITHHELD_REASON,
 )
@@ -364,13 +365,15 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
         # record, which names what the stream scan looks for, nor the run's session
         # directories, which hold every session's login and stream, but for what the session
         # reads of its own there, nor the temporary directory every Claude Code session of the
-        # user shares, which holds the other sessions' task outputs.
+        # user shares, which holds the other sessions' task outputs, nor another session's own
+        # temporary directory, but for the session's own.
         for root in config.protected_roots:
             if (
                 root.reads == "denied"
                 and (
                     root.shell_writes == "allowed"
-                    or root.reason in (WITHHELD_REASON, SESSIONS_REASON, CLAUDE_TEMP_REASON)
+                    or root.reason
+                    in (WITHHELD_REASON, SESSIONS_REASON, CLAUDE_TEMP_REASON, SESSION_TEMPS_REASON)
                 )
                 and _reaches(absolute, root.path, chain)
                 and not any(_own_reading(absolute, own) for own in root.read_exceptions)
@@ -381,6 +384,12 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
         if _reaches(absolute, root.path, chain) and not any(
             _reaches(absolute, exception, chain) for exception in root.exceptions
         ):
+            # The session's own temporary directory is written by its own commands: held exactly,
+            # as its reads are, so no link there or case variant reaches another session's.
+            if root.reason == SESSION_TEMPS_REASON and any(
+                _own_reading(absolute, own) for own in root.read_exceptions
+            ):
+                continue
             return root.reason
     for rule in config.experiments:
         reason = _experiment_reason(

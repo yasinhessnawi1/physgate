@@ -55,6 +55,7 @@ from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
 from physgate.hooks.reasons import HOOK_STATE_REASON as HOOK_STATE_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
+from physgate.hooks.reasons import SESSION_TEMPS_REASON as SESSION_TEMPS_REASON
 from physgate.hooks.reasons import SESSIONS_REASON as SESSIONS_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.reasons import WITHHELD_REASON as WITHHELD_REASON
@@ -64,6 +65,7 @@ from physgate.oslayer import reaper_install
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.policy import NETWORK_UNENFORCED, sandbox_policy
 from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
+from physgate.oslayer.session_temp import session_temps_root
 
 WATCHDOG_SECONDS = 5
 HOOK_TIMEOUT_SECONDS = 30
@@ -165,6 +167,11 @@ class InstallRequest(BaseModel):
     #: them: refused to every read and write of a role, baseline or reviewer session, on every
     #: layer. Taken from the machine, never from the spawner.
     shared_claude_temp: tuple[AbsolutePath, ...] = Field(default_factory=lambda: claude_temp_dirs())
+    #: The one parent every session's own temporary directory lies directly beneath: refused to
+    #: every read and write of a role, baseline or reviewer session, on every layer, but for its
+    #: own child there, matched exactly. Every session runs as the same user, so a directory's
+    #: mode keeps no session from another's. Taken from the machine, never from the spawner.
+    session_temps: AbsolutePath = Field(default_factory=lambda: session_temps_root())
     #: Further places of the session's own that its shell commands read, where they sit
     #: inside a root the OS layer keeps from them (the run's ``sessions/``): the
     #: directory holding the run's named interpreter for this session.
@@ -507,6 +514,13 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         for path in request.shared_claude_temp:
             protected[path] = (CLAUDE_TEMP_REASON, "none")
             reads[path] = "denied"
+        # Every session's own temporary directory, the others' as much as its own: only its own
+        # child stays open, exactly as the path is spelt and resolved, never through a link.
+        temps = request.session_temps
+        protected[temps] = (SESSION_TEMPS_REASON, "none")
+        reads[temps] = "denied"
+        own_temp = request.os_layer_temp_dir or request.temp_dir
+        read_exceptions[temps] = (own_temp,) if own_temp is not None else ()
     for path in request.withheld:
         # Assigned, not defaulted: a withheld record named as an ordinary protected root too
         # is withheld all the same, put back and refused to every read on every layer.
@@ -727,6 +741,18 @@ def _own_temp(request: InstallRequest) -> str | None:
         msg = "a session has one temporary directory of its own: the OS layer's, or another"
         raise ValueError(msg)
     temp = request.os_layer_temp_dir or request.temp_dir
+    if temp is not None and request.profile in OWN_TEMP_PROFILES:
+        # Directly beneath the one parent, which every other session is refused: a directory
+        # anywhere else would be open to every session of the user, all running as one uid.
+        parent = os.path.realpath(request.session_temps)
+        if os.path.realpath(os.path.dirname(temp.rstrip("/"))) != parent or not os.path.basename(
+            temp.rstrip("/")
+        ):
+            msg = (
+                f"the session's temporary directory ({temp}) must lie directly beneath "
+                f"{request.session_temps}, the one parent no other session reads or writes"
+            )
+            raise ValueError(msg)
     if temp is None:
         if request.profile in OWN_TEMP_PROFILES:
             msg = (

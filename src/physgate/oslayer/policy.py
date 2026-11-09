@@ -90,6 +90,7 @@ from typing import Any, Literal
 
 from physgate.hooks.config import ExperimentRule, SessionConfig
 from physgate.hooks.graph import COMPLETION_DIR, DISPUTES_DIR, PROPOSALS_DIR
+from physgate.hooks.reasons import SESSION_TEMPS_REASON
 
 #: What the OS layer does with each path field of the session configuration.
 FIELD_RULES: dict[str, str] = {
@@ -186,17 +187,26 @@ def sandbox_policy(
     """
     writable = (config.worktree, temp_dir, home, *shared_temp)
     read_denied = _read_denied(config, platform)
+    # The one parent of every session's own temporary directory is denied, and the session's
+    # own child there opened again: the one read-denied root a temporary directory may lie in.
+    temps = {r.path for r in config.protected_roots if r.reason == SESSION_TEMPS_REASON}
     for place in (config.worktree, temp_dir):
-        if any(_under(place, denied) for denied in read_denied):
+        others = read_denied - temps if place == temp_dir else read_denied
+        if any(_under(place, denied) for denied in others):
             what = "worktree" if place == config.worktree else "temporary directory"
             msg = f"the session's {what} ({place}) is inside a read-denied path"
             raise ValueError(msg)
     deny_write, absent_named = _write_denied(config, writable, exists, children)
     # The home, and any further place of the session's own its commands read, may sit
-    # inside a read-denied root (the run's sessions/): opened again.
+    # inside a read-denied root (the run's sessions/), and its temporary directory inside the
+    # parent of every session's: opened again.
     allow_read = sorted(
-        place for place in {home, *readable} if any(_under(place, denied) for denied in read_denied)
+        place
+        for place in {home, temp_dir, *readable}
+        if any(_under(place, denied) for denied in read_denied)
     )
+    # Written by the session's commands, as its home is, where it lies in a denied parent.
+    own_writes = (temp_dir,) if any(_under(temp_dir, t) for t in temps) else ()
     settings: dict[str, Any] = {
         "sandbox": {
             "enabled": True,
@@ -205,7 +215,7 @@ def sandbox_policy(
             "autoAllowBashIfSandboxed": True,
             "excludedCommands": [],
             "filesystem": {
-                "allowWrite": _spelled(home, *shared_temp),
+                "allowWrite": _spelled(home, *own_writes, *shared_temp),
                 "denyWrite": _spelled(*deny_write, *claude_temp),
                 "denyRead": _spelled(*read_denied, *claude_temp),
                 "allowRead": _spelled(*allow_read),

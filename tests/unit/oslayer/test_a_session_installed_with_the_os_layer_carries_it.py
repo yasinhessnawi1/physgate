@@ -25,8 +25,7 @@ from physgate.hooks.settings import (
 )
 from physgate.hooks.settings import current_installation as installation
 
-
-OWN_TEMP = "/tmp/pg-0123456789cd"
+OWN_TEMP = "/var/tmp/pgs/01234567cd"
 
 
 def _request(tmp_path: Path, temp: str | None) -> InstallRequest:
@@ -53,12 +52,12 @@ def _request(tmp_path: Path, temp: str | None) -> InstallRequest:
 
 
 def test_with_a_temporary_directory_the_settings_carry_the_sandbox(outside_tmp: Path) -> None:
-    done = install(_request(outside_tmp, "/tmp/pg-0123456789ab"), REGISTRY)
+    done = install(_request(outside_tmp, "/var/tmp/pgs/0123456789"), REGISTRY)
     settings = json.loads(done.settings_path.read_text())
     assert settings["sandbox"]["enabled"] is True
     assert settings["sandbox"]["failIfUnavailable"] is True
     assert settings["hooks"]  # the hooks are still there, the first layer
-    assert done.spawn_env["CLAUDE_CODE_TMPDIR"] == "/tmp/pg-0123456789ab"
+    assert done.spawn_env["CLAUDE_CODE_TMPDIR"] == "/var/tmp/pgs/0123456789"
 
 
 def test_without_one_nothing_changes_but_the_session_s_own_temporary_directory(
@@ -71,14 +70,14 @@ def test_without_one_nothing_changes_but_the_session_s_own_temporary_directory(
 
 
 def test_a_directory_claude_code_would_replace_is_refused(outside_tmp: Path) -> None:
-    long = "/tmp/" + "p" * OS_LAYER_TEMP_LIMIT
+    long = "/var/tmp/pgs/" + "p" * OS_LAYER_TEMP_LIMIT
     with pytest.raises(ValueError, match="shares"):
         install(_request(outside_tmp, long), REGISTRY)
     assert OS_LAYER_TEMP_LIMIT == 32
 
 
 def test_offline_the_sandbox_refuses_every_host_in_every_permission_mode(outside_tmp: Path) -> None:
-    request = _request(outside_tmp, "/tmp/pg-0123456789ab").model_copy(
+    request = _request(outside_tmp, "/var/tmp/pgs/0123456789").model_copy(
         update={"os_layer_network": "none"}
     )
     settings = json.loads(install(request, REGISTRY).settings_path.read_text())
@@ -94,14 +93,14 @@ def test_offline_the_sandbox_refuses_every_host_in_every_permission_mode(outside
 def test_each_session_gets_its_own_copy_of_the_offline_block(outside_tmp: Path) -> None:
     from physgate.oslayer import policy
 
-    request = _request(outside_tmp, "/tmp/pg-0123456789ab").model_copy(
+    request = _request(outside_tmp, "/var/tmp/pgs/0123456789").model_copy(
         update={"os_layer_network": "none"}
     )
     before = dict(policy.OFFLINE)
     done = policy.sandbox_policy(
         build_config(request, installation()),
         home=str(outside_tmp / "home"),
-        temp_dir="/tmp/pg-0123456789ab",
+        temp_dir="/var/tmp/pgs/0123456789",
         network="none",
     )
     done.settings["sandbox"]["network"]["allowedDomains"].append("example.invalid")
@@ -110,5 +109,5 @@ def test_each_session_gets_its_own_copy_of_the_offline_block(outside_tmp: Path) 
 
 
 def test_open_the_sandbox_names_no_network_block(outside_tmp: Path) -> None:
-    done = install(_request(outside_tmp, "/tmp/pg-0123456789ab"), REGISTRY)
+    done = install(_request(outside_tmp, "/var/tmp/pgs/0123456789"), REGISTRY)
     assert "network" not in json.loads(done.settings_path.read_text())["sandbox"]

@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
 import shutil
 import subprocess
 import time
@@ -96,6 +95,7 @@ from physgate.orchestrator.protocols import (
     require_separate_models,
 )
 from physgate.orchestrator.run_config import DESIGN_REVIEWER, Effort, RunBounds, RunConfig
+from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.contract import WRAPPER, contract_text, issued_criteria, verdict_schema
 from physgate.reviewers.ending import await_session
 from physgate.reviewers.exceptions import ReviewError
@@ -571,8 +571,11 @@ class ClaudeReviewer:
         sdir = review / SESSION_DIRNAME
         sdir.mkdir(parents=True)
         (sdir / OWNER_NAME).write_text(json.dumps({"run_id": self._setup.run_id}))
-        temp = Path("/tmp") / f"pg-{secrets.token_hex(6)}"
-        temp.mkdir(mode=0o700)
+        try:
+            temp = make_session_temp()
+        except OSError as exc:
+            msg = "no temporary directory of the review session's own could be made"
+            raise InvocationError(msg, session_id=session_id, error=str(exc)) from exc
         try:
             return self._in_own_temp(
                 sdir,

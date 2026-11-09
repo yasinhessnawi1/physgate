@@ -109,7 +109,7 @@ def test_every_role_session_is_installed_with_the_run_s_configuration_withheld(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     named = [str(tmp_path / "run" / "run.json"), str(tmp_path / "run" / "decomposition")]
-    for temp in (None, Path("/tmp/pg-0123456789ab")):
+    for temp in (None, Path("/var/tmp/pgs/0123456789")):
         argv = _install_argv(tmp_path, monkeypatch, temp=temp)
         assert _values(argv, "--withheld") == named, argv
 
@@ -241,7 +241,7 @@ def test_no_file_a_role_session_could_read_after_one_session_holds_a_canary_or_a
         bounds=cfg.bounds,
     )
     installed = dispatcher._install(
-        request, worktree, sdir, None, own_temp=Path("/tmp/pg-0123456789ab")
+        request, worktree, sdir, None, own_temp=Path("/var/tmp/pgs/0123456789")
     )
     config = SessionConfig.model_validate_json(Path(installed.config).read_bytes())
     for event in ("SessionStart", "PreToolUse", "PostToolUse"):
