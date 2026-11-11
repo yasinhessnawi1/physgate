@@ -685,3 +685,47 @@ def test_a_raw_trial_whose_watch_failed_is_excluded_as_uncounted(tmp_path: Path,
     trial = _raw_trial(_stream(tmp_path / "stdout.jsonl", DONE), _raw(end=end))
     assert isinstance(trial, ExcludedTrial)
     assert trial.reason == f"end: {end}; the watch could not hold the session to its cap"
+
+
+def _scored(trial: Callable[[], TrialRecord | ExcludedTrial]) -> TrialRecord | ExcludedTrial | None:
+    """The trial's record, or ``None`` where the assembly refused it instead."""
+    try:
+        return trial()
+    except ReportError:
+        return None
+
+
+@pytest.mark.parametrize("passed", ["false", 0, None], ids=["a string", "a number", "none"])
+def test_a_trial_whose_score_says_passed_in_anything_but_a_bool_is_excluded(
+    tmp_path: Path, passed: Any
+) -> None:
+    """Excluded, never scored as a pass nor refused late: the scorer writes a bool."""
+    score = {"passed": passed, "flags": {}, "specs": []}
+    stream = _stream(tmp_path / "stdout.jsonl", DONE)
+    raw = _scored(
+        lambda: raw_trial(
+            suite="s",
+            task=TASK,
+            trial=1,
+            record=_raw(),
+            stream=stream,
+            prices=load_price_sheet("2026-10-16"),
+            score=score,
+            unscored=False,
+        )
+    )
+    assert isinstance(raw, ExcludedTrial) and raw.reason.startswith("score:"), raw
+    run = _run(tmp_path, _start(), _planned(1), _review(2, T0))
+    harness = _scored(
+        lambda: harness_trial(
+            suite="s",
+            task=TASK,
+            trial=0,
+            run_dir=run,
+            manifest_id="e" * 64,
+            cost=_cost_line(),
+            score=score,
+            unscored=False,
+        )
+    )
+    assert isinstance(harness, ExcludedTrial) and harness.reason.startswith("score:"), harness
