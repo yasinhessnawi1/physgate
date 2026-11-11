@@ -91,7 +91,7 @@ from physgate.orchestrator.exceptions import (
     TrajectoryTamperedError,
     WorktreeMisplacedError,
 )
-from physgate.orchestrator.managed import policy_limits_change
+from physgate.orchestrator.managed import ObservedTraffic, policy_limits_change, traffic_change
 from physgate.orchestrator.merge import merge_message
 from physgate.orchestrator.ports import (
     ChangeChecker,
@@ -1057,6 +1057,7 @@ class Loop:
                 trajectory_seal=report.trajectory_seal,
                 decisions_bytes=self._decisions_bytes(),
                 policy_limits_sha256=report.policy_limits_sha256,
+                observed_traffic=report.observed_traffic,
                 issued_spec_sha256=report.issued_spec_sha256,
                 series=report.series,
             )
@@ -1143,6 +1144,11 @@ class Loop:
             # The account's policy limits are applied without a trace the hooks see: the
             # session ran under other limits than the run began with.
             return "managed_settings_changed", changed
+        changed = traffic_change(self._traffic_baseline(), report.observed_traffic)
+        if changed is not None:
+            # On a pin whose sessions fetch the flags and may be served a catalog, the run is
+            # held to what it first saw: this session ran under other conditions.
+            return "managed_settings_changed", changed
         return None
 
     def _unverified_reaping(self, subtask_id: str, report: SessionReport) -> None:
@@ -1184,6 +1190,20 @@ class Loop:
         for event in self.log.events:
             if isinstance(event, Decomposed):
                 return event.policy_limits_sha256
+        return None
+
+    def _traffic_baseline(self) -> ObservedTraffic | None:
+        """The catalog and flags the run first saw: the decomposition call's, else a session's.
+
+        A run given its plan directly has no decomposition call, so its first session that
+        read a log sets what every later session is held to.
+        """
+        for event in self.log.events:
+            if isinstance(event, Decomposed) and event.observed_traffic is not None:
+                return event.observed_traffic
+        for event in self.log.events:
+            if isinstance(event, SessionEnded) and event.observed_traffic is not None:
+                return event.observed_traffic
         return None
 
     def _repair_node_files(self, subtask_id: str, attempt: int) -> bool:

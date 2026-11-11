@@ -61,7 +61,13 @@ from physgate.orchestrator.credentials import (
     write_key_helper,
     write_login,
 )
-from physgate.orchestrator.decompose import binary_version, interface_contracts, read_stream
+from physgate.orchestrator.decompose import (
+    DEBUG_LOG,
+    binary_version,
+    interface_contracts,
+    read_debug_log,
+    read_stream,
+)
 from physgate.orchestrator.events import Decomposed, SessionSpawned, read_events
 from physgate.orchestrator.exceptions import (
     AccountingError,
@@ -71,8 +77,13 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.git import common_dir, named_from, object_format, verified_git_dir
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
-from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
-from physgate.orchestrator.managed import drift, policy_limits_digest
+from physgate.orchestrator.invocation import (
+    TRAFFIC_ALLOWED_VERSIONS,
+    isolated_env,
+    role_argv,
+    session_search_path,
+)
+from physgate.orchestrator.managed import ObservedTraffic, drift, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import (
     Leftover,
@@ -1022,7 +1033,9 @@ class ClaudeDispatcher:
         """The installation's and the session directories' facts, taken once."""
         if self._facts is None:
             self._facts = install_facts(
-                self._install_bin.parent.parent, self._run.run_dir / "sessions"
+                self._install_bin.parent.parent,
+                self._run.run_dir / "sessions",
+                claude_version=self._config.claude_version,
             )
         return self._facts
 
@@ -1284,6 +1297,14 @@ class ClaudeDispatcher:
                 install=self._install_bin.parent.parent,
             )
             env["PATH"] = f"{session_bin(sdir, recorded_python)}:{env['PATH']}"
+        # On a pin whose sessions carry the catalog and flag traffic, the session's own debug
+        # log says what it saw; it is written beside the session's login, in its
+        # configuration directory, and read and removed with the credential.
+        debug_file = (
+            sdir / "config" / DEBUG_LOG
+            if self._config.claude_version in TRAFFIC_ALLOWED_VERSIONS
+            else None
+        )
         argv = role_argv(
             self._binary,
             prompt=role_prompt(request),
@@ -1293,6 +1314,7 @@ class ClaudeDispatcher:
             max_turns=request.bounds.session_max_turns,
             effort=self._config.effort,
             thinking_display=self._config.thinking_display,
+            debug_file=debug_file,
         )
         stdout = sdir / "stdout.jsonl"
         before = placeholders.snapshot(str(worktree), absent=named_in(installed, worktree))
@@ -1363,14 +1385,17 @@ class ClaudeDispatcher:
         # the credential's removal, the placeholder sweep, the series collection, the
         # commit. The credential is removed whatever the check did; the steps after it run
         # only once the stop and the check have settled.
+        observed: ObservedTraffic | None = None
         try:
             # On every path, the stop confirmed or not.
             after_stop = check_after_stop(end_check, session_id, worktree, env, sdir / "state")
         finally:
             # The credential is on disk only while its session runs: removed whatever the
-            # check did.
+            # check did. So is the debug log, which may hold it; only its reading is kept.
             remove_secrets(sdir / "state", sdir / "config")
             redact(stdout, self._credential.secret)
+            if debug_file is not None:
+                observed = read_debug_log(debug_file)
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
         try:
@@ -1484,6 +1509,7 @@ class ClaudeDispatcher:
             usage=usage,
             managed_drift=drift(sdir / "config", system_before),
             policy_limits_sha256=policy_limits_digest(sdir / "config"),
+            observed_traffic=observed,
             trajectory_seal=sealed,
             trajectory_tampered=tampered,
             review_material_seen=seen,

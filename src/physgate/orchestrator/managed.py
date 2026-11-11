@@ -237,8 +237,25 @@ def policy_limits_change(baseline: str | None, now: str | None) -> str | None:
 
 
 def traffic_change(baseline: ObservedTraffic | None, now: ObservedTraffic | None) -> str | None:
-    """How a session's catalog and flags differ from the run's first observation, or ``None``."""
-    return None
+    """How a session's catalog and flags differ from the run's first observation, or ``None``.
+
+    On a pin whose sessions carry the feature-flag and non-essential traffic, the catalog and
+    flags are not switched off, so the run is held to what it first saw instead: a session
+    that saw another state ran under other conditions than the sessions before it. A session
+    that read no log (the earlier pins write none) is not held to anything here.
+    """
+    if now is None or baseline is None or now == baseline:
+        return None
+    return (
+        "the served catalog and feature flags changed within the run: the run began with "
+        f"catalog {_state(baseline)} and flags {baseline.feature_flags}, this session saw "
+        f"catalog {_state(now)} and flags {now.feature_flags}"
+    )
+
+
+def _state(seen: ObservedTraffic) -> str:
+    reason = f" ({seen.served_catalog_reason})" if seen.served_catalog_reason else ""
+    return f"{seen.served_catalog}{reason}"
 
 
 def drift(config_dir: Path, system_before: tuple[SystemManagedFile, ...]) -> str | None:

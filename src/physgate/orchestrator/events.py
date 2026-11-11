@@ -340,8 +340,10 @@ class SessionEnded(_Event):
     #: none: held to the decomposition call's.
     policy_limits_sha256: Sha256 | None = None
     #: The served catalog and feature flags the session's debug log showed, on a pin whose
-    #: sessions carry that traffic: held to the run's first observation. ``None`` otherwise.
-    observed_traffic: ObservedTraffic | None = None
+    #: sessions carry that traffic: held to the run's first observation. ``None`` otherwise,
+    #: and then not written at all, so a session on an earlier pin is recorded byte for byte
+    #: as it was before the field existed.
+    observed_traffic: ObservedTraffic | None = Field(default=None, exclude_if=lambda v: v is None)
     #: The digest of the session's specification as the decomposition issued it,
     #: taken before the session was spawned; ``None`` for a plan given directly.
     issued_spec_sha256: Sha256 | None = None

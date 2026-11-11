@@ -198,24 +198,31 @@ def isolated_env(
     return env
 
 
-def traffic_settings(claude_version: str = "") -> TrafficSettings:
-    """The traffic settings every invocation's environment carries, read from that environment."""
-    env = isolated_env(
-        home=Path("/"),
-        config_dir=Path("/"),
-        binary="claude",
-        claude_version="",
-        max_retries=0,
-        max_output_tokens=1,
-        base_url=None,
-        api_key=None,
-    )
-    nonessential = env.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC") == "1"
-    telemetry = env.get("DISABLE_TELEMETRY") == "1"
-    return TrafficSettings(
+def traffic_settings(claude_version: str) -> TrafficSettings:
+    """What every session on ``claude_version`` carries about the catalog and flags, as recorded.
+
+    Read from that pin's own switches, which the record also lists whole. On a traffic-allowed
+    pin the catalog and flag traffic is on by the owner's choice, and what each session saw is
+    recorded with it instead of being measured off.
+    """
+    switches = session_env_settings(claude_version)
+    nonessential = switches.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC") == "1"
+    telemetry = switches.get("DISABLE_TELEMETRY") == "1"
+    recorded = TrafficSettings(
         nonessential_traffic="disabled" if nonessential else "enabled",
         telemetry="disabled" if telemetry else "enabled",
+        switches=tuple(switches.items()),
     )
+    if claude_version in TRAFFIC_ALLOWED_VERSIONS:
+        return recorded.model_copy(update={"measured": _TRAFFIC_ALLOWED_MEASURED})
+    return recorded
+
+
+#: What a traffic-allowed pin's record says in place of the earlier pins' measurement of "off".
+_TRAFFIC_ALLOWED_MEASURED = (
+    "feature-flag and non-essential traffic left on by the owner's choice on this pin; the "
+    "catalog and flags the decomposition call and each role session saw are recorded with them"
+)
 
 
 def role_argv(
@@ -260,6 +267,10 @@ def role_argv(
         str(max_turns),
         "--permission-mode",
         "bypassPermissions",
+        # Only on a pin whose sessions carry the catalog and flag traffic: its log says what
+        # the session saw. It may hold the session's credential, so it is read and removed
+        # with it. Earlier pins' sessions get the argv they always had.
+        *(() if debug_file is None else ("--debug-file", str(debug_file))),
     ]
 
 
