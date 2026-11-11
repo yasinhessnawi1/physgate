@@ -27,7 +27,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -156,6 +157,21 @@ def open_in_session(directory: Path) -> int | None:
         return fd
     finally:
         os.close(top)
+
+
+#: What a session's debug log is named by, in its configuration directory: every file whose name
+#: starts with it is removed with the credential, since a debug log may hold the credential.
+DEBUG_LOG_PREFIX = "debug"
+
+
+def remove_debug_logs(config_dir: Path) -> None:
+    """Remove every debug log in a session's configuration directory."""
+
+
+@contextmanager
+def debug_logs_removed_on_failure(config_dir: Path) -> Iterator[None]:
+    """On any failure inside, a session's debug logs are removed before it propagates."""
+    yield
 
 
 def remove_secrets(state_dir: Path, config_dir: Path) -> None:

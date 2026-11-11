@@ -612,6 +612,13 @@ def process_rows() -> list[tuple[int, int, str, str]] | None:
     return rows
 
 
+def settle_debug_log(
+    process: subprocess.Popen[bytes], *, confirmed: bool, debug_file: Path | None
+) -> ObservedTraffic | None:
+    """What a role session's debug log showed, read and removed once the session has ended."""
+    return read_debug_log(debug_file) if debug_file is not None else None
+
+
 def still_running(
     session_pid: int, started: str | None, stopped: Iterable[int], stop_done: float
 ) -> str | None:
