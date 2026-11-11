@@ -52,7 +52,7 @@ from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
-from physgate.orchestrator.canaries import canary_seen, redact_line
+from physgate.orchestrator.canaries import canary_seen, redact_text
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
@@ -961,11 +961,10 @@ def redact(path: Path, secret: str | None) -> None:
         while chunk := os.read(fd, 1 << 20):
             chunks.append(chunk)
         data = b"".join(chunks)
-        # Each line as it reads (decoded, every code point that shows nothing removed), the
-        # way the canary scan reads it: a credential split by such a character is still one.
-        redacted = b"\n".join(
-            redact_line(line, secret, REDACTED_TEXT) for line in data.split(b"\n")
-        )
+        # The stream as the canary scan reads it (each line decoded strictly, every code point
+        # that shows nothing removed, the lines joined): a credential split by such a character,
+        # across a line's strings or across lines, is still one. What cannot be read goes whole.
+        redacted = redact_text(data, secret, REDACTED_TEXT)
         if redacted != data:
             os.ftruncate(fd, 0)
             os.pwrite(fd, redacted, 0)
