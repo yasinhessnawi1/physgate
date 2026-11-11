@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from physgate.contracts.pairs import ContractError, ContractPair, pairing_problems, plan_pairs
 from physgate.gate.bounds_table import load_bounds
 from physgate.gate.catalogue import KINDS, QUALIFIERS, QUANTITIES, RELATIONS, shadowing_names
-from physgate.hooks.settings import protected_in_a_worktree
+from physgate.hooks.settings import WEB_TOOLS, protected_in_a_worktree
 from physgate.knowledge.library import LibraryError, put_into, read_library
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
@@ -104,6 +104,7 @@ from physgate.series.collect import series_library
 from physgate.state.exceptions import MalformedNodeIdError
 from physgate.state.schema import Node, validate_node_id
 from physgate.state.store import Store, payload_digest
+from physgate.unit_spelling import UnitSpellingError, require_bounded_spelling
 
 #: Where the run branch holds each interface node the decomposition planned, one JSON file
 #: per node named by its id, written in the commit that issues the specifications. Every
@@ -910,10 +911,41 @@ def judge(
         plan = plan_model(roles).model_validate_json(json.dumps(answer))
     except ValidationError as exc:
         return "invalid_plan", first_problem(exc), None, seen_model, turns
+    try:
+        plan = _units_as_products(plan, roles)
+    except UnitSpellingError as exc:
+        # A schema-stage refusal: the call is made once more, as for the binary's own refusal.
+        return "schema_refused", str(exc), None, seen_model, turns
     problems = plan_problems(plan, roles, brief)
     if problems:
         return "invalid_plan", "; ".join(problems), None, seen_model, turns
     return None, "a plan", plan, seen_model, turns
+
+
+def _units_as_products(plan: Plan, roles: Sequence[str]) -> Plan:
+    """``plan`` with every interface unit the product the unit grammar reads it as.
+
+    The function the change check reads a stored unit with (:func:`require_bounded_spelling`), so
+    no interface is stored in a unit the change check cannot read.
+
+    Raises:
+        UnitSpellingError: an interface unit the grammar refuses; the message names the node, the
+            quantity and the spelling the grammar takes, where one exists.
+    """
+    dumped = plan.model_dump(mode="json")
+    changed = False
+    for node in dumped["interface_nodes"]:
+        for name, quantity in node["quantities"].items():
+            try:
+                product = require_bounded_spelling(quantity["unit"])
+            except UnitSpellingError as exc:
+                msg = f"interface node {node['id']!r}'s {name}: {exc}"
+                raise UnitSpellingError(msg, exc.spelling) from None
+            changed = changed or product != quantity["unit"]
+            quantity["unit"] = product
+    if not changed:
+        return plan
+    return plan_model(roles).model_validate_json(json.dumps(dumped))
 
 
 def model_declined(stdout: str) -> bool:
@@ -973,7 +1005,9 @@ def call(
     for name in ("home", "config", "cwd"):
         (workdir / name).mkdir(parents=True, exist_ok=True)
     settings = workdir / "settings.json"
-    settings.write_text("{}\n")
+    # The call offers no tool but its answer; the web tools' deny is the second layer every
+    # session's settings carry.
+    settings.write_text(json.dumps({"permissions": {"deny": list(WEB_TOOLS)}}) + "\n")
     session_id = session_id or str(uuid.uuid4())
     roles = sorted(config.models.roles)
     sent = prompt_for(brief, roles) if prompt is None else prompt
