@@ -389,18 +389,26 @@ def test_a_call_that_received_no_policy_limits_records_none(tmp_path: Path) -> N
 def test_the_call_s_debug_log_is_read_for_the_catalog_and_flags_and_then_removed(
     tmp_path: Path,
 ) -> None:
-    # The real binary's own log, against the scripted endpoint: both off, as measured.
+    # The real binary's own log, against the scripted endpoint, as measured on each pin.
+    from physgate.orchestrator.invocation import TRAFFIC_ALLOWED_VERSIONS
+    from physgate.orchestrator.managed import FLAGS_OFF_BY_SETTING, FLAGS_SILENT_VERSIONS
+
     _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
     assert outcome.ok, outcome.detail
     seen = outcome.observed_traffic
-    assert seen is not None and seen.all_off()
-    assert seen.served_catalog_reason == "essential_traffic"
-    # The flags are seen off on a version that reports them, and are off by the
-    # documented setting, recorded as such, on one that does not.
-    from physgate.orchestrator.managed import FLAGS_OFF_BY_SETTING, FLAGS_SILENT_VERSIONS
-
-    silent = recorded_version() in FLAGS_SILENT_VERSIONS
-    assert seen.feature_flags == (FLAGS_OFF_BY_SETTING if silent else "off")
+    assert seen is not None
+    if recorded_version() in TRAFFIC_ALLOWED_VERSIONS:
+        # Traffic on: the catalog is off for a third-party endpoint, and the log says nothing
+        # of the flags (measured on 2.1.322, 11.11.2026). Recorded as seen, never as off.
+        assert (seen.served_catalog, seen.served_catalog_reason) == ("off", "not_first_party")
+        assert seen.feature_flags == "not reported off"
+    else:
+        assert seen.all_off()
+        assert seen.served_catalog_reason == "essential_traffic"
+        # The flags are seen off on a version that reports them, and are off by the
+        # documented setting, recorded as such, on one that does not.
+        silent = recorded_version() in FLAGS_SILENT_VERSIONS
+        assert seen.feature_flags == (FLAGS_OFF_BY_SETTING if silent else "off")
     (decomposed,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Decomposed)]
     assert decomposed.observed_traffic == seen
     assert not (run_dir / "decomposition" / "debug.log").exists()
@@ -423,6 +431,16 @@ def test_a_catalog_or_flags_not_reported_off_fail_the_call(
 
     monkeypatch.setattr(decompose_module, "read_debug_log", flags_on)
     _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    from physgate.orchestrator.invocation import TRAFFIC_ALLOWED_VERSIONS
+
+    if recorded_version() in TRAFFIC_ALLOWED_VERSIONS:
+        # On a pin whose sessions carry that traffic the state is recorded, not refused; a
+        # change within the run is what halts it.
+        assert outcome.ok, outcome.detail
+        assert outcome.observed_traffic is not None
+        assert outcome.observed_traffic.feature_flags == "not reported off"
+        assert not (run_dir / "decomposition" / "debug.log").exists()
+        return
     assert not outcome.ok and outcome.cause == "managed_settings_changed"
     assert "remote feature flags are not reported off" in outcome.detail
     (halted,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Halted)]

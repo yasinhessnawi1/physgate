@@ -65,7 +65,10 @@ STRICT_MODE = "strict mode"
 #: endpoint: 2.1.301 on 16.10.2026, 2.1.322 on 11.11.2026). Earlier versions send it once.
 RESENT_WITHOUT: dict[str, list[list[str]]] = {
     "2.1.301": [["thinking-display-updates-2026-08-18"]],
-    "2.1.322": [],
+    "2.1.322": [
+        ["thinking-token-count-2026-05-13"],
+        ["thinking-display-updates-2026-08-18", "thinking-token-count-2026-05-13"],
+    ],
 }
 
 
