@@ -318,10 +318,22 @@ class _HeldConfig(RunConfig):
     bounds: _HeldBounds
 
 
+class _VenvPython(RolePython):
+    venv: str | None = None
+
+
+class _VenvConfig(RunConfig):
+    role_python: _VenvPython | None
+
+
 @pytest.mark.parametrize(
     ("config", "path"),
-    [(_AdvisedConfig, "models.advisor"), (_HeldConfig, "bounds.session_max_tools")],
-    ids=["an advisor model", "a new bound"],
+    [
+        (_AdvisedConfig, "models.advisor"),
+        (_HeldConfig, "bounds.session_max_tools"),
+        (_VenvConfig, "role_python.venv"),
+    ],
+    ids=["an advisor model", "a new bound", "inside an optional model"],
 )
 def test_a_nested_run_field_with_no_decision_is_named(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: type[RunConfig], path: str
