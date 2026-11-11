@@ -37,6 +37,7 @@ from fake_messages_api import DUMMY_KEY, FakeMessagesApi, Script, serving
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.runtime import HookSpec
 from physgate.hooks.settings import Installed, InstallRequest, install
+from physgate.orchestrator.invocation import TRAFFIC_ALLOWED_VERSIONS, session_env_settings
 from physgate.oslayer.reaper_install import with_canary
 
 #: The Claude Code versions the hook contract is measured on, each in a CI leg of its own: the
@@ -99,7 +100,14 @@ RIG_SWITCHES_2_1_301 = {
 
 
 def session_switches(version: str) -> dict[str, str]:
-    """The environment switches a session of this harness on ``version`` is spawned with."""
+    """The environment switches a session of this harness on ``version`` is spawned with.
+
+    On 2.1.301, what every result on it was measured under. On a pin whose sessions carry the
+    catalog and flag traffic, the harness's own switches for that pin, so its rows are proven
+    under the environment its role sessions run in.
+    """
+    if version in TRAFFIC_ALLOWED_VERSIONS:
+        return session_env_settings(version)
     return dict(RIG_SWITCHES_2_1_301)
 
 
