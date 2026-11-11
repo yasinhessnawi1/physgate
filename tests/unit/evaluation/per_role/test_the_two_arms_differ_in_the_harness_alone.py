@@ -116,7 +116,7 @@ def _harness_run(
 def _pins(**changes: Any) -> dict[str, Any]:
     """The pins the raw arm records for a session run as the harness's role sessions were."""
     config = _config()
-    pins = {
+    pins: dict[str, Any] = {
         "advisor": None,
         "answer": TASK.answer.model_dump(mode="json"),
         "auth": "subscription",
