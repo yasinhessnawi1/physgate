@@ -21,6 +21,7 @@ from orch_helpers import SCRIPTED_BOUNDS, make_config
 from pydantic import ValidationError
 
 from physgate.orchestrator import dispatch
+from physgate.orchestrator.binaries import ClaudeBinary
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
 from physgate.orchestrator.ports import SessionRequest
@@ -251,6 +252,9 @@ def test_whether_none_is_enforced_is_measured_never_taken_from_the_parameters(
     monkeypatch.setattr(cli, "head_of", lambda *_: "c" * 40)
     monkeypatch.setattr(cli, "judge_here", lambda **_: ABSENT)
     monkeypatch.setattr(cli, "claude_binary", lambda: "/nonexistent/claude")
+    monkeypatch.setattr(
+        cli.binaries, "measure", lambda _: ClaudeBinary(sha256="a" * 64, platform="linux-x64")
+    )
     recorded = json.loads(make_config().model_dump_json())
     measured: tuple[str, ...] = (
         "run_id",
@@ -263,6 +267,7 @@ def test_whether_none_is_enforced_is_measured_never_taken_from_the_parameters(
     measured += ("harness", "git_binary", "os_layer")
     params = {k: v for k, v in recorded.items() if k not in measured}
     params |= {"network": "none", "network_enforced": True}  # a claim, overruled
+    params |= {"account": "a-test-account"}
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("brief\n")
     args = argparse.Namespace(
@@ -272,7 +277,8 @@ def test_whether_none_is_enforced_is_measured_never_taken_from_the_parameters(
         seed=7,
         target=tmp_path,
     )
-    assert cli._config(args).network_enforced is False
+    credential = Credential(mode="api_key", secret="sk-ant-test-dummy-not-a-credential")
+    assert cli._config(args, credential).network_enforced is False
 
 
 def test_none_where_no_os_layer_runs_is_said_on_stderr_and_in_the_run_s_event(

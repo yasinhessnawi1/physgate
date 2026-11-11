@@ -21,6 +21,7 @@ import pytest
 from loop_fakes import FakeGate, FakeReviewer
 from orch_helpers import make_config
 
+import physgate.evaluation.requirements as evaluation_requirements
 import physgate.orchestrator.cli as orchestrator_cli
 from physgate.cli import main
 from physgate.evaluation.observe.compare import drift
@@ -37,6 +38,8 @@ from physgate.orchestrator.run_config import (
 )
 
 DUMMY = "sk-ant-test-dummy-not-a-credential"
+#: A parameter left out of the parameters file.
+_DROP = object()
 OTHER = "sk-ant-test-another-dummy-credential"
 
 
@@ -95,7 +98,7 @@ def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
         "network": "open",
         **extra,
     }
-    params = {k: v for k, v in params.items() if v is not None}
+    params = {k: v for k, v in params.items() if v is not _DROP}
     (tmp_path / "brief.md").write_text("Build a robot.\n")
     (tmp_path / "params.json").write_text(json.dumps(params))
     target = _checkout(tmp_path / "target")
@@ -267,6 +270,9 @@ def test_compare_refuses_across_two_builds_but_not_across_two_accounts() -> None
 def test_decompose_records_the_binary_it_measured_and_the_account_it_was_named(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    # The evaluation's requirement on the OS layer, which the stand-in predates, is not the
+    # subject here: what is recorded is.
+    monkeypatch.setattr(evaluation_requirements, "REQUIREMENTS", ())
     harness = _checkout(tmp_path / "harness")
     monkeypatch.setattr(orchestrator_cli, "_harness_root", lambda: harness)
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY)
@@ -286,15 +292,30 @@ def test_decompose_records_the_binary_it_measured_and_the_account_it_was_named(
     assert DUMMY not in (tmp_path / "run" / "run.json").read_text()
 
 
+@pytest.mark.parametrize(
+    ("named", "said"),
+    [
+        (_DROP, "account: Field required"),
+        (None, "a new run names the account it draws on"),
+        ({"name": "seat-2", "token_sha256_prefix": "0123456789ab"}, "account: "),
+    ],
+    ids=["absent", "null", "a claimed fingerprint"],
+)
 def test_a_run_that_names_no_account_is_refused_before_any_request_or_record(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    named: object,
+    said: str,
 ) -> None:
+    monkeypatch.setattr(evaluation_requirements, "REQUIREMENTS", ())
     harness = _checkout(tmp_path / "harness")
     monkeypatch.setattr(orchestrator_cli, "_harness_root", lambda: harness)
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY)
     monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(_binary(tmp_path)))
-    assert main(_decompose_args(tmp_path, account=None)) == 2
-    assert json.loads(capsys.readouterr().err)["error"] == "a new run names the account it draws on"
+    assert main(_decompose_args(tmp_path, account=named)) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert said in f"{error.get('reason', '')} {error['error']}"
     assert not (tmp_path / "run").exists()
     assert not (tmp_path / "calls.txt").exists()
 
@@ -302,6 +323,7 @@ def test_a_run_that_names_no_account_is_refused_before_any_request_or_record(
 def test_a_reportable_run_on_an_unlisted_binary_is_refused_before_any_request_or_record(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.setattr(evaluation_requirements, "REQUIREMENTS", ())
     harness = _checkout(tmp_path / "harness")
     monkeypatch.setattr(orchestrator_cli, "_harness_root", lambda: harness)
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY)
@@ -316,6 +338,7 @@ def test_a_reportable_run_on_an_unlisted_binary_is_refused_before_any_request_or
 def test_a_reportable_run_on_the_listed_build_passes_the_binary_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.setattr(evaluation_requirements, "REQUIREMENTS", ())
     harness = _checkout(tmp_path / "harness")
     monkeypatch.setattr(orchestrator_cli, "_harness_root", lambda: harness)
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY)

@@ -173,6 +173,8 @@ def test_a_run_recorded_before_the_field_loads_and_keeps_its_bytes(tmp_path: Pat
         "network_enforced",
         "queue_decisions",
         "os_layer_absent",
+        "binary",
+        "account",
     ):  # recorded before these too
         del legacy[later]
     legacy_bytes = json.dumps(legacy, separators=(",", ":")).encode() + b"\n"
