@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import platform
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -143,8 +145,8 @@ def test_a_binary_that_cannot_be_read_is_refused(tmp_path: Path) -> None:
 def test_the_platform_is_named_as_the_build_packages_name_it(
     monkeypatch: pytest.MonkeyPatch, system: str, machine: str, expected: str
 ) -> None:
-    monkeypatch.setattr(binaries.sys, "platform", system)
-    monkeypatch.setattr(binaries._platform, "machine", lambda: machine)
+    monkeypatch.setattr(sys, "platform", system)
+    monkeypatch.setattr(platform, "machine", lambda: machine)
     assert binaries.platform_here() == expected
 
 
@@ -152,8 +154,8 @@ def test_the_platform_is_named_as_the_build_packages_name_it(
 def test_a_machine_no_build_is_used_on_is_refused(
     monkeypatch: pytest.MonkeyPatch, system: str, machine: str
 ) -> None:
-    monkeypatch.setattr(binaries.sys, "platform", system)
-    monkeypatch.setattr(binaries._platform, "machine", lambda: machine)
+    monkeypatch.setattr(sys, "platform", system)
+    monkeypatch.setattr(platform, "machine", lambda: machine)
     with pytest.raises(InvocationError, match="no Claude Code build"):
         binaries.platform_here()
 
