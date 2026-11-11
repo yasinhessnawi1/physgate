@@ -168,3 +168,23 @@ def test_a_review_on_an_earlier_pin_is_recorded_as_it_was(tmp_path: Path) -> Non
     assert _run(rig) == "done"
     text = (tmp_path / "events.jsonl").read_text()
     assert '"review_ran"' in text and '"managed"' not in text
+
+
+#: An invocation whose stop was not confirmed: its log was never read.
+UNREAD = SAME.model_copy(update={"observed_traffic": None})
+
+
+def test_on_the_new_pin_a_review_whose_catalog_and_flags_went_unread_halts_the_run(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(
+        tmp_path,
+        dispatcher=FakeDispatcher(traffic={1: SEEN}),
+        config_overrides={"claude_version": "2.1.322"},
+    )
+    rig.reviewer.results[1] = _result(rig, UNREAD)
+    assert _run(rig) == "halted"
+    events = read_events(tmp_path / "events.jsonl")
+    (incident,) = [e for e in events if isinstance(e, Incident)]
+    assert incident.cause == "managed_settings_changed" and "not read" in incident.detail
+    assert not any(isinstance(e, (ReviewRan, Merged)) for e in events)

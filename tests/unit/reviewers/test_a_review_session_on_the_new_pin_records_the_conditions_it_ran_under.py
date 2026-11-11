@@ -330,3 +330,18 @@ def test_a_review_with_nothing_seen_is_written_as_before() -> None:
         verdict="pass", finding="sound", reviewer_model=MODEL, session_id="s", usage=()
     )
     assert "managed" not in json.loads(result.model_dump_json())
+
+
+def test_a_stop_the_process_table_does_not_confirm_reads_no_log_and_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        claude, "still_running", lambda *a: "still running after the stop: [1]", raising=False
+    )
+    reviewer, sdir, read = _reviewer(tmp_path, "2.1.322")
+    argv = _spawn(reviewer, sdir, read)
+    assert "--debug-file" in argv  # reached: the session was given a log, and wrote it
+    assert reviewer._seen == [
+        SessionManaged(observed_traffic=None, managed_drift=None, policy_limits_sha256=None)
+    ]
+    assert _logs(sdir) == []
