@@ -301,7 +301,8 @@ def test_a_raw_record_missing_a_field_the_arm_always_writes_is_excluded(
     record = _raw()
     del record[field]
     trial = _raw_trial(_stream(tmp_path / "stdout.jsonl", DONE), record)
-    assert isinstance(trial, ExcludedTrial) and trial.reason.startswith(f"{field}:")
+    assert isinstance(trial, ExcludedTrial)
+    assert trial.reason.startswith(f"{field}: the record does not say")
 
 
 def test_a_raw_trial_whose_stream_shows_its_own_task_s_canary_is_excluded(tmp_path: Path) -> None:

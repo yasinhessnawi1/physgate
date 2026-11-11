@@ -77,6 +77,10 @@ INFRASTRUCTURE_CAUSES = frozenset({"api_error", "credential_refused", "sandbox_u
 OWN_ENDS = frozenset({"budget_exhausted", "wall_clock"})
 
 
+#: A field the record does not carry, told apart from one it carries as ``None``.
+_MISSING = object()
+
+
 class ExcludedTrial(BaseModel):
     """A trial whose own records say its answer is not to be taken, and why."""
 
@@ -109,9 +113,9 @@ def raw_exclusion(record: Mapping[str, Any], stream: Path, task: Task) -> str | 
     Each signal is read as the raw arm writes it; a field it always writes and that is
     missing excludes the trial too, since the record cannot then say the trial is sound.
     """
-    if "held_out_seen" not in record:
+    seen = record.get("held_out_seen", _MISSING)
+    if seen is _MISSING:
         return "held_out_seen: the record does not say whether a held-out canary showed"
-    seen = record["held_out_seen"]
     if seen not in (False, None):
         return "held_out_seen: a held-out canary showed in the session's stream"
     if task.canary is not None and seen is None:
@@ -123,9 +127,10 @@ def raw_exclusion(record: Mapping[str, Any], stream: Path, task: Task) -> str | 
         return "end: the record holds no end"
     if end in WATCH_FAILURES:
         return f"end: {end}; the watch could not hold the session to its cap"
-    if "sentinel_after_stop" not in record:
+    after = record.get("sentinel_after_stop", _MISSING)
+    if after is _MISSING:
         return "sentinel_after_stop: the record does not say what the end check found"
-    if record["sentinel_after_stop"] is not None:
+    if after is not None:
         return "sentinel_after_stop: the end check refused the session"
     tampered = read_captured(stream).tampered
     if tampered is not None:

@@ -205,6 +205,16 @@ def test_any_pin_that_differs_is_named(tmp_path: Path, pin: dict[str, Any]) -> N
     assert [f.split(":", 1)[0] for f in _found(tmp_path, pins=_pins(**pin))] == [name]
 
 
+def test_a_harness_run_given_another_brief_is_named(tmp_path: Path) -> None:
+    """Both arms recorded the same brief, and it is not this task's: no pair of this task."""
+    other = "1" * 64
+    run = _harness_run(tmp_path, config=_config(brief_sha256=other))
+    found = differences(
+        run, _raw_dir(tmp_path, pins=_pins(brief_sha256=other)), role="control", task=TASK
+    )
+    assert found == ["brief: the harness run was not given this task's brief"]
+
+
 def test_a_pin_the_comparison_does_not_know_is_named(tmp_path: Path) -> None:
     """A pin added to the raw arm without a decision here is a difference, not a pass."""
     assert _found(tmp_path, pins=_pins(tool_servers="none")) == [
