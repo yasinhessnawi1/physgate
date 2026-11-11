@@ -284,4 +284,4 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
         "the check's session wrote in the store outside its own work"
     )
     assert not work.exists()
-    raise AssertionError("deliberately red: the CI step must fail on it")
+    pytest.skip("deliberately skipped: the CI step must fail on a skip")
