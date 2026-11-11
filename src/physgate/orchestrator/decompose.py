@@ -42,6 +42,7 @@ from physgate.orchestrator.credentials import (
 from physgate.orchestrator.exceptions import DecompositionError, InvocationError, RunStateError
 from physgate.orchestrator.git import commit_all, common_dir, git, init_repo
 from physgate.orchestrator.invocation import (
+    TRAFFIC_ALLOWED_VERSIONS,
     claude_binary,
     decomposition_argv,
     isolated_env,
@@ -516,10 +517,12 @@ def call(
 def traffic_refusal(observed: ObservedTraffic, claude_version: str) -> str | None:
     """Why the decomposition call's catalog and flags state refuses the run, or ``None``.
 
-    The run proceeds only under a served catalog seen off and feature flags off, observed or
-    off by the documented setting on a version that never reports them.
+    On the earlier pins the run proceeds only under a served catalog seen off and feature flags
+    off, observed or off by the documented setting on a version that never reports them. On a
+    pin whose sessions carry the traffic the advisor needs, by the owner's choice, the state is
+    recorded with the run instead: it is what that pin's environment gives, not a drift.
     """
-    if observed.all_off():
+    if observed.all_off() or claude_version in TRAFFIC_ALLOWED_VERSIONS:
         return None
     return (
         f"the binary's served model catalog is {observed.served_catalog} and its remote "
