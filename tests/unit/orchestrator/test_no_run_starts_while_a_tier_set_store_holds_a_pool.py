@@ -101,8 +101,7 @@ def test_a_run_naming_a_clean_store_or_none_starts(tmp_path: Path) -> None:
     store = _store(tmp_path)
     (store / "control" / "withheld" / "author").mkdir(parents=True)
     (store / "control" / "withheld" / "check").mkdir()
-    # A pool beside the withheld root, not in it, is no pool of the store.
-    (store / "control" / "pool").mkdir()
+    (store / "control" / "work").mkdir()
     assert _refusal(_facts(store / "control" / VERSION / "held_out")) is None
     elsewhere = tmp_path.resolve() / "private" / "held_out"
     (elsewhere.parent / "pool").mkdir(parents=True)
@@ -622,3 +621,54 @@ def test_a_work_root_that_is_a_link_refuses(tmp_path: Path) -> None:
     (store / "control" / "work").symlink_to(elsewhere)
     why = _refusal(_facts(store))
     assert why is not None and "(store_unreadable)" in why, "the link is skipped"
+
+
+@pytest.mark.parametrize(
+    "left",
+    [
+        "control/copy.json",
+        "control/pool/control.t00/task.json",
+        "control/Withheld/copy.json",
+        "control/Work",
+        f"control/{VERSION}/copy.json",
+        f"control/{'B' * 64}/held_out/task.json",
+        "control/" + "c" * 64,
+        "control/author.working",
+    ],
+    ids=[
+        "a task copy in the role's root",
+        "a folder in the role's root",
+        "the withheld root's name in another case",
+        "the work root's name in another case",
+        "a file in a version beside its tiers",
+        "a version's name in another case",
+        "a file named as a version",
+        "a record of work",
+    ],
+)
+def test_anything_out_of_place_in_a_role_s_root_is_work_left_and_refuses_the_run(
+    tmp_path: Path, left: str
+) -> None:
+    leftovers = _api("physgate.evaluation.tiers.store.leftovers")
+    store = _store(tmp_path)
+    place = store / left
+    place.parent.mkdir(parents=True, exist_ok=True)
+    if left.endswith("/Work"):
+        place.mkdir()
+    else:
+        place.write_text('{"id": "control.t00", "brief": "a held-out brief"}')
+    assert leftovers(store)["work_left"] == 1, f"{left} is not counted"
+    refusal = _refusal(_facts(store / "control" / VERSION / "held_out"))
+    assert refusal is not None and refusal.endswith("(work_left)")
+
+
+def test_the_known_places_of_a_role_s_root_are_not_work_left(tmp_path: Path) -> None:
+    leftovers = _api("physgate.evaluation.tiers.store.leftovers")
+    store = _store(tmp_path)
+    version = store / "control" / VERSION
+    (version / "tierset.json").write_text("{}")
+    (version / "provenance.json").write_text("{}")
+    (store / "control" / "withheld" / "author" / "s-1").mkdir(parents=True)
+    (store / "control" / "work").mkdir()
+    (store / "firmware" / "withheld").mkdir(parents=True)
+    assert leftovers(store) == {"pool_left": 0, "temporary_version_left": 0, "work_left": 0}

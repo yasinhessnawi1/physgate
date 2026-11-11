@@ -93,7 +93,9 @@ def test_twenty_four_pooled_tasks_become_one_version_and_no_pool_outlives_it(
     _, _, out = _author(tmp_path, monkeypatch, _tasks(26), count=26)
     assert out["status"] == "split" and out.get("version") is not None
     version = _root(tmp_path) / out["version"]
-    assert sorted(p.name for p in _root(tmp_path).iterdir()) == sorted(["withheld", out["version"]])
+    assert sorted(p.name for p in _root(tmp_path).iterdir()) == sorted(
+        ["withheld", "work", out["version"]]
+    )
     assert out["pool"] == 0 and out.get("left_with_the_pool") == 2
     held = sorted(p.name for p in (version / "held_out").iterdir() if p.is_dir())
     assert len(held) == 8 and out["visible"] == sorted(
@@ -416,6 +418,7 @@ def test_the_blind_check_command_works_in_the_work_root_and_withholds_all_else(
         given.append(args)
         return {}
 
+    (store / "firmware" / "withheld").mkdir(parents=True)
     monkeypatch.setattr(cli, "_with_install", installed)
     monkeypatch.setattr(author_session, "blind_check", recording)
     parser = argparse.ArgumentParser()
@@ -430,9 +433,9 @@ def test_the_blind_check_command_works_in_the_work_root_and_withholds_all_else(
     work_root = store / "control" / "work"
     assert work.parent == work_root, f"the check works at {work}, not in the work root"
     version = store / "control" / out["version"]
-    # All of the role's root but the check's own work: the version whole, its manifest and
-    # visible tier included, and the withheld root.
-    expected = (store / "control" / "withheld", version)
+    # All of the store but the check's own work: the version whole, its manifest and visible
+    # tier included, the withheld root, and every other role's root.
+    expected = (store / "control" / "withheld", version, store / "firmware")
     assert sorted(held) == sorted(str(p) for p in expected)
 
 
@@ -474,3 +477,209 @@ def test_a_manifest_changed_while_the_check_ran_refuses_its_answer(
         f"the check's answer was taken after its version changed: {checked}"
     )
     assert (_root(tmp_path) / "withheld" / "check" / "c-1" / "stdout.jsonl").is_file()
+
+
+def test_a_version_written_on_a_bare_role_s_root_makes_its_withheld_and_work_roots(
+    tmp_path: Path,
+) -> None:
+    from physgate.evaluation.tiers.store import write_version
+    from physgate.evaluation.tiers.task import canonical_json
+
+    prepared = tmp_path / "prepared"
+    prepared.mkdir()
+    _tasks(24)(prepared)
+    root = _root(tmp_path)
+    root.mkdir(parents=True)
+    write_version(
+        root,
+        sorted(p for p in prepared.iterdir() if p.is_dir()),
+        role="control",
+        seed=3,
+        model="claude-sonnet-5",
+        runtime="2.1.301",
+        provenance=canonical_json({"sessions": []}),
+    )
+    for name in ("withheld", "work"):
+        assert (root / name).is_dir(), f"the role's {name} root is not there once a version is"
+
+
+def _checked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, write: Any) -> dict[str, Any]:
+    """A version cut, then a blind check whose session runs ``write``; its result or refusal."""
+    _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    monkeypatch.setattr(author_session, "run_session", FakeSession(write, session_id="c-1"))
+    try:
+        return _blind_check(tmp_path, out["version"])
+    except AuthoringError as exc:
+        return {**exc.context, "raised": True}
+
+
+def _version(tmp_path: Path) -> Path:
+    (found,) = [p for p in _root(tmp_path).iterdir() if len(p.name) == 64]
+    return found
+
+
+def test_the_check_s_session_writes_nowhere_in_the_store_but_its_own_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    fake = FakeSession(_answers(_all_yes), session_id="c-1")
+    monkeypatch.setattr(author_session, "run_session", fake)
+    checked = _blind_check(tmp_path, out["version"])
+    assert checked["answered"]
+    (setup,) = fake.setups
+    store = _store(tmp_path).resolve()
+    assert getattr(setup, "write_protected", ()) == (str(store),), "the store is not protected"
+    assert getattr(setup, "writable_within", ()) == (str(check_work(store).resolve()),)
+
+
+@pytest.mark.parametrize(
+    "how", ["removed", "renamed in another case", "a version's name appears in another case"]
+)
+def test_a_version_removed_or_renamed_while_the_check_ran_refuses_its_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    import shutil
+
+    def answer_and_move(worktree: Path) -> None:
+        _answers(_all_yes)(worktree)
+        version = _version(tmp_path)
+        if how == "removed":
+            shutil.rmtree(version)
+        elif how == "renamed in another case":
+            version.rename(version.with_name(version.name.upper()))
+        else:
+            (version.parent / ("F" * 64)).mkdir()
+
+    checked = _checked(tmp_path, monkeypatch, answer_and_move)
+    assert checked.get("refused_because") == "version_changed", (
+        f"the check's answer was taken after a version was {how}: {checked}"
+    )
+
+
+def test_a_task_copy_dropped_in_the_role_s_root_refuses_the_answer_and_stays_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.evaluation.tiers.store import leftovers
+
+    def answer_and_drop(worktree: Path) -> None:
+        _answers(_all_yes)(worktree)
+        (_root(tmp_path) / "copy.json").write_bytes((worktree / "tasks.json").read_bytes())
+
+    checked = _checked(tmp_path, monkeypatch, answer_and_drop)
+    assert checked.get("refused_because") == "role_root_changed", (
+        f"the check's answer was taken after a task copy was dropped in the role's root: {checked}"
+    )
+    # Its record stays for a person, so nothing starts on the store until one has looked.
+    record = _root(tmp_path) / "check.working"
+    assert record.is_file() and "copy.json" in record.read_text()
+    assert leftovers(_store(tmp_path))["work_left"] >= 1
+    assert not check_work(_store(tmp_path)).exists(), "the check's work stayed out"
+
+
+class _Stopped(Exception):  # noqa: N818 - stands for the session's own failure
+    pass
+
+
+@pytest.mark.parametrize(
+    "ending",
+    ["an exception", "a stop", "a timeout", "its stream showed a canary"],
+)
+def test_the_role_s_root_is_looked_at_again_however_the_check_s_session_ends(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ending: str
+) -> None:
+    import subprocess
+
+    def tamper_and_end(worktree: Path) -> None:
+        _answers(_all_yes)(worktree)
+        manifest = _version(tmp_path) / "tierset.json"
+        manifest.write_bytes(manifest.read_bytes().replace(b"control", b"Control", 1))
+        if ending == "an exception":
+            raise _Stopped("the session failed")
+        if ending == "a stop":
+            raise KeyboardInterrupt
+        if ending == "a timeout":
+            raise subprocess.TimeoutExpired("claude", 1.0)
+
+    _, _, out = _author(tmp_path, monkeypatch, _tasks(24))
+    fake = FakeSession(tamper_and_end, session_id="c-1")
+    if ending == "its stream showed a canary":
+        real = fake.__call__
+
+        def seen(*args: Any, **kwargs: Any) -> dict[str, Any]:  # noqa: ANN401
+            return {**real(*args, **kwargs), "held_out_seen": True}
+
+        monkeypatch.setattr(author_session, "run_session", seen)
+    else:
+        monkeypatch.setattr(author_session, "run_session", fake)
+    raised: BaseException | None = None
+    try:
+        _blind_check(tmp_path, out["version"])
+    except BaseException as exc:  # noqa: BLE001 - a stop is the case under test
+        raised = exc
+    assert isinstance(raised, AuthoringError), (
+        f"{ending}: the check ended without looking at the role's root again: {raised!r}"
+    )
+    assert raised.context.get("refused_because") == "version_changed"
+    assert (_root(tmp_path) / "check.working").is_file()
+
+
+def test_an_author_whose_session_does_not_withhold_every_role_s_root_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    other = _store(tmp_path) / "firmware" / "withheld" / "check" / "c-1"
+    other.mkdir(parents=True)
+    (other / "stdout.jsonl").write_text("another role's held-out tasks")
+    fake = FakeSession(_tasks(24))
+    monkeypatch.setattr(author_session, "run_session", fake)
+    setup = dataclasses.replace(_setup(tmp_path / "private"), held_out=(str(_root(tmp_path)),))
+    (tmp_path / "scratch").mkdir()
+    with pytest.raises(AuthoringError) as refused:
+        author_session.author(_plan(tmp_path), setup)
+    assert refused.value.context.get("refused_because") == "store_not_withheld"
+    assert fake.calls == []
+
+
+def test_an_author_refuses_a_store_where_another_role_s_root_would_trip_its_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    other = _store(tmp_path) / "firmware" / "withheld"
+    other.mkdir(parents=True)
+    os.symlink("/etc/hosts", other / "a-link")
+    fake = FakeSession(_tasks(24))
+    monkeypatch.setattr(author_session, "run_session", fake)
+    (tmp_path / "scratch").mkdir()
+    with pytest.raises(AuthoringError):
+        author_session.author(_plan(tmp_path), _setup(tmp_path / "private"))
+    assert fake.calls == []
+
+
+def test_the_author_command_withholds_the_whole_store_and_makes_the_role_s_root(
+    tmp_path: Path,
+) -> None:
+    import argparse
+
+    from physgate.evaluation.per_role import cli
+
+    store = _store(tmp_path).resolve()
+    store.mkdir(parents=True)
+    parser = argparse.ArgumentParser()
+    cli.add_parser(parser.add_subparsers())
+    args = parser.parse_args(
+        ["per-role", "author", "--role", "control", "--cap", "1", "--store", str(store)]
+        + ["--work", str(tmp_path / "w"), "--seed", "1", "--role-python", "python3"]
+    )
+    held = cli.session_held_out(args)
+    assert held == (str(store),), f"the author's session withholds {held}, not the whole store"
+    for name in ("withheld", "work"):
+        assert (store / "control" / name).is_dir(), f"the role's {name} root is not made first"
+
+
+def test_an_author_s_first_session_makes_the_role_s_withheld_and_work_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, out = _author(tmp_path, monkeypatch, _tasks(12))
+    assert out["status"] == "pooled"
+    for name in ("withheld", "work"):
+        assert (_root(tmp_path) / name).is_dir(), f"the role's {name} root is not made with it"

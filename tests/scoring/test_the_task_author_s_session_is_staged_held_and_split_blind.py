@@ -87,6 +87,8 @@ class FakeSession:
         self.write = write
         self.session_id, self.checking = session_id, checking
         self.calls: list[dict[str, Any]] = []
+        #: The setup each call was given, as the session would be installed from it.
+        self.setups: list[RawSetup] = []
 
     def __call__(
         self,
@@ -99,6 +101,7 @@ class FakeSession:
         check: Any = None,
     ) -> dict[str, Any]:
         self.calls.append({"prompt": prompt, "model": setup.model, "files": files, "cap": cap})
+        self.setups.append(setup)
         worktree = work / "worktree"
         (work / "session").mkdir(parents=True)
         worktree.mkdir()
