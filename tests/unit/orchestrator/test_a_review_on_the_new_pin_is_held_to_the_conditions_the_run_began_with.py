@@ -188,3 +188,32 @@ def test_on_the_new_pin_a_review_whose_catalog_and_flags_went_unread_halts_the_r
     (incident,) = [e for e in events if isinstance(e, Incident)]
     assert incident.cause == "managed_settings_changed" and "not read" in incident.detail
     assert not any(isinstance(e, (ReviewRan, Merged)) for e in events)
+
+
+def test_where_nothing_before_it_saw_the_catalog_a_review_s_reading_is_what_later_ones_are_held_to(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(tmp_path)  # no session reads a log here: the first review's reading is the first
+    loop = rig.open()
+    loop.record.start(
+        plan("s1", "s2"),
+        decomposed=DecompositionSummary(
+            session_id="d1",
+            model="claude-sonnet-5",
+            num_turns=1,
+            subtasks=2,
+            interface_nodes=("iface.bus",),
+            spec_commit="a" * 40,
+            head_revision=1,
+        ),
+    )
+    loop.close()
+    rig.reviewer.results[1] = _result(rig, SAME)
+    second = _result(rig, CATALOG).model_copy(update={"session_id": "rev-2"})
+    rig.reviewer.results[2] = second
+    loop = rig.open()
+    assert loop.run().kind == "halted"
+    loop.close()
+    events = read_events(tmp_path / "events.jsonl")
+    (incident,) = [e for e in events if isinstance(e, Incident)]
+    assert incident.subtask_id == "s2" and "rev-2" in incident.detail
