@@ -37,6 +37,7 @@ from physgate.orchestrator.common import NonEmptyStr, first_problem
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
+    remove_debug_logs,
     remove_secrets,
     write_login,
 )
@@ -462,6 +463,10 @@ def call(
     system_before = system_managed_facts()
     if credential.mode == "subscription":
         write_login(workdir / "config", credential.secret)
+    # Read only after the call ended on its own: one stopped at its clock may have left a
+    # process that writes the log again, so nothing of it is read then.
+    observed: ObservedTraffic | None = None
+    ended = False
     try:
         done = subprocess.run(
             argv,
@@ -474,15 +479,26 @@ def call(
             timeout=config.bounds.session_wall_clock_s,
         )
         stdout, exit_code, timed_out = done.stdout, done.returncode, False
+        ended = True
     except subprocess.TimeoutExpired as exc:
         raw = exc.stdout or b""
         stdout = raw.decode(errors="replace") if isinstance(raw, bytes) else raw
         exit_code, timed_out = None, True
     finally:
-        remove_secrets(workdir / "state", workdir / "config")
-        observed = read_debug_log(
-            workdir / DEBUG_LOG, flags_off_by_setting=flags_off_by_setting(reported, env)
-        )
+        # The credential, and every file named like the log (which may hold it), are removed
+        # whichever way the call ended, a failure to start included; each step runs whatever
+        # the one before it did.
+        try:
+            remove_secrets(workdir / "state", workdir / "config")
+        finally:
+            try:
+                if ended:
+                    observed = read_debug_log(
+                        workdir / DEBUG_LOG,
+                        flags_off_by_setting=flags_off_by_setting(reported, env),
+                    )
+            finally:
+                remove_debug_logs(workdir)
     (workdir / "stdout.jsonl").write_text(stdout.replace(credential.secret, REDACTED_TEXT))
     result, usage, answered = read_stream(stdout)
     require_matching_totals(result, usage)
@@ -496,7 +512,7 @@ def call(
         refused=schema_refusal(stdout),
     )
     changed = drift(workdir / "config", system_before)
-    seen = traffic_refusal(observed, reported)
+    seen = traffic_refusal(observed, reported) if observed is not None else None
     if seen is not None:
         changed = f"{changed}; {seen}" if changed else seen
     if changed is not None:
