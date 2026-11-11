@@ -7,8 +7,9 @@ unit of the interface's root units (pint's dimension and the power of the radian
 ``1/(rad*s)`` revises an interface held in any spelling of that unit, an interface of another kind
 refuses it, and the refusal of a unit the grammar does not take names the spelling it does. Two
 spellings of one unit compare equal: where only the spelling differs nothing is derived, and the
-store refuses a revision that differs from the interface in spelling alone. The revision carries
-the product the grammar reads the bracket as.
+store refuses a revision that differs from the interface in spelling alone. A revision keeps the
+interface's own spelling where the unit is one, and otherwise carries the product the grammar
+reads the joined node's bracket as.
 
 Each row catches a refusal and compares it, so a row fails on an assertion before the build.
 """
@@ -69,12 +70,20 @@ def derived(held: str, written: str, *, held_value: float = 2.0, value: float = 
         return f"refused: {exc}"
 
 
-@pytest.mark.parametrize("held", ["rad**-1*s**-1", "1/rad/s", "Hz/rad", "1/(rad*s)", "s**-1/rad"])
-def test_a_gain_in_1_over_rad_s_revises_an_interface_of_that_dimension(held: str) -> None:
+@pytest.mark.parametrize(
+    ("held", "kept"),
+    [("rad**-1*s**-1", "rad**-1*s**-1"), ("1/rad/s", "1/rad/s"), ("1/(rad*s)", "1/(rad*s)"),
+     ("s**-1/rad", "s**-1/rad"), ("Hz/rad", "1/rad/s")],
+)  # fmt: skip
+def test_a_gain_in_1_over_rad_s_revises_an_interface_of_that_dimension(
+    held: str, kept: str
+) -> None:
+    # The interface's own spelling where the unit is one; Hz/rad is another unit by name, of the
+    # same kind, so the revision carries the product the joined node's bracket is read as.
     after = derived(held, "1/(rad*s)")
     assert isinstance(after, dict), after
     found = after["quantities"]["angle_gain"]
-    assert (found["value"], found["unit"]) == (3.5, "1/rad/s")
+    assert (found["value"], found["unit"]) == (3.5, kept)
     assert found["source"] == f"followed from {JOINED} at attempt 1"
 
 
@@ -132,7 +141,8 @@ def test_the_store_writes_the_revision_in_the_product_the_bracket_is_read_as(
 # A full run's third sizing attempt wrote 1/rad/s and was still refused: the decomposition had
 # stored the interface's unit as 1/(rad*s), which the grammar then refused. The decomposition
 # writes an interface's units as the plan gives them, so the change check must match a stored
-# bracket form, comparing both sides as the grammar's product.
+# bracket form, comparing both sides in the unit's canonical form; the revision keeps the
+# interface's own spelling of the unit.
 
 _SPELLINGS = ["1/rad/s", "rad**-1*s**-1"]
 
@@ -148,7 +158,7 @@ def test_an_interface_stored_as_1_over_rad_s_in_brackets_takes_a_revision_in_its
         after["quantities"]["angle_gain"]["unit"],
     ) == (
         3.5,
-        written,
+        "1/(rad*s)",
     )
     store = Store(tmp_path / "store")
     try:
@@ -170,22 +180,13 @@ def test_the_change_check_follows_an_interface_stored_in_brackets(
     assert check.refused_by is None, check.reason
     (entry,) = getattr(check, "followed", ())
     found = entry.after["quantities"]["angle_gain"]
-    assert (found["value"], found["unit"]) == (3.5, written)
+    assert (found["value"], found["unit"]) == (3.5, "1/(rad*s)")
 
 
 def test_where_the_stored_bracket_form_and_its_product_are_one_value_nothing_is_derived() -> None:
     assert derived("1/(rad*s)", "1/rad/s", held_value=3.5, value=3.5) is None
 
 
-def test_a_negative_power_spelling_of_one_value_is_followed_as_a_respelling_only() -> None:
-    # The product the grammar reads a bracket as is a chain of divisions, so rad**-1*s**-1 is
-    # another spelling of it: the interface follows it, the value unchanged, and nothing refuses.
-    after = derived("1/(rad*s)", "rad**-1*s**-1", held_value=3.5, value=3.5)
-    assert isinstance(after, dict), after
-    assert (
-        after["quantities"]["angle_gain"]["value"],
-        after["quantities"]["angle_gain"]["unit"],
-    ) == (
-        3.5,
-        "rad**-1*s**-1",
-    )
+def test_a_negative_power_spelling_of_one_value_derives_nothing() -> None:
+    # rad**-1*s**-1 is another spelling of 1/(rad*s): a change of spelling alone is no revision.
+    assert derived("1/(rad*s)", "rad**-1*s**-1", held_value=3.5, value=3.5) is None

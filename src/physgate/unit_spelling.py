@@ -99,6 +99,26 @@ def as_product(unit: str) -> str:
         return unit
 
 
+def canonical_unit(unit: str) -> str:
+    """``unit`` in the one form two spellings of it share; as written, where the grammar refuses it.
+
+    The grammar's own named units, each as written, sorted, with their integer powers summed and
+    a zero power dropped (``1`` where none is left): ``1/(rad*s)``, ``1/rad/s``, ``rad**-1*s**-1``
+    and ``s**-1/rad`` are all ``rad**-1*s**-1``. Never the registry's root units, which reduce
+    ``Hz`` to ``1/s`` and drop the radian and the count: ``rad/s`` and ``Hz`` stay two units here,
+    as do ``m`` and ``mm`` and ``N*m`` and ``J``. For comparing two writings of a unit; whether two
+    units are of one kind is the registry's question.
+    """
+    try:
+        require_bounded_spelling(unit)
+    except UnitSpellingError:
+        return unit
+    tokens = [found.group(1) for found in _SPELLING_TOKEN.finditer(unit.rstrip(" "))]
+    powers, _ = _spelling_product(tokens, 0)
+    factors = [n if powers[n] == 1 else f"{n}**{powers[n]}" for n in sorted(powers)]
+    return "*".join(factors) or "1"
+
+
 # The spelling a refused unit has in this grammar. The series writer carries this block, from
 # here to the end of this module, byte for byte (a test holds it): it runs alone in a role's
 # interpreter (Python 3.9 and the standard library) and names the same spelling when it refuses.
