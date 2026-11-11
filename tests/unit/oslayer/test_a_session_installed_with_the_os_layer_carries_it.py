@@ -85,8 +85,7 @@ def test_the_web_deny_survives_a_layer_whose_settings_carry_permissions(
     # The layer's settings are merged into the session's: a permissions block of its own (a
     # deny, a directory) must add to the web tools' deny, never replace it.
     from physgate.hooks import settings as module
-
-    real = module.sandbox_policy
+    from physgate.oslayer.policy import sandbox_policy as real
 
     def with_permissions(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 - the policy's own
         policy = real(*args, **kwargs)

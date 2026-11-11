@@ -178,7 +178,8 @@ def test_the_change_check_follows_an_interface_stored_in_brackets(
     store = store_of(tmp_path / "store", interface("1/(rad*s)"))
     check = checked(tmp_path, store, gain(written))
     assert check.refused_by is None, check.reason
-    (entry,) = getattr(check, "followed", ())
+    followed: tuple[Any, ...] = getattr(check, "followed", ())
+    (entry,) = followed
     found = entry.after["quantities"]["angle_gain"]
     assert (found["value"], found["unit"]) == (3.5, "1/(rad*s)")
 
