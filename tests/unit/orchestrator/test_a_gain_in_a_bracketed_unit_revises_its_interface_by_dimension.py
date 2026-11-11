@@ -15,13 +15,24 @@ Each row catches a refusal and compares it, so a row fails on an assertion befor
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from physgate.orchestrator.follow import FollowRefusedError, derive
-from physgate.state.store import REJECT_INTERFACE_NOT_FOLLOWED, Store, followed_payload
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_a_sizing_interface_follows_sizing_s_joined_node_at_its_opening_pass import (  # noqa: E402
+    checked,
+    store_of,
+)
+
+from physgate.orchestrator.follow import FollowRefusedError, derive  # noqa: E402
+from physgate.state.store import (  # noqa: E402
+    REJECT_INTERFACE_NOT_FOLLOWED,
+    Store,
+    followed_payload,
+)
 
 IFACE = "balance.controller"
 JOINED = "sizing.balance_controller"
@@ -115,3 +126,66 @@ def test_the_store_writes_the_revision_in_the_product_the_bracket_is_read_as(
         assert store.follow_interface(after, "sizing", (JOINED,)).accepted
     finally:
         store.close()
+
+
+# --- an interface stored in the bracket form at decomposition --------------------------------
+# A full run's third sizing attempt wrote 1/rad/s and was still refused: the decomposition had
+# stored the interface's unit as 1/(rad*s), which the grammar then refused. The decomposition
+# writes an interface's units as the plan gives them, so the change check must match a stored
+# bracket form, comparing both sides as the grammar's product.
+
+_SPELLINGS = ["1/rad/s", "rad**-1*s**-1"]
+
+
+@pytest.mark.parametrize("written", _SPELLINGS)
+def test_an_interface_stored_as_1_over_rad_s_in_brackets_takes_a_revision_in_its_product(
+    tmp_path: Path, written: str
+) -> None:
+    after = derived("1/(rad*s)", written)
+    assert isinstance(after, dict), after
+    assert (
+        after["quantities"]["angle_gain"]["value"],
+        after["quantities"]["angle_gain"]["unit"],
+    ) == (
+        3.5,
+        written,
+    )
+    store = Store(tmp_path / "store")
+    try:
+        for payload in (interface("1/(rad*s)"), gain(written)):
+            assert store.write_node(payload, "sizing").accepted
+        followed = followed_payload(interface("1/(rad*s)"), [gain(written)], "sizing", 1)
+        assert followed == after
+        assert store.follow_interface(followed, "sizing", (JOINED,)).accepted
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("written", _SPELLINGS)
+def test_the_change_check_follows_an_interface_stored_in_brackets(
+    tmp_path: Path, written: str
+) -> None:
+    store = store_of(tmp_path / "store", interface("1/(rad*s)"))
+    check = checked(tmp_path, store, gain(written))
+    assert check.refused_by is None, check.reason
+    (entry,) = getattr(check, "followed", ())
+    found = entry.after["quantities"]["angle_gain"]
+    assert (found["value"], found["unit"]) == (3.5, written)
+
+
+def test_where_the_stored_bracket_form_and_its_product_are_one_value_nothing_is_derived() -> None:
+    assert derived("1/(rad*s)", "1/rad/s", held_value=3.5, value=3.5) is None
+
+
+def test_a_negative_power_spelling_of_one_value_is_followed_as_a_respelling_only() -> None:
+    # The product the grammar reads a bracket as is a chain of divisions, so rad**-1*s**-1 is
+    # another spelling of it: the interface follows it, the value unchanged, and nothing refuses.
+    after = derived("1/(rad*s)", "rad**-1*s**-1", held_value=3.5, value=3.5)
+    assert isinstance(after, dict), after
+    assert (
+        after["quantities"]["angle_gain"]["value"],
+        after["quantities"]["angle_gain"]["unit"],
+    ) == (
+        3.5,
+        "rad**-1*s**-1",
+    )
