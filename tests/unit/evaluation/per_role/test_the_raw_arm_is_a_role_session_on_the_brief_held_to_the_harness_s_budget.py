@@ -11,6 +11,7 @@ import pytest
 from task_fixtures import own_task
 
 from physgate.evaluation.per_role.arms import raw
+from physgate.evaluation.per_role.arms.compare import RAW_PINS
 from physgate.evaluation.per_role.arms.raw import BudgetWatch, RawSetup, raw_bounds, stream_total
 from physgate.evaluation.tiers.task import parse_task
 from physgate.orchestrator.credentials import Credential
@@ -212,16 +213,7 @@ def test_the_pins_name_every_condition_the_arms_are_held_equal_on(tmp_path: Path
     pins = raw.pins(
         task, _setup(tmp_path, os_layer=Present(mechanism="seatbelt", claude_version="2.1.301"))
     )
-    assert set(pins) == {
-        "model",
-        "claude_version",
-        "effort",
-        "max_output_tokens",
-        "thinking_display",
-        "tools",
-        "role_python",
-        "network",
-        "os_layer",
-        "brief_sha256",
-        "answer",
-    }
+    # Exactly the pins the comparison knows: one the comparison would not read, or one it
+    # reads that the raw arm never writes, is a difference no fair pair could clear.
+    assert set(pins) == RAW_PINS
+    assert pins["advisor"] is None and pins["endpoint"] == "default"
