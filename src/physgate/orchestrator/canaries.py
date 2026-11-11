@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import functools
 import json
+import json.encoder
 import re
 import sys
 import unicodedata
@@ -98,27 +99,45 @@ def _keys(value: object) -> Iterator[str]:
             yield from _keys(item)
 
 
+class _DuplicateKeyError(ValueError):
+    """A JSON object names one key twice: a decoder keeps only the last value."""
+
+
+def _no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    keys = [key for key, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise _DuplicateKeyError
+    return dict(pairs)
+
+
+def _event(raw: str) -> object:
+    return json.loads(raw, object_pairs_hook=_no_duplicates)
+
+
 def line_text(line: bytes) -> str | None:
     """One stream line as both scans read it, or ``None`` if it cannot be read at all.
 
-    Decoded strictly as UTF-8, never by a guess at another encoding; a line that is not UTF-8
-    cannot be read. One that then decodes as JSON is read as its strings (keys and values); one
-    that does not (a stream cut mid-line, a note) is read raw, its escapes undone. Either way
-    every code point that shows nothing is removed, so a value split by one reads as itself.
+    Decoded strictly as UTF-8, never by a guess at another encoding: a line that is not UTF-8
+    cannot be read. Read twice, so no one reading alone can find it clean: raw, its escapes
+    undone; and, when it decodes as JSON, as its string values joined, then its keys. A line
+    whose JSON names a key twice cannot be read, since a decoder keeps only the last value.
+    Every code point that shows nothing is removed, so a value split by one reads as itself.
     """
     try:
         raw = line.decode("utf-8")
     except UnicodeDecodeError:
         return None
+    as_raw = unseen_removed(_unescaped(raw))
     try:
-        event = json.loads(raw)
+        event = _event(raw)
+    except _DuplicateKeyError:
+        return None
     except (ValueError, RecursionError):
-        return unseen_removed(_unescaped(raw))
-    if isinstance(event, (dict, list, str)):
-        # The values joined in order, so a value split across two of them reads whole; then the
-        # keys, apart.
-        return unseen_removed("".join(_values(event))) + " " + unseen_removed("".join(_keys(event)))
-    return unseen_removed(raw)
+        return as_raw
+    if not isinstance(event, (dict, list, str)):
+        return as_raw
+    values = unseen_removed("".join(_values(event)))
+    return f"{values} {unseen_removed(''.join(_keys(event)))} {as_raw}"
 
 
 def _redacted(value: object, secret: str, mark: str) -> tuple[object, bool]:
@@ -156,15 +175,24 @@ def redact_line(line: bytes, secret: str, mark: str) -> bytes:
         if text is None:
             return whole
         if secret not in text:
-            return line
-        rewritten, hit = _redacted(json.loads(line.decode("utf-8")), secret, mark)
+            # The last reading: the bytes themselves. A line kept must not hold it there either.
+            return whole if _raw_holds(line, secret) else line
+        rewritten, hit = _redacted(_event(line.decode("utf-8")), secret, mark)
         if not hit:
             return whole
         out = json.dumps(rewritten, ensure_ascii=True, separators=(",", ":")).encode()
         again = line_text(out)
+        clean = again is not None and secret not in again and not _raw_holds(out, secret)
     except Exception:  # noqa: BLE001 - any failure fails closed: the whole line goes
         return whole
-    return out if again is not None and secret not in again else whole
+    return out if clean else whole
+
+
+def _raw_holds(line: bytes, secret: str) -> bool:
+    """Whether the line's bytes hold the secret as written, or as JSON would escape it."""
+    escape = (json.encoder.encode_basestring, json.encoder.encode_basestring_ascii)
+    forms = {secret, *(form(secret)[1:-1] for form in escape)}
+    return any(form.encode() in line for form in forms)
 
 
 def redact_text(data: bytes, secret: str, mark: str) -> bytes:
