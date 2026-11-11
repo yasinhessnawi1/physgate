@@ -97,7 +97,7 @@ def test_an_own_task_has_no_secondary_view_and_keeps_the_crossover_flag() -> Non
 
 
 def test_a_firmware_trial_counts_its_sandbox_s_error_output_and_its_limit_hits() -> None:
-    executions = [
+    executions: list[dict[str, Any]] = [
         {"limit": None, "sandbox_stderr_bytes": 0},
         {"limit": "cpu", "sandbox_stderr_bytes": 0},
         {"limit": None, "sandbox_stderr_bytes": 31},

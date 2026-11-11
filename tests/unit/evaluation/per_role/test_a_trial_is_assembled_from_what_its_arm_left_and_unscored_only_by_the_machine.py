@@ -16,7 +16,7 @@ from physgate.evaluation.per_role.assemble import (
     raw_trial,
 )
 from physgate.evaluation.tiers.task import parse_task
-from physgate.orchestrator.events import Halted, ReviewRan
+from physgate.orchestrator.events import Event, Halted, ReviewRan
 from physgate.orchestrator.protocols import ReviewResult
 
 TASK = parse_task(json.dumps(own_task()).encode())
@@ -152,7 +152,7 @@ SCORED = {"passed": True, "flags": {"no_gain_crossover": True}, "specs": []}
 
 
 def test_a_harness_trial_carries_its_score_cost_span_and_reviews() -> None:
-    events = [_review(0, "2026-10-19T10:00:00.000000Z"), _halt("incident", seq=1)]
+    events: list[Event] = [_review(0, "2026-10-19T10:00:00.000000Z"), _halt("incident", seq=1)]
     record = harness_trial(
         suite="control_visible",
         task=TASK,
