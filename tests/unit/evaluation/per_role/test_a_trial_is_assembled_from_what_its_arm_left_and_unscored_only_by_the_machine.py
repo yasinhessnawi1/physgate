@@ -644,3 +644,28 @@ def test_a_held_out_harness_trial_whose_run_could_not_have_seen_a_held_out_read_
     assert trial.reason.startswith(f"{field}:") and trial.arm == "harness"
     with pytest.raises(TrialExcludedError, match=f"^{field}:"):
         harness_ended_by_infrastructure(run, HELD_OUT, answer_found=True)
+
+
+def _empty(run: Path) -> None:
+    (run / "events.jsonl").write_bytes(b"")
+
+
+def _cut_off(run: Path) -> None:
+    # Where a killed orchestrator's incident would be: the last line, cut mid-write.
+    line = _incident(3).model_dump_json().encode()
+    with (run / "events.jsonl").open("ab") as log:
+        log.write(line[: len(line) // 2])
+
+
+@pytest.mark.parametrize("damage", [_empty, _cut_off], ids=["empty log", "cut-off incident line"])
+def test_a_harness_trial_whose_event_log_cannot_be_read_whole_is_excluded(
+    tmp_path: Path, damage: Callable[[Path], None]
+) -> None:
+    """No line is dropped silently: an incident is what a torn last line may have been."""
+    run = _run(tmp_path, _start(), _planned(1), _review(2, T0))
+    damage(run)
+    trial = _harness_trial(run, TASK)
+    assert isinstance(trial, ExcludedTrial), trial
+    assert trial.reason.startswith("events:")
+    with pytest.raises(TrialExcludedError, match="^events:"):
+        harness_ended_by_infrastructure(run, TASK, answer_found=False)
