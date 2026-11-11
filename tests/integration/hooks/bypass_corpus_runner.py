@@ -56,6 +56,7 @@ import test_the_bypass_suite as bp
 from fake_messages_api import Script, text
 from hook_session import (
     PINNED_VERSIONS,
+    HarnessError,
     SessionRun,
     claude_binary,
     pinned_version,
@@ -280,8 +281,16 @@ def resolve_on_session_path(binary: str) -> str | None:
 
 
 def layer_state() -> Present | Absent:
-    """Whether the OS layer runs here, for the pinned version and the session's path."""
-    return judge_here(claude_version=pinned_version(), search_path=session_path())
+    """Whether the OS layer runs here, for the pinned version and the session's path.
+
+    On a machine with no pinned binary the version is unknown, and the layer is judged absent
+    for it, as for any version it was not measured on; an arm that needs the layer then refuses.
+    """
+    try:
+        version = pinned_version()
+    except HarnessError:
+        version = ""
+    return judge_here(claude_version=version, search_path=session_path())
 
 
 def _require_layer() -> None:
