@@ -17,7 +17,17 @@ permissions:
 
 jobs:
   bypass:
+    name: bypass (${{ matrix.pin.version }})
     runs-on: ubuntu-latest
+    # One leg per pinned Claude Code version, each from its own rig directory and lockfile.
+    # A leg's rows expect what was measured on its own version, so neither leg is skipped for
+    # the other, and one leg failing does not stop the other from reporting.
+    strategy:
+      fail-fast: false
+      matrix:
+        pin:
+          - { rig: claude-code, version: "2.1.301" }
+          - { rig: claude-code-2.1.322, version: "2.1.322" }
     # Each attempt is a short session; the whole suite is a few minutes. The
     # ceiling stops a hung session from holding a runner for an hour.
     timeout-minutes: 20
@@ -47,20 +57,35 @@ jobs:
         # and sha512. Install scripts are not run: the platform package already
         # holds the native binary, and the tests point at it directly, so no
         # third-party install step executes on the runner.
-        working-directory: tests/integration/hooks/claude-code
+        working-directory: tests/integration/hooks/${{ matrix.pin.rig }}
         run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: The binary under test
+        # Printed before any test, so every result in this leg names the exact binary it ran.
+        env:
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+        run: |
+          sha256sum "$PHYSGATE_CLAUDE_BIN"
+          "$PHYSGATE_CLAUDE_BIN" --version
 
       - name: The hook layer through the real binary, bypass suite included
         # The harness refuses to run unless the binary reports the pinned
         # version, because the hook contract was measured on that version.
         env:
-          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
           PHYSGATE_BYPASS_LOG: ${{ github.workspace }}/bypass.jsonl
         run: uv run pytest -q -m integration tests/integration/hooks
 
       - name: Every attempt, one line each
         if: always()
         run: cat bypass.jsonl || echo "no attempts were recorded"
+
+      - name: Each platform's binary digest, from the tarballs the lockfile pins
+        # The development machine, CI and the server run different builds of one version. Each
+        # build's sha256 is measured here from the tarball whose sha512 the lockfile pins, so a
+        # binary placed on any machine by another route can be checked against it.
+        if: always()
+        run: uv run python tests/integration/hooks/claude_code_digests.py tests/integration/hooks/${{ matrix.pin.rig }}
 
       - name: Hook latency on this runner, beside a same-day control
         # A second machine for the latency figures, printed as log lines: every
@@ -81,7 +106,17 @@ jobs:
     # sessions in a container that refuses the mounts bubblewrap makes. The same tests
     # run on macOS on the development machine. Nothing here calls a model: the sessions
     # run against the scripted local stand-in for the API, as in the job above.
+    name: os-layer (${{ matrix.pin.version }})
     runs-on: ubuntu-latest
+    # One leg per pinned Claude Code version, each from its own rig directory and lockfile.
+    # A leg's rows expect what was measured on its own version, so neither leg is skipped for
+    # the other, and one leg failing does not stop the other from reporting.
+    strategy:
+      fail-fast: false
+      matrix:
+        pin:
+          - { rig: claude-code, version: "2.1.301" }
+          - { rig: claude-code-2.1.322, version: "2.1.322" }
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -101,8 +136,16 @@ jobs:
         run: uv sync --frozen
 
       - name: Install the pinned Claude Code binary from its lockfile
-        working-directory: tests/integration/hooks/claude-code
+        working-directory: tests/integration/hooks/${{ matrix.pin.rig }}
         run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: The binary under test
+        # Printed before any test, so every result in this leg names the exact binary it ran.
+        env:
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+        run: |
+          sha256sum "$PHYSGATE_CLAUDE_BIN"
+          "$PHYSGATE_CLAUDE_BIN" --version
 
       - name: Install the sandbox's two programs, and let bubblewrap make its namespaces
         # The two packages the documentation names, and the AppArmor profile it gives for
@@ -122,7 +165,7 @@ jobs:
         # The OS-layer files of the hook suite. The rest of the hook suite runs in the job
         # above.
         env:
-          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
           PHYSGATE_OSLAYER_REPORT: ${{ github.workspace }}/oslayer-report
         run: >
           uv run pytest -q -rs -m integration
@@ -140,7 +183,7 @@ jobs:
         # invocation. It runs whether or not the step above passed.
         if: success() || failure()
         env:
-          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
           PHYSGATE_OSLAYER_REPORT: ${{ github.workspace }}/oslayer-report
         run: uv run pytest -q -rs -m integration tests --ignore=tests/integration/hooks
 
