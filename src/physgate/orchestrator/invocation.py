@@ -284,3 +284,8 @@ def reviewer_argv(
         "--permission-mode",
         "bypassPermissions",
     ]
+
+
+def session_env_settings(claude_version: str) -> dict[str, str]:
+    """The switches every session on ``claude_version`` carries, as a run records them."""
+    return {}
