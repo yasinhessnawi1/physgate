@@ -89,6 +89,20 @@ def pinned_version() -> str:
     return _version_of(claude_binary())
 
 
+#: The switches every session of this harness was run with when only 2.1.301 was pinned.
+RIG_SWITCHES_2_1_301 = {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1",
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+}
+
+
+def session_switches(version: str) -> dict[str, str]:
+    """The environment switches a session of this harness on ``version`` is spawned with."""
+    return dict(RIG_SWITCHES_2_1_301)
+
+
 @dataclass
 class SessionRun:
     """Everything one session left behind."""
@@ -268,10 +282,7 @@ def _run_session(
             "TERM": "dumb",
             "ANTHROPIC_BASE_URL": api_url_override or base_url,
             "ANTHROPIC_API_KEY": DUMMY_KEY,
-            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-            "DISABLE_AUTOUPDATER": "1",
-            "DISABLE_TELEMETRY": "1",
-            "DISABLE_ERROR_REPORTING": "1",
+            **session_switches(_version_of(binary)),
             # A session that cannot reach the scripted API fails at once instead
             # of retrying with backoff for minutes.
             "CLAUDE_CODE_MAX_RETRIES": "0",
