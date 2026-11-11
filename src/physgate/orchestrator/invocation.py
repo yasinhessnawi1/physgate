@@ -293,6 +293,7 @@ def reviewer_argv(
     max_turns: int,
     effort: str,
     resume: bool = False,
+    debug_file: Path | None = None,
 ) -> list[str]:
     """A reviewer session: reading only, then one structured verdict.
 
@@ -329,4 +330,7 @@ def reviewer_argv(
         str(max_turns),
         "--permission-mode",
         "bypassPermissions",
+        # Only on a pin whose sessions carry the catalog and flag traffic, as for a role
+        # session: earlier pins' review sessions get the argv they always had.
+        *(() if debug_file is None else ("--debug-file", str(debug_file))),
     ]

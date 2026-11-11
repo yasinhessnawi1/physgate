@@ -59,11 +59,13 @@ from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.credentials import (
     Credential,
+    debug_logs_removed_on_failure,
+    remove_debug_logs,
     remove_secrets,
     write_key_helper,
     write_login,
 )
-from physgate.orchestrator.decompose import binary_version, schema_refusal
+from physgate.orchestrator.decompose import DEBUG_LOG, binary_version, schema_refusal
 from physgate.orchestrator.dispatch import (
     OWNER_NAME,
     Installed,
@@ -72,7 +74,9 @@ from physgate.orchestrator.dispatch import (
     read_in_full,
     read_stream_file,
     redact,
+    settle_debug_log,
     spawn_held,
+    still_running,
     write_record,
 )
 from physgate.orchestrator.exceptions import (
@@ -81,8 +85,19 @@ from physgate.orchestrator.exceptions import (
     ReviewerNotRegisteredError,
     ReviewUnavailableError,
 )
-from physgate.orchestrator.invocation import REVIEWER_ENV, isolated_env, reviewer_argv
-from physgate.orchestrator.managed import SessionManaged
+from physgate.orchestrator.invocation import (
+    REVIEWER_ENV,
+    TRAFFIC_ALLOWED_VERSIONS,
+    isolated_env,
+    reviewer_argv,
+)
+from physgate.orchestrator.managed import (
+    SessionManaged,
+    SystemManagedFile,
+    drift,
+    policy_limits_digest,
+    system_managed_facts,
+)
 from physgate.orchestrator.ports import SpawnHook
 from physgate.orchestrator.processes import kill_own
 from physgate.orchestrator.protocols import (
@@ -95,7 +110,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.run_config import Effort, RunBounds, RunConfig
 from physgate.reviewers.contract import WRAPPER, contract_text, issued_criteria, verdict_schema
-from physgate.reviewers.ending import await_session
+from physgate.reviewers.ending import SessionEnd, await_session
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.packet import (
     KNOWLEDGE_NAME,
@@ -431,6 +446,8 @@ class ClaudeReviewer:
             msg = "the binary is not the version this run recorded"
             raise InvocationError(msg, reported=reported, recorded=self._setup.claude_version)
         session_id = str(uuid.uuid4())
+        # What this review's invocations see, each in turn; none of an earlier review's.
+        self._seen = []
         review = review_dir(self._root, session_id)
         packet = self._prepare(review, artefact, session_id)
         sdir = review / SESSION_DIRNAME
@@ -482,7 +499,10 @@ class ClaudeReviewer:
             )
             if isinstance(outcome, ReviewResult):
                 return outcome.model_copy(
-                    update={"repair_resumes": resumes if self._setup.repair_resumes else None}
+                    update={
+                        "repair_resumes": resumes if self._setup.repair_resumes else None,
+                        "managed": tuple(self._seen),
+                    }
                 )
             if outcome.cause != "invalid_verdict" or resumes >= self._setup.repair_resumes:
                 after = f" (after {resumes} repair resume)" if resumes else ""
@@ -493,6 +513,7 @@ class ClaudeReviewer:
                     reviewer_model=self._model,
                     usage=outcome.usage,
                     spec_defects=outcome.spec_defects,
+                    managed=tuple(self._seen),
                 )
             # The same session, resumed once with the check's own reason in plain words,
             # so the reviewer can answer what it has already read. It is the same review.
@@ -717,6 +738,14 @@ class ClaudeReviewer:
         )
         env.update(installed.spawn_env)
         env.update(REVIEWER_ENV)
+        config = sdir / "config"
+        # On a pin whose sessions carry the catalog and flag traffic, the review session is held
+        # to the conditions its run began with, as a role session is: its own debug log says
+        # what it saw, written beside its login and read and removed with it. Earlier pins'
+        # review sessions get the argv they always had, and nothing of this is read.
+        held = self._setup.claude_version in TRAFFIC_ALLOWED_VERSIONS
+        debug_file = config / DEBUG_LOG if held else None
+        system_before = system_managed_facts() if held else ()
         argv = reviewer_argv(
             self._setup.binary,
             prompt=prompt,
@@ -727,6 +756,7 @@ class ClaudeReviewer:
             max_turns=bounds.session_max_turns,
             effort=self._setup.effort,
             resume=resume,
+            debug_file=debug_file,
         )
         stdout = sdir / stream_name
 
@@ -743,7 +773,11 @@ class ClaudeReviewer:
             }
             write_record(sdir.parent, sdir.name, record, "process.json")
 
-        with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:
+        with (
+            debug_logs_removed_on_failure(config),
+            stdout.open("wb") as out,
+            (sdir / "stderr.txt").open("wb") as err,
+        ):
             # Held until its spawn is on the run's record and its process record written: a
             # table that cannot be read stops it there, before it has run anything.
             process, started = spawn_held(
@@ -763,6 +797,8 @@ class ClaudeReviewer:
             except OSError:
                 _stop_own(process)
                 raise
+        if held:
+            self._seen.append(self._settle(process, started, ended, config, system_before))
         write_record(
             sdir.parent,
             sdir.name,
@@ -774,6 +810,33 @@ class ClaudeReviewer:
             "ended.json",
         )
         return stdout, ended.exit_code, ended.timed_out
+
+    def _settle(
+        self,
+        process: subprocess.Popen[bytes],
+        started: str | None,
+        ended: SessionEnd,
+        config: Path,
+        system_before: tuple[SystemManagedFile, ...],
+    ) -> SessionManaged:
+        """What one invocation ran under; its debug log is removed whatever was read.
+
+        The log is read only once the process table, read afresh, shows the session's tree
+        and group gone, so nothing can write it again after it is read. Otherwise nothing of
+        it is read, and the reading says so: the run holds that against the session.
+        """
+        try:
+            unconfirmed = still_running(process.pid, started, ended.left_running, time.time())
+            observed = settle_debug_log(
+                process, confirmed=unconfirmed is None, debug_file=config / DEBUG_LOG
+            )
+        finally:
+            remove_debug_logs(config)
+        return SessionManaged(
+            observed_traffic=observed,
+            managed_drift=drift(config, system_before),
+            policy_limits_sha256=policy_limits_digest(config),
+        )
 
 
 def _stop_own(process: subprocess.Popen[bytes]) -> None:
