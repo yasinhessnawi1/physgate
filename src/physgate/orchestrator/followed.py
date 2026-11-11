@@ -7,13 +7,12 @@ reads them may not load pint.
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from physgate.state.store import payload_digest
+from physgate.state.store import written as written
 
 _Id = Annotated[str, StringConstraints(min_length=1)]
 _Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
@@ -61,8 +60,3 @@ class FollowedInterface(BaseModel):
             for name in sorted(new)
             if name in old and written(old[name]) != written(new[name])
         )
-
-
-def written(quantity: Mapping[str, Any]) -> str:
-    """A quantity's value and unit exactly as written: 2 and 2.0 are not the same writing."""
-    return json.dumps([quantity.get("value"), quantity.get("unit")])
