@@ -628,10 +628,19 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
     The tool list is not here: the comparison reads it from the session's generated
     configuration, the list the session was actually given.
     """
+    max_turns, wall_clock = raw_bounds(setup.bounds)
     return {
         # No raw session is given an advisor; a field to give one records it here.
         "advisor": None,
         "auth": setup.credential.mode,
+        # As the session ran them: the binary's retries as given, the turns and the wall
+        # clock a role session's times the repair budget.
+        "bounds": {
+            "binary_max_retries": setup.bounds.binary_max_retries,
+            "infra_retry_delays_s": list(setup.bounds.infra_retry_delays_s),
+            "session_max_turns": max_turns,
+            "session_wall_clock_s": wall_clock,
+        },
         "endpoint": endpoint_of(setup.base_url),
         "held_out": sorted(setup.held_out),
         # The canaries its stream was scanned for, which the harness run's must equal.

@@ -28,6 +28,7 @@ from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.task import Task
 from physgate.hooks.settings import CONFIG_NAME
 from physgate.orchestrator.accounting import TokenAccount
+from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.dispatch import read_captured
 from physgate.orchestrator.events import (
     LeftoverRead,
@@ -67,9 +68,10 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "gate_mode": "harness",
     "escalation_backend": "harness",
     "queue_decisions": "harness",
-    # A role session's turn and wall-clock bounds; the raw arm's are these times the
-    # harness's repair budget, so neither binds before its token cap would.
-    "bounds": "intended",
+    # The binary's retries and the infrastructure retry delays must be equal: retries in
+    # the binary hide requests from the raw arm's cap. The turn and wall-clock bounds are
+    # compared at the harness's times its repair budget, so neither binds before the cap.
+    "bounds": "compared",
     # The hook layer's ceiling on what a session loads always; the raw agent loads nothing
     # always, so its ceiling is set where it never binds.
     "token_ceiling": "intended",
@@ -99,6 +101,7 @@ RAW_PINS = frozenset(
         "advisor",
         "answer",
         "auth",
+        "bounds",
         "brief_sha256",
         "claude_version",
         "effort",
@@ -195,6 +198,12 @@ def _expected(config: RunConfig, role: str, task: Task) -> dict[str, Any]:
         "advisor": None,
         "answer": task.answer.model_dump(mode="json"),
         "auth": config.auth,
+        "bounds": {
+            "binary_max_retries": config.bounds.binary_max_retries,
+            "infra_retry_delays_s": list(config.bounds.infra_retry_delays_s),
+            "session_max_turns": config.bounds.session_max_turns * REPAIR_BUDGET,
+            "session_wall_clock_s": config.bounds.session_wall_clock_s * REPAIR_BUDGET,
+        },
         "brief_sha256": config.brief_sha256,
         "claude_version": config.claude_version,
         "effort": config.effort,
