@@ -1308,6 +1308,7 @@ def blind_check(
     working = _working(root, CHECK_EVIDENCE, work)
     before = _looked_at(root, work)
     changed: list[str] = []
+    refused: AuthoringError | None = None
     try:
         try:
             record = run_session(
@@ -1316,12 +1317,17 @@ def blind_check(
             _require_unseen(record, canaries, "its answer is not taken")
             _require_none_came(root, canaries, "its answer is not taken")
             answers = read_answers(work / "worktree" / "answers.json", list(tasks))
+        except AuthoringError as exc:
+            refused = exc
+            raise
         finally:
             # However the session ended (an answer, an error, a timeout, a stop): the role's
-            # root is looked at again, and anything changed but the check's own work refuses.
+            # root is looked at again, and anything changed but the check's own work refuses,
+            # its record kept for a person. A refusal already raised keeps its own reason.
             changed = _changed(before, _looked_at(root, work))
             if changed:
                 _held_for_a_person(working, work, changed)
+            if changed and refused is None:
                 tops = sorted({c.split(":")[0].split("/")[0] for c in changed})
                 msg = (
                     f"the role's root changed while the check ran ({'; '.join(changed[:8])}); "
