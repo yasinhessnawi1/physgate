@@ -11,12 +11,13 @@ tool is not available.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fake_messages_api import Script, text, tool
-from hook_session import pinned_version, run_session
+from hook_session import RIG_SWITCHES_2_1_301, pinned_version, run_session
 
 from physgate.hooks.settings import PROFILE_TOOLS
 
@@ -24,13 +25,21 @@ pytestmark = pytest.mark.integration
 
 ROLE = set(PROFILE_TOOLS["role"])
 REFUSED = "is not available to a role session"
+#: How the binary itself refuses a call whose input its own check rejects, before any hook.
+INPUT_REFUSED = ("InputValidationError", "Invalid ")
 
 #: What each pin offers a role session beyond its list, measured under the pin's own environment.
 OFFERED_BEYOND: dict[str, list[str]] = {"2.1.301": [], "2.1.322": []}
+#: The same on each pin with the traffic-off switches 2.1.301's sessions carry.
+OFFERED_BEYOND_TRAFFIC_OFF: dict[str, list[str]] = {"2.1.301": [], "2.1.322": []}
+#: Per pin, the tools whose minimal call the binary's own input check refuses before any hook.
+REFUSED_BY_INPUT_CHECK: dict[str, list[str]] = {"2.1.301": [], "2.1.322": []}
 
 
-def _offered(tmp_path: Path) -> tuple[list[str], dict[str, Any]]:
-    run = run_session(tmp_path, Script(main=[text("end")]))
+def _offered(
+    tmp_path: Path, switches: dict[str, str] | None = None
+) -> tuple[list[str], dict[str, Any]]:
+    run = run_session(tmp_path, Script(main=[text("end")]), switches=switches)
     assert run.exit_code == 0, run.stderr
     (init,) = [e for e in run.stream if e.get("type") == "system" and e.get("subtype") == "init"]
     first = run.api.requests[0]
@@ -64,8 +73,11 @@ def _minimal(schema: Any) -> dict[str, Any]:  # noqa: ANN401 - a JSON schema
 
 def test_each_pin_offers_a_role_session_what_was_measured_beyond_its_list(tmp_path: Path) -> None:
     version = pinned_version()
-    beyond, _ = _offered(tmp_path)
-    assert beyond == OFFERED_BEYOND[version], (version, beyond)
+    beyond, _ = _offered(tmp_path / "own")
+    off, _ = _offered(tmp_path / "off", dict(RIG_SWITCHES_2_1_301))
+    measured = {"own": beyond, "traffic off": off}
+    expected = {"own": OFFERED_BEYOND[version], "traffic off": OFFERED_BEYOND_TRAFFIC_OFF[version]}
+    assert measured == expected, json.dumps({version: measured})
 
 
 def test_every_tool_offered_beyond_the_list_is_refused_by_the_closed_list_hook(
@@ -75,8 +87,22 @@ def test_every_tool_offered_beyond_the_list_is_refused_by_the_closed_list_hook(
     assert beyond, "nothing beyond the list was offered, so nothing here was tested"
     calls = [tool(name, **_minimal(schemas.get(name))) for name in beyond]
     run = run_session(tmp_path / "called", Script(main=[*calls, text("end")]))
-    outcome = {}
+    outcome: dict[str, str] = {}
     for i, name in enumerate(beyond, start=1):
         told = run.told_after(i)
-        outcome[name] = "refused by the hook" if REFUSED in told else f"told: {told[:160]!r}"
-    assert outcome == dict.fromkeys(beyond, "refused by the hook"), outcome
+        if REFUSED in told:
+            outcome[name] = "refused by the hook"
+        elif any(mark in told for mark in INPUT_REFUSED):
+            outcome[name] = "refused by the binary's input check"
+        else:
+            outcome[name] = f"told: {told[:200]}"
+    # Every call is refused before its tool runs: by the closed-list hook, or, where a minimal
+    # input fails the binary's own check, by that check before any hook is asked.
+    version = pinned_version()
+    expected = {
+        name: "refused by the binary's input check"
+        if name in REFUSED_BY_INPUT_CHECK[version]
+        else "refused by the hook"
+        for name in beyond
+    }
+    assert outcome == expected, json.dumps({version: outcome})

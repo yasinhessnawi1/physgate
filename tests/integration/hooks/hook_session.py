@@ -181,6 +181,7 @@ def run_session(
     unpin_disable: bool = False,
     os_layer: bool = False,
     check_installed: Callable[[Installed, dict[str, Any]], None] | None = None,
+    switches: Mapping[str, str] | None = None,
     **request_fields: Any,  # noqa: ANN401 - forwarded to the install request
 ) -> SessionRun:
     """Install hooks for a fresh worktree under ``root`` and run one scripted session.
@@ -204,6 +205,7 @@ def run_session(
             setting_sources=setting_sources,
             unpin_disable=unpin_disable,
             check_installed=check_installed,
+            switches=switches,
             request_fields=request_fields,
         )
     if "os_layer_temp_dir" in request_fields:
@@ -223,6 +225,7 @@ def run_session(
             setting_sources=setting_sources,
             unpin_disable=unpin_disable,
             check_installed=check_installed,
+            switches=switches,
             request_fields={**request_fields, "os_layer_temp_dir": str(temp)},
         )
     finally:
@@ -242,6 +245,7 @@ def _run_session(
     unpin_disable: bool,
     check_installed: Callable[[Installed, dict[str, Any]], None] | None,
     request_fields: dict[str, Any],
+    switches: Mapping[str, str] | None = None,
 ) -> SessionRun:
     binary = claude_binary()
     worktree = make_worktree(root, files)
@@ -290,7 +294,8 @@ def _run_session(
             "TERM": "dumb",
             "ANTHROPIC_BASE_URL": api_url_override or base_url,
             "ANTHROPIC_API_KEY": DUMMY_KEY,
-            **session_switches(_version_of(binary)),
+            # A measurement may name other switches, to compare; nothing a session reaches does.
+            **(session_switches(_version_of(binary)) if switches is None else switches),
             # A session that cannot reach the scripted API fails at once instead
             # of retrying with backoff for minutes.
             "CLAUDE_CODE_MAX_RETRIES": "0",

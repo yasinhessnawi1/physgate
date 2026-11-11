@@ -13,9 +13,10 @@ from typing import Any
 
 import pytest
 from fake_messages_api import Script, text, tool
-from hook_session import SessionRun, run_session
+from hook_session import SessionRun, pinned_version, run_session
 
 from physgate.hooks import shell_paths
+from physgate.orchestrator.invocation import TRAFFIC_ALLOWED_VERSIONS
 
 pytestmark = pytest.mark.integration
 
@@ -77,10 +78,21 @@ def test_an_append_to_the_graph_journal_is_refused(tmp_path: Path) -> None:
     assert (tmp_path / "outside" / "store" / "journal.jsonl").read_text() == '{"rev":1}\n'
 
 
+#: Measured on 2.1.322 under its own switches (background tasks off): what a call that still
+#: asks for the background is told, and whether its command wrote.
+BACKGROUND_FLAG_ON_THE_NEW_PIN: dict[str, object] = {}
+
+
 def test_a_backgrounded_write_is_refused_either_way(tmp_path: Path) -> None:
     run = _run(tmp_path, "sleep 1; echo x > late.txt &")
     assert _refused_by_shell_layer(run) == shell_paths.BACKGROUND
     run = _run(tmp_path / "flag", "sleep 1; echo x > late.txt", run_in_background=True)
+    if pinned_version() in TRAFFIC_ALLOWED_VERSIONS:
+        # Background tasks are switched off on this pin: what the binary does with the flag.
+        told = run.told_after(1)
+        measured = {"told": told[:200], "written": (run.worktree / "late.txt").exists()}
+        assert measured == BACKGROUND_FLAG_ON_THE_NEW_PIN, measured
+        return
     assert _refused_by_shell_layer(run) == shell_paths.BACKGROUND
     assert not (run.worktree / "late.txt").exists()
 

@@ -24,12 +24,20 @@ from physgate.hooks.settings import Installed
 
 pytestmark = pytest.mark.integration
 
-#: Measured per pin: the request's effort and whether an advisor reached it, without and with
-#: the two keys in the generated settings file.
-SETTINGS_KEYS: dict[str, dict[str, Any]] = {"2.1.301": {}, "2.1.322": {}}
+#: Measured per pin (CI, linux-x64, 11.11.2026): the request's effort and any advisor tool or flag,
+#: without and with the two keys in the generated settings file. Neither key is read on either
+#: pin; 2.1.322 sends the advisor's beta flag with traffic on whatever the file says.
+_NONE: dict[str, Any] = {"effort": None, "advisor": []}
+_BETA: dict[str, Any] = {"effort": None, "advisor": ["advisor-tool-2026-03-01"]}
+SETTINGS_KEYS: dict[str, dict[str, Any]] = {
+    "2.1.301": {"without": _NONE, "with": _NONE},
+    "2.1.322": {"without": _BETA, "with": _BETA},
+}
 
-#: Measured per pin: what a role session is told of a 50,000-character output.
-LONG_OUTPUT: dict[str, dict[str, Any]] = {"2.1.301": {}, "2.1.322": {}}
+#: Measured per pin (CI, linux-x64, 11.11.2026): of a 50,000-character output a role session is
+#: told its head only, in about 2,300 to 2,400 characters, on both pins.
+_HEAD_ONLY = {"head kept": True, "tail kept": False, "under 31,000 characters": True}
+LONG_OUTPUT: dict[str, dict[str, Any]] = {"2.1.301": _HEAD_ONLY, "2.1.322": _HEAD_ONLY}
 
 START, END = "START-OF-OUTPUT-3e1b", "END-OF-OUTPUT-9a7c"
 
