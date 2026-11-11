@@ -30,9 +30,12 @@ from physgate.hooks.settings import CONFIG_NAME, PROFILE_TOOLS
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.events import (
     EventLog,
+    Halted,
+    IntegrationGateSkipped,
     LeftoverRead,
     RunStarted,
     SessionSpawned,
+    SubtaskPlanned,
     TokensUsed,
 )
 from physgate.orchestrator.protocols import Usage
@@ -99,20 +102,31 @@ def _spend_1000(log: EventLog) -> None:
     )
 
 
+def _nothing_planned(log: EventLog) -> None:
+    log.append(IntegrationGateSkipped(**log.envelope(), reason="nothing_planned", subtasks=()))
+
+
 def _harness_run(
     tmp_path: Path,
     *,
     config: RunConfig | None = None,
     tools: list[str] | None = None,
     spend: Callable[[EventLog], None] = _spend_1000,
+    end: Callable[[EventLog], None] | None = _nothing_planned,
 ) -> Path:
-    """A harness run directory: its configuration, its log, one control session's settings."""
+    """A harness run directory: its configuration, its log, one control session's settings.
+
+    The log is a run's that ended (``end`` writes its last line); ``end=None`` leaves the
+    run where ``spend`` left it.
+    """
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "run.json").write_text((config or _config()).model_dump_json())
     log = EventLog(run_dir / "events.jsonl", run_id="r", gate_mode="on")
     log.append(RunStarted(**log.envelope(), config_sha256="0" * 64))
     spend(log)
+    if end is not None:
+        end(log)
     log.close()
     _settings(
         run_dir / "sessions" / "role-1" / "session",
@@ -515,3 +529,50 @@ def test_bounds_other_than_the_harness_s_are_named(tmp_path: Path, bounds: dict[
     found = _found(tmp_path, pins=_pins(bounds=bounds))
     assert [f.split(":", 1)[0] for f in found] == ["bounds"]
     assert found[0].startswith("bounds: the harness ran with ")
+
+
+def _halted(log: EventLog) -> None:
+    log.append(Halted(**log.envelope(), reason="incident", detail="held_out_read"))
+
+
+@pytest.mark.parametrize("end", [_nothing_planned, _halted], ids=["integration skipped", "halted"])
+def test_a_harness_total_is_taken_from_a_run_that_ended(
+    tmp_path: Path, end: Callable[[EventLog], None]
+) -> None:
+    assert harness_total(_harness_run(tmp_path, end=end)) == 1000
+
+
+def _planned_then_spend(log: EventLog) -> None:
+    log.append(
+        SubtaskPlanned(
+            **log.envelope(),
+            subtask_id="s",
+            spec_path="specs/s.md",
+            assigned_role="control",
+            module_dir="modules/s",
+        )
+    )
+    _spend_1000(log)
+
+
+@pytest.mark.parametrize(
+    "spend",
+    [_spend_1000, _planned_then_spend],
+    ids=["killed before its plan", "killed with a subtask open (a review, between sessions)"],
+)
+def test_a_harness_total_of_a_run_that_never_ended_is_refused(
+    tmp_path: Path, spend: Callable[[EventLog], None]
+) -> None:
+    """Reviewer and decomposition calls spawn no session: the run's own end is what counts."""
+    run = _harness_run(tmp_path, spend=spend, end=None)
+    with pytest.raises(ComparisonError, match="has not ended"):
+        harness_total(run)
+    with pytest.raises(ComparisonError, match="has not ended"):
+        differences(run, _raw_dir(tmp_path), role="control", task=TASK)
+
+
+def test_a_harness_total_of_an_empty_log_is_refused(tmp_path: Path) -> None:
+    run = _harness_run(tmp_path)
+    (run / "events.jsonl").write_bytes(b"")
+    with pytest.raises(ComparisonError, match="empty"):
+        harness_total(run)
