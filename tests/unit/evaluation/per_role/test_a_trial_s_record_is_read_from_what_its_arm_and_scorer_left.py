@@ -69,6 +69,15 @@ def test_the_secondary_view_is_read_with_the_gain_margin_as_a_ratio_and_in_db() 
     assert (flags.full_view_ratio, flags.full_view_db) == (True, False)
 
 
+def test_a_secondary_spec_the_score_does_not_report_is_not_held() -> None:
+    """A secondary spec missing from the scorer's record fails its reading, never passes it."""
+    task = _benchmark_task()
+    held = {"gain_margin_as_ratio": True, "gain_margin_as_db": True}
+    outcome, flags = control_trial(task, _score(True, held))
+    assert outcome == "pass"
+    assert (flags.full_view_ratio, flags.full_view_db) == (False, False)
+
+
 def test_a_secondary_view_never_passes_where_the_headline_fails() -> None:
     task = _benchmark_task()
     held = dict.fromkeys(("gain_margin_as_ratio", "gain_margin_as_db", "overshoot"), True)
