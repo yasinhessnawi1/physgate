@@ -12,7 +12,7 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 
@@ -21,7 +21,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "orchestrator"))
 from orch_helpers import make_config  # noqa: E402
 
-from physgate.hooks.config import digest
+from physgate.hooks.config import Profile, digest
 from physgate.hooks.lean import load_config
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec
 from physgate.hooks.settings import (
@@ -197,6 +197,25 @@ def test_each_profile_gets_its_closed_tool_list(tmp_path: Path, profile: str) ->
     assert config.tools_allowed == tuple(sorted(PROFILE_TOOLS[profile]))  # type: ignore[index]
     for refused in ("Agent", "Workflow", "CronCreate", "WebFetch", "WebSearch"):
         assert refused not in config.tools_allowed
+
+
+#: The web tools: each brings in text nobody reviewed.
+WEB_TOOLS = {"WebFetch", "WebSearch"}
+
+
+@pytest.mark.parametrize("profile", get_args(Profile))
+def test_the_settings_layer_denies_the_web_tools_to_every_profile(
+    tmp_path: Path, profile: str
+) -> None:
+    # The tools hook refuses them already; the settings deny them too, so a session whose hooks
+    # did not run still cannot fetch. ``network: none`` binds the shell alone, not the WebFetch
+    # tool, on the pinned binary (measured, 11.11.2026). A deny rule binds in bypassPermissions.
+    done = install(_request(tmp_path, profile=profile), REGISTRY)
+    settings = json.loads(done.settings_path.read_text())
+    permissions = settings.get("permissions")
+    assert isinstance(permissions, dict), settings
+    assert set(permissions.get("deny", ())) >= WEB_TOOLS
+    assert "allow" not in permissions
 
 
 def _allowing_run(tmp_path: Path) -> str:

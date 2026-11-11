@@ -65,8 +65,17 @@ def test_without_one_nothing_changes_but_the_session_s_own_temporary_directory(
 ) -> None:
     done = install(_request(tmp_path, None), REGISTRY)
     settings = json.loads(done.settings_path.read_text())
-    assert "sandbox" not in settings and "permissions" not in settings
+    assert "sandbox" not in settings
+    # The one permission rule is the web tools' deny, which every session carries.
+    assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch"]}
     assert done.spawn_env["CLAUDE_CODE_TMPDIR"] == OWN_TEMP
+
+
+def test_with_the_layer_the_settings_still_deny_the_web_tools(outside_tmp: Path) -> None:
+    done = install(_request(outside_tmp, "/var/tmp/pgs/0123456789"), REGISTRY)
+    settings = json.loads(done.settings_path.read_text())
+    assert settings["sandbox"]["enabled"] is True
+    assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch"]}
 
 
 def test_a_directory_claude_code_would_replace_is_refused(outside_tmp: Path) -> None:
