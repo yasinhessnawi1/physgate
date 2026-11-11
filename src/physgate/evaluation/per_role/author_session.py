@@ -61,6 +61,8 @@ Both are tested against the scripted endpoint; a real session is started by a pe
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
 import hashlib
 import json
 import os
@@ -87,7 +89,7 @@ from physgate.evaluation.tiers.authoring import (
     author_brief,
     require_author_model,
 )
-from physgate.evaluation.tiers.manifest import VERSION_NAME, TierSetError, read_version
+from physgate.evaluation.tiers.manifest import VERSION_NAME, read_version
 from physgate.evaluation.tiers.store import (
     AUTHOR_EVIDENCE,
     CHECK_EVIDENCE,
@@ -98,6 +100,7 @@ from physgate.evaluation.tiers.store import (
     check_root_refusal,
     is_visible_tier,
     leftover_refusal,
+    make_role_root,
     pool_dir,
     protected_tier_refusal,
     role_root,
@@ -176,9 +179,11 @@ def _withheld(path: Path, roots: Sequence[Path]) -> bool:
 
 def _require_apart(plan: AuthoringPlan, setup: RawSetup) -> None:
     roots = [Path(r) for r in (*setup.held_out, *setup.withheld_reads)]
-    if not _withheld(plan.root, [Path(r) for r in setup.held_out]):
-        msg = "the session does not withhold the protected root the tiers are cut in"
-        raise AuthoringError(msg, root=str(plan.root))
+    # The whole store: its own role's root, where the tiers are cut, and every other role's,
+    # whose streams and tiers are no business of this role's author.
+    if not _withheld(plan.store, [Path(r) for r in setup.held_out]):
+        msg = "the session does not withhold the tier-set store, every role's root in it"
+        raise AuthoringError(msg, refused_because="store_not_withheld", store=str(plan.store))
     if any(_inside(plan.work, r) for r in roots):
         msg = "the work is inside a held-out root, or holds one"
         raise AuthoringError(msg, path=str(plan.work))
@@ -267,7 +272,7 @@ def _require_withheld_as_a_run(store: Path, role: Role, setup: RawSetup) -> None
 
 def _working(root: Path, name: str, work: Path) -> Path:
     """Record inside ``root`` that ``work`` is out of it; the record, to clear once secured."""
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    make_role_root(root)
     record = root / f"{name}{WORKING}"
     fd = os.open(record, _NEW, 0o600)
     try:
@@ -991,7 +996,7 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
     _require_nothing_left(plan.store, continuing=pool_dir(plan.store, plan.role))
     canaries = root_canaries(root)
     _require_looking(canaries, setup)
-    _require_clear(root)
+    _require_clear(plan.store)
     evidence = author_evidence(plan.store, plan.role)
     pool = pool_dir(plan.store, plan.role)
     record: dict[str, Any] | None = None
@@ -1125,32 +1130,72 @@ class _Answers(RootModel[dict[str, _Answer]]):
 MAX_ANSWERS_BYTES = 64 * 1024
 
 
-def _require_versions_unchanged(root: Path) -> None:
-    """Refuse a check's answer unless every version under ``root`` is still its manifest.
+def _looked_at(root: Path, own: Path) -> dict[str, str]:
+    """Everything under the role's ``root`` but the check's ``own`` work, as it is now.
 
-    Each is read as every reader reads it, its manifest and provenance record held to the
-    bytes on disk (:func:`.tiers.manifest.read_version`): a session that changed one is not
-    taken at its word.
-
-    Raises:
-        AuthoringError: ``version_changed``, naming the version and why.
+    Each entry, at any depth and named as on disk, by relative path: a directory, a link and
+    where it points, or a file's digest; one that cannot be read says so. No name is passed
+    over, in any case or spelling: every version whole, its manifest, provenance record and
+    tiers, the withheld root and the work root are all in it. Never raises.
     """
-    for path in sorted(root.iterdir()):
-        if not VERSION_NAME.fullmatch(path.name):
+    seen: dict[str, str] = {}
+
+    def unread(exc: OSError) -> None:
+        seen[f"(unlisted) {exc.filename}"] = f"cannot be listed: {exc.strerror}"
+
+    for here, dirs, files in os.walk(root, onerror=unread):
+        at = Path(here)
+        if at == own:
+            dirs.clear()
             continue
-        try:
-            read_version(path)
-        except TierSetError as exc:
-            msg = (
-                f"the version {path.name} changed while the check ran ({exc}); "
-                "its answer is not taken"
-            )
-            raise AuthoringError(
-                msg,
-                refused_because="version_changed",
-                version=path.name,
-                because=str(exc.context.get("refused_because", "unreadable")),
-            ) from exc
+        for name in [*dirs, *files]:
+            path = at / name
+            key = path.relative_to(root).as_posix()
+            if path == own:
+                continue
+            try:
+                if path.is_symlink():
+                    seen[key] = f"link to {os.readlink(path)}"
+                elif path.is_dir():
+                    seen[key] = "directory"
+                elif path.is_file():
+                    seen[key] = hashlib.sha256(path.read_bytes()).hexdigest()
+                else:
+                    seen[key] = "not a regular file"
+            except OSError as exc:
+                seen[key] = f"cannot be read: {exc.strerror}"
+    return seen
+
+
+def _changed(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    """Every entry added, removed or changed between two looks, as ``name: before -> after``."""
+    return [
+        f"{key}: {before.get(key, 'absent')} -> {after.get(key, 'absent')}"
+        for key in sorted(set(before) | set(after))
+        if before.get(key) != after.get(key)
+    ]
+
+
+def _why(tops: Sequence[str]) -> str:
+    """Why a change under the role's root refuses: a version's, or the root's.
+
+    ``version_changed`` if any of ``tops`` is a version's name, folded as ids are, so a version
+    spelt in another case is a version all the same; else ``role_root_changed``.
+    """
+    if any(VERSION_NAME.fullmatch(fold_id(top)) for top in tops):
+        return "version_changed"
+    return "role_root_changed"
+
+
+def _held_for_a_person(record: Path, work: Path, changed: Sequence[str]) -> None:
+    """Leave the check's record of its work with what changed, for a person to look at.
+
+    The record stays (a ``.working`` record), so no run, author or check starts on the store
+    until a person has looked at what changed and removed it (:func:`.tiers.store.leftovers`).
+    """
+    # The record is there whatever it says: it refuses all the same.
+    with contextlib.suppress(OSError):
+        record.write_text(json.dumps({"work": str(work), "changed": list(changed)}) + "\n")
 
 
 def bundle(tier: Path) -> dict[str, dict[str, Any]]:
@@ -1204,8 +1249,14 @@ def blind_check(
     role's withheld root and every version's validation and held-out tiers, spelt as on disk.
     ``work`` is a directory of its own directly under the role's work root
     (:func:`.tiers.store.work_root`), which every run naming the role's root withholds, so its
-    copy of the held-out tasks is never where a run's session could read it. No pool may be
-    in the store, its own role's included: the exception for that pool is an author's alone.
+    copy of the held-out tasks is never where a run's session could read it. It withholds every
+    other role's root too, and its tools write nowhere in the store but ``work``. No pool may
+    be in the store, its own role's included: the exception for that pool is an author's alone.
+
+    However its session ends, an answer, an error, a timeout or a stop, everything under the
+    role's root but ``work`` is looked at again and held to what it was before the session;
+    a change anywhere, a version removed, renamed or rewritten, a file added, refuses the
+    answer and leaves the check's record for a person to look at.
 
     Raises:
         AuthoringError: the checking model is the implementers', ``work`` is inside a
@@ -1214,13 +1265,21 @@ def blind_check(
             the store holds a pool or a version still being written, work an earlier session
             left is recorded, a canary list under the root cannot be taken whole or a tier
             there holds none, the session would not look for every canary the root names, or
-            (its answer not taken, ``refused_because`` says why) its stream showed one or the
-            root's canaries changed while it ran.
+            (its answer not taken, ``refused_because`` says why) its stream showed one, the
+            root's canaries changed while it ran, or the role's root changed
+            (``version_changed``, ``role_root_changed``).
         TierSetError: the version is not what its manifest says.
         PerRoleError: a task in the tier does not load.
     """
     require_author_model(setup.model, implementer_model)
     root = role_root(store, role)
+    # Its tools write nowhere in the store but its own work: not a task copy in the role's
+    # root, not a version, not another role's root.
+    setup = dataclasses.replace(
+        setup,
+        write_protected=(*setup.write_protected, str(store.resolve())),
+        writable_within=(*setup.writable_within, str(work.resolve())),
+    )
     tier = version_dir(store, role, version) / "held_out"
     roots = [Path(r) for r in (*setup.held_out, *setup.withheld_reads)]
     held = [Path(r) for r in setup.held_out]
@@ -1245,19 +1304,33 @@ def blind_check(
     files = {"tasks.json": json.dumps(tasks, sort_keys=True, indent=1).encode()}
     record: dict[str, Any] | None = None
     working = _working(root, CHECK_EVIDENCE, work)
-    work_root(store, role).mkdir(mode=0o700, exist_ok=True)
+    before = _looked_at(root, work)
+    changed: list[str] = []
     try:
-        record = run_session(
-            CHECK_BRIEF.format(count=len(tasks)), setup, work, cap=cap, files=files
-        )
-        _require_unseen(record, canaries, "its answer is not taken")
-        _require_none_came(root, canaries, "its answer is not taken")
-        _require_versions_unchanged(root)
-        answers = read_answers(work / "worktree" / "answers.json", list(tasks))
+        try:
+            record = run_session(
+                CHECK_BRIEF.format(count=len(tasks)), setup, work, cap=cap, files=files
+            )
+            _require_unseen(record, canaries, "its answer is not taken")
+            _require_none_came(root, canaries, "its answer is not taken")
+            answers = read_answers(work / "worktree" / "answers.json", list(tasks))
+        finally:
+            # However the session ended (an answer, an error, a timeout, a stop): the role's
+            # root is looked at again, and anything changed but the check's own work refuses.
+            changed = _changed(before, _looked_at(root, work))
+            if changed:
+                _held_for_a_person(working, work, changed)
+                tops = sorted({c.split(":")[0].split("/")[0] for c in changed})
+                msg = (
+                    f"the role's root changed while the check ran ({'; '.join(changed[:8])}); "
+                    "its answer is not taken, and its record stays for a person to look at"
+                )
+                raise AuthoringError(msg, refused_because=_why(tops), changed=" | ".join(tops))
     finally:
         # The work holds the held-out tasks it was given: it never stays outside the root.
         _closed(_keep_evidence(work, record, check_evidence(store, role)))
-        working.unlink()
+        if not changed:
+            working.unlink()
     if answers is None:
         return {"tasks": len(tasks), "answered": False, "session": _spent(record)}
     flagged = sorted(key for key, a in answers.items() if not all(getattr(a, q) for q in QUESTIONS))
