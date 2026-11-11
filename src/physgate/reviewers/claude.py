@@ -54,6 +54,7 @@ from pathlib import Path
 from typing import Any
 
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
+from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.canaries import canary_seen
@@ -308,7 +309,7 @@ def context_window(result: dict[str, Any] | None, model: str) -> int | None:
 
 def _events(stream: str) -> list[dict[str, Any]]:
     events = []
-    for line in stream.splitlines():
+    for line in split_lines(stream):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:

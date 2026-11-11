@@ -50,6 +50,7 @@ from physgate.hooks.snapshot import Signature, file_digest, signature
 from physgate.hooks.state import LOG_NAME
 from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
+from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.canaries import canary_seen, redact_text
@@ -1854,7 +1855,7 @@ class ClaudeDispatcher:
         if not log.exists():
             return ()
         found = []
-        for line in read_session_file(log).decode(errors="replace").splitlines():
+        for line in split_lines(read_session_file(log).decode(errors="replace")):
             record = json.loads(line)
             if record.get("session") == session_id and record.get("decision") == (
                 "reaper_unverified"
@@ -1869,7 +1870,7 @@ class ClaudeDispatcher:
         if not log.exists():
             return False, ()
         halted, appends = False, []
-        for line in read_session_file(log).decode(errors="replace").splitlines():
+        for line in split_lines(read_session_file(log).decode(errors="replace")):
             record = json.loads(line)
             if record.get("session") != session_id:
                 continue

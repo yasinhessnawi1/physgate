@@ -31,6 +31,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from physgate.lines import split_lines
 from physgate.orchestrator.exceptions import TrajectoryTamperedError
 
 
@@ -74,7 +75,7 @@ def read_sealed(path: Path, expected: Seal) -> bytes:
 def result_lines(text: str) -> list[int]:
     """The indices of the lines that are ``result`` events."""
     found = []
-    for index, line in enumerate(text.splitlines()):
+    for index, line in enumerate(split_lines(text)):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -94,7 +95,7 @@ def forged_tail(text: str) -> str | None:
         return None
     if len(results) > 1:
         return f"the stream holds {len(results)} result events; the runtime writes one"
-    after = text.splitlines()[results[0] + 1 :]
+    after = split_lines(text)[results[0] + 1 :]
     if any(line.strip() for line in after):
         return "the stream goes on after its result event; the runtime writes nothing after it"
     return None
@@ -105,4 +106,4 @@ def through_first_result(text: str) -> str:
     results = result_lines(text)
     if not results:
         return text
-    return "\n".join(text.splitlines()[: results[0] + 1]) + "\n"
+    return "\n".join(split_lines(text)[: results[0] + 1]) + "\n"

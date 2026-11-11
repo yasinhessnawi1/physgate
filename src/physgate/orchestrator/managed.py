@@ -37,6 +37,8 @@ from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
+from physgate.lines import split_lines
+
 #: Where the binary caches fetched remote settings, inside its configuration directory.
 REMOTE_CACHE = "remote-settings.json"
 
@@ -212,7 +214,7 @@ def observe_traffic(debug_log: str, *, flags_off_by_setting: bool = False) -> Ob
     The one exception is the flags on a version that never reports them
     (``flags_off_by_setting``): they read as off by setting, a value of its own.
     """
-    served = [m for line in debug_log.splitlines() if (m := _SERVED.search(line))]
+    served = [m for line in split_lines(debug_log) if (m := _SERVED.search(line))]
     off = bool(served) and all(m.group(1) == "off" for m in served)
     reasons = {m.group(2) for m in served if m.group(2)}
     return ObservedTraffic(

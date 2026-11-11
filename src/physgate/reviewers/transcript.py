@@ -43,6 +43,8 @@ import re
 import secrets
 from typing import Any
 
+from physgate.lines import split_lines
+
 #: Event types, or ``system`` subtypes, left out of the rendering.
 DROPPED: tuple[str, ...] = (
     "stream_event",
@@ -212,7 +214,7 @@ def render(stream: str, *, nonce: str | None = None) -> tuple[str, str]:
     """
     chosen = _fresh_nonce(stream, nonce)
     out = _Writer(chosen)
-    for line in stream.splitlines():
+    for line in split_lines(stream):
         if not line.strip():
             continue
         event = parse_event(line)
@@ -222,7 +224,7 @@ def render(stream: str, *, nonce: str | None = None) -> tuple[str, str]:
         else:
             _event(out, event)
     text = PREAMBLE.format(nonce=chosen) + "\n".join(out.lines) + "\n"
-    return "\n".join(piece for line in text.splitlines() for piece in _cut(line)) + "\n", chosen
+    return "\n".join(piece for line in split_lines(text) for piece in _cut(line)) + "\n", chosen
 
 
 def joined(rendered: str) -> str:

@@ -46,6 +46,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.evaluation.observe.exceptions import ManifestError
+from physgate.lines import split_lines
 from physgate.orchestrator.exceptions import GitError
 from physgate.orchestrator.git import git
 from physgate.orchestrator.run_config import RunConfig
@@ -127,7 +128,7 @@ def _lines(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     out: list[dict[str, Any]] = []
-    for raw in path.read_text().splitlines():
+    for raw in split_lines(path.read_text()):
         if raw.strip():
             line = json.loads(raw)
             if not isinstance(line, dict):
@@ -269,7 +270,7 @@ class RunView:
             ],
             "journal": [
                 {"raw": raw}
-                for raw in (journal.read_text().splitlines() if journal.exists() else [])
+                for raw in (split_lines(journal.read_text()) if journal.exists() else [])
             ],
             "git": self.git_trees(),
         }

@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, Validation
 
 from physgate.gate.catalogue import shadowing_names
 from physgate.knowledge.library import LibraryError, put_into, read_library
+from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.common import NonEmptyStr, first_problem
@@ -179,7 +180,7 @@ def schema_refusal(stdout: str) -> str | None:
     is the cause, and it is read from the stream's tool result, since the result
     object says only that the turns ran out.
     """
-    for line in stdout.splitlines():
+    for line in split_lines(stdout):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -319,7 +320,7 @@ def read_stream(
     raw_usage: dict[str, dict[str, Any]] = {}
     current: dict[str | None, str] = {}  # the open message per thread
     models: set[str] = set()
-    for line in stdout.splitlines():
+    for line in split_lines(stdout):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
