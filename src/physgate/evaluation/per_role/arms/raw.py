@@ -28,7 +28,7 @@ import subprocess
 import threading
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -617,6 +617,11 @@ def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> No
         raise RawArmError(msg, work=str(work))
 
 
+def canaries_sha256(canaries: Iterable[str]) -> str:
+    """The digest a record holds for a list of held-out canaries: it names none of them."""
+    return hashlib.sha256("\n".join(sorted(canaries)).encode()).hexdigest()
+
+
 def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
     """Everything the raw arm is held equal to the harness arm on, as it ran.
 
@@ -629,6 +634,8 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
         "auth": setup.credential.mode,
         "endpoint": endpoint_of(setup.base_url),
         "held_out": sorted(setup.held_out),
+        # The canaries its stream was scanned for, which the harness run's must equal.
+        "held_out_canaries_sha256": canaries_sha256(setup.held_out_canaries),
         "model": setup.model,
         "claude_version": setup.claude_version,
         "effort": setup.effort,

@@ -241,8 +241,10 @@ def test_every_run_field_and_every_raw_pin_has_a_decision() -> None:
     """The census both ways: a new run field or raw pin fails here before any comparison."""
     assert set(RUN_FIELDS) == set(RunConfig.model_fields)
     compared = {name for name, kind in RUN_FIELDS.items() if kind == "compared"}
-    # Each compared run field has its raw pin (``models`` is read for the role, as ``model``).
-    assert {("model" if name == "models" else name) for name in compared} <= RAW_PINS
+    # Each compared run field has its raw pin (``models`` is read for the role, as ``model``,
+    # and the canaries are compared as their digest).
+    pin = {"models": "model", "held_out_canaries": "held_out_canaries_sha256"}
+    assert {pin.get(name, name) for name in compared} <= RAW_PINS
 
 
 def test_a_run_field_with_no_decision_is_named(

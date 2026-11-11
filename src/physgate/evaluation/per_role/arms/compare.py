@@ -10,6 +10,10 @@ arm's record, stream and generated settings from its own. Every difference is na
 in :data:`RAW_PINS`. A field or a pin added later without a decision here is itself named
 as a difference, so a new switch of the harness (an advisor, a tool environment) cannot be
 compared as equal by being overlooked.
+
+**The harness run must be one a baseline may be held to:** a run that is not reportable,
+or whose checkout was not clean, is named as a difference whatever the raw arm did. The
+fields recorded and not compared are listed in :data:`RUN_FIELDS`, each with its reason.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
+from physgate.evaluation.per_role.arms.raw import canaries_sha256
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.task import Task
 from physgate.hooks.settings import CONFIG_NAME
@@ -39,9 +44,11 @@ from physgate.orchestrator.run_config import RunConfig, load_run_config
 #: - ``harness``: a part of the harness the raw arm is measured without;
 #: - ``intended``: the raw arm differs on purpose, as its own code says;
 #: - ``identity``: names the run, says nothing about how it answered;
-#: - ``not_compared``: recorded by the harness run, not yet held against the raw arm.
-#:   Each is a known gap, listed where the comparison is built, never a silent one.
-RunFieldClass = Literal["compared", "harness", "intended", "identity", "not_compared"]
+#: - ``required``: the harness run must hold it, or it is no arm to compare against, and
+#:   the pair is named whatever the raw arm did;
+#: - ``not_compared``: recorded by the harness run and not held against the raw arm, each
+#:   with its reason beside it.
+RunFieldClass = Literal["compared", "harness", "intended", "identity", "required", "not_compared"]
 RUN_FIELDS: dict[str, RunFieldClass] = {
     "auth": "compared",
     "brief_sha256": "compared",
@@ -49,6 +56,8 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "effort": "compared",
     "endpoint": "compared",
     "held_out": "compared",
+    # Compared as digests: the raw arm records its canaries' digest, never the canaries.
+    "held_out_canaries": "compared",
     "max_output_tokens": "compared",
     "models": "compared",
     "network": "compared",
@@ -67,13 +76,20 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "run_id": "identity",
     "seed": "identity",
     "target_head": "identity",
+    # A reportable run starts from a clean checkout with a commit; a development run's
+    # numbers are no baseline's.
+    "harness": "required",
+    "reportable": "required",
+    # The git the harness's own commands ran; the raw arm runs none of them.
     "git_binary": "not_compared",
-    "harness": "not_compared",
-    "held_out_canaries": "not_compared",
+    # The tier's digests as the harness run recorded them before it started; the raw arm
+    # records the roots it withheld (``held_out``), not their digests.
     "held_out_sha256": "not_compared",
+    # Measured from ``network`` and ``os_layer``, which are both compared.
     "network_enforced": "not_compared",
+    # Whether the run may go on where the OS layer is absent; the layer each arm ran
+    # with is compared (``os_layer``), and a reportable run allows no absence.
     "os_layer_absent": "not_compared",
-    "reportable": "not_compared",
 }
 
 #: Every pin the raw arm's record carries. Each is compared below; one the record lacks,
@@ -88,6 +104,7 @@ RAW_PINS = frozenset(
         "effort",
         "endpoint",
         "held_out",
+        "held_out_canaries_sha256",
         "max_output_tokens",
         "model",
         "network",
@@ -183,6 +200,7 @@ def _expected(config: RunConfig, role: str, task: Task) -> dict[str, Any]:
         "effort": config.effort,
         "endpoint": config.endpoint,
         "held_out": sorted(config.held_out),
+        "held_out_canaries_sha256": canaries_sha256(config.held_out_canaries),
         "max_output_tokens": config.max_output_tokens,
         "model": config.models.roles.get(role),
         "network": config.network,
@@ -229,6 +247,10 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
         for name, want in _expected(config, role, task).items()
         if name in pins and pins[name] != want
     ]
+    if not config.reportable:
+        found.append("reportable: the harness run is not reportable; no baseline is held to it")
+    if not config.harness.clean:
+        found.append("harness: the harness run's checkout was not clean")
     if hashlib.sha256(task.brief.encode()).hexdigest() != config.brief_sha256:
         found.append("brief: the harness run was not given this task's brief")
     if record.get("task") != task.id:
