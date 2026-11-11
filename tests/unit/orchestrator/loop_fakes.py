@@ -15,6 +15,7 @@ from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.escalation import EscalationInterface, bind
 from physgate.orchestrator.exceptions import ReviewUnavailableError, WorktreeMisplacedError
 from physgate.orchestrator.loop import Loop
+from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.ports import (
     ChangeCheck,
     Leftover,
@@ -71,6 +72,8 @@ class FakeDispatcher:
     tampered: dict[int, str] = field(default_factory=dict)
     #: Per call: the digest of the policy limits the session's invocation received.
     policy: dict[int, str] = field(default_factory=dict)
+    #: Per call: the served catalog and feature flags the session's debug log showed.
+    traffic: dict[int, ObservedTraffic] = field(default_factory=dict)
     #: Per call: a canary of reviewer material found in the session's stream.
     material: dict[int, str] = field(default_factory=dict)
     #: Per call: a held-out task's canary found in the session's stream.
@@ -147,6 +150,7 @@ class FakeDispatcher:
             node_files_halted=call in self.halted,
             managed_drift=self.drift.get(call),
             policy_limits_sha256=self.policy.get(call),
+            observed_traffic=self.traffic.get(call),
             review_material_seen=self.material.get(call),
             held_out_seen=self.held_out.get(call),
             series=self.series.get(call, SessionSeries()),

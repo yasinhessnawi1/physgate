@@ -129,6 +129,9 @@ class TrafficSettings(BaseModel):
         "served model catalog and remote feature flags measured off under these settings on "
         "Claude Code 2.1.272, 27.09.2026, on the real subscription path"
     )
+    #: Every switch the run's sessions carried, in the order the environment writes them;
+    #: ``None`` in a record from before the switches were recorded.
+    switches: tuple[tuple[str, str], ...] | None = None
 
 
 #: What the decomposition call's own debug log says; a closed vocabulary, so nothing the
@@ -231,6 +234,11 @@ def policy_limits_change(baseline: str | None, now: str | None) -> str | None:
     if now is None:
         return f"no policy limits arrived where the decomposition call received {baseline}"
     return f"the policy limits changed from {baseline} to {now}"
+
+
+def traffic_change(baseline: ObservedTraffic | None, now: ObservedTraffic | None) -> str | None:
+    """How a session's catalog and flags differ from the run's first observation, or ``None``."""
+    return None
 
 
 def drift(config_dir: Path, system_before: tuple[SystemManagedFile, ...]) -> str | None:

@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 from physgate.orchestrator.budget import ATTEMPT_LIMIT, SessionEnd
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.install import InstallFacts
+from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.trajectory import Seal
@@ -84,6 +85,9 @@ class SessionReport(_Frozen):
     trajectory_tampered: NonEmptyStr | None = None
     #: The digest of the policy limits the invocation received, if it received any.
     policy_limits_sha256: NonEmptyStr | None = None
+    #: The served catalog and feature flags the session's own debug log showed, on a pin whose
+    #: sessions carry that traffic; ``None`` on the earlier pins, whose sessions write no log.
+    observed_traffic: ObservedTraffic | None = None
     #: A canary of reviewer material found in the session's own stream, if one was:
     #: the session read what only reviewers read, by a path no hook could judge.
     review_material_seen: NonEmptyStr | None = None

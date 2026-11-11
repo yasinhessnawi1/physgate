@@ -32,11 +32,16 @@ from scripted_endpoint import (  # noqa: E402
 
 from physgate.knowledge import loader  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
+from physgate.orchestrator.decompose import binary_version  # noqa: E402
 from physgate.orchestrator.dispatch import RUN_RECORDS, ClaudeDispatcher  # noqa: E402
 from physgate.orchestrator.exceptions import InvocationError  # noqa: E402
 from physgate.orchestrator.git import commit_all, git  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
-from physgate.orchestrator.invocation import claude_binary  # noqa: E402
+from physgate.orchestrator.invocation import (  # noqa: E402
+    TRAFFIC_ALLOWED_VERSIONS,
+    claude_binary,
+    session_env_settings,
+)
 from physgate.orchestrator.managed import system_managed_paths  # noqa: E402
 from physgate.orchestrator.merge import RunGit  # noqa: E402
 from physgate.orchestrator.ports import SessionRequest  # noqa: E402
@@ -197,10 +202,20 @@ def test_a_session_reads_works_and_proposes_under_the_generated_settings(
     assert facts.owner_is_session_user  # the same user could make it writable again
     # The system tier is recorded as it is.
     assert [f.path for f in facts.system_managed] == [str(p) for p in system_managed_paths()]
-    # The settings that keep the binary's served catalog and remote flags off, as recorded.
+    # The switches the pin's sessions carry, as recorded: the earlier pins keep the served
+    # catalog and remote flags off; on 2.1.322 that traffic is on by the owner's choice.
+    version = binary_version(claude_binary())
     assert facts.traffic is not None
-    assert (facts.traffic.nonessential_traffic, facts.traffic.telemetry) == ("disabled", "disabled")
+    assert facts.traffic.switches == tuple(session_env_settings(version).items())
+    on = version in TRAFFIC_ALLOWED_VERSIONS
+    expected = ("enabled", "enabled") if on else ("disabled", "disabled")
+    assert (facts.traffic.nonessential_traffic, facts.traffic.telemetry) == expected
     assert report.managed_drift is None
+    # On 2.1.322 the session's own debug log is read for the catalog and flags it saw, and
+    # removed with the credential; on the earlier pins a session writes no such log.
+    assert (report.observed_traffic is not None) == on
+    assert not (sdir / "config" / "debug.log").exists()
+    assert ("--debug-file" in record["argv"]) == on
 
 
 def test_the_first_tool_but_read_is_refused_until_the_reading_is_done(

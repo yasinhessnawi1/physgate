@@ -198,7 +198,7 @@ def isolated_env(
     return env
 
 
-def traffic_settings() -> TrafficSettings:
+def traffic_settings(claude_version: str = "") -> TrafficSettings:
     """The traffic settings every invocation's environment carries, read from that environment."""
     env = isolated_env(
         home=Path("/"),
@@ -228,6 +228,7 @@ def role_argv(
     max_turns: int,
     effort: str,
     thinking_display: str,
+    debug_file: Path | None = None,
 ) -> list[str]:
     """A role session: the hook layer's spawn arguments, the stream the trajectory is.
 
