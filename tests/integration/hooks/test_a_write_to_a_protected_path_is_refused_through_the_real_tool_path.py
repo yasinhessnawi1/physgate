@@ -132,9 +132,11 @@ def test_the_held_out_tier_cannot_be_read(tmp_path: Path) -> None:
 
 
 def test_a_tool_off_the_roles_list_is_refused_before_it_runs(tmp_path: Path) -> None:
-    run = _session(tmp_path, tool("WebFetch", url="https://example.com", prompt="x"))
+    # Not a web tool: the settings deny those to every profile, so the binary never offers
+    # them and no hook is asked (test_the_settings_alone_refuse_a_role_session_the_web.py).
+    run = _session(tmp_path, tool("CronCreate", cron="*/5 * * * *", prompt="x", recurring=False))
     ((hook, reason),) = _refusals(run)
-    assert hook == "tools" and "WebFetch tool is not available to a role session" in reason
+    assert hook == "tools" and "CronCreate tool is not available to a role session" in reason
 
 
 def test_an_ordinary_write_still_lands(tmp_path: Path) -> None:
