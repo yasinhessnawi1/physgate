@@ -52,7 +52,7 @@ from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
-from physgate.orchestrator.canaries import canary_seen
+from physgate.orchestrator.canaries import canary_seen, split_by_invisible
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
@@ -961,8 +961,10 @@ def redact(path: Path, secret: str | None) -> None:
         while chunk := os.read(fd, 1 << 20):
             chunks.append(chunk)
         data = b"".join(chunks)
-        if secret.encode() in data:
-            redacted = data.replace(secret.encode(), REDACTED)
+        # Verbatim, and with invisible characters between its own (as itself or escaped), which
+        # read back as the credential.
+        redacted = split_by_invisible(secret.encode()).sub(REDACTED, data)
+        if redacted != data:
             os.ftruncate(fd, 0)
             os.pwrite(fd, redacted, 0)
     finally:

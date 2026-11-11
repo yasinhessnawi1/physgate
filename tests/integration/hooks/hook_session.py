@@ -302,7 +302,9 @@ def _run_session(
             check=False,
             timeout=300,
         )
-    stream = [json.loads(line) for line in proc.stdout.splitlines() if line.startswith("{")]
+    # One event per "\n": the stream is JSON lines, and an event's string may hold a character
+    # ``splitlines`` would also break at (NEL, the Unicode line and paragraph separators).
+    stream = [json.loads(line) for line in proc.stdout.split("\n") if line.startswith("{")]
     log_path = Path(fields["state_dir"]) / "hooks.log.jsonl"
     hook_log = (
         [json.loads(line) for line in log_path.read_text().splitlines()]

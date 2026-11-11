@@ -30,6 +30,33 @@ PART = 16
 
 _SQUEEZE = re.compile(r"\\[nrt]|\s")
 
+#: The characters a session can put inside a printed value that read back as nothing: the C0
+#: and C1 controls, DEL, and the format characters 2.1.311 and later write as escapes (the soft
+#: hyphen, the zero-width and direction marks, the direction embeddings and overrides, the word
+#: joiner and invisible operators, the direction isolates, the byte order mark). In the raw
+#: stream each is either itself (the earlier pins) or a JSON escape (2.1.311 and later, and the
+#: C0 controls everywhere); a value split by them still reads as itself, so the scans read
+#: through both forms.
+_ESCAPE = (
+    r"\\u(?:00[01][0-9a-fA-F]|007[fF]|00[89][0-9a-fA-F]|00[aA][dD]|200[b-fB-F]"
+    r"|202[a-eA-E]|206[0-46-9]|[fF][eE][fF][fF])"
+)
+INVISIBLE = re.compile(
+    _ESCAPE + "|[\x00-\x1f\x7f-\x9f\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064"
+    "\u2066-\u2069\ufeff]"
+)
+#: The same, over the stream's bytes: each character in its UTF-8 form, or its escape.
+INVISIBLE_BYTES = re.compile(
+    _ESCAPE.encode() + rb"|[\x00-\x1f\x7f]|\xc2[\x80-\x9f\xad]|\xe2\x80[\x8b-\x8f\xaa-\xae]"
+    rb"|\xe2\x81[\xa0-\xa4\xa6-\xa9]|\xef\xbb\xbf"
+)
+
+
+def split_by_invisible(value: bytes) -> re.Pattern[bytes]:
+    """``value`` as it reads in a raw stream with any invisible characters between its bytes."""
+    between = b"(?:" + INVISIBLE_BYTES.pattern + b")*"
+    return re.compile(between.join(re.escape(value[i : i + 1]) for i in range(len(value))))
+
 
 def _base64_cores(canary: str) -> list[str]:
     """The base64 runs a canary always becomes, wherever it falls in the encoded bytes.
@@ -53,7 +80,9 @@ def canary_seen(data: bytes, live: frozenset[str]) -> str | None:
     """
     if not live:
         return None
-    text = data.decode(errors="replace")
+    # Read through any invisible character, as itself or escaped: a canary printed with one
+    # between its characters is the canary shown.
+    text = INVISIBLE.sub("", data.decode(errors="replace"))
     squeezed = _SQUEEZE.sub("", text.replace("\\/", "/"))
     lowered = (text.lower(), squeezed.lower())
     for canary in sorted(live):
