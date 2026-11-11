@@ -494,11 +494,8 @@ def call(
         refused=schema_refusal(stdout),
     )
     changed = drift(workdir / "config", system_before)
-    if not observed.all_off():
-        seen = (
-            f"the binary's served model catalog is {observed.served_catalog} and its remote "
-            f"feature flags are {observed.feature_flags}"
-        )
+    seen = traffic_refusal(observed, reported)
+    if seen is not None:
         changed = f"{changed}; {seen}" if changed else seen
     if changed is not None:
         cause, detail, plan = "managed_settings_changed", changed, None
@@ -513,6 +510,20 @@ def call(
         num_turns=turns,
         policy_limits_sha256=policy_limits_digest(workdir / "config"),
         observed_traffic=observed,
+    )
+
+
+def traffic_refusal(observed: ObservedTraffic, claude_version: str) -> str | None:
+    """Why the decomposition call's catalog and flags state refuses the run, or ``None``.
+
+    The run proceeds only under a served catalog seen off and feature flags off, observed or
+    off by the documented setting on a version that never reports them.
+    """
+    if observed.all_off():
+        return None
+    return (
+        f"the binary's served model catalog is {observed.served_catalog} and its remote "
+        f"feature flags are {observed.feature_flags}"
     )
 
 
