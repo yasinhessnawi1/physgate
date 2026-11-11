@@ -19,6 +19,7 @@ import json
 import sys
 import tarfile
 import urllib.request
+from collections.abc import Mapping
 from pathlib import Path
 
 #: The platforms the harness runs sessions on: the development machine, CI and the server.
@@ -32,7 +33,7 @@ class DigestError(Exception):
     """A lockfile or a tarball that cannot be trusted to name the binary."""
 
 
-def pinned(lockfile: dict[str, object], platform: str) -> tuple[str, str, str]:
+def pinned(lockfile: Mapping[str, object], platform: str) -> tuple[str, str, str]:
     """The version, tarball address and sha512 the lockfile pins for one platform package.
 
     Raises:
