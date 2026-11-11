@@ -67,6 +67,7 @@ from physgate.state.protocol import (
     canonical_json,
 )
 from physgate.state.schema import quantities_are_valid, validate_node, validate_node_id
+from physgate.unit_spelling import as_product
 
 # A node payload is a plain JSON object on the way in and on the way out. The
 # frozen interface types it that way and the schema is what gives it structure;
@@ -85,12 +86,19 @@ FOLLOWED_SOURCE = "followed from {node} at attempt {attempt}"
 _FOLLOWED = re.compile(r"^followed from (?P<node>\S+) at attempt (?P<attempt>[1-9][0-9]{0,8})$")
 
 
+def written(quantity: Mapping[str, Any]) -> str:
+    """A quantity's value as written and its unit as the grammar's product: 2 and 2.0 differ."""
+    unit = quantity.get("unit")
+    return json.dumps([quantity.get("value"), as_product(unit) if isinstance(unit, str) else unit])
+
+
 def followed_payload(
     interface: Payload, joined: Sequence[Payload], role: str, attempt: int
 ) -> Payload:
     """The interface's next revision, each quantity copied from the first node of ``joined``.
 
-    The value and unit are the first joined node's as written, the source names that node and
+    The value is the first joined node's as written and the unit the product the unit grammar reads
+    it as (:func:`physgate.unit_spelling.as_product`), the source names that node and
     ``attempt``, the writer is ``role``, and no series reference is carried; every other field of
     the interface is kept. A copy and no judgement: whether the joined nodes agree and the units
     are the interface's is the change check's (``orchestrator.follow``), which calls this.
@@ -105,7 +113,8 @@ def followed_payload(
     quantities = {
         name: {
             "value": held[name]["value"],
-            "unit": held[name]["unit"],
+            # A bracketed denominator is written as the product the unit grammar reads it as.
+            "unit": as_product(held[name]["unit"]),
             "source": source,
             "written_by": role,
         }
@@ -944,12 +953,9 @@ class Store:
         attempt = _followed_attempt(node)
         if attempt is None or node != followed_payload(current, sources, actor_role, attempt):
             return refused
-        # By name, as written: a value of 2 and one of 2.0 are two writings.
-        if all(
-            json.dumps([q["value"], q["unit"]])
-            == json.dumps([node["quantities"][name]["value"], node["quantities"][name]["unit"]])
-            for name, q in names.items()
-        ):
+        # By name, as written: a value of 2 and one of 2.0 are two writings, while two spellings
+        # of one unit (``1/(rad*s)``, ``1/rad/s``) are one.
+        if all(written(q) == written(node["quantities"][name]) for name, q in names.items()):
             return refused
         if not quantities_are_valid(node):
             return refused
