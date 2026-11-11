@@ -40,12 +40,14 @@ pytestmark = [
 ]
 
 
-#: The evaluation pins: implementers and the decomposition on Opus 5.5, reviewers on Sonnet 5.
-EVALUATION_MODELS = {
-    "decomposition": "claude-opus-5-5",
-    "roles": {"electrical": "claude-opus-5-5"},
-    "reviewers": {"electrical": "claude-sonnet-5"},
-}
+def _models(model: str) -> dict[str, Any]:
+    """The decomposition and the role on ``model``; the reviewer on another, as separation asks."""
+    reviewer = "claude-sonnet-5" if model != "claude-sonnet-5" else "claude-opus-5-5"
+    return {
+        "decomposition": model,
+        "roles": {"electrical": model},
+        "reviewers": {"electrical": reviewer},
+    }
 
 
 def _sent(request: Recorded, *, keep_display: bool) -> dict[str, Any]:
@@ -72,14 +74,29 @@ def _expected(defaults: BinaryDefaults, *, decomposition: bool) -> dict[str, Any
 def test_the_decomposition_and_a_role_session_send_what_their_pin_s_entry_records(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Once for every model the binary's version has an entry for: the entry is per model."""
     version = binary_version()
+    models = sorted(m for v, m in BINARY_DEFAULTS if v == version)
+    assert models, f"no defaults are recorded for {version} on any model"
+    for model in models:
+        _measure(tmp_path / model, monkeypatch, capsys, version, model)
+
+
+def _measure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    version: str,
+    model: str,
+) -> None:
+    tmp_path.mkdir(parents=True)
     repo = target_repo(tmp_path)
     run_dir = tmp_path / "run"
     install = tmp_path / "install"
     prepare_install(install, Path(__file__).resolve().parents[3])
-    # The evaluation's own model strings, which the entries were measured on: the beta flags a
-    # request carries depend on its model as well as on the binary's version.
-    params = {**run_params(config()), "auth": "subscription", "models": EVALUATION_MODELS}
+    # The entry's own model: the beta flags a request carries depend on its model as well as on
+    # the binary's version.
+    params = {**run_params(config()), "auth": "subscription", "models": _models(model)}
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -95,8 +112,9 @@ def test_the_decomposition_and_a_role_session_send_what_their_pin_s_entry_record
         spec = run_dir / "worktrees" / subtask / ".physgate" / "specs" / f"{subtask}.md"
         api.script = Script(main=[tool("Read", file_path=str(spec)), text("done")])
         common = ["--run-dir", str(run_dir), "--target", str(repo), "--install", str(install)]
+        reviewer = _models(model)["reviewers"]["electrical"]
         registrations = Registrations(
-            gate=Gate(), reviewers={"electrical": Reviewer(model="claude-sonnet-5")}
+            gate=Gate(), reviewers={"electrical": Reviewer(model=reviewer)}
         )
         code = main(["run", *common, "--review-root", str(tmp_path / "rs")], registrations)
         out = capsys.readouterr()
@@ -110,8 +128,8 @@ def test_the_decomposition_and_a_role_session_send_what_their_pin_s_entry_record
             {json.dumps(_sent(r, keep_display=False), sort_keys=True) for r in session}
         ),
     }
-    defaults = BINARY_DEFAULTS.get(version)
-    assert defaults is not None, f"no defaults are recorded for {version}; it sends {measured}"
+    defaults = BINARY_DEFAULTS.get((version, model))
+    assert defaults is not None, f"no defaults for {version} on {model}; it sends {measured}"
     assert measured["decomposition"] == _expected(defaults, decomposition=True), measured
     sessions = [json.loads(s) for s in measured["sessions"]]
     assert sessions == [_expected(defaults, decomposition=False)], measured
