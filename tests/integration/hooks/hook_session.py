@@ -19,6 +19,7 @@ Three things are checked on every run, not left to the test that uses it:
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import secrets
@@ -38,9 +39,10 @@ from physgate.hooks.runtime import HookSpec
 from physgate.hooks.settings import Installed, InstallRequest, install
 from physgate.oslayer.reaper_install import with_canary
 
-#: The Claude Code version the hook contract was measured on: the one role
-#: sessions run on, so the hooks are proven on the binary that runs them.
-PINNED_VERSION = "2.1.301"
+#: The Claude Code versions the hook contract is measured on, each in a CI leg of its own: the
+#: ones role sessions run on, so the hooks are proven on the binary that runs them. A row whose
+#: expected value differs between them reads the version the binary reports (``pinned_version``).
+PINNED_VERSIONS = ("2.1.301", "2.1.322")
 
 
 class HarnessError(AssertionError):
@@ -60,20 +62,31 @@ def session_path() -> str:
 
 
 def claude_binary() -> str:
-    """The Claude Code binary to run, refusing any version but the pinned one."""
+    """The Claude Code binary to run, refusing any version but the pinned ones."""
     binary = os.environ.get("PHYSGATE_CLAUDE_BIN") or shutil.which("claude")
     if not binary:
         msg = "no Claude Code binary found (set PHYSGATE_CLAUDE_BIN)"
         raise HarnessError(msg)
+    _version_of(binary)
+    return binary
+
+
+@functools.cache
+def _version_of(binary: str) -> str:
     out = subprocess.run(
         [binary, "--version"], capture_output=True, text=True, check=False, timeout=60
     ).stdout
-    if out.split(" ", 1)[0].strip() != PINNED_VERSION:
-        msg = (
-            f"{binary} reports {out.strip()!r}; the hook contract was measured on {PINNED_VERSION}"
-        )
+    version = out.split(" ", 1)[0].strip()
+    if version not in PINNED_VERSIONS:
+        pinned = ", ".join(PINNED_VERSIONS)
+        msg = f"{binary} reports {out.strip()!r}; the hook contract was measured on {pinned}"
         raise HarnessError(msg)
-    return binary
+    return version
+
+
+def pinned_version() -> str:
+    """The pinned version the binary under test reports."""
+    return _version_of(claude_binary())
 
 
 @dataclass

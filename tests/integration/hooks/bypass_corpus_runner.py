@@ -55,9 +55,10 @@ from typing import Any
 import test_the_bypass_suite as bp
 from fake_messages_api import Script, text
 from hook_session import (
-    PINNED_VERSION,
+    PINNED_VERSIONS,
     SessionRun,
     claude_binary,
+    pinned_version,
     run_session,
     session_path,
     volume_is_case_insensitive,
@@ -233,8 +234,8 @@ def pins(
         [binary, "--version"], capture_output=True, text=True, check=False, timeout=60
     ).stdout
     version = said.split(" ", 1)[0].strip()
-    if version != PINNED_VERSION:
-        msg = f"{binary} reports version {said.strip()!r}, not {PINNED_VERSION}"
+    if version not in PINNED_VERSIONS:
+        msg = f"{binary} reports version {said.strip()!r}, not one of {', '.join(PINNED_VERSIONS)}"
         raise RunRefusedError(msg)
     digest = _sha256(binary)
     if digest != pinned_sha256:
@@ -280,7 +281,7 @@ def resolve_on_session_path(binary: str) -> str | None:
 
 def layer_state() -> Present | Absent:
     """Whether the OS layer runs here, for the pinned version and the session's path."""
-    return judge_here(claude_version=PINNED_VERSION, search_path=session_path())
+    return judge_here(claude_version=pinned_version(), search_path=session_path())
 
 
 def _require_layer() -> None:
