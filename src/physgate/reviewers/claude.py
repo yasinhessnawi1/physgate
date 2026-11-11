@@ -82,6 +82,7 @@ from physgate.orchestrator.exceptions import (
     ReviewUnavailableError,
 )
 from physgate.orchestrator.invocation import REVIEWER_ENV, isolated_env, reviewer_argv
+from physgate.orchestrator.managed import SessionManaged
 from physgate.orchestrator.ports import SpawnHook
 from physgate.orchestrator.processes import kill_own
 from physgate.orchestrator.protocols import (
@@ -399,6 +400,8 @@ class ClaudeReviewer:
         self._root = Path(setup.review_root)
         #: Told each review session's spawn before it runs anything (:meth:`record_spawns`).
         self._on_spawn: SpawnHook | None = None
+        #: The current review's invocations, each with the conditions it ran under.
+        self._seen: list[SessionManaged] = []
 
     def record_spawns(self, hook: SpawnHook) -> None:
         """Tell ``hook`` each review session's id, pid and start time, as the loop records them."""

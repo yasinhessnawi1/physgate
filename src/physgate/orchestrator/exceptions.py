@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from physgate.orchestrator.managed import SessionManaged
     from physgate.orchestrator.protocols import MessageUsage, SpecDefect, UnavailableCause
 
 
@@ -146,6 +147,7 @@ class ReviewUnavailableError(OrchestratorError):
         reviewer_model: str | None = None,
         usage: tuple[MessageUsage, ...] = (),
         spec_defects: tuple[SpecDefect, ...] = (),
+        managed: tuple[SessionManaged, ...] = (),
         **context: str,
     ) -> None:
         """Store the cause and what the review spent beside the message."""
@@ -155,6 +157,9 @@ class ReviewUnavailableError(OrchestratorError):
         self.reviewer_model = reviewer_model
         self.usage = usage
         self.spec_defects = spec_defects
+        #: Per invocation of the review's session, the conditions it ran under (see
+        #: ``ReviewResult.managed``); empty on a pin whose sessions carry no such traffic.
+        self.managed = managed
 
 
 class HeldOutExposedError(OrchestratorError):

@@ -46,7 +46,7 @@ from physgate.orchestrator.escalation import BackendName, Decision
 from physgate.orchestrator.escalation_state import EscalationState
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
 from physgate.orchestrator.install import InstallFacts
-from physgate.orchestrator.managed import ObservedTraffic
+from physgate.orchestrator.managed import ObservedTraffic, SessionManaged
 from physgate.orchestrator.protocols import (
     GateResult,
     RecordedUnavailableCause,
@@ -292,6 +292,9 @@ class ReviewUnavailable(_Event):
     reviewer_model: NonEmptyStr | None
     #: The specification defects the reviewer recorded, carried to the queue item.
     spec_defects: tuple[SpecDefect, ...] = ()
+    #: Per invocation of the review's session, on a pin whose sessions carry the catalog
+    #: and flag traffic, the conditions it ran under; empty, and not written, otherwise.
+    managed: tuple[SessionManaged, ...] = Field(default=(), exclude_if=lambda v: not v)
 
     @model_validator(mode="after")
     def _only_infrastructure_is_retried(self) -> ReviewUnavailable:

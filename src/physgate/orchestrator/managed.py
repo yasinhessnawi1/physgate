@@ -185,6 +185,21 @@ class ObservedTraffic(BaseModel):
         return self.served_catalog == "off" and self.feature_flags in ("off", FLAGS_OFF_BY_SETTING)
 
 
+class SessionManaged(BaseModel):
+    """What one invocation of a session showed of the conditions it ran under.
+
+    On a pin whose sessions carry the catalog and flag traffic, a review session is held to
+    the run's first observation as a role session is: the catalog and flags its debug log
+    showed, what the managed tier held or changed, and the policy limits it received.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    observed_traffic: ObservedTraffic | None
+    managed_drift: str | None
+    policy_limits_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None
+
+
 _SERVED = re.compile(r"\[servedCatalog\] (\S+)(?: \(([a-z_]{1,40})\))?")
 _FLAGS_OFF = "GrowthBook is off for this session"
 
