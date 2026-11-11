@@ -43,7 +43,8 @@ that are there before any check works in one.
 **Anything out of place is a leftover.** An entry directly in a role's root that is not a
 version, the withheld root, the work root, a version being written or a record of work, and
 an entry in a version beside its manifest, provenance record and tiers, is withheld by no
-run: a session's copy of a task dropped there would be read. It refuses as work left.
+run: a session's copy of a task dropped there would be read. It refuses a run as work left
+(an authoring or blind-check session withholds it with the rest of the store).
 
 **Work out of the role's root is a leftover too.** An author's tasks before they are pooled,
 and the blind check's copy of the held-out tasks, lie outside every protected root while their
@@ -458,7 +459,9 @@ def spelling_refusal(
     )
 
 
-def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
+def leftovers(
+    store: Path, *, continuing: Path | None = None, out_of_place: bool = True
+) -> dict[str, int]:
     """What only a split in progress holds, and work out of a role's root, counted by reason.
 
     ``pool_left`` counts every pool, drawn from or not, but ``continuing``: the one pool an
@@ -466,9 +469,10 @@ def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
     counts every version still being written. ``work_left`` counts every record of a session's
     work (``<name>.working``), its own role's too, and everything in a role's work root: that
     work (an author's tasks before they are pooled, the check's copy of the held-out tasks,
-    with no canary) is there until it is secured. It also counts every entry in a role's
-    root outside a known place (:func:`_out_of_place`), which no run withholds. Only names
-    are looked at.
+    with no canary) is there until it is secured. Unless ``out_of_place`` is false, it also
+    counts every entry in a role's root outside a known place (:func:`_out_of_place`), which
+    no run withholds; an authoring or blind-check session withholds the whole store but its
+    own work, so it is not refused for one. Only names are looked at.
 
     Raises:
         OSError: the store or a role's root cannot be listed, or a role's root or withheld
@@ -488,8 +492,9 @@ def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
             folded = name.casefold()
             if folded.startswith(TEMPORARY):
                 counts["temporary_version_left"] += 1
-            elif name not in (WITHHELD, WORK):
-                # A record of work (``<name>.working``) among them: never a known place.
+            elif folded.endswith(WORKING):
+                counts["work_left"] += 1
+            elif out_of_place and name not in (WITHHELD, WORK):
                 counts["work_left"] += _out_of_place(here / name)
         work = here / WORK
         if work.is_symlink():
@@ -527,14 +532,16 @@ def _out_of_place(path: Path) -> int:
     return sum(1 for name in os.listdir(path) if name not in VERSION_HOLDS)
 
 
-def leftover_refusal(store: Path, *, continuing: Path | None = None) -> tuple[str, str] | None:
+def leftover_refusal(
+    store: Path, *, continuing: Path | None = None, out_of_place: bool = True
+) -> tuple[str, str] | None:
     """Why nothing may start on ``store``: a counted reason and its words; ``None`` if nothing.
 
     Nothing starts while a split's leftovers, or a record of work out of a role's root, are in
     the store (:func:`leftovers`), or while the store cannot be listed (``store_unreadable``).
     """
     try:
-        counts = leftovers(store, continuing=continuing)
+        counts = leftovers(store, continuing=continuing, out_of_place=out_of_place)
     except OSError as exc:
         return "store_unreadable", (
             f"the tier-set store {store} cannot be listed ({exc}), so a pool or a version "

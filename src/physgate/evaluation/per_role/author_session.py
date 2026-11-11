@@ -247,7 +247,9 @@ def _require_nothing_left(store: Path, continuing: Path | None = None) -> None:
         AuthoringError: ``pool_left``, ``temporary_version_left``, ``work_left`` or
             ``store_unreadable``.
     """
-    refusal = leftover_refusal(store, continuing=continuing)
+    # An entry out of place in a role's root is withheld from the session with the rest of
+    # the store; it refuses a run, which withholds only the known places.
+    refusal = leftover_refusal(store, continuing=continuing, out_of_place=False)
     if refusal is not None:
         raise AuthoringError(refusal[1], refused_because=refusal[0], store=str(store))
 

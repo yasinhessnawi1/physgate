@@ -408,7 +408,7 @@ def test_an_author_on_the_implementers_model_is_refused_before_any_session(
     [
         ({"work": "private/store/work"}, "inside a held-out root"),
         ({"work": "private/work"}, "inside a held-out root"),
-        ({"store": "elsewhere/store"}, "does not withhold the protected root"),
+        ({"store": "elsewhere/store"}, "does not withhold the tier-set store"),
         ({"count": 0}, "at least one task"),
         ({"cap": 8_000_001}, "at most 8000000 tokens"),
         ({"per_task_cap": 4_000_001}, "no more than the session's cap"),
