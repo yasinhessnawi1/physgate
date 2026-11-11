@@ -68,8 +68,11 @@ def test_read_manifest_resolves_binary_defaults_for_every_pinned_version(
         assert manifest.config.claude_version == version
         assert manifest.binary_defaults == BINARY_DEFAULTS[version]
         assert manifest.binary_defaults.claude_version == version
-    # Only 2.1.301's decomposition request was measured to differ from its sessions'.
-    assert [v for v, d in sorted(BINARY_DEFAULTS.items()) if d.decomposition] == ["2.1.301"]
+    # The decomposition request was measured to differ from the sessions' on 2.1.301 and 2.1.322.
+    assert [v for v, d in sorted(BINARY_DEFAULTS.items()) if d.decomposition] == [
+        "2.1.301",
+        "2.1.322",
+    ]
 
 
 @pytest.mark.parametrize(

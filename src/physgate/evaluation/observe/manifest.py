@@ -175,6 +175,53 @@ BINARY_DEFAULTS: dict[str, BinaryDefaults] = {
             ),
         ),
     ),
+    #: Measured at the scripted endpoint on 11.11.2026 on the linux-x64 build, through
+    #: tests/integration/orchestrator/test_each_pin_sends_the_defaults_recorded_for_it.py (the
+    #: subscription-shaped path with the full hook layer, a decomposition call and a role
+    #: session, on the evaluation's model strings). Two cautions, both measured: the beta flags
+    #: depend on the request's model as well as the version (on 2.1.301 a claude-sonnet-5
+    #: decomposition request leaves out two flags this table lists for it); and a custom base
+    #: URL turns the binary's tool search on (since 2.1.304), so the sessions' extra
+    #: ``advanced-tool-use`` flag may not reach the real API.
+    "2.1.322": BinaryDefaults(
+        claude_version="2.1.322",
+        thinking={"type": "adaptive"},
+        context_management={"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+        anthropic_beta=(
+            "advanced-tool-use-2025-11-20",
+            "claude-code-20250219",
+            "context-management-2025-06-27",
+            "effort-2025-11-24",
+            "extended-cache-ttl-2025-04-11",
+            "interleaved-thinking-2025-05-14",
+            "mid-conversation-tool-changes-2026-07-01",
+            "oauth-2025-04-20",
+            "per-turn-control-2026-07-01",
+            "thinking-token-count-2026-05-13",
+        ),
+        measured=(
+            "request bodies at the scripted endpoint, Claude Code 2.1.322 (linux-x64), "
+            "11.11.2026, on claude-opus-5-5 (the decomposition and a role session), through "
+            "tests/integration/orchestrator/test_each_pin_sends_the_defaults_recorded_for_it.py "
+            "(the oauth-shaped subscription path with the full hook layer active); a custom "
+            "base URL turns tool search on, so the real API may not see advanced-tool-use"
+        ),
+        decomposition=DecompositionDefaults(
+            thinking={"type": "adaptive", "display": "updates"},
+            anthropic_beta=(
+                "claude-code-20250219",
+                "context-management-2025-06-27",
+                "effort-2025-11-24",
+                "extended-cache-ttl-2025-04-11",
+                "interleaved-thinking-2025-05-14",
+                "mid-conversation-tool-changes-2026-07-01",
+                "oauth-2025-04-20",
+                "per-turn-control-2026-07-01",
+                "thinking-display-updates-2026-08-18",
+                "thinking-token-count-2026-05-13",
+            ),
+        ),
+    ),
 }
 
 
