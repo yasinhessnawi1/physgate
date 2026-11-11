@@ -677,3 +677,11 @@ def test_a_harness_trial_whose_event_log_cannot_be_read_whole_is_excluded(
     assert trial.reason.startswith("events:")
     with pytest.raises(TrialExcludedError, match="^events:"):
         harness_ended_by_infrastructure(run, TASK, answer_found=False)
+
+
+@pytest.mark.parametrize("end", ["watch_failed", "watch_stalled", "no_stream"])
+def test_a_raw_trial_whose_watch_failed_is_excluded_as_uncounted(tmp_path: Path, end: str) -> None:
+    """Named as the watch's failure, not only as an end the arm does not take."""
+    trial = _raw_trial(_stream(tmp_path / "stdout.jsonl", DONE), _raw(end=end))
+    assert isinstance(trial, ExcludedTrial)
+    assert trial.reason == f"end: {end}; the watch could not hold the session to its cap"

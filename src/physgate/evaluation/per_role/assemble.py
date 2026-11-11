@@ -91,6 +91,10 @@ INFRASTRUCTURE_HALTS = frozenset(
 INFRASTRUCTURE_CAUSES = frozenset({"api_error", "credential_refused", "sandbox_unavailable"})
 #: A raw session's ends that are the arm's own spending, never the machine's.
 OWN_ENDS = frozenset({"budget_exhausted", "wall_clock"})
+#: Every end the raw arm writes for a session whose result may be taken: its own, or its
+#: cap's or its wall clock's. Any other end (a watch failure, a checkpoint's stop reason)
+#: excludes the trial.
+RAW_ENDS = frozenset({"ended", *OWN_ENDS})
 
 
 #: A field the record does not carry, told apart from one it carries as ``None``.
@@ -189,14 +193,16 @@ def harness_exclusion(
 def raw_exclusion(record: Mapping[str, Any], stream: Path, task: Task) -> str | None:
     """Why a raw trial is excluded, or ``None``.
 
-    Each signal is read as the raw arm writes it; a field it always writes and that is
-    missing excludes the trial too, since the record cannot then say the trial is sound.
+    Each signal is read as the raw arm writes it, and only so: a field it always writes
+    and that is missing, or that holds anything it never writes (a number where a bool
+    belongs, an end it does not write), excludes the trial too, since the record cannot
+    then say the trial is sound.
     """
     seen = record.get("held_out_seen", _MISSING)
     if seen is _MISSING:
         return "held_out_seen: the record does not say whether a held-out canary showed"
-    if seen not in (False, None):
-        return "held_out_seen: a held-out canary showed in the session's stream"
+    if seen is not False and seen is not None:
+        return "held_out_seen: a held-out canary showed in the stream, or the record cannot say"
     if task.canary is not None and seen is None:
         return "held_out_seen: the task is held out and no canary was looked for"
     if task.canary is not None and review_material_seen(stream, frozenset({task.canary})):
@@ -206,6 +212,8 @@ def raw_exclusion(record: Mapping[str, Any], stream: Path, task: Task) -> str | 
         return "end: the record holds no end"
     if end in WATCH_FAILURES:
         return f"end: {end}; the watch could not hold the session to its cap"
+    if end not in RAW_ENDS:
+        return f"end: {end!r} is not an end the raw arm writes for a session it takes"
     after = record.get("sentinel_after_stop", _MISSING)
     if after is _MISSING:
         return "sentinel_after_stop: the record does not say what the end check found"
