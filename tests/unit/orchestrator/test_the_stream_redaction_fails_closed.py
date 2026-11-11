@@ -82,12 +82,19 @@ def test_a_credential_split_across_two_strings_of_a_line_is_redacted(tmp_path: P
 
 
 def test_a_credential_split_across_two_lines_is_redacted(tmp_path: Path) -> None:
-    first = json.dumps({"type": "user", "content": f"x {TOKEN[:24]}"})
-    second = json.dumps({"type": "user", "content": f"{TOKEN[24:]} y"})
+    # One event cut by a raw line break inside the credential: neither line decodes, and
+    # neither holds the credential alone.
+    event = json.dumps({"type": "user", "content": f"x {TOKEN} y"})
+    at = event.index(TOKEN) + 24
+    first, second = event[:at], event[at:]
     kept = _redacted(tmp_path, f"{BEFORE}\n{first}\n{second}\n".encode())
-    lines = kept.split(b"\n")
     assert TOKEN[:24].encode() not in kept and TOKEN[24:].encode() not in kept
-    assert lines[0] == BEFORE.encode()  # a line not involved keeps its bytes
+    assert kept.split(b"\n") == [
+        BEFORE.encode(),
+        REDACTED_TEXT.encode(),
+        REDACTED_TEXT.encode(),
+        b"",
+    ]
 
 
 def test_a_rewrite_that_fails_for_any_reason_redacts_the_line_whole(
@@ -96,9 +103,9 @@ def test_a_rewrite_that_fails_for_any_reason_redacts_the_line_whole(
     def fails(*_: object, **__: object) -> str:
         raise ValueError("cannot serialise")
 
+    line = json.dumps({"type": "user", "content": f"token {TOKEN}"})
+    data = BEFORE.encode() + b"\n" + line.encode()
     monkeypatch.setattr(canaries.json, "dumps", fails)
-    line = json.loads(json.dumps({"type": "user", "content": f"token {TOKEN}"}))
-    data = BEFORE.encode() + b"\n" + json.JSONEncoder().encode(line).encode()
     try:
         kept = _redacted(tmp_path, data)
     except ValueError as exc:
