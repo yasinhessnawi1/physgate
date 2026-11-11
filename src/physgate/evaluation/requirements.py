@@ -154,8 +154,11 @@ def every_named_role_root_s_work_root_is_withheld(facts: RunFacts) -> str | None
     """Refuse a run that names a role's root of a store but not that role's work root.
 
     The blind check works under ``<store>/<role>/work`` with a copy of the held-out tasks and
-    no canary; a run naming anything under the role's root withholds it, so a check started
-    while the run is live is unreadable to the run's sessions (:func:`.tiers.store.work_refusal`).
+    no canary; a run naming anything under the role's root withholds it
+    (:func:`.tiers.store.work_refusal`). The work root is made with the role's root, so the
+    run's sandbox denies a directory that is there when the run starts. A check is still run
+    only when no run on the store is live: such a run's sentinel moves new work under a root
+    it withholds into its session's own records.
     """
     refusal = work_refusal(facts.config.held_out)
     if refusal is None:

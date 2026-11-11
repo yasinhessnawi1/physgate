@@ -31,10 +31,19 @@ layer is given is the one on disk, whatever case the volume ignores.
 **The blind check works inside the store.** Its session reads a copy of the held-out tasks,
 with no canary, so it works in a directory of its own under ``<store>/<role>/work/``
 (:func:`work_root`): its session withholds all of the role's root but that directory, where
-its worktree is (:func:`check_roots`), and every run that names anything under the role's
-root withholds the work root
+its worktree is, and every other role's root (:func:`check_roots`); its tools write nowhere
+in the store but that directory. Every run that names anything under the role's root
+withholds the work root
 (:func:`work_refusal`). A run whose entry lies above the store withholds all of it, the
 check's work included.
+
+**Both are made with the role's root** (:func:`make_role_root`), so a run withholds places
+that are there before any check works in one.
+
+**Anything out of place is a leftover.** An entry directly in a role's root that is not a
+version, the withheld root, the work root, a version being written or a record of work, and
+an entry in a version beside its manifest, provenance record and tiers, is withheld by no
+run: a session's copy of a task dropped there would be read. It refuses as work left.
 
 **Work out of the role's root is a leftover too.** An author's tasks before they are pooled,
 and the blind check's copy of the held-out tasks, lie outside every protected root while their
@@ -77,6 +86,7 @@ from physgate.evaluation.tiers.authoring import (
 from physgate.evaluation.tiers.manifest import (
     MANIFEST_NAME,
     PROVENANCE_NAME,
+    VERSION_HOLDS,
     VERSION_NAME,
     TierSet,
     brief_digest,
@@ -141,23 +151,41 @@ def work_root(store: Path, role: Role) -> Path:
     return role_root(store, role) / WORK
 
 
-def check_roots(store: Path, role: Role, work: Path) -> list[Path]:
-    """What a blind check's session working in ``work`` withholds: the role's root but ``work``.
+def make_role_root(root: Path) -> Path:
+    """Make a role's root ``root``, with its withheld root and its work root; ``root``.
 
-    Every entry directly under the role's root but the work root (every version whole, its
-    manifest, provenance record and visible tier included, and the withheld root), and every
-    entry in the work root but ``work``, another check's work. A blind check reads no task
-    but the copy it is given, and changes nothing in the store.
+    Both are made with the role's root, before any session or run can name it, so a run that
+    withholds them withholds directories that are there, never a path that is not there yet:
+    a check started while a run is live works in a place the run's sandbox already denies.
+    What is there already is left as it is.
+    """
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for name in (WITHHELD, WORK):
+        (root / name).mkdir(mode=0o700, exist_ok=True)
+    return root
+
+
+def check_roots(store: Path, role: Role, work: Path) -> list[Path]:
+    """What a blind check's session working in ``work`` withholds: the store but ``work``.
+
+    Every entry directly under the store but the role's root (every other role's root), every
+    entry directly under the role's root but the work root (every version whole, its
+    manifest, provenance record and visible tier included), the role's withheld root whether
+    it is there yet or not, and every entry in the work root but ``work``, another check's
+    work. A blind check reads no task but the copy it is given, and changes nothing in the
+    store.
 
     Raises:
-        OSError: the role's root or its work root cannot be listed.
+        OSError: the store, the role's root or its work root cannot be listed.
     """
     root, works = role_root(store, role), work_root(store, role)
+    others = sorted(os.listdir(store)) if os.path.lexists(store) else []
     top = sorted(os.listdir(root)) if os.path.lexists(root) else []
     beside = sorted(os.listdir(works)) if os.path.lexists(works) else []
-    return [root / name for name in top if name != WORK] + [
-        works / name for name in beside if name != work.name
-    ]
+    places = {store / name for name in others if name != role}
+    places |= {root / name for name in top if name != WORK} | {withheld_root(store, role)}
+    places |= {works / name for name in beside if name != work.name}
+    return sorted(places)
 
 
 def check_root_refusal(
@@ -438,7 +466,9 @@ def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
     counts every version still being written. ``work_left`` counts every record of a session's
     work (``<name>.working``), its own role's too, and everything in a role's work root: that
     work (an author's tasks before they are pooled, the check's copy of the held-out tasks,
-    with no canary) is there until it is secured. Only names are looked at, in any case.
+    with no canary) is there until it is secured. It also counts every entry in a role's
+    root outside a known place (:func:`_out_of_place`), which no run withholds. Only names
+    are looked at.
 
     Raises:
         OSError: the store or a role's root cannot be listed, or a role's root or withheld
@@ -458,8 +488,9 @@ def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
             folded = name.casefold()
             if folded.startswith(TEMPORARY):
                 counts["temporary_version_left"] += 1
-            elif folded.endswith(WORKING):
-                counts["work_left"] += 1
+            elif name not in (WITHHELD, WORK):
+                # A record of work (``<name>.working``) among them: never a known place.
+                counts["work_left"] += _out_of_place(here / name)
         work = here / WORK
         if work.is_symlink():
             raise OSError(f"{work} is a link; a work root is a directory the harness made")
@@ -477,6 +508,23 @@ def leftovers(store: Path, *, continuing: Path | None = None) -> dict[str, int]:
             elif folded.endswith(WORKING):
                 counts["work_left"] += 1
     return counts
+
+
+def _out_of_place(path: Path) -> int:
+    """How many entries at ``path``, directly in a role's root, lie outside a known place.
+
+    A version (a directory named as one, exactly) holds only its manifest, its provenance
+    record and its three tiers; each other entry in it counts. Anything else directly in the
+    role's root counts whole: a copy of a task a session dropped there is withheld by no run,
+    which withholds the tiers, the withheld root and the work root. Names are compared as
+    the harness writes them, so another case is out of place too.
+
+    Raises:
+        OSError: a version cannot be listed.
+    """
+    if VERSION_NAME.fullmatch(path.name) is None or path.is_symlink() or not path.is_dir():
+        return 1
+    return sum(1 for name in os.listdir(path) if name not in VERSION_HOLDS)
 
 
 def leftover_refusal(store: Path, *, continuing: Path | None = None) -> tuple[str, str] | None:
@@ -550,6 +598,7 @@ def write_version(
             pool is left (``pool_left``), or what was written cannot be removed or renamed
             (loudly, naming what to remove by hand).
     """
+    make_role_root(root)
     temporary = root / f"{TEMPORARY}{secrets.token_hex(8)}"
     os.mkdir(temporary, 0o700)
     try:

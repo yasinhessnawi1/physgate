@@ -68,7 +68,8 @@ def add_parser(subparsers: Any) -> None:
     ):
         sub = commands.add_parser(name, help=text)
         sub.add_argument("--role", choices=("control",), required=True)
-        # The tier-set store: the session withholds the role's root in it.
+        # The tier-set store: the author's session withholds it whole, the check's all of it
+        # but its own work.
         sub.add_argument("--store", type=Path, required=True)
         sub.add_argument("--withhold", type=Path, action="append", default=[])
         # Outside every protected root. The author works there; the blind check works under
@@ -187,16 +188,19 @@ CHECKOUT = Path(__file__).resolve().parents[4]
 def session_held_out(args: argparse.Namespace) -> tuple[str, ...]:
     """What the command's session withholds.
 
-    An author withholds the role's whole root. A blind check works in a directory of its
-    own under the role's work root (``args.check_work``), so it withholds all of the role's
-    root but that directory (:func:`.tiers.store.check_roots`).
+    An author withholds the whole store: its role's root and every other role's. A blind
+    check works in a directory of its own under the role's work root (``args.check_work``),
+    so it withholds all of the store but that directory (:func:`.tiers.store.check_roots`).
+    The role's root is made first, with its withheld and work roots, so each is withheld as
+    a directory that is there (:func:`.tiers.store.make_role_root`).
     """
-    from physgate.evaluation.tiers.store import check_roots, role_root
+    from physgate.evaluation.tiers.store import check_roots, make_role_root, role_root
 
     store = args.store.resolve()
+    make_role_root(role_root(store, args.role))
     if getattr(args, "func", None) is _blind_check:
         return tuple(str(p) for p in check_roots(store, args.role, args.check_work))
-    return (str(role_root(store, args.role)),)
+    return (str(store),)
 
 
 def _session_setup(args: argparse.Namespace, install: Path) -> Any:
