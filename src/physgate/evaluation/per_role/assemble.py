@@ -1,7 +1,8 @@
 """One trial record for the report, assembled from what a finished arm left.
 
 The harness arm leaves a run directory: its events, its configuration and its cost line,
-and the answer extracted from its run branch. The raw arm leaves its session's record and
+and the answer extracted from its run branch. Its events and configuration are read from
+that directory here, never taken from the caller. The raw arm leaves its session's record and
 stream. Each has the answer's score, unless the trial left no answer to score.
 
 **A trial whose record says not to take it is excluded, never scored.** Before anything is
@@ -64,8 +65,9 @@ from physgate.evaluation.tiers.task import Task
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.catches import parse_time
 from physgate.orchestrator.dispatch import read_captured, review_material_seen
-from physgate.orchestrator.events import Event, Halted, Incident
+from physgate.orchestrator.events import Event, Halted, Incident, parse_events
 from physgate.orchestrator.gate_events import gate_events
+from physgate.orchestrator.run_config import RunConfig, load_run_config
 
 #: The run halts that are the machine's, not the design's.
 INFRASTRUCTURE_HALTS = frozenset(
@@ -96,6 +98,18 @@ class ExcludedTrial(BaseModel):
 
 class TrialExcludedError(ReportError):
     """A trial's own records exclude it: there is nothing to decide about how it ended."""
+
+
+def harness_run(run_dir: Path) -> tuple[RunConfig, list[Event]]:
+    """A harness run's recorded configuration and its event log, read from ``run_dir``.
+
+    Raises:
+        RunConfigError: the run recorded no valid configuration.
+        CorruptEventLogError: a line of the log is not one the loop could have written.
+    """
+    config = load_run_config(run_dir / "run.json")
+    log = run_dir / "events.jsonl"
+    return config, parse_events(log.read_bytes(), log=str(log))
 
 
 def harness_exclusion(events: Sequence[Event]) -> str | None:
@@ -171,12 +185,16 @@ def _control_only(task: Task) -> None:
         raise ReportError(msg, task=task.id, role=str(task.role))
 
 
-def harness_ended_by_infrastructure(events: Sequence[Event], answer_found: bool) -> bool:
+def harness_ended_by_infrastructure(run_dir: Path, task: Task, answer_found: bool) -> bool:
     """Whether the infrastructure ended a harness trial before an answer existed.
+
+    ``run_dir`` is the harness run's directory, whose records are read; ``task`` is the
+    trial's task.
 
     Raises:
         TrialExcludedError: the run's records exclude the trial.
     """
+    _config, events = harness_run(run_dir)
     excluded = harness_exclusion(events)
     if excluded is not None:
         raise TrialExcludedError(excluded)
@@ -243,7 +261,7 @@ def harness_trial(
     suite: str,
     task: Task,
     trial: int,
-    events: Sequence[Event],
+    run_dir: Path,
     manifest_id: str,
     cost: CostLine,
     score: Mapping[str, Any] | None,
@@ -252,14 +270,16 @@ def harness_trial(
 ) -> TrialRecord | ExcludedTrial:
     """The record of one harness trial (``arm`` ``observe`` for the gate-observing arm).
 
-    ``score`` is the answer's score, ``None`` where the run left no answer; ``unscored``
-    is the runner's verdict after the trial's re-run (:func:`harness_ended_by_infrastructure`
-    on both runs). A run that recorded a held-out read is excluded.
+    ``run_dir`` is the harness run's directory, whose configuration and events are read.
+    ``score`` is the answer's score, ``None`` where the run left no answer; ``unscored`` is
+    the runner's verdict after the trial's re-run (:func:`harness_ended_by_infrastructure` on
+    both runs). A run that recorded a held-out read is excluded.
 
     Raises:
         ReportError: the task is not a control task, or the cost line is not this run's.
     """
     _control_only(task)
+    _config, events = harness_run(run_dir)
     if cost.manifest_id != manifest_id or any(e.run_id != cost.run_id for e in events):
         msg = "the cost line is not of the run whose events it is assembled with"
         raise ReportError(msg, task=task.id, cost_run=cost.run_id)

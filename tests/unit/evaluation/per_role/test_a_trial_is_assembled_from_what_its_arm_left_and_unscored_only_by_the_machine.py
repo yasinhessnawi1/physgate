@@ -20,11 +20,65 @@ from physgate.evaluation.per_role.assemble import (
 )
 from physgate.evaluation.per_role.report import ReportError, TrialRecord
 from physgate.evaluation.tiers.task import parse_task
-from physgate.orchestrator.events import Event, Halted, Incident, ReviewRan
+from physgate.orchestrator.events import (
+    Event,
+    Halted,
+    Incident,
+    ReviewRan,
+    RunStarted,
+    SubtaskPlanned,
+)
 from physgate.orchestrator.protocols import ReviewResult
+from physgate.orchestrator.run_config import RunConfig
 
 TASK = parse_task(json.dumps(own_task()).encode())
 ENV = {"run_id": "r", "gate_mode": "on"}
+EXAMPLES = Path(__file__).parents[4] / "src/physgate/orchestrator/examples"
+T0 = "2026-10-19T10:00:00.000000Z"
+
+
+def _config(**changes: Any) -> RunConfig:
+    """A harness run's recorded configuration, for ``TASK``'s brief."""
+    params = json.loads((EXAMPLES / "params.subscription.json").read_text())
+    params.update(
+        run_id="r",
+        seed=1,
+        brief_sha256=hashlib.sha256(TASK.brief.encode()).hexdigest(),
+        target_head="b" * 40,
+        claude_version="2.1.301",
+        endpoint="default",
+        harness={"commit": None, "clean": False, "uncommitted_sha256": None},
+        git_binary=None,
+        os_layer=None,
+        network_enforced=None,
+    )
+    params.update(changes)
+    return RunConfig.model_validate_json(json.dumps(params))
+
+
+def _start() -> RunStarted:
+    return RunStarted(seq=0, ts=T0, config_sha256="0" * 64, **ENV)  # type: ignore[arg-type]
+
+
+def _planned(seq: int) -> SubtaskPlanned:
+    return SubtaskPlanned(
+        seq=seq,
+        ts=T0,
+        subtask_id="s",
+        spec_path="specs/s.md",
+        assigned_role="control",
+        module_dir="modules/s",
+        **ENV,  # type: ignore[arg-type]
+    )
+
+
+def _run(tmp_path: Path, *events: Event, config: RunConfig | None = None) -> Path:
+    """A harness run directory: its configuration and its event log, as the loop writes them."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "run.json").write_text((config or _config()).model_dump_json())
+    (run_dir / "events.jsonl").write_text("".join(e.model_dump_json() + "\n" for e in events))
+    return run_dir
 
 
 def _halt(
@@ -59,11 +113,12 @@ def _review(seq: int, ts: str) -> ReviewRan:
     ],
 )
 def test_a_harness_trial_is_the_machine_s_only_by_the_machine_s_halts(
-    reason: str, detail: str, machine: bool
+    tmp_path: Path, reason: str, detail: str, machine: bool
 ) -> None:
-    assert harness_ended_by_infrastructure([_halt(reason, detail)], answer_found=False) is machine
+    run = _run(tmp_path, _start(), _halt(reason, detail))
+    assert harness_ended_by_infrastructure(run, TASK, answer_found=False) is machine
     # An answer that exists is scored, however the run ended after it.
-    assert harness_ended_by_infrastructure([_halt(reason, detail)], answer_found=True) is False
+    assert harness_ended_by_infrastructure(run, TASK, answer_found=True) is False
 
 
 def _stream(path: Path, result: dict[str, Any] | None) -> Path:
@@ -178,13 +233,13 @@ def _cost_line(usd: str = "3.50") -> CostLine:
 SCORED = {"passed": True, "flags": {"no_gain_crossover": True}, "specs": []}
 
 
-def test_a_harness_trial_carries_its_score_cost_span_and_reviews() -> None:
-    events: list[Event] = [_review(0, "2026-10-19T10:00:00.000000Z"), _halt("incident", seq=1)]
+def test_a_harness_trial_carries_its_score_cost_span_and_reviews(tmp_path: Path) -> None:
+    run = _run(tmp_path, _start(), _planned(1), _review(2, T0), _halt("incident", seq=3))
     record = harness_trial(
         suite="control_visible",
         task=TASK,
         trial=2,
-        events=events,
+        run_dir=run,
         manifest_id="e" * 64,
         cost=_cost_line(),
         score=SCORED,
@@ -199,12 +254,14 @@ def test_a_harness_trial_carries_its_score_cost_span_and_reviews() -> None:
     assert record.gate is not None and record.gate.checks_run == 0
 
 
-def test_a_trial_the_machine_ended_twice_is_unscored_whatever_score_was_passed() -> None:
+def test_a_trial_the_machine_ended_twice_is_unscored_whatever_score_was_passed(
+    tmp_path: Path,
+) -> None:
     record = harness_trial(
         suite="s",
         task=TASK,
         trial=0,
-        events=[],
+        run_dir=_run(tmp_path, _start()),
         manifest_id="e" * 64,
         cost=_cost_line(),
         score=SCORED,
@@ -214,12 +271,14 @@ def test_a_trial_the_machine_ended_twice_is_unscored_whatever_score_was_passed()
     assert record.outcome == "unscored"
 
 
-def test_a_trial_with_no_answer_that_the_machine_did_not_end_is_the_arm_s_fail() -> None:
+def test_a_trial_with_no_answer_that_the_machine_did_not_end_is_the_arm_s_fail(
+    tmp_path: Path,
+) -> None:
     record = harness_trial(
         suite="s",
         task=TASK,
         trial=0,
-        events=[],
+        run_dir=_run(tmp_path, _start()),
         manifest_id="e" * 64,
         cost=_cost_line(),
         score=None,
@@ -342,13 +401,13 @@ def _incident(seq: int) -> Incident:
     )
 
 
-def test_a_harness_trial_whose_run_recorded_a_held_out_read_is_excluded() -> None:
-    events: list[Event] = [_review(0, "2026-10-19T10:00:00.000000Z"), _incident(1)]
+def test_a_harness_trial_whose_run_recorded_a_held_out_read_is_excluded(tmp_path: Path) -> None:
+    run = _run(tmp_path, _start(), _planned(1), _review(2, T0), _incident(3))
     trial = harness_trial(
         suite="s",
         task=TASK,
         trial=0,
-        events=events,
+        run_dir=run,
         manifest_id="e" * 64,
         cost=_cost_line(),
         score=SCORED,
@@ -357,7 +416,7 @@ def test_a_harness_trial_whose_run_recorded_a_held_out_read_is_excluded() -> Non
     assert isinstance(trial, ExcludedTrial) and trial.reason.startswith("incident:")
     assert trial.arm == "harness"
     with pytest.raises(TrialExcludedError, match="^incident:"):
-        harness_ended_by_infrastructure(events, answer_found=True)
+        harness_ended_by_infrastructure(run, TASK, answer_found=True)
 
 
 @pytest.mark.parametrize(
@@ -382,7 +441,7 @@ def test_a_raw_record_filed_under_another_task_is_refused(
 
 @pytest.mark.parametrize(("run_id", "manifest_id"), [("other", "e" * 64), ("r", "f" * 64)])
 def test_a_harness_trial_with_another_run_s_cost_line_is_refused(
-    run_id: str, manifest_id: str
+    tmp_path: Path, run_id: str, manifest_id: str
 ) -> None:
     cost = _cost_line().model_copy(update={"run_id": run_id})
     with pytest.raises(ReportError, match="cost line"):
@@ -390,7 +449,7 @@ def test_a_harness_trial_with_another_run_s_cost_line_is_refused(
             suite="s",
             task=TASK,
             trial=0,
-            events=[_review(0, "2026-10-19T10:00:00.000000Z")],
+            run_dir=_run(tmp_path, _start(), _planned(1), _review(2, T0)),
             manifest_id=manifest_id,
             cost=cost,
             score=SCORED,
@@ -408,7 +467,7 @@ def test_a_firmware_task_is_refused_rather_than_scored_as_a_control_trial(tmp_pa
             suite="s",
             task=firmware,
             trial=0,
-            events=[],
+            run_dir=_run(tmp_path, _start()),
             manifest_id="e" * 64,
             cost=_cost_line(),
             score=SCORED,
