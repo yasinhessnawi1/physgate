@@ -11,7 +11,11 @@ scored, each arm's own records are read for what makes its answer untrustworthy:
 - the raw arm: a held-out canary showed in its stream (or it cannot say whether one
   did, on a held-out task), its token watch failed, stalled or found no stream, its
   end check refused the session, or its stream was written to after its result;
-- the harness arm: the run recorded a held-out read.
+- the harness arm: the run recorded a held-out read; or, on a held-out task, the run
+  could not have recorded one, by the raw arm's rule: it did not look for the task's
+  canary, a stream of the run was never scanned (a session that never ended, a leftover
+  whose stream was gone at a resume, a session whose stream is gone), or a fresh scan of
+  every stream of the run finds the task's canary.
 
 Such a trial is an :class:`ExcludedTrial` with its reason: counted as excluded, never as a
 pass, a fail or unscored, and never re-run in place of the answer it made.
@@ -40,6 +44,7 @@ ended after the answer was written.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -65,7 +70,15 @@ from physgate.evaluation.tiers.task import Task
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.catches import parse_time
 from physgate.orchestrator.dispatch import read_captured, review_material_seen
-from physgate.orchestrator.events import Event, Halted, Incident, parse_events
+from physgate.orchestrator.events import (
+    Event,
+    Halted,
+    Incident,
+    LeftoverRead,
+    SessionEnded,
+    SessionSpawned,
+    parse_events,
+)
 from physgate.orchestrator.gate_events import gate_events
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 
@@ -81,6 +94,12 @@ OWN_ENDS = frozenset({"budget_exhausted", "wall_clock"})
 
 #: A field the record does not carry, told apart from one it carries as ``None``.
 _MISSING = object()
+
+#: Where a harness run's streams lie beneath its run directory: its role sessions' and its
+#: decomposition call's. Its reviewers' lie beneath the review root, outside the run
+#: directory; the loop scans each with the run's canaries as the review ends.
+STREAM_ROOTS = ("sessions", "decomposition")
+STREAM_NAME = "stdout.jsonl"
 
 
 class ExcludedTrial(BaseModel):
@@ -112,12 +131,48 @@ def harness_run(run_dir: Path) -> tuple[RunConfig, list[Event]]:
     return config, parse_events(log.read_bytes(), log=str(log))
 
 
-def harness_exclusion(events: Sequence[Event]) -> str | None:
-    """Why a harness trial is excluded, or ``None``: the run recorded a held-out read."""
+def _streams(run_dir: Path) -> list[Path]:
+    """Every stream beneath the run directory's stream roots, no link followed."""
+    found = []
+    for root in STREAM_ROOTS:
+        for here, _dirs, files in os.walk(run_dir / root):
+            if STREAM_NAME in files:
+                found.append(Path(here) / STREAM_NAME)
+    return sorted(found)
+
+
+def harness_exclusion(
+    config: RunConfig, events: Sequence[Event], run_dir: Path, task: Task
+) -> str | None:
+    """Why a harness trial is excluded, or ``None``.
+
+    The run recorded a held-out read. Or the task is held out and the run could not have
+    recorded one: the loop writes that incident only when one of the run's canaries shows in
+    a stream it scanned, so a canary it did not look for, or a stream it never scanned, leaves
+    an exposed trial looking like a clean one. The raw arm is held to the same rule.
+    """
     for event in events:
         if isinstance(event, Incident) and event.cause == "held_out_read":
             # The incident's detail is not repeated: it may name what was read.
             return f"incident: the run recorded a held-out read (event {event.seq})"
+    if task.canary is None:
+        return None
+    if task.canary not in config.held_out_canaries:
+        return "held_out_canaries: the task is held out and the run did not look for its canary"
+    for event in events:
+        if isinstance(event, LeftoverRead) and event.scan != "scanned":
+            return f"leftover_read: session {event.session_id}'s stream was never scanned"
+    ended = {e.session_id for e in events if isinstance(e, SessionEnded | LeftoverRead)}
+    for event in events:
+        if not isinstance(event, SessionSpawned):
+            continue
+        if event.session_id not in ended:
+            return f"session: {event.session_id} never ended, so its stream was never scanned"
+        if not (run_dir / "sessions" / event.session_id / STREAM_NAME).is_file():
+            return f"stream: session {event.session_id}'s stream is gone"
+    for stream in _streams(run_dir):
+        if review_material_seen(stream, frozenset({task.canary})) is not None:
+            return "canary: the task's own canary showed in a stream of the run"
     return None
 
 
@@ -194,8 +249,8 @@ def harness_ended_by_infrastructure(run_dir: Path, task: Task, answer_found: boo
     Raises:
         TrialExcludedError: the run's records exclude the trial.
     """
-    _config, events = harness_run(run_dir)
-    excluded = harness_exclusion(events)
+    config, events = harness_run(run_dir)
+    excluded = harness_exclusion(config, events, run_dir, task)
     if excluded is not None:
         raise TrialExcludedError(excluded)
     if answer_found:
@@ -273,17 +328,17 @@ def harness_trial(
     ``run_dir`` is the harness run's directory, whose configuration and events are read.
     ``score`` is the answer's score, ``None`` where the run left no answer; ``unscored`` is
     the runner's verdict after the trial's re-run (:func:`harness_ended_by_infrastructure` on
-    both runs). A run that recorded a held-out read is excluded.
+    both runs). A run whose records exclude it (:func:`harness_exclusion`) is excluded.
 
     Raises:
         ReportError: the task is not a control task, or the cost line is not this run's.
     """
     _control_only(task)
-    _config, events = harness_run(run_dir)
+    config, events = harness_run(run_dir)
     if cost.manifest_id != manifest_id or any(e.run_id != cost.run_id for e in events):
         msg = "the cost line is not of the run whose events it is assembled with"
         raise ReportError(msg, task=task.id, cost_run=cost.run_id)
-    excluded = harness_exclusion(events)
+    excluded = harness_exclusion(config, events, run_dir, task)
     if excluded is not None:
         return ExcludedTrial(suite=suite, task=task.id, arm=arm, trial=trial, reason=excluded)
     outcome, flags = _outcome(task, score, unscored)
