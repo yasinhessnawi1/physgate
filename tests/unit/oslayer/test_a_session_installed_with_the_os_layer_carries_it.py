@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -76,6 +77,30 @@ def test_with_the_layer_the_settings_still_deny_the_web_tools(outside_tmp: Path)
     settings = json.loads(done.settings_path.read_text())
     assert settings["sandbox"]["enabled"] is True
     assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch"]}
+
+
+def test_the_web_deny_survives_a_layer_whose_settings_carry_permissions(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The layer's settings are merged into the session's: a permissions block of its own (a
+    # deny, a directory) must add to the web tools' deny, never replace it.
+    from physgate.hooks import settings as module
+
+    real = module.sandbox_policy
+
+    def with_permissions(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 - the policy's own
+        policy = real(*args, **kwargs)
+        policy.settings["permissions"] = {
+            "deny": ["Bash(curl:*)"],
+            "additionalDirectories": ["/var/tmp/pgs/extra"],
+        }
+        return policy
+
+    monkeypatch.setattr(module, "sandbox_policy", with_permissions)
+    done = install(_request(outside_tmp, "/var/tmp/pgs/0123456789"), REGISTRY)
+    permissions = json.loads(done.settings_path.read_text()).get("permissions", {})
+    assert set(permissions.get("deny", ())) >= {"WebFetch", "WebSearch", "Bash(curl:*)"}
+    assert permissions.get("additionalDirectories") == ["/var/tmp/pgs/extra"]
 
 
 def test_a_directory_claude_code_would_replace_is_refused(outside_tmp: Path) -> None:
