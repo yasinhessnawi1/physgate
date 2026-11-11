@@ -60,9 +60,14 @@ class DecompositionDefaults(_Frozen):
 
 
 class BinaryDefaults(_Frozen):
-    """What the pinned binary sends that no run setting pins: constants of its version."""
+    """What the pinned binary sends that no run setting pins: constants of its version and model.
+
+    Measured to depend on the request's model as well as on the version, so an entry names the
+    model its requests were measured on.
+    """
 
     claude_version: str
+    model: str
     # The request fields as the binary sends them, recorded whole: JSON objects.
     thinking: dict[str, Any]
     context_management: dict[str, Any]
@@ -75,9 +80,13 @@ class BinaryDefaults(_Frozen):
 #: Measured at the scripted endpoint on 27.09.2026, identical across the decomposition
 #: call and role sessions and across repeated runs; with ``--output-format json`` the
 #: thinking field also carried ``display: omitted``, which no invocation here uses.
-BINARY_DEFAULTS: dict[str, BinaryDefaults] = {
-    "2.1.272": BinaryDefaults(
+#: Keyed by (version, model). 2.1.272's model is the pins of its day, claude-sonnet-5: 2.1.272
+#: refuses claude-opus-5-5 ("version 2.1.280 or newer is required"); the later entries were
+#: measured on the evaluation's implementer and decomposition model, claude-opus-5-5.
+BINARY_DEFAULTS: dict[tuple[str, str], BinaryDefaults] = {
+    ("2.1.272", "claude-sonnet-5"): BinaryDefaults(
         claude_version="2.1.272",
+        model="claude-sonnet-5",
         thinking={"type": "adaptive"},
         context_management={"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
         anthropic_beta=(
@@ -104,8 +113,9 @@ BINARY_DEFAULTS: dict[str, BinaryDefaults] = {
     #: event moves relative to its message's own closing events); it does not
     #: touch any field recorded here, or the result object's fields, and is
     #: recorded in MAINTENANCE.md, not here.
-    "2.1.283": BinaryDefaults(
+    ("2.1.283", "claude-opus-5-5"): BinaryDefaults(
         claude_version="2.1.283",
+        model="claude-opus-5-5",
         thinking={"type": "adaptive"},
         context_management={"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
         anthropic_beta=(
@@ -135,8 +145,9 @@ BINARY_DEFAULTS: dict[str, BinaryDefaults] = {
     #: setting names because the decomposition call passes no display, and three more
     #: beta flags. A session's thinking display is the run's own ``thinking_display``
     #: and is not recorded here; the rest of its thinking field is.
-    "2.1.301": BinaryDefaults(
+    ("2.1.301", "claude-opus-5-5"): BinaryDefaults(
         claude_version="2.1.301",
+        model="claude-opus-5-5",
         thinking={"type": "adaptive"},
         context_management={"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
         anthropic_beta=(
@@ -183,8 +194,9 @@ BINARY_DEFAULTS: dict[str, BinaryDefaults] = {
     #: decomposition request leaves out two flags this table lists for it); and a custom base
     #: URL turns the binary's tool search on (since 2.1.304), so the sessions' extra
     #: ``advanced-tool-use`` flag may not reach the real API.
-    "2.1.322": BinaryDefaults(
+    ("2.1.322", "claude-opus-5-5"): BinaryDefaults(
         claude_version="2.1.322",
+        model="claude-opus-5-5",
         thinking={"type": "adaptive"},
         context_management={"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
         anthropic_beta=(
@@ -289,7 +301,9 @@ class RunManifest(_Frozen):
     #: The sha256 of ``run.json`` as written; every number the commands print carries it.
     manifest_id: Sha256
     config: RunConfig
-    binary_defaults: BinaryDefaults
+    #: One per model the decomposition call and the role sessions ran on, in model order: the
+    #: requests the entries were measured from. A reviewer's request is not among them.
+    binary_defaults: tuple[BinaryDefaults, ...]
     #: The binary's served catalog and remote flags as the decomposition call observed them.
     observed_traffic: ObservedTraffic | None
     policy_limits_sha256: Sha256 | None
@@ -418,6 +432,23 @@ def read_run_events(run_dir: Path) -> list[Event]:
         raise ManifestError(str(exc), **exc.context) from None
 
 
+def run_binary_defaults(config: RunConfig) -> tuple[BinaryDefaults, ...]:
+    """The measured defaults for every model the run's decomposition and role sessions ran on.
+
+    Raises:
+        ManifestError: no defaults were measured for the run's version on one of those models.
+    """
+    models = sorted({config.models.decomposition, *config.models.roles.values()})
+    found = []
+    for model in models:
+        defaults = BINARY_DEFAULTS.get((config.claude_version, model))
+        if defaults is None:
+            msg = "no measured defaults are recorded for this binary version on this model"
+            raise ManifestError(msg, claude_version=config.claude_version, model=model)
+        found.append(defaults)
+    return tuple(found)
+
+
 def read_manifest(run_dir: Path) -> RunManifest:
     """The run's manifest, assembled from its records and validated whole.
 
@@ -434,10 +465,7 @@ def read_manifest(run_dir: Path) -> RunManifest:
     except OrchestratorError as exc:
         raise ManifestError(str(exc), **exc.context) from None
     manifest_id = manifest_id_of(run_dir, events)
-    defaults = BINARY_DEFAULTS.get(config.claude_version)
-    if defaults is None:
-        msg = "no measured defaults are recorded for the binary version this run used"
-        raise ManifestError(msg, claude_version=config.claude_version)
+    defaults = run_binary_defaults(config)
     decomposed = next((e for e in events if isinstance(e, Decomposed)), None)
     try:
         return RunManifest(
