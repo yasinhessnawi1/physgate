@@ -86,7 +86,7 @@ FOLLOWED_SOURCE = "followed from {node} at attempt {attempt}"
 _FOLLOWED = re.compile(r"^followed from (?P<node>\S+) at attempt (?P<attempt>[1-9][0-9]{0,8})$")
 
 
-def written(quantity: Mapping[str, Any]) -> str:
+def written_quantity(quantity: Mapping[str, Any]) -> str:
     """A quantity's value as written and its unit as the grammar's product: 2 and 2.0 differ."""
     unit = quantity.get("unit")
     return json.dumps([quantity.get("value"), as_product(unit) if isinstance(unit, str) else unit])
@@ -955,7 +955,10 @@ class Store:
             return refused
         # By name, as written: a value of 2 and one of 2.0 are two writings, while two spellings
         # of one unit (``1/(rad*s)``, ``1/rad/s``) are one.
-        if all(written(q) == written(node["quantities"][name]) for name, q in names.items()):
+        if all(
+            written_quantity(q) == written_quantity(node["quantities"][name])
+            for name, q in names.items()
+        ):
             return refused
         if not quantities_are_valid(node):
             return refused
