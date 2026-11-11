@@ -49,6 +49,13 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     )
     p.add_argument("--protect", action="append", default=[])
     p.add_argument(
+        "--protect-except",
+        action="append",
+        default=[],
+        help="a path beneath a --protect root that root does not protect: the one place "
+        "under it the session writes",
+    )
+    p.add_argument(
         "--protect-refuse-only",
         action="append",
         default=[],
@@ -167,6 +174,7 @@ def _install(args: argparse.Namespace) -> int:
         read_roots=tuple(_abs(p) for p in args.read_root),
         extra_review_material=tuple(_abs(p) for p in args.review_material),
         extra_protected=tuple(_abs(p) for p in args.protect),
+        extra_protected_exceptions=tuple(_abs(p) for p in args.protect_except),
         extra_protected_refuse_only=tuple(_abs(p) for p in args.protect_refuse_only),
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,
         harness_root=_abs(args.harness) if args.harness else None,

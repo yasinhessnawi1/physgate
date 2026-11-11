@@ -117,6 +117,11 @@ class RawSetup:
     #: name): what a task author must not read beyond the tier, such as the user's home.
     #: Empty for the raw arm, which is held to the harness arm's pins.
     withheld_reads: tuple[str, ...] = ()
+    #: Places no tool of the session writes, by the file tools, the shell or the OS layer,
+    #: but for ``writable_within`` beneath them: a blind check's whole tier-set store, but its
+    #: own directory there. Empty for the raw arm.
+    write_protected: tuple[str, ...] = ()
+    writable_within: tuple[str, ...] = ()
 
 
 def stream_total(stream: Path) -> int:
@@ -370,6 +375,8 @@ def _install(setup: RawSetup, worktree: Path, sdir: Path, temp: Path | None) -> 
         *harness_protection(),
         *(arg for root in setup.held_out for arg in ("--held-out", root)),
         *(arg for root in setup.withheld_reads for arg in ("--review-material", root)),
+        *(arg for root in setup.write_protected for arg in ("--protect", root)),
+        *(arg for place in setup.writable_within for arg in ("--protect-except", place)),
         *(["--os-layer-temp", str(temp)] if temp is not None else []),
         # The session is spawned held (the dispatcher's spawn), which exports its pid as the
         # survivor reaper's canary; the installer refuses a reaped session that does not say so.
