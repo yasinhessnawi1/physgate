@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-import physgate.orchestrator.canaries as canaries
 from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.credentials import REDACTED_TEXT
 from physgate.orchestrator.dispatch import redact
@@ -105,7 +104,7 @@ def test_a_rewrite_that_fails_for_any_reason_redacts_the_line_whole(
 
     line = json.dumps({"type": "user", "content": f"token {TOKEN}"})
     data = BEFORE.encode() + b"\n" + line.encode()
-    monkeypatch.setattr(canaries.json, "dumps", fails)
+    monkeypatch.setattr(json, "dumps", fails)  # the one the redaction calls
     try:
         kept = _redacted(tmp_path, data)
     except ValueError as exc:
