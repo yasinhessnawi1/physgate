@@ -89,7 +89,7 @@ def test_a_split_writes_one_version_whole_under_its_id_and_its_manifest_names_no
         "visible",
     ]
     assert sorted(p.name for p in (store / "control").iterdir()) == sorted(
-        [manifest.version, "withheld"]
+        [manifest.version, "withheld", "work"]
     )
     assert list((store / "control" / "withheld").iterdir()) == []
     assert [manifest.tier(t).count for t in ("visible", "validation", "held_out")] == [8, 8, 8]
@@ -261,7 +261,7 @@ def test_the_pool_is_marked_spent_before_the_rename_and_gone_after_it(
     assert renames.index(("pool", "pool.spent")) < moved[0]
     # The pool is gone with the two tasks the draw did not take.
     assert sorted(p.name for p in (store / "control").iterdir()) == sorted(
-        [manifest.version, "withheld"]
+        [manifest.version, "withheld", "work"]
     )
     assert list((store / "control" / "withheld").iterdir()) == []
 
@@ -283,5 +283,5 @@ def test_a_split_that_fails_leaves_no_version_and_the_pool_whole(
     monkeypatch.setattr(store_module, "split", half_a_split)
     with pytest.raises(OSError, match="part-way"):
         _write(store, pool)
-    assert sorted(p.name for p in (store / "control").iterdir()) == ["withheld"]
+    assert sorted(p.name for p in (store / "control").iterdir()) == ["withheld", "work"]
     assert len([p for p in pool.iterdir() if p.is_dir()]) == 24

@@ -140,7 +140,8 @@ def test_status_names_a_version_that_is_not_its_manifest_and_a_split_s_leftovers
     found = json.loads(capsys.readouterr().out)
     (row,) = found["versions"]
     assert row["state"] == "refused" and row["because"] == ["version_holds_other"]
-    assert found["left"] == {"pool_left": 1, "temporary_version_left": 0, "work_left": 0}
+    # The note beside the version's tiers is out of place: no run withholds it.
+    assert found["left"] == {"pool_left": 1, "temporary_version_left": 0, "work_left": 1}
 
 
 def test_status_counts_a_session_s_work_left_out_of_a_role_s_root(
