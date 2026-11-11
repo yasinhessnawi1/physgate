@@ -86,6 +86,20 @@ PROFILE_TOOLS: Mapping[Profile, tuple[str, ...]] = {
     "baseline": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
 }
 
+#: The web tools, which bring in text nobody reviewed.
+WEB_TOOLS = ("WebFetch", "WebSearch")
+#: The tools each profile's settings deny, a second layer beside the tools hook: a deny rule
+#: binds in ``bypassPermissions``, which every session runs in, and refuses the tool whether or
+#: not a hook ran (measured on the pinned binary, 11.11.2026). The web tools need it: the tools
+#: hook was their only layer, and ``network: none`` binds a session's shell but not its WebFetch
+#: tool. Every profile denies them. A profile made to read the web (a researcher's) would be the
+#: one exception, and would be listed here without them, with its own test.
+PROFILE_DENIED: Mapping[Profile, tuple[str, ...]] = {
+    "role": WEB_TOOLS,
+    "reviewer": WEB_TOOLS,
+    "orchestrator": WEB_TOOLS,
+    "baseline": WEB_TOOLS,
+}
 
 #: The events on which Claude Code applies a tool matcher.
 _TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure"}
@@ -697,7 +711,11 @@ def render_settings(
         if event in _TOOL_EVENTS:
             group["matcher"] = "*"
         hooks[event] = [group]
-    settings: dict[str, object] = {"disableAllHooks": False, "hooks": hooks}
+    settings: dict[str, object] = {
+        "disableAllHooks": False,
+        "hooks": hooks,
+        "permissions": {"deny": list(PROFILE_DENIED[config.profile])},
+    }
     if api_key_helper is not None:
         settings["apiKeyHelper"] = api_key_helper
     return settings
