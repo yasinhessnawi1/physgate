@@ -10,13 +10,17 @@ scored, each arm's own records are read for what makes its answer untrustworthy:
 
 - the raw arm: a held-out canary showed in its stream (or it cannot say whether one
   did, on a held-out task), its token watch failed, stalled or found no stream, its
-  end check refused the session, or its stream was written to after its result;
+  end check refused the session, its stream was written to after its result, or its
+  record holds a value the arm never writes (a canary field that is not a bool, an end
+  outside the ends it takes);
 - the harness arm: its event log is empty or ends in a cut-off line, where an incident
   may have been; the run recorded a held-out read; or, on a held-out task, the run
   could not have recorded one, by the raw arm's rule: it did not look for the task's
   canary, a stream of the run was never scanned (a session that never ended, a leftover
   whose stream was gone at a resume, a session whose stream is gone), or a fresh scan of
-  every stream of the run finds the task's canary.
+  every stream of the run finds the task's canary;
+- either arm: the answer's score holds a verdict that is not a bool, which the scorer
+  never writes.
 
 Such a trial is an :class:`ExcludedTrial` with its reason: counted as excluded, never as a
 pass, a fail or unscored, and never re-run in place of the answer it made.
@@ -62,6 +66,7 @@ from physgate.evaluation.per_role.report import (
     TrialRecord,
 )
 from physgate.evaluation.per_role.trials import (
+    ScoreError,
     control_trial,
     cost_of_line,
     gate_and_reviews,
@@ -322,6 +327,21 @@ def _outcome(
     return control_trial(task, score)
 
 
+def score_exclusion(task: Task, score: Mapping[str, Any] | None, unscored: bool) -> str | None:
+    """Why the answer's score is not taken, or ``None``: a verdict in it is not a bool.
+
+    The scorer writes bools only; anything else (the string ``"false"``, a number) is
+    never read as a pass or a fail. An unscored trial's score is not read at all.
+    """
+    if unscored or score is None:
+        return None
+    try:
+        control_trial(task, score)
+    except ScoreError as exc:
+        return f"score: {exc}"
+    return None
+
+
 def _span_s(events: Sequence[Event]) -> float:
     if not events:
         return 0.0
@@ -356,7 +376,11 @@ def harness_trial(
     if cost.manifest_id != manifest_id or any(e.run_id != cost.run_id for e in events):
         msg = "the cost line is not of the run whose events it is assembled with"
         raise ReportError(msg, task=task.id, cost_run=cost.run_id)
-    excluded = unread or harness_exclusion(config, events, run_dir, task)
+    excluded = (
+        unread
+        or harness_exclusion(config, events, run_dir, task)
+        or score_exclusion(task, score, unscored)
+    )
     if excluded is not None:
         return ExcludedTrial(suite=suite, task=task.id, arm=arm, trial=trial, reason=excluded)
     outcome, flags = _outcome(task, score, unscored)
@@ -398,7 +422,7 @@ def raw_trial(
     """
     _control_only(task)
     _raw_belongs(record, task)
-    excluded = raw_exclusion(record, stream, task)
+    excluded = raw_exclusion(record, stream, task) or score_exclusion(task, score, unscored)
     if excluded is not None:
         return ExcludedTrial(suite=suite, task=task.id, arm="raw", trial=trial, reason=excluded)
     outcome, flags = _outcome(task, score, unscored)
