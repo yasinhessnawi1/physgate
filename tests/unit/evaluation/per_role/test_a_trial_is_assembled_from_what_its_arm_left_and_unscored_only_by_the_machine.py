@@ -332,6 +332,10 @@ HELD_OUT = TASK.model_copy(update={"canary": CANARY, "tier": "held_out"})
         (TASK, {"end": "no_stream"}, "end"),
         (TASK, {"end": None}, "end"),
         (TASK, {"sentinel_after_stop": "refused"}, "sentinel_after_stop"),
+        (HELD_OUT, {"held_out_seen": 0}, "held_out_seen"),
+        (TASK, {"held_out_seen": 0}, "held_out_seen"),
+        (TASK, {"end": "no_task_held"}, "end"),
+        (TASK, {"end": "Ended"}, "end"),
     ],
     ids=[
         "canary seen",
@@ -342,6 +346,10 @@ HELD_OUT = TASK.model_copy(update={"canary": CANARY, "tier": "held_out"})
         "no stream",
         "no end",
         "end check refused",
+        "held out, a number where a bool belongs",
+        "a number where a bool belongs",
+        "a checkpoint's stop reason as the end",
+        "an end the raw arm never writes",
     ],
 )
 def test_a_raw_trial_whose_record_says_not_to_take_it_is_excluded_with_its_reason(
