@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -165,13 +166,40 @@ DEBUG_LOG_PREFIX = "debug"
 
 
 def remove_debug_logs(config_dir: Path) -> None:
-    """Remove every debug log in a session's configuration directory."""
+    """Remove every debug log in a session's configuration directory.
+
+    Reached as the credential's files are (:func:`open_in_session`), never through a link; a
+    link at a log's name is itself removed. A directory under such a name is left: no log can be
+    written where a directory stands.
+    """
+    fd = open_in_session(config_dir)
+    if fd is None:
+        return
+    try:
+        for name in os.listdir(fd):
+            if not name.startswith(DEBUG_LOG_PREFIX):
+                continue
+            try:
+                if stat.S_ISDIR(os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode):
+                    continue
+                os.unlink(name, dir_fd=fd)
+            except FileNotFoundError:
+                continue
+    finally:
+        os.close(fd)
 
 
 @contextmanager
 def debug_logs_removed_on_failure(config_dir: Path) -> Iterator[None]:
-    """On any failure inside, a session's debug logs are removed before it propagates."""
-    yield
+    """On any failure inside, a session's debug logs are removed before it propagates.
+
+    For the spawn: a session that never started properly may still have written one.
+    """
+    try:
+        yield
+    except BaseException:
+        remove_debug_logs(config_dir)
+        raise
 
 
 def remove_secrets(state_dir: Path, config_dir: Path) -> None:
@@ -186,15 +214,26 @@ def remove_secrets(state_dir: Path, config_dir: Path) -> None:
         InvocationError: a directory on the way is a link, or not a directory; the credential
             may still be on disk where the session's process moved it.
     """
-    for directory, names in ((state_dir, (KEY_FILE, KEY_HELPER)), (config_dir, (LOGIN_FILE,))):
-        fd = open_in_session(directory)
-        if fd is None:
-            continue
+    # Each directory in its own step, so a refusal on one never leaves the other's files.
+    try:
+        _unlink_in(state_dir, (KEY_FILE, KEY_HELPER))
+    finally:
         try:
-            for name in names:
-                try:
-                    os.unlink(name, dir_fd=fd)
-                except FileNotFoundError:
-                    continue
+            _unlink_in(config_dir, (LOGIN_FILE,))
         finally:
-            os.close(fd)
+            # A session's debug log may hold the credential: it goes with it.
+            remove_debug_logs(config_dir)
+
+
+def _unlink_in(directory: Path, names: tuple[str, ...]) -> None:
+    fd = open_in_session(directory)
+    if fd is None:
+        return
+    try:
+        for name in names:
+            try:
+                os.unlink(name, dir_fd=fd)
+            except FileNotFoundError:
+                continue
+    finally:
+        os.close(fd)

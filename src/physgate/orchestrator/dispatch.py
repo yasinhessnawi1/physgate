@@ -56,6 +56,7 @@ from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
+    debug_logs_removed_on_failure,
     open_in_session,
     remove_secrets,
     write_key_helper,
@@ -615,7 +616,16 @@ def process_rows() -> list[tuple[int, int, str, str]] | None:
 def settle_debug_log(
     process: subprocess.Popen[bytes], *, confirmed: bool, debug_file: Path | None
 ) -> ObservedTraffic | None:
-    """What a role session's debug log showed, read and removed once the session has ended."""
+    """What a role session's debug log showed, read and removed once the session has ended.
+
+    Read only when the stop is ``confirmed``: the session's tree and group are gone, so nothing
+    can write the log again after it is read. Otherwise the group is killed first and nothing is
+    read; the log is removed with the credential, and whatever a process that left the group
+    writes later goes with every leftover session's credential at the resume.
+    """
+    if not confirmed:
+        kill_own(process)
+        return None
     return read_debug_log(debug_file) if debug_file is not None else None
 
 
@@ -1350,7 +1360,11 @@ class ClaudeDispatcher:
             }
             write_record(sdir.parent, sdir.name, record, "process.json")
 
-        with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:
+        with (
+            debug_logs_removed_on_failure(sdir / "config"),
+            stdout.open("wb") as out,
+            (sdir / "stderr.txt").open("wb") as err,
+        ):
             process, spawned = spawn_held(
                 argv,
                 cwd=worktree,
@@ -1398,11 +1412,20 @@ class ClaudeDispatcher:
             after_stop = check_after_stop(end_check, session_id, worktree, env, sdir / "state")
         finally:
             # The credential is on disk only while its session runs: removed whatever the
-            # check did. So is the debug log, which may hold it; only its reading is kept.
-            remove_secrets(sdir / "state", sdir / "config")
-            redact(stdout, self._credential.secret)
-            if debug_file is not None:
-                observed = read_debug_log(debug_file)
+            # check did. So is the debug log, which may hold it; only its reading is kept, and
+            # only from a session whose group is confirmed gone. Each step runs whatever the
+            # one before it did.
+            try:
+                observed = settle_debug_log(
+                    process,
+                    confirmed=ended is not None and unconfirmed is None,
+                    debug_file=debug_file,
+                )
+            finally:
+                try:
+                    remove_secrets(sdir / "state", sdir / "config")
+                finally:
+                    redact(stdout, self._credential.secret)
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
         try:
