@@ -6,8 +6,7 @@ So a run records the sha256 and the platform of the binary it executed, measured
 configured and again whenever it is driven, and refuses to continue on any other. A run whose
 numbers may be reported also refuses a binary that is not one of the builds listed here for its
 version: each listed digest was measured from the tarball whose sha512 the test rig's lockfile
-pins (``tests/integration/hooks/claude_code_digests.py``), or from a copy whose digest a frozen
-experiment's driver already checks, and each entry says which.
+pins (``tests/integration/hooks/claude_code_digests.py``), and each entry says where.
 """
 
 from __future__ import annotations
@@ -47,19 +46,38 @@ class KnownBinary(BaseModel):
     source: str
 
 
-_FROM_A_DRIVER = (
-    "the digest the R-PG-03 launch driver checks for this build (experiments/R-PG-03/common.py)"
-)
+#: Measured in CI from the tarball whose sha512 the rig's lockfile pins, by
+#: ``tests/integration/hooks/claude_code_digests.py`` (hooks-bypass run 43021063201, 11.11.2026).
+_FROM_THE_LOCKFILE = "the npm tarball the test rig's lockfile pins, sha512 checked (CI, 11.11.2026)"
+#: The same measurement, equal to the digest a frozen experiment's driver already checks for this
+#: build (the R-PG-03 launch driver), so the copy that experiment runs is the npm build.
+_AND_THE_DRIVER = _FROM_THE_LOCKFILE + "; equal to the digest the R-PG-03 launch driver checks"
 
 #: The builds a reportable run may execute, by version and platform.
 KNOWN_BINARIES: Mapping[tuple[str, Platform], KnownBinary] = {
     ("2.1.301", "darwin-arm64"): KnownBinary(
         sha256="1f04c69e1c24e4d0a716a863af0aad8fc64d49a499334c29701f073700276b99",
-        source=_FROM_A_DRIVER,
+        source=_AND_THE_DRIVER,
     ),
     ("2.1.301", "linux-arm64"): KnownBinary(
         sha256="1e119036a802d359ba5f9886428e031586e8796f7a858d5a8ee179ac7b8604f0",
-        source=_FROM_A_DRIVER,
+        source=_AND_THE_DRIVER,
+    ),
+    ("2.1.301", "linux-x64"): KnownBinary(
+        sha256="bc1aad9982c7b59c7d889ff92595d61cf46e0a6eae074cb551d932a989bcd222",
+        source=_FROM_THE_LOCKFILE,
+    ),
+    ("2.1.322", "darwin-arm64"): KnownBinary(
+        sha256="a9d237949db816a0b7afd88a9a8e1df36b3a597a30f5a41d1c0539eb180a3450",
+        source=_FROM_THE_LOCKFILE,
+    ),
+    ("2.1.322", "linux-arm64"): KnownBinary(
+        sha256="f220ca50ea4f3222043ff83cc224a1262e0196e9897acc0871efa94235b0c1fd",
+        source=_FROM_THE_LOCKFILE,
+    ),
+    ("2.1.322", "linux-x64"): KnownBinary(
+        sha256="bfb3703ad5380242328459bc62ada4bde8ae7ba57c6e1eeadb9c00e08874c478",
+        source=_FROM_THE_LOCKFILE,
     ),
 }
 

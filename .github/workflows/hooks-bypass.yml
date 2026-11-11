@@ -61,12 +61,14 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: The binary under test
-        # Printed before any test, so every result in this leg names the exact binary it ran.
+        # Printed before any test, so every result in this leg names the exact binary it ran,
+        # and held to the build the harness lists for this version and platform.
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
         run: |
           sha256sum "$PHYSGATE_CLAUDE_BIN"
           "$PHYSGATE_CLAUDE_BIN" --version
+          uv run python -c 'import os, sys; from physgate.orchestrator import binaries as b; b.require_listed(sys.argv[1], b.measure(os.environ["PHYSGATE_CLAUDE_BIN"])); print("the listed build")' "${{ matrix.pin.version }}"
 
       - name: The hook layer through the real binary, bypass suite included
         # The harness refuses to run unless the binary reports the pinned
@@ -140,12 +142,14 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: The binary under test
-        # Printed before any test, so every result in this leg names the exact binary it ran.
+        # Printed before any test, so every result in this leg names the exact binary it ran,
+        # and held to the build the harness lists for this version and platform.
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
         run: |
           sha256sum "$PHYSGATE_CLAUDE_BIN"
           "$PHYSGATE_CLAUDE_BIN" --version
+          uv run python -c 'import os, sys; from physgate.orchestrator import binaries as b; b.require_listed(sys.argv[1], b.measure(os.environ["PHYSGATE_CLAUDE_BIN"])); print("the listed build")' "${{ matrix.pin.version }}"
 
       - name: Install the sandbox's two programs, and let bubblewrap make its namespaces
         # The two packages the documentation names, and the AppArmor profile it gives for
