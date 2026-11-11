@@ -67,7 +67,7 @@ from physgate.state.protocol import (
     canonical_json,
 )
 from physgate.state.schema import quantities_are_valid, validate_node, validate_node_id
-from physgate.unit_spelling import as_product
+from physgate.unit_spelling import as_product, canonical_unit
 
 # A node payload is a plain JSON object on the way in and on the way out. The
 # frozen interface types it that way and the schema is what gives it structure;
@@ -87,9 +87,20 @@ _FOLLOWED = re.compile(r"^followed from (?P<node>\S+) at attempt (?P<attempt>[1-
 
 
 def written_quantity(quantity: Mapping[str, Any]) -> str:
-    """A quantity's value as written and its unit as the grammar's product: 2 and 2.0 differ."""
+    """A quantity's value as written and its unit in its canonical form.
+
+    2 and 2.0 are two writings, while ``1/(rad*s)`` and ``s**-1/rad`` are one unit
+    (:func:`physgate.unit_spelling.canonical_unit`).
+    """
     unit = quantity.get("unit")
-    return json.dumps([quantity.get("value"), as_product(unit) if isinstance(unit, str) else unit])
+    return json.dumps(
+        [quantity.get("value"), canonical_unit(unit) if isinstance(unit, str) else unit]
+    )
+
+
+def _followed_unit(stored: str, written: str) -> str:
+    """The unit a followed quantity takes: the stored one where only its spelling would change."""
+    return stored if canonical_unit(stored) == canonical_unit(written) else as_product(written)
 
 
 def followed_payload(
@@ -97,8 +108,9 @@ def followed_payload(
 ) -> Payload:
     """The interface's next revision, each quantity copied from the first node of ``joined``.
 
-    The value is the first joined node's as written and the unit the product the unit grammar reads
-    it as (:func:`physgate.unit_spelling.as_product`), the source names that node and
+    The value is the first joined node's as written; the unit is the interface's own where the two
+    are one unit spelt differently, and otherwise the joined node's as the product the unit grammar
+    reads it as (:func:`physgate.unit_spelling.as_product`); the source names that node and
     ``attempt``, the writer is ``role``, and no series reference is carried; every other field of
     the interface is kept. A copy and no judgement: whether the joined nodes agree and the units
     are the interface's is the change check's (``orchestrator.follow``), which calls this.
@@ -113,8 +125,9 @@ def followed_payload(
     quantities = {
         name: {
             "value": held[name]["value"],
-            # A bracketed denominator is written as the product the unit grammar reads it as.
-            "unit": as_product(held[name]["unit"]),
+            # The stored spelling where the unit is one; a bracketed denominator written as the
+            # product the unit grammar reads it as.
+            "unit": _followed_unit(interface["quantities"][name]["unit"], held[name]["unit"]),
             "source": source,
             "written_by": role,
         }
