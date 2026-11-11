@@ -112,3 +112,20 @@ def test_a_rewrite_that_fails_for_any_reason_redacts_the_line_whole(
         pytest.fail(f"the redaction raised instead of redacting: {exc}")
     assert _gone(kept)
     assert kept.split(b"\n") == [BEFORE.encode(), REDACTED_TEXT.encode()]
+
+
+def test_a_line_with_a_duplicate_key_holding_the_credential_is_redacted_whole(
+    tmp_path: Path,
+) -> None:
+    # A decoder keeps only the last of two equal keys: the first value is never read by it.
+    line = '{"type":"user","content":"token ' + TOKEN + '","content":"clean"}'
+    kept = _redacted(tmp_path, f"{BEFORE}\n{line}\n".encode())
+    assert _gone(kept)
+    assert kept.split(b"\n")[:2] == [BEFORE.encode(), REDACTED_TEXT.encode()]
+
+
+def test_a_line_with_a_duplicate_key_counts_as_showing_a_canary() -> None:
+    line = '{"type":"user","content":"shown ' + CANARY + '","content":"clean"}\n'
+    assert canary_seen(line.encode(), frozenset({CANARY})) == CANARY
+    hidden = '{"type":"user","content":"clean","content":"clean"}\n'
+    assert canary_seen(hidden.encode(), frozenset({CANARY})) == CANARY  # unread: counted
