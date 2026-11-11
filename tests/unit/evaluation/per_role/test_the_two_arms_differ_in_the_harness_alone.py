@@ -42,6 +42,12 @@ TASK = parse_task(json.dumps(own_task()).encode())
 MODEL = "claude-opus-5-5"
 LAYER = Present(mechanism="bubblewrap", claude_version="2.1.301")
 EXAMPLES = Path(__file__).parents[4] / "src/physgate/orchestrator/examples"
+#: A fixture canary, built here; it stands for no real task.
+CANARY = hashlib.sha256(b"a fixture task's canary").hexdigest()[:32]
+
+
+def _digest(canaries: list[str]) -> str:
+    return hashlib.sha256("\n".join(sorted(canaries)).encode()).hexdigest()
 
 
 def _usage(input_tokens: int, output: int, cache_read: int, cache_write: int) -> Usage:
@@ -62,7 +68,9 @@ def _config(**changes: Any) -> RunConfig:
         target_head="b" * 40,
         claude_version="2.1.301",
         endpoint="default",
-        harness={"commit": None, "clean": False, "uncommitted_sha256": None},
+        # A fair pair's harness run is one whose numbers may be reported.
+        reportable=True,
+        harness={"commit": "c" * 40, "clean": True, "uncommitted_sha256": None},
         git_binary=None,
         os_layer=LAYER.model_dump(),
         network="none",
@@ -125,6 +133,7 @@ def _pins(**changes: Any) -> dict[str, Any]:
         "effort": config.effort,
         "endpoint": "default",
         "held_out": [],
+        "held_out_canaries_sha256": _digest([]),
         "max_output_tokens": config.max_output_tokens,
         "model": MODEL,
         "network": "none",
@@ -364,3 +373,47 @@ def test_a_harness_log_that_ends_in_a_cut_off_line_is_refused(tmp_path: Path) ->
         log.write(b'{"seq": 2, "kind": "tokens_us')
     with pytest.raises(ComparisonError, match="cut-off line"):
         harness_total(run)
+
+
+@pytest.mark.parametrize(
+    ("changes", "named"),
+    [
+        ({"reportable": False}, ["reportable"]),
+        (
+            {
+                "reportable": False,
+                "harness": {"commit": "c" * 40, "clean": False, "uncommitted_sha256": "d" * 64},
+            },
+            ["harness", "reportable"],
+        ),
+        (
+            {
+                "reportable": False,
+                "harness": {"commit": None, "clean": False, "uncommitted_sha256": None},
+            },
+            ["harness", "reportable"],
+        ),
+    ],
+    ids=["not reportable", "dirty checkout", "no checkout"],
+)
+def test_a_harness_run_that_is_not_clean_or_not_reportable_is_named(
+    tmp_path: Path, changes: dict[str, Any], named: list[str]
+) -> None:
+    """A development run is no arm to hold a baseline to, however alike the two ran."""
+    run = _harness_run(tmp_path, config=_config(**changes))
+    found = differences(run, _raw_dir(tmp_path), role="control", task=TASK)
+    assert sorted(f.split(":", 1)[0] for f in found) == named
+
+
+def test_both_arms_canaries_are_compared_as_digests(tmp_path: Path) -> None:
+    """The raw arm looked for the canaries the harness run looked for, or the pair is named."""
+    run = _harness_run(tmp_path, config=_config(held_out_canaries=[CANARY]))
+    same = _raw_dir(tmp_path, pins=_pins(held_out_canaries_sha256=_digest([CANARY])))
+    assert differences(run, same, role="control", task=TASK) == []
+    other = tmp_path / "other"
+    other.mkdir()
+    none = _raw_dir(other, pins=_pins())
+    assert differences(run, none, role="control", task=TASK) == [
+        f"held_out_canaries_sha256: the harness ran with {_digest([CANARY])!r}, "
+        f"the raw arm with {_digest([])!r}"
+    ]

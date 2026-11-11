@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -217,3 +218,12 @@ def test_the_pins_name_every_condition_the_arms_are_held_equal_on(tmp_path: Path
     # reads that the raw arm never writes, is a difference no fair pair could clear.
     assert set(pins) == RAW_PINS
     assert pins["advisor"] is None and pins["endpoint"] == "default"
+
+
+def test_the_raw_arm_records_the_canaries_it_looked_for_as_their_digest(tmp_path: Path) -> None:
+    """The comparison holds them to the harness run's; the digest names no canary."""
+    task = parse_task(json.dumps(own_task()).encode())
+    canaries = ("f" * 32, "0" * 32)
+    pins = raw.pins(task, _setup(tmp_path, held_out_canaries=canaries))
+    digest = hashlib.sha256("\n".join(sorted(canaries)).encode()).hexdigest()
+    assert pins.get("held_out_canaries_sha256") == digest
