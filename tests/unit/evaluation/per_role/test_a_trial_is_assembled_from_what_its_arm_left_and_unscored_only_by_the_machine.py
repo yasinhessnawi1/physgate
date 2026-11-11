@@ -665,16 +665,20 @@ def _cut_off(run: Path) -> None:
         log.write(line[: len(line) // 2])
 
 
-@pytest.mark.parametrize("damage", [_empty, _cut_off], ids=["empty log", "cut-off incident line"])
+@pytest.mark.parametrize(
+    ("damage", "says"),
+    [(_empty, "is empty"), (_cut_off, "ends in a cut-off line")],
+    ids=["empty log", "cut-off incident line"],
+)
 def test_a_harness_trial_whose_event_log_cannot_be_read_whole_is_excluded(
-    tmp_path: Path, damage: Callable[[Path], None]
+    tmp_path: Path, damage: Callable[[Path], None], says: str
 ) -> None:
     """No line is dropped silently: an incident is what a torn last line may have been."""
     run = _run(tmp_path, _start(), _planned(1), _review(2, T0))
     damage(run)
     trial = _harness_trial(run, TASK)
     assert isinstance(trial, ExcludedTrial), trial
-    assert trial.reason.startswith("events:")
+    assert trial.reason == f"events: the run's event log {says}"
     with pytest.raises(TrialExcludedError, match="^events:"):
         harness_ended_by_infrastructure(run, TASK, answer_found=False)
 
@@ -729,3 +733,12 @@ def test_a_trial_whose_score_says_passed_in_anything_but_a_bool_is_excluded(
         )
     )
     assert isinstance(harness, ExcludedTrial) and harness.reason.startswith("score:"), harness
+
+
+@pytest.mark.parametrize("end", [None, 3], ids=["none", "a number"])
+def test_a_raw_record_whose_end_is_not_a_string_is_excluded_as_holding_no_end(
+    tmp_path: Path, end: Any
+) -> None:
+    trial = _raw_trial(_stream(tmp_path / "stdout.jsonl", DONE), _raw(end=end))
+    assert isinstance(trial, ExcludedTrial)
+    assert trial.reason == "end: the record holds no end"
