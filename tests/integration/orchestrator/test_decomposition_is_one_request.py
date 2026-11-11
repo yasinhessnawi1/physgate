@@ -10,6 +10,7 @@ than one request inside it.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 from pathlib import Path
@@ -446,3 +447,42 @@ def test_a_catalog_or_flags_not_reported_off_fail_the_call(
     (halted,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Halted)]
     assert halted.reason == "decomposition_failed"
     assert not (run_dir / "decomposition" / "debug.log").exists()
+
+
+def _with_unit(unit: str) -> dict[str, Any]:
+    node = {**NODE, "quantities": {"gain": {**NODE["quantities"]["voltage"], "unit": unit}}}
+    return {**PLAN, "interface_nodes": [node]}
+
+
+def test_the_call_s_own_settings_deny_the_web_tools(tmp_path: Path) -> None:
+    # The call offers no tool but its answer; the deny is the second layer, as in every session.
+    _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert outcome.ok, outcome.detail
+    settings = json.loads((run_dir / "decomposition" / "settings.json").read_text())
+    assert {"WebFetch", "WebSearch"} <= set(settings.get("permissions", {}).get("deny", ()))
+
+
+def test_an_interface_unit_the_grammar_refuses_is_a_schema_refusal_and_nothing_is_stored(
+    tmp_path: Path,
+) -> None:
+    api, outcome, run_dir = decompose_once(
+        tmp_path, 7, [tool("StructuredOutput", **_with_unit("1/(V*(s))"))]
+    )
+    assert not outcome.ok and outcome.cause == "schema_refused", outcome.detail
+    assert "write it as 1/V/s" in outcome.detail
+    assert len(api.requests) == 1
+    assert not (run_dir / "store").exists()
+
+
+def test_an_interface_unit_in_a_bracketed_denominator_is_stored_as_its_product(
+    tmp_path: Path,
+) -> None:
+    _, outcome, run_dir = decompose_once(
+        tmp_path, 7, [tool("StructuredOutput", **_with_unit("1/(V*s)"))]
+    )
+    assert outcome.ok, outcome.detail
+    store = Store(run_dir / "store")
+    try:
+        assert store.read_node("power.bus")["quantities"]["gain"]["unit"] == "1/V/s"
+    finally:
+        store.close()
