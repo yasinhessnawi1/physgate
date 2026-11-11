@@ -12,9 +12,10 @@ import hashlib
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
+from pydantic import BaseModel
 from task_fixtures import own_task
 
 from physgate.evaluation.per_role.arms.compare import (
@@ -36,7 +37,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.protocols import Usage
 from physgate.orchestrator.role_python import RolePython
-from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig
 from physgate.oslayer.probe import Present
 
 TASK = parse_task(json.dumps(own_task()).encode())
@@ -252,14 +253,72 @@ def test_a_pin_the_raw_record_lacks_is_named(tmp_path: Path) -> None:
     assert _found(tmp_path, pins=pins) == ["advisor: the raw arm's record does not carry this pin"]
 
 
+def _models_in(annotation: Any) -> list[type[BaseModel]]:
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return [annotation]
+    return [model for arg in get_args(annotation) for model in _models_in(arg)]
+
+
+def _paths(model: type[BaseModel], prefix: str = "") -> set[str]:
+    """Every field of ``model`` by its path, and every field of every model nested in it."""
+    found = set()
+    for name, field in model.model_fields.items():
+        found.add(prefix + name)
+        for inner in _models_in(field.annotation):
+            found |= _paths(inner, f"{prefix}{name}.")
+    return found
+
+
 def test_every_run_field_and_every_raw_pin_has_a_decision() -> None:
-    """The census both ways: a new run field or raw pin fails here before any comparison."""
-    assert set(RUN_FIELDS) == set(RunConfig.model_fields)
-    compared = {name for name, kind in RUN_FIELDS.items() if kind == "compared"}
-    # Each compared run field has its raw pin (``models`` is read for the role, as ``model``,
-    # and the canaries are compared as their digest).
+    """The census both ways, nested fields too: a new one fails here before any comparison."""
+    assert set(RUN_FIELDS) == _paths(RunConfig)
+    compared = {name.split(".")[0] for name, kind in RUN_FIELDS.items() if kind == "compared"}
+    # Each compared run field has its raw pin (``models.roles`` is read for the role, as
+    # ``model``, and the canaries are compared as their digest).
     pin = {"models": "model", "held_out_canaries": "held_out_canaries_sha256"}
     assert {pin.get(name, name) for name in compared} <= RAW_PINS
+
+
+def test_the_models_a_run_may_call_are_classed_one_by_one() -> None:
+    """The role's model is compared; the reviewers' and the decomposition's are the harness."""
+    assert {name: RUN_FIELDS.get(f"models.{name}") for name in ModelStrings.model_fields} == {
+        "decomposition": "harness",
+        "roles": "compared",
+        "reviewers": "harness",
+    }
+
+
+class _AdvisedModels(ModelStrings):
+    advisor: str | None = None
+
+
+class _AdvisedConfig(RunConfig):
+    models: _AdvisedModels
+
+
+class _HeldBounds(RunBounds):
+    session_max_tools: int = 0
+
+
+class _HeldConfig(RunConfig):
+    bounds: _HeldBounds
+
+
+@pytest.mark.parametrize(
+    ("config", "path"),
+    [(_AdvisedConfig, "models.advisor"), (_HeldConfig, "bounds.session_max_tools")],
+    ids=["an advisor model", "a new bound"],
+)
+def test_a_nested_run_field_with_no_decision_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: type[RunConfig], path: str
+) -> None:
+    """A field added inside a nested model is named as one added at the top level is."""
+    from physgate.evaluation.per_role.arms import compare
+
+    monkeypatch.setattr(compare, "RunConfig", config)
+    assert _found(tmp_path) == [
+        f"run.json field {path!r}: no decision says how it bears on the raw arm"
+    ]
 
 
 def test_a_run_field_with_no_decision_is_named(
