@@ -1,5 +1,6 @@
 {
  "auth": "api_key",
+ "account": "api-key-1",
  "gate_mode": "on",
  "models": {
   "decomposition": "claude-sonnet-5",

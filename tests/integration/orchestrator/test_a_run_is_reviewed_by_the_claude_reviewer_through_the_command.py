@@ -26,7 +26,7 @@ from typing import Any
 
 import pytest
 from gate_run import BRIEF, INTERFACE, build_install, seed_knowledge, session
-from git_rig import PARAMS, Gate, config, target_repo
+from git_rig import Gate, config, run_params, target_repo
 from knowledge_fixture import build_fixture_library
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
@@ -140,7 +140,7 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
     repo = target_repo(tmp_path)
     seed_knowledge(repo)
     run_dir = tmp_path / "run"
-    (tmp_path / "params.json").write_text(json.dumps(config().model_dump(include=PARAMS)))
+    (tmp_path / "params.json").write_text(json.dumps(run_params(config())))
     (tmp_path / "brief.md").write_text(BRIEF)
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
     plan = {

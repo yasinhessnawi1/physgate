@@ -24,6 +24,7 @@ appears there. A credential the API refuses ends the session with HTTP 401 or
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Mapping
@@ -75,6 +76,19 @@ def credential_for(mode: AuthMode, environ: Mapping[str, str]) -> Credential:
         msg = f"{variable} is not set; a run in auth mode {mode} needs it"
         raise InvocationError(msg, auth=mode, variable=variable)
     return Credential(mode=mode, secret=secret)
+
+
+#: How many hexadecimal characters of the secret's sha256 name its account in a run's record.
+FINGERPRINT_LENGTH = 12
+
+
+def fingerprint(credential: Credential) -> str:
+    """The first characters of the secret's sha256: enough to tell run accounts apart.
+
+    Recorded with the run, so a resume on another account's credential is refused. A prefix of
+    a digest of a long random secret says nothing usable about the secret itself.
+    """
+    return hashlib.sha256(credential.secret.encode()).hexdigest()[:FINGERPRINT_LENGTH]
 
 
 def _write_private(path: Path, data: str, mode: int) -> None:

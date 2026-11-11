@@ -318,6 +318,16 @@ PARAMS = {
 }
 
 
+#: The account every run the rig starts names. The command records it with the fingerprint of
+#: the stand-in credential the test sets.
+TEST_ACCOUNT = "a-test-account"
+
+
+def run_params(source: RunConfig) -> dict[str, Any]:
+    """A parameters file for ``source``: its chosen fields, and the account the run names."""
+    return {**source.model_dump(include=PARAMS), "account": TEST_ACCOUNT}
+
+
 @functools.cache
 def recorded_version() -> str:
     """The version a run started here records: the binary this machine's tests run.
@@ -367,6 +377,8 @@ def config(run_id: str = "run-1") -> RunConfig:
         held_out_sha256=(),
         network="open",
         network_enforced=None,
+        binary=None,
+        account=None,
         os_layer=None,
     )
 

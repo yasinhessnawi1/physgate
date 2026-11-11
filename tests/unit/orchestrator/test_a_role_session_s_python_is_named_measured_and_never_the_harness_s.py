@@ -103,6 +103,8 @@ def test_a_configuration_that_names_none_records_what_it_did_before() -> None:
         "held_out_sha256": [],
         "network": "open",
         "network_enforced": None,
+        "binary": None,
+        "account": None,
         "queue_decisions": "record",
         "os_layer_absent": "refuse",
     }

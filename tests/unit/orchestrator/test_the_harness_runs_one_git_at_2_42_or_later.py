@@ -232,6 +232,7 @@ def _refusing_claude(tmp_path: Path) -> Path:
 def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
     params = {
         "auth": "api_key",
+        "account": "a-test-account",
         "gate_mode": "on",
         "models": {
             "decomposition": "claude-sonnet-5",

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from git_rig import PARAMS, config, recorded_version, target_repo
+from git_rig import config, recorded_version, run_params, target_repo
 from knowledge_fixture import build_fixture_library
 from scripted_endpoint import (  # noqa: E402
     DUMMY_KEY,
@@ -178,7 +178,7 @@ def test_the_decompose_command_twice_with_one_seed_gives_one_set_of_ids(
 
     from physgate.cli import main
 
-    params = config().model_dump(include=PARAMS)
+    params = run_params(config())
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     printed = []

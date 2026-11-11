@@ -109,6 +109,15 @@ def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
         drifted.append("role_python")
     if baseline.claude_version != candidate.claude_version:
         drifted.append("claude_version")
+    # The bytes as well as the version: another platform's build, or a replaced binary, is another
+    # tool under measurement. Only where both runs recorded them, as for the git below. The
+    # account is left out on purpose: runs spread over several accounts of one plan compare.
+    if (
+        baseline.binary is not None
+        and candidate.binary is not None
+        and baseline.binary != candidate.binary
+    ):
+        drifted.append("binary")
     # Only where both runs recorded it: ``None`` is a run that measured nothing, not a git.
     if (
         baseline.git_binary is not None

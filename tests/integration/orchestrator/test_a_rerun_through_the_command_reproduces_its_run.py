@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 from gate_run import INTERFACE, PayingReviewer, build_install, seed_knowledge, session
-from git_rig import PARAMS, config, target_repo
+from git_rig import config, run_params, target_repo
 from scripted_endpoint import DUMMY_KEY, FakeMessagesApi, Script, serving, tool
 from stand_in_drive_plan import DRIVE_MODULE, STAND_IN_BRIEF
 
@@ -74,7 +74,7 @@ def serve(api: FakeMessagesApi, payloads: tuple[dict[str, Any], ...]) -> None:
 
 
 def record_a_run(tmp_path: Path, repo: Path, install: Path, api: FakeMessagesApi) -> Path:
-    params = config().model_dump(include=PARAMS)
+    params = run_params(config())
     params["gate_mode"] = "observe"
     (tmp_path / "params.json").write_text(json.dumps(params))
     run_dir = tmp_path / "run-a"

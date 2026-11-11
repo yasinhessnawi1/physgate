@@ -175,6 +175,7 @@ def test_a_changed_harness_is_refused_and_names_what_changed() -> None:
 def _decompose_args(tmp_path: Path, reportable: bool) -> list[str]:
     params = {
         "auth": "api_key",
+        "account": "a-test-account",
         "gate_mode": "on",
         "models": {
             "decomposition": "claude-sonnet-5",

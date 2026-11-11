@@ -30,8 +30,10 @@ from physgate.orchestrator.managed import FLAGS_SETTING, FLAGS_SILENT_VERSIONS, 
 #: the first that keeps a denied path denied when it is reached through a
 #: symbolic link on macOS, and it holds a sandbox started from the settings flag
 #: against a repository's settings. The two older versions stay pinned so that
-#: runs recorded on them can still be resumed and reproduced.
-PINNED_VERSIONS = frozenset({"2.1.272", "2.1.283", "2.1.301"})
+#: runs recorded on them can still be resumed and reproduced. 2.1.322 is a second, independent
+#: pin beside 2.1.301, the first version that serves Claude Fable 5.2; nothing measured on
+#: 2.1.301 is assumed of it, and a run never mixes the two.
+PINNED_VERSIONS = frozenset({"2.1.272", "2.1.283", "2.1.301", "2.1.322"})
 _BINARY = "claude"
 
 

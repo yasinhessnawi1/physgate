@@ -39,12 +39,18 @@ from physgate.evaluation.inject.runner import InstrumentConfig
 from physgate.gate.exceptions import GateError
 from physgate.knowledge.library import LibraryError, read_library
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
+from physgate.orchestrator import binaries
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.catches import catches, parse_time
 from physgate.orchestrator.common import first_problem, render_jsonl
-from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
+from physgate.orchestrator.credentials import (
+    SECRET_VARIABLE,
+    Credential,
+    credential_for,
+    fingerprint,
+)
 from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
@@ -100,6 +106,7 @@ from physgate.orchestrator.run_config import (
     require_endpoint,
     require_harness,
     require_reportable,
+    require_same_account,
 )
 from physgate.oslayer.listeners import loopback_listeners
 from physgate.oslayer.policy import NETWORK_UNENFORCED
@@ -465,7 +472,7 @@ def _fail(message: str, **context: str) -> int:
     return 2
 
 
-def _config(args: argparse.Namespace) -> RunConfig:
+def _config(args: argparse.Namespace, credential: Credential) -> RunConfig:
     params = json.loads(args.params.read_text())
     # The git every harness git command will run, first: below 2.42 git ignores the attribute
     # source the harness sets, and the run is refused here. Measured, never chosen.
@@ -476,6 +483,17 @@ def _config(args: argparse.Namespace) -> RunConfig:
     layer = judge_here(
         claude_version=binary_version(), search_path=session_search_path(claude_binary())
     )
+    # Measured, never chosen: the bytes the run executes. A run whose numbers may be reported
+    # runs only a build listed for its version and this machine's platform.
+    binary = binaries.measure(claude_binary())
+    if params.get("reportable") is True:
+        binaries.require_listed(binary_version(), binary)
+    account = params.get("account")
+    if not isinstance(account, str):
+        # Runs may be spread over several accounts; each run names the one it draws on, and
+        # its credential's fingerprint is recorded with the name.
+        msg = "a new run names the account it draws on"
+        raise RunConfigError(msg)
     if params.get("role_python") is not None:
         # Measured, never taken from the parameters: only the path is theirs to name.
         named = params["role_python"]
@@ -498,6 +516,8 @@ def _config(args: argparse.Namespace) -> RunConfig:
         "os_layer": layer.model_dump(),
         # And so whether it enforces the network the parameters ask for.
         "network_enforced": network_enforced(str(params.get("network")), layer),
+        "binary": binary.model_dump(),
+        "account": {"name": account, "token_sha256_prefix": fingerprint(credential)},
     }
     if isinstance(fields.get("role_python"), RolePython):
         fields["role_python"] = fields["role_python"].model_dump()
@@ -531,15 +551,15 @@ def _decompose(args: argparse.Namespace) -> int:
         mode = json.loads(args.params.read_text()).get("auth")
         known = isinstance(mode, str) and mode in SECRET_VARIABLE
         credential = credential_for(mode, os.environ) if known else None
-        config = _config(args)
+        if credential is None:
+            return _fail("the run parameters name no auth mode")
+        config = _config(args, credential)
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
     except ValidationError as exc:
         return _fail(
             "the run parameters are not a complete configuration", reason=first_problem(exc)
         )
-    if credential is None:  # the configuration validated, so the mode is a known one
-        return _fail("the run parameters name no auth mode")
     assert config.os_layer is not None  # measured above, for every new run
     why = os_layer_refusal(config, config.os_layer)
     _say_os_layer(config.os_layer, config.network, allowed=why is None)
@@ -689,6 +709,10 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         harness_git()
         # The same code: a run continued on other code is two runs under one name.
         require_harness(config, harness_state(_harness_root()))
+        # The same binary, by its bytes, and the same account: a run continued on another
+        # build or on another account's limits is not the run that was recorded.
+        binaries.require_same(config.binary, binaries.measure(claude_binary()))
+        require_same_account(config, credential)
         if not (run_dir / "events.jsonl").exists():
             msg = "the run was never started; decompose it first"
             raise RunStateError(msg, run_dir=str(run_dir))
