@@ -13,6 +13,8 @@ Two directions are held:
   a new source. The one exception is ruled and named: a stall current outside one maker's
   hobby-motor span is not an error by itself, so that span no longer blocks (the current
   headroom relation judges a stall current instead). Each refusal lost that way is counted.
+  The unit grammar's refusal is compared by its first words, up to the example units: its
+  explanation changed when the grammar came to take a bracketed denominator.
   A second, ruled loosening leaves no refusal to count here: the electrical ``sample_rate``
   range widened from one part's register span (3.906 Hz to 8 kHz) to six makers' output data
   rates (0.78 Hz to 32 kHz), so an electrical rate in (8 kHz, 32 kHz] or [0.78, 3.906) Hz that
@@ -85,6 +87,9 @@ def _key(record: dict[str, Any]) -> tuple[Any, ...]:
     message = record["message"]
     if record["check"] == "magnitude":
         message = message.split(", outside ")[0]
+    # The unit grammar's refusal kept its first words and changed its explanation when it came to
+    # take a bracketed denominator and to name the spelling it takes (11.11.2026).
+    message = message.split(" with small integer powers (for example ")[0]
     return (record["check"], record["node"], json.dumps(record["value"], sort_keys=True), message)
 
 
