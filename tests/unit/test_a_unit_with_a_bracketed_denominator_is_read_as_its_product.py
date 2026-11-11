@@ -63,11 +63,13 @@ REFUSED_WITH_A_SPELLING = [
     ("1/(m/s)", "s/m"),
     ("(rad*s)**-1", "1/rad/s"),
 ]
-#: Units the grammar refuses that no spelling of its own reads as the same unit.
+#: Twenty named units in a bracket, squared: its product is longer than the grammar's bound.
+_SQUARED = "(" + "*".join(a + b for a in "pq" for b in "abcdefghij") + ")**2"
+#: Units the grammar refuses that no spelling of its own, within its bounds, reads as the same.
 REFUSED_WITHOUT_A_SPELLING = [
     "10**10**10*m", "m**(10**9)", "1e308*m", "1000*m", "m*2", "2", "m**999", "m**1.5",
     "1/(2*s)", "1/(m**0.5*s)", "1/(s**100)", "m²", "km⁹⁹⁹⁹⁹⁹⁹⁹", "m//s", "m*", "1/()",
-    "V/(m*s", "V/(m*s))", "m s",
+    "V/(m*s", "V/(m*s))", "m s", "(m**50)**2", _SQUARED,
 ]  # fmt: skip
 
 
