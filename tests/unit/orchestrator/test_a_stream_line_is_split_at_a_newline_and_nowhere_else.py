@@ -174,7 +174,7 @@ def test_the_hook_log_is_read_whole_when_a_record_holds_the_character(
 ) -> None:
     state = tmp_path / "state"
     state.mkdir()
-    records = [
+    records: list[dict[str, Any]] = [
         {"session": "s1", "decision": "reaper_unverified", "tool_input": {"command": _split(brk)}},
         {"session": "s1", "decision": "journal append", "line": _split(brk)},
     ]

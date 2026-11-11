@@ -37,6 +37,7 @@ from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, rubric_p
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.cli import Registrations
 from physgate.orchestrator.events import ReviewRan, SessionEnded, SubtaskPlanned, read_events
+from physgate.orchestrator.run_config import ModelStrings, RunConfig
 from physgate.reviewers.claude import claude_reviewers
 from physgate.reviewers.packet import DIFF_NAME, RECORD_NAME, WORKTREE_NAME
 from physgate.reviewers.rubric import NOT_IN_REVIEW
@@ -123,6 +124,20 @@ def _library(root: Path) -> tuple[Path, str]:
     return library, digest
 
 
+def _config() -> RunConfig:
+    """The rig's configuration on the evaluation's models.
+
+    A run's cost reads its manifest, whose request defaults are measured per version and model:
+    on these, on every pin.
+    """
+    models = ModelStrings(
+        decomposition="claude-opus-5-5",
+        roles={"electrical": "claude-opus-5-5"},
+        reviewers={"electrical": "claude-sonnet-5"},
+    )
+    return config().model_copy(update={"models": models})
+
+
 def _reading(cwd: str) -> list[str]:
     read = Path(cwd).parent
     files = sorted(p for p in read.rglob("*") if p.is_file() and p != read / DIFF_NAME)
@@ -140,7 +155,7 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
     repo = target_repo(tmp_path)
     seed_knowledge(repo)
     run_dir = tmp_path / "run"
-    (tmp_path / "params.json").write_text(json.dumps(run_params(config())))
+    (tmp_path / "params.json").write_text(json.dumps(run_params(_config())))
     (tmp_path / "brief.md").write_text(BRIEF)
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
     plan = {
@@ -258,7 +273,7 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
         assert result.rubric_sha256 == digest and result.rubric_kind == "paired"
         assert result.reading_verified is True and result.packet_sha256 is not None
         assert result.peak_context_tokens is not None and result.peak_context_tokens > 0
-        assert result.reviewer_model == config().models.reviewers["electrical"]
+        assert result.reviewer_model == _config().models.reviewers["electrical"]
         packet = json.loads((tmp_path / "rs" / result.session_id / RECORD_NAME).read_text())
         issued = {e.attempt: e.issued_spec_sha256 for e in events if isinstance(e, SessionEnded)}
         assert packet["spec_as_issued_sha256"] == issued[review.attempt]
