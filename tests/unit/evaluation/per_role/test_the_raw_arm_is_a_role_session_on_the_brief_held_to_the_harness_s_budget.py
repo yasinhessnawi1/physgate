@@ -227,3 +227,16 @@ def test_the_raw_arm_records_the_canaries_it_looked_for_as_their_digest(tmp_path
     pins = raw.pins(task, _setup(tmp_path, held_out_canaries=canaries))
     digest = hashlib.sha256("\n".join(sorted(canaries)).encode()).hexdigest()
     assert pins.get("held_out_canaries_sha256") == digest
+
+
+def test_the_raw_arm_records_its_bounds_as_it_ran_them(tmp_path: Path) -> None:
+    """The binary's retries and delays as given, the turns and wall clock as multiplied."""
+    task = parse_task(json.dumps(own_task()).encode())
+    bounds = BOUNDS.model_copy(update={"binary_max_retries": 2, "infra_retry_delays_s": (60.0,)})
+    pins = raw.pins(task, _setup(tmp_path, bounds=bounds))
+    assert pins.get("bounds") == {
+        "binary_max_retries": 2,
+        "infra_retry_delays_s": [60.0],
+        "session_max_turns": 450,
+        "session_wall_clock_s": 5400.0,
+    }

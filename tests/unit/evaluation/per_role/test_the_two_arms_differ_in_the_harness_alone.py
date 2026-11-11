@@ -26,6 +26,7 @@ from physgate.evaluation.per_role.arms.compare import (
 )
 from physgate.evaluation.tiers.task import parse_task
 from physgate.hooks.settings import CONFIG_NAME, PROFILE_TOOLS
+from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.events import (
     EventLog,
     LeftoverRead,
@@ -121,6 +122,19 @@ def _harness_run(
     return run_dir
 
 
+def _bounds(**changes: Any) -> dict[str, Any]:
+    """The bounds the raw arm records: the harness's retries, its turns and clock multiplied."""
+    bounds = _config().bounds
+    recorded: dict[str, Any] = {
+        "binary_max_retries": bounds.binary_max_retries,
+        "infra_retry_delays_s": list(bounds.infra_retry_delays_s),
+        "session_max_turns": bounds.session_max_turns * REPAIR_BUDGET,
+        "session_wall_clock_s": bounds.session_wall_clock_s * REPAIR_BUDGET,
+    }
+    recorded.update(changes)
+    return recorded
+
+
 def _pins(**changes: Any) -> dict[str, Any]:
     """The pins the raw arm records for a session run as the harness's role sessions were."""
     config = _config()
@@ -128,6 +142,7 @@ def _pins(**changes: Any) -> dict[str, Any]:
         "advisor": None,
         "answer": TASK.answer.model_dump(mode="json"),
         "auth": "subscription",
+        "bounds": _bounds(),
         "brief_sha256": hashlib.sha256(TASK.brief.encode()).hexdigest(),
         "claude_version": "2.1.301",
         "effort": config.effort,
@@ -419,3 +434,25 @@ def test_both_arms_canaries_are_compared_as_digests(tmp_path: Path) -> None:
         f"held_out_canaries_sha256: the harness ran with {_digest([CANARY])!r}, "
         f"the raw arm with {_digest([])!r}"
     ]
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [
+        _bounds(binary_max_retries=2),
+        _bounds(infra_retry_delays_s=[60.0]),
+        _bounds(session_max_turns=_config().bounds.session_max_turns),
+        _bounds(session_wall_clock_s=_config().bounds.session_wall_clock_s),
+    ],
+    ids=[
+        "the binary's retries",
+        "the retry delays",
+        "turns not multiplied",
+        "clock not multiplied",
+    ],
+)
+def test_bounds_other_than_the_harness_s_are_named(tmp_path: Path, bounds: dict[str, Any]) -> None:
+    """Only the turns and the wall clock differ, and only by the repair budget."""
+    found = _found(tmp_path, pins=_pins(bounds=bounds))
+    assert [f.split(":", 1)[0] for f in found] == ["bounds"]
+    assert found[0].startswith("bounds: the harness ran with ")
