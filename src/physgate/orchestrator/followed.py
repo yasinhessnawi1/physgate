@@ -12,7 +12,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from physgate.state.store import payload_digest
-from physgate.state.store import written as written
+from physgate.state.store import written_quantity as written
 
 _Id = Annotated[str, StringConstraints(min_length=1)]
 _Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
