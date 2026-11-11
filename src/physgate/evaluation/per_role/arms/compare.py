@@ -37,8 +37,10 @@ from physgate.orchestrator.events import (
     SessionEnded,
     SessionSpawned,
     TokensUsed,
-    read_events,
+    parse_events,
 )
+from physgate.orchestrator.exceptions import CorruptEventLogError
+from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 
 #: How each field of a harness run's recorded configuration bears on the raw arm, by its
@@ -184,17 +186,24 @@ def harness_total(run_dir: Path) -> int:
     - a line was cut off at the log's end;
     - a message's usage was read from a session a killed orchestrator left behind, with no
       result to check it against (``partial``), or such a session was read incomplete;
-    - a role session was spawned and never ended or read.
+    - a role session was spawned and never ended or read;
+    - the log is empty, or the run has not ended: its last step, replayed from the log as
+      the loop takes it, is not done, halted or escalated. A run killed during a review,
+      during its decomposition or between sessions spawned nothing left open, and is
+      refused here.
 
     Raises:
         ComparisonError: the run's token account is not complete.
     """
     log = run_dir / "events.jsonl"
     data = log.read_bytes()
-    if data and not data.endswith(b"\n"):
+    if not data:
+        msg = "the run's event log is empty; it shows no token the run spent"
+        raise ComparisonError(msg, log=str(log))
+    if not data.endswith(b"\n"):
         msg = "the run's event log ends in a cut-off line; its last tokens are not counted"
         raise ComparisonError(msg, log=str(log))
-    events = read_events(log)
+    events = parse_events(data, log=str(log))
     for event in events:
         if isinstance(event, TokensUsed) and event.partial:
             msg = "a message's usage in the run is partial; the run's total is a lower bound"
@@ -207,6 +216,14 @@ def harness_total(run_dir: Path) -> int:
     if spawned - ended:
         msg = "a session of the run was spawned and never ended; its tokens are uncounted"
         raise ComparisonError(msg, sessions=",".join(sorted(spawned - ended)))
+    try:
+        step = replay(events).next_step().kind
+    except CorruptEventLogError as exc:
+        msg = "the run's event log does not replay as a run"
+        raise ComparisonError(msg, log=str(log), reason=str(exc)) from None
+    if step not in ("done", "halted", "escalated"):
+        msg = "the run has not ended; what it would still have spent is uncounted"
+        raise ComparisonError(msg, log=str(log), next_step=step)
     return TokenAccount.from_events(events).total().total()
 
 
