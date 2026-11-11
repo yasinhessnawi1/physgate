@@ -72,7 +72,6 @@ MEASURED = frozenset(
         "git_binary",
         "os_layer",
         "binary",
-        "account",
     }
 )
 
@@ -195,8 +194,8 @@ class RerunPlan:
     def params(self) -> dict[str, Any]:
         """The parameters file ``decompose`` takes, as the recorded run had it."""
         dumped: dict[str, Any] = self.recorded.model_dump(mode="json", exclude=set(MEASURED))
-        # The account is named, and its fingerprint measured from the credential the rerun is
-        # given, like the binary's bytes: only the name is a parameter.
+        # The account is a parameter by its name alone: its fingerprint is measured from the
+        # credential the rerun is given, as the binary's bytes are measured.
         account = self.recorded.account
         dumped["account"] = UNRECORDED_ACCOUNT if account is None else account.name
         return dumped
