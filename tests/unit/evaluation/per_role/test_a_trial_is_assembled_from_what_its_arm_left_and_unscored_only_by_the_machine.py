@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -24,8 +25,11 @@ from physgate.orchestrator.events import (
     Event,
     Halted,
     Incident,
+    LeftoverRead,
     ReviewRan,
     RunStarted,
+    SessionEnded,
+    SessionSpawned,
     SubtaskPlanned,
 )
 from physgate.orchestrator.protocols import ReviewResult
@@ -484,3 +488,159 @@ def test_a_raw_trial_s_cost_basis_follows_the_auth_mode_it_recorded(
     record = _raw(pins={**_raw()["pins"], "auth": auth})
     trial = _raw_trial(_stream(tmp_path / "stdout.jsonl", DONE), record)
     assert isinstance(trial, TrialRecord) and trial.cost.basis == basis
+
+
+#: Another held-out task's canary, built here; it stands for no real task.
+OTHER_CANARY = hashlib.sha256(b"another fixture task's canary").hexdigest()[:32]
+
+
+def _spawned(seq: int, session_id: str) -> SessionSpawned:
+    return SessionSpawned(seq=seq, ts=T0, session_id=session_id, pid=7, started="x", **ENV)  # type: ignore[arg-type]
+
+
+def _ended(seq: int, session_id: str) -> SessionEnded:
+    return SessionEnded(
+        seq=seq,
+        ts=T0,
+        subtask_id="s",
+        attempt=1,
+        session_id=session_id,
+        outcome="completed",
+        cause=None,
+        attempt_commit="a" * 40,
+        trajectory=f"sessions/{session_id}/stdout.jsonl",
+        worktree="worktrees/s",
+        reading_verified=True,
+        **ENV,  # type: ignore[arg-type]
+    )
+
+
+def _leftover(seq: int, session_id: str, scan: str) -> LeftoverRead:
+    return LeftoverRead(
+        seq=seq,
+        ts=T0,
+        session_id=session_id,
+        stopped=True,
+        complete=True,
+        trajectory_seal=None,
+        quarantine="operator: the stream was lost with the disk",
+        scan=scan,  # type: ignore[arg-type]
+        **ENV,  # type: ignore[arg-type]
+    )
+
+
+def _held_out_run(
+    tmp_path: Path,
+    *more: Event,
+    canaries: tuple[str, ...] = (CANARY,),
+    streams: dict[str, str] | None = None,
+) -> Path:
+    """A harness run on ``HELD_OUT`` that looked for its canary in every stream it wrote.
+
+    One role session spawned, ended and reviewed; ``more`` follows it. ``streams`` are the
+    run's streams by their place under the run directory, each a line of tool output.
+    """
+    events: list[Event] = [
+        _start(),
+        _planned(1),
+        _spawned(2, "role-1"),
+        _ended(3, "role-1"),
+        _review(4, T0),
+        *more,
+    ]
+    run = _run(tmp_path, *events, config=_config(held_out_canaries=list(canaries)))
+    if streams is None:
+        streams = {"sessions/role-1/stdout.jsonl": "tool output"}
+    for place, text in streams.items():
+        stream = run / place
+        stream.parent.mkdir(parents=True, exist_ok=True)
+        line = {"type": "user", "message": {"content": text}}
+        stream.write_text(json.dumps(line) + "\n")
+    return run
+
+
+def _harness_trial(run: Path, task: Any = None) -> TrialRecord | ExcludedTrial:
+    return harness_trial(
+        suite="s",
+        task=task or HELD_OUT,
+        trial=0,
+        run_dir=run,
+        manifest_id="e" * 64,
+        cost=_cost_line(),
+        score=SCORED,
+        unscored=False,
+    )
+
+
+def test_a_sound_held_out_harness_trial_with_a_passing_answer_is_a_pass(tmp_path: Path) -> None:
+    """Its canary looked for, every stream scanned and none showing it: the trial is scored."""
+    run = _held_out_run(tmp_path)
+    trial = _harness_trial(run)
+    assert isinstance(trial, TrialRecord) and trial.outcome == "pass"
+    assert harness_ended_by_infrastructure(run, HELD_OUT, answer_found=True) is False
+
+
+@pytest.mark.parametrize(
+    ("build", "field"),
+    [
+        (lambda p: _held_out_run(p, canaries=()), "held_out_canaries"),
+        (lambda p: _held_out_run(p, canaries=(OTHER_CANARY,)), "held_out_canaries"),
+        (
+            lambda p: _held_out_run(
+                p, _spawned(5, "role-2"), _leftover(6, "role-2", "unscanned (stream gone)")
+            ),
+            "leftover_read",
+        ),
+        (
+            lambda p: _held_out_run(
+                p,
+                _spawned(5, "role-2"),
+                streams={
+                    "sessions/role-1/stdout.jsonl": "tool output",
+                    "sessions/role-2/stdout.jsonl": "tool output",
+                },
+            ),
+            "session",
+        ),
+        (lambda p: _held_out_run(p, streams={}), "stream"),
+        (
+            lambda p: _held_out_run(
+                p, streams={"sessions/role-1/stdout.jsonl": f"tool output {CANARY}"}
+            ),
+            "canary",
+        ),
+        (
+            lambda p: _held_out_run(
+                p,
+                streams={
+                    "sessions/role-1/stdout.jsonl": "tool output",
+                    "decomposition/stdout.jsonl": f"read {CANARY}",
+                },
+            ),
+            "canary",
+        ),
+    ],
+    ids=[
+        "no canary looked for",
+        "another task's canary looked for",
+        "a leftover's stream never scanned",
+        "a session never ended, its stream never scanned",
+        "a session's stream gone",
+        "its canary in a role session's stream",
+        "its canary in the decomposition's stream",
+    ],
+)
+def test_a_held_out_harness_trial_whose_run_could_not_have_seen_a_held_out_read_is_excluded(
+    tmp_path: Path, build: Callable[[Path], Path], field: str
+) -> None:
+    """The raw arm's rule, held to the harness run's records.
+
+    Held out, the run must have looked for the task's canary in every stream, across
+    resumes, and a fresh scan of every stream must not find it.
+    """
+    run = build(tmp_path)
+    trial = _harness_trial(run)
+    assert isinstance(trial, ExcludedTrial), trial
+    assert trial.reason.startswith(f"{field}:") and trial.arm == "harness"
+    with pytest.raises(TrialExcludedError, match=f"^{field}:"):
+        harness_ended_by_infrastructure(run, HELD_OUT, answer_found=True)
