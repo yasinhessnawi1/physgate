@@ -21,7 +21,9 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
+
+from pydantic import BaseModel
 
 from physgate.evaluation.per_role.arms.raw import canaries_sha256
 from physgate.evaluation.per_role.exceptions import PerRoleError
@@ -39,9 +41,14 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 
-#: How each field of a harness run's recorded configuration bears on the raw arm.
+#: How each field of a harness run's recorded configuration bears on the raw arm, by its
+#: path: every field of a model nested in the configuration has a decision of its own, so a
+#: field added inside one (an advisor among the models, a new bound) is named like one
+#: added at the top.
 #:
-#: - ``compared``: the raw arm records the same pin, and it must be equal;
+#: - ``compared``: the raw arm records the same pin, and it must be equal (a nested field
+#:   of a compared model is compared with it);
+#: - ``nested``: a model whose fields are each decided by their own path;
 #: - ``harness``: a part of the harness the raw arm is measured without;
 #: - ``intended``: the raw arm differs on purpose, as its own code says;
 #: - ``identity``: names the run, says nothing about how it answered;
@@ -49,7 +56,9 @@ from physgate.orchestrator.run_config import RunConfig, load_run_config
 #:   the pair is named whatever the raw arm did;
 #: - ``not_compared``: recorded by the harness run and not held against the raw arm, each
 #:   with its reason beside it.
-RunFieldClass = Literal["compared", "harness", "intended", "identity", "required", "not_compared"]
+RunFieldClass = Literal[
+    "compared", "nested", "harness", "intended", "identity", "required", "not_compared"
+]
 RUN_FIELDS: dict[str, RunFieldClass] = {
     "auth": "compared",
     "brief_sha256": "compared",
@@ -60,10 +69,24 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     # Compared as digests: the raw arm records its canaries' digest, never the canaries.
     "held_out_canaries": "compared",
     "max_output_tokens": "compared",
-    "models": "compared",
+    # The model a role session of the task's role is pinned to: the raw arm's ``model``.
+    "models": "nested",
+    "models.roles": "compared",
+    "models.decomposition": "harness",
+    "models.reviewers": "harness",
     "network": "compared",
     "os_layer": "compared",
+    "os_layer.state": "compared",
+    "os_layer.mechanism": "compared",
+    "os_layer.claude_version": "compared",
+    "os_layer.reason": "compared",
+    "os_layer.no_os_protection": "compared",
     "role_python": "compared",
+    "role_python.path": "compared",
+    "role_python.resolved": "compared",
+    "role_python.version": "compared",
+    "role_python.prefix": "compared",
+    "role_python.distributions": "compared",
     "thinking_display": "compared",
     "gate_mode": "harness",
     "escalation_backend": "harness",
@@ -72,6 +95,10 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     # the binary hide requests from the raw arm's cap. The turn and wall-clock bounds are
     # compared at the harness's times its repair budget, so neither binds before the cap.
     "bounds": "compared",
+    "bounds.binary_max_retries": "compared",
+    "bounds.infra_retry_delays_s": "compared",
+    "bounds.session_max_turns": "compared",
+    "bounds.session_wall_clock_s": "compared",
     # The hook layer's ceiling on what a session loads always; the raw agent loads nothing
     # always, so its ceiling is set where it never binds.
     "token_ceiling": "intended",
@@ -81,9 +108,15 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     # A reportable run starts from a clean checkout with a commit; a development run's
     # numbers are no baseline's.
     "harness": "required",
+    "harness.clean": "required",
+    # ``None`` exactly when the tree is clean.
+    "harness.uncommitted_sha256": "required",
+    "harness.commit": "identity",
     "reportable": "required",
     # The git the harness's own commands ran; the raw arm runs none of them.
     "git_binary": "not_compared",
+    "git_binary.path": "not_compared",
+    "git_binary.version": "not_compared",
     # The tier's digests as the harness run recorded them before it started; the raw arm
     # records the roots it withheld (``held_out``), not their digests.
     "held_out_sha256": "not_compared",
@@ -116,6 +149,26 @@ RAW_PINS = frozenset(
         "thinking_display",
     }
 )
+
+
+def run_field_paths(model: type[BaseModel] = RunConfig, prefix: str = "") -> set[str]:
+    """Every field of ``model`` by its path, and every field of every model nested in it.
+
+    A model is nested where a field's type names it: alone, optional, in a union or in a
+    container.
+    """
+    found = set()
+    for name, field in model.model_fields.items():
+        found.add(prefix + name)
+        for inner in _models_in(field.annotation):
+            found |= run_field_paths(inner, f"{prefix}{name}.")
+    return found
+
+
+def _models_in(annotation: object) -> list[type[BaseModel]]:
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return [annotation]
+    return [model for arg in get_args(annotation) for model in _models_in(arg)]
 
 
 class ComparisonError(PerRoleError):
@@ -241,7 +294,7 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
         raise ComparisonError(msg, raw_dir=str(raw_dir), error=repr(exc)) from None
     found = [
         f"run.json field {name!r}: no decision says how it bears on the raw arm"
-        for name in sorted(set(RunConfig.model_fields) - set(RUN_FIELDS))
+        for name in sorted(run_field_paths(RunConfig) - set(RUN_FIELDS))
     ]
     found += [
         f"{name}: the raw arm recorded a pin no comparison knows"
