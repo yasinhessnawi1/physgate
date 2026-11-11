@@ -117,3 +117,65 @@ def test_a_run_s_session_is_refused_an_author_s_stream_under_the_withheld_root(
         told = " ".join(r.last_user for r in api.requests)
     assert SECRET not in told, f"{name}: a run's session was shown what an author wrote"
     assert SECRET not in (work / "session" / "stdout.jsonl").read_text()
+
+
+def test_a_run_s_session_cannot_read_a_check_started_while_it_runs(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    """The work root is there before the run starts, so a check made under it later is denied.
+
+    The run withholds a version's tiers, the withheld root and the work root, made with the
+    role's root and empty at its start. Once the session's first command is running, a check
+    starts: its copy of the held-out tasks appears under the work root. The command, waiting,
+    then reads it by a path built at run time, which only the OS layer can refuse; on Linux
+    this is bubblewrap's deny of a directory that was there, and empty, when it started. A
+    file made just after the copy, outside every withheld root, is read, to show the command
+    ran after both were there. (What the run's sentinel then does with the check's new work
+    under a root the run withholds is not this row's question.)
+    """
+    import threading
+    import time
+
+    store = tmp_path.resolve() / "private" / "store"
+    root = _api("physgate.evaluation.tiers.store.make_role_root")(store / "control")
+    version = root / VERSION
+    for tier in ("held_out", "validation"):
+        (version / tier).mkdir(parents=True)
+    works = _api("physgate.evaluation.tiers.store.work_root")(store, "control")
+    assert works.is_dir() and not any(works.iterdir()), "the work root is not there, empty"
+    held = (version / "held_out", version / "validation", root / "withheld", works)
+    copy = works / "check-0" / "worktree" / "tasks.json"
+    shown = "a file outside every withheld root, read once the check had started"
+    beside = tmp_path.resolve() / "open" / "check-0" / "tasks.json"
+    command = (
+        f"sleep 4; d=$(printf %s {works.parent}/wo)rk; cat $d/check-0/worktree/tasks.json; "
+        f"cat {beside}"
+    )
+
+    def check_starts() -> None:
+        time.sleep(1.5)
+        for place, words in ((copy, SECRET), (beside, shown)):
+            place.parent.mkdir(parents=True)
+            place.write_text(words)
+
+    started: list[threading.Thread] = []
+
+    def on_request(_thread: str, _cwd: str, done: int) -> None:
+        if done == 0 and not started:
+            started.append(threading.Thread(target=check_starts, daemon=True))
+            started[0].start()
+
+    work = tmp_path / "work"
+    with serving(Script(main=[tool("Bash", command=command, description="x"), text("done")])) as (
+        api,
+        url,
+    ):
+        api.on_request = on_request
+        setup = _setup(install_bin, url, held)
+        if isinstance(setup.os_layer, Absent):
+            pytest.skip(f"only the OS layer refuses a path built at run time: {setup.os_layer}")
+        run_session("Read what you are asked to.", setup, work, cap=10**9)
+        told = " ".join(r.last_user for r in api.requests)
+    assert started and not started[0].is_alive(), "the check never started"
+    assert shown in told, "the command did not run after the check started"
+    assert SECRET not in told, "a run's session read a check started while it ran"

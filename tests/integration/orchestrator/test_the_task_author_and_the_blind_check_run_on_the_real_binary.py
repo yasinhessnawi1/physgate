@@ -1,10 +1,11 @@
 """The authoring runner and the blind check against the real binary, on the scripted endpoint.
 
 No model is called. The scripted author copies twenty-four prepared tasks into its worktree
-after trying to read what lies inside the role's root, which it is refused; the runner then
+after trying to read what lies in another role's root, which it is refused; the runner then
 writes them as a version of the tier-set store. The scripted checker writes its booleans on
-a version's held-out tier. Runs in the evaluation environment, since the runner holds every
-task to the control scorer.
+a version's held-out tier, after trying to write anywhere else in the store, which it is
+refused. Runs in the evaluation environment, since the runner holds every task to the
+control scorer: on the development machine, and in CI's OS-layer job, which installs it.
 """
 
 from __future__ import annotations
@@ -156,8 +157,9 @@ def test_an_authoring_session_is_refused_the_protected_root_and_its_tasks_are_sp
     """
     store = tmp_path / "private" / "store"
     root = store / "control"
-    (root / "firmware").mkdir(parents=True)
-    (root / "firmware" / "item.json").write_text(json.dumps({"item": OTHER_TIER}))
+    other = store / "firmware" / "withheld" / "item.json"
+    other.parent.mkdir(parents=True)
+    other.write_text(json.dumps({"item": OTHER_TIER}))
     prepared = _prepared(tmp_path / "prepared")
     halves = [sorted(prepared.iterdir())[:12], sorted(prepared.iterdir())[12:]]
     (tmp_path / "scratch").mkdir()
@@ -175,13 +177,13 @@ def test_an_authoring_session_is_refused_the_protected_root_and_its_tasks_are_sp
         worktree = plan.work / "worktree"
         copies = " && ".join(f"cp -R {d} {worktree}/" for d in half)
         steps = [
-            tool("Bash", command=f"cat {root}/firmware/item.json", description="x"),
-            tool("Read", file_path=str(root / "firmware" / "item.json")),
+            tool("Bash", command=f"cat {other}", description="x"),
+            tool("Read", file_path=str(other)),
             tool("Bash", command=copies, description="x"),
             text("done"),
         ]
         with serving(Script(main=steps)) as (api, url):
-            out = author(plan, _setup(install_bin, url, root))
+            out = author(plan, _setup(install_bin, url, store))
             told = " ".join(r.last_user for r in api.requests)
         assert OTHER_TIER not in told
         assert f'beginning with "b{n + 1}."' in api.requests[0].last_user
@@ -194,8 +196,11 @@ def test_an_authoring_session_is_refused_the_protected_root_and_its_tasks_are_sp
     assert outs[0]["status"] == "pooled" and outs[0]["pool"] == 12
     assert outs[1]["status"] == "split" and outs[1]["pool"] == 0
     assert outs[1]["held_out_count"] == 8 and outs[1]["held_out_check"]["references_held"] == 8
-    assert not (root / "pool").exists() and (root / outs[1]["version"] / "tierset.json").is_file()
-    streams = sorted((root / "author").glob("*/stdout.jsonl"), key=lambda p: p.stat().st_mtime)
+    assert not (root / "withheld" / "pool").exists()
+    assert (root / outs[1]["version"] / "tierset.json").is_file()
+    streams = sorted(
+        (root / "withheld" / "author").glob("*/stdout.jsonl"), key=lambda p: p.stat().st_mtime
+    )
     assert len(streams) == 2
     for stream in streams:
         text_ = stream.read_text()
@@ -216,6 +221,8 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
     store = tmp_path / "private" / "store"
     root = store / "control"
     root.mkdir(parents=True)
+    (store / "firmware" / "withheld").mkdir(parents=True)
+    (store / "firmware" / "withheld" / "item.json").write_text(json.dumps({"item": OTHER_TIER}))
     prepared = _prepared(tmp_path / "prepared")
     manifest, _ = write_version(
         root,
@@ -237,11 +244,20 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
     keys = sorted(bundle(tier))
     answers = {k: dict.fromkeys(QUESTIONS, True) for k in keys}
     answers[keys[0]]["answerable_as_asked"] = False
-    # The check works in the role's work root, and withholds all of the role's root but it.
+    # The check works in the role's work root, and withholds all of the store but it.
     work = work_root(store, "control") / "check"
     held = tuple(str(p) for p in check_roots(store, "control", work))
+    planted = [
+        root / "planted_tool.json",
+        work_root(store, "control") / "copy.json",
+        store / "planted.json",
+        store / "firmware" / "planted.json",
+    ]
     steps = [
         tool("Read", file_path=str(work / "worktree" / "tasks.json")),
+        tool("Read", file_path=str(store / "firmware" / "withheld" / "item.json")),
+        *[tool("Write", file_path=str(p), content='{"a": "copy"}') for p in planted],
+        tool("Bash", command=f"cp {work}/worktree/tasks.json {root}/planted.sh", description="x"),
         tool(
             "Write", file_path=str(work / "worktree" / "answers.json"), content=json.dumps(answers)
         ),
@@ -260,6 +276,11 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
             cap=10**9,
         )
         argv_prompt = api.requests[0].last_user if api.requests else ""
+        told = " ".join(r.last_user for r in api.requests)
     assert out["answered"] and out["tasks"] == 8 and out["flagged"] == [keys[0]]
     assert "Hold the unstable plant" not in argv_prompt
+    assert OTHER_TIER not in told, "the check read another role's root"
+    assert not [p for p in [*planted, root / "planted.sh"] if p.exists()], (
+        "the check's session wrote in the store outside its own work"
+    )
     assert not work.exists()
