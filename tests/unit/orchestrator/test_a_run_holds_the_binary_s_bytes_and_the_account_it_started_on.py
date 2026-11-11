@@ -27,12 +27,14 @@ import physgate.evaluation.requirements as evaluation_requirements
 import physgate.orchestrator.cli as orchestrator_cli
 from physgate.cli import main
 from physgate.evaluation.observe.compare import drift
+from physgate.evaluation.observe.rerun import UNRECORDED_ACCOUNT, RerunPlan
 from physgate.orchestrator import binaries
 from physgate.orchestrator.binaries import KNOWN_BINARIES, ClaudeBinary, KnownBinary
 from physgate.orchestrator.credentials import Credential, fingerprint
 from physgate.orchestrator.exceptions import InvocationError, RunConfigError
 from physgate.orchestrator.run_config import (
     RunAccount,
+    RunConfig,
     harness_state,
     load_run_config,
     require_same_account,
@@ -437,3 +439,27 @@ def test_run_and_resume_refuse_another_account_s_credential(
         secret=OTHER,
     )
     assert "account 'seat-2' was recorded with" in error["error"]
+
+
+def test_a_rerun_names_the_recorded_account_and_never_its_fingerprint_or_binary(
+    tmp_path: Path,
+) -> None:
+    def plan(config: RunConfig) -> RerunPlan:
+        return RerunPlan(
+            recorded=config,
+            brief=tmp_path / "brief.md",
+            run_id="rerun",
+            run_dir=tmp_path / "run",
+            target=tmp_path / "t",
+            install=tmp_path / "i",
+            review_root=tmp_path / "rs",
+        )
+
+    recorded = make_config(
+        binary=ClaudeBinary(sha256="c" * 64, platform="linux-x64"),
+        account=RunAccount(name="seat-3", token_sha256_prefix="0123456789ab"),
+    )
+    params = plan(recorded).params()
+    assert params["account"] == "seat-3"
+    assert "binary" not in params and "0123456789ab" not in json.dumps(params)
+    assert plan(make_config()).params()["account"] == UNRECORDED_ACCOUNT
