@@ -15,7 +15,7 @@ from physgate.evaluation.per_role.assemble import (
     raw_ended_by_infrastructure,
     raw_trial,
 )
-from physgate.evaluation.per_role.task import parse_task
+from physgate.evaluation.tiers.task import parse_task
 from physgate.orchestrator.events import Halted, ReviewRan
 from physgate.orchestrator.protocols import ReviewResult
 

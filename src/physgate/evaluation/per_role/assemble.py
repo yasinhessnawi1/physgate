@@ -27,13 +27,13 @@ from typing import Any
 
 from physgate.evaluation.observe.cost import CostLine, DatedSheet
 from physgate.evaluation.per_role.report import ControlFlags, Outcome, TrialRecord
-from physgate.evaluation.per_role.task import Task
 from physgate.evaluation.per_role.trials import (
     control_trial,
     cost_of_line,
     gate_and_reviews,
     raw_cost,
 )
+from physgate.evaluation.tiers.task import Task
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.catches import parse_time
 from physgate.orchestrator.dispatch import read_captured

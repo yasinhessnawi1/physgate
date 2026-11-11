@@ -24,7 +24,7 @@ from physgate.evaluation.per_role.report import (
     ReportError,
     ReviewCatches,
 )
-from physgate.evaluation.per_role.task import Task
+from physgate.evaluation.tiers.task import Task
 from physgate.orchestrator.catches import catches
 from physgate.orchestrator.dispatch import read_captured
 from physgate.orchestrator.events import Event, ReviewRan

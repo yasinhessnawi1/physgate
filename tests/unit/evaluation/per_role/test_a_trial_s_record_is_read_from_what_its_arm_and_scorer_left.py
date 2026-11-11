@@ -10,13 +10,13 @@ from task_fixtures import external_task, own_task
 
 from physgate.evaluation.observe.cost import load_price_sheet
 from physgate.evaluation.per_role.report import ReportError
-from physgate.evaluation.per_role.task import parse_task
 from physgate.evaluation.per_role.trials import (
     control_trial,
     firmware_trial,
     gate_and_reviews,
     raw_cost,
 )
+from physgate.evaluation.tiers.task import parse_task
 from physgate.orchestrator.events import ReviewRan
 from physgate.orchestrator.gate_events import GateEvent
 from physgate.orchestrator.protocols import ReviewResult

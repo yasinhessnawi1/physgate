@@ -9,7 +9,7 @@ import pytest
 from task_fixtures import own_task
 
 from physgate.evaluation.per_role.arms.compare import differences
-from physgate.evaluation.per_role.task import parse_task
+from physgate.evaluation.tiers.task import parse_task
 from physgate.hooks.settings import PROFILE_TOOLS
 from physgate.orchestrator.run_config import RunConfig
 
