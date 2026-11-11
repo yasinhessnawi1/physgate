@@ -25,15 +25,39 @@ pytestmark = pytest.mark.integration
 
 ROLE = set(PROFILE_TOOLS["role"])
 REFUSED = "is not available to a role session"
-#: How the binary itself refuses a call whose input its own check rejects, before any hook.
-INPUT_REFUSED = ("InputValidationError", "Invalid ")
+#: How the binary itself answers a call it refuses before any hook: its own check of the input.
+INPUT_REFUSED = "<tool_use_error>"
 
-#: What each pin offers a role session beyond its list, measured under the pin's own environment.
-OFFERED_BEYOND: dict[str, list[str]] = {"2.1.301": [], "2.1.322": []}
-#: The same on each pin with the traffic-off switches 2.1.301's sessions carry.
-OFFERED_BEYOND_TRAFFIC_OFF: dict[str, list[str]] = {"2.1.301": [], "2.1.322": []}
-#: Per pin, the tools whose minimal call the binary's own input check refuses before any hook.
-REFUSED_BY_INPUT_CHECK: dict[str, list[str]] = {"2.1.301": [], "2.1.322": []}
+#: Measured on CI (linux-x64, 11.11.2026): what each pin offers a role session beyond its list,
+#: under the pin's own switches, and under the traffic-off switches 2.1.301's sessions carry.
+_BEYOND_2_1_301 = [
+    "Agent", "CronCreate", "CronDelete", "CronList", "EnterWorktree", "ExitWorktree",
+    "ListAgents", "ReportFindings", "ScheduleWakeup", "SendMessage", "Skill", "Task",
+    "TaskStop", "WebFetch", "WebSearch", "Workflow",
+]  # fmt: skip
+_NEW_SINCE_2_1_301 = ["DeferredToolPlaceholder", "Monitor", "ToolSearch"]
+_ONLY_WITH_TRAFFIC = ["DesignSync", "PushNotification"]
+OFFERED_BEYOND: dict[str, list[str]] = {
+    "2.1.301": _BEYOND_2_1_301,
+    "2.1.322": sorted([*_BEYOND_2_1_301, *_NEW_SINCE_2_1_301, *_ONLY_WITH_TRAFFIC]),
+}
+OFFERED_BEYOND_TRAFFIC_OFF: dict[str, list[str]] = {
+    "2.1.301": _BEYOND_2_1_301,
+    "2.1.322": sorted([*_BEYOND_2_1_301, *_NEW_SINCE_2_1_301]),
+}
+#: Per pin, the tools whose call with a minimal input the binary refuses itself, before any hook
+#: is asked (an input its own check rejects, a job or skill that does not exist, no such tool).
+REFUSED_BY_INPUT_CHECK: dict[str, list[str]] = {
+    "2.1.301": [
+        "CronCreate", "CronDelete", "ExitWorktree", "Skill", "Task", "TaskStop", "WebFetch",
+        "WebSearch", "Workflow",
+    ],
+    "2.1.322": [
+        "CronCreate", "CronDelete", "DeferredToolPlaceholder", "DesignSync", "ExitWorktree",
+        "Monitor", "PushNotification", "SendMessage", "Skill", "Task", "TaskStop", "WebFetch",
+        "WebSearch", "Workflow",
+    ],
+}  # fmt: skip
 
 
 def _offered(
@@ -88,12 +112,14 @@ def test_every_tool_offered_beyond_the_list_is_refused_by_the_closed_list_hook(
     calls = [tool(name, **_minimal(schemas.get(name))) for name in beyond]
     run = run_session(tmp_path / "called", Script(main=[*calls, text("end")]))
     outcome: dict[str, str] = {}
+    said: dict[str, Any] = {}
     for i, name in enumerate(beyond, start=1):
         told = run.told_after(i)
         if REFUSED in told:
             outcome[name] = "refused by the hook"
-        elif any(mark in told for mark in INPUT_REFUSED):
+        elif told.startswith(INPUT_REFUSED):
             outcome[name] = "refused by the binary's input check"
+            said[name] = {"told": told[:300], "schema": schemas.get(name)}
         else:
             outcome[name] = f"told: {told[:200]}"
     # Every call is refused before its tool runs: by the closed-list hook, or, where a minimal
@@ -105,4 +131,30 @@ def test_every_tool_offered_beyond_the_list_is_refused_by_the_closed_list_hook(
         else "refused by the hook"
         for name in beyond
     }
-    assert outcome == expected, json.dumps({version: outcome})
+    assert outcome == expected, json.dumps({version: outcome, "input check": said})
+
+
+#: A valid input for each tool new since 2.1.301, from its own schema as 2.1.322 offers it, so
+#: the call passes the binary's own check and reaches the hooks.
+VALID_INPUT: dict[str, dict[str, Any]] = {}
+NEW_TOOLS = ("Monitor", "DesignSync", "PushNotification")
+
+
+def test_each_tool_new_since_2_1_301_given_a_valid_input_is_refused_by_the_closed_list_hook(
+    tmp_path: Path,
+) -> None:
+    beyond, schemas = _offered(tmp_path / "offered")
+    offered = [name for name in NEW_TOOLS if name in beyond]
+    if pinned_version() == "2.1.301":
+        assert offered == []  # none of them exists on 2.1.301
+        return
+    assert offered == list(NEW_TOOLS), offered
+    calls = [tool(name, **VALID_INPUT.get(name, {})) for name in offered]
+    run = run_session(tmp_path / "called", Script(main=[*calls, text("end")]))
+    told = {name: run.told_after(i) for i, name in enumerate(offered, start=1)}
+    started = run.hook_commands_started()
+    outcome = {
+        name: (REFUSED in said, started[f"PreToolUse:{name}"] == 1) for name, said in told.items()
+    }
+    shown = {name: {"told": said[:300], "schema": schemas.get(name)} for name, said in told.items()}
+    assert outcome == dict.fromkeys(offered, (True, True)), json.dumps(shown)

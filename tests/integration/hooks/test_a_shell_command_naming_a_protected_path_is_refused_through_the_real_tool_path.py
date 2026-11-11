@@ -78,9 +78,14 @@ def test_an_append_to_the_graph_journal_is_refused(tmp_path: Path) -> None:
     assert (tmp_path / "outside" / "store" / "journal.jsonl").read_text() == '{"rev":1}\n'
 
 
-#: Measured on 2.1.322 under its own switches (background tasks off): what a call that still
-#: asks for the background is told, and whether its command wrote.
-BACKGROUND_FLAG_ON_THE_NEW_PIN: dict[str, object] = {}
+#: Measured on 2.1.322 under its own switches (background tasks off; CI, linux-x64, 11.11.2026):
+#: the flag is no longer in the tool's schema, so the binary's own input check refuses the call
+#: before any hook, and its command never runs.
+BACKGROUND_FLAG_ON_THE_NEW_PIN: dict[str, object] = {
+    "told": "<tool_use_error>InputValidationError: Bash failed due to the following issue:\n"
+    "An unexpected parameter `run_in_background` was provided</tool_use_error>",
+    "written": False,
+}
 
 
 def test_a_backgrounded_write_is_refused_either_way(tmp_path: Path) -> None:
