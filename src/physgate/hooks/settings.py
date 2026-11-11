@@ -721,6 +721,25 @@ def render_settings(
     return settings
 
 
+def _merge(settings: dict[str, object], more: Mapping[str, object]) -> None:
+    """Merge ``more`` into ``settings``: a permissions block adds to theirs, its deny included.
+
+    Never a plain update: a ``permissions`` key of ``more`` would replace the whole block, and the
+    web tools' deny with it.
+    """
+    for key, value in more.items():
+        own = settings.get(key)
+        if key != "permissions" or not isinstance(value, Mapping) or not isinstance(own, dict):
+            settings[key] = value
+            continue
+        for name, rule in value.items():
+            held = own.get(name)
+            if name == "deny" and isinstance(held, list) and isinstance(rule, list):
+                own[name] = [*held, *(r for r in rule if r not in held)]
+            else:
+                own[name] = rule
+
+
 def _dump(value: object) -> bytes:
     return (json.dumps(value, sort_keys=True, indent=2) + "\n").encode()
 
@@ -882,7 +901,7 @@ def install(
             claude_temp=request.shared_claude_temp,
             network=request.os_layer_network,
         )
-        settings.update(policy.settings)
+        _merge(settings, policy.settings)
     settings_path = target / SETTINGS_NAME
     settings_path.write_bytes(_dump(settings))
     unenforced = (
