@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from physgate.orchestrator import binaries
 from physgate.orchestrator.binaries import ClaudeBinary
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import probe_interpreter
@@ -170,7 +171,7 @@ def test_the_run_records_what_it_measured_never_what_the_parameters_claim(
     absent = Absent(reason="stand-in: not measured here")
     monkeypatch.setattr(cli, "judge_here", lambda **_: absent)
     monkeypatch.setattr(cli, "claude_binary", lambda: "/nonexistent/claude")
-    monkeypatch.setattr(cli.binaries, "measure", lambda _: STAND_IN_BINARY)
+    monkeypatch.setattr(binaries, "measure", lambda _: STAND_IN_BINARY)
     cfg = cli._config(_params(tmp_path, str(BASE)), CREDENTIAL)  # type: ignore[arg-type]
     assert cfg.role_python == measure(str(BASE), probe=probe_interpreter, harness=REPO)
     claimed = {"path": str(BASE), "resolved": str(BASE), "version": "9.9", "prefix": "/"}

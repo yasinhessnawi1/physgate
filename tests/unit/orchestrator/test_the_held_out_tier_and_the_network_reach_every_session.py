@@ -20,7 +20,7 @@ import pytest
 from orch_helpers import SCRIPTED_BOUNDS, make_config
 from pydantic import ValidationError
 
-from physgate.orchestrator import dispatch
+from physgate.orchestrator import binaries, dispatch
 from physgate.orchestrator.binaries import ClaudeBinary
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
@@ -253,7 +253,7 @@ def test_whether_none_is_enforced_is_measured_never_taken_from_the_parameters(
     monkeypatch.setattr(cli, "judge_here", lambda **_: ABSENT)
     monkeypatch.setattr(cli, "claude_binary", lambda: "/nonexistent/claude")
     monkeypatch.setattr(
-        cli.binaries, "measure", lambda _: ClaudeBinary(sha256="a" * 64, platform="linux-x64")
+        binaries, "measure", lambda _: ClaudeBinary(sha256="a" * 64, platform="linux-x64")
     )
     recorded = json.loads(make_config().model_dump_json())
     measured: tuple[str, ...] = (
