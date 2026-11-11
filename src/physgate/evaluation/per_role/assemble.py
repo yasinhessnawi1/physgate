@@ -11,7 +11,8 @@ scored, each arm's own records are read for what makes its answer untrustworthy:
 - the raw arm: a held-out canary showed in its stream (or it cannot say whether one
   did, on a held-out task), its token watch failed, stalled or found no stream, its
   end check refused the session, or its stream was written to after its result;
-- the harness arm: the run recorded a held-out read; or, on a held-out task, the run
+- the harness arm: its event log is empty or ends in a cut-off line, where an incident
+  may have been; the run recorded a held-out read; or, on a held-out task, the run
   could not have recorded one, by the raw arm's rule: it did not look for the task's
   canary, a stream of the run was never scanned (a session that never ended, a leftover
   whose stream was gone at a resume, a session whose stream is gone), or a fresh scan of
@@ -119,8 +120,12 @@ class TrialExcludedError(ReportError):
     """A trial's own records exclude it: there is nothing to decide about how it ended."""
 
 
-def harness_run(run_dir: Path) -> tuple[RunConfig, list[Event]]:
+def harness_run(run_dir: Path) -> tuple[RunConfig, list[Event], str | None]:
     """A harness run's recorded configuration and its event log, read from ``run_dir``.
+
+    The third value says why the log cannot be taken whole, or is ``None``. An empty log
+    holds no record of the run, and a cut-off last line is never dropped silently: an
+    incident halts the run, so the last line is where a killed orchestrator's would be.
 
     Raises:
         RunConfigError: the run recorded no valid configuration.
@@ -128,7 +133,12 @@ def harness_run(run_dir: Path) -> tuple[RunConfig, list[Event]]:
     """
     config = load_run_config(run_dir / "run.json")
     log = run_dir / "events.jsonl"
-    return config, parse_events(log.read_bytes(), log=str(log))
+    data = log.read_bytes()
+    if not data:
+        return config, [], "events: the run's event log is empty"
+    if not data.endswith(b"\n"):
+        return config, [], "events: the run's event log ends in a cut-off line"
+    return config, parse_events(data, log=str(log)), None
 
 
 def _streams(run_dir: Path) -> list[Path]:
@@ -249,8 +259,8 @@ def harness_ended_by_infrastructure(run_dir: Path, task: Task, answer_found: boo
     Raises:
         TrialExcludedError: the run's records exclude the trial.
     """
-    config, events = harness_run(run_dir)
-    excluded = harness_exclusion(config, events, run_dir, task)
+    config, events, unread = harness_run(run_dir)
+    excluded = unread or harness_exclusion(config, events, run_dir, task)
     if excluded is not None:
         raise TrialExcludedError(excluded)
     if answer_found:
@@ -334,11 +344,11 @@ def harness_trial(
         ReportError: the task is not a control task, or the cost line is not this run's.
     """
     _control_only(task)
-    config, events = harness_run(run_dir)
+    config, events, unread = harness_run(run_dir)
     if cost.manifest_id != manifest_id or any(e.run_id != cost.run_id for e in events):
         msg = "the cost line is not of the run whose events it is assembled with"
         raise ReportError(msg, task=task.id, cost_run=cost.run_id)
-    excluded = harness_exclusion(config, events, run_dir, task)
+    excluded = unread or harness_exclusion(config, events, run_dir, task)
     if excluded is not None:
         return ExcludedTrial(suite=suite, task=task.id, arm=arm, trial=trial, reason=excluded)
     outcome, flags = _outcome(task, score, unscored)
