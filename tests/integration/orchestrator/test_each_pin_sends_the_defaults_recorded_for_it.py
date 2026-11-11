@@ -40,6 +40,14 @@ pytestmark = [
 ]
 
 
+#: The evaluation pins: implementers and the decomposition on Opus 5.5, reviewers on Sonnet 5.
+EVALUATION_MODELS = {
+    "decomposition": "claude-opus-5-5",
+    "roles": {"electrical": "claude-opus-5-5"},
+    "reviewers": {"electrical": "claude-sonnet-5"},
+}
+
+
 def _sent(request: Recorded, *, keep_display: bool) -> dict[str, Any]:
     thinking = dict(request.thinking or {})
     if not keep_display:
@@ -69,7 +77,9 @@ def test_the_decomposition_and_a_role_session_send_what_their_pin_s_entry_record
     run_dir = tmp_path / "run"
     install = tmp_path / "install"
     prepare_install(install, Path(__file__).resolve().parents[3])
-    params = {**run_params(config()), "auth": "subscription"}
+    # The evaluation's own model strings, which the entries were measured on: the beta flags a
+    # request carries depend on its model as well as on the binary's version.
+    params = {**run_params(config()), "auth": "subscription", "models": EVALUATION_MODELS}
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -85,9 +95,12 @@ def test_the_decomposition_and_a_role_session_send_what_their_pin_s_entry_record
         spec = run_dir / "worktrees" / subtask / ".physgate" / "specs" / f"{subtask}.md"
         api.script = Script(main=[tool("Read", file_path=str(spec)), text("done")])
         common = ["--run-dir", str(run_dir), "--target", str(repo), "--install", str(install)]
-        registrations = Registrations(gate=Gate(), reviewers={"electrical": Reviewer()})
-        main(["run", *common, "--review-root", str(tmp_path / "rs")], registrations)
-        capsys.readouterr()
+        registrations = Registrations(
+            gate=Gate(), reviewers={"electrical": Reviewer(model="claude-sonnet-5")}
+        )
+        code = main(["run", *common, "--review-root", str(tmp_path / "rs")], registrations)
+        out = capsys.readouterr()
+        assert code == 0, out.err
         session = api.requests[len(decomposition) :]
     assert len(decomposition) == 1 and len(session) >= 2  # the call, then a read and an answer
     assert all(r.carried_oauth_login for r in [*decomposition, *session])
