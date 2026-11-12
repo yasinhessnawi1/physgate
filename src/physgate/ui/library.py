@@ -56,6 +56,7 @@ from pydantic import ValidationError
 from physgate.gate.bounds_table import BOUNDS_NAME, Bounds, Envelope, Range, load_table
 from physgate.gate.catalogue import STORE_CLASSES, catalogue_digest, kind_of
 from physgate.gate.exceptions import GateError
+from physgate.gate.laws import LawTable
 from physgate.knowledge.exceptions import KnowledgeError, RoleNameError
 from physgate.knowledge.loader import always_loaded
 from physgate.knowledge.promote import (
@@ -100,6 +101,11 @@ CARRIAGE_RETURN = "\u240d"
 
 #: The line a unified diff puts after a line that ends the file with no newline.
 NO_NEWLINE = "\\ No newline at end of file"
+
+#: The law table the screen's digest is taken with: none. The table is a file outside the roots a
+#: request may read, so this digest is the catalogue's alone, which is what a gate result's digest
+#: is while no law is in the table; a result's own digest also names the laws that judged it.
+NO_LAWS = LawTable(laws={}, sha256="", path="")
 
 #: How the request's guard ends its refusal of a read outside every root it may read.
 GUARD_READ_REFUSAL = "outside the roots it may read"
@@ -685,5 +691,5 @@ def ratings(context: Context, params: Mapping[str, str]) -> dict[str, Any]:
             }
             for store in STORE_CLASSES
         ],
-        "catalogue_digest": catalogue_digest(),
+        "catalogue_digest": catalogue_digest(NO_LAWS),
     }

@@ -37,6 +37,7 @@ from ui_rig import RECORDER, Live, context_over, fake_ui, serving, snapshot, wri
 
 from physgate.gate.bounds_table import load_table
 from physgate.gate.catalogue import STORE_CLASSES, catalogue_digest
+from physgate.gate.laws import LawTable
 from physgate.knowledge.promote import _apply, canaries
 from physgate.knowledge.staging import Candidate
 from physgate.orchestrator.credentials import KEY_FILE, KEY_HELPER, LOGIN_FILE
@@ -141,6 +142,9 @@ def _every_target() -> list[str]:
         )
     ]
     return [LISTING, STAGED, RATINGS, *files, *candidates]
+
+
+NO_LAWS = LawTable(laws={}, sha256="", path="")
 
 
 def _row(listing: dict[str, Any], kind: str, role: str) -> dict[str, Any]:
@@ -358,7 +362,7 @@ def test_the_ratings_carry_every_value_with_its_unit_and_its_source(
     for store, served in zip(STORE_CLASSES, sent, strict=True):
         assert served["fastest_discharge"] == {"value": store.per_hour, "unit": "1/h"}
         assert served["source"] == store.source
-    assert answer["catalogue_digest"] == catalogue_digest()
+    assert answer["catalogue_digest"] == catalogue_digest(NO_LAWS)
 
 
 def test_with_no_library_every_library_route_answers_404(world: dict[str, Any]) -> None:

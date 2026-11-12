@@ -300,8 +300,8 @@ def test_the_coverage_on_run_4_is_the_approved_row_set_s() -> None:
         "by qualifier": 32,
         "sign check": 37,
         "envelope": 2,
-        "unchecked": 92,
-        "unit refused by parse": 4,
+        "unchecked": 93,
+        "unit refused by parse": 3,
     }
     assert len({r["name"] for r in VALUES if kind_of(r["name"]) is not None}) == 87
 

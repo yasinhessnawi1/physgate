@@ -78,12 +78,14 @@ INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c3296
 #: Since the law library's rows (07.11.2026), the catalogue sentence also holds their twelve names
 #: and two kind labels. Before those rows: f42a779e91ee... and 4faaf7ada5eb..., in this order.
 #: Since check 4 gained the peak headroom (07.11.2026), the relations sentence holds its statement
-#: too; with the rows alone: 144a71155f84... and 6808f856328d..., in this order.
+#: too; with the rows and the peak headroom, before the sentence on how a unit is spelt:
+#: 58ac53907fa6... and 1545282914c0..., in this order; with the rows alone: 144a71155f84... and 6808f856328d...,
+#: in this order.
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "58ac53907fa64ce226e5c913d1c1ef33664b6a6b5a6ebca73153bb6ef650ae1d"
+        "8ee1fd6a05c3024fbfd218f6b5c22c5ca4071d5a0c78d7e5f4b206776c9d25f2"
     ),
-    BOTH: "1545282914c03f71abe7c276f90c5be81600bc57b88ab069e7a6300fc42888b0",
+    BOTH: "165ceded3341dcc182233ee0a5143f39e0d1149be6a8655d40523998bce1f908",
 }
 
 
