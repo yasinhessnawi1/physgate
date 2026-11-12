@@ -18,17 +18,16 @@ from typing import Any
 import pytest
 from report_fixtures import design, trials
 
+from physgate.evaluation.gaps.stats import cluster_bootstrap, wilson
 from physgate.evaluation.per_role import cli
 from physgate.evaluation.per_role.report import (
     FIRMWARE_TIMING,
     GATE_SCOPE,
     ReportError,
     TrialRecord,
-    cluster_bootstrap,
     parse_design,
     parse_trials,
     render,
-    wilson,
 )
 
 GOLDEN = Path(__file__).parent / "golden" / "per_role_report.md"

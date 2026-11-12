@@ -29,10 +29,13 @@ const NO_VERDICT_CAUSES: Readonly<Record<string, string>> = {
   blocking_spec_defect: "the specification lacks an input",
 };
 
-function recorded(mode: GateMode, result: LedgerLine["gate"], gate: boolean) {
+function recorded(mode: GateMode, result: LedgerLine["review"], gate: boolean) {
   if (result === null) return <span className="pg-muted">none recorded</span>;
   if (result === "skipped")
     return <span className="pg-muted">{gate ? "skipped · gate off" : "skipped"}</span>;
+  // A review that blocked reached no verdict: a state, drawn neutral, never a pass or a fail.
+  if (result === "blocked")
+    return <span className="pg-status">blocked: {NO_VERDICT_CAUSES.blocking_spec_defect}</span>;
   return gate ? <GateOutcome mode={mode} outcome={result} /> : <VerdictBadge verdict={result} />;
 }
 

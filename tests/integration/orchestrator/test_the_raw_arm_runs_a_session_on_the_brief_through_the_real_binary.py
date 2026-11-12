@@ -15,7 +15,8 @@ import pytest
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
 from physgate.evaluation.per_role.arms.raw import RawSetup, run_raw
-from physgate.evaluation.per_role.task import parse_task
+from physgate.evaluation.tiers.task import parse_task
+from physgate.hooks.settings import CONFIG_NAME, PROFILE_TOOLS
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.decompose import binary_version
 from physgate.orchestrator.install import prepare_install
@@ -112,7 +113,11 @@ def test_a_raw_session_answers_on_its_brief_and_is_recorded(
         record = run_raw(_task(), _setup(install_bin, url, held), work, cap=10**9)  # type: ignore[arg-type]
     assert record["end"] == "ended" and record["answer"] == "found"
     assert json.loads((work / "answer" / "answer.json").read_text()) == ANSWER
-    assert record["tokens"] > 0 and record["pins"]["tools"]
+    assert record["tokens"] > 0 and record["pins"]["advisor"] is None
+    # Where the comparison reads the tools the session was given: its generated settings.
+    installed = json.loads((work / "session" / "session" / CONFIG_NAME).read_text())
+    assert installed["profile"] == "baseline"
+    assert sorted(installed["tools_allowed"]) == sorted(PROFILE_TOOLS["baseline"])
     assert json.loads((work / "raw.json").read_text())["task"] == "control.raw_probe"
 
 

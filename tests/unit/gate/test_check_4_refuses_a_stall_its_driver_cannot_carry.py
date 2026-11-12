@@ -19,7 +19,7 @@ from physgate.gate.catalogue import RELATIONS
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
 from physgate.gate.runner import PhysicsGate
-from physgate.orchestrator.protocols import PowerDetails, Scope
+from physgate.orchestrator.protocols import PowerDetails, Scope, UncheckedDetails
 
 DRIVER = "electrical.driver"
 
@@ -163,4 +163,11 @@ def test_a_limit_past_a_regulator_that_declares_none_is_not_read_a_named_limit(
         constrains=["electrical.reg"],
     )
     ran = check(tmp_path, "system", driver(1), regulator, behind)
-    assert ran.observations == () and ran.evaluated == 0
+    # The limit two hops away is still not read; the stall it leaves unbounded is recorded
+    # as unchecked, naming the limit it lacks, never passed.
+    assert ran.evaluated == 0
+    assert [(o.outcome, o.node) for o in ran.observations] == [
+        ("unchecked", "electrical.motor_left")
+    ]
+    assert isinstance(ran.observations[0].details, UncheckedDetails)
+    assert ran.observations[0].details.quantities == ("current_limit",)

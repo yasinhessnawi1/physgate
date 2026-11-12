@@ -2,7 +2,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type { RunEvent } from "../../api/events";
+import { type RunEvent, runEvent } from "../../api/events";
 import { RowView } from "../common/RowView";
 import { type Row, rowsOf } from "../common/rows";
 import { Reviews } from "./AttemptInspector";
@@ -425,5 +425,67 @@ describe("a finding is shown once, a short first line first and the rest expanda
     expect(rowAt(short, 5).more).toBeNull();
     expect(rowAt(short, 5).sentence).toBe("The reviewer refused attempt 1: Too hot.");
     expect(rowAt(short, 6).sentence).toContain("rejected: ");
+  });
+});
+
+describe("the completion and contract lines are read and shown, never as another kind", () => {
+  const side = (module: string, subtask: string, role: string) => ({
+    module,
+    subtask_id: subtask,
+    role,
+  });
+  const pair = {
+    producer: side("drive", "drive-0a1b2c", "control"),
+    consumer: side("fw", "fw-3d4e5f", "firmware"),
+    interfaces: ["iface.drive"],
+  };
+  const raw = [
+    { kind: "subtask_planned", subtask_id: "drive-0a1b2c", assigned_role: "control" },
+    { kind: "subtask_planned", subtask_id: "integ", assigned_role: "integration" },
+    { kind: "contract_pairs_planned", pairs: [pair] },
+    {
+      kind: "contract_tested",
+      result: { pair, interfaces: [], clauses_checked: 1, outcome: "fail" },
+      first: true,
+      commit: "a".repeat(40),
+      revision: 3,
+    },
+    { kind: "integration_state_issued", subtask_id: "integ", attempt: 1, length: 812 },
+    {
+      kind: "completion_declared",
+      subtask_id: "integ",
+      attempt: 1,
+      modules: ["drive-0a1b2c"],
+      declaration_sha256: "d".repeat(64),
+    },
+    { kind: "module_completed", subtask_id: "drive-0a1b2c", declared_by: "integ", attempt: 1 },
+  ].map((line, seq) => runEvent({ ...line, ...at(seq) }));
+  const models = { ...MODELS, roleModels: { integration: "claude-sonnet-5" } };
+  const rows = rowsOf(raw, models);
+
+  it("each line keeps its own kind", () => {
+    expect(raw.map((e) => e.kind)).toEqual([
+      "subtask_planned",
+      "subtask_planned",
+      "contract_pairs_planned",
+      "contract_tested",
+      "integration_state_issued",
+      "completion_declared",
+      "module_completed",
+    ]);
+  });
+
+  it("each is a row with its sentence, its actor and its meta", () => {
+    expect(rows.slice(2).map((r) => [r.sentence, r.actor?.name, r.meta])).toEqual([
+      ["Planned 1 contract pair", "Orchestrator", "drive to fw"],
+      ["The contract of drive to fw failed", "Orchestrator", "first test · iface.drive"],
+      ["Issued the design's state to attempt 1", "Orchestrator", "Subtask 2 · 812 bytes"],
+      ["Attempt 1 declared complete: Subtask 1", "Integration agent", "Subtask 2 · attempt 1"],
+      [
+        "Subtask 1 recorded complete",
+        "Orchestrator",
+        "drive-0a1b2c · declared by attempt 1 of Subtask 2",
+      ],
+    ]);
   });
 });

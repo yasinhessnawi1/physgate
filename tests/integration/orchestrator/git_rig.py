@@ -38,6 +38,7 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig, harness_state
 from physgate.series.seal import SessionSeries
+from physgate.state.divergence import Divergence
 
 GITENV = {
     "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -151,6 +152,9 @@ class DispatchPort:
     def stop_leftovers(self) -> list[Leftover]:
         return []
 
+    def end_leftovers(self) -> None:
+        return None
+
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         return self.inner(request)
 
@@ -169,6 +173,7 @@ class ScopeChecker:
         role: str,
         *,
         series: SessionSeries | None = None,
+        follows: int | None = None,
     ) -> ChangeCheck:
         base = sh(self.run.repo, "merge-base", self.run.run_branch, attempt_commit).strip()
         found = write_scope_violations(
@@ -178,6 +183,10 @@ class ScopeChecker:
             reason = "the attempt changed paths outside its module: " + "; ".join(found)
             return ChangeCheck(refused_by="write_scope", reason=reason, graph_root="graph")
         return ChangeCheck(refused_by=None, reason=None, graph_root="graph")
+
+    def declaration_at(self, commit: str, declaring: str) -> None:
+        """No declaration: these runs plan no subtask of the role that owns completion."""
+        return None
 
 
 @dataclass
@@ -279,13 +288,18 @@ class EmptyGraph:
     def commit(self, message: str) -> None:
         return None
 
-    def proposals(self, subtask_id: str, attempt_commit: str) -> list[dict[str, Any]]:
+    def proposals(self, subtask_id: str, attempt_commit: str, role: str) -> list[dict[str, Any]]:
         return []
 
     def write(self, payload: dict[str, Any], role: str) -> int:
         raise AssertionError("no proposal, so nothing is written")
 
-    def divergences(self, since: int, acting_role: str) -> tuple[str, ...]:
+    def follow(self, payload: dict[str, Any], role: str, joined: tuple[str, ...]) -> int:
+        raise AssertionError("no proposal, so no interface is followed")
+
+    def divergences(
+        self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
+    ) -> tuple[Divergence, ...]:
         return ()
 
     def reopen(self) -> tuple[int, tuple[str, ...]]:
@@ -311,6 +325,7 @@ PARAMS = {
     "escalation_backend",
     "queue_decisions",
     "os_layer_absent",
+    "design_review",
     "held_out",
     "held_out_canaries",
     "held_out_sha256",
@@ -362,6 +377,7 @@ def config(run_id: str = "run-1") -> RunConfig:
         queue_decisions="record",
         # The rig also runs where the layer is absent (the hook suite's job has no sandbox).
         os_layer_absent="allow",
+        design_review="off",
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),

@@ -9,7 +9,7 @@ from task_fixtures import controller, external_task, own_task, write_task_dir
 
 from physgate.evaluation.per_role.answer import LtiTf, read_lti_tf
 from physgate.evaluation.per_role.exceptions import TaskFormatError
-from physgate.evaluation.per_role.task import canonical_json, load_task, parse_task, task_bytes
+from physgate.evaluation.tiers.task import canonical_json, load_task, parse_task, task_bytes
 
 
 def _parse(task: dict[str, Any]) -> None:

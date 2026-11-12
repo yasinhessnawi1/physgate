@@ -9,7 +9,7 @@ from control_fixtures import control_task
 from physgate.evaluation.per_role import synthesise
 from physgate.evaluation.per_role.exceptions import SynthesisError
 from physgate.evaluation.per_role.scorers.control import check_references, score
-from physgate.evaluation.per_role.task import canonical_json, load_task
+from physgate.evaluation.tiers.task import canonical_json, load_task
 
 
 def test_the_search_finds_a_controller_the_scorer_passes(tmp_path: Path) -> None:

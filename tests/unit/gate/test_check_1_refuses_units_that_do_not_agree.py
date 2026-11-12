@@ -455,11 +455,24 @@ def test_a_negative_consumer_cannot_hide_real_draw_on_its_supply(tmp_path: Path)
     assert result.verdict == "fail" and result.failing_check == "units"
 
 
-def test_every_kind_declares_its_sign_and_the_four_that_have_one_say_so() -> None:
+def test_every_kind_declares_its_sign_and_the_thirteen_that_have_one_say_so() -> None:
     signs = {name: kind.sign for name, kind in KINDS.items() if kind.sign != "any"}
     assert signs == {
         "power": "nonnegative",
         "mass": "nonnegative",
         "thermal_resistance": "positive",
         "energy": "positive",
+        # The two fractions: an efficiency and a duty cycle are never negative.
+        "efficiency": "nonnegative",
+        "duty_cycle": "nonnegative",
+        # The catalogue widening (04.11.2026): five new kinds never negative by a definition or
+        # a law, and a thermodynamic temperature and a frequency never negative.
+        "resistance": "nonnegative",
+        "moment_of_inertia": "nonnegative",
+        "area": "nonnegative",
+        "extent": "nonnegative",
+        "duration": "nonnegative",
+        "modulus": "nonnegative",
+        "temperature": "nonnegative",
+        "frequency": "nonnegative",
     }

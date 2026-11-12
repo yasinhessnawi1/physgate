@@ -75,6 +75,18 @@ def _in_unit(value: float | int, unit: str, target: str) -> float:
     return converted
 
 
+def unit_kind_problem(unit: str, target: str) -> str | None:
+    """Why a value in ``unit`` cannot be read in ``target`` by the rule above, or ``None``.
+
+    The rule a quantity is held to against its record, for a caller with no value to convert.
+    """
+    try:
+        _in_unit(1, unit, target)
+    except _UnitsDifferError as exc:
+        return str(exc)
+    return None
+
+
 def _converted(value: float | int, unit: str, target: str) -> float:
     if unit == target:
         return float(value)

@@ -5,13 +5,22 @@ brief and nothing else, and works in a fresh directory outside every held-out ro
 ``baseline`` profile it runs under refuses those roots). Before it starts, the protected
 root is surveyed as the session's tripwire will survey it: a link or an unreadable file
 anywhere under it would have the session refused every tool call, so the runner refuses
-first, at no cost. While it runs, a checkpoint on the budget watch holds each task to its
-references as soon as it is written (on a copy, never in the worktree), and stops the
-session when no task holds after a quarter of the cap, or when more than a task's worth
-of tokens has gone by since the last task came to hold. When it ends, the runner:
+first, at no cost. It refuses too unless the session looks for every canary that the lists
+the harness wrote under the root name, at any depth (:func:`root_canaries`), and a list that
+cannot be taken whole, or a directory that cannot be listed, is never read as naming none.
+While it runs, a checkpoint on the budget watch holds each task to its references as soon as
+it is written (on a copy, never in the worktree), and stops the session when no task holds
+after a quarter of the cap, or when more than a task's worth of tokens has gone by since the
+last task came to hold. When it ends, the runner closes the checkpoint, so a call of it that
+outlived the session changes nothing; a session its watch could not hold to its cap
+(``WATCH_FAILURES``), or whose stream showed a held-out canary however it ended (or cannot
+say, where the root names canaries), is refused, and only step 5 runs. So is a session under
+whose root the canaries grew while it ran, or a list can no longer be taken whole: it was not
+looking for what came, so its record cannot say it saw none of it. Otherwise the runner:
 
 1. copies each task it left into a staging directory beside its work, refusing a task
-   that holds a link, a special file or more than a task's worth of files;
+   that holds a link, a special file, a canary list's name or more than a task's worth of
+   files;
 2. holds every staged task to its references and its brief (:func:`.validate.sound`), and
    never prints one: what leaves is counts and digests;
 3. moves every task that holds into the pool inside the protected root (a task whose id
@@ -42,25 +51,27 @@ import os
 import random
 import shutil
 import stat
+import threading
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
-from pydantic import BaseModel, ConfigDict, RootModel, ValidationError
+from pydantic import BaseModel, ConfigDict, RootModel, TypeAdapter, ValidationError
 
-from physgate.evaluation.per_role.arms.raw import RawSetup, run_session
-from physgate.evaluation.per_role.authoring import (
+from physgate.evaluation.per_role.arms.raw import WATCH_FAILURES, RawSetup, run_session
+from physgate.evaluation.per_role.firmware.sandbox import open_directory
+from physgate.evaluation.per_role.validate import id_digest, refusal_reasons, sound, validate
+from physgate.evaluation.tiers.authoring import (
+    CANARIES_NAME,
     PER_TIER,
     AuthoringError,
     author_brief,
     require_author_model,
     split,
 )
-from physgate.evaluation.per_role.firmware.sandbox import open_directory
-from physgate.evaluation.per_role.task import Role, load_task
-from physgate.evaluation.per_role.validate import id_digest, refusal_reasons, sound, validate
+from physgate.evaluation.tiers.task import Canary, Role, load_task
 from physgate.hooks.withheld import survey
 
 _READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
@@ -182,8 +193,109 @@ def _require_clear(root: Path) -> None:
         raise AuthoringError(msg, root=str(root), problems=" | ".join(problems))
 
 
+#: The largest canary list read: a few dozen canaries per tier, a few tiers per root.
+MOST_CANARY_LIST_BYTES = 1024 * 1024
+#: What a canary list holds. A short entry would match nearly any stream, so nothing else
+#: passes for one.
+_CANARIES: TypeAdapter[list[str]] = TypeAdapter(list[Canary])
+#: The folders directly under a protected root that hold what sessions wrote: the pool, its
+#: draw, and the streams of the author and the blind check. No list the harness writes lies
+#: in one, and a list a session planted there would refuse every later session.
+_SESSION_FOLDERS = frozenset(
+    f"{role}.{kind}" for role in get_args(Role) for kind in ("pool", "draw", "author", "check")
+)
+
+
+def _names_a_list(name: str) -> bool:
+    """Whether ``name`` is what a canary list is called, in any case.
+
+    The harness writes lower case, but a disk that ignores case opens ``Canaries.json`` by
+    that name all the same.
+    """
+    folded = name.casefold()
+    return folded == CANARIES_NAME or folded.endswith(f".{CANARIES_NAME}")
+
+
+def _refuse_list(reason: str, path: str, detail: str) -> AuthoringError:
+    msg = (
+        f"the canary list {path} is {detail}; it is never read as naming no canary, so the "
+        "session does not run until it is put right"
+    )
+    return AuthoringError(msg, refused_because=reason, path=path)
+
+
+def _canary_list(path: str) -> set[str]:
+    """The canaries one list names, read whole through a descriptor that follows no link.
+
+    Raises:
+        AuthoringError: the list is a link, not a regular file with one name, too large or
+            unreadable (``canary_list_unreadable``), not a list of canaries, each exactly
+            :data:`.task.Canary` (``canary_list_unparsed``), or names none
+            (``canary_list_empty``).
+    """
+    try:
+        fd = os.open(path, _READ)
+    except OSError as exc:
+        raise _refuse_list("canary_list_unreadable", path, f"not readable ({exc})") from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise _refuse_list("canary_list_unreadable", path, "not a file with one name")
+        if info.st_size > MOST_CANARY_LIST_BYTES:
+            raise _refuse_list("canary_list_unreadable", path, "too large")
+        with os.fdopen(os.dup(fd), "rb") as handle:
+            data = handle.read(MOST_CANARY_LIST_BYTES + 1)
+    except OSError as exc:
+        raise _refuse_list("canary_list_unreadable", path, f"not readable ({exc})") from exc
+    finally:
+        os.close(fd)
+    try:
+        listed = json.loads(data)
+    except (ValueError, RecursionError) as exc:
+        raise _refuse_list("canary_list_unparsed", path, "not JSON") from exc
+    try:
+        _CANARIES.validate_python(listed)
+    except ValidationError as exc:
+        raise _refuse_list("canary_list_unparsed", path, "not a list of canaries") from exc
+    if not listed:
+        raise _refuse_list("canary_list_empty", path, "empty")
+    return set(listed)
+
+
+def root_canaries(root: Path) -> tuple[str, ...]:
+    """Every canary the lists the harness wrote under ``root`` name; none while it holds none.
+
+    A split leaves each held-out tier's list beside it, as ``<tier>.canaries.json``, and a
+    tier may hold one as ``canaries.json``, at any depth, in any case. :data:`_SESSION_FOLDERS`
+    are not entered: what a session wrote is no list of ours. Of everything else only names
+    are looked at, by the runner, never a task; the pool's tasks carry no canary yet. A link
+    is judged as the list it is named as, and never followed.
+
+    Raises:
+        AuthoringError: a list cannot be taken whole (:func:`_canary_list`), or a directory
+            that could hold one cannot be listed (``canary_list_unreadable``).
+    """
+
+    def unlisted(exc: OSError) -> None:
+        msg = f"{exc.filename} cannot be listed, so a canary list in it cannot be ruled out"
+        raise AuthoringError(
+            msg, refused_because="canary_list_unreadable", path=str(exc.filename)
+        ) from exc
+
+    if not root.is_dir():
+        return ()
+    found: set[str] = set()
+    for where, directories, files in os.walk(root, onerror=unlisted):
+        if where == str(root):
+            directories[:] = [d for d in directories if d not in _SESSION_FOLDERS]
+        for name in sorted((*directories, *files)):
+            if _names_a_list(name):
+                found |= _canary_list(str(Path(where) / name))
+    return tuple(sorted(found))
+
+
 class _NotPlainError(Exception):
-    """A staged task holds something that is not a plain directory or a singly named file."""
+    """A staged task holds what no task may: not a plain, singly named entry, or a list's name."""
 
 
 def _classify(name: str, dir_fd: int) -> os.stat_result:
@@ -203,13 +315,21 @@ def _new_file(name: str, dir_fd: int) -> int:
 def _copy_into(source_fd: int, target_fd: int, budget: list[int]) -> None:
     """Copy the directory ``source_fd`` into the empty directory ``target_fd``, by content.
 
-    ``budget`` is the files and bytes the task may still hold.
+    ``budget`` is the files and bytes the task may still hold. The session may be writing the
+    task while it is copied: an entry it removed between the listing and the look at it is
+    no longer part of the task, and is left out of the copy, as a task is from the listing.
 
     Raises:
-        _NotPlainError: an entry is a link of either kind, a special file, or past the budget.
+        _NotPlainError: an entry is a link of either kind, a special file, past the budget,
+            or named as a canary list, which must not reach the pool or a tier.
     """
     for name in sorted(os.listdir(source_fd)):
-        kind = _classify(name, source_fd).st_mode
+        if _names_a_list(name):
+            raise _NotPlainError(name)
+        try:
+            kind = _classify(name, source_fd).st_mode
+        except FileNotFoundError:
+            continue
         if stat.S_ISDIR(kind):
             try:
                 child = open_directory(name, source_fd)
@@ -256,9 +376,12 @@ def _copy_into(source_fd: int, target_fd: int, budget: list[int]) -> None:
 def _stage_one(name: str, source: int, target: int) -> bool:
     """Copy the task directory ``name`` under ``source`` into ``target``; whether it was taken.
 
-    A task holding a symbolic or a hard link, a special file or more than a task's worth
-    is refused, and what was copied of it removed.
+    A task holding a symbolic or a hard link, a special file, a canary list's name or more
+    than a task's worth, or named as a list itself, is refused, and what was copied of it
+    removed. A task's id is its directory's name, or the task does not hold.
     """
+    if _names_a_list(name):
+        return False
     try:
         task = open_directory(name, source)
     except OSError:
@@ -279,12 +402,23 @@ def _stage_one(name: str, source: int, target: int) -> bool:
 
 
 def _task_names(source: int) -> list[str]:
-    """The top-level directories under ``source``, those whose names begin with a dot aside."""
-    return [
-        name
-        for name in sorted(os.listdir(source))
-        if not name.startswith(".") and stat.S_ISDIR(_classify(name, source).st_mode)
-    ]
+    """The top-level directories under ``source``, those whose names begin with a dot aside.
+
+    The session writes the directory while it is listed, by the checkpoint as it runs: an
+    entry removed between the listing and the look at it is no longer a task, and is left
+    out rather than ending the listing (and with it the checkpoint and the watch).
+    """
+    names = []
+    for name in sorted(os.listdir(source)):
+        if name.startswith("."):
+            continue
+        try:
+            kind = _classify(name, source).st_mode
+        except FileNotFoundError:
+            continue
+        if stat.S_ISDIR(kind):
+            names.append(name)
+    return names
 
 
 def stage(worktree: Path, staging: Path, only: Sequence[str] | None = None) -> int:
@@ -297,7 +431,8 @@ def stage(worktree: Path, staging: Path, only: Sequence[str] | None = None) -> i
     is a file made new under the staging directory's descriptor. Only top-level
     directories are looked at, those whose names begin with a dot aside, and only those
     named in ``only`` when it is given. A task holding a symbolic or a hard link, a special
-    file or more than a task's worth is refused, and what was copied of it removed.
+    file, a canary list's name or more than a task's worth is refused, and what was copied
+    of it removed.
 
     Raises:
         OSError: the staging directory cannot be made new (something stands there).
@@ -353,6 +488,11 @@ class AuthorProgress:
     What it counts is what the runner keeps: a task written and then broken is no longer
     held. Nothing of a task leaves this object but its directory name's presence in
     ``held``, for the record's count.
+
+    A call runs on the watch's thread, and one that hangs outlives the stop of the session.
+    Once the session is over the runner closes it (:meth:`close`), and from then on no call
+    writes a copy, removes one or changes ``held``: what the runner reads and removes is
+    the session's alone.
     """
 
     def __init__(self, worktree: Path, scratch: Path, *, cap: int, per_task: int):
@@ -365,6 +505,25 @@ class AuthorProgress:
         #: The count when the last task came to hold; none yet while the quarter governs.
         self._held_at: int | None = None
         self._n = 0
+        #: Held while a copy is written or removed and while ``held`` changes, never while
+        #: the scorer runs: a close waits for a copy, never for a scorer that hangs.
+        self._lock = threading.Lock()
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """Whether the session is over, so that no call changes anything any more."""
+        return self._closed
+
+    def close(self) -> int:
+        """Take no further reading, once the session is over; how many tasks held then.
+
+        A call still in progress changes nothing after this: it copies no further task,
+        leaves the copy it made for the runner's removal of the work, and records nothing.
+        """
+        with self._lock:
+            self._closed = True
+            return len(self.held)
 
     def examine(self) -> None:
         """Hold every task directory that changed since it was last seen."""
@@ -378,23 +537,41 @@ class AuthorProgress:
                 signature = _signature(self.worktree / name)
                 if self._seen.get(name) == signature:
                     continue
-                self._seen[name] = signature
-                self.checked += 1
-                self._n += 1
-                copy = self.scratch / f"check-{self._n}"
-                self.scratch.mkdir(mode=0o700, exist_ok=True)
+                with self._lock:
+                    if self._closed:
+                        return
+                    self._seen[name] = signature
+                    self.checked += 1
+                    self._n += 1
+                    copy = self.scratch / f"check-{self._n}"
+                    self.scratch.mkdir(mode=0o700, exist_ok=True)
+                    try:
+                        staged = stage(self.worktree, copy, only=[name]) == 0
+                    except BaseException:
+                        shutil.rmtree(copy, ignore_errors=True)
+                        raise
                 try:
-                    taken = stage(self.worktree, copy, only=[name]) == 0 and (copy / name).is_dir()
-                    holds = taken and name in sound(copy)
-                finally:
+                    holds = staged and (copy / name).is_dir() and name in sound(copy)
+                except BaseException:
+                    with self._lock:
+                        if not self._closed:
+                            shutil.rmtree(copy, ignore_errors=True)
+                    raise
+                with self._lock:
+                    if self._closed:
+                        # The session is over: the copy is the runner's to remove with the
+                        # work, and what this call found is not counted.
+                        return
                     shutil.rmtree(copy, ignore_errors=True)
-                if holds:
-                    self.held.add(name)
-                else:
-                    self.held.discard(name)
+                    if holds:
+                        self.held.add(name)
+                    else:
+                        self.held.discard(name)
         finally:
             os.close(source)
-        self.held &= set(names)
+        with self._lock:
+            if not self._closed:
+                self.held &= set(names)
 
     def check(self, total: int) -> str | None:
         """The watch's checkpoint: a reason to stop the session at ``total`` tokens, or none."""
@@ -562,10 +739,23 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
     Raises:
         AuthoringError: the author's model is the implementers', a place is inside a held-out
             root or already exists, the cap is over :data:`MOST_CAP`, the session does not
-            withhold the protected root, or the root would trip the session's tripwire.
+            withhold the protected root, the root would trip the session's tripwire, a
+            canary list under the root cannot be taken whole or names a canary the session
+            would not look for, or the
+            session's watch could not hold it to its cap, its stream showed a held-out
+            canary, or the root's canaries grew while it ran or a list can no longer be taken
+            whole (none of its tasks is pooled; ``refused_because`` says which).
     """
     require_author_model(setup.model, plan.implementer_model)
     _require_apart(plan, setup)
+    canaries = root_canaries(plan.held_out_root)
+    missing = set(canaries) - set(setup.held_out_canaries)
+    if missing:
+        msg = (
+            f"the session would not look for {len(missing)} of the canaries its protected "
+            "root names, so its record could not say whether it saw a held-out task"
+        )
+        raise AuthoringError(msg, refused_because="canaries_missing", missing=str(len(missing)))
     _require_clear(plan.held_out_root)
     evidence = plan.held_out_root / f"{plan.role}.author"
     tier = held_out_tier(plan.held_out_root, plan.role)
@@ -575,13 +765,48 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
         plan.work / "worktree", plan.work / "checks", cap=plan.cap, per_task=plan.task_cap
     )
     try:
-        record = run_session(
-            author_brief(plan.role, count=plan.count, id_prefix=plan.id_prefix),
-            setup,
-            plan.work,
-            cap=plan.cap,
-            check=progress.check,
-        )
+        try:
+            record = run_session(
+                author_brief(plan.role, count=plan.count, id_prefix=plan.id_prefix),
+                setup,
+                plan.work,
+                cap=plan.cap,
+                check=progress.check,
+            )
+        finally:
+            # However the session ended: a checkpoint call that outlived it changes nothing
+            # from here on.
+            held_while_running = progress.close()
+        seen = record.get("held_out_seen", "unrecorded")
+        if seen is not False and not (seen is None and not canaries):
+            # A held-out canary showed in the session's stream, or the record cannot say it
+            # did not while the root names canaries (it is unknown only where there is none
+            # to look for): what the session wrote may hold what it saw, however it ended,
+            # so none of its tasks is taken. Its stream is still secured below.
+            msg = (
+                "the session's stream showed a held-out canary (held_out_seen); none of the "
+                "tasks it wrote is pooled"
+            )
+            raise AuthoringError(msg, end=str(record["end"]), refused_because="held_out_seen")
+        if record["end"] in WATCH_FAILURES:
+            # The watch could not hold the session to its cap: what it did was not counted as
+            # meant, so none of its tasks is taken. Its stream is still secured below.
+            msg = (
+                f"the session's watch could not hold it ({record['end']}); none of the tasks "
+                "it wrote is pooled"
+            )
+            raise AuthoringError(msg, end=str(record["end"]), refused_because=str(record["end"]))
+        # Another author's split may have left a list under the root while this session ran.
+        # Its canaries were not looked for, so the record above says nothing of them, and a
+        # session whose withhold failed could have read that tier. The same walk, so a list
+        # that can no longer be taken whole refuses here as it does before the session.
+        grown = set(root_canaries(plan.held_out_root)) - set(canaries)
+        if grown:
+            msg = (
+                f"the protected root came to name {len(grown)} canaries while the session ran "
+                "that it was not looking for; none of the tasks it wrote is pooled"
+            )
+            raise AuthoringError(msg, refused_because="canaries_missing", missing=str(len(grown)))
         staging = plan.work / "staging"
         refused = stage(plan.work / "worktree", staging)
         staged = sum(1 for p in staging.iterdir() if p.is_dir())
@@ -595,7 +820,7 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
             "written": staged + refused,
             "refused_as_files": refused,
             "held": len(held),
-            "held_while_running": len(progress.held),
+            "held_while_running": held_while_running,
             "refused_because": reasons,
             "pooled": added,
             "pool": sum(1 for p in pool.iterdir() if p.is_dir()),

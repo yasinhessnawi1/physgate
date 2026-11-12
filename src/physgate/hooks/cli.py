@@ -55,6 +55,26 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         help="a path no tool may write that the runtime writes during the session (not reverted)",
     )
     p.add_argument(
+        "--protect-record",
+        action="append",
+        default=[],
+        help="an append-only record the orchestrator holds open: compared, never written back",
+    )
+    p.add_argument(
+        "--withheld",
+        action="append",
+        default=[],
+        help="a run record no session doing design work reads by any route: put back, and "
+        "refused to every read",
+    )
+    p.add_argument(
+        "--sessions-root",
+        help="the run's directory of every session's own directory: refused to every write, and "
+        "for a role or baseline session to every read of the hooks, its own home included, but "
+        "for what it is given to read there (the OS layer opens its home to its commands); "
+        "required for a role or baseline session",
+    )
+    p.add_argument(
         "--harness",
         help="the source checkout the orchestrator runs from: refused whole, its trusted trees "
         "put back",
@@ -88,6 +108,13 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         "--os-layer-temp",
         help="the session's own temporary directory: its shell commands run inside the OS "
         "layer (Claude Code's sandbox), writing only there, in the worktree and in its home",
+    )
+    p.add_argument(
+        "--temp",
+        help="the session's own temporary directory where the OS layer does not run (with it, "
+        "--os-layer-temp is that directory): its binary keeps its temporary files there, not in "
+        "the one every session of the user shares; a role, baseline or reviewer session needs "
+        "one of the two",
     )
     p.add_argument(
         "--run-config",
@@ -168,10 +195,14 @@ def _install(args: argparse.Namespace) -> int:
         extra_review_material=tuple(_abs(p) for p in args.review_material),
         extra_protected=tuple(_abs(p) for p in args.protect),
         extra_protected_refuse_only=tuple(_abs(p) for p in args.protect_refuse_only),
+        sessions_root=_abs(args.sessions_root) if args.sessions_root else None,
+        extra_protected_record=tuple(_abs(p) for p in args.protect_record),
+        withheld=tuple(_abs(p) for p in args.withheld),
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,
         harness_root=_abs(args.harness) if args.harness else None,
         harness_site_packages=tuple(_abs(p) for p in args.harness_site_packages),
         os_layer_temp_dir=_abs(args.os_layer_temp) if args.os_layer_temp else None,
+        temp_dir=_abs(args.temp) if args.temp else None,
         os_layer_readable=tuple(_abs(p) for p in args.os_layer_readable),
         os_layer_network=args.os_layer_network,
         spawns_with_canary=args.spawns_with_canary,

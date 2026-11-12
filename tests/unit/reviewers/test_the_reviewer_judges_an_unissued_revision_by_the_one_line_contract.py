@@ -84,7 +84,7 @@ def _review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: dict[str, A
     monkeypatch.setattr(
         ClaudeReviewer,
         "_install",
-        lambda self, p, sdir: Installed(settings="s", config="c", spawn_args=(), spawn_env={}),
+        lambda *_a: Installed(settings="s", config="c", spawn_args=(), spawn_env={}),
     )
     monkeypatch.setattr(ClaudeReviewer, "_spawn", lambda self, *a, **k: (stdout, 0, False))
     monkeypatch.setattr(claude, "review_prompt", lambda *a, **k: "p")

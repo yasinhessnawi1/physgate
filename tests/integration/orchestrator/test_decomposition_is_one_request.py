@@ -31,6 +31,7 @@ from physgate.orchestrator.accounting import TokenAccount  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
 from physgate.orchestrator.decompose import call, start_run  # noqa: E402
 from physgate.orchestrator.events import Decomposed, Halted, read_events  # noqa: E402
+from physgate.orchestrator.exceptions import PlanRefusedError  # noqa: E402
 from physgate.orchestrator.git import head_of  # noqa: E402
 from physgate.state.store import Store  # noqa: E402
 from physgate.state.task_ledger import TaskLedger  # noqa: E402
@@ -255,6 +256,9 @@ def test_the_decompose_command_in_subscription_mode_records_the_mode_and_not_the
 
     params = json.loads((EXAMPLES / "params.subscription.json").read_text())
     params["bounds"] = config().bounds.model_dump(mode="json")  # the scripted endpoint's
+    # The row is about the subscription credential, not the plan's review: the examples name
+    # design_review: on, whose review needs an installation this command is not given.
+    params["design_review"] = "off"
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     repo = target_repo(tmp_path)
@@ -323,6 +327,20 @@ def test_a_wrapped_answer_is_refused_by_the_schema_and_recorded_as_such(tmp_path
     assert len(api.requests) == 1  # still one request: the refusal ends the one turn
     halted = [e for e in read_events(run_dir / "events.jsonl") if e.kind == "halted"]
     assert len(halted) == 1 and halted[0].detail.startswith("schema_refused")
+
+
+def test_an_interface_id_not_of_the_store_s_form_is_refused_by_the_schema(tmp_path: Path) -> None:
+    # The schema carries the store's pattern on a node's id, and the binary holds the answer to
+    # it: a hyphenated id is the binary's refusal, not one the run's opening finds after the call.
+    hyphenated = {**PLAN, "interface_nodes": [{**NODE, "id": "power-bus"}]}
+    try:
+        api, outcome, _ = decompose_once(tmp_path, 7, [tool("StructuredOutput", **hyphenated)])
+    except PlanRefusedError as exc:
+        pytest.fail(f"the binary passed the id, and the run's opening refused it: {exc}")
+    assert not outcome.ok and outcome.cause == "schema_refused", outcome.detail
+    assert "does not match required schema" in outcome.detail
+    assert "pattern" in outcome.detail, outcome.detail
+    assert len(api.requests) == 1
 
 
 def test_the_one_call_s_account_must_match_the_binary_s_totals(

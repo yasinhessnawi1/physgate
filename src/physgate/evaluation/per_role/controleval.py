@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from physgate.evaluation.per_role.answer import power_unit
 from physgate.evaluation.per_role.exceptions import ControlEvalError
 from physgate.evaluation.per_role.metrics import CONTROL_SCORER_VERSION
-from physgate.evaluation.per_role.task import Task, parse_task, task_bytes
+from physgate.evaluation.tiers.task import Task, parse_task, task_bytes
 
 BENCHMARK = "controleval"
 UPSTREAM = "https://raw.githubusercontent.com/ControlAgent/ControlAgent"

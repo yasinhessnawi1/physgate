@@ -31,14 +31,14 @@ import stat
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from physgate.evaluation.per_role.authoring import (
+from physgate.evaluation.per_role.exceptions import PerRoleError
+from physgate.evaluation.tiers.authoring import (
     CANARIES_NAME,
     SUMS_NAME,
     AuthoringError,
     _open_chain,
 )
-from physgate.evaluation.per_role.exceptions import PerRoleError
-from physgate.evaluation.per_role.task import load_task, task_from_files
+from physgate.evaluation.tiers.task import load_task, task_from_files
 from physgate.hooks.paths import reaches
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 from physgate.oslayer.policy import sandbox_policy

@@ -20,10 +20,10 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from physgate.evaluation.per_role.answer import read_lti_tf
-from physgate.evaluation.per_role.authoring import sha256sums
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.scorers.control import check_references, score
-from physgate.evaluation.per_role.task import LoadedTask, load_task
+from physgate.evaluation.tiers.authoring import sha256sums
+from physgate.evaluation.tiers.task import LoadedTask, load_task
 
 _NUMBER = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 

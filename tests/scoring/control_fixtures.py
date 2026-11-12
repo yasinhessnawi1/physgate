@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from physgate.evaluation.per_role.answer import power_unit
-from physgate.evaluation.per_role.task import Task, parse_task
+from physgate.evaluation.tiers.task import Task, parse_task
 
 
 def poly(prefix: str, coefficients: list[float]) -> list[dict[str, Any]]:

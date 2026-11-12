@@ -495,8 +495,12 @@ def git(
     stdin: str | None = None,
     objects_only: bool = False,
     git_dir: GitDir | None = None,
+    errors: str = "strict",
 ) -> str:
     """Run one git command in ``cwd`` and return its standard output.
+
+    The output is decoded as UTF-8 with ``errors`` as :meth:`bytes.decode` takes it: strict by
+    default, so bytes that are not UTF-8 raise where the caller did not say how to read them.
 
     With ``objects_only`` the command runs against a clean object store that reaches ``cwd``'s
     objects but holds none of its config, attributes or submodules: used for content reads (a
@@ -535,6 +539,8 @@ def git(
         input=stdin,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors=errors,
         check=False,
     )
     if check and done.returncode != 0:
@@ -823,7 +829,12 @@ def nested_git(worktree: Path) -> Path | None:
 
 
 def commit_all(
-    worktree: Path, message: str, *, linked: bool = False, common: Path | None = None
+    worktree: Path,
+    message: str,
+    *,
+    linked: bool = False,
+    common: Path | None = None,
+    replaces: str | None = None,
 ) -> str:
     """Stage everything in ``worktree`` and commit it, even if nothing changed.
 
@@ -839,6 +850,9 @@ def commit_all(
     is accepted otherwise. Anything else refuses (:func:`verified_git_dir`): git is never left
     to find a repository of its own. A worktree holding a repository of its own below its top
     level (:func:`nested_git`) is refused before anything is staged.
+
+    ``replaces`` is the commit at the head the new one takes the place of, on its parent; it is
+    refused unless the head is still that commit.
     """
     admin = verified_git_dir(worktree, linked=linked, common=common)
     nested = nested_git(worktree)
@@ -846,7 +860,24 @@ def commit_all(
         msg = "the worktree holds a git repository of its own, which staging would open"
         raise GitError(msg, cwd=str(worktree), path=str(nested))
     git(worktree, "add", "--all", git_dir=admin)
-    git(worktree, "commit", "--quiet", "--allow-empty", "--file", "-", stdin=message, git_dir=admin)
+    amend: tuple[str, ...] = ()
+    if replaces is not None:
+        head = git(worktree, "rev-parse", "--verify", "HEAD^{commit}", git_dir=admin).strip()
+        if head != replaces:
+            msg = "the commit to be replaced is no longer the worktree's head"
+            raise GitError(msg, cwd=str(worktree), head=head, replaces=replaces)
+        amend = ("--amend", "--reset-author")
+    git(
+        worktree,
+        "commit",
+        "--quiet",
+        "--allow-empty",
+        *amend,
+        "--file",
+        "-",
+        stdin=message,
+        git_dir=admin,
+    )
     return git(worktree, "rev-parse", "--verify", "HEAD^{commit}", git_dir=admin).strip()
 
 
@@ -865,11 +896,14 @@ def changes_between(
 ) -> list[Change]:
     """Every path changed from ``base`` to ``commit``, renames split in two.
 
-    Read in the clean store, built from ``git_dir`` when the caller verified one.
+    Read in the clean store, built from ``git_dir`` when the caller verified one. A path is
+    whatever bytes the commit names, which a session can choose: one that is not UTF-8 is
+    decoded with its bytes kept as lone surrogates (:func:`utf8_name` tells), so reading the
+    list never raises and the write-scope check refuses the path before anything records it.
     """
     raw = git(
         repo, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", base, commit,
-        objects_only=True, git_dir=git_dir,
+        objects_only=True, git_dir=git_dir, errors="surrogateescape",
     )  # fmt: skip
     fields = raw.split("\0")
     out: list[Change] = []
@@ -881,6 +915,15 @@ def changes_between(
         )
         i += 2
     return out
+
+
+def utf8_name(path: str) -> str | None:
+    """``None`` for a path that is UTF-8 as committed; otherwise the path, escaped as ASCII."""
+    try:
+        path.encode("utf-8")
+    except UnicodeEncodeError:
+        return path.encode("utf-8", "surrogateescape").decode("ascii", "backslashreplace")
+    return None
 
 
 def merge_base(repo: Path, one: str, other: str, *, git_dir: GitDir | None = None) -> str:
@@ -895,9 +938,19 @@ def merge_base(repo: Path, one: str, other: str, *, git_dir: GitDir | None = Non
     return git(repo, "merge-base", *ends, objects_only=True, git_dir=git_dir).strip()
 
 
-def diff_text(repo: Path, base: str, commit: str, *, git_dir: GitDir | None = None) -> str:
-    """The patch from ``base`` to ``commit``, for a person to read."""
-    return git(repo, "diff", *_DIFF_FLAGS, base, commit, objects_only=True, git_dir=git_dir)
+def diff_text(
+    repo: Path, base: str, commit: str, *pathspec: str, git_dir: GitDir | None = None
+) -> str:
+    r"""The patch from ``base`` to ``commit``, for a person to read.
+
+    A file git takes as text may hold bytes that are not UTF-8: each such byte reads as its
+    backslash escape (``\\xe9``), the same on every read, so an item rebuilt from it compares
+    equal and two different bytes never look alike to the person who decides.
+    """
+    return git(
+        repo, "diff", *_DIFF_FLAGS, base, commit, *(("--", *pathspec) if pathspec else ()),
+        objects_only=True, git_dir=git_dir, errors="backslashreplace",
+    )  # fmt: skip
 
 
 def merges_of(

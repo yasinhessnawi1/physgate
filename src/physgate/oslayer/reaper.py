@@ -4,7 +4,7 @@ A command can start a process in a session of its own (``Popen(start_new_session
 double fork): the hooks' refusal of backgrounding cannot see it in the command's text, it
 leaves the command's process group, and once its parent ends macOS hands it to launchd, so
 neither a group kill nor a parent chain reaches it. On macOS it lived on across later
-commands (M-128).
+commands.
 
 **What does reach it is the command's own Seatbelt sandbox.** Claude Code runs each sandboxed
 command under a ``sandbox-exec`` of its own, whose profile allows a signal only to a process

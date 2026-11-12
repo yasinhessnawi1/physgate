@@ -79,3 +79,13 @@ class StoreStaleError(DesignStateError):
     revision number the other process has already used, leaving a node that no
     diff will ever return. Rather than answer inconsistently, it refuses.
     """
+
+
+class RecordMovedError(DesignStateError):
+    """An append-only record is no longer the file its one writer holds.
+
+    The path names another file now, or the file's size is not what the writer has written:
+    something else replaced it or wrote to it. The writer writes nothing more to it, because a
+    line written to a file no path names is lost without a word, and a line written after another
+    writer's would be read as following from it.
+    """

@@ -328,3 +328,21 @@ def test_the_base_alone_is_gated_as_one_change_over_nothing(corpus: Corpus, tmp_
     result = check_base(corpus.base, tmp_path / "base")
     assert result.verdict == "pass"
     assert {r.scope for r in result.checks} == {"subtask", "module", "system"}
+
+
+@pytest.mark.parametrize("spelling", [f"{AUTHOR}-20261001", f"global.anthropic.{AUTHOR}"])
+def test_another_spelling_of_the_author_s_model_is_refused_before_anything(
+    corpus: Corpus, tmp_path: Path, spelling: str
+) -> None:
+    with pytest.raises(ModelSeparationError):
+        _run(corpus, tmp_path / "out", SeededFakeReviewer(model=spelling))
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("spelling", [f"{AUTHOR}-20261001", f"us.anthropic.{AUTHOR}-20261001"])
+def test_another_spelling_of_the_author_s_model_reported_by_a_review_stops_the_run(
+    corpus: Corpus, tmp_path: Path, spelling: str
+) -> None:
+    with pytest.raises(ModelSeparationError):
+        _run(corpus, tmp_path / "out", SeededFakeReviewer(reports_model=spelling))
+    assert not (tmp_path / "out" / "run" / RESULTS_NAME).exists()

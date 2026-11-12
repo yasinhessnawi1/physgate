@@ -118,7 +118,12 @@ APPROVED = {
         ("PA", "PS", "PP", "PH"),
     ),
     "sizing": (
-        (("final", "8b2c030e3dba21ca3e73bd6163f821f1df17cb98fb5866a7e9eb0f1d631f990c", 65),),
+        (
+            ("final", "8b2c030e3dba21ca3e73bd6163f821f1df17cb98fb5866a7e9eb0f1d631f990c", 65),
+            # SS-24 names the two fraction kinds the checks hold to 0 to 1; drafted
+            # 03.11.2026 and staged for the owner's review, pinned as the version staged.
+            ("final_v2", "305ec12d9f5e3acad8374be41c7ecf5c27a3fa81bbeed072bb36ea03664b1385", 65),
+        ),
         ("SA", "SS", "SP", "SH"),
     ),
 }

@@ -8,7 +8,15 @@ import { useEffect, useState } from "react";
 
 import { actToken, getJson, pageOperator, postAction, type Result } from "../../api/client";
 import { runEvent } from "../../api/events";
-import { decisionRequest, type ItemView, queueListing, resolved, type Verb } from "../../api/queue";
+import {
+  decisionRequest,
+  type ItemView,
+  itemView,
+  type Position,
+  queueListing,
+  resolved,
+  type Verb,
+} from "../../api/queue";
 import { Segmented } from "../../design/components/actions/Segmented";
 import { Id } from "../../design/components/data/Id";
 import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
@@ -70,7 +78,9 @@ function ItemList({
             {listed.map((view) => {
               const next = new URLSearchParams(query);
               next.set("item", view.item.itemId);
-              const on = view === chosen;
+              // By id, not by object: the chosen item's view is read again when it is chosen, so
+              // the one shown is a different object from the listed one for the same item.
+              const on = view.item.itemId === chosen?.item.itemId;
               return (
                 <li key={view.item.itemId}>
                   <a
@@ -112,6 +122,15 @@ export default function Queue({ setHeader, query }: ViewProps) {
   const views = useResult(
     base === null || total === null ? null : () => allItems(base, total),
     `${String(base)}/items/${String(total)}#${String(version)}`,
+  );
+  // The chosen item's view is read again when it is chosen: the server stamps when it showed it,
+  // and a decision's review time runs from that stamp, not from when the list was read.
+  const picked = views?.ok === true ? chosenItem(views.value, query.get("item")) : undefined;
+  const fresh = useResult(
+    base === null || picked === undefined || !picked.open
+      ? null
+      : () => getJson(`${base}/queue/items/${String(picked.position)}`, itemView),
+    `${String(base)}/items/${String(picked?.position)}/shown#${String(version)}`,
   );
   const events = useLines(base === null ? null : `${base}/events`, runEvent);
   const operator = pageOperator();
@@ -155,7 +174,9 @@ export default function Queue({ setHeader, query }: ViewProps) {
       showAll={chosen.showAll}
     />
   );
-  if (config === null || listing === null || views === null)
+  // The items are read only once the listing is: a refused listing is shown as refused, and
+  // never waits on items it will not ask for.
+  if (config === null || listing === null || (listing.ok && views === null))
     return (
       <div className="pg-screen">
         {switcher}
@@ -166,10 +187,10 @@ export default function Queue({ setHeader, query }: ViewProps) {
     ? { title: "The run's configuration could not be read", refusal: config.refusal }
     : !listing.ok
       ? { title: "The queue could not be read", refusal: listing.refusal }
-      : !views.ok
+      : views !== null && !views.ok
         ? { title: "An item of the queue could not be read", refusal: views.refusal }
         : null;
-  if (refused !== null || !config.ok || !listing.ok || !views.ok)
+  if (refused !== null || !config.ok || !listing.ok || views === null || !views.ok)
     return (
       <div className="pg-screen">
         {switcher}
@@ -184,18 +205,28 @@ export default function Queue({ setHeader, query }: ViewProps) {
     );
   const names =
     events.result?.ok === true ? subtaskNames(events.result.value) : new Map<string, string>();
-  const item = chosenItem(views.value, query.get("item"));
+  const listed = chosenItem(views.value, query.get("item"));
+  const item =
+    fresh?.ok === true && fresh.value.item.itemId === listed?.item.itemId ? fresh.value : listed;
   const decided =
     item === undefined
       ? undefined
       : listing.value.decided.find((d) => d.itemId === item.item.itemId);
-  const send = (verb: Verb, note: string) =>
+  const supersededBy =
+    item === undefined || status?.ok !== true
+      ? undefined
+      : status.value.superseded[item.item.itemId];
+  const send = (verb: Verb, note: string, position?: Position) =>
     item === undefined
       ? Promise.resolve<Result<never>>({
           ok: false,
           refusal: { status: 0, error: "no item is chosen", context: {} },
         })
-      : postAction(`${base}/queue/decisions`, decisionRequest(item, verb, note), resolved);
+      : postAction(
+          `${base}/queue/decisions`,
+          decisionRequest(item, verb, note, position),
+          resolved,
+        );
   return (
     <div className="pg-screen">
       {switcher}
@@ -211,6 +242,7 @@ export default function Queue({ setHeader, query }: ViewProps) {
             decided={decided}
             source={runSource(config.value)}
             subtaskName={names.get(item.item.subtaskId) ?? "The whole design"}
+            supersededBy={supersededBy}
           >
             <Decide
               key={`${item.item.itemId}#${String(version)}`}
@@ -222,6 +254,7 @@ export default function Queue({ setHeader, query }: ViewProps) {
               onDecided={() => {
                 setVersion((v) => v + 1);
               }}
+              supersededBy={supersededBy}
             />
           </QueueItem>
         )}

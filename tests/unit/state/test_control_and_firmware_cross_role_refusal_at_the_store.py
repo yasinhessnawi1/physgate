@@ -68,7 +68,7 @@ def test_a_rejected_firmware_write_to_a_control_node_leaves_it_untouched(store: 
 
 def test_the_step_dispatched_to_control_writes_only_control_and_is_clean(store: Store) -> None:
     """The divergence check over one control step, with firmware nodes present but untouched."""
-    from physgate.state.divergence import divergence
+    from physgate.state.divergence import OWNERSHIP_ONLY, divergence
 
     store.write_node(node("firmware.loop_period", owner_role="firmware"), "firmware")
     cursor = store.head_revision()
@@ -83,4 +83,4 @@ def test_the_step_dispatched_to_control_writes_only_control_and_is_clean(store: 
         "control",
     )
 
-    assert divergence(store, store.diff(cursor), "control") == []
+    assert divergence(store, store.diff(cursor), "control", OWNERSHIP_ONLY) == []

@@ -261,7 +261,9 @@ def _with_install(args: argparse.Namespace, run: Any) -> int:
 
 
 def _author(args: argparse.Namespace) -> int:
-    from physgate.evaluation.per_role.author_session import AuthoringPlan, author
+    import dataclasses
+
+    from physgate.evaluation.per_role.author_session import AuthoringPlan, author, root_canaries
 
     # The paths given are resolved once, before anything runs, so a system link such as
     # macOS's /var is followed here and never met by the split's refusal of links.
@@ -283,7 +285,13 @@ def _author(args: argparse.Namespace) -> int:
         per_task_cap=args.per_task_cap,
         id_prefix=prefix,
     )
-    return _with_install(args, lambda setup: author(plan, setup))
+    # Every canary the tiers already cut under the root name: the session's record says
+    # whether one showed in its stream, and the runner refuses a session not looking.
+    canaries = root_canaries(root)
+    return _with_install(
+        args,
+        lambda setup: author(plan, dataclasses.replace(setup, held_out_canaries=canaries)),
+    )
 
 
 def _blind_check(args: argparse.Namespace) -> int:

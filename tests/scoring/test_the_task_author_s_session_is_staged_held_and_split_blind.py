@@ -27,8 +27,8 @@ from physgate.evaluation.per_role.author_session import (
     author,
     blind_check,
 )
-from physgate.evaluation.per_role.authoring import AuthoringError
 from physgate.evaluation.per_role.validate import id_digest
+from physgate.evaluation.tiers.authoring import AuthoringError
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.run_config import RunBounds
 from physgate.oslayer.probe import Absent
@@ -113,6 +113,7 @@ class FakeSession:
             "tokens": 1234,
             "cap": cap,
             "wall_clock_s": 1.5,
+            "held_out_seen": False,
         }
 
 
