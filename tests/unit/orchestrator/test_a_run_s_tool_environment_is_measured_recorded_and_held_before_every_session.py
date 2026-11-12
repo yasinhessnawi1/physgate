@@ -213,6 +213,22 @@ def test_a_new_run_s_configuration_measures_the_environment_its_parameters_name(
     monkeypatch.setattr(cli, "forbidden_places", places)
     monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(fake_binary(tmp_path, "2.1.272")))
     (tmp_path / "brief.md").write_text("Build a robot.\n")
+    # A target repository of the test's own, so the test holds wherever its file lies.
+    target = tmp_path / "target"
+    target.mkdir()
+    author = {
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+    }
+    for argv in (
+        ["git", "init", "-q", "-b", "main"],
+        ["git", "commit", "-q", "--allow-empty", "-m", "fixture"],
+    ):
+        subprocess.run(argv, cwd=target, env=author, check=True)
 
     def configured(params: dict[str, object]) -> RunConfig:
         (tmp_path / "params.json").write_text(json.dumps(params))
@@ -222,7 +238,7 @@ def test_a_new_run_s_configuration_measures_the_environment_its_parameters_name(
                 run_id="run-1",
                 seed=7,
                 brief=tmp_path / "brief.md",
-                target=Path(__file__).resolve().parents[3],
+                target=target,
                 run_dir=tmp_path / "run",
             )
         )
@@ -232,7 +248,7 @@ def test_a_new_run_s_configuration_measures_the_environment_its_parameters_name(
     assert len(asked) == 1, "the places it may not lie in were not asked for once"
     given = asked[0]
     assert given["run_dir"] == (tmp_path / "run").resolve()
-    assert given["target"] == Path(__file__).resolve().parents[3]
+    assert given["target"] == target.resolve()
     assert given["harness"] == cli._harness_root()
     # Named null: no environment, and nothing is measured.
     assert configured({**PARAMS, "tool_environment": None}).tool_environment is None
