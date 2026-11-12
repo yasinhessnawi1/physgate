@@ -35,17 +35,22 @@ from physgate.orchestrator.ports import SessionRequest
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.run_config import RunConfig, load_run_config, write_run_config
 from physgate.orchestrator.tool_environment import (
+    changed_while_running,
     forbidden_places,
     hold_before_session,
     measure_named,
+    session_environment,
+    wire_session,
 )
-from physgate.oslayer.probe import Absent
+from physgate.oslayer.probe import Absent, Present
 from physgate.oslayer.session_temp import session_temps_root
 from physgate.toolenv.exceptions import ToolEnvironmentError
 from physgate.toolenv.manifest import manifest, scan
 from physgate.toolenv.record import ToolEnvironment, hold, run_program
+from physgate.toolenv.session import SESSION_FILE
 
 ABSENT = Absent(reason="stand-in: no sandbox here")
+PRESENT = Present(mechanism="seatbelt", claude_version="2.1.301")
 
 
 def _program(path: Path, says: str) -> None:
@@ -364,17 +369,41 @@ class _Rig:
     """A dispatcher whose installer is stood in for, and what it was asked."""
 
     def __init__(
-        self, monkeypatch: pytest.MonkeyPatch, run_dir: Path, recorded: ToolEnvironment | None
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        run_dir: Path,
+        recorded: ToolEnvironment | None,
+        layer: Present | Absent = ABSENT,
     ) -> None:
         self.installs: list[list[str]] = []
+        #: What the session's own directory of programs and its temporary directory held when
+        #: the installer was asked: name to link target, and every path beneath the directory.
+        self.programs: dict[str, str] = {}
+        self.in_temp: dict[str, str | None] = {}
         self.opened: list[str] = []
         self.places: list[dict[str, Path | None]] = []
-        config = make_config(os_layer_absent="allow", tool_environment=recorded)
+        config = make_config(
+            os_layer_absent="allow" if isinstance(layer, Absent) else "refuse",
+            tool_environment=recorded,
+        )
         real_run = subprocess.run
 
         def run(argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
             if list(argv[1:3]) == ["hooks", "install"]:
                 self.installs.append(list(argv))
+                sdir = Path(_value(list(argv), "--target")[0]).parent
+                if (sdir / "bin").is_dir():
+                    self.programs = {
+                        p.name: os.readlink(p) if p.is_symlink() else p.read_text()
+                        for p in (sdir / "bin").iterdir()
+                    }
+                temp = Path(
+                    (_value(list(argv), "--temp") + _value(list(argv), "--os-layer-temp"))[0]
+                )
+                self.in_temp = {
+                    str(p.relative_to(temp)): os.readlink(p) if p.is_symlink() else None
+                    for p in sorted(temp.rglob("*"))
+                }
                 return subprocess.CompletedProcess(argv, 2, "", "stood in: no session is started")
             return real_run(argv, **kw)
 
@@ -388,7 +417,10 @@ class _Rig:
         monkeypatch.setattr(dispatch, "session_protected_roots", lambda *_a: ((), ()))
         monkeypatch.setattr(dispatch, "harness_protection", lambda: [])
         monkeypatch.setattr(dispatch, "forbidden_places", places)
-        monkeypatch.setattr(ClaudeDispatcher, "os_layer", lambda _self: ABSENT)
+        # Where the worktree lies is not these tests' subject: a test's own directory may be
+        # one the machine's sessions write.
+        monkeypatch.setattr(dispatch, "machine_writable", lambda: ())
+        monkeypatch.setattr(ClaudeDispatcher, "os_layer", lambda _self: layer)
         monkeypatch.setattr(
             ClaudeDispatcher, "environment", lambda _self: SimpleNamespace(system_managed=())
         )
@@ -492,3 +524,98 @@ def test_a_resumed_run_s_first_session_is_refused_on_an_environment_changed_sinc
     assert "not the one this run recorded" in rig.attempt()
     assert (rig.installs, rig.opened) == ([], [])
     assert not (rig.run_dir / "sessions").exists()
+
+
+# -- a session is wired to it, and it is scanned again when the session has ended ---------------
+
+WIRING = {
+    "programs": {"avr-size": "bin/avr-gcc"},
+    "directories": ["core"],
+    "links": {"core/lib": "lib"},
+    "variables": {"BUILD_CORE_DIR": "{temp}/core", "BUILD_QUIET": "yes"},
+}
+
+
+def _wired_environment(tmp_path: Path, wiring: object = None) -> dict[str, Any]:
+    named = _environment(tmp_path)
+    (Path(named["roots"][0]) / SESSION_FILE).write_text(json.dumps(wiring or WIRING))
+    return named
+
+
+def test_a_session_s_programs_and_temporary_directory_are_made_before_it_is_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    named = _wired_environment(tmp_path)
+    root = named["roots"][0]
+    rig = _Rig(monkeypatch, tmp_path / "run", measure_named(named, forbidden={}))
+    assert "installer refused" in rig.attempt()
+    assert rig.programs == {
+        "python3": f'#!/bin/sh\nexec {named["interpreter"]} "$@"\n',
+        "avr-size": f"{root}/bin/avr-gcc",
+    }
+    assert rig.in_temp == {"core": None, "core/lib": f"{root}/lib"}
+
+
+def test_inside_the_os_layer_the_session_s_directory_of_programs_is_opened_to_its_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    named = _wired_environment(tmp_path)
+    rig = _Rig(monkeypatch, tmp_path / "run", measure_named(named, forbidden={}), layer=PRESENT)
+    assert "installer refused" in rig.attempt()
+    assert len(rig.installs) == 1
+    argv = rig.installs[0]
+    sdir = Path(_value(argv, "--target")[0]).parent
+    assert _value(argv, "--os-layer-readable") == [str(sdir / "bin")]
+    assert set(rig.programs) == {"python3", "avr-size"}
+    without = _Rig(monkeypatch, tmp_path / "other", None, layer=PRESENT)
+    assert "installer refused" in without.attempt()
+    assert _value(without.installs[0], "--os-layer-readable") == []
+    assert without.programs == {}
+
+
+def test_a_session_file_that_is_refused_starts_no_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    named = _wired_environment(tmp_path, {**WIRING, "variables": {"PATH": "{root}/bin"}})
+    rig = _Rig(monkeypatch, tmp_path / "run", measure_named(named, forbidden={}))
+    refused = rig.attempt()
+    assert "session file is refused" in refused and "no session is started" in refused
+    assert rig.installs == []
+
+
+def test_a_wiring_refusal_is_an_invocation_error_that_made_nothing(tmp_path: Path) -> None:
+    named = _wired_environment(tmp_path, {**WIRING, "programs": {"python3": "bin/avr-gcc"}})
+    found = measure_named(named, forbidden={})
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    with pytest.raises(InvocationError, match="session file is refused"):
+        wire_session(found, bin_dir=tmp_path / "bin", temp=temp, taken=("PATH",))
+    assert not (tmp_path / "bin").exists() and list(temp.iterdir()) == []
+
+
+def test_the_session_s_environment_gains_the_variables_and_its_programs_come_first() -> None:
+    env = {"PATH": "/claude:/usr/bin:/bin", "HOME": "/h"}
+    joined = session_environment(env, {"BUILD_QUIET": "yes"}, Path("/run/sessions/s/bin"))
+    assert joined == {
+        "PATH": "/run/sessions/s/bin:/claude:/usr/bin:/bin",
+        "HOME": "/h",
+        "BUILD_QUIET": "yes",
+    }
+    assert env == {"PATH": "/claude:/usr/bin:/bin", "HOME": "/h"}
+
+
+def test_a_variable_the_installer_gave_the_session_since_is_not_replaced() -> None:
+    env = {"PATH": "/usr/bin", "SESSION_SHELL": "/bin/zsh"}
+    with pytest.raises(InvocationError, match="already holds") as refused:
+        session_environment(env, {"SESSION_SHELL": "/bin/sh"}, Path("/s/bin"))
+    assert refused.value.context["variable"] == "SESSION_SHELL"
+
+
+def test_a_change_made_while_a_session_ran_is_named_when_it_has_ended(tmp_path: Path) -> None:
+    named = _environment(tmp_path)
+    found = measure_named(named, forbidden={})
+    held = hold_before_session(found, None, forbidden={})
+    assert changed_while_running(found, held) is None
+    _library(named).write_text("def margin(): return 2\n")
+    why = changed_while_running(found, held)
+    assert why is not None and "changed while the session ran" in why

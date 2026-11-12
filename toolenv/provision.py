@@ -380,6 +380,16 @@ def _own_servers(dest: Path) -> list[str]:
     return copied
 
 
+#: The file that says how a session is wired to the environment: the programs it finds by
+#: name, what its tools need in its temporary directory, and the variables they read.
+SESSION_FILE = "session.json"
+
+
+def session_file(dest: Path) -> None:
+    """Copy the session file into the environment's root, where the harness reads it."""
+    shutil.copyfile(HERE / SESSION_FILE, dest / SESSION_FILE)
+
+
 def _check_libraries(dest: Path, pins: Mapping[str, object], work: Path) -> dict[str, object]:
     env = {**base_environment(work), "MPLBACKEND": "Agg", "MPLCONFIGDIR": str(work / "mpl")}
     out = run([str(dest / "venv" / "bin" / "python"), "-I", "-c", LIBRARY_CHECK], env)
@@ -515,6 +525,7 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
         _platformio(dest, pins, work)
         _server(dest, cache, work)
         servers = _own_servers(dest)
+        session_file(dest)
         require_one_name_each(dest)
         require_links_inside(dest)
         make_read_only(dest)
@@ -528,7 +539,7 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
             "own_servers": servers,
             "locks_sha256": {
                 name: sha256_of(HERE / name)
-                for name in ("pyproject.toml", "uv.lock", "pins.json",
+                for name in ("pyproject.toml", "uv.lock", "pins.json", SESSION_FILE,
                              "platformio-server/package-lock.json")
             },
             "self_check": {

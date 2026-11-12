@@ -115,7 +115,13 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root, os_layer_refusal
-from physgate.orchestrator.tool_environment import forbidden_places, hold_before_session
+from physgate.orchestrator.tool_environment import (
+    changed_while_running,
+    forbidden_places,
+    hold_before_session,
+    session_environment,
+    wire_session,
+)
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
@@ -1576,11 +1582,16 @@ class ClaudeDispatcher:
                 if temp is not None and self._config.network != "open"
                 else []
             ),
-            # The run's named interpreter is linked in the session's own directory, which
-            # the OS layer keeps from shell commands; its directory is opened again.
+            # The run's named interpreter, and the programs of its tool environment, are
+            # linked in the session's own directory, which the OS layer keeps from shell
+            # commands; that directory is opened again.
             *(
                 ["--os-layer-readable", str(sdir / "bin")]
-                if temp is not None and self._config.role_python is not None
+                if temp is not None
+                and (
+                    self._config.role_python is not None
+                    or self._config.tool_environment is not None
+                )
                 else []
             ),
         ]
@@ -1712,9 +1723,6 @@ class ClaudeDispatcher:
         # Made before the installation, so the OS layer's rules name them as they will stand.
         (sdir / "home").mkdir(parents=True, exist_ok=True)
         runtime_paths(worktree, sdir / "home")
-        installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
-        # Read before the session starts, while nothing of it can have touched the file.
-        end_check = session_end_command(Path(installed.settings))
         env = isolated_env(
             home=sdir / "home",
             config_dir=sdir / "config",
@@ -1725,9 +1733,26 @@ class ClaudeDispatcher:
             base_url=self._base_url,
             api_key=None,
         )
+        recorded_tools = self._config.tool_environment
+        wired: dict[str, str] = {}
+        if recorded_tools is not None:
+            # Before the installation, so the OS layer's rules name the directory of the
+            # session's programs as it will stand: the interpreter and each program of the
+            # environment by name, and in the session's temporary directory what its tools
+            # need there, all as the environment's own file says.
+            wired = wire_session(
+                recorded_tools, bin_dir=sdir / "bin", temp=own_temp, taken=tuple(env)
+            )
+        installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
+        # Read before the session starts, while nothing of it can have touched the file.
+        end_check = session_end_command(Path(installed.settings))
         env.update(installed.spawn_env)
         recorded_python = self._config.role_python
-        if recorded_python is not None:
+        if recorded_tools is not None:
+            # The environment's interpreter is the session's ``python3``; a run that also
+            # names it as its interpreter names the same one.
+            env = session_environment(env, wired, sdir / "bin")
+        elif recorded_python is not None:
             # The run's named interpreter, measured again, first on the session's PATH as
             # ``python3``: a directory holding nothing else, so nothing beside it comes too.
             require_same(
@@ -1848,6 +1873,13 @@ class ClaudeDispatcher:
                     if p not in roots.held and p not in linked
                 ]
                 linked += elsewhere or [f"{path} ({links} names)"]
+        # The tool environment, scanned once more: a change now was made while this session
+        # ran, by a write no layer refused. Nothing it left is then collected or committed.
+        tools_changed = (
+            changed_while_running(self._config.tool_environment, self._tool_environment_scan)
+            if self._config.tool_environment is not None and self._tool_environment_scan is not None
+            else None
+        )
         if (
             ended is None
             or unconfirmed is not None
@@ -1855,6 +1887,7 @@ class ClaudeDispatcher:
             or moved
             or linked
             or unread is not None
+            or tools_changed is not None
         ):
             settled = {
                 "left_running": list(ended.left_running) if ended is not None else [],
@@ -1863,6 +1896,7 @@ class ClaudeDispatcher:
                 "protected_changed": moved,
                 "held_record_names": linked,
                 "protected_unread": unread,
+                "tool_environment_changed": tools_changed,
             }
             # Beside the end record, not in it: a resume still finds the session unended,
             # stops and checks it again, and reads what it spent.
@@ -1870,6 +1904,8 @@ class ClaudeDispatcher:
             msg = (
                 "the session's stop is not confirmed, or the sentinel's check after it "
                 "failed; no git call follows on this attempt"
+                if tools_changed is None
+                else f"{tools_changed}; no git call follows on this attempt"
             )
             raise InvocationError(
                 msg,
