@@ -21,7 +21,14 @@ function item(itemId: string, subtaskId: string, source: QueueItem["source"]): Q
 }
 
 function view(queueItem: QueueItem, open: boolean): ItemView {
-  return { position: 0, itemSha256: "a".repeat(64), open, item: queueItem, trajectories: [] };
+  return {
+    position: 0,
+    itemSha256: "a".repeat(64),
+    open,
+    item: queueItem,
+    trajectories: [],
+    viewId: null,
+  };
 }
 
 const EVENTS: RunEvent[] = [
@@ -57,6 +64,8 @@ describe("repairs used up is said only where the queue recorded it", () => {
           resolvedBy: "yasin",
           flag: null,
           taken: null,
+          reviewTime: null,
+          decompositionDefect: false,
         },
       ],
     };

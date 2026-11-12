@@ -103,7 +103,12 @@ import stat
 from typing import TYPE_CHECKING
 
 from physgate.hooks.paths import protection, resolve_roots_once
-from physgate.hooks.reasons import ANSWER_KEY_REASON, HELD_OUT_REASON, REVIEW_MATERIAL_REASON
+from physgate.hooks.reasons import (
+    ANSWER_KEY_REASON,
+    HELD_OUT_REASON,
+    REVIEW_MATERIAL_REASON,
+    WITHHELD_REASON,
+)
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.shell import (
     BRACE_LIMIT,
@@ -371,7 +376,9 @@ def _cannot_reach(candidate: str, cwd: str, names: set[str], cwd_protected: bool
 
 
 #: What may not even be named, by any command: a mention in a reader's input is enough.
-_NAMED_ANYWHERE = frozenset({HELD_OUT_REASON, ANSWER_KEY_REASON, REVIEW_MATERIAL_REASON})
+_NAMED_ANYWHERE = frozenset(
+    {HELD_OUT_REASON, ANSWER_KEY_REASON, REVIEW_MATERIAL_REASON, WITHHELD_REASON}
+)
 
 
 def _first_protected(
@@ -389,7 +396,7 @@ def _first_protected(
     what may not even be named counts there, not a reviewer's read allowance.
     """
     names = _protected_names(config)
-    cwd_protected = protection(cwd, cwd, config, writing=not reading) is not None
+    cwd_protected = protection(cwd, cwd, config, writing=not reading, shell=True) is not None
     for word, dynamic in words:
         if env is None:
             one = _expand(word, dynamic)
@@ -406,7 +413,7 @@ def _first_protected(
             for candidate in _candidates(expansion, cwd):
                 if _cannot_reach(candidate, cwd, names, cwd_protected):
                     continue
-                reason = protection(candidate, cwd, config, writing=not reading)
+                reason = protection(candidate, cwd, config, writing=not reading, shell=True)
                 if reason is not None and not (only_named and reason not in _NAMED_ANYWHERE):
                     return candidate, reason
     return None

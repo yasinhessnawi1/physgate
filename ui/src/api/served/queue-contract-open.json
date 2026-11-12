@@ -1,0 +1,81 @@
+{
+  "decided": [
+    {
+      "decision": "approve: the reviewer found every criterion met",
+      "flag": null,
+      "item_id": "run-7-firmware-a7cd7e",
+      "kind": "resolution",
+      "note": "the reviewer found every criterion met",
+      "resolved_by": "operator",
+      "review_time": {
+        "unit": "s",
+        "value": 45.116306
+      },
+      "shown_at": "2026-11-06T11:27:37.091461Z",
+      "shown_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "taken": {
+        "acts": true,
+        "confirmed_by": null,
+        "effect": "merge",
+        "order_too_long": false,
+        "why_not": null
+      },
+      "ts": "2026-11-06T11:28:22.207767Z",
+      "verb": "approve"
+    },
+    {
+      "decision": "reject: write the file without a line over 20,000 bytes",
+      "flag": null,
+      "item_id": "run-7-control-c2599c",
+      "kind": "resolution",
+      "note": "write the file without a line over 20,000 bytes",
+      "resolved_by": "operator",
+      "review_time": {
+        "unit": "s",
+        "value": 20.903813
+      },
+      "shown_at": "2026-11-06T11:29:12.730848Z",
+      "shown_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "taken": {
+        "acts": true,
+        "confirmed_by": null,
+        "effect": "retry",
+        "order_too_long": false,
+        "why_not": null
+      },
+      "ts": "2026-11-06T11:29:33.634661Z",
+      "verb": "reject"
+    }
+  ],
+  "open": [
+    {
+      "artefact_diff": "The run branch from 1111111 to 3333333: see `git diff 1111111 3333333` in the target repository.",
+      "consequence": {
+        "attempt": null,
+        "attempt_commit": null,
+        "confirmed_indicators": [],
+        "on_approve": "record_only",
+        "on_choose": {
+          "consumer": "record_only",
+          "producer": "reopen"
+        },
+        "on_reject": "record_only",
+        "scan_hits": [],
+        "why_record_only": "source"
+      },
+      "decision_required": "The interface contract of module `sizing` (producer, subtask sizing-3ac1b9) to module `firmware` (consumer, subtask firmware-a7cd7e) failed after both merged. The interfaces are fixed at decomposition, and no run changes them. The consumer's nodes deviate from the interface. Decide whose merged work stands: choose producer or choose consumer.",
+      "item_id": "run-7-contract-4",
+      "kind": "item",
+      "quantities": [],
+      "run_id": "run-7",
+      "source": "contract",
+      "subtask_id": "contract",
+      "trajectories": [
+        "<run>/sessions/session-2/stdout.jsonl",
+        "<run>/sessions/session-3/stdout.jsonl"
+      ],
+      "triggering_finding": "Interface `sizing_to_firmware`: a clause failed, ruled for a person.",
+      "ts": "2026-11-06T11:40:00.000000Z"
+    }
+  ]
+}

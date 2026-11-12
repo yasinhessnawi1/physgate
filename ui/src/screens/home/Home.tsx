@@ -32,9 +32,17 @@ import { EngineWords } from "../common/engine";
 import { useJson, useLines } from "../common/read";
 import { RowView } from "../common/RowView";
 import { type Row, rowsOf } from "../common/rows";
-import { inProgress, runBase, runKey, runSource, useLabels, useRunList } from "../common/runs";
+import {
+  haltOwedWords,
+  inProgress,
+  runBase,
+  runKey,
+  runSource,
+  useLabels,
+  useRunList,
+} from "../common/runs";
 import { NoRunsYet } from "./NoRunsYet";
-import { runEnd, runEndWords } from "./runEnd";
+import { runEnd, runEndWords, waitingFor } from "./runEnd";
 import { activeRun, readTargets, type RunRead, startOfRead, useRunReads } from "./data";
 import {
   STRIP_STATES,
@@ -114,15 +122,21 @@ function RunName({
   );
 }
 
-function statusWords(read: RunRead | undefined) {
+export function statusWords(read: RunRead | undefined) {
   if (read === undefined) return <span className="pg-muted">Reading…</span>;
   if (!read.status.ok) return <span className="pg-muted">Where it stands was not read</span>;
   if (inProgress(read.status.value)) return <InProgressBadge />;
+  const owed = haltOwedWords(read.status.value);
+  if (owed !== null) return <span className="pg-status">{owed}</span>;
   if (read.status.value.halted !== null)
     return <span className="pg-status">Halted · {read.status.value.halted.reason}</span>;
   // A log that could not be read cannot show a run complete: it is not claimed.
   if (!read.events.ok) return <span className="pg-status">Ended · its log was not read</span>;
-  const end = runEnd(read.events.value, read.queue.ok ? read.queue.value.open.length : null);
+  const open = waitingFor(
+    read.queue.ok ? read.queue.value.open : null,
+    read.status.value.superseded,
+  );
+  const end = runEnd(read.events.value, open, read.status.value.completion);
   if (end.kind === "complete") return <StatusTag status="complete" />;
   return <span className="pg-status">{runEndWords(end)}</span>;
 }

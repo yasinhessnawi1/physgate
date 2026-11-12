@@ -197,6 +197,7 @@ def _decompose_args(tmp_path: Path, reportable: bool) -> list[str]:
         "queue_decisions": "record",
         # The stand-in binary predates the layer's pin: allowed absent, for development.
         "os_layer_absent": "allow",
+        "design_review": "off",
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],

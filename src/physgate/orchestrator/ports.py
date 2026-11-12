@@ -11,7 +11,7 @@ changing. None of them decides anything the loop should decide.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Annotated, Literal, Protocol, runtime_checkable
 
@@ -19,11 +19,15 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from physgate.orchestrator.budget import ATTEMPT_LIMIT, SessionEnd
 from physgate.orchestrator.common import NonEmptyStr
+from physgate.orchestrator.declaration import Declaration
+from physgate.orchestrator.dispute import Dispute
+from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
-from physgate.orchestrator.protocols import MessageUsage
+from physgate.orchestrator.protocols import IssuedState, MessageUsage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.trajectory import Seal
 from physgate.series.seal import SeriesCheck, SessionSeries
+from physgate.state.divergence import Divergence
 from physgate.state.store import JournalLine, Payload
 
 SessionId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
@@ -54,6 +58,18 @@ class SessionRequest(_Frozen):
     spec_commit: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")] | None = None
     #: An ordinary attempt, or the fix a person ordered; a fix always carries its instruction.
     kind: RequestKind = "attempt"
+    #: Integration's issued state, for a session of integration's subtask: the dispatcher writes it
+    #: where the session reads it and adds it to the required reading.
+    issued_state: IssuedState | None = None
+    #: Whether the session is told how to dispute a value of a cross node: a role that may, in a
+    #: plan that holds the work of the role that writes those values.
+    disputes: bool = False
+    #: How often a person's choice reopened the merged subtask: its session runs in that
+    #: reopen's own worktree and branch.
+    reopened: Annotated[int, Field(ge=0)] = 0
+    #: The interface nodes the plan's contract pairs hold the subtask's role to, as producer or
+    #: consumer, in id order: the session is told to join each.
+    interfaces: tuple[NonEmptyStr, ...] = ()
 
     @model_validator(mode="after")
     def _a_fix_is_told_what_to_fix(self) -> SessionRequest:
@@ -84,6 +100,9 @@ class SessionReport(_Frozen):
     trajectory_tampered: NonEmptyStr | None = None
     #: The digest of the policy limits the invocation received, if it received any.
     policy_limits_sha256: NonEmptyStr | None = None
+    #: Whether a model answered the session at least once (:func:`managed.model_answered`).
+    #: A report that does not say is taken as answered, so its limits are judged.
+    model_answered: bool = True
     #: A canary of reviewer material found in the session's own stream, if one was:
     #: the session read what only reviewers read, by a path no hook could judge.
     review_material_seen: NonEmptyStr | None = None
@@ -113,8 +132,29 @@ class SessionReport(_Frozen):
     reaper_unverified: tuple[NonEmptyStr, ...] = ()
 
 
+#: How a reason a hook layer's log says nothing of a session's reaping begins, where it stands
+#: among the commands whose survivor reaper was not heard from: no command is taken as heard from.
+HOOK_LOG_UNREAD = "the hook log cannot be read"
+
+
 #: Whose session a leftover was, as its tokens are attributed: ``session`` or ``reviewer``.
 SessionKind = Literal["session", "reviewer"]
+
+
+class RecordAtStart(_Frozen):
+    """One of the run's held records as a role session's sentinel found it when the session started.
+
+    ``identity`` is the file's device and inode, ``None`` where there was no file or something
+    other than one (then ``size`` is 0 for no file, -1 for something else); ``sha256`` is the
+    digest of the ``size`` bytes it held.
+    """
+
+    path: NonEmptyStr
+    identity: tuple[int, int] | None
+    size: Annotated[int, Field(ge=-1)]
+    sha256: str
+    #: Its permission bits then, ``None`` where the record does not say.
+    mode: Annotated[int, Field(ge=0)] | None = None
 
 
 class Leftover(_Frozen):
@@ -152,12 +192,39 @@ class Leftover(_Frozen):
     #: Whether the stream was read and scanned. A quarantined session's never was: its
     #: held-out and reviewer-material scans say nothing.
     scan: Literal["scanned", "unscanned (stream gone)"] = "scanned"
+    #: Whether its own run ended it, and died before the record said so: then what that end showed
+    #: beside the stream is read again from the session's directory (the four below). A session
+    #: left running, which its run never ended, has them at their defaults.
+    taken_up: bool = False
+    #: As at a session end: the tool calls whose result carries bubblewrap's own line, read only
+    #: where the record shows the session spawned under the OS layer.
+    os_layer_aborted: tuple[NonEmptyStr, ...] = ()
+    #: As at a session end: the shell commands whose survivor reaper was not heard from.
+    reaper_unverified: tuple[NonEmptyStr, ...] = ()
+    #: As at a session end: what the placeholder sweep recorded it refused, under the OS layer.
+    placeholders_refused: NonEmptyStr | None = None
+    #: As at a session end: the digest of the policy limits its invocation left, if any. Compared
+    #: with the run's first only for a session taken up: for one that is not, nothing was read.
+    policy_limits_sha256: NonEmptyStr | None = None
+    #: For a session taken up whose end record names other policy limits than its configuration
+    #: directory holds: what disagrees, which is a finding of its own.
+    policy_limits_unsure: NonEmptyStr | None = None
+    #: A role session's: the run's held records as its sentinel found them when it started, which
+    #: the resume holds the records to, with its own writers, before it acts on them; ``None``
+    #: where its sentinel's record names none, which the resume takes as a change. Empty where
+    #: no start was read at all: a dispatcher that installs no sentinel.
+    records_at_start: tuple[RecordAtStart, ...] | None = ()
 
 
 class ChangeCheck(_Frozen):
     """The verdict on an attempt's changes before the gate sees them."""
 
-    refused_by: Literal["proposal", "write_scope", "series"] | None
+    refused_by: (
+        Literal[
+            "proposal", "write_scope", "series", "declaration", "dispute", "interface", "long_line"
+        ]
+        | None
+    )
     reason: NonEmptyStr | None
     #: The offending paths or node id, for the finding's key.
     subject: NonEmptyStr | None = None
@@ -168,6 +235,16 @@ class ChangeCheck(_Frozen):
     proposed: tuple[NonEmptyStr, ...] = ()
     #: Every proposed quantity that names a simulation record, held to it: passes included.
     series_checks: tuple[SeriesCheck, ...] = ()
+    #: What the attempt declares complete, read from the commit checked: an attempt of the role
+    #: that owns completion alone, and ``None`` when it holds no declaration. Never on the change
+    #: check's own line: the loop records it on a line of its own, after an accepted check.
+    declaration: Declaration | None = None
+    #: Every dispute the attempt holds, read from the commit checked, sorted by node and quantity.
+    #: Never on the change check's own line: the loop records each on a line of its own.
+    disputes: tuple[Dispute, ...] = ()
+    #: Each interface the attempt's nodes revise, derived at this check, in id order;
+    #: empty unless the check was asked to follow and something differed.
+    followed: tuple[FollowedInterface, ...] = ()
 
 
 class WorktreeRemoval(_Frozen):
@@ -201,7 +278,14 @@ class Dispatcher(Protocol):
         ...
 
     def stop_leftovers(self) -> list[Leftover]:
-        """Stop every session a previous orchestrator left running; say which, and what it spent."""
+        """Stop every session a previous orchestrator left running; say which, and what it spent.
+
+        None is ended: one the loop has not recorded is found again by the next process.
+        """
+        ...
+
+    def end_leftovers(self) -> None:
+        """End the leftovers the last stop found, once the loop has recorded their findings."""
         ...
 
     def environment(self) -> InstallFacts | None:
@@ -219,10 +303,23 @@ class ChangeChecker(Protocol):
         role: str,
         *,
         series: SessionSeries | None = None,
+        follows: int | None = None,
     ) -> ChangeCheck:
         """Check the attempt commit's changes and the session's series records.
 
-        Never writes the canonical store.
+        ``follows`` is the attempt's number when it is due to follow its role's interfaces
+        (``RunState.follows``), and ``None`` otherwise. Never writes the canonical store.
+        """
+        ...
+
+    def declaration_at(self, commit: str, declaring: str) -> Declaration | None:
+        """The completion declaration ``commit`` holds, read and parsed as :meth:`check` reads one.
+
+        ``declaring`` is the subtask whose attempt made the declaration; ``None`` when the commit
+        holds none.
+
+        Raises:
+            DeclarationError: what the commit holds there is not a declaration.
         """
         ...
 
@@ -230,11 +327,21 @@ class ChangeChecker(Protocol):
 class Merger(Protocol):
     """Applies an accepted attempt and merges it into the run branch."""
 
-    def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
+    def merge(
+        self,
+        subtask_id: str,
+        attempt: int,
+        attempt_commit: str,
+        message: str,
+        reopen: int = 0,
+        contracts: Mapping[str, str] | None = None,
+    ) -> str:
         """Merge exactly ``attempt_commit`` and return the merge commit.
 
         Idempotent: a merge already made is returned, not redone. Refuses a commit
-        that is no longer what the subtask's branch points at.
+        that is no longer what the subtask's branch points at. ``contracts`` are interface
+        contract files, by path, the merge commit writes with these bytes: the revisions the
+        attempt followed.
         """
         ...
 
@@ -256,8 +363,11 @@ class Merger(Protocol):
         """
         ...
 
-    def remove_worktree(self, subtask_id: str) -> WorktreeRemoval:
-        """Remove a subtask's worktree without force; never its branch. Never raises."""
+    def remove_worktree(self, subtask_id: str, reopen: int = 0) -> WorktreeRemoval:
+        """Remove a subtask's worktree without force; never its branch. Never raises.
+
+        ``reopen`` is how often the subtask was reopened: each reopen has a worktree of its own.
+        """
         ...
 
 
@@ -291,8 +401,8 @@ class GraphPort(Protocol):
         """Commit the store's files, so the graph is committed (ARCH-010)."""
         ...
 
-    def proposals(self, subtask_id: str, attempt_commit: str) -> list[Payload]:
-        """The node proposals the attempt commit added or changed, validated."""
+    def proposals(self, subtask_id: str, attempt_commit: str, role: str) -> list[Payload]:
+        """The node proposals the attempt commit added or changed, validated under ``role``."""
         ...
 
     def write(self, payload: Payload, role: str) -> int:
@@ -303,8 +413,26 @@ class GraphPort(Protocol):
         """
         ...
 
-    def divergences(self, since: int, acting_role: str) -> tuple[str, ...]:
-        """Every node changed after ``since`` by a role that does not own it."""
+    def follow(self, payload: Payload, role: str, joined: tuple[str, ...]) -> int:
+        """Write an interface's followed revision through the store's own method; its revision.
+
+        Raises ``StoreRefusalError`` for a revision that is not the derivation the store holds
+        it to, and ``StoreStaleError`` when the journal moved underneath the handle.
+        """
+        ...
+
+    def divergences(
+        self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
+    ) -> tuple[Divergence, ...]:
+        """Every node changed after ``since`` by a role that does not own it, or against a duty.
+
+        A duty is one the role register gives a cross-cutting role: the cross nodes, which
+        only their owner writes, and completion, whose owner writes no node. An interface
+        node made after ``since``, created as one or turned into one, is named too, and so is an
+        interface rewritten at any revision but the ``admitted`` ones, the step's followed
+        revisions. Each entry says which of these it is, so the loop records a write past the
+        store's own guard apart from a duty's breach.
+        """
         ...
 
     def reopen(self) -> tuple[int, tuple[str, ...]]:

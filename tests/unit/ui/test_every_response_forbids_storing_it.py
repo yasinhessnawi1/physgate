@@ -44,6 +44,7 @@ def _targets(world: dict[str, Path]) -> list[str]:
         "session": sealed_session(run),
         "date": "2026-09-27",
         "revision": "1",
+        "round": "2",
         "node": journal_records_after(run / "store", 0)[-1].node_id,
         "library_file": "standards",
         "role": "control",

@@ -81,7 +81,10 @@ def test_a_backgrounded_write_is_refused_either_way(tmp_path: Path) -> None:
     run = _run(tmp_path, "sleep 1; echo x > late.txt &")
     assert _refused_by_shell_layer(run) == shell_paths.BACKGROUND
     run = _run(tmp_path / "flag", "sleep 1; echo x > late.txt", run_in_background=True)
-    assert _refused_by_shell_layer(run) == shell_paths.BACKGROUND
+    # The session's binary runs with its background tasks switched off, so it refuses the flag
+    # itself before any hook is asked; the shell layer's own refusal of it is a unit row's.
+    told = [r.last_user for r in run.api.requests if r.thread == "main" and r.tool_results == 1]
+    assert told and "unexpected parameter `run_in_background`" in told[0], told
     assert not (run.worktree / "late.txt").exists()
 
 

@@ -159,12 +159,20 @@ function ledgerResult(value: unknown): Verdict | "skipped" | null {
   throw new ShapeError("a ledger result");
 }
 
+/**
+ * A review's result on a ledger line: a gate's, or ``blocked``, which only a review records: its
+ * issued specification lacks what a check needs. Never a verdict, so never drawn as one.
+ */
+function reviewResult(value: unknown): Verdict | "skipped" | "blocked" | null {
+  return value === "blocked" ? value : ledgerResult(value);
+}
+
 export interface LedgerLine {
   readonly id: string;
   readonly role: string;
   readonly attempts: number;
   readonly gate: Verdict | "skipped" | null;
-  readonly review: Verdict | "skipped" | null;
+  readonly review: Verdict | "skipped" | "blocked" | null;
   readonly mergeCommit: string | null;
 }
 
@@ -175,7 +183,7 @@ export function ledgerLine(value: unknown): LedgerLine {
     role: text(line.assigned_role, "a role"),
     attempts: count(line.attempt_count, "an attempt count"),
     gate: ledgerResult(line.gate_result),
-    review: ledgerResult(line.review_result),
+    review: reviewResult(line.review_result),
     mergeCommit: optionalText(line.merge_commit, "a commit"),
   };
 }

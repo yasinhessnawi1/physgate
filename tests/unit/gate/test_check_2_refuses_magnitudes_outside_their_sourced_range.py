@@ -236,7 +236,8 @@ def test_a_range_without_a_confirmation_date_does_not_load(tmp_path: Path) -> No
     tables = tmp_path / "tables"
     (tables / "electrical").mkdir(parents=True)
     text = TABLE.read_text()
-    assert text.count("confirmed = ") == 1
+    # One per range: the inertial sensor's under sample_rate and under output_data_rate.
+    assert text.count("confirmed = ") == 2
     (tables / "electrical" / BOUNDS_NAME).write_text(
         text.replace("confirmed = ", "unconfirmed = ", 1)
     )

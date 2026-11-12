@@ -438,9 +438,13 @@ def test_with_the_layer_the_writer_writes_a_record_once(layout: Layout) -> None:
     outbox = layout.worktree / ".physgate" / "series"
     assert sorted(p.name for p in outbox.iterdir()) == ["step_nominal.json"]
     assert json.loads((outbox / "step_nominal.json").read_text())["title"] == MARKER
-    # Beside the outbox: the writer's place, and the proposals the installer made, empty.
-    assert sorted(p.name for p in outbox.parent.iterdir()) == ["lib", "proposals", "series"]
+    # Beside the outbox: the writer's place, and the proposals, completion and disputes
+    # directories the installer made, empty.
+    beside = sorted(p.name for p in outbox.parent.iterdir())
+    assert beside == ["completion", "disputes", "lib", "proposals", "series"]
     assert list((outbox.parent / "proposals").iterdir()) == []
+    assert list((outbox.parent / "completion").iterdir()) == []
+    assert list((outbox.parent / "disputes").iterdir()) == []
 
 
 @pytest.mark.usefixtures("layer")
@@ -629,7 +633,7 @@ print('growing' if os.path.getsize('alive.log') > before else 'still')
 @pytest.mark.parametrize("reaper", [True, False], ids=["reaper", "red-control-without-it"])
 def test_nothing_a_command_starts_outlives_it(layout: Layout, *, reaper: bool) -> None:
     # A process started in a session of its own got past the refusal of backgrounding and,
-    # on macOS, lived on across later commands (M-128). Linux's process namespace ends it
+    # on macOS, lived on across later commands. Linux's process namespace ends it
     # with its command; on macOS the reaper, inside the command's own sandbox, stops it,
     # and the hook layer refuses the command that left it.
     if not reaper and sys.platform != "darwin":

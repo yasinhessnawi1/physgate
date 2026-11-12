@@ -25,6 +25,7 @@ from scripted_endpoint import (  # noqa: E402
     DUMMY_KEY,
     DUMMY_OAUTH_TOKEN,
     Script,
+    failure,
     serving,
     text,
     tool,
@@ -39,6 +40,7 @@ from physgate.orchestrator.install import prepare_install  # noqa: E402
 from physgate.orchestrator.invocation import claude_binary  # noqa: E402
 from physgate.orchestrator.managed import system_managed_paths  # noqa: E402
 from physgate.orchestrator.merge import RunGit  # noqa: E402
+from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD  # noqa: E402
 from physgate.orchestrator.ports import SessionRequest  # noqa: E402
 from physgate.orchestrator.run_config import RunConfig, write_run_config  # noqa: E402
 from physgate.state.store import Store  # noqa: E402
@@ -455,8 +457,9 @@ def test_remote_settings_delivered_during_a_session_are_reported_as_drift(
 ) -> None:
     real = ClaudeDispatcher._install
 
-    def delivering(self: Any, request: Any, worktree: Path, sdir: Path, temp: Any) -> Any:  # noqa: ANN401
-        installed = real(self, request, worktree, sdir, temp)
+    def delivering(self: Any, *args: Any, **kw: Any) -> Any:  # noqa: ANN401
+        installed = real(self, *args, **kw)
+        sdir: Path = args[2]
         (sdir / "config").mkdir(parents=True, exist_ok=True)
         (sdir / "config" / "remote-settings.json").write_text('{"disableAllHooks": true}')
         return installed
@@ -478,8 +481,9 @@ def test_the_policy_limits_a_session_received_are_reported_by_their_digest(
     real = ClaudeDispatcher._install
     limits = b'{"restrictions": {"enforce_web_search_mcp_isolation": {"allowed": false}}}'
 
-    def fetching(self: Any, request: Any, worktree: Path, sdir: Path, temp: Any) -> Any:  # noqa: ANN401
-        installed = real(self, request, worktree, sdir, temp)
+    def fetching(self: Any, *args: Any, **kw: Any) -> Any:  # noqa: ANN401
+        installed = real(self, *args, **kw)
+        sdir: Path = args[2]
         (sdir / "config").mkdir(parents=True, exist_ok=True)
         (sdir / "config" / "policy-limits.json").write_bytes(limits)
         return installed
@@ -498,6 +502,29 @@ def test_a_session_that_received_no_policy_limits_reports_none(
     worktree = tmp_path / "run" / "worktrees" / "s1"
     steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    assert report.policy_limits_sha256 is None
+
+
+def test_a_session_a_model_answered_reports_it(tmp_path: Path, install_bin: Path) -> None:
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    if "model_answered" not in type(report).model_fields:
+        pytest.fail("a session's report does not say whether a model answered it")
+    assert report.end.outcome == "completed" and report.model_answered is True
+
+
+def test_a_session_whose_only_request_failed_reports_no_model_answered(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    # The binary writes its own error message for the failed request, under a model name of
+    # its own: the session ends ``api_error`` with no model's answer in its stream.
+    steps = [failure(400, "invalid_request_error", "the request was refused")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    if "model_answered" not in type(report).model_fields:
+        pytest.fail("a session's report does not say whether a model answered it")
+    assert (report.end.outcome, report.end.cause) == ("infrastructure", "api_error")
+    assert report.model_answered is False
     assert report.policy_limits_sha256 is None
 
 
@@ -524,6 +551,10 @@ def test_a_session_cannot_write_the_run_s_records_streams_integration_worktree_o
     # The event log is one dispatch reads (whether the run recorded interface contracts),
     # and refuses when it cannot: it starts empty, as a run's log is before its first line.
     records["events.jsonl"] = ""
+    # The record of the run's parameters file is one dispatch reads too, and names the file.
+    params = tmp_path / "params.json"
+    params.write_text("{}\n")
+    records[PARAMS_RECORD] = json.dumps({"params": str(params)}) + "\n"
     run_dir.mkdir(parents=True)
     for name, content in records.items():
         (run_dir / name).write_text(content)
@@ -750,6 +781,30 @@ def test_an_answer_key_file_given_a_second_name_before_the_commit_is_named_by_th
     assert report.end.outcome == "completed", report
     assert report.withheld_problems is not None, "the second name was not reported"
     assert f"{stand_in}: has more than one name (2)" in report.withheld_problems
+
+
+def test_the_run_s_configuration_given_a_second_name_before_the_commit_is_named_by_the_dispatcher(
+    tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same window for a withheld run record: the run's configuration, linked from outside."""
+    import physgate.orchestrator.dispatch as dispatch_module
+    from physgate.series.collect import collect as real_collect
+
+    record = tmp_path / "run" / "run.json"
+    second_name = tmp_path / "second-name-of-the-run-configuration.json"
+
+    def second_name_then_collect(*a: Any, **k: Any) -> Any:  # noqa: ANN401
+        os.link(record, second_name)
+        return real_collect(*a, **k)
+
+    monkeypatch.setattr(dispatch_module, "collect", second_name_then_collect)
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    assert second_name.exists(), "the second name was never made"
+    assert report.end.outcome == "completed", report
+    assert report.withheld_problems is not None, "the second name was not reported"
+    assert "run.json: has more than one name (2)" in report.withheld_problems
 
 
 def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(

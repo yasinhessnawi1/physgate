@@ -1,0 +1,341 @@
+[
+ {
+  "constrains": [
+   "balance.controller",
+   "firmware.loop_timing"
+  ],
+  "domain": "cross",
+  "geometry_hash": "none",
+  "id": "drivetrain.motor",
+  "kind": "interface",
+  "model": null,
+  "no_change_justified": {},
+  "owner_role": "sizing",
+  "quantities": {
+   "current_limit": {
+    "source": "TI DRV8838 SLVSBA4F \u00a76.3 peak current, brief criterion 6",
+    "unit": "A",
+    "value": 1.8,
+    "written_by": "sizing"
+   },
+   "external_gear_ratio": {
+    "source": "Kit plastic gear stage 45:21, brief criterion 1",
+    "unit": "1",
+    "value": 2.142857,
+    "written_by": "sizing"
+   },
+   "gear_ratio": {
+    "source": "Pololu item #3073 tooth counts (32x33x35x38)/(15x14x13x10) = 1404480/27300",
+    "unit": "1",
+    "value": 51.446,
+    "written_by": "sizing"
+   },
+   "mass_without_cells": {
+    "source": "Pololu item #3575 specifications, brief criterion 7",
+    "unit": "kg",
+    "value": 0.2,
+    "written_by": "sizing"
+   },
+   "max_average_motor_voltage": {
+    "source": "supply_voltage x max_duty",
+    "unit": "V",
+    "value": 5.4,
+    "written_by": "sizing"
+   },
+   "max_duty": {
+    "source": "Balboa32U4Motors.cpp maxSpeed 300 / ICR1 400, brief criterion 5",
+    "unit": "1",
+    "value": 0.75,
+    "written_by": "sizing"
+   },
+   "no_load_ground_speed": {
+    "source": "no_load_speed / external_gear_ratio x wheel_radius at the 5.4 V duty limit",
+    "unit": "m/s",
+    "value": 1.1435,
+    "written_by": "sizing"
+   },
+   "no_load_speed": {
+    "source": "650 rpm at 6 V (brief criterion 17) scaled to 5.4 V, gearmotor output shaft",
+    "unit": "rad/s",
+    "value": 61.261,
+    "written_by": "sizing"
+   },
+   "overall_gear_ratio": {
+    "source": "gear_ratio x external_gear_ratio; brief criterion 1 (110.25 \u00b1 0.5 %)",
+    "unit": "1",
+    "value": 110.242,
+    "written_by": "sizing"
+   },
+   "rated_no_load_speed": {
+    "source": "650 rpm at 6 V, Pololu item #3073 per brief criterion 17",
+    "unit": "rad/s",
+    "value": 68.068,
+    "written_by": "sizing"
+   },
+   "rated_stall_current": {
+    "source": "Plan value: Pololu item #3073 at 6 V; sizing confirms",
+    "unit": "A",
+    "value": 1.6,
+    "written_by": "sizing"
+   },
+   "rated_voltage": {
+    "source": "Pololu item #3073 rating",
+    "unit": "V",
+    "value": 6,
+    "written_by": "sizing"
+   },
+   "stall_current": {
+    "source": "Plan value: Pololu #3073 stall current 1.6 A at 6 V scaled linearly to 5.4 V; sizing confirms",
+    "unit": "A",
+    "value": 1.44,
+    "written_by": "sizing"
+   },
+   "stall_torque": {
+    "source": "Plan value: Pololu #3073 stall torque 15 oz-in (0.1059 N*m) at 6 V scaled to 5.4 V, gearmotor output shaft; sizing confirms",
+    "unit": "N*m",
+    "value": 0.0953,
+    "written_by": "sizing"
+   },
+   "supply_voltage": {
+    "source": "6 AA NiMH x 1.2 V nominal, brief criteria 3 and 4",
+    "unit": "V",
+    "value": 7.2,
+    "written_by": "sizing"
+   },
+   "wheel_radius": {
+    "source": "Pololu 80 x 10 mm wheel, brief criterion 2",
+    "unit": "m",
+    "value": 0.04,
+    "written_by": "sizing"
+   }
+  },
+  "requirements": [
+   "1",
+   "2",
+   "3",
+   "4",
+   "5",
+   "6",
+   "7"
+  ],
+  "updated": "2026-11-03"
+ },
+ {
+  "constrains": [
+   "firmware.loop_timing"
+  ],
+  "domain": "control",
+  "geometry_hash": "none",
+  "id": "balance.controller",
+  "kind": "interface",
+  "model": null,
+  "no_change_justified": {},
+  "owner_role": "control",
+  "quantities": {
+   "angle_decay_per_update": {
+    "source": "Balance.cpp balance(), angle = angle * 999 / 1000",
+    "unit": "1",
+    "value": 0.999,
+    "written_by": "control"
+   },
+   "angle_rate_ratio": {
+    "source": "Balance.h ANGLE_RATE_RATIO = 140, brief criterion 8",
+    "unit": "s",
+    "value": 0.14,
+    "written_by": "control"
+   },
+   "angle_response": {
+    "source": "Balance.h ANGLE_RESPONSE = 11 (plan baseline; control confirms against library 1.1.2)",
+    "unit": "1",
+    "value": 11,
+    "written_by": "control"
+   },
+   "command_limit": {
+    "source": "Balance.h MOTOR_SPEED_LIMIT = 300, brief criterion 5",
+    "unit": "count",
+    "value": 300,
+    "written_by": "control"
+   },
+   "cruise_drive_increment": {
+    "source": "1.2 m/s / (2 pi x 0.040 m) x 1322.9 counts/rev x 0.010 s",
+    "unit": "count/update",
+    "value": 63.16,
+    "written_by": "control"
+   },
+   "cruise_speed_reference": {
+    "source": "Brief criterion 17",
+    "unit": "m/s",
+    "value": 1.2,
+    "written_by": "control"
+   },
+   "distance_diff_response": {
+    "source": "Balance.h DISTANCE_DIFF_RESPONSE = -50 (plan baseline; control confirms against library 1.1.2)",
+    "unit": "1",
+    "value": -50,
+    "written_by": "control"
+   },
+   "distance_response": {
+    "source": "Balance.h DISTANCE_RESPONSE = 73 (plan baseline; control confirms against library 1.1.2)",
+    "unit": "1",
+    "value": 73,
+    "written_by": "control"
+   },
+   "gear_ratio_coefficient": {
+    "source": "Balance.h GEAR_RATIO = 111, controller scaling constant",
+    "unit": "1",
+    "value": 111,
+    "written_by": "control"
+   },
+   "push_tilt_rate_step": {
+    "source": "Brief criterion 18 (12 deg / 0.140 s)",
+    "unit": "rad/s",
+    "value": 1.5,
+    "written_by": "control"
+   },
+   "response_divisor": {
+    "source": "Balance.cpp balance(), / 100 / GEAR_RATIO",
+    "unit": "1",
+    "value": 100,
+    "written_by": "control"
+   },
+   "sample_period": {
+    "source": "Balance.h UPDATE_TIME_MS = 10",
+    "unit": "s",
+    "value": 0.01,
+    "written_by": "control"
+   },
+   "sample_rate": {
+    "source": "Balance.h UPDATE_TIME_MS = 10, brief criterion 9",
+    "unit": "Hz",
+    "value": 100,
+    "written_by": "control"
+   },
+   "speed_response": {
+    "source": "Balance.h SPEED_RESPONSE = 3300 (plan baseline; control confirms against library 1.1.2)",
+    "unit": "1",
+    "value": 3300,
+    "written_by": "control"
+   },
+   "start_balancing_angle": {
+    "source": "Balance.h START_BALANCING_ANGLE = 45000 mdeg",
+    "unit": "rad",
+    "value": 0.7854,
+    "written_by": "control"
+   },
+   "stop_balancing_angle": {
+    "source": "Balance.h STOP_BALANCING_ANGLE = 70000 mdeg, brief criteria 14 and 18",
+    "unit": "rad",
+    "value": 1.2217,
+    "written_by": "control"
+   },
+   "stop_update_count": {
+    "source": "Balance.cpp balanceUpdate, ++count > 5, brief criterion 14",
+    "unit": "count",
+    "value": 5,
+    "written_by": "control"
+   }
+  },
+  "requirements": [
+   "5",
+   "8",
+   "9",
+   "14",
+   "15",
+   "16",
+   "17",
+   "18",
+   "19"
+  ],
+  "updated": "2026-11-03"
+ },
+ {
+  "constrains": [
+   "balance.controller"
+  ],
+  "domain": "firmware",
+  "geometry_hash": "none",
+  "id": "firmware.loop_timing",
+  "kind": "interface",
+  "model": null,
+  "no_change_justified": {},
+  "owner_role": "firmware",
+  "quantities": {
+   "computation_delay_budget": {
+    "source": "Plan budget for gyro read to motor command; firmware measures against it",
+    "unit": "s",
+    "value": 0.002,
+    "written_by": "firmware"
+   },
+   "encoder_counts_per_motor_rev": {
+    "source": "Pololu Balboa 32U4 User's Guide \u00a73.4, both edges of both channels",
+    "unit": "count",
+    "value": 12,
+    "written_by": "firmware"
+   },
+   "encoder_counts_per_wheel_rev": {
+    "source": "12 x 110.242, brief criterion 13",
+    "unit": "count",
+    "value": 1322.9,
+    "written_by": "firmware"
+   },
+   "gyro_full_scale": {
+    "source": "\u00b11000 deg/s, CTRL2_G = 0b01011000, brief criterion 11",
+    "unit": "rad/s",
+    "value": 17.453,
+    "written_by": "firmware"
+   },
+   "gyro_output_data_rate": {
+    "source": "LSM6DS33 CTRL2_G = 0b01011000, brief criterion 11",
+    "unit": "Hz",
+    "value": 208,
+    "written_by": "firmware"
+   },
+   "gyro_sample_age_max": {
+    "source": "1 / 208 Hz",
+    "unit": "s",
+    "value": 0.00481,
+    "written_by": "firmware"
+   },
+   "gyro_sensitivity": {
+    "source": "LSM6DS33 35 mdps/LSB at \u00b11000 deg/s",
+    "unit": "rad/(s*count)",
+    "value": 0.00061087,
+    "written_by": "firmware"
+   },
+   "max_update_lateness": {
+    "source": "Balance.cpp balanceUpdateDelayed, ms - lastMillis > UPDATE_TIME_MS + 1, brief criterion 10",
+    "unit": "s",
+    "value": 0.001,
+    "written_by": "firmware"
+   },
+   "motor_off_latency_max": {
+    "source": "Brief criterion 14",
+    "unit": "s",
+    "value": 0.06,
+    "written_by": "firmware"
+   },
+   "pwm_frequency": {
+    "source": "Balboa32U4Motors.cpp 16 MHz / 1 / 2 / 400, brief criterion 12",
+    "unit": "Hz",
+    "value": 20000,
+    "written_by": "firmware"
+   },
+   "pwm_full_scale": {
+    "source": "Balboa32U4Motors.cpp ICR1 = 400, brief criterion 12",
+    "unit": "count",
+    "value": 400,
+    "written_by": "firmware"
+   }
+  },
+  "requirements": [
+   "10",
+   "11",
+   "12",
+   "13",
+   "14",
+   "15",
+   "16"
+  ],
+  "updated": "2026-11-03"
+ }
+]

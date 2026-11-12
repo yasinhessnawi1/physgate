@@ -84,7 +84,7 @@ def test_a_proposal_with_a_catalogued_name_is_read(repo: tuple[Path, str], tmp_p
     root, base = repo
     path = ".physgate/proposals/electrical.driver.json"
     commit = _commit(root, {path: json.dumps(_node("current_limit"))}, "proposal")
-    (found,) = read_proposals(root, base, commit, tmp_path / "graph")
+    (found,) = read_proposals(root, base, commit, tmp_path / "graph", role="electrical")
     assert found["id"] == "electrical.driver"
 
 
@@ -94,7 +94,7 @@ def test_a_proposal_naming_an_uncatalogued_quantity_that_shadows_none_is_read(
     root, base = repo
     path = ".physgate/proposals/electrical.driver.json"
     commit = _commit(root, {path: json.dumps(_node("logic_voltage"))}, "proposal")
-    (found,) = read_proposals(root, base, commit, tmp_path / "graph")
+    (found,) = read_proposals(root, base, commit, tmp_path / "graph", role="electrical")
     assert "logic_voltage" in found["quantities"]
 
 
@@ -115,7 +115,7 @@ def test_a_proposal_naming_a_near_spelling_of_a_relation_s_quantity_is_refused(
     path = ".physgate/proposals/electrical.driver.json"
     commit = _commit(root, {path: json.dumps(_node(name))}, "proposal")
     with pytest.raises(ProposalRefusedError, match=f"{name} shadows {shadowed}"):
-        read_proposals(root, base, commit, tmp_path / "graph")
+        read_proposals(root, base, commit, tmp_path / "graph", role="electrical")
 
 
 def test_a_proposal_naming_a_misspelt_relation_quantity_is_refused_naming_both(
@@ -125,7 +125,7 @@ def test_a_proposal_naming_a_misspelt_relation_quantity_is_refused_naming_both(
     path = ".physgate/proposals/electrical.driver.json"
     commit = _commit(root, {path: json.dumps(_node("supported_mas"))}, "proposal")
     with pytest.raises(ProposalRefusedError, match="supported_mas") as caught:
-        read_proposals(root, base, commit, tmp_path / "graph")
+        read_proposals(root, base, commit, tmp_path / "graph", role="electrical")
     assert "shadows supported_mass" in str(caught.value)  # the relation's quantity, named
     assert caught.value.subject == "electrical.driver"
 
@@ -139,5 +139,5 @@ def test_a_different_name_is_read_and_written(
     root, base = repo
     path = ".physgate/proposals/electrical.driver.json"
     commit = _commit(root, {path: json.dumps(_node(name))}, "proposal")
-    (found,) = read_proposals(root, base, commit, tmp_path / "graph")
+    (found,) = read_proposals(root, base, commit, tmp_path / "graph", role="electrical")
     assert name in found["quantities"]

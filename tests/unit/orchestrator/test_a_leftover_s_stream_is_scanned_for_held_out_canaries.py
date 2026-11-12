@@ -250,12 +250,9 @@ def test_a_quarantined_gone_stream_is_recorded_as_unscanned_never_as_clean(
     _left(run_dir, "fine", "nothing held out here")
     _left(run_dir, "gone", "x")
     (run_dir / "sessions" / "gone" / "stdout.jsonl").unlink()
-    found = {
-        left.session_id: left
-        for left in _dispatcher(
-            run_dir, held_out_canaries=(CANARY,), quarantine=_q("gone")
-        ).stop_leftovers()
-    }
+    resumed = _dispatcher(run_dir, held_out_canaries=(CANARY,), quarantine=_q("gone"))
+    found = {left.session_id: left for left in resumed.stop_leftovers()}
+    resumed.end_leftovers()
     assert set(found) == {"fine", "gone"}
     assert found["fine"].quarantine is None and found["fine"].scan == "scanned"
     gone = found["gone"]

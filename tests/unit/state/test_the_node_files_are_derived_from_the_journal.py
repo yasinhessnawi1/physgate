@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 from helpers import node
 
-from physgate.state.divergence import divergence
+from physgate.state.divergence import OWNERSHIP_ONLY, divergence
 from physgate.state.exceptions import CorruptRecordError
 from physgate.state.store import Store
 
@@ -94,7 +94,9 @@ def test_the_tamper_does_not_reach_the_divergence_check(two_revisions: Path) -> 
 
     reopened = Store(two_revisions)
     assert reopened.read_node("mechanical.gearbox")["owner_role"] == "mechanical"
-    assert [d.owner_role for d in divergence(reopened, reopened.diff(0), "mechanical")] == []
+    assert [
+        d.owner_role for d in divergence(reopened, reopened.diff(0), "mechanical", OWNERSHIP_ONLY)
+    ] == []
     reopened.close()
 
 
