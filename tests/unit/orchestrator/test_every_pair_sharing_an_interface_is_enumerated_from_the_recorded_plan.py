@@ -65,15 +65,17 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 #: and since 03.11.2026 where the gate has a bound and what forms each relation; with
 #: sizing, since the same day, that its interfaces follow its joined node; since the catalogue
 #: widening (04.11.2026), the catalogue sentence's new names and kind labels; and since its check
-#: round, the sentence on names with added words. Before that sentence, at 470b3f34: 44f7ed176029...
+#: round, the sentence on names with added words; and since 12.11.2026 the sentence on how a unit
+#: is spelt, before which: f42a779e91ee... and 4faaf7ada5eb.... Before the sentence on names with
+#: added words, at 470b3f34: 44f7ed176029...
 #: and eefbf4fe50d6...; before the widening: 08a7e77a7464... and b26536a34818...; before
 #: those two sentences: f56406956965... and 1a3802deb6f1..., in this order.
 INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "f42a779e91eebce503ec79f9161bca13a4b34e560401e7996faa9f7167d2bd62"
+        "48c74090ae0226c1c23bcd88c8ca922aed0f82baf150d4a1dedc9c76e850ba8a"
     ),
-    BOTH: "4faaf7ada5ebaba6bb94eb97e45b0274b80c5eed8d58afaf561eba2c63aa6952",
+    BOTH: "967efb517e3ff223c6df31bd6ae07a87cf6f77ac37db01530d89be915196c501",
 }
 
 
