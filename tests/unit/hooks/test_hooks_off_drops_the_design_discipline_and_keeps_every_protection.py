@@ -39,7 +39,6 @@ from physgate.hooks.config import ProtectedRoot, SessionConfig
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import InstallRequest, build_config, current_installation, install
 from physgate.orchestrator.run_config import write_run_config
-from physgate.oslayer.policy import sandbox_policy
 
 #: The session's own temporary directory, as the dispatcher makes one.
 OWN_TEMP = "/var/tmp/pgs/0123456789"
@@ -53,7 +52,12 @@ def _fields(tmp: Path) -> dict[str, Any]:
     """A role session's request with every kind of root the dispatcher gives one."""
     worktree, outside, run = tmp / "worktree", tmp / "outside", tmp / "run"
     worktree.mkdir(parents=True, exist_ok=True)
+    # The worktree's own sources and the harness's, present as in a real checkout: the OS layer
+    # names a missing path inside the worktree only where its parent exists.
+    for source in ("src/physgate/gate", "src/physgate/hooks", "knowledge"):
+        (worktree / source).mkdir(parents=True, exist_ok=True)
     harness = tmp / "harness"
+    (harness / "src").mkdir(parents=True, exist_ok=True)
     (harness / "experiments" / "R-OP-01").mkdir(parents=True, exist_ok=True)
     (harness / "experiments" / "R-OP-01" / "CRITERIA.md").write_text("frozen\n")
     (harness / "experiments" / "R-OP-01" / "RESULT.md").write_text("published\n")
@@ -373,31 +377,57 @@ def test_the_installer_command_refuses_hooks_the_run_did_not_record(
     assert not (outside_tmp / "outside" / "session" / "settings.json").exists()
 
 
-def test_the_os_layer_s_rules_are_a_role_s_but_for_the_dropped_roots(tmp_path: Path) -> None:
-    # Generated from the same configuration: a shell command is held to every kept root, and
-    # the proposals, the completion declaration and the disputes stay closed to it, since the
-    # file tools are their one route.
-    on, off = _config(tmp_path, hooks="on"), _config(tmp_path, hooks="off")
-    assert isinstance(off, SessionConfig), off
+def _installed_with_the_layer(root: Path, hooks: Hooks) -> dict[str, Any]:
+    """The settings a role session of ``root`` is given with the OS layer, as written."""
+    fields = _fields(root) | {"temp_dir": None, "os_layer_temp_dir": OWN_TEMP}
+    fields |= {"session_temps": "/var/tmp/pgs", "spawns_with_canary": True, "hooks": hooks}
+    request = outcome_of(lambda: InstallRequest(**fields))
+    assert isinstance(request, InstallRequest), request
+    settings: dict[str, Any] = json.loads(install(request, REGISTRY).settings_path.read_text())
+    return settings
 
-    def rules(config: SessionConfig) -> dict[str, set[str]]:
-        policy = sandbox_policy(
-            config,
-            home=str(tmp_path / "outside" / "home"),
-            temp_dir=str(tmp_path / "temps" / "own"),
-            exists=lambda _p: True,
-            children=lambda _p: (),
-        )
-        filesystem = policy.settings["sandbox"]["filesystem"]
-        return {name: set(filesystem[name]) for name in ("denyWrite", "denyRead", "allowWrite")}
 
-    full, arm = rules(on), rules(off)
-    dropped = {os.path.realpath(p) for p in _dropped(tmp_path)} | _dropped(tmp_path)
-    assert arm["denyRead"] == full["denyRead"]
-    assert arm["allowWrite"] == full["allowWrite"]
-    assert full["denyWrite"] - arm["denyWrite"] == dropped & full["denyWrite"]
-    assert full["denyWrite"] - arm["denyWrite"], "the full session denies the dropped roots"
-    assert arm["denyWrite"] <= full["denyWrite"]
-    worktree = tmp_path / "worktree"
+def test_the_os_layer_denies_exactly_what_it_denies_a_full_session(outside_tmp: Path) -> None:
+    # The arm switches off hooks, not the operating system's layer: every write and read the
+    # sandbox denies a full role session it denies this one, the worktree's own sources included.
+    # Only the hook commands differ.
+    on = _installed_with_the_layer(outside_tmp, "on")
+    off = _installed_with_the_layer(outside_tmp, "off")
+    assert "sandbox" in on
+    assert json.dumps(off["sandbox"], sort_keys=True) == json.dumps(on["sandbox"], sort_keys=True)
+    assert {k: v for k, v in off.items() if k != "hooks"} == {
+        k: v for k, v in on.items() if k != "hooks"
+    }
+    deny_write = set(off["sandbox"]["filesystem"]["denyWrite"])
+    assert _dropped(outside_tmp) <= deny_write
+    worktree = outside_tmp / "worktree"
     for held in (graph.PROPOSALS_DIR, graph.COMPLETION_DIR, graph.DISPUTES_DIR):
-        assert str(worktree / held) in arm["denyWrite"], held
+        assert str(worktree / held) in deny_write, held
+
+
+def test_the_harness_the_run_s_records_the_held_out_places_and_the_secrets_are_held_alike(
+    outside_tmp: Path,
+) -> None:
+    """Under both layers: the hooks' roots and the OS layer's rules for each, identical."""
+    on, off = _config(outside_tmp, hooks="on"), _config(outside_tmp, hooks="off")
+    assert isinstance(off, SessionConfig), off
+    kept = _kept(outside_tmp)
+    named = [
+        "the harness checkout",
+        "a run record",
+        "a held run record",
+        "the withheld run configuration",
+        "the held-out tier",
+        "an answer key",
+        "the worktree's answer keys",
+        "the secrets",
+    ]
+    for what in named:
+        assert _roots(off).get(kept[what]) == _roots(on)[kept[what]], what
+    assert off.held_out == on.held_out
+    sandbox_on = _installed_with_the_layer(outside_tmp, "on")["sandbox"]["filesystem"]
+    sandbox_off = _installed_with_the_layer(outside_tmp, "off")["sandbox"]["filesystem"]
+    for what in named:
+        for rule in ("denyWrite", "denyRead"):
+            assert (kept[what] in sandbox_off[rule]) == (kept[what] in sandbox_on[rule]), what
+        assert kept[what] in sandbox_off["denyWrite"], what
