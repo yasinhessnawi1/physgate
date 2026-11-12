@@ -56,7 +56,7 @@ the internet, so macOS opens it without a warning.
    run yet, so for now a run is made from Terminal, in two steps:
 
    ```sh
-   physgate decompose <brief> --seed <seed> --run-id <id> --params <params.json> --target <repository> --run-dir ~/physgate-runs/<id>
+   physgate decompose <brief> --seed <seed> --run-id <id> --params <params.json> --target <repository> --run-dir ~/physgate-runs/<id> --install <hooks folder> --review-root ~/review-scratch
    physgate run --run-dir ~/physgate-runs/<id> --target <repository> --install <hooks folder> --review-root ~/review-scratch
    ```
 

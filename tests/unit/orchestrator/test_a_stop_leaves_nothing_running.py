@@ -151,7 +151,9 @@ def test_a_resume_stops_a_recorded_session_still_running_and_only_that(tmp_path:
             )
         )
     )
-    left = _dispatcher(tmp_path / "run").stop_leftovers()
+    resumed = _dispatcher(tmp_path / "run")
+    left = resumed.stop_leftovers()
+    resumed.end_leftovers()
     parent.wait()
     assert [(x.session_id, x.pid, x.killed, x.stopped) for x in left] == [
         ("live", pid, 1, True),
@@ -167,7 +169,12 @@ def test_a_resume_stops_a_recorded_session_still_running_and_only_that(tmp_path:
     assert reused["stop_unconfirmed"] is None
     assert reused["sentinel_after_stop"]["refused"] is None
     assert json.loads((sessions / "live" / "ended.json").read_text())["stopped_at_resume"]
-    assert _dispatcher(tmp_path / "run").stop_leftovers() == []
+    # Ended, but no loop recorded their reads: the next stop reads them again, and signals neither.
+    again = _dispatcher(tmp_path / "run").stop_leftovers()
+    assert [(x.session_id, x.stopped, x.killed) for x in again] == [
+        ("live", False, 0),
+        ("reused", False, 0),
+    ]
 
 
 SPENT = MessageUsage(

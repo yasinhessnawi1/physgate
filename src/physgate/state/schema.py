@@ -163,7 +163,15 @@ class Node(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    id: Annotated[str, Field(max_length=NODE_ID_MAX_LENGTH)]
+    #: The pattern is the schema's only, for the plan's answer: the binary holds the model's
+    #: interface nodes to it. A node's id is validated by :func:`validate_node_id`, which the
+    #: store and the run's opening call, so a refusal keeps the reason each gives.
+    id: Annotated[
+        str,
+        Field(
+            max_length=NODE_ID_MAX_LENGTH, json_schema_extra={"pattern": NODE_ID_PATTERN.pattern}
+        ),
+    ]
     kind: NodeKind
     domain: DomainKind
     owner_role: NonEmptyStr

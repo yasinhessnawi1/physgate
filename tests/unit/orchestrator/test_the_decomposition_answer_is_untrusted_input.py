@@ -61,6 +61,8 @@ def result(**overrides: Any) -> dict[str, Any]:
 
 
 PINNED = frozenset({"claude-sonnet-5"})
+#: The brief every answer here was planned from; it numbers no criteria.
+BRIEF = "Build a robot."
 
 
 def test_a_valid_answer_is_a_plan() -> None:
@@ -71,6 +73,7 @@ def test_a_valid_answer_is_a_plan() -> None:
         model="claude-sonnet-5",
         roles=["electrical"],
         answered=PINNED,
+        brief=BRIEF,
     )
     assert cause is None and got is not None and model == "claude-sonnet-5" and turns == 2
 
@@ -129,15 +132,20 @@ def test_an_answer_that_is_not_a_usable_plan_fails(
         model="claude-sonnet-5",
         roles=["electrical"],
         answered=answered,
+        brief=BRIEF,
     )
     assert got[0] == cause and got[2] is None
 
 
 def test_no_result_and_the_wall_clock_are_failures_with_their_cause() -> None:
     none: frozenset[str] = frozenset()
-    got = judge(None, exit_code=-9, timed_out=False, model="m-1", roles=[], answered=none)
+    got = judge(
+        None, exit_code=-9, timed_out=False, model="m-1", roles=[], answered=none, brief=BRIEF
+    )
     assert got[0] == "no_result"
-    got = judge(None, exit_code=None, timed_out=True, model="m-1", roles=[], answered=none)
+    got = judge(
+        None, exit_code=None, timed_out=True, model="m-1", roles=[], answered=none, brief=BRIEF
+    )
     assert got[0] == "wall_clock"
 
 
@@ -150,6 +158,7 @@ def test_no_result_and_the_wall_clock_are_failures_with_their_cause() -> None:
         ([module("a", "modules/a"), module("b", "modules/a/b")], None, "overlap"),
         ([module("a", "modules/power"), module("b", "modules/Power")], None, "overlap"),
         ([module("a", "modules/a"), module("b", "MODULES/a/b")], None, "overlap"),
+        ([module("a", "Modules/A"), module("b", "modules/a/b")], None, "overlap"),
         ([module("a", "modules/a"), module("b", "modules/./a/")], None, "overlap"),
         ([module("a", "modules/a")], [NODE, NODE], "share an id"),
         ([module("a", "modules/a")], [{**NODE, "kind": "component"}], "not an interface"),
@@ -162,6 +171,7 @@ def test_no_result_and_the_wall_clock_are_failures_with_their_cause() -> None:
         "nested module directories",
         "two directories that differ only in case",
         "a directory nested in one that differs only in case",
+        "a directory in capitals holding one in lower case",
         "one directory spelled two ways",
         "two nodes, one id",
         "a node that is no interface",
@@ -171,7 +181,7 @@ def test_no_result_and_the_wall_clock_are_failures_with_their_cause() -> None:
 def test_what_the_schema_cannot_say_is_checked_by_code(
     modules: list[dict[str, str]], nodes: list[dict[str, Any]] | None, problem: str
 ) -> None:
-    found = plan_problems(plan(modules, nodes), ["electrical"])
+    found = plan_problems(plan(modules, nodes), ["electrical"], BRIEF)
     assert any(problem in p for p in found), found
 
 
@@ -191,8 +201,25 @@ def test_what_the_schema_cannot_say_is_checked_by_code(
     ],
 )
 def test_directories_that_differ_in_more_than_case_are_still_apart(first: str, second: str) -> None:
-    found = plan_problems(plan([module("a", first), module("b", second)]), ["electrical"])
+    found = plan_problems(plan([module("a", first), module("b", second)]), ["electrical"], BRIEF)
     assert not any("overlap" in p for p in found), found
+
+
+@pytest.mark.parametrize(
+    "module_dir", ["modules/.git", "modules/x/.GIT", "modules/.Git/hooks", "modules/a/.git/b"]
+)
+def test_a_directory_with_a_git_component_is_refused(module_dir: str) -> None:
+    # Git records no path with a component named .git, in any case: what a session wrote
+    # there would never reach its commit, and the module's work would be lost unseen.
+    found = plan_problems(plan([module("a", module_dir)]), ["electrical"], BRIEF)
+    assert any(p.startswith("module 'a' ") and "a .git component" in p for p in found), found
+
+
+@pytest.mark.parametrize(
+    "module_dir", ["modules/.github", "modules/x.git", "modules/git", "modules/.gitkeep/a"]
+)
+def test_a_directory_whose_name_only_holds_git_is_not(module_dir: str) -> None:
+    assert plan_problems(plan([module("a", module_dir)]), ["electrical"], BRIEF) == []
 
 
 def test_usage_is_counted_once_per_message_and_garbage_lines_are_skipped() -> None:
@@ -225,7 +252,7 @@ def test_the_prompt_is_a_template_around_the_brief() -> None:
 
 
 def test_the_schema_the_binary_holds_the_answer_to_is_the_plans() -> None:
-    schema = json.loads(plan_schema())
+    schema = json.loads(plan_schema(["electrical"]))
     assert set(schema["properties"]) == {"modules", "interface_nodes"}
     assert schema["additionalProperties"] is False
 
@@ -244,7 +271,7 @@ def test_a_specification_is_bounded_but_takes_a_reviewable_one_whole() -> None:
     assert len(plan([at_limit]).modules[0].spec) == SPEC_MAX_CHARS
     with pytest.raises(ValueError, match="32768"):
         plan([{**reviewable, "spec": "x" * (SPEC_MAX_CHARS + 1)}])
-    schema = json.loads(plan_schema())
+    schema = json.loads(plan_schema(["electrical"]))
     planned = schema["$defs"]["PlannedModule"]["properties"]["spec"]
     assert planned["maxLength"] == SPEC_MAX_CHARS  # the binary holds the model to it too
 
@@ -274,7 +301,7 @@ REAL_REFUSAL = json.dumps(
 
 
 def test_the_schema_sent_to_the_binary_is_unnamed_at_its_root() -> None:
-    schema = json.loads(plan_schema())
+    schema = json.loads(plan_schema(["electrical"]))
     assert not {"title", "description", "$id", "$comment"} & set(schema)
     assert set(schema["required"]) == {"modules", "interface_nodes"}
 
@@ -295,6 +322,7 @@ def test_a_schema_refusal_is_its_own_cause_not_the_turn_limit() -> None:
         model="claude-sonnet-5",
         roles=["electrical"],
         answered=PINNED,
+        brief=BRIEF,
         refused=refused,
     )
     assert got[0] == "schema_refused" and "'Plan' is not allowed" in got[1]
@@ -305,6 +333,7 @@ def test_a_schema_refusal_is_its_own_cause_not_the_turn_limit() -> None:
         model="claude-sonnet-5",
         roles=["electrical"],
         answered=PINNED,
+        brief=BRIEF,
     )
     assert without[0] == "turn_limit"
     assert schema_refusal('{"type": "user", "message": {"content": "plain"}}\nnot json') is None
@@ -333,11 +362,11 @@ def test_an_interface_node_naming_a_quantity_that_shadows_a_relation_s_is_a_prob
         ("moss", "mass"),
         ("mask", "mass"),
     ):
-        found = plan_problems(plan(modules, [_naming(name, "A")]), ["electrical"])
+        found = plan_problems(plan(modules, [_naming(name, "A")]), ["electrical"], BRIEF)
         assert any(f"'{name}'" in p and f"shadows '{shadowed}'" in p for p in found), found
     # Every other uncatalogued name is written, and the gate records it as unchecked.
     for name in ("motor_current", "no_load_current", "idle_current", "max", "dry_mass", "zeta"):
-        assert plan_problems(plan(modules, [_naming(name, "A")]), ["electrical"]) == [], name
+        assert plan_problems(plan(modules, [_naming(name, "A")]), ["electrical"], BRIEF) == [], name
 
 
 def test_a_plan_with_more_interface_nodes_than_a_session_can_read_first_is_a_problem() -> None:
@@ -348,7 +377,9 @@ def test_a_plan_with_more_interface_nodes_than_a_session_can_read_first_is_a_pro
 
     modules = [module("power", "modules/power")]
     nodes = [{**NODE, "id": f"power.bus_{i}"} for i in range(MAX_INTERFACE_NODES + 1)]
-    found = plan_problems(plan(modules, nodes), ["electrical"])
+    found = plan_problems(plan(modules, nodes), ["electrical"], BRIEF)
     assert any("interface nodes" in p and str(MAX_INTERFACE_NODES) in p for p in found), found
-    assert plan_problems(plan(modules, nodes[:MAX_INTERFACE_NODES]), ["electrical"]) == []
-    assert str(MAX_INTERFACE_NODES) not in json.dumps(json.loads(plan_schema())["properties"])
+    assert plan_problems(plan(modules, nodes[:MAX_INTERFACE_NODES]), ["electrical"], BRIEF) == []
+    assert str(MAX_INTERFACE_NODES) not in json.dumps(
+        json.loads(plan_schema(["electrical"]))["properties"]
+    )

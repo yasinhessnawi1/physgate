@@ -31,6 +31,9 @@ class RootView(Protocol):
     def reads(self) -> str: ...  # noqa: D102
 
     @property
+    def read_exceptions(self) -> Sequence[str]: ...  # noqa: D102
+
+    @property
     def shell_writes(self) -> str: ...  # noqa: D102
 
 

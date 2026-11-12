@@ -24,7 +24,10 @@ supply, and the battery never sees what their members really draw.
 Two more relations bound what a supply can be asked for. A consumer's stall current
 is at most its supply's current limit, the supply's peak rating: at stall a motor has no
 back-EMF and draws its whole stall current, so a driver rated below it is overrun at every
-start. A store's maximum continuous discharge is at most its stored energy times the
+start. A node that holds both a stall current and a current limit is held to its own limit
+(a consumer aggregated with the supply that carries it), and a stall current that no limit
+bounds, on its node or on a node its edges name, is recorded as unchecked, never passed.
+A store's maximum continuous discharge is at most its stored energy times the
 fastest rate any store class the catalogue confirms can give (the catalogue's
 ``STORE_CLASSES``; for a capacitor, the most power a cell can deliver into any load, from
 the smallest confirmed time constant), so an invented rating cannot make a token store a
@@ -270,8 +273,14 @@ def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
     peak rating (the catalogue's meaning of ``current_limit``), so a motor run behind current
     limiting below its stall current is not refused by a continuous rating.
 
+    A node holding both quantities is judged against its own limit; a stall current with no
+    limit on its node or on a node its edges name is recorded as unchecked.
+
     Named limits:
 
+    - **An aggregate node.** A node that holds a consumer's stall current beside some other
+      supply's limit is held to that limit too: the relation still holds physically, since
+      that supply must carry the stall as well.
     - **Paralleled drivers.** A motor naming two drivers is held to each driver's limit alone;
       two 1 A drivers sharing a 1.5 A stall are each refused, though together they carry it.
       The relation does not sum the limits of the supplies one consumer names.
@@ -281,6 +290,20 @@ def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
     - **A supply in between.** Only the supply the motor's own edge names is read; a limit
       two hops away, past a regulator that declares none, is not.
     """
+    if instance.missing:
+        return Observation(
+            outcome="unchecked",
+            node=instance.subject,
+            module=view.module_of(instance.subject),
+            value=None,
+            expected=None,
+            message=(
+                f"the stall current of {instance.subject} cannot be checked: no current_limit "
+                "is declared on its node or on a node its constrains edges name, so nothing "
+                "bounds it"
+            ),
+            details=UncheckedDetails(quantities=instance.missing),
+        )
     consumer, limit = _amperes(view, instance)
     try:
         stall, most = _magnitude(view, consumer), _magnitude(view, limit)
@@ -307,6 +330,11 @@ def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
         return None
     over = output(-margin, "A")
     shown_stall, shown_limit = output(stall, "A").value, output(most, "A").value
+    whose = (
+        f"the {shown_limit} A current limit on its own node"
+        if consumer.node == instance.subject
+        else f"the {shown_limit} A current limit of {instance.subject}"
+    )
     return Observation(
         outcome="fail",
         node=instance.subject,
@@ -314,11 +342,14 @@ def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
         value=over,
         expected=f"a stall current of at most the {shown_limit} A current limit",
         message=(
-            f"{consumer.node} stalls at {shown_stall} A, more than the {shown_limit} A current "
-            f"limit of {instance.subject} by {over.value} A: at stall a motor has no back-EMF "
-            "and draws its stall current, which its supply is not rated to deliver"
+            f"{consumer.node} stalls at {shown_stall} A, more than {whose} by {over.value} A: "
+            "at stall a motor has no back-EMF and draws its stall current, which its supply "
+            "is not rated to deliver"
         ),
-        details=PowerDetails(deficit=over, contributing=(instance.subject, consumer.node)),
+        details=PowerDetails(
+            deficit=over,
+            contributing=tuple(dict.fromkeys((instance.subject, consumer.node))),
+        ),
         quantities=(_ref(view, limit), _ref(view, consumer)),
     )
 

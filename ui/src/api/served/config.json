@@ -1,0 +1,48 @@
+{
+  "config": {
+    "auth": "api_key",
+    "bounds": {
+      "binary_max_retries": 0,
+      "infra_retry_delays_s": [],
+      "session_max_turns": 20,
+      "session_wall_clock_s": 120.0
+    },
+    "brief_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "claude_version": "2.1.272",
+    "design_review": "off",
+    "effort": "high",
+    "endpoint": "http://127.0.0.1:9",
+    "escalation_backend": "rules",
+    "gate_mode": "observe",
+    "git_binary": null,
+    "harness": {
+      "clean": false,
+      "commit": null,
+      "uncommitted_sha256": null
+    },
+    "max_output_tokens": 64000,
+    "models": {
+      "decomposition": "claude-sonnet-5",
+      "reviewers": {
+        "electrical": "claude-opus-5-5"
+      },
+      "roles": {
+        "electrical": "claude-sonnet-5"
+      }
+    },
+    "network": "open",
+    "network_enforced": null,
+    "os_layer": null,
+    "os_layer_absent": "allow",
+    "queue_decisions": "record",
+    "reportable": false,
+    "role_python": null,
+    "run_id": "run-7",
+    "seed": 1,
+    "target_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "thinking_display": "summarized",
+    "token_ceiling": 100000
+  },
+  "manifest_id": "09516178cda46f23d8e00db39aea1ae8db270ce9f9d3609af1de4d03d01eac4e",
+  "repair_budget": 3
+}

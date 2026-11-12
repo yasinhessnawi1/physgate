@@ -78,6 +78,9 @@ class StandInSession:
     def stop_leftovers(self) -> list[Leftover]:
         return []
 
+    def end_leftovers(self) -> None:
+        return None
+
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         self.calls += 1
         if self.clock is not None:

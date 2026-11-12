@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import pytest
@@ -30,9 +31,10 @@ def test_only_the_pinned_versions_are_accepted() -> None:
 
 
 def test_the_decomposition_call_offers_no_tool_and_one_turn(tmp_path: Path) -> None:
+    # The prompt goes on stdin, never as an argument: Linux caps one argument at 128 KiB.
+    assert "prompt" not in inspect.signature(decomposition_argv).parameters
     argv = decomposition_argv(
         "/bin/claude",
-        prompt="p",
         schema="{}",
         model="claude-sonnet-5",
         session_id="abc",
@@ -52,6 +54,8 @@ def test_the_decomposition_call_offers_no_tool_and_one_turn(tmp_path: Path) -> N
     assert argv[argv.index("--debug-file") + 1] == str(tmp_path / "debug.log")
     assert "--include-partial-messages" in argv  # each message's final usage
     assert "--resume" not in argv
+    # The prompt goes on stdin: ``-p`` takes no argument, and none of the argv is a prompt.
+    assert argv[:2] == ["/bin/claude", "-p"] and argv[2].startswith("--")
 
 
 def test_the_environment_is_built_from_nothing(

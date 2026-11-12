@@ -39,6 +39,8 @@ def _request(tmp_path: Path, temp: str | None, *, canary: bool = True) -> Instal
         user_home=str(out / "home"),
         token_ceiling=1000,
         os_layer_temp_dir=temp,
+        temp_dir=None if temp is not None else "/var/tmp/pgs/01234567cd",
+        sessions_root=str(out / "sessions"),
         # As the run's ``sessions/`` is for a dispatched session: kept from its shell.
         extra_protected_refuse_only=(str(out),),
         spawns_with_canary=canary,
@@ -49,7 +51,7 @@ def test_on_macos_with_the_layer_the_prefix_names_a_readable_reaper(
     outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(reaper_install, "wanted", lambda: True)
-    done = install(_request(outside_tmp, "/tmp/pg-0123456789ab"), REGISTRY)
+    done = install(_request(outside_tmp, "/var/tmp/pgs/0123456789"), REGISTRY)
     front = Path(done.spawn_env["CLAUDE_CODE_SHELL_PREFIX"])
     assert front == outside_tmp / "outside" / "session" / "reaper" / "reaper"
     assert done.spawn_env["CLAUDE_CODE_SHELL"] == SHELL
@@ -75,7 +77,7 @@ def test_a_spawner_that_does_not_export_the_canary_is_refused(
 ) -> None:
     monkeypatch.setattr(reaper_install, "wanted", lambda: True)
     with pytest.raises(ValueError, match="must be spawned with its canary exported"):
-        install(_request(outside_tmp, "/tmp/pg-0123456789ab", canary=False), REGISTRY)
+        install(_request(outside_tmp, "/var/tmp/pgs/0123456789", canary=False), REGISTRY)
 
 
 def test_without_the_layer_or_off_macos_nothing_is_named(
@@ -85,7 +87,7 @@ def test_without_the_layer_or_off_macos_nothing_is_named(
     assert "CLAUDE_CODE_SHELL_PREFIX" not in done.spawn_env
     assert json.loads(done.config_path.read_text())["survivor_reaper"] is False
     monkeypatch.setattr(reaper_install, "wanted", lambda: False)
-    done = install(_request(outside_tmp / "b", "/tmp/pg-0123456789ab"), REGISTRY)
+    done = install(_request(outside_tmp / "b", "/var/tmp/pgs/0123456789"), REGISTRY)
     assert "CLAUDE_CODE_SHELL_PREFIX" not in done.spawn_env
     assert not (outside_tmp / "b" / "outside" / "session" / "reaper").exists()
 

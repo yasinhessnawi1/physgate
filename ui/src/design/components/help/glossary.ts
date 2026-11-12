@@ -228,6 +228,73 @@ export const GLOSSARY = {
       "A range or a limit taken from a maker's data sheet or a standard, with the source it was taken from and the date it was confirmed.",
     group: "The library",
   },
+  // How physgate is set up: the Settings screen's terms.
+  engine: {
+    term: "Engine",
+    means:
+      "What the agents' sessions run on: Claude Code with a subscription, or the Claude API with a key. A run's parameters name how its sessions reach it.",
+    group: "How a run works",
+  },
+  "engine-catalogue": {
+    term: "Engine catalogue",
+    means:
+      "The list of engines the desktop app's engine step offers, kept in the checkout. Engines marked Not yet are listed so the choice can be switched on later; nothing runs on them.",
+    group: "How a run works",
+  },
+  "builder-model": {
+    term: "Builder model",
+    means:
+      "The model a role's sessions build the work on, named for each role in the run's parameters.",
+    group: "How a run works",
+  },
+  "reviewer-model": {
+    term: "Reviewer model (pairing)",
+    means:
+      "The model a role's reviewer runs on. It must differ from the model whose work it reviews: the harness refuses to start a reviewer on its builder's model, however the model is spelled.",
+    group: "How a run works",
+  },
+  "plan-reviewer": {
+    term: "Plan reviewer",
+    means:
+      "A reviewer that judges the plan the brief was split into, before anything is dispatched. It runs on a model other than the one that split the brief.",
+    group: "How a run works",
+  },
+  endpoint: {
+    term: "Endpoint",
+    means:
+      "The address the engine's requests go to. Most runs use the engine's own; a run may name another, and records it.",
+    group: "How a run works",
+  },
+  effort: {
+    term: "Effort",
+    means:
+      "How much reasoning each request may spend before it answers, from low to maximum, passed to every session of the run.",
+    group: "How a run works",
+  },
+  "token-ceiling": {
+    term: "Token ceiling",
+    means:
+      "The most a role session may load before it starts work: its standards, its spec and its skill file. It is counted generously, one token for every byte, so a set can be refused while really under it. It is not a budget for the run.",
+    group: "How a run works",
+  },
+  "session-limits": {
+    term: "Session limits",
+    means:
+      "The bounds each session of a run works within: how long it may run, how many turns it may take, how many times the engine's binary may try again, and how long the harness waits before trying a failed start again.",
+    group: "How a run works",
+  },
+  "default-for-new-runs": {
+    term: "Default for new runs",
+    means:
+      "A value a new run would take when its parameters name none. physgate keeps none yet: every run names its own values in its parameters, and records them.",
+    group: "Drafts and records",
+  },
+  "recorded-value": {
+    term: "Recorded value",
+    means:
+      "What a run wrote in its record when it was set up. A run recorded before a field existed did not write it; the harness reads such a run as having run under that field's documented setting, and Settings shows what the harness reads.",
+    group: "Drafts and records",
+  },
 } as const satisfies Record<string, GlossaryEntry>;
 
 export type TermKey = keyof typeof GLOSSARY;
