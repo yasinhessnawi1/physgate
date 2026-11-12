@@ -30,6 +30,7 @@ from physgate.hooks.settings import (
     build_config,
     current_installation,
     install,
+    render_settings,
 )
 from physgate.hooks.views import ConfigView, InputView
 
@@ -216,6 +217,17 @@ def test_the_settings_layer_denies_the_web_tools_to_every_profile(
     assert isinstance(permissions, dict), settings
     assert set(permissions.get("deny", ())) >= WEB_TOOLS
     assert "allow" not in permissions
+
+
+@pytest.mark.parametrize("profile", get_args(Profile))
+def test_the_settings_as_rendered_deny_the_web_tools_to_every_profile(
+    tmp_path: Path, profile: str
+) -> None:
+    # As rendered, before any layer is merged in and before the install's own last check of the
+    # deny: the rule is in the settings from the start, not put there by a later step.
+    config = build_config(_request(tmp_path, profile=profile), current_installation())
+    settings = render_settings(config, "/outside/config.json", "0" * 64, REGISTRY)
+    assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch"]}
 
 
 def _allowing_run(tmp_path: Path) -> str:
