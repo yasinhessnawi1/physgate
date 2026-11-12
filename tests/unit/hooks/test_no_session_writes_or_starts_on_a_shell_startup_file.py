@@ -212,7 +212,8 @@ def test_a_shell_in_a_held_home_runs_its_command_as_before(
     if noise:
         assert all("s a directory" in line for line in complaints), complaints
     else:
-        assert complaints == []
+        # Whatever else a shell says of the machine it runs on (no terminal, say), not this.
+        assert [line for line in complaints if "s a directory" in line] == []
 
 
 @pytest.mark.parametrize("profile", SHELL_PROFILES)
