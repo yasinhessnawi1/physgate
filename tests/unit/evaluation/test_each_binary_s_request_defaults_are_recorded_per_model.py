@@ -68,6 +68,15 @@ def test_a_run_whose_role_sessions_ran_on_an_unmeasured_model_is_refused(tmp_pat
     assert refused.value.context.get("model") == SONNET
 
 
+def test_a_run_whose_decomposition_alone_ran_on_an_unmeasured_model_is_refused(
+    tmp_path: Path,
+) -> None:
+    run = _run(tmp_path, "2.1.301", _models(SONNET, OPUS, "claude-haiku-5-5"))
+    with pytest.raises(ManifestError, match="model") as refused:
+        read_manifest(run)
+    assert refused.value.context.get("model") == SONNET
+
+
 def test_the_reviewers_model_is_not_one_the_entries_describe(tmp_path: Path) -> None:
     # The entries hold the decomposition call's and the role sessions' requests; a reviewer's
     # request is not among them, so its model alone neither adds an entry nor refuses one.

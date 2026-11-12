@@ -138,6 +138,18 @@ def test_a_tail_after_a_result_whose_text_holds_the_character_is_still_forged(br
 
 
 @pytest.mark.parametrize("brk", BREAKS, ids=IDS)
+def test_a_stream_that_ends_at_its_result_is_not_forged_by_the_character_before_it(
+    brk: str,
+) -> None:
+    # The lines after the result are counted in the same lines the result was found in: an
+    # earlier event holding the character must not push the result itself into its own tail.
+    stream = _line(_write(_split(brk))) + _line(_result("done"))
+    assert result_lines(stream) == [1]
+    assert forged_tail(stream) is None
+    assert through_first_result(stream) == stream
+
+
+@pytest.mark.parametrize("brk", BREAKS, ids=IDS)
 def test_the_evaluation_reads_the_runtime_s_result_whole(brk: str) -> None:
     found = calls._runtime_result(_line(_result(_split(brk))))
     assert found is not None and found["result"] == _split(brk)
