@@ -13,6 +13,9 @@ Two checks close what can be closed without changing how the stream is captured:
   runtime's last byte. A completed session's stream therefore must hold exactly
   one ``result`` event and nothing after it; a second result, or anything after
   the one, is a forgery left behind by the session.
+  One exception, on a pin measured to write it: the single event in which the binary
+  itself says a full disk lost the session's records, read only in the exact form the
+  binary writes it for that session.
 - **The seal.** When the session ends, before anything reads the stream, its
   sha256 and length are recorded in the event log. Every later reader checks the
   file against the seal, so a change after the session is refused.
@@ -32,6 +35,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.lines import split_lines
+from physgate.orchestrator.budget import LOST_CAUSES, LOST_RECORDS, WRITES_LOST, writes_lost
 from physgate.orchestrator.exceptions import TrajectoryTamperedError
 
 
@@ -101,9 +105,47 @@ def forged_tail(text: str) -> str | None:
     return None
 
 
-def own_loss_tail(text: str, session_id: str) -> str | None:  # noqa: ARG001 - not read yet
-    """What the binary's own word after its result says it could not save, or ``None``."""
-    return None
+#: Every key of the one event a binary writes after its result (measured on 2.1.322).
+_LOSS_EVENT_KEYS = frozenset(
+    {"type", "subtype", "error_code", "lost", "transcript_session_ids", "uuid", "session_id"}
+)
+
+
+def own_loss_tail(text: str, session_id: str) -> str | None:
+    """What the binary's own word after its result says it could not save, or ``None``.
+
+    On a pin measured to write it, a binary whose session's records a full disk lost says
+    so in one event after its result. This reads that event and nothing else: the stream
+    holds one result, one line follows it, and that line is the event as the binary writes
+    it, of the session ``session_id``, with the binary's own keys and listed values.
+    Anything else after a result stays what :func:`forged_tail` calls it.
+    """
+    results = result_lines(text)
+    if len(results) != 1:
+        return None
+    after = [line for line in split_lines(text)[results[0] + 1 :] if line.strip()]
+    if len(after) != 1:
+        return None
+    try:
+        event = json.loads(after[0])
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(event, dict) or set(event) != _LOSS_EVENT_KEYS:
+        return None
+    lost, named = event["lost"], event["transcript_session_ids"]
+    if (
+        (event["type"], event["subtype"]) != ("system", WRITES_LOST)
+        or event["session_id"] != session_id
+        or event["error_code"] not in LOST_CAUSES
+        or not isinstance(event["uuid"], str)
+        or not isinstance(lost, list)
+        or not lost
+        or any(what not in LOST_RECORDS for what in lost)
+        or not isinstance(named, list)
+        or not all(isinstance(one, str) for one in named)
+    ):
+        return None
+    return writes_lost(after[0])
 
 
 def through_first_result(text: str) -> str:

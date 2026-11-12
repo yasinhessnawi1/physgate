@@ -39,6 +39,8 @@ ATTEMPT_LIMIT = REPAIR_BUDGET + 1
 #: refused credential, so the loop halts on it for a person to replace it.
 #: ``sandbox_unavailable``: the session refused to start because the OS layer it was
 #: started with could not run; retrying cannot fix that either, so the loop halts.
+#: ``disk_full``: the session ended as a finished one and the binary then said a full disk,
+#: or a used-up quota, lost the session's own records; nothing it did is taken.
 InfraCause = Literal[
     "api_error",
     "credential_refused",
@@ -68,8 +70,8 @@ WRITES_LOST_VERSIONS = frozenset({"2.1.322"})
 
 #: What the event may name as lost, and as the cause: the binary's own lists. Anything else
 #: in those fields is left out of what is recorded, since a stream is not trusted text.
-_LOST_RECORDS = ("transcript", "global_config")
-_LOST_CAUSES = ("ENOSPC", "EDQUOT")
+LOST_RECORDS = ("transcript", "global_config")
+LOST_CAUSES = ("ENOSPC", "EDQUOT")
 
 
 def writes_lost(stream: str) -> str | None:
@@ -89,9 +91,9 @@ def writes_lost(stream: str) -> str | None:
         if event.get("type") != "system" or event.get("subtype") != WRITES_LOST:
             continue
         named = event.get("lost")
-        lost = [what for what in _LOST_RECORDS if isinstance(named, list) and what in named]
+        lost = [what for what in LOST_RECORDS if isinstance(named, list) and what in named]
         code = event.get("error_code")
-        cause = code if code in _LOST_CAUSES else "a cause it did not name"
+        cause = code if code in LOST_CAUSES else "a cause it did not name"
         return f"{', '.join(lost) or 'records'} ({cause})"
     return None
 
@@ -117,7 +119,7 @@ def classify_session_end(
     *,
     exit_code: int | None,
     stopped_at_wall_clock: bool,
-    lost: str | None = None,  # noqa: ARG001 - not read yet
+    lost: str | None = None,
 ) -> SessionEnd:
     """Classify how a session ended from its result object and exit.
 
@@ -126,7 +128,9 @@ def classify_session_end(
             ended without one (a killed or crashed session).
         exit_code: the process's exit status, ``None`` if it was never reaped.
         stopped_at_wall_clock: the orchestrator stopped it at its wall clock.
-        lost: what the binary said after its result it could not save, if it said so.
+        lost: what the binary said after its result it could not save, if it said so: a
+            session that would otherwise be a completed one is infrastructure under
+            ``disk_full``, and one that ended for another reason keeps that reason.
     """
     if stopped_at_wall_clock:
         return SessionEnd(outcome="infrastructure", cause="wall_clock")
@@ -148,6 +152,8 @@ def classify_session_end(
             return SessionEnd(outcome="infrastructure", cause="credential_refused")
         return SessionEnd(outcome="infrastructure", cause="api_error")
     if is_error is False and terminal == "completed" and exit_code == 0:
+        if lost is not None:
+            return SessionEnd(outcome="infrastructure", cause="disk_full")
         return SessionEnd(outcome="completed", cause=None)
     return SessionEnd(outcome="infrastructure", cause="unexpected_exit")
 

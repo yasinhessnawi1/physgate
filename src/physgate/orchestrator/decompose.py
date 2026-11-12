@@ -125,6 +125,7 @@ FailureCause = Literal[
     "api_error",
     "credential_refused",
     "sandbox_unavailable",
+    "disk_full",
     "schema_refused",
     "managed_settings_changed",
     "wall_clock",

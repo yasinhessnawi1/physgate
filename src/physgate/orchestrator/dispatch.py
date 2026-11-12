@@ -53,7 +53,7 @@ from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import classify_session_end
+from physgate.orchestrator.budget import WRITES_LOST_VERSIONS, classify_session_end
 from physgate.orchestrator.canaries import canary_seen, redact_text
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
@@ -112,7 +112,13 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root, os_layer_refusal
-from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
+from physgate.orchestrator.trajectory import (
+    Seal,
+    forged_tail,
+    own_loss_tail,
+    seal,
+    through_first_result,
+)
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.placement import machine_writable, placement_refusal
@@ -377,12 +383,17 @@ class Captured:
     result: dict[str, Any] | None
     usage: tuple[MessageUsage, ...]
     answered: frozenset[str]
+    #: What the binary said after its result that a full disk lost, where a pin says it.
     lost: str | None = None
 
 
-def tail_owner(claude_version: str, session_id: str) -> str | None:  # noqa: ARG001 - not read yet
-    """The session whose own word may follow its result on this pin, or ``None``."""
-    return None
+def tail_owner(claude_version: str, session_id: str) -> str | None:
+    """The session whose own word may follow its result on this pin, or ``None``.
+
+    Only a pin measured to write that word has one; on every other, a stream holds nothing
+    after its result.
+    """
+    return session_id if claude_version in WRITES_LOST_VERSIONS else None
 
 
 def read_stream_file(stream: Path) -> bytes:
@@ -411,20 +422,34 @@ def read_captured(
     )
 
 
-def captured_from(data: bytes, *, own_tail_of: str | None = None) -> Captured:  # noqa: ARG001
+def captured_from(data: bytes, *, own_tail_of: str | None = None) -> Captured:
     """Seal a session's stream bytes, find a forged tail, parse what the runtime wrote.
 
     One path for every reader, the session that ended under its orchestrator and the
     leftover a resume finds, from the bytes one read returned. A stream with a tail after
     the runtime's result is parsed only up to that result; the tail is reported, never read.
+
+    ``own_tail_of`` is the session whose binary may say, in one event after its result,
+    that a full disk lost its records (:func:`tail_owner`): that event alone is no forged
+    tail, and what it names is returned as ``lost``. Nothing after a result is parsed.
     """
     text = data.decode(errors="replace")
     tampered = forged_tail(text)
+    lost = None
     if tampered is not None:
+        if own_tail_of is not None:
+            lost = own_loss_tail(text, own_tail_of)
+        if lost is not None:
+            tampered = None
         text = through_first_result(text)
     result, usage, answered = read_stream(text)
     return Captured(
-        seal=seal(data), tampered=tampered, result=result, usage=usage, answered=answered
+        seal=seal(data),
+        tampered=tampered,
+        result=result,
+        usage=usage,
+        answered=answered,
+        lost=lost,
     )
 
 
@@ -1540,7 +1565,9 @@ class ClaudeDispatcher:
         # worktree; they are removed before anything is committed, and recorded. What
         # the sweep refuses, or a sweep that fails, is recorded and refuses the attempt.
         placeholders_refused = self._sweep(worktree, before, sdir) if temp is not None else None
-        captured = read_captured(stdout)
+        captured = read_captured(
+            stdout, own_tail_of=tail_owner(self._config.claude_version, session_id)
+        )
         # A command bubblewrap aborted never ran: recorded as such, never as a denial.
         aborted = (
             aborted_tool_uses(read_stream_file(stdout).decode(errors="replace"))
@@ -1552,7 +1579,9 @@ class ClaudeDispatcher:
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
         require_matching_totals(result, usage)
-        end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
+        end = classify_session_end(
+            result, exit_code=exit_code, stopped_at_wall_clock=timed_out, lost=captured.lost
+        )
         if end.outcome == "completed":
             echoed = sorted(answered)
             if echoed != [request.model]:
@@ -1759,7 +1788,9 @@ class ClaudeDispatcher:
         # The same read as a session that ended under its orchestrator: sealed as read, a
         # tail after the runtime's result not taken, and a stream with a result held to the
         # runtime's own totals.
-        captured = captured_from(data)
+        captured = captured_from(
+            data, own_tail_of=tail_owner(self._config.claude_version, session_id)
+        )
         tampered = captured.tampered
         if tampered is None:
             try:
