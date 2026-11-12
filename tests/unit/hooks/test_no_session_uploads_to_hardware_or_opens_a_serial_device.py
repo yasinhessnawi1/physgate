@@ -221,6 +221,16 @@ NOT_BUILD_ONLY = [
     ("arduino-cli compile -vu .", "arduino-cli"),
     ("arduino-cli compile -vp COM3 .", "arduino-cli"),
     ("arduino-cli compile --no-such-option .", "arduino-cli"),
+    # An option that rewrites what a build runs is not a build-only option.
+    (
+        "arduino-cli compile --build-property recipe.hooks.prebuild.1.pattern=avrdude .",
+        "arduino-cli",
+    ),
+    ("arduino-cli compile --build-property=tools.avrdude.path=/x .", "arduino-cli"),
+    ("arduino-cli compile --build-properties compiler.path=/x .", "arduino-cli"),
+    ("pio run -O upload_command=avrdude", "pio"),
+    ("pio run --project-option extra_scripts=flash.py", "pio"),
+    ("pio run --project-option=targets=upload", "pio"),
     ("esptool.py --no-such-global version", "esptool.py"),
     ("esptool.py image_info --no-such-option firmware.bin", "esptool.py"),
     ("arduino-cli burn-bootloader", "arduino-cli"),
