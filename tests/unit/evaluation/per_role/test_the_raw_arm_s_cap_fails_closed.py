@@ -33,6 +33,7 @@ from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.per_role.arms.raw import BudgetWatch
 from physgate.orchestrator import processes
 from physgate.orchestrator.processes import started_at
+from physgate.oslayer.session_temp import session_temps_root
 
 #: Long enough for every stop in this file, which all happen within a second or two.
 WITHIN_S = 8.0
@@ -436,7 +437,7 @@ def test_the_raw_session_declares_its_reaper_canary_wherever_the_reaper_runs(
         _setup(outside_tmp, outside_tmp / "claude"),
         worktree,
         outside_tmp / "session",
-        Path("/tmp/pg-0123456789ab"),
+        Path(session_temps_root()) / "0123456789",
     )
     monkeypatch.undo()
     monkeypatch.setattr(reaper_install, "wanted", lambda platform=sys.platform: True)

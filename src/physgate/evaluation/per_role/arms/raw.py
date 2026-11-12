@@ -66,6 +66,7 @@ from physgate.orchestrator.run_config import (
     endpoint_of,
 )
 from physgate.oslayer.probe import Absent, Present
+from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SessionEnd, await_session
 
 #: How often the watcher reads the stream.
@@ -344,7 +345,14 @@ def raw_bounds(bounds: RunBounds) -> tuple[int, float]:
     return bounds.session_max_turns * REPAIR_BUDGET, bounds.session_wall_clock_s * REPAIR_BUDGET
 
 
-def _install(setup: RawSetup, worktree: Path, sdir: Path, temp: Path | None) -> dict[str, Any]:
+def _install(
+    setup: RawSetup,
+    worktree: Path,
+    sdir: Path,
+    temp: Path | None,
+    *,
+    own_temp: Path | None = None,
+) -> dict[str, Any]:
     state = sdir / "state"
     state.mkdir(mode=0o700, parents=True)
     (sdir / "config").mkdir(mode=0o700, exist_ok=True)
@@ -370,12 +378,21 @@ def _install(setup: RawSetup, worktree: Path, sdir: Path, temp: Path | None) -> 
         "--ceiling",
         str(NO_ALWAYS_LOADED_CEILING),
         *helper,
+        # The session's own directory, which holds its login, stream, settings and records: no
+        # tool of the raw agent reads it, as no role session's reads the run's. A raw session
+        # has no run around it, so its own directory is the whole of what there is to name,
+        # and the installer refuses a raw-agent session that names none.
+        "--sessions-root",
+        str(sdir),
         # The harness checkout is protected from the raw agent and its shell reads denied:
         # what it would find there (the knowledge, the rubrics) is the harness's help.
         *harness_protection(),
         *(arg for root in setup.held_out for arg in ("--held-out", root)),
         *(arg for root in setup.withheld_reads for arg in ("--review-material", root)),
         *(["--os-layer-temp", str(temp)] if temp is not None else []),
+        # Without the layer the session still keeps its temporary files in a directory of its
+        # own, never in the one every session of the user shares.
+        *(["--temp", str(own_temp)] if temp is None and own_temp is not None else []),
         # The session is spawned held (the dispatcher's spawn), which exports its pid as the
         # survivor reaper's canary; the installer refuses a reaped session that does not say so.
         "--spawns-with-canary",
@@ -453,15 +470,20 @@ def run_session(
             raise RawArmError(msg, name=name)
         (worktree / name).write_bytes(data)
     session_id = str(uuid.uuid4())
-    temp: Path | None = None
-    if isinstance(setup.os_layer, Present):
-        temp = Path(f"/tmp/pg-{uuid.uuid4().hex[:12]}")
-        temp.mkdir(mode=0o700)
+    # As a role session's: a temporary directory of its own, beneath the one parent no other
+    # session reads or writes; where the OS layer runs, it is the layer's too.
     try:
-        return _run(prompt, setup, work, worktree, sdir, session_id, temp, cap, check)
+        own_temp = make_session_temp()
+    except OSError as exc:
+        msg = "no temporary directory of the session's own could be made, so none is started"
+        raise RawArmError(msg, error=str(exc)) from exc
+    temp = own_temp if isinstance(setup.os_layer, Present) else None
+    try:
+        return _run(
+            prompt, setup, work, worktree, sdir, session_id, temp, cap, check, own_temp=own_temp
+        )
     finally:
-        if temp is not None:
-            shutil.rmtree(temp, ignore_errors=True)
+        shutil.rmtree(own_temp, ignore_errors=True)
 
 
 def run_raw(task: Task, setup: RawSetup, work: Path, *, cap: int) -> dict[str, Any]:
@@ -493,13 +515,15 @@ def _run(
     temp: Path | None,
     cap: int,
     check: Checkpoint | None = None,
+    *,
+    own_temp: Path | None = None,
 ) -> dict[str, Any]:
     stdout, stderr = sdir / "stdout.jsonl", sdir / "stderr.txt"
     # One boundary from the first write of the credential to its removal: whatever ends
     # the session (an error, a refusal, the clock, the cap, a kill), the cleanup runs.
     try:
         ended, watch, seconds, after = _session(
-            prompt, setup, worktree, sdir, session_id, temp, cap, check
+            prompt, setup, worktree, sdir, session_id, temp, cap, check, own_temp=own_temp
         )
     finally:
         _clean(work, sdir, setup.credential.secret, (stdout, stderr))
@@ -529,12 +553,14 @@ def _session(
     temp: Path | None,
     cap: int,
     checkpoint: Checkpoint | None = None,
+    *,
+    own_temp: Path | None = None,
 ) -> tuple[SessionEnd, BudgetWatch, float, dict[str, Any]]:
     """Install, spawn, watch and end the raw session; the credential's removal is the caller's."""
     # As a role session's: what the runtime makes is made first, so it is in the record.
     (sdir / "home").mkdir(mode=0o700, exist_ok=True)
     runtime_paths(worktree, sdir / "home")
-    installed = _install(setup, worktree, sdir, temp)
+    installed = _install(setup, worktree, sdir, temp, own_temp=own_temp)
     env = isolated_env(
         home=sdir / "home",
         config_dir=sdir / "config",

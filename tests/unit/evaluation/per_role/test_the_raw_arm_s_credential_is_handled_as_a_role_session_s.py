@@ -19,6 +19,7 @@ from physgate.evaluation.tiers.task import parse_task
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.run_config import RunBounds
 from physgate.oslayer.probe import Absent
+from physgate.oslayer.session_temp import session_temps_root
 
 DUMMY = "inert-dummy-token-not-a-credential-0123456789"
 BOUNDS = RunBounds(
@@ -135,7 +136,10 @@ def test_the_raw_session_s_shell_is_denied_its_credential_files_by_the_os_layer(
     worktree.mkdir()
     sdir = outside_tmp / "session"
     raw._install(
-        _setup(outside_tmp, outside_tmp / "claude"), worktree, sdir, Path("/tmp/pg-0123456789ab")
+        _setup(outside_tmp, outside_tmp / "claude"),
+        worktree,
+        sdir,
+        Path(session_temps_root()) / "0123456789",
     )
     monkeypatch.undo()
     parser = argparse.ArgumentParser()
