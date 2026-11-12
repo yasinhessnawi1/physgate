@@ -81,7 +81,7 @@ def test_on_2_1_322_the_three_directories_the_runtime_makes_in_the_git_directory
     tmp_path: Path,
 ) -> None:
     git_dir = _git_dir(tmp_path)
-    runtime_git_paths(git_dir, "2.1.322")
+    runtime_git_paths(git_dir, "2.1.322", platform="darwin")
     made = {name: git_dir / name for name in GIT_MADE}
     assert {name: path.is_dir() and not path.is_symlink() for name, path in made.items()} == (
         dict.fromkeys(GIT_MADE, True)
@@ -105,7 +105,7 @@ def test_a_directory_already_there_is_left_as_it_is_and_the_others_are_made(
     (git_dir / "remotes").mkdir(mode=0o700)
     (git_dir / "remotes").chmod(0o700)
     (git_dir / "remotes" / "origin").write_text("URL: x\n")
-    runtime_git_paths(git_dir, "2.1.322")
+    runtime_git_paths(git_dir, "2.1.322", platform="darwin")
     assert _mode(git_dir / "remotes") == 0o700
     assert (git_dir / "remotes" / "origin").read_text() == "URL: x\n"
     assert (git_dir / "branches").is_dir() and (git_dir / "objects/info/commit-graphs").is_dir()
@@ -120,12 +120,14 @@ def test_nothing_is_made_in_the_git_directory_through_a_link_or_beneath_a_missin
     git_dir.mkdir(parents=True)
     (git_dir / "objects").symlink_to(elsewhere)
     (git_dir / "branches").symlink_to(elsewhere)
-    runtime_git_paths(git_dir, "2.1.322")
+    runtime_git_paths(git_dir, "2.1.322", platform="darwin")
     assert list(elsewhere.iterdir()) == []
     assert (git_dir / "remotes").is_dir()  # the one with nothing in its way
     bare = tmp_path / "bare" / ".git"
     bare.mkdir(parents=True)
-    runtime_git_paths(bare, "2.1.322")  # no objects/info to make the third beneath
+    runtime_git_paths(
+        bare, "2.1.322", platform="darwin"
+    )  # no objects/info to make the third beneath
     assert _entries(bare) == ["branches", "remotes"]
 
 

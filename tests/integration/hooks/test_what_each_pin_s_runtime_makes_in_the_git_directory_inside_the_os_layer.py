@@ -32,7 +32,10 @@ MADE: dict[tuple[str, str], dict[str, str]] = {
     ("darwin", "2.1.322"): _THREE_DIRECTORIES,
     # Linux, bubblewrap (CI, 12.11.2026). The two empty ``config.worktree`` files are made for
     # a linked worktree's repository; a session's end is not held to them.
-    ("linux", "2.1.301"): {},
+    ("linux", "2.1.301"): {
+        "config.worktree": "file 0o644 0 e3b0c44298fc1c14",
+        "worktrees/sub1/config.worktree": "file 0o644 0 e3b0c44298fc1c14",
+    },
     ("linux", "2.1.322"): {
         **_THREE_DIRECTORIES,
         "config.worktree": "file 0o644 0 e3b0c44298fc1c14",
