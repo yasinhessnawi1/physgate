@@ -134,9 +134,14 @@ def test_every_tool_offered_beyond_the_list_is_refused_by_the_closed_list_hook(
     assert outcome == expected, json.dumps({version: outcome, "input check": said})
 
 
-#: A valid input for each tool new since 2.1.301, from its own schema as 2.1.322 offers it, so
-#: the call passes the binary's own check and reaches the hooks.
-VALID_INPUT: dict[str, dict[str, Any]] = {}
+#: A valid input for each tool new since 2.1.301, so the call passes the binary's own check and
+#: reaches the hooks. These tools are deferred on 2.1.322 (their schemas are not sent with the
+#: request); the fields are the ones the binary's own check named as required (CI, 11.11.2026).
+VALID_INPUT: dict[str, dict[str, Any]] = {
+    "Monitor": {"command": "true", "description": "x"},
+    "DesignSync": {"action": "list_projects"},
+    "PushNotification": {"message": "x"},
+}
 NEW_TOOLS = ("Monitor", "DesignSync", "PushNotification")
 
 
@@ -156,5 +161,5 @@ def test_each_tool_new_since_2_1_301_given_a_valid_input_is_refused_by_the_close
     outcome = {
         name: (REFUSED in said, started[f"PreToolUse:{name}"] == 1) for name, said in told.items()
     }
-    shown = {name: {"told": said[:300], "schema": schemas.get(name)} for name, said in told.items()}
+    shown = {name: {"told": said[:900], "schema": schemas.get(name)} for name, said in told.items()}
     assert outcome == dict.fromkeys(offered, (True, True)), json.dumps(shown)
