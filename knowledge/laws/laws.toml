@@ -34,6 +34,27 @@ status = "warn"
 approved = { candidate_id = "4f68d63663854eaf851142627e52b09e", date = 2026-11-06 }
 
 [[law]]
+id = "no_load_below_stall"
+statement = "a DC motor's no-load current is no greater than its stall current, both as its data sheet states them at its rated voltage"
+expression = "I0 <= Ir"
+pattern = "node"
+anchor = "I0"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "both figures are the same motor's data-sheet figures at one voltage, its rated voltage: at stall the back-EMF is zero and the winding carries the whole voltage over its resistance, the most current it draws at that voltage, while with nothing on the shaft it turns until the back-EMF nearly equals the supply and draws only what overcomes friction; a no_load_current stated at another voltage than rated_stall_current is two conditions, and a motor whose friction current exceeds its stall current cannot start and has no no-load point"
+literals = []
+requires = []
+unless = []
+symbols = { I0 = { name = "no_load_current", place = "self" }, Ir = { name = "rated_stall_current", place = "self" } }
+source = { kind = "textbook", title = "College Physics 2e (P. P. Urone, R. Hinrichs; OpenStax)", edition = "OpenStax, 2022, web edition", section = "23.6 Back Emf: the maximum current when on but not turning, and the no-load motor that uses only enough energy to overcome friction", read = 2026-11-07, reading = "in full" }
+example = [
+  { outcome = "pass", source = "Pololu 50:1 Micro Metal Gearmotor HPCB 6V with Extended Motor Shaft (item #3073), key specifications at 6 V: no-load performance 650 RPM, 150 mA; stall extrapolation 0.74 kg.cm, 1.5 A", values = { I0 = { value = 150, unit = "mA" }, Ir = { value = 1.5, unit = "A" } } },
+  { outcome = "fail", source = "the same sheet, with the no-load figure's number 150 written in amperes instead of milliamperes beside the 1.5 A stall", values = { I0 = { value = 150, unit = "A" }, Ir = { value = 1.5, unit = "A" } } },
+]
+status = "warn"
+approved = { candidate_id = "c910034318894f3facaa68dff0d58293", date = 2026-11-12 }
+
+[[law]]
 id = "rate_throughput_output_data_rate"
 statement = "a consumer updated once per delivered sample updates no faster than the output data rate of the sensor its edge names"
 expression = "U <= R"
