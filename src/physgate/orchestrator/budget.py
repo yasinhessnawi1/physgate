@@ -134,7 +134,7 @@ def classify_session_end(
     exit_code: int | None,
     stopped_at_wall_clock: bool,
     lost: str | None = None,
-    claude_version: str | None = None,  # noqa: ARG001 - not read yet
+    claude_version: str | None = None,
 ) -> SessionEnd:
     """Classify how a session ended from its result object and exit.
 
@@ -146,7 +146,9 @@ def classify_session_end(
         lost: what the binary said after its result it could not save, if it said so: a
             session that would otherwise be a completed one is infrastructure under
             ``disk_full``, and one that ended for another reason keeps that reason.
-        claude_version: the pin the session ran on, if the caller names it.
+        claude_version: the pin the session ran on, if the caller names it: on a pin in
+            ``NAMED_END_VERSIONS`` a request that outgrew the window and a structured
+            answer refused at the binary's cap are each a cause of their own.
     """
     if stopped_at_wall_clock:
         return SessionEnd(outcome="infrastructure", cause="wall_clock")
@@ -167,6 +169,11 @@ def classify_session_end(
         if result.get("api_error_status") in CREDENTIAL_REFUSED_STATUSES:
             return SessionEnd(outcome="infrastructure", cause="credential_refused")
         return SessionEnd(outcome="infrastructure", cause="api_error")
+    if is_error is True and claude_version in NAMED_END_VERSIONS:
+        if terminal == PROMPT_TOO_LONG:
+            return SessionEnd(outcome="infrastructure", cause="prompt_too_long")
+        if terminal == STRUCTURED_OUTPUT_EXHAUSTED:
+            return SessionEnd(outcome="infrastructure", cause="structured_output_retry_exhausted")
     if is_error is False and terminal == "completed" and exit_code == 0:
         if lost is not None:
             return SessionEnd(outcome="infrastructure", cause="disk_full")

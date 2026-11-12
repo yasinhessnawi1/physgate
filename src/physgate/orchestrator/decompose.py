@@ -378,7 +378,7 @@ def judge(
     answered: frozenset[str],
     refused: str | None = None,
     lost: str | None = None,
-    claude_version: str | None = None,  # noqa: ARG001 - not read yet
+    claude_version: str | None = None,
 ) -> tuple[FailureCause | None, str, Plan | None, str | None, int]:
     """Decide from the result object whether the call produced a usable plan.
 
@@ -386,9 +386,15 @@ def judge(
     that ran out of turns after one is ``schema_refused``, not ``turn_limit``.
     ``lost`` is what the binary said in the stream it could not save, if anything
     (:func:`~physgate.orchestrator.budget.writes_lost`): a call that ended as a finished
-    one and said so gives no plan, under its own cause.
+    one and said so gives no plan, under its own cause. ``claude_version`` is the pin
+    the call ran on: the ends a pin names are named here as for any session.
     """
-    end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
+    end = classify_session_end(
+        result,
+        exit_code=exit_code,
+        stopped_at_wall_clock=timed_out,
+        claude_version=claude_version,
+    )
     turns = int((result or {}).get("num_turns") or 0)
     echoed = sorted(answered)
     seen_model = echoed[0] if len(echoed) == 1 else None
@@ -527,6 +533,7 @@ def call(
         answered=answered,
         refused=schema_refusal(stdout),
         lost=writes_lost(stdout),
+        claude_version=reported,
     )
     changed = drift(workdir / "config", system_before)
     seen = traffic_refusal(observed, reported) if observed is not None else None

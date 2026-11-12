@@ -1580,7 +1580,11 @@ class ClaudeDispatcher:
         result, usage, answered = captured.result, captured.usage, captured.answered
         require_matching_totals(result, usage)
         end = classify_session_end(
-            result, exit_code=exit_code, stopped_at_wall_clock=timed_out, lost=captured.lost
+            result,
+            exit_code=exit_code,
+            stopped_at_wall_clock=timed_out,
+            lost=captured.lost,
+            claude_version=self._config.claude_version,
         )
         if end.outcome == "completed":
             echoed = sorted(answered)
