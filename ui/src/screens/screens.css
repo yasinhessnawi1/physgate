@@ -846,3 +846,139 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* -- library ------------------------------------------------------------------------------- */
+/* A document's label leads, its path under it. */
+.pg-lib-doc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0);
+  min-width: 0;
+}
+
+.pg-lib-label {
+  font-weight: 600;
+}
+
+.pg-lib-count {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+}
+
+.pg-lib-ids,
+.pg-lib-print,
+.pg-lib-history-when {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.pg-lib-range {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.pg-lib-row-error {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pg-lib-row-error-text {
+  color: var(--color-text-2);
+  overflow-wrap: anywhere;
+}
+
+.pg-lib-group {
+  gap: var(--space-3);
+}
+
+/* A library file's text: shown as text, wrapping, in the prose face; never rendered as markup. */
+.pg-lib-text {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-2);
+  font-family: var(--font-sans);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The changed lines: added ones in the accent, removed ones struck through, never red and green. */
+.pg-lib-diff {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-small-size);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pg-lib-diff-line {
+  display: block;
+  min-height: 1lh;
+}
+
+.pg-lib-diff ins {
+  background: var(--color-accent-bg);
+  text-decoration: none;
+}
+
+.pg-lib-diff del {
+  color: var(--color-text-2);
+  text-decoration: line-through;
+}
+
+.pg-lib-diff-hunk {
+  color: var(--color-text-2);
+}
+
+.pg-lib-effect {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* Promotion, said in words in a dashed box: the page describes it and cannot do it. */
+.pg-lib-promotion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-card);
+}
+
+.pg-lib-promotion p {
+  margin: 0;
+  color: var(--color-text-2);
+}
+
+.pg-lib-focus:focus {
+  outline: none;
+}
+
+.pg-lib-focus:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Every row of a library table is as tall as a target, so one row's controls never reach into
+   the next row's hit areas. */
+.pg-library .pg-table td {
+  height: var(--size-touch-min);
+}

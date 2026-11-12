@@ -1,0 +1,251 @@
+[
+  {
+    "assigned_role": "sizing",
+    "attempt_count": 0,
+    "gate_result": null,
+    "id": "sizing-3ac1b9",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/sizing-3ac1b9.md"
+  },
+  {
+    "assigned_role": "control",
+    "attempt_count": 0,
+    "gate_result": null,
+    "id": "control-c2599c",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/control-c2599c.md"
+  },
+  {
+    "assigned_role": "firmware",
+    "attempt_count": 0,
+    "gate_result": null,
+    "id": "firmware-a7cd7e",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/firmware-a7cd7e.md"
+  },
+  {
+    "assigned_role": "sizing",
+    "attempt_count": 0,
+    "gate_result": null,
+    "id": "sizing-closing-837f99",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/sizing-closing-837f99.md"
+  },
+  {
+    "assigned_role": "integration",
+    "attempt_count": 0,
+    "gate_result": null,
+    "id": "integration-cddbd2",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/integration-cddbd2.md"
+  },
+  {
+    "assigned_role": "sizing",
+    "attempt_count": 1,
+    "gate_result": null,
+    "id": "sizing-3ac1b9",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/sizing-3ac1b9.md"
+  },
+  {
+    "assigned_role": "sizing",
+    "attempt_count": 2,
+    "gate_result": null,
+    "id": "sizing-3ac1b9",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/sizing-3ac1b9.md"
+  },
+  {
+    "assigned_role": "sizing",
+    "attempt_count": 2,
+    "gate_result": "pass",
+    "id": "sizing-3ac1b9",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/sizing-3ac1b9.md"
+  },
+  {
+    "assigned_role": "sizing",
+    "attempt_count": 2,
+    "gate_result": "pass",
+    "id": "sizing-3ac1b9",
+    "merge_commit": null,
+    "review_result": "pass",
+    "spec_path": ".physgate/specs/sizing-3ac1b9.md"
+  },
+  {
+    "assigned_role": "sizing",
+    "attempt_count": 2,
+    "gate_result": "pass",
+    "id": "sizing-3ac1b9",
+    "merge_commit": "1111111111111111111111111111111111111111",
+    "review_result": "pass",
+    "spec_path": ".physgate/specs/sizing-3ac1b9.md"
+  },
+  {
+    "assigned_role": "control",
+    "attempt_count": 1,
+    "gate_result": null,
+    "id": "control-c2599c",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/control-c2599c.md"
+  },
+  {
+    "assigned_role": "control",
+    "attempt_count": 1,
+    "gate_result": "pass",
+    "id": "control-c2599c",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/control-c2599c.md"
+  },
+  {
+    "assigned_role": "firmware",
+    "attempt_count": 1,
+    "gate_result": null,
+    "id": "firmware-a7cd7e",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/firmware-a7cd7e.md"
+  },
+  {
+    "assigned_role": "firmware",
+    "attempt_count": 1,
+    "gate_result": "pass",
+    "id": "firmware-a7cd7e",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/firmware-a7cd7e.md"
+  },
+  {
+    "assigned_role": "firmware",
+    "attempt_count": 1,
+    "gate_result": "pass",
+    "id": "firmware-a7cd7e",
+    "merge_commit": null,
+    "review_result": "fail",
+    "spec_path": ".physgate/specs/firmware-a7cd7e.md"
+  },
+  {
+    "assigned_role": "firmware",
+    "attempt_count": 2,
+    "gate_result": null,
+    "id": "firmware-a7cd7e",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/firmware-a7cd7e.md"
+  },
+  {
+    "assigned_role": "firmware",
+    "attempt_count": 2,
+    "gate_result": "pass",
+    "id": "firmware-a7cd7e",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/firmware-a7cd7e.md"
+  },
+  {
+    "assigned_role": "firmware",
+    "attempt_count": 2,
+    "gate_result": "pass",
+    "id": "firmware-a7cd7e",
+    "merge_commit": null,
+    "review_result": "blocked",
+    "spec_path": ".physgate/specs/firmware-a7cd7e.md"
+  },
+  {
+    "assigned_role": "sizing",
+    "attempt_count": 1,
+    "gate_result": null,
+    "id": "sizing-closing-837f99",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/sizing-closing-837f99.md"
+  },
+  {
+    "assigned_role": "sizing",
+    "attempt_count": 1,
+    "gate_result": "pass",
+    "id": "sizing-closing-837f99",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/sizing-closing-837f99.md"
+  },
+  {
+    "assigned_role": "sizing",
+    "attempt_count": 1,
+    "gate_result": "pass",
+    "id": "sizing-closing-837f99",
+    "merge_commit": null,
+    "review_result": "pass",
+    "spec_path": ".physgate/specs/sizing-closing-837f99.md"
+  },
+  {
+    "assigned_role": "sizing",
+    "attempt_count": 1,
+    "gate_result": "pass",
+    "id": "sizing-closing-837f99",
+    "merge_commit": "2222222222222222222222222222222222222222",
+    "review_result": "pass",
+    "spec_path": ".physgate/specs/sizing-closing-837f99.md"
+  },
+  {
+    "assigned_role": "firmware",
+    "attempt_count": 2,
+    "gate_result": "pass",
+    "id": "firmware-a7cd7e",
+    "merge_commit": null,
+    "person_decision": "approve",
+    "queue_item": "run-7-firmware-a7cd7e",
+    "review_result": "blocked",
+    "spec_path": ".physgate/specs/firmware-a7cd7e.md"
+  },
+  {
+    "assigned_role": "firmware",
+    "attempt_count": 2,
+    "gate_result": "pass",
+    "id": "firmware-a7cd7e",
+    "merge_commit": "3333333333333333333333333333333333333333",
+    "person_decision": "approve",
+    "queue_item": "run-7-firmware-a7cd7e",
+    "review_result": "blocked",
+    "spec_path": ".physgate/specs/firmware-a7cd7e.md"
+  },
+  {
+    "assigned_role": "control",
+    "attempt_count": 1,
+    "gate_result": "pass",
+    "id": "control-c2599c",
+    "merge_commit": null,
+    "person_decision": "reject",
+    "queue_item": "run-7-control-c2599c",
+    "review_result": null,
+    "spec_path": ".physgate/specs/control-c2599c.md"
+  },
+  {
+    "assigned_role": "control",
+    "attempt_count": 2,
+    "gate_result": null,
+    "id": "control-c2599c",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/control-c2599c.md"
+  },
+  {
+    "assigned_role": "control",
+    "attempt_count": 2,
+    "gate_result": "pass",
+    "id": "control-c2599c",
+    "merge_commit": null,
+    "review_result": null,
+    "spec_path": ".physgate/specs/control-c2599c.md"
+  }
+]

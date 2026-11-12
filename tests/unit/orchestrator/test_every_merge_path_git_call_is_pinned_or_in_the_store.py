@@ -7,7 +7,9 @@ check, the proposals, the merge and its idempotency check, the run branch's chec
 base and patch, the worktree's removal) holds to the same rule: each command either runs pinned
 to the verified git directory of the repository or worktree it runs in, or runs in the clean
 store. The repository is either an ordinary one, whose own ``.git`` directory is the one pinned,
-or itself a linked worktree, whose pointer is checked like any worktree's.
+or itself a linked worktree, whose pointer is checked like any worktree's. The change check reads
+the diff a review is issued as the review's packet reads it, in the packet's own clean store: a
+bare directory that reaches the repository's objects and holds nothing else, read in place.
 
 Inert markers only: a decoy admin directory holds a ``HEAD``, a ``commondir`` and a ``gitdir``
 and nothing git runs; the decoy common directory is an empty repository git created.
@@ -41,6 +43,9 @@ _ENV = {
     "GIT_COMMITTER_EMAIL": "t@example.invalid",
 }
 _STORE_PREFIX = "physgate-git-store-"
+#: The review packet's clean store, made and read the same way.
+_REVIEW_STORE_PREFIX = "physgate-review-store-"
+_CLEAN_STORES = (_STORE_PREFIX, _REVIEW_STORE_PREFIX)
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -100,11 +105,11 @@ def _unpinned(calls: list[tuple[list[str], str]], admins: dict[str, Path]) -> li
             continue  # resolving the harness's git, run from the filesystem root
         if "--file" in argv and "--no-includes" in argv and cwd == "/":
             continue  # the object format, read as data from a config file
-        if "init" in argv and "--bare" in argv and Path(argv[-1]).name.startswith(_STORE_PREFIX):
+        if "init" in argv and "--bare" in argv and Path(argv[-1]).name.startswith(_CLEAN_STORES):
             continue  # making a clean store
         if "--git-dir" in argv:
             named = argv[argv.index("--git-dir") + 1]
-            if Path(named).name.startswith(_STORE_PREFIX) and cwd == named:
+            if Path(named).name.startswith(_CLEAN_STORES) and cwd == named:
                 continue  # read in a clean store
             tree = argv[argv.index("--work-tree") + 1] if "--work-tree" in argv else None
             admin = admins.get(str(Path(cwd).resolve()))
@@ -132,7 +137,7 @@ def _flow(
     assert (
         GitChangeChecker(run, graph, {"m1": "m1"}).check("m1", attempt, "role").refused_by is None
     )
-    assert StoreKeeper(run, graph).proposals("m1", attempt) == []
+    assert StoreKeeper(run, graph).proposals("m1", attempt, "role") == []
     merger = GitMerger(run, removal_timeout_s=60)
     before = merger.review_base(attempt)
     assert "+1" in merger.artefact_diff(attempt)
@@ -229,5 +234,5 @@ def test_the_change_check_reads_through_the_pointer_it_verified(
     found = GitChangeChecker(run, graph, {"m1": "m1"}).check("m1", attempt, "role")
     assert (found.refused_by, found.subject) == ("write_scope", "out.txt")
     (repo / ".git").write_text(f"gitdir: {real_admin}\n")
-    proposals = StoreKeeper(run, graph).proposals("m1", attempt)
+    proposals = StoreKeeper(run, graph).proposals("m1", attempt, "role")
     assert proposals == []

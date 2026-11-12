@@ -8,7 +8,9 @@ A run of reviewers alone runs no shell, and a run that is not reportable is the
 product's to run as it likes; neither is held to this.
 
 A reportable run also records a person's queue decisions and acts on none, so no measured
-outcome is changed by a decision taken during it.
+outcome is changed by a decision taken during it; and it reviews its plan, under
+``design_review: observe`` (recorded, changing nothing the run does) unless its criteria name
+another value as an experiment's arm.
 
 A reportable run never names the core's development allowance for running without the OS
 layer (``os_layer_absent: allow``), whatever the layer where it runs: its record never carries
@@ -82,10 +84,29 @@ def record_decisions_for_reportable_runs(facts: RunFacts) -> str | None:
     return None
 
 
+def observed_design_review_for_reportable_runs(facts: RunFacts) -> str | None:
+    """Refuse to start a reportable run that does not record its plan's review.
+
+    A reportable run reviews its plan under ``observe``, where the verdict is measured without
+    changing the run, unless its frozen criteria name another value as an arm (``on``, or
+    ``repair:N``, which only a reportable run may name). The criteria are not something code can
+    read, so the rule admits every value that reviews the plan and refuses the one that does not.
+    Asked of a new run only: a reportable run recorded before the flag existed reads as ``off``,
+    and it still resumes.
+    """
+    if facts.new_run and facts.config.reportable and facts.config.design_review == "off":
+        return (
+            "a reportable run records its plan's review: design_review: observe, or the arm its "
+            "criteria name"
+        )
+    return None
+
+
 #: The requirements the evaluation holds every run to.
 REQUIREMENTS: tuple[RunRequirement, ...] = (
     os_layer_for_reportable_runs,
     no_os_layer_allowance_for_reportable_runs,
     network_none_for_reportable_runs,
     record_decisions_for_reportable_runs,
+    observed_design_review_for_reportable_runs,
 )

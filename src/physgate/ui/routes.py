@@ -34,12 +34,14 @@ from typing import Literal
 from urllib.parse import unquote
 
 from physgate.orchestrator.exceptions import OrchestratorError
+from physgate.orchestrator.queue import LAST_ROUND
 from physgate.orchestrator.run_config import load_run_config
 from physgate.state.schema import NODE_ID_PATTERN
 from physgate.ui.assets import Assets
 from physgate.ui.exceptions import PathRefusedError, UIError
 from physgate.ui.guard import RouteKind, require_registered
 from physgate.ui.paths import Allowlist
+from physgate.ui.views import ViewRegister
 
 #: The patterns a path parameter may take. Each excludes a separator, a NUL and a
 #: leading dot, so no parameter can name a parent directory or a hidden file.
@@ -48,11 +50,19 @@ PARAMETERS: Mapping[str, re.Pattern[str]] = {
     "name": re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$"),
     "asset": re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,255}$"),
     "session": re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$"),
+    # A round of the decomposition after the first, up to the last a link is read for; round 1's
+    # stream is the decomposition's own.
+    "round": re.compile(rf"^[2-{LAST_ROUND}]$"),
     "date": re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"),
     "revision": re.compile(r"^(0|[1-9][0-9]{0,8})$"),
     # The node identifier rule itself: lowercase dotted parts, so no separator, no
     # leading dot and no parent reference can pass.
     "node": NODE_ID_PATTERN,
+    # The curated library's files: which kind, which role (the knowledge layer's own role rule,
+    # with a length cap) and which staged candidate (the id staging writes).
+    "library_file": re.compile(r"^(standards|skill|bounds)$"),
+    "role": re.compile(r"^[a-z][a-z0-9_]{0,63}$"),
+    "candidate": re.compile(r"^[A-Za-z0-9_-]{1,128}$"),
 }
 
 #: The run's configuration file, whose presence makes a directory a run directory.
@@ -78,12 +88,14 @@ class Context:
     """What every handler is given: the allowlist, the built app, and who acts, if anyone.
 
     ``operator`` is the name the server was started with; an action is recorded as theirs.
-    Without one, every action route is refused.
+    Without one, every action route is refused. ``views`` is the register of the item views this
+    server rendered, which a decision's review time starts from.
     """
 
     allowlist: Allowlist
     assets: Assets
     operator: str | None = None
+    views: ViewRegister = field(default_factory=ViewRegister)
 
 
 _body: ContextVar[bytes | None] = ContextVar("physgate_ui_request_body", default=None)

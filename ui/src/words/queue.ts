@@ -11,7 +11,15 @@
  * and why, computed from its record; the copy for such an item is made from those fields alone.
  * A sentence that promised more than the record says would be a claim born in the interface.
  */
-import type { Consequence, QueueSource, Taken, WhyRecordOnly } from "../api/queue";
+import type {
+  Consequence,
+  Decided,
+  OnChoose,
+  Position,
+  QueueSource,
+  Taken,
+  WhyRecordOnly,
+} from "../api/queue";
 import { causeWords, triesWords } from "./review";
 
 export interface SourceWords {
@@ -39,12 +47,26 @@ export const SOURCE_WORDS: Readonly<Record<QueueSource, SourceWords>> = {
     why: "The reviewer could not decide a safety-critical check, because the specification lacks its input.",
   },
   arbitration: {
-    kind: "Builder and reviewer disagree",
-    why: "The agent that built the work and the reviewer disagree, and only a person can settle it.",
+    kind: "Disputed sizing value",
+    why:
+      "A domain's agent disputes a value that sizing owns. The gate did not settle it, and by " +
+      "the precedence rule it comes to a person: the same quantity was disputed in an earlier " +
+      "attempt, or this was the subtask's last attempt.",
   },
   escalation_decision: {
     kind: "Sent early to a person",
     why: "The escalation decision sent the subtask to a person while it still had attempts left.",
+  },
+  contract: {
+    kind: "Interface contract failed",
+    why: "Two merged modules do not both hold an interface fixed at decomposition.",
+  },
+  plan_review: {
+    kind: "The plan's review did not pass",
+    why:
+      "The design reviewer did not pass the plan the decomposition submitted, or reached no " +
+      "verdict on it: in a run that acts on decisions, nothing is dispatched until a person " +
+      "decides; in one that only records them, the run ends with the item open.",
   },
 };
 
@@ -72,11 +94,20 @@ export function setAsideWith(itemId: string): string {
 /** The dialog's opening sentence: who records what, about which item. */
 export function decisionSummary(
   operator: string,
-  verb: "approve" | "reject",
+  verb: "approve" | "reject" | "choose",
   decisionRequired: string,
   note: string,
+  position?: Position,
 ): string {
-  const did = verb === "approve" ? "approved" : "rejected";
+  // A choice names its position, always: the record never holds one without it.
+  if ((verb === "choose") !== (position !== undefined))
+    throw new Error("a position is chosen with choose, and only with it");
+  const did =
+    position !== undefined
+      ? `chose ${POSITION_WORDS[position].toLowerCase()} on`
+      : verb === "approve"
+        ? "approved"
+        : "rejected";
   const quoted = `'${decisionRequired}'`;
   return note.trim() === ""
     ? `This records: ${operator} ${did} ${quoted}.`
@@ -109,8 +140,10 @@ const HEADLINES: Readonly<Record<QueueSource, string>> = {
   repair_budget_exhausted: "A subtask used up its repairs",
   review_unavailable: "The review reached no verdict",
   review_blocked: "A review could not decide a safety-critical check",
-  arbitration: "The builder and the reviewer disagree",
+  arbitration: "A domain disputes a value sizing owns",
   escalation_decision: "A subtask was sent to a person",
+  contract: "Two merged modules break an interface contract",
+  plan_review: "The plan's review did not pass",
 };
 
 /**
@@ -142,6 +175,66 @@ const WHY_RECORD_ONLY_WORDS: Readonly<Record<WhyRecordOnly, string>> = {
   legacy: "the item was listed before items said what a decision does",
 };
 
+/** Each position a person may choose, as its button names it. */
+export const POSITION_WORDS: Readonly<Record<Position, string>> = {
+  sizing: "Sizing's value",
+  domain: "The domain's value",
+  producer: "The producer's work",
+  consumer: "The consumer's work",
+};
+
+/** What choosing a position does, from what the item says it does. */
+export const CHOOSE_WORDS: Readonly<Record<OnChoose, string>> = {
+  retry:
+    "Choose: this attempt is spent, and the next one is told sizing's value as the graph holds " +
+    "it, and your note if you write one. Its reviewer is told what it was told.",
+  fix:
+    "Choose: one fix is made by a fresh session in the subtask's working copy, told sizing's " +
+    "value as the graph holds it and your note if you write one. It is the subtask's last " +
+    "attempt; if it is not accepted, the subtask ends rejected.",
+  end_subtask: "Choose: the subtask ends rejected, and nothing of it is merged.",
+  resize:
+    "Choose: the subtask waits while sizing's closing pass is ordered to write the domain's value " +
+    "into the graph; once that pass is merged, this attempt is judged again from its finished " +
+    "session, with no new session. If the pass writes another value, the dispute is ruled again.",
+  reopen:
+    "Choose: the other module is reopened for one more attempt, its next or its one fix, told the " +
+    "interface's values it does not hold. Its earlier merge stays on the record, and the contract " +
+    "is tested again once it is merged.",
+  record_only: "Choose: the decision is recorded, and nothing in the run acts on it.",
+};
+
+/**
+ * What choosing a position whose effect is ``effect`` does, as the item states it; on the one
+ * that reopens the other module, every reward-hacking indicator a review of that module confirmed.
+ */
+export function chooseWords(c: Consequence, effect: OnChoose): string {
+  const named = c.confirmedIndicators.map((i) => `attempt ${String(i.attempt)} (${i.kind})`);
+  if (effect !== "reopen" || named.length === 0) return CHOOSE_WORDS[effect];
+  const found =
+    named.length === 1
+      ? "A review of the module it reopens confirmed a reward-hacking indicator"
+      : "Reviews of the module it reopens confirmed reward-hacking indicators";
+  return `${CHOOSE_WORDS.reopen} ${found}: ${named.join(", ")}.`;
+}
+
+/** Why approve, and choosing the domain's value, cannot be taken while a seal does not hold. */
+export const UNSEALED_WORDS = {
+  approve:
+    "A transcript of this item does not hold its seal, and an approve binds only to sealed work.",
+  domain:
+    "A transcript of this item does not hold its seal, and choosing the domain's value carries " +
+    "the agent's typed value into the graph, so it binds only to sealed work.",
+} as const;
+
+/** What a decision on an item a reopen superseded does, for every verb: it is recorded only. */
+export function supersededOutcome(by: string): string {
+  return (
+    `Recorded only: a choice on ${by} reopened a module this item is about, so nothing in the ` +
+    "run acts on this decision."
+  );
+}
+
 /** The approve button's label on an item whose approve records only. */
 export const APPROVE_RECORDS_ONLY = "Approve (records only)…";
 
@@ -169,12 +262,21 @@ const REJECT_WORDS: Readonly<Record<Consequence["onReject"], string>> = {
     "review's verdict and your note and nothing of the earlier session. It is the subtask's " +
     "last attempt; if it is not accepted, the subtask ends rejected.",
   end_subtask: "Reject: the subtask ends rejected, and nothing of it is merged.",
+  end_run:
+    "Reject: the run ends with no module dispatched, and your reason is recorded. A new run is " +
+    "a new decomposition.",
   record_only: "Reject: the decision is recorded, and nothing in the run acts on it.",
 };
 
 /** What approve and reject will do to an item, made from the consequence the run listed. */
 export function consequenceWords(c: Consequence): ChoiceWords {
   const reject = REJECT_WORDS[c.onReject];
+  if (c.onApprove === "release")
+    return {
+      approveLabel: "Approve…",
+      approve: "Approve: the hold is released, and the plan runs as it stands.",
+      reject,
+    };
   if (c.onApprove === "merge_attempt") {
     const commit = c.attemptCommit === null ? "" : ` (commit ${c.attemptCommit.slice(0, 12)})`;
     return {
@@ -202,7 +304,41 @@ const NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
     "operator confirms it on the command line.",
   not_bound: "Recorded only: it was not taken on a view of the item.",
   legacy_item: "Recorded only: the item does not say what a decision does.",
+  order_too_long:
+    "Recorded only: what the reopened attempt would be told is longer than its reviewer can " +
+    "read whole, so nothing was reopened.",
+  superseded:
+    "Recorded only: a choice on another item reopened a module this item is about, so what it " +
+    "said was no longer true.",
 };
+
+/** The note on an open item a reopen superseded, naming the item whose choice reopened it. */
+export function supersededWords(by: string): string {
+  return (
+    `A choice on ${by} reopened a module this item is about, so what it says is no longer ` +
+    "true. A decision on it is recorded only. The run lists the contract again if it still " +
+    "fails once that module is merged again."
+  );
+}
+
+/** How long a decision took, from when this server showed its view; or why none is recorded. */
+export function reviewTimeWords(d: Decided): string {
+  if (d.reviewTime === null)
+    return (
+      "None recorded: the decision was not made on a view this server showed and still held " +
+      "(it was made on the command line, or the server had started again)."
+    );
+  const whole = Math.round(Number(d.reviewTime.value));
+  const took =
+    whole < 60
+      ? `${String(whole)} s`
+      : `${String(Math.floor(whole / 60))} min ${String(whole % 60)} s`;
+  const said = `${took}, from when this server showed the item to when the decision was written.`;
+  return d.decompositionDefect
+    ? `${said} Over one minute: the record marks the item a decomposition defect, a sign the ` +
+        "design was split too coarsely to decide in a minute."
+    : said;
+}
 
 /** What the run did with a decision, from its own record of taking it. */
 export function takenWords(t: Taken): string {
@@ -212,9 +348,17 @@ export function takenWords(t: Taken): string {
   }
   const done: Readonly<Record<Taken["effect"], string>> = {
     merge: "The run took it: the attempt it names was merged.",
-    retry: "The run took it: the next attempt started from the note.",
+    retry: "The run took it: the next attempt was ordered, told what the decision said.",
     fix: "The run took it: one fix was ordered.",
     end_subtask: "The run took it: the subtask ended rejected.",
+    resize:
+      "The run took it: the subtask waits while sizing's closing pass is ordered to write the " +
+      "domain's value.",
+    reopen:
+      "The run took it: the other module was reopened for one more attempt, told the " +
+      "interface's values.",
+    release: "The run took it: the hold was released, and the plan runs as it stands.",
+    end_run: "The run took it: the run ended with no module dispatched.",
     none: "The run took it; it changed nothing.",
   };
   const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;
@@ -225,4 +369,25 @@ export function takenWords(t: Taken): string {
       by
     );
   return done[t.effect] + by;
+}
+
+/**
+ * The sentence a contract's or a system-scope item records in place of a diff, as it is written.
+ * A commit id is 40 hexadecimal characters, or 64 in a repository of git's sha256 object format.
+ */
+const BRANCH_DIFF =
+  /^The run branch from ([0-9a-f]{64}|[0-9a-f]{40}) to ([0-9a-f]{64}|[0-9a-f]{40}): see `git diff \1 \2` in the target repository\.$/;
+
+/**
+ * An item's artefact diff as the page shows it. Where the item records the run branch between two
+ * commits in place of a diff, the page names both commits and no command: no screen shows a
+ * terminal command. Any other diff is shown as recorded.
+ */
+export function diffWords(artefactDiff: string): string {
+  const branch = BRANCH_DIFF.exec(artefactDiff);
+  if (branch === null) return artefactDiff;
+  return (
+    `The run branch in the target repository, from commit ${branch[1] ?? ""} to commit ` +
+    `${branch[2] ?? ""}. The item carries no diff of its own.`
+  );
 }

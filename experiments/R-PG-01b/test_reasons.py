@@ -213,6 +213,20 @@ def test_packets_pool_a_version_s_lines_shuffled_by_random_37(tmp_path: Path) ->
     assert P.blind(w, tmp_path / "packets", SHEET)["not_their_template"] == 1
 
 
+def test_a_packet_of_ten_or_more_findings_is_its_template(tmp_path: Path) -> None:
+    w = work(tmp_path)
+    lines = [json.loads(x) for x in (w / "lines.jsonl").read_text().splitlines()]
+    more = [
+        dict(lines[0], line_id=f"L{n:04d}", text=f"[rule]: finding {n}", position=n)
+        for n in range(7, 19)
+    ]
+    (w / "lines.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines + more))
+    key = P.build_packets(w, tmp_path / "packets", SHEET)
+    assert max(len(k["findings"]) for k in key.values()) == P.CAP
+    found = P.blind(w, tmp_path / "packets", SHEET)
+    assert found["blind"] and found["not_their_template"] == 0
+
+
 def test_the_prompt_and_schema_are_r_law_01_s_at_their_digests() -> None:
     prompt, schema = P.prompt_and_schema()
     assert "\n" not in prompt and prompt.startswith("You are an experienced mechatronics")

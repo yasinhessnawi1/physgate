@@ -55,6 +55,12 @@ UI_ROOTS = ("src/physgate/ui/", "tests/ui_e2e_runs.py")
 #: command's module only to offer that command, so it is part of what the gate runs, and the
 #: other commands' modules are not: an import error in one of them turns the tests gate red
 #: before this gate would have run.
+#: Test directories that run in an environment of their own, never in the default one: the
+#: evaluation's scorers need numerical libraries the harness's environment must not hold
+#: (pyproject.toml, the evaluation group). Pytest leaves them out when it collects a directory,
+#: but a file named on its command line is collected whatever the exclusions say, so the fast
+#: loop never names them; the full check runs them in their own environment.
+OWN_ENVIRONMENT = ("tests/scoring/",)
 UI_ENTRY = frozenset({"src/physgate/cli.py", "src/physgate/__init__.py"})
 
 
@@ -182,6 +188,18 @@ def _test_files() -> list[str]:
     ]
 
 
+def _select(changed: list[str], tests: list[str]) -> list[str]:
+    graph = _graph()
+    picked: set[str] = set()
+    for rel in changed:
+        if rel in graph:
+            picked.update(test for test in tests if rel in _closure(test))
+        elif "/" in rel:
+            top = rel.split("/")[0]
+            picked.update(test for test in tests if _mentions(test, top))
+    return sorted(picked)
+
+
 def _reaches_everything(changed: Iterable[str]) -> bool:
     graph = _graph()
     # The shared fixtures run around every test, so the test-tree helpers they import do too.
@@ -205,20 +223,21 @@ def tests_for(changed: list[str]) -> list[str] | None:
 
     A test is selected when it is changed itself, when its import closure holds a changed
     Python file, or when it names the top-level directory of a changed file that is not
-    Python (a fixture file, the knowledge library, the frozen experiments).
+    Python (a fixture file, the knowledge library, the frozen experiments). A test that runs in
+    an environment of its own (:data:`OWN_ENVIRONMENT`) is never selected: see
+    :func:`left_to_the_full_check`.
     """
     if _reaches_everything(changed):
         return None
-    tests = _test_files()
-    graph = _graph()
-    picked: set[str] = set()
-    for rel in changed:
-        if rel in graph:
-            picked.update(test for test in tests if rel in _closure(test))
-        elif "/" in rel:
-            top = rel.split("/")[0]
-            picked.update(test for test in tests if _mentions(test, top))
-    return sorted(picked)
+    return _select(changed, [t for t in _test_files() if not t.startswith(OWN_ENVIRONMENT)])
+
+
+def left_to_the_full_check(changed: list[str]) -> list[str]:
+    """The tests a change reaches that run in an environment of their own.
+
+    The fast loop leaves them to the full check, which runs them where they import.
+    """
+    return _select(changed, [t for t in _test_files() if t.startswith(OWN_ENVIRONMENT)])
 
 
 def ui_affected(changed: list[str]) -> str | None:
@@ -258,6 +277,13 @@ def main(argv: list[str]) -> int:
         print(reason or "nothing changed since the merge base can reach the UI gate")
         return 0 if reason else NOT_AFFECTED
     tests = tests_for(changed)
+    left = left_to_the_full_check(changed) if tests is not None else []
+    if left:
+        print(
+            f"affected: {len(left)} reached test files run in an environment of their own "
+            "and are left to the full check",
+            file=sys.stderr,
+        )
     print("tests" if tests is None else "\n".join(tests))
     return 0
 

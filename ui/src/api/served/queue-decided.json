@@ -1,0 +1,63 @@
+{
+  "decided": [
+    {
+      "decision": "approve: the reviewer found every criterion met",
+      "flag": null,
+      "item_id": "run-7-firmware-a7cd7e",
+      "kind": "resolution",
+      "note": "the reviewer found every criterion met",
+      "resolved_by": "operator",
+      "review_time": {
+        "unit": "s",
+        "value": 45.116306
+      },
+      "shown_at": "2026-11-06T11:27:37.091461Z",
+      "shown_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "taken": {
+        "acts": true,
+        "confirmed_by": null,
+        "effect": "merge",
+        "order_too_long": false,
+        "why_not": null
+      },
+      "ts": "2026-11-06T11:28:22.207767Z",
+      "verb": "approve"
+    },
+    {
+      "decision": "reject: write the file without a line over 20,000 bytes",
+      "flag": null,
+      "item_id": "run-7-control-c2599c",
+      "kind": "resolution",
+      "note": "write the file without a line over 20,000 bytes",
+      "resolved_by": "operator",
+      "review_time": {
+        "unit": "s",
+        "value": 20.903813
+      },
+      "shown_at": "2026-11-06T11:29:12.730848Z",
+      "shown_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "taken": {
+        "acts": true,
+        "confirmed_by": null,
+        "effect": "retry",
+        "order_too_long": false,
+        "why_not": null
+      },
+      "ts": "2026-11-06T11:29:33.634661Z",
+      "verb": "reject"
+    },
+    {
+      "decision": "choose producer: keep sizing's interface; firmware joins it in attempt 3",
+      "flag": null,
+      "item_id": "run-7-contract-4",
+      "kind": "resolution",
+      "note": "keep sizing's interface; firmware joins it in attempt 3",
+      "position": "producer",
+      "resolved_by": "operator",
+      "shown_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "ts": "2026-11-06T11:44:19.216403Z",
+      "verb": "choose"
+    }
+  ],
+  "open": []
+}

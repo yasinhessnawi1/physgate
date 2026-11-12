@@ -13,12 +13,13 @@ recorded before the switch, is unchanged.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import pytest
+from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import (
     FakeChanges,
     FakeDispatcher,
@@ -656,8 +657,16 @@ class KilledAfterMerge(FakeMerger):
     #: Killed on the merge of this subtask, once.
     kill: str | None = "s1"
 
-    def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
-        commit = super().merge(subtask_id, attempt, attempt_commit, message)
+    def merge(
+        self,
+        subtask_id: str,
+        attempt: int,
+        attempt_commit: str,
+        message: str,
+        reopen: int = 0,
+        contracts: Mapping[str, str] | None = None,
+    ) -> str:
+        commit = super().merge(subtask_id, attempt, attempt_commit, message, reopen, contracts)
         if subtask_id == self.kill:
             self.kill = None
             self.moved = True

@@ -12,6 +12,14 @@ import { bannedIn } from "../../words/queue";
 import { LedgerTable } from "./Ledger";
 import { attemptsWords, foldLedger, stateWords, subtaskLabel } from "./ledgerRows";
 
+/** A status with no halt owed, in a run that plans no subtask declaring completion. */
+const NOT_DECLARING = {
+  owedHalt: null,
+  completion: { owner: false, modules: [] },
+  waiting: [],
+  superseded: {},
+} as const;
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const line = (
@@ -93,7 +101,7 @@ const OPEN: QueueListing = {
   ],
   decided: [],
 };
-const DONE: RunStatus = { kind: "escalated", subtask: null, halted: null };
+const DONE: RunStatus = { kind: "escalated", subtask: null, halted: null, ...NOT_DECLARING };
 
 const fold = (
   over: Partial<Parameters<typeof foldLedger>[1]> = {},
@@ -146,7 +154,7 @@ describe("the ledger folds to one row per subtask, read from its latest record",
       line("control-1", 2),
     ];
     const events = EVENTS.filter((e) => e.kind !== "escalated" && e.kind !== "review_unavailable");
-    const on: RunStatus = { kind: "attempt", subtask: "control-1", halted: null };
+    const on: RunStatus = { kind: "attempt", subtask: "control-1", halted: null, ...NOT_DECLARING };
     const [running] = foldLedger(lines, { events, status: on, queue: null, budget: 3 });
     expect(running?.state).toEqual({ kind: "repairing", rejected: 1, attempt: 2 });
     expect(running?.gate).toEqual({ kind: "not-yet" });
@@ -155,6 +163,7 @@ describe("the ledger folds to one row per subtask, read from its latest record",
       kind: "halted",
       subtask: null,
       halted: { reason: "r", detail: "d" },
+      ...NOT_DECLARING,
     };
     const [stopped] = foldLedger(lines, { events, status: halted, queue: null, budget: 3 });
     expect(stopped?.state).toEqual({ kind: "attempted", attempt: 2 });
@@ -167,7 +176,7 @@ describe("the ledger folds to one row per subtask, read from its latest record",
     const events = EVENTS.filter((e) => e.kind !== "escalated" && e.kind !== "review_unavailable");
     const [rejected] = foldLedger(lines, { events, status: DONE, queue: null, budget: 3 });
     expect(rejected?.state).toEqual({ kind: "rejected", attempt: 1 });
-    const on: RunStatus = { kind: "attempt", subtask: "control-1", halted: null };
+    const on: RunStatus = { kind: "attempt", subtask: "control-1", halted: null, ...NOT_DECLARING };
     const [next] = foldLedger(lines, { events, status: on, queue: null, budget: 3 });
     expect(next?.state).toEqual({ kind: "repairing", rejected: 1, attempt: 2 });
     // The rejected attempt's own results stay: they are the latest attempt's.
@@ -193,6 +202,8 @@ describe("the ledger folds to one row per subtask, read from its latest record",
           resolvedBy: "yasin",
           flag: null,
           taken: null,
+          reviewTime: null,
+          decompositionDefect: false,
         },
       ],
     };
@@ -206,6 +217,47 @@ describe("the ledger folds to one row per subtask, read from its latest record",
     expect(control === undefined ? "" : stateWords(control.state)).toBe(
       "Decided by yasin: approved. Not merged.",
     );
+  });
+
+  it.each([
+    ["choose sizing", "chose sizing's value"],
+    ["choose domain", "chose the domain's value"],
+    ["choose producer", "chose the producer's work"],
+    ["choose consumer", "chose the consumer's work"],
+  ])("a person's choice %s reads as what was chosen", (decision, says) => {
+    const decided: QueueListing = {
+      open: [],
+      decided: [
+        {
+          itemId: ITEM,
+          ts: "t",
+          decision,
+          resolvedBy: "yasin",
+          flag: null,
+          taken: null,
+          reviewTime: null,
+          decompositionDefect: false,
+        },
+      ],
+    };
+    const [control] = fold({ queue: decided });
+    expect(control === undefined ? "" : stateWords(control.state)).toBe(
+      `Decided by yasin: ${says}. Not merged.`,
+    );
+  });
+
+  it("a subtask waiting for sizing's closing pass says so, before its escalation", () => {
+    const waiting: RunStatus = { ...DONE, waiting: ["control-1"] };
+    const [control, firmware] = fold({ status: waiting });
+    expect(control === undefined ? "" : stateWords(control.state)).toBe(
+      "Waiting: sizing's closing pass is ordered to write the value a person chose.",
+    );
+    expect(firmware?.state).toEqual({ kind: "merged", commit: MERGE });
+    const html = renderToStaticMarkup(
+      <LedgerTable rows={fold({ status: waiting })} lines={LEDGER.length} mode="on" run="r" />,
+    );
+    expect(html).toContain("sizing&#x27;s closing pass is ordered");
+    expect(bannedIn(html)).toEqual([]);
   });
 
   it("an escalation whose queue was not read claims neither waiting nor decided", () => {
@@ -272,5 +324,39 @@ describe("the folded ledger as drawn", () => {
       button?.click();
     });
     expect(host.querySelector("table.pg-ledger-history")).toBeNull();
+  });
+});
+
+describe("a review the ledger records as blocked", () => {
+  /** The firmware subtask's review blocked at attempt 2, as a run that acts recorded it. */
+  const BLOCKED: readonly LedgerLine[] = [
+    line("control-1", 0),
+    line("firmware-2", 0),
+    line("firmware-2", 1, "pass", "fail"),
+    line("firmware-2", 2),
+    line("firmware-2", 2, "pass"),
+    line("firmware-2", 2, "pass", "blocked"),
+  ];
+  const rows = () => fold({ queue: { open: [], decided: [] } }, BLOCKED);
+
+  it("folds to a recorded review that is blocked, never a pass or a fail", () => {
+    const firmware = rows().find((r) => r.id === "firmware-2");
+    expect(firmware?.review).toEqual({ kind: "recorded", result: "blocked" });
+  });
+
+  it("is drawn as a neutral state naming why, with no verdict glyph or hue", () => {
+    let html = "";
+    expect(() => {
+      html = renderToStaticMarkup(
+        <LedgerTable rows={rows()} lines={BLOCKED.length} mode="on" run="0/run" />,
+      );
+    }).not.toThrow();
+    const page = new DOMParser().parseFromString(html, "text/html");
+    const review = page.querySelector('tr[data-subtask="firmware-2"] td:nth-child(5)');
+    expect(review?.querySelector(".pg-status")?.textContent).toBe(
+      "blocked: the specification lacks an input",
+    );
+    expect(review?.querySelector(".pg-verdict, .pg-badge")).toBeNull();
+    expect(review?.textContent).not.toMatch(/[✓✕!○]/);
   });
 });

@@ -5,6 +5,7 @@ the allowlist, then handed to the package's own reader for that format:
 
 - the run configuration: ``load_run_config``, with its digest as the manifest id, and the
   harness's attempts per subtask (``REPAIR_BUDGET``), a constant of the code, not of the record;
+  every field but the held-out tier's (``HELD_OUT_FIELDS``), which no answer carries;
 - the event log: ``read_events``;
 - the task ledger: ``recorded_ledger``, read without writing and held to the log's projection,
   exactly what ``physgate ledger`` prints;
@@ -16,7 +17,9 @@ the allowlist, then handed to the package's own reader for that format:
   as ``physgate cost`` reads it (``run_calls``);
 - the trace: ``read_traces``, exactly what ``physgate trace`` prints;
 - the run's decisions: ``decisions``, the sequence a rerun is compared by;
-- where the run stands: ``replay(...).next_step()``, the loop's own answer;
+- where the run stands: ``replay(...).next_step()``, the loop's own answer, with the halt an
+  incident owes, and each module's completion or the precondition registry's open entries
+  (``open_preconditions``) with their own reasons;
 - the tokens: ``TokenAccount``, per attribution, per kind and in total;
 - the gate checks with what each said: ``recorded_gate_checks``, the same events
   ``physgate gate-events`` prints, each beside its record's bound, message and details;
@@ -45,6 +48,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
+from physgate import roles
 from physgate.evaluation.observe.calls import run_calls, stream_seals
 from physgate.evaluation.observe.cost import KNOWN_SHEETS, load_price_sheet, price_events
 from physgate.evaluation.observe.manifest import manifest_id_of
@@ -55,10 +59,20 @@ from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import render_jsonl
+from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.gate_events import recorded_gate_checks, recorded_gate_events
-from physgate.orchestrator.queue import item_view, queue_files, queue_listing, read_stream
-from physgate.orchestrator.replay import recorded_ledger, replay
+from physgate.orchestrator.queue import (
+    DECOMPOSITION_STREAM,
+    item_view,
+    queue_files,
+    queue_listing,
+    read_stream,
+    recorded_seal,
+    round_stream,
+    stream_parts,
+)
+from physgate.orchestrator.replay import RunState, recorded_ledger, replay
 from physgate.orchestrator.run_config import load_run_config
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.state.schema import validate_node
@@ -107,18 +121,28 @@ def _lines(body: str) -> Response:
     return Response(200, body.encode(), JSON_LINES)
 
 
+#: The record's fields that name the held-out tier: its roots, the canary each held-out task
+#: carries, and each root's digest. The UI shows nothing of the tier, and no answer carries them:
+#: a canary a session could read from this server might then appear in its stream, raising a
+#: false incident or telling it what to avoid, and a root names where the tier lives. Left out,
+#: not counted: no screen draws a count, and a count would still tell a reader that a tier exists.
+HELD_OUT_FIELDS = frozenset({"held_out", "held_out_canaries", "held_out_sha256"})
+
+
 def config(context: Context, params: Mapping[str, str]) -> Response:
-    """The run's recorded configuration and its manifest id, with the attempts a subtask gets.
+    """The run's recorded configuration less the held-out tier, its manifest id, and the attempts.
 
     The attempts are the harness's own constant, sent beside the record rather than inside it,
     so a screen that says "attempt 2 of 3" reads the 3 from the loop's code, not from a copy.
+    The manifest id is the digest of the whole record, as every event carries it; the tier's
+    fields are left out of the answer only (``HELD_OUT_FIELDS``).
     """
     run_dir = run_dir_of(context, params)
     recorded = load_run_config(_file(context, run_dir, RUN_CONFIG))
     return json_response(
         {
             "manifest_id": recorded.sha256(),
-            "config": recorded.model_dump(mode="json"),
+            "config": recorded.model_dump(mode="json", exclude=set(HELD_OUT_FIELDS)),
             "repair_budget": REPAIR_BUDGET,
         }
     )
@@ -163,10 +187,17 @@ def graph(context: Context, params: Mapping[str, str]) -> Response:
     )
 
 
+#: The trajectory route's name for the decomposition's stream: replay refuses a session line naming
+#: this id, so no session of a run is ever named it.
+DECOMPOSITION = "decomposition"
+
+
 def trajectory(context: Context, params: Mapping[str, str]) -> Response:
-    """A session's captured stream, held to the seal its end recorded."""
+    """A session's captured stream, held to the seal its end recorded; or the decomposition's."""
     run_dir = run_dir_of(context, params)
     session_id = params["session"]
+    if session_id == DECOMPOSITION:
+        return decomposition_stream(context, params)
     ended = [
         event
         for event in read_events(_file(context, run_dir, EVENTS))
@@ -178,6 +209,26 @@ def trajectory(context: Context, params: Mapping[str, str]) -> Response:
         raise NotFoundError(msg, session=session_id)
     path = _file(context, run_dir, SESSIONS, session_id, STREAM)
     return Response(200, read_sealed(path, sealed.trajectory_seal), JSON_LINES)
+
+
+def decomposition_stream(context: Context, params: Mapping[str, str]) -> Response:
+    """The decomposition's captured stream, held to the seal the plan's review recorded."""
+    return _round_stream(context, params, DECOMPOSITION_STREAM)
+
+
+def decomposition_round_stream(context: Context, params: Mapping[str, str]) -> Response:
+    """A later round's captured stream, held to the seal its round's review recorded."""
+    return _round_stream(context, params, round_stream(int(params["round"])))
+
+
+def _round_stream(context: Context, params: Mapping[str, str], stream: str) -> Response:
+    run_dir = run_dir_of(context, params)
+    sealed = recorded_seal(list(read_events(_file(context, run_dir, EVENTS))), stream)
+    if sealed is None:
+        msg = "the run records no sealed stream of that round of its decomposition"
+        raise NotFoundError(msg, run=params["name"])
+    path = _file(context, run_dir, *stream_parts(stream))
+    return Response(200, read_sealed(path, sealed), JSON_LINES)
 
 
 def prices(context: Context, params: Mapping[str, str]) -> Response:
@@ -239,12 +290,44 @@ def decisions(context: Context, params: Mapping[str, str]) -> Response:
     return json_response({"decisions": decision_sequence([_line(e) for e in log])})
 
 
+def _completion(state: RunState) -> dict[str, object]:
+    """Each plan module's completion, and whether the run has a subtask that declares it.
+
+    A module is ``complete`` once its line is on the record; else ``withheld`` while the merged
+    declaration names it and a registered precondition is open, ``owed`` while none is, and
+    ``not_declared`` otherwise. Every module not complete carries the registry's open entries with
+    their own reasons. Sizing's module is told by the role name the register gives sizing.
+    """
+    integration = state.completion_subtask
+    declared: tuple[str, ...] = ()
+    if integration is not None and state.subtasks[integration].status == "done":
+        line = state.subtasks[integration].attempts[-1].declaration
+        declared = () if line is None else line.modules
+    modules: list[dict[str, object]] = []
+    for module in state.modules():
+        still = () if module in state.completed else open_preconditions(state, module)
+        word = "not_declared" if module not in declared else "withheld" if still else "owed"
+        modules.append(
+            {
+                "subtask_id": module,
+                "sizing": state.subtasks[module].plan.assigned_role == roles.SIZING.name,
+                "state": "complete" if module in state.completed else word,
+                "open": [{"name": name, "reason": why} for name, why in still],
+            }
+        )
+    return {"owner": integration is not None, "modules": modules}
+
+
 def status(context: Context, params: Mapping[str, str]) -> Response:
-    """Where the run stands: what the loop would do next, and why it halted, if it did."""
+    """Where the run stands: the loop's next step, a halt owed or taken, and each completion.
+
+    Also each subtask that waits for sizing's closing pass, and each contract item a reopen
+    superseded with the item whose decision reopened its module, as replay holds them.
+    """
     run_dir = run_dir_of(context, params)
     state = replay(read_events(_file(context, run_dir, EVENTS)))
     step = state.next_step()
-    halted = state.halted
+    halted, owed = state.halted, state.owed_halt()
     return json_response(
         {
             "next_step": {
@@ -256,6 +339,12 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             "halted": None
             if halted is None
             else {"seq": halted.seq, "reason": halted.reason, "detail": halted.detail},
+            "owed_halt": None
+            if owed is None
+            else {"cause": owed.cause, "subtask_id": owed.subtask_id, "detail": owed.detail},
+            "completion": _completion(state),
+            "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
+            "superseded": dict(state.superseded),
         }
     )
 
@@ -415,7 +504,7 @@ def _streams(context: Context, run_dir: Path) -> Callable[[str], bytes | None]:
 
     def stream(session_id: str) -> bytes | None:
         try:
-            path = _file(context, run_dir, SESSIONS, session_id, STREAM)
+            path = _file(context, run_dir, *stream_parts(session_id))
         except PathRefusedError as exc:
             raise OSError(errno.EPERM, str(exc)) from None
         return read_stream(path)
@@ -434,11 +523,16 @@ def queue(context: Context, params: Mapping[str, str]) -> Response:
 
 
 def queue_item(context: Context, params: Mapping[str, str]) -> Response:
-    """One item as a person is shown it: open or not, its digest, each trajectory's seal status."""
+    """One item as a person is shown it: open or not, its digest, each trajectory's seal status.
+
+    The view is stamped in the server's register under a new id, sent with it: a decision taken on
+    it sends the id back, and its review time runs from this stamp (ARCH-130).
+    """
     run_dir = run_dir_of(context, params)
     _queue_files(context, run_dir)
     view = item_view(run_dir, int(params["position"]), read_stream=_streams(context, run_dir))
     if view is None:
         msg = "the run's queue holds no item at that position"
         raise NotFoundError(msg, position=params["position"])
-    return json_response(view.model_dump(mode="json"))
+    view_id = context.views.shown(run_dir, view.item.item_id, view.item_sha256)
+    return json_response({**view.model_dump(mode="json"), "view_id": view_id})

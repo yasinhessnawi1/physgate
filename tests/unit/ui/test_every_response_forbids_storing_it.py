@@ -13,6 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from ui_library_rig import STANDARDS_CANDIDATE, build_library
 from ui_rig import METHODS, context_over, escalated_run, fake_ui, real_runs, sealed_session, serving
 
 from physgate.state.store import journal_records_after
@@ -29,7 +30,8 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     root = real_runs(base)
     escalated_run(base)
     ui = fake_ui(base / "checkout")
-    return {"root": root, "ui": ui}
+    library = build_library(base / "checkout").root
+    return {"root": root, "ui": ui, "library": library}
 
 
 def _targets(world: dict[str, Path]) -> list[str]:
@@ -42,7 +44,11 @@ def _targets(world: dict[str, Path]) -> list[str]:
         "session": sealed_session(run),
         "date": "2026-09-27",
         "revision": "1",
+        "round": "2",
         "node": journal_records_after(run / "store", 0)[-1].node_id,
+        "library_file": "standards",
+        "role": "control",
+        "candidate": STANDARDS_CANDIDATE,
     }
     targets = ["/", "/no/such/route", "/api/runs/0/..%2f/ledger", "/?query=1"]
     for route in ROUTES:
@@ -52,7 +58,7 @@ def _targets(world: dict[str, Path]) -> list[str]:
 
 
 def _contexts(world: dict[str, Path]) -> list[Context]:
-    plain = context_over(world["root"], ui_root=world["ui"])
+    plain = context_over(world["root"], ui_root=world["ui"], library=world["library"])
     return [plain, replace(plain, operator="Ada Lovelace")]
 
 

@@ -234,6 +234,7 @@ def test_a_review_session_of_this_run_is_found_cleaned_and_its_tokens_are_the_re
         review_root=root,
     )
     (left,) = dispatcher.stop_leftovers()
+    dispatcher.end_leftovers()
     assert (left.session_id, left.kind, left.complete) == (mine.parent.name, "reviewer", True)
     assert not (mine / "state" / KEY_HELPER).exists()
     assert (mine / "ended.json").exists()

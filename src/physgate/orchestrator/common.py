@@ -40,6 +40,37 @@ def _full_model_string(value: str) -> str:
 
 ModelString = Annotated[str, AfterValidator(_full_model_string)]
 
+#: What names one model in several ways: a provider's path (``bedrock/``, ``anthropic/``, any
+#: number of segments), then a region and vendor prefix (``us.anthropic.``, ``anthropic.``).
+_PROVIDER_PATH = re.compile(r"^.*/")
+_PROVIDER_PREFIX = re.compile(r"^(?:[a-z0-9_-]+\.)*anthropic\.")
+#: And at the end: the long-context variant, a provider's version suffix, a release date however
+#: it is joined on, a moving alias.
+_SPELLING_SUFFIX = re.compile(r"(?:\[1m\]|-v[0-9]+(?::[0-9]+)?|[-@_.][0-9]{8}|-latest)$")
+
+
+def model_named(name: str) -> str:
+    """The model ``name`` names, with every spelling of the same model taken off.
+
+    ``us.anthropic.claude-opus-5-5-20261001-v1:0``, ``claude-opus-5-5@20261001``,
+    ``claude-opus-5-5[1m]``, ``claude-opus-5-5-latest``, ``anthropic/claude-opus-5.5`` and
+    ``bedrock/us.anthropic.claude-opus-5-5`` all name ``claude-opus-5-5``: a version written with
+    dots is the same version, so dots and underscores compare as hyphens. On the safe side: two
+    names that differ only so are taken for one model, and a reviewer on either is refused.
+    """
+    named = _PROVIDER_PREFIX.sub("", _PROVIDER_PATH.sub("", name))
+    while (shorter := _SPELLING_SUFFIX.sub("", named)) != named:
+        named = shorter
+    return named.replace(".", "-").replace("_", "-")
+
+
+#: A role as the register names one, and a subtask id as the harness writes one (a plan's module
+#: name, or an id minted from a name); each held to its pattern and to
+#: :data:`PLANNED_ID_MAX_LENGTH` where the log is replayed and where it is rendered.
+ROLE_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
+SUBTASK_PATTERN = re.compile(r"[a-z][a-z0-9_-]*")
+PLANNED_ID_MAX_LENGTH = 64
+
 
 def first_problem(exc: ValidationError) -> str:
     """The first thing wrong with a record, as a sentence rather than a report."""

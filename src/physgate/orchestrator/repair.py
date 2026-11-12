@@ -12,17 +12,40 @@ from the process that built this harness.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+import re
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from physgate.orchestrator.arbitration import Held
 from physgate.orchestrator.budget import REPAIR_BUDGET, require_within_budget
 from physgate.orchestrator.common import NonEmptyStr
+from physgate.orchestrator.dispute import DISPUTES_DIR, QUANTITY_MAX, QUANTITY_PATTERN
 from physgate.orchestrator.exceptions import RepairBudgetExhaustedError
-from physgate.orchestrator.protocols import GateResult, NumericOutput, QuantityRef, ReviewResult
+from physgate.orchestrator.protocols import (
+    ChosenValue,
+    GateResult,
+    NumericOutput,
+    QuantityRef,
+    ReviewResult,
+)
 
 #: What rejected an attempt.
-FindingSource = Literal["gate", "review", "write_scope", "proposal", "reading", "series", "person"]
+FindingSource = Literal[
+    "gate",
+    "review",
+    "write_scope",
+    "proposal",
+    "reading",
+    "series",
+    "person",
+    "declaration",
+    "dispute",
+    "arbitration",
+    "interface",
+    "long_line",
+]
 
 _WHO = {
     "gate": "the physics gate",
@@ -32,6 +55,14 @@ _WHO = {
     "reading": "the reading check (the required reading was not completed)",
     "series": "the series check (a simulation record was refused, or names other code)",
     "person": "a person deciding the approval queue",
+    "declaration": "the completion declaration check (the declaration is not one the plan reads)",
+    "dispute": "the dispute check (a dispute is not one the harness reads)",
+    "arbitration": "the arbitration rule (sizing alone writes a cross node's quantities, and its "
+    "value stands over a domain's first dispute)",
+    "interface": "the interface check (an interface sizing produces follows a node of its own "
+    "joined to it, holding every one of its quantities)",
+    "long_line": "the review's read limit (a line of the attempt's diff too long for a reviewer "
+    "to read whole stops the attempt before its review)",
 }
 
 #: The fixed line every instruction that quotes a person's words ends with: what a person
@@ -90,6 +121,21 @@ class Finding(BaseModel):
             numeric_output=result.numeric_output,
         )
 
+    @classmethod
+    def from_arbitration(cls, sized: Sequence[tuple[Held, Writer | None]]) -> Finding:
+        """The finding of an attempt rejected because sizing's value stands (level 2).
+
+        ``sized`` is each dispute ruled for sizing, in recorded order, with the subtask and role
+        whose write put the held revision (``None`` for a node written before the run). The
+        graph's value and that provenance are quoted, never the dispute's reason, and never the
+        ``source`` or ``written_by`` sizing wrote: both are a session's text. ``quantities``
+        stays empty, as a value held exact can be too large to format as a number.
+        """
+        lines = [ARBITRATION_HEAD, *(held_line(held, writer) for held, writer in sized)]
+        lines.append(f"{ARBITRATION_TAIL}; {_withdraw(held for held, _ in sized)}.")
+        nodes = sorted({held.position.node_id for held, _ in sized})
+        return cls(source="arbitration", text="\n".join(lines), subject=",".join(nodes))
+
     def key(self) -> str:
         """A stable key for what was found: who refused, about what, by which check.
 
@@ -98,6 +144,73 @@ class Finding(BaseModel):
         comparing prose.
         """
         return f"{self.source}|{self.subject or '-'}|{self.failing_check or '-'}"
+
+
+if TYPE_CHECKING:
+    from physgate.orchestrator.events import ContractRuled
+
+#: The subtask and role whose write put a held revision, as the run's log gives them.
+Writer = tuple[str, str]
+ARBITRATION_HEAD = (
+    "Sizing's value stands. Sizing alone writes the quantities of a cross node, and a dispute is "
+    "ruled by a fixed precedence: the physics gate first, then sizing, then a person."
+)
+ARBITRATION_TAIL = (
+    "Work to the value the graph holds. A dispute file left in place disputes its quantity again "
+    "on the next attempt, and a quantity disputed again goes to a person"
+)
+
+
+def _withdraw(helds: Iterable[Held]) -> str:
+    """How each disputed quantity's file is deleted to withdraw it, by path where it is held."""
+    paths = [
+        f"{DISPUTES_DIR}/{held.position.node_id}.{held.position.name}.json"
+        for held in helds
+        if _id(held.position.node_id) and _quantity_name(held.position.name)
+    ]
+    if not paths:
+        return "delete its file to withdraw it"
+    return f"delete {' and '.join(paths)} to withdraw {'it' if len(paths) == 1 else 'them'}"
+
+
+def _id(node_id: str) -> bool:
+    from physgate.orchestrator.integration_state import REFUSED_ID, held
+
+    return held(node_id) != REFUSED_ID
+
+
+def _quantity_name(name: str) -> bool:
+    return len(name) <= QUANTITY_MAX and QUANTITY_PATTERN.fullmatch(name) is not None
+
+
+def held_line(held: Held, writer: Writer | None) -> str:
+    """One held value, as the graph holds it and where it came from, each part held to its form.
+
+    The renderers are integration's issued state's, imported here and not at the top: that module
+    reads the run's lines, which hold findings.
+    """
+    from physgate.orchestrator import integration_state as render
+
+    position = held.position
+    name = (
+        render.q(position.name)
+        if _quantity_name(position.name)
+        else "a quantity name the dispute path refuses"
+    )
+    where = f"at revision {held.revision} of the graph"
+    if writer is None:
+        by = f"written before the run began, {where}"
+    else:
+        subtask = render.held(
+            writer[0], render.SUBTASK_PATTERN, render.PLANNED_ID_MAX_LENGTH, render.REFUSED_SUBTASK
+        )
+        role = render.held(
+            writer[1], render.ROLE_PATTERN, render.PLANNED_ID_MAX_LENGTH, render.REFUSED_ROLE
+        )
+        by = f"written by subtask {subtask} in the {role} role, {where}"
+    measure = render.measure(position.value, position.unit)
+    node = render.held(position.node_id)
+    return f"Node {node}, quantity {name}: the design graph holds {measure}, {by}."
 
 
 def _number(output: NumericOutput) -> str:
@@ -208,4 +321,248 @@ def fix_instruction(attempt: int, finding: str, lacking: tuple[str, ...], note: 
         f"{STILL_GOVERNS} {NO_INPUT_SUPPLIED}",
         LAST_ATTEMPT,
     ]
+    return "\n".join(lines)
+
+
+#: The fixed opening of an order a person gave by choosing sizing's value on an arbitration item.
+CHOSE_SIZING = (
+    "disputed a value of a cross node, and a person chose sizing's value. Sizing alone writes the "
+    "quantities of a cross node."
+)
+
+
+def _standing(sized: Sequence[tuple[Held, Writer | None]]) -> list[str]:
+    """The values that stand, each as the graph holds it and who wrote it, quoted as data."""
+    one = len(sized) == 1
+    head = (
+        "The value that stands, as the design graph holds it:"
+        if one
+        else "The values that stand, as the design graph holds them:"
+    )
+    return [head, *quoted("\n".join(held_line(held, writer) for held, writer in sized)), ""]
+
+
+def chose_sizing_retry_instruction(
+    attempt: int, sized: Sequence[tuple[Held, Writer | None]], note: str | None
+) -> str:
+    """The next attempt's instruction after a person chose sizing's value on ``attempt``'s dispute.
+
+    A fixed template: the graph's value of each quantity the item ruled above the gate and who
+    wrote it, never the dispute's reason or the words sizing typed beside its value, then the
+    person's note when there is one, each quoted as data. No model phrases any of it.
+
+    Raises:
+        RepairBudgetExhaustedError: ``attempt`` was the last one; the choice orders the fix then.
+    """
+    require_within_budget(attempt)
+    if attempt == REPAIR_BUDGET:
+        msg = "the last attempt is not retried; choosing sizing orders the fix"
+        raise RepairBudgetExhaustedError(msg, attempt=str(attempt))
+    lines = [f"Attempt {attempt} of {REPAIR_BUDGET} {CHOSE_SIZING}", "", *_standing(sized)]
+    if note is not None:
+        lines += ["A person wrote:", *quoted(note), ""]
+    remaining = REPAIR_BUDGET - attempt
+    value = "value" if len(sized) == 1 else "values"
+    lines += [
+        f"Work to the {value} the graph holds; {_withdraw(h for h, _ in sized)}. A dispute file "
+        "left in place disputes its quantity again on the next attempt, and a quantity disputed "
+        "again goes to a person.",
+        STILL_GOVERNS,
+        "",
+        f"{remaining} {'attempts remain' if remaining != 1 else 'attempt remains'} before this "
+        "goes to a person for a decision.",
+    ]
+    return "\n".join(lines)
+
+
+def chose_sizing_fix_instruction(
+    attempt: int, sized: Sequence[tuple[Held, Writer | None]], note: str | None
+) -> str:
+    """The one fix's instruction after a person chose sizing's value on the last attempt's dispute.
+
+    The same quotation as the retry's, then that the fix may not supply an input it lacks and is
+    the subtask's last attempt.
+    """
+    it = "it" if len(sized) == 1 else "them"
+    lines = [
+        f"Attempt {attempt} of {REPAIR_BUDGET}, the subtask's last, {CHOSE_SIZING}",
+        "",
+        *_standing(sized),
+    ]
+    if note is not None:
+        lines += [f"A person ordered one attempt to work to {it}, and wrote:", *quoted(note), ""]
+    else:
+        lines += [f"A person ordered one attempt to work to {it}.", ""]
+    value = "value" if len(sized) == 1 else "values"
+    lines += [
+        f"Work to the {value} the graph holds; {_withdraw(h for h, _ in sized)}. A dispute left "
+        "in place goes to a person again, and choosing sizing's value then ends the subtask.",
+        f"{STILL_GOVERNS} {NO_INPUT_SUPPLIED}",
+        LAST_ATTEMPT,
+    ]
+    return "\n".join(lines)
+
+
+#: Where an item id the queue's id pattern refuses would be quoted.
+REFUSED_ITEM = "(an item id the queue's id pattern refuses)"
+#: An item id as the queue mints one: plain identifiers, joined (``queue.item_id_for``).
+ITEM_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def arbitration_value_instruction(chosen: Sequence[ChosenValue], wrapped: str | None) -> str:
+    """Sizing's closing pass's instruction while a person's choice of the domain's value waits.
+
+    A fixed template: each chosen ``{value, unit}`` as the dispute typed it, by node and quantity,
+    with the item and the subtask it was chosen for, each part held to its form; then what the
+    attempt would otherwise be told, quoted as data. Never the dispute's reason.
+    """
+    from physgate.orchestrator import integration_state as render
+
+    def line(value: ChosenValue) -> str:
+        position = value.position
+        name = (
+            render.q(position.name)
+            if _quantity_name(position.name)
+            else "a quantity name the dispute path refuses"
+        )
+        item = render.held(value.item_id, ITEM_PATTERN, 2 * 128 + 8, REFUSED_ITEM)
+        subtask = render.held(
+            value.subtask_id,
+            render.SUBTASK_PATTERN,
+            render.PLANNED_ID_MAX_LENGTH,
+            render.REFUSED_SUBTASK,
+        )
+        return (
+            f"Node {render.held(position.node_id)}, quantity {name}: "
+            f"{render.measure(position.value, position.unit)}, chosen on queue item {item} for "
+            f"subtask {subtask}."
+        )
+
+    k = len(chosen)
+    lines = [
+        f"A person chose a domain's value over sizing's for {k} "
+        f"{'quantity' if k == 1 else 'quantities'} of cross nodes. Each is a fixed input of this "
+        "pass: write it into its node as given, value and unit. The domain's work waits for this "
+        "pass to merge, and is judged again against the graph it leaves.",
+        "",
+        "The values chosen:",
+        *quoted("\n".join(line(value) for value in chosen)),
+    ]
+    if wrapped is not None:
+        lines += ["This attempt also starts from:", *quoted(wrapped)]
+    lines.append("The specification as issued otherwise still governs.")
+    return "\n".join(lines)
+
+
+#: How a module joins an interface, in the graph's own terms: the edge a contract clause reads
+#: (``contracts.clause.joined``), and what every node so joined is held to.
+JOIN_HOW = (
+    "in a node of this module's own (never the interface node, which no session writes), list "
+    "the interface's id in the node's \"constrains\" array, and carry there every one of the "
+    "interface's quantities under the same name, as the interface holds it. A node whose "
+    '"constrains" names an interface is held to all of that interface\'s quantities.'
+)
+
+
+def interfaces_named(ids: Sequence[str]) -> str:
+    """``interface "a"``, or ``interfaces "a" and "b"``, each id held to the store's pattern."""
+    from physgate.orchestrator import integration_state as render
+
+    held = [render.held(i) for i in ids]
+    if len(held) == 1:
+        return f"interface {held[0]}"
+    return f"interfaces {', '.join(held[:-1])} and {held[-1]}"
+
+
+def conform_clause(
+    ruling: ContractRuled,
+    nodes: Sequence[str],
+    unjoined: bool,
+    writers: dict[int, Writer | None],
+) -> str:
+    """One clause the reopened module fails, as the ruling held it, each part held to its form.
+
+    The interface's value, then each of the module's failing nodes, by revision and writer.
+
+    ``nodes`` are the module's joined nodes that fail the clause, ``unjoined`` whether the module
+    is not joined to the interface, and ``writers`` who wrote each found value's revision.
+    """
+    from physgate.orchestrator import integration_state as render
+
+    where = f"Interface {render.held(ruling.conflict.interface)}"
+    name, wanted = ruling.conflict.quantity, ruling.wanted
+    if name is None or wanted is None:
+        return f"{where} has no quantity, and this module is not joined to it."
+    named = render.q(name) if _quantity_name(name) else "a quantity name the dispute path refuses"
+    measure = render.measure(wanted.position.value, wanted.position.unit)
+    parts = [
+        f"{where}, quantity {named}: the interface holds {measure} (fixed at decomposition, "
+        f"revision {wanted.revision})"
+    ]
+    carried = {value.position.node_id: value for value in ruling.found}
+    for node in nodes:
+        found = carried.get(node)
+        if found is None:
+            parts.append(f"node {render.held(node)} does not carry it")
+            continue
+        writer = writers.get(found.revision)
+        by = (
+            "written before the run began"
+            if writer is None
+            else "written by subtask "
+            + render.held(
+                writer[0],
+                render.SUBTASK_PATTERN,
+                render.PLANNED_ID_MAX_LENGTH,
+                render.REFUSED_SUBTASK,
+            )
+            + " in role "
+            + render.held(
+                writer[1], render.ROLE_PATTERN, render.PLANNED_ID_MAX_LENGTH, render.REFUSED_ROLE
+            )
+        )
+        held = render.measure(found.position.value, found.position.unit)
+        parts.append(f"node {render.held(node)} holds {held} (revision {found.revision}, {by})")
+    if unjoined:
+        parts.append("this module is not joined to it")
+    return "; ".join(parts) + "."
+
+
+def contract_conform_instruction(
+    item_id: str,
+    attempt: int,
+    clauses: Sequence[str],
+    note: str | None,
+    joins: Sequence[str] = (),
+) -> str:
+    """The reopened attempt's instruction: each clause its module fails, and the person's note.
+
+    A fixed template, each part quoted as data; never a session's words, nor a node's free-text
+    provenance. ``attempt`` is the one the module merged at. ``joins`` are the interfaces the
+    module is not joined to: the instruction names each and the edge that joins it, since a
+    clause reads only a joined node and values alone never join one.
+    """
+    from physgate.orchestrator import integration_state as render
+
+    item = render.held(item_id, ITEM_PATTERN, 2 * 128 + 8, REFUSED_ITEM)
+    lines = [
+        "A person kept the other module's work on the failed interface contract of queue item "
+        f"{item}, and reopened this module, merged at attempt {attempt}, to conform to the "
+        "interface. The interfaces are fixed at decomposition. Write each value below into this "
+        "module's node, as the interface holds it.",
+    ]
+    if joins:
+        named = interfaces_named(joins)
+        lines.append(
+            f"This module is not joined to {named}, so the contract reads none of its nodes. "
+            f"Join it{' to each' if len(joins) > 1 else ''}: {JOIN_HOW}"
+        )
+    lines += [
+        "",
+        "The clauses this module fails:",
+        *quoted("\n".join(clauses)),
+    ]
+    if note is not None:
+        lines += ["The person's note:", *quoted(note)]
+    lines.append("The specification as issued otherwise still governs.")
     return "\n".join(lines)

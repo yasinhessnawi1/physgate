@@ -321,7 +321,9 @@ def blind(work: Path, packets: Path, sheet: bytes) -> dict[str, Any]:
     differ = 0
     for pid, k in sorted(key.items()):
         a = design["artefacts"][k["artefact"]]
-        texts = [by_id[lid]["text"] for lid in k["findings"].values()]
+        # key.json is written with sorted keys (F1, F10, F11, F12, F2, …): rebuild in label order
+        labels = sorted(k["findings"], key=lambda f: int(f[1:]))
+        texts = [by_id[k["findings"][f]]["text"] for f in labels]
         want = reality_packet(pid, a["role"], texts, design["base"], a[k["side"]], sheet)
         differ += (packets / f"{pid}.md").read_text() != want
     fixed = INTRO + " " + ROLE_SENTENCE + " " + SHEET_MARK

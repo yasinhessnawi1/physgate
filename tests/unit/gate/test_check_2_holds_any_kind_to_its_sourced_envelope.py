@@ -90,17 +90,24 @@ def board(volts: float | int, unit: str = "V", name: str = "supply_voltage") -> 
 # --- the real table loads no envelope ----------------------------------------------------
 
 
-def test_the_real_cross_table_loads_no_envelope_and_keeps_the_drafts_in_its_comments() -> None:
-    assert load_bounds().envelopes == {}
+def test_the_real_cross_table_loads_the_two_definitions_and_keeps_the_drafts() -> None:
+    # An efficiency and a duty cycle are fractions by definition, 0 to 1; every
+    # product-class envelope stays withheld in the comments.
+    loaded = load_bounds().envelopes
+    assert {k: (e.low, e.high, e.unit) for k, e in loaded.items()} == {
+        "efficiency": (0, 1, "1"),
+        "duty_cycle": (0, 1, "1"),
+    }
     text = CROSS.read_text()
-    assert "No envelope is loaded" in text and "Withheld" in text
+    assert "Withheld" in text
     for draft in ("voltage, 0 to 60 V", "temperature, 200 K to 550 K", "mass, 0 to 13.6 kg"):
         assert draft in text
+    assert text.count("[[envelope]]") == 2
+    head = text[: text.index("[[envelope]]")]
     assert all(
         line.startswith(("#", "[meta]")) or not line.strip() or "=" in line
-        for line in text.splitlines()
+        for line in head.splitlines()
     )
-    assert "[[envelope]]" not in text
 
 
 @pytest.mark.parametrize(

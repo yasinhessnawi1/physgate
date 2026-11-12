@@ -8,9 +8,12 @@ own records, unchecked ones and a pass over nothing among them, reach the browse
 package could have written, so the server refuses its ledger and the browser tests see the error
 state render. Five more are copies of one run whose first subtask the loop escalated, for the
 Queue view's tests (see ``QUEUE_RUNS``), and one more run that acts on decisions,
-``run-esc-act``, whose item says what each verb will do. The browser tests start
-``physgate ui`` over the root this prints, so what they check is the real server reading real
-records.
+``run-esc-act``, whose item says what each verb will do. Beside the runs, never inside them,
+``knowledge`` is a curated library holding every state a library file can be in (see
+``ui_library_rig``), with two files a reader refuses: a skill file that is a link inside the
+library, and a staged file not named as staging names a candidate. The browser tests start
+``physgate ui`` over the root this prints, with that library, so what they check is the real
+server reading real records.
 
 Usage: ``uv run python tests/ui_e2e_runs.py <directory>``. The directory is emptied first.
 """
@@ -23,7 +26,8 @@ import sys
 from pathlib import Path
 
 from stand_in_roles import register
-from ui_rig import escalated_run, real_runs
+from ui_library_rig import build_library
+from ui_rig import contract_run, escalated_run, real_runs, unavailable_run
 from ui_three_mode_rig import cut_after_first_gate_stage, three_mode_runs, two_domain_run
 
 #: The escalated runs the Queue view's browser tests use, one per test that decides, so no test
@@ -57,6 +61,20 @@ def escalated(out: Path, runs: Path) -> None:
     window.write_bytes(b"".join(lines[: spawned + 1]))
     # One run that acts on decisions, so its item says what approve and reject will do.
     escalated_run(out, "run-esc-act", acts=True)
+    # The two kinds of item a person met in a recorded run: a failed contract's, with its two
+    # positions, and a review that reached no verdict.
+    contract_run(out, "run-contract")
+    unavailable_run(out, "run-unavailable")
+
+
+def library(out: Path) -> Path:
+    """The fixture library beside the runs, with a row each listing must keep as an error."""
+    root = build_library(out).root
+    # A skill file that links to another file of the library: refused, never followed.
+    (root / "electrical" / "skill.md").symlink_to(Path("..") / "control" / "skill.md")
+    # A staged file whose name is not a candidate's: its own row, never the whole list.
+    (root / "staging" / "standards" / "bad name.json").write_text("{}\n")
+    return root
 
 
 def main(argv: list[str]) -> int:
@@ -75,6 +93,7 @@ def main(argv: list[str]) -> int:
     with (refused / "ledger.jsonl").open("ab") as ledger:
         ledger.write(b'{"not": "a ledger line"}\n')
     escalated(out, runs)
+    library(out)
     print(runs, flush=True)
     return 0
 

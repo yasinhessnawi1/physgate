@@ -5,7 +5,13 @@
  */
 import type { GateMode } from "../design/components/verdict/GateMode";
 import { type Quantity, requireQuantity } from "../design/quantity";
-import { count, list, object, oneOf, optionalText, text } from "./check";
+import { count, flag, list, object, oneOf, optionalText, text } from "./check";
+
+/** The precedence table's levels, by the names a ruling's line holds. */
+export const LEVELS = ["gate", "person", "sizing", "queue"] as const;
+export type Level = (typeof LEVELS)[number];
+/** What ended a subtask rejected: a person, the fix a person ordered, or sizing's closing pass. */
+const REJECTED_BY = ["person", "fix_not_accepted", "closing_pass"] as const;
 
 interface Line {
   readonly seq: number;
@@ -82,8 +88,107 @@ export type RunEvent = Line &
         readonly attempt: number;
         readonly stage: string;
       }
+    /** Integration's declaration, read from its checked commit: the modules it names complete. */
+    | {
+        readonly kind: "completion_declared";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly modules: readonly string[];
+      }
+    | {
+        readonly kind: "module_completed";
+        readonly subtask: string;
+        readonly declaredBy: string;
+        readonly attempt: number;
+      }
+    | { readonly kind: "contract_pairs_planned"; readonly pairs: readonly ContractPair[] }
+    | {
+        readonly kind: "contract_tested";
+        readonly pair: ContractPair;
+        readonly outcome: string;
+        readonly first: boolean;
+      }
+    | {
+        readonly kind: "integration_state_issued";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly length: number;
+      }
+    /** A domain's dispute of sizing's value: what it proposes, and its reason in its own words. */
+    | {
+        readonly kind: "dispute_recorded";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly node: string;
+        readonly quantity: string;
+        readonly proposed: Quantity;
+        readonly reason: string;
+      }
+    /** A dispute ruled: the level that stands, and the revision sizing's value was read at. */
+    | {
+        readonly kind: "arbitration_decided";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly node: string;
+        readonly quantity: string;
+        readonly level: Level;
+        readonly heldRevision: number;
+      }
+    /** A failed clause of a contract ruled: by name and level, and how many nodes fail it. */
+    | {
+        readonly kind: "contract_ruled";
+        readonly interface: string;
+        readonly quantity: string | null;
+        readonly level: Level;
+        readonly failing: number;
+      }
+    | { readonly kind: "contract_item_raised"; readonly itemId: string }
+    | {
+        readonly kind: "attempt_returned";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly itemId: string;
+      }
+    | {
+        readonly kind: "subtask_reopened";
+        readonly subtask: string;
+        readonly attempt: number;
+        /** The decision's item; null on a follow-up, which code ordered and which owes edges. */
+        readonly itemId: string | null;
+        readonly owed: number;
+        readonly mergeCommit: string;
+      }
+    | {
+        readonly kind: "follow_up_ended";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly why: string;
+      }
+    | {
+        readonly kind: "subtask_rejected";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly by: (typeof REJECTED_BY)[number];
+        readonly itemId: string | null;
+      }
     | { readonly kind: "other"; readonly recorded: string }
   );
+
+/** Two modules whose shared interfaces a contract holds, each by its name in the plan. */
+export interface ContractPair {
+  readonly producer: string;
+  readonly consumer: string;
+  readonly interfaces: readonly string[];
+}
+
+function contractPair(value: unknown): ContractPair {
+  const p = object(value, "a contract pair");
+  return {
+    producer: text(object(p.producer, "a producer").module, "a module"),
+    consumer: text(object(p.consumer, "a consumer").module, "a module"),
+    interfaces: list(p.interfaces, "interfaces").map((i) => text(i, "an interface")),
+  };
+}
 
 /** One event line as the screens read it; a line of another shape is refused whole. */
 export function runEvent(value: unknown): RunEvent {
@@ -211,6 +316,123 @@ export function runEvent(value: unknown): RunEvent {
         subtask: subtask(),
         attempt: attempt(),
         stage: text(e.stage, "a stage"),
+      };
+    case "completion_declared":
+      return {
+        ...line,
+        kind: "completion_declared",
+        subtask: subtask(),
+        attempt: attempt(),
+        modules: list(e.modules, "modules").map((m) => text(m, "a module")),
+      };
+    case "module_completed":
+      return {
+        ...line,
+        kind: "module_completed",
+        subtask: subtask(),
+        declaredBy: text(e.declared_by, "a subtask id"),
+        attempt: attempt(),
+      };
+    case "contract_pairs_planned":
+      return {
+        ...line,
+        kind: "contract_pairs_planned",
+        pairs: list(e.pairs, "contract pairs").map(contractPair),
+      };
+    case "contract_tested": {
+      const r = object(e.result, "a contract result");
+      return {
+        ...line,
+        kind: "contract_tested",
+        pair: contractPair(r.pair),
+        outcome: text(r.outcome, "an outcome"),
+        first: flag(e.first, "whether it is the pair's first"),
+      };
+    }
+    case "integration_state_issued":
+      return {
+        ...line,
+        kind: "integration_state_issued",
+        subtask: subtask(),
+        attempt: attempt(),
+        length: count(e.length, "a length"),
+      };
+    case "dispute_recorded": {
+      const p = object(e.position, "a disputed position");
+      return {
+        ...line,
+        kind: "dispute_recorded",
+        subtask: subtask(),
+        attempt: attempt(),
+        node: text(p.node_id, "a node id"),
+        quantity: text(p.name, "a quantity's name"),
+        proposed: requireQuantity({ value: p.value, unit: p.unit }),
+        reason: text(e.reason, "a dispute's reason"),
+      };
+    }
+    // Of a ruling, only the names, the level and the revision sizing's value was read at: the
+    // value itself, its source and its writer are never read (the queue item shows the value).
+    case "arbitration_decided": {
+      const c = object(e.conflict, "a disputed quantity");
+      return {
+        ...line,
+        kind: "arbitration_decided",
+        subtask: subtask(),
+        attempt: attempt(),
+        node: text(c.node_id, "a node id"),
+        quantity: text(c.quantity, "a quantity's name"),
+        level: oneOf(e.level, LEVELS, "a ruling's level"),
+        heldRevision: count(object(e.held, "sizing's position").revision, "a revision"),
+      };
+    }
+    // Of a contract's clause, its names, its level and how many nodes fail it: never a value.
+    case "contract_ruled": {
+      const c = object(e.conflict, "a contract clause");
+      return {
+        ...line,
+        kind: "contract_ruled",
+        interface: text(c.interface, "an interface"),
+        quantity: optionalText(c.quantity, "a quantity's name"),
+        level: oneOf(e.level, LEVELS, "a ruling's level"),
+        failing: list(e.found, "the failing nodes").length,
+      };
+    }
+    case "contract_item_raised":
+      return { ...line, kind: "contract_item_raised", itemId: text(e.item_id, "an item id") };
+    case "attempt_returned":
+      return {
+        ...line,
+        kind: "attempt_returned",
+        subtask: subtask(),
+        attempt: attempt(),
+        itemId: text(e.item_id, "an item id"),
+      };
+    case "subtask_reopened":
+      return {
+        ...line,
+        kind: "subtask_reopened",
+        subtask: subtask(),
+        attempt: attempt(),
+        itemId: e.cause === undefined ? text(e.item_id, "an item id") : null,
+        owed: e.cause === undefined ? 0 : list(e.owed, "the owed edges").length,
+        mergeCommit: text(e.merge_commit, "a commit"),
+      };
+    case "follow_up_ended":
+      return {
+        ...line,
+        kind: "follow_up_ended",
+        subtask: subtask(),
+        attempt: attempt(),
+        why: text(e.why, "why a follow-up ended"),
+      };
+    case "subtask_rejected":
+      return {
+        ...line,
+        kind: "subtask_rejected",
+        subtask: subtask(),
+        attempt: attempt(),
+        by: oneOf(e.by, REJECTED_BY, "what ended a subtask"),
+        itemId: optionalText(e.item_id, "an item id"),
       };
     default:
       return { ...line, kind: "other", recorded: text(e.kind, "an event kind") };
