@@ -115,6 +115,7 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root, os_layer_refusal
+from physgate.orchestrator.tool_environment import forbidden_places, hold_before_session
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
@@ -1375,6 +1376,9 @@ class ClaudeDispatcher:
         self._review_root = review_root_path(review_root)
         self._facts: InstallFacts | None = None
         self._os_layer: Present | Absent | None = None
+        #: The scan of the run's tool environment every session is held to, taken around the
+        #: full measure this process made before its first session; ``None`` until then.
+        self._tool_environment_scan: str | None = None
         #: The last stop's leftovers, each with the end it writes once the loop has their findings.
         self._ending: list[tuple[Path, dict[str, Any], bool]] = []
         harness = harness_root()
@@ -1497,6 +1501,12 @@ class ClaudeDispatcher:
             )
             raise InvocationError(msg, why=str(exc)) from exc
         protect += [arg for path in withheld_now for arg in ("--withheld", str(path))]
+        # The run's tool environment: read and run by the session's commands, written by none.
+        recorded_tools = self._config.tool_environment
+        if recorded_tools is not None:
+            protect += [
+                arg for root in recorded_tools.roots for arg in ("--tool-environment-root", root)
+            ]
         # The always-loaded set (cross's standards, the role's own standards and
         # skill) is a subset of required reading, which adds the module spec and every
         # interface contract the specification commit issued (a superset of the ones
@@ -1625,6 +1635,20 @@ class ClaudeDispatcher:
         if reported != self._config.claude_version:
             msg = "the binary is not the version this run recorded"
             raise InvocationError(msg, reported=reported, recorded=self._config.claude_version)
+        recorded_tools = self._config.tool_environment
+        if recorded_tools is not None:
+            # Before anything of the session exists: a session never runs on an environment
+            # other than the one the run recorded, and a refusal here leaves nothing behind.
+            self._tool_environment_scan = hold_before_session(
+                recorded_tools,
+                self._tool_environment_scan,
+                forbidden=forbidden_places(
+                    harness=harness_root(),
+                    install=self._install_bin.parent.parent,
+                    run_dir=self._run.run_dir,
+                    target=self._run.repo,
+                ),
+            )
         worktree = self._run.open_subtask(request.subtask_id, request.reopened)
         if self._layer_on():
             # Before anything of the session exists: in a place the sandbox makes writable,

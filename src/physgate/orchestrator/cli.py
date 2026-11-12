@@ -115,6 +115,7 @@ from physgate.orchestrator.run_config import (
     require_harness,
     require_reportable,
 )
+from physgate.orchestrator.tool_environment import forbidden_places, measure_named
 from physgate.oslayer.listeners import loopback_listeners
 from physgate.oslayer.policy import NETWORK_UNENFORCED
 from physgate.oslayer.probe import Absent, Present, judge_here
@@ -568,6 +569,19 @@ def _config(args: argparse.Namespace) -> RunConfig:
             raise RunConfigError(msg)
         measured = measure_role_python(named, probe=probe_interpreter, harness=_harness_root())
         params = {**params, "role_python": measured}
+    if params.get("tool_environment") is not None:
+        # Measured, never taken from the parameters: only the interpreter's path, the roots
+        # and the native tools' paths are theirs to name.
+        measured_tools = measure_named(
+            params["tool_environment"],
+            forbidden=forbidden_places(
+                harness=_harness_root(),
+                install=None,
+                run_dir=args.run_dir.resolve(),
+                target=args.target.resolve(),
+            ),
+        )
+        params = {**params, "tool_environment": measured_tools.model_dump(mode="json")}
     fields = {
         **params,
         "run_id": args.run_id,

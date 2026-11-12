@@ -12,9 +12,10 @@ code a session or the harness itself could change, so a root inside any of the `
 places (or holding one) is refused, as is an interpreter that can import the harness: the
 harness's own interpreter would hand a session the orchestrator's code.
 
-**Held to the record.** Before every session the environment is scanned again and compared with
-the scan taken when the run started (:func:`require_unchanged`); at every resume it is measured
-again in full and compared with the record (:func:`require_same`).
+**Held to the record.** The first time a process dispatches a session (a new run, and every
+resume) the environment is measured again in full and compared with the record, between two
+scans that must agree (:func:`hold`); before every later session it is scanned again and
+compared with that scan (:func:`require_unchanged`).
 """
 
 from __future__ import annotations
@@ -292,3 +293,29 @@ def require_unchanged(recorded: ToolEnvironment, at_start: str) -> None:
         if os.path.realpath(named) != resolved:
             msg = "a program of the tool environment no longer leads where the run recorded"
             raise ToolEnvironmentError(msg, path=named, recorded=resolved)
+
+
+def hold(
+    recorded: ToolEnvironment,
+    *,
+    forbidden: Mapping[str, Path],
+    runner: Runner = run_program,
+) -> str:
+    """Hold the environment to the record in full; the scan every later session is held to.
+
+    The scan is taken before the full measure and again after it. Equal, they say no entry
+    changed while the measure ran, so the scan returned stands for exactly the bytes that
+    measured as recorded; a scan taken only afterwards would also stand for a change made
+    between the measure and the scan.
+
+    Raises:
+        ToolEnvironmentError: the environment is refused now or measures differently
+            (:func:`require_same`), or an entry changed while it was measured.
+    """
+    roots = [Path(root) for root in recorded.roots]
+    before = scan(roots)
+    require_same(recorded, forbidden=forbidden, runner=runner)
+    if scan(roots) != before:
+        msg = "an entry of the tool environment changed while it was measured"
+        raise ToolEnvironmentError(msg, roots=",".join(recorded.roots))
+    return before

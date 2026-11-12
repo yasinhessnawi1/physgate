@@ -78,6 +78,13 @@ HOOK_STATE_REASON = "it holds the hook layer's own records of this session"
 
 #: Given for a role or baseline session's read of the run's session directories: every session's
 #: login, captured stream, settings and hook records. Only what it is given to read there is open.
+#: Given for a write into the run's recorded tool environment.
+TOOL_ENVIRONMENT_REASON = (
+    "it is the run's recorded tool environment: the interpreter, the libraries and the build "
+    "tools every session computes and builds with, held to the bytes the run recorded; it is "
+    "read and run, and written by no session"
+)
+
 SESSIONS_REASON = (
     "it is the run's session directories, which hold each session's login, stream and records; "
     "a session reads there only what it is given to read"

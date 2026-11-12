@@ -119,6 +119,7 @@ def run_session(
     aborts_fail: bool = True,
     network: Literal["open", "none"] = "open",
     reaper: bool = True,
+    tool_environment: tuple[str, ...] = (),
 ) -> dict[str, object]:
     """Install a role session for ``layout``, with or without the OS layer, and run it.
 
@@ -129,7 +130,8 @@ def run_session(
 
     The session is spawned as the dispatcher spawns one, its pid exported as the survivor
     reaper's canary. ``reaper`` off leaves the reaper out of the session's environment: the
-    red control of the test that it stops what a command left running.
+    red control of the test that it stops what a command left running. ``tool_environment``
+    names the roots of a run's tool environment, as the dispatcher gives them to the installer.
     """
     request = InstallRequest(
         profile="role",
@@ -151,6 +153,7 @@ def run_session(
         temp_dir=None if layer else str(layout.temp.resolve()),
         os_layer_network=network,
         spawns_with_canary=True,
+        tool_environment_roots=tool_environment,
     )
     installed = install(request, REGISTRY)
     binary = claude_binary()

@@ -55,6 +55,12 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         help="a path no tool may write that the runtime writes during the session (not reverted)",
     )
     p.add_argument(
+        "--tool-environment-root",
+        action="append",
+        default=[],
+        help="a root of the run's recorded tool environment: read and run, written by no tool",
+    )
+    p.add_argument(
         "--protect-record",
         action="append",
         default=[],
@@ -195,6 +201,7 @@ def _install(args: argparse.Namespace) -> int:
         extra_review_material=tuple(_abs(p) for p in args.review_material),
         extra_protected=tuple(_abs(p) for p in args.protect),
         extra_protected_refuse_only=tuple(_abs(p) for p in args.protect_refuse_only),
+        tool_environment_roots=tuple(_abs(p) for p in args.tool_environment_root),
         sessions_root=_abs(args.sessions_root) if args.sessions_root else None,
         extra_protected_record=tuple(_abs(p) for p in args.protect_record),
         withheld=tuple(_abs(p) for p in args.withheld),

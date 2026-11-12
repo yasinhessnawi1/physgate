@@ -41,6 +41,7 @@ from physgate.orchestrator.exceptions import EscalationBackendError, GitError, R
 from physgate.orchestrator.git import GitBinary, git
 from physgate.orchestrator.role_python import RolePython
 from physgate.oslayer.probe import Absent, OsLayerState, Present
+from physgate.toolenv.record import ToolEnvironment
 
 
 class _Frozen(BaseModel):
@@ -373,6 +374,13 @@ class RunConfig(_Frozen):
     #: enforceable here"). ``None`` for ``open``, and for a run recorded before the field
     #: existed or whose OS layer was not measured.
     network_enforced: bool | None
+    #: The tool environment role sessions compute and build with, as measured when the run was
+    #: configured (``toolenv.record.measure``): the interpreter, every distribution and native
+    #: tool with its version, the roots, and one digest over every file. The parameters name
+    #: the interpreter, the roots and the tools, or nothing. Held to this record before every
+    #: session. ``None`` for a run that names none, which is what a run recorded before the
+    #: field existed did; such a run's record is unchanged, so the field has this one default.
+    tool_environment: ToolEnvironment | None = None
 
     @model_validator(mode="after")
     def _the_binding_is_a_backend_that_ships(self) -> RunConfig:
@@ -385,6 +393,22 @@ class RunConfig(_Frozen):
             raise ValueError(msg) from None
         if row.status != "ships":
             msg = f"the escalation backend {row.name!r} is {row.status} and cannot be bound"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _one_interpreter_is_the_sessions_python(self) -> RunConfig:
+        # Both would be put on a session's path as its Python; two that differ leave it to
+        # the order of two lines which one a session's records were computed with.
+        if (
+            self.tool_environment is not None
+            and self.role_python is not None
+            and self.role_python.path != self.tool_environment.interpreter
+        ):
+            msg = (
+                "role_python names an interpreter other than the tool environment's; a run "
+                "that names a tool environment names its interpreter there, or the same one"
+            )
             raise ValueError(msg)
         return self
 
@@ -451,8 +475,8 @@ class RunConfig(_Frozen):
         ``escalation_backend`` and ``os_layer`` when they are ``None``, ``held_out``,
         ``held_out_canaries`` and ``held_out_sha256`` when empty, ``network`` when ``open``,
         ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``,
-        ``os_layer_absent`` when ``refuse`` and ``design_review`` when ``off``, so their
-        recorded digests still name them. A
+        ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off`` and
+        ``tool_environment`` when ``None``, so their recorded digests still name them. A
         run that names a binding always records it, so the binding is part of its manifest id.
         """
         exclude = set()
@@ -482,6 +506,8 @@ class RunConfig(_Frozen):
             exclude.add("os_layer_absent")
         if self.design_review == "off":
             exclude.add("design_review")
+        if self.tool_environment is None:
+            exclude.add("tool_environment")
         return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
 
     def sha256(self) -> str:

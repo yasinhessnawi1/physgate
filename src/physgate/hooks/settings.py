@@ -58,6 +58,7 @@ from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import SESSION_TEMPS_REASON as SESSION_TEMPS_REASON
 from physgate.hooks.reasons import SESSIONS_REASON as SESSIONS_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
+from physgate.hooks.reasons import TOOL_ENVIRONMENT_REASON as TOOL_ENVIRONMENT_REASON
 from physgate.hooks.reasons import WITHHELD_REASON as WITHHELD_REASON
 from physgate.hooks.reasons import series_outbox_reason
 from physgate.hooks.runtime import EVENTS, HookSpec
@@ -118,6 +119,11 @@ class InstallRequest(BaseModel):
     #: sentinel must not put them back. Only the layers that refuse a write before
     #: it happens protect them.
     extra_protected_refuse_only: tuple[AbsolutePath, ...] = ()
+    #: The roots of the run's recorded tool environment: read and run by the session's
+    #: commands, written by none. Far too large to put back, so only the layers that refuse a
+    #: write before it happens protect them; the dispatcher refuses the next session if any
+    #: entry changed.
+    tool_environment_roots: tuple[AbsolutePath, ...] = ()
     #: The run's directory of every session's own directory (its ``sessions/``), which holds
     #: each session's login, captured stream, settings and hook records. Refused to every write;
     #: for a role or baseline session refused to every read of the hooks too, its own home
@@ -482,6 +488,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             ),
         )
         reads.setdefault(path, "shell_denied")
+    for path in request.tool_environment_roots:
+        # Refused and never put back, and left open to every read: the session's commands run
+        # the interpreter and the build tools there and import its libraries.
+        protected.setdefault(path, (TOOL_ENVIRONMENT_REASON, "none"))
     read_exceptions: dict[str, tuple[str, ...]] = {}
     if request.sessions_root is not None:
         sessions = request.sessions_root
