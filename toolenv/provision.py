@@ -169,6 +169,55 @@ def extract(archive: Path, into: Path) -> Path:
     return into / tops.pop()
 
 
+# ---- distribution packages: the display libraries the CAD kernel links on Linux ---------------
+
+PACKAGE_FILES = ""
+DESIGN_LICENCES: dict[str, str] = {}
+
+
+def system_packages(pins: Mapping[str, object], system: str, machine: str) -> list[dict[str, str]]:
+    """Not built yet."""
+    return []
+
+
+def unpack_tree(archive: Path, into: Path) -> None:
+    """Not built yet."""
+
+
+def place_beside_kernel(
+    dest: Path, packages: Sequence[Mapping[str, str]], beside: str
+) -> list[str]:
+    """Not built yet."""
+    return []
+
+
+def _package_tree(package: Path, work: Path) -> Path:
+    return package
+
+
+def _system_libraries(
+    dest: Path, pins: Mapping[str, object], cache: Path, work: Path
+) -> list[dict[str, str]]:
+    return []
+
+
+def _helpers(dest: Path) -> list[str]:
+    return []
+
+
+def mapped_outside(
+    mapped: Sequence[str], packages: Sequence[Mapping[str, str]], dest: Path
+) -> list[str]:
+    """Not built yet."""
+    return []
+
+
+def _check_design(
+    dest: Path, packages: Sequence[Mapping[str, str]], work: Path
+) -> dict[str, object]:
+    return {"part": {}, "load_case": {}}
+
+
 # ---- the commands, and the settings they run with --------------------------------------------
 
 
