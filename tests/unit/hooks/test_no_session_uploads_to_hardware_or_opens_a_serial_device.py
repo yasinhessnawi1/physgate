@@ -327,6 +327,13 @@ DEVICES = [
     ("cat /dev/ttyACM0", "/dev/ttyACM0"),
     ("cat /dev/ttyUSB0", "/dev/ttyUSB0"),
     ("cat /dev/hidraw0", "/dev/hidraw0"),
+    ("cat /dev/ttyS0", "/dev/ttyS0"),
+    ("cat /dev/ttyAMA0", "/dev/ttyAMA0"),
+    ("cat /dev/rfcomm0", "/dev/rfcomm0"),
+    ("stty -F /dev/ttyS1 115200", "/dev/ttyS1"),
+    # Case is folded, so a pseudo-terminal of macOS, whose name starts the same way, is
+    # refused with the serial ports of Linux: no build names one.
+    ("ls -l /dev/ttys001", "/dev/ttys001"),
     ("ls /dev/bus/usb", "/dev/bus/usb"),
     ("cat /dev/bus/usb/001/004", "/dev/bus/usb/001/004"),
     ("ls /dev/bus/*", "/dev/bus/*"),
@@ -369,6 +376,7 @@ NOT_DEVICES = [
     "cat /dev/null",
     "echo x > /dev/null",
     "tty < /dev/tty",
+    "cat /dev/ttyprintk",
     "head -c 8 /dev/urandom",
     "ls /dev/fd",
     "cat /dev/stdin",
@@ -521,9 +529,27 @@ def test_moving_into_the_devices_directory_is_refused(tmp_path: Path, command: s
 
 
 @pytest.mark.parametrize("profile", ["role", "baseline", "orchestrator", "reviewer"])
-def test_every_profile_is_refused(tmp_path: Path, profile: str) -> None:
-    assert _shell(tmp_path, "pio run -t upload", profile) == H.UPLOAD
-    assert _shell(tmp_path, "cat /dev/ttyACM0", profile) == H.DEVICE.format(device="/dev/ttyACM0")
+def test_every_profile_is_refused_through_every_door(tmp_path: Path, profile: str) -> None:
+    # The orchestrator's own session among them: no session of any kind reaches a board.
+    config = _config(tmp_path, profile)
+
+    def decided(tool: str, tool_input: dict[str, Any]) -> str:
+        hook_input = HookInput.model_validate(
+            event(tool_name=tool, cwd=config.worktree, tool_input=tool_input)
+        )
+        decision = H.pre_tool_use(hook_input, config)
+        return "allow" if decision.allow else decision.reason
+
+    named = H.DEVICE.format(device="/dev/ttyACM0")
+    assert decided("Bash", {"command": "pio run -t upload"}) == H.UPLOAD
+    assert decided("Bash", {"command": "avrdude -v"}) == H.UPLOAD
+    assert decided("Bash", {"command": "pio test"}) == H.NOT_BUILD.format(program="pio")
+    assert decided("Bash", {"command": "cat /dev/ttyACM0"}) == named
+    assert decided("Read", {"file_path": "/dev/ttyACM0"}) == named
+    assert decided("Write", {"file_path": "/dev/ttyACM0", "content": "x"}) == named
+    assert decided(SERVER_TOOL, {"port": "/dev/ttyACM0"}) == named
+    assert decided(SERVER_TOOL, {"target": "upload"}) == H.UPLOAD
+    assert decided("Bash", {"command": "pio run"}) == "allow"
 
 
 def test_an_upload_refusal_wins_over_nothing_and_a_device_is_named_first(tmp_path: Path) -> None:
@@ -706,7 +732,18 @@ def test_the_rule_runs_with_every_other_hook_and_its_refusal_is_recorded(tmp_pat
     ("platform", "expected"),
     [
         ("darwin", ["/dev/cu.*", "/dev/tty.*"]),
-        ("linux", ["/dev/bus/usb", "/dev/hidraw*", "/dev/ttyACM*", "/dev/ttyUSB*"]),
+        (
+            "linux",
+            [
+                "/dev/bus/usb",
+                "/dev/hidraw*",
+                "/dev/rfcomm*",
+                "/dev/ttyACM*",
+                "/dev/ttyAMA*",
+                "/dev/ttyS*",
+                "/dev/ttyUSB*",
+            ],
+        ),
     ],
 )
 def test_the_os_layer_denies_the_platform_s_board_devices_both_ways(
@@ -728,7 +765,7 @@ def test_the_os_layer_denies_the_platform_s_board_devices_both_ways(
 
 def test_every_device_the_os_layer_denies_is_one_the_hooks_refuse_by_name(tmp_path: Path) -> None:
     patterns = [p for platform in ("darwin", "linux") for p in board_devices(platform)]
-    assert len(patterns) == 6
+    assert len(patterns) == 9
     for pattern in patterns:
         device = pattern.replace("*", "board1")
         assert H.serial_device_in(f"cat {device}") == device
