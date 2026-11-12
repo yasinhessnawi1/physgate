@@ -721,23 +721,81 @@ def render_settings(
     return settings
 
 
+#: The rule lists of a permissions block: each a list of rule names, as the binary reads them.
+RULE_LISTS = ("allow", "ask", "deny", "additionalDirectories")
+
+
+def _rules(name: str, value: object) -> list[str]:
+    """``value`` as the list of rule names a permissions block holds under ``name``.
+
+    A list or a tuple of strings, which is what this module's own deny lists are. Anything else
+    is refused, never written: a file whose rule list is a string, a mapping or ``null`` is not
+    one the binary is known to read its deny from.
+
+    Raises:
+        ValueError: ``value`` is not a list or a tuple of strings.
+    """
+    if not isinstance(value, (list, tuple)) or not all(isinstance(rule, str) for rule in value):
+        msg = (
+            f"a settings layer's permissions.{name} is not a list of rule names "
+            f"({type(value).__name__}), so it is not merged into the session's settings"
+        )
+        raise ValueError(msg)
+    return list(value)
+
+
 def _merge(settings: dict[str, object], more: Mapping[str, object]) -> None:
     """Merge ``more`` into ``settings``: a permissions block adds to theirs, its deny included.
 
     Never a plain update: a ``permissions`` key of ``more`` would replace the whole block, and the
-    web tools' deny with it.
+    web tools' deny with it. The block is held to its form first, and what is not of it is
+    refused before anything is replaced: the block a mapping, each of its rule lists
+    (:data:`RULE_LISTS`) a list or a tuple of rule names. A deny is added to the session's own,
+    whose rules stay, first and each once.
+
+    Raises:
+        ValueError: ``more`` carries a permissions block that is not of that form, or the
+            settings it is merged into hold no deny list of their own.
     """
     for key, value in more.items():
-        own = settings.get(key)
-        if key != "permissions" or not isinstance(value, Mapping) or not isinstance(own, dict):
+        if key != "permissions":
             settings[key] = value
             continue
+        own = settings.get(key)
+        if not isinstance(value, Mapping) or not isinstance(own, dict):
+            msg = (
+                "a settings layer's permissions are not a mapping of rule lists "
+                f"({type(value).__name__}), so they are not merged into the session's settings"
+            )
+            raise ValueError(msg)
+        merged = {name: _rules(name, rule) for name, rule in value.items() if name in RULE_LISTS}
+        held = _rules("deny", own.get("deny"))
         for name, rule in value.items():
-            held = own.get(name)
-            if name == "deny" and isinstance(held, list) and isinstance(rule, list):
-                own[name] = [*held, *(r for r in rule if r not in held)]
-            else:
-                own[name] = rule
+            own[name] = merged.get(name, rule)
+        own["deny"] = [*held, *(r for r in merged.get("deny", ()) if r not in held)]
+
+
+def _require_denied(settings: Mapping[str, object], profile: Profile) -> None:
+    """Refuse settings that do not carry ``profile``'s deny, whatever was merged into them.
+
+    The last check before the settings are written, and independent of the merge: the deny is a
+    list of rule names holding every tool the profile is denied.
+
+    Raises:
+        ValueError: it is not.
+    """
+    permissions = settings.get("permissions")
+    deny = permissions.get("deny") if isinstance(permissions, Mapping) else None
+    if (
+        not isinstance(deny, list)
+        or not all(isinstance(rule, str) for rule in deny)
+        or not set(PROFILE_DENIED[profile]) <= set(deny)
+    ):
+        msg = (
+            f"the session's settings do not deny {', '.join(PROFILE_DENIED[profile])} to the "
+            f"{profile} profile (permissions.deny is {deny!r}), so they are not written"
+        )
+        raise ValueError(msg)
 
 
 def _dump(value: object) -> bytes:
@@ -902,6 +960,7 @@ def install(
             network=request.os_layer_network,
         )
         _merge(settings, policy.settings)
+    _require_denied(settings, config.profile)
     settings_path = target / SETTINGS_NAME
     settings_path.write_bytes(_dump(settings))
     unenforced = (
