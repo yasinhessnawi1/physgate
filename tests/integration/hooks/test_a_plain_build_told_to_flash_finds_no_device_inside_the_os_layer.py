@@ -112,7 +112,10 @@ def test_the_build_s_own_script_is_refused_the_device_by_the_os_layer(layout: La
         f"{env}/venv/bin/pio run"
     )
     firmware = layout.worktree / "modules" / "firmware"
-    command = f"mkdir -p {core} && {links} && cd {firmware} && {build} 2>&1 | tail -40"
+    # The script speaks as the build starts, far above its last lines: its line and the
+    # build's verdict are picked out of the whole output.
+    kept = "grep -a -E 'FLASH-|SUCCESS|FAILED|Error'"
+    command = f"mkdir -p {core} && {links} && cd {firmware} && {build} 2>&1 | {kept}"
     done = run_session(
         layout, [tool("Bash", command=command)], layer=True, network="none", timeout=600
     )
