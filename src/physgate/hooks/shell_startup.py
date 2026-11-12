@@ -30,14 +30,17 @@ Four things close it, each on its own:
   of that name (:data:`HELD`), made at the install: a file tool cannot write a file where a
   directory is, a sandboxed command cannot touch it, and zsh sources a directory as nothing,
   without a word;
-- **no session starts on a home that holds one.** A home holding any startup file, or
-  missing the held directory, is refused at the install and again at the spawn.
+- **no session starts on a home that holds one.** A home holding any startup file is
+  refused at the install and again at the spawn, which holds the directory's place first.
 
 **What stays open** is bash where the binary itself runs it (Linux): bash has no ``ZDOTDIR``,
-its login shell reads ``.bash_profile``, ``.bash_login`` or ``.profile`` from the home, and a
-directory in their place makes every ``bash -l`` of the session complain. There the files are
-kept out by the write refusals alone: the hooks' for the file tools, the sandbox's for
-commands, and the sentinel after either.
+and its login shell reads ``.bash_profile``, ``.bash_login`` or ``.profile`` and ``.bashrc``
+from the home. Measured through the real binary on Linux (12.11.2026), with the hooks that
+judge a path and the sentinel taken out: a ``.bash_profile`` and a ``.bashrc`` the Write tool
+made before the first command ran outside the sandbox. There the files are kept out by the
+write refusals alone: the hooks' for the file tools, the sandbox's for commands, and the
+sentinel after either. A directory in each one's place would close it as on macOS, at the
+price of a complaint from every ``bash -l`` a session runs; it is not made.
 
 A session's own commands may set these variables as they like: they run inside the sandbox,
 and nothing they export reaches the binary's environment.
@@ -113,25 +116,15 @@ def present(home: str) -> tuple[str, ...]:
     )
 
 
-def home_refusal(home: str, *, held: bool = True) -> str | None:
-    """Why no session starts on ``home``; ``None`` when no shell finds a startup file there.
-
-    It holds a startup file, or, with ``held``, it lacks the empty directory that keeps a
-    file out of a held name's place.
-    """
+def home_refusal(home: str) -> str | None:
+    """Why no session starts on ``home``: it holds a startup file; ``None`` when it holds none."""
     found = present(home)
-    if found:
-        return (
-            f"the session's home ({home}) already holds a shell startup file "
-            f"({', '.join(found)}), which a shell outside the sandbox would run"
-        )
-    missing = [name for name in HELD if not _empty_directory(os.path.join(home, name))]
-    if held and missing:
-        return (
-            f"the session's home ({home}) does not hold the empty directory that keeps a "
-            f"startup file out of its place ({', '.join(missing)})"
-        )
-    return None
+    if not found:
+        return None
+    return (
+        f"the session's home ({home}) already holds a shell startup file "
+        f"({', '.join(found)}), which a shell outside the sandbox would run"
+    )
 
 
 def zdotdir_refusal(path: str, home: str) -> str | None:

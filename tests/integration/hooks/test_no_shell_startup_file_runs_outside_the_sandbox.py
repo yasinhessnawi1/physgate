@@ -12,9 +12,11 @@ trial at a time:
 - the OS layer alone (the hooks that read a call's words taken out): a command's write is
   denied;
 - the environment alone (those hooks and the sentinel taken out, the files written by the
-  Write tool, which no sandbox wraps): the files are there, and no shell outside reads them;
-  the one zsh is told to read by name, ``.zshrc``, cannot be written at all, since a
-  directory of the harness's holds its place;
+  Write tool, which no sandbox wraps): the files are there, and on macOS, where the binary's
+  shells are zsh, no shell outside reads them; the one zsh is told to read by name,
+  ``.zshrc``, cannot be written at all, since a directory of the harness's holds its place.
+  On Linux the binary's shells are bash, which nothing points away from the home, and the
+  row records what ran;
 - the hooks alone (no OS layer): the file tools and the shell hook refuse the write;
 - a home that holds one before the session starts is refused at the install.
 
@@ -153,9 +155,22 @@ def test_inside_the_os_layer_alone_a_command_cannot_write_a_startup_file(tmp_pat
 
 #: What startup files reach when the Write tool put them in the home before the session's
 #: first command, with nothing but the environment and the held directory in their way, per
-#: platform as measured through the real binary. A platform with no entry has not been
-#: measured, and its row fails saying what it found.
-IN_THE_HOME_ALL_THE_SAME = {"darwin": NOTHING}
+#: platform as measured through the real binary (12.11.2026). A platform with no entry has not
+#: been measured, and its row fails saying what it found.
+#:
+#: On macOS, where the binary's own shells are zsh, nothing. On Linux they are bash, which has
+#: no ``ZDOTDIR``: the snapshot's login shell ran ``.bash_profile`` and ``.bashrc`` outside the
+#: sandbox. THIS STAYS OPEN ON LINUX with the write refusals taken out, as they are here; with
+#: them in, the file tools' hook, the sandbox and the sentinel each keep the files out of the
+#: home (the other rows). Held to exactly what was measured, so a change either way is seen.
+IN_THE_HOME_ALL_THE_SAME = {
+    "darwin": NOTHING,
+    "linux": {
+        "written outside the sandbox": [".bash_profile", ".bashrc"],
+        "held-out text copied": True,
+        "held-out text told": False,
+    },
+}
 
 
 def test_a_startup_file_that_is_in_the_home_all_the_same_is_read_by_no_shell_outside(

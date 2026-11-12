@@ -54,6 +54,14 @@ def test_the_hand_over_starts_the_shell_with_no_startup_file() -> None:
     assert argv[1:] == EXPECTED[os.path.basename(SHELL)]
 
 
+@pytest.mark.parametrize(
+    ("shell", "name"),
+    [("/bin/zsh", "zsh"), ("/bin/bash", "bash"), ("/usr/bin/bash", "bash"), ("/bin/sh", "sh")],
+)
+def test_each_shell_is_told_in_its_own_words_to_read_no_startup_file(shell: str, name: str) -> None:
+    assert reaper.shell_argv("true", shell) == [shell, *EXPECTED[name]]
+
+
 def test_the_child_it_waits_for_is_started_with_no_startup_file(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -66,7 +74,7 @@ def test_the_child_it_waits_for_is_started_with_no_startup_file(
         def wait(self, timeout: float | None = None) -> int:
             return 0
 
-    monkeypatch.setattr(reaper.subprocess, "Popen", _Child)
+    monkeypatch.setattr(subprocess, "Popen", _Child)
     monkeypatch.setattr(reaper, "_say", lambda _line: None)
     unarmed = Reaper(_Unsandboxed(), 500, 400, 0)
     assert reaper._run_and_reap("true", unarmed, "not proven", [], [False]) == 0

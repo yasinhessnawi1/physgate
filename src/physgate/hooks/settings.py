@@ -833,7 +833,7 @@ def install(
                 f"{request.user_home} is the home of the user who runs the install"
             )
             raise ValueError(msg)
-        found = shell_startup.home_refusal(request.user_home, held=False)
+        found = shell_startup.home_refusal(request.user_home)
         if found is not None:
             raise ValueError(found)
     helper = request.api_key_helper

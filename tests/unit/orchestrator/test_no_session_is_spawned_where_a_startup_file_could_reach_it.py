@@ -101,8 +101,12 @@ def test_an_environment_without_a_home_is_refused(tmp_path: Path) -> None:
     "case",
     ["holds a file", "is a link", "is missing", "is the home", "lies in the home", "relative"],
 )
-def test_a_zdotdir_a_session_could_have_filled_is_refused(tmp_path: Path, case: str) -> None:
+def test_a_zdotdir_a_session_could_have_filled_is_refused(
+    tmp_path: Path, case: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     home, zdotdir, marker = _places(tmp_path)
+    # So the relative spelling names the empty directory itself, and is refused all the same.
+    monkeypatch.chdir(tmp_path)
     env = _env(home, zdotdir)
     if case == "holds a file":
         (zdotdir / ".zshenv").write_text("echo planted\n")
