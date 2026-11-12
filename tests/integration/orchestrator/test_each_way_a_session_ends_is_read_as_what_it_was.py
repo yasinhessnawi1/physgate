@@ -32,12 +32,12 @@ import pytest
 from plain_session import Ended, run_session
 from scripted_endpoint import COMPACTION_MARKER, failure, text, tool
 
-from physgate.orchestrator.budget import SANDBOX_UNAVAILABLE
-from physgate.reviewers.claude import (
+from physgate.orchestrator.budget import (
     PROMPT_TOO_LONG,
+    SANDBOX_UNAVAILABLE,
     STRUCTURED_OUTPUT_EXHAUSTED,
-    schema_refusals,
 )
+from physgate.reviewers.claude import schema_refusals
 
 BINARIES = [
     b

@@ -24,9 +24,10 @@ from test_the_first_real_reviews_replay_as_they_ended import binary as binary  #
 from test_the_first_real_reviews_replay_as_they_ended import install as install  # noqa: F401
 
 from physgate.hooks.verdict_shape import CORRECTION, NOT_AN_OBJECT
+from physgate.orchestrator.budget import STRUCTURED_OUTPUT_EXHAUSTED
 from physgate.orchestrator.decompose import binary_version, read_stream
 from physgate.orchestrator.exceptions import ReviewUnavailableError
-from physgate.reviewers.claude import STRUCTURED_OUTPUT_EXHAUSTED, schema_refusals
+from physgate.reviewers.claude import schema_refusals
 from physgate.reviewers.rubric import load_rubric
 
 pytestmark = [
