@@ -869,8 +869,8 @@ def install(
     spawn_env = {"CLAUDE_CONFIG_DIR": request.claude_config_dir}
     if request.profile in OWN_TEMP_PROFILES:
         spawn_env[shell_startup.ZDOTDIR] = _make_zdotdir(target, request.user_home)
-        # The one startup file a shell of the binary reads from the home by name: its place
-        # is held by an empty directory, before the OS layer's rules name what is there.
+        # Every startup file a shell would run from the home: its place is held by an empty
+        # directory, before the OS layer's rules name what is there.
         shell_startup.hold(request.user_home)
     if own_temp is not None:
         # The binary keeps the session's temporary files here, its background commands' output

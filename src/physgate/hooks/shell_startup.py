@@ -18,32 +18,28 @@ Four things close it, each on its own:
 
 - **no session writes one.** Every name in :data:`NAMES` in the session's home is a protected
   root: refused to the file tools and to a shell command that names it, write-denied by the
-  sandbox, and put back by the sentinel;
+  sandbox, and put back by the sentinel. zsh reads a compiled ``<name>.zwc`` beside a startup
+  file in its place when it is the newer, so each of those is a name too;
 - **no shell of the binary reads one there.** The session's environment points ``ZDOTDIR`` at
   an empty directory among the session's own files, which no session writes
   (:data:`ZDOTDIR_NAME`), so zsh looks for its startup files there and finds none; and the
   environment never carries ``BASH_ENV`` or ``ENV``, which name a file bash or sh would read;
-- **the one file zsh is told to read by name is a directory of the harness's.** ``ZDOTDIR``
-  does not move the snapshot step's own ``source ~/.zshrc``, and that step runs at the
-  session's first command, not at its start (measured: a ``.zshrc`` the Write tool made
-  before the first command ran outside the sandbox). So the home holds an empty directory
-  of that name (:data:`HELD`), made at the install: a file tool cannot write a file where a
-  directory is, a sandboxed command cannot touch it, and zsh sources a directory as nothing,
-  without a word;
+- **every name a shell reads is a directory of the harness's.** ``ZDOTDIR`` does not move the
+  snapshot step's own ``source ~/.zshrc``, bash has no ``ZDOTDIR`` at all, and the snapshot
+  step runs at the session's first command, not at its start (measured: a ``.zshrc`` the
+  Write tool made before the first command ran outside the sandbox on macOS, a
+  ``.bash_profile`` and a ``.bashrc`` on Linux). So the home holds an empty directory at
+  every name of :data:`HELD`, made at the install: a file tool cannot write a file where a
+  directory is, whatever the hooks do, and a sandboxed command cannot touch it. zsh reads a
+  directory as nothing, without a word. bash and sh say ``is a directory`` on their standard
+  error when a login or interactive shell starts or ends (``bash -l``, ``sh -l``, ``bash -i``)
+  and go on: the command's output and exit status are what they were (held by a test);
 - **no session starts on a home that holds one.** A home holding any startup file is
-  refused at the install and again at the spawn, which holds the directory's place first.
+  refused at the install and again at the spawn, which holds the directories' places first.
 
-**What stays open** is bash where the binary itself runs it (Linux): bash has no ``ZDOTDIR``,
-and its login shell reads ``.bash_profile``, ``.bash_login`` or ``.profile`` and ``.bashrc``
-from the home. Measured through the real binary on Linux (12.11.2026), with the hooks that
-judge a path and the sentinel taken out: a ``.bash_profile`` and a ``.bashrc`` the Write tool
-made before the first command ran outside the sandbox. There the files are kept out by the
-write refusals alone: the hooks' for the file tools, the sandbox's for commands, and the
-sentinel after either. A directory in each one's place would close it as on macOS, at the
-price of a complaint from every ``bash -l`` a session runs; it is not made.
-
-A session's own commands may set these variables as they like: they run inside the sandbox,
-and nothing they export reaches the binary's environment.
+A session's own commands run inside the sandbox, and nothing they export reaches the binary's
+environment. The shell hook still refuses a command that hands a shell a startup file by
+``BASH_ENV``, or by ``ENV`` where the command it prefixes is a shell (``shell_paths``).
 """
 
 from __future__ import annotations
@@ -52,21 +48,17 @@ import os
 import stat
 from collections.abc import Mapping
 
-#: Every startup file a shell reads from the home (or from ``ZDOTDIR``): zsh's family,
-#: bash's, the one sh and bash share, and readline's.
-NAMES: tuple[str, ...] = (
-    ".zshenv",
-    ".zprofile",
-    ".zshrc",
-    ".zlogin",
-    ".zlogout",
-    ".bashrc",
-    ".bash_profile",
-    ".bash_login",
-    ".profile",
-    ".bash_logout",
-    ".inputrc",
-)
+#: zsh's startup files.
+ZSH: tuple[str, ...] = (".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout")
+#: What zsh reads in place of each when it lies beside it and is the newer: its compiled form.
+ZSH_COMPILED: tuple[str, ...] = tuple(f"{name}.zwc" for name in ZSH)
+#: bash's startup files, and the one it shares with sh.
+BASH: tuple[str, ...] = (".bashrc", ".bash_profile", ".bash_login", ".profile", ".bash_logout")
+#: readline's, which an interactive shell reads.
+READLINE: tuple[str, ...] = (".inputrc",)
+
+#: Every startup file a shell reads from the home (or from ``ZDOTDIR``).
+NAMES: tuple[str, ...] = (*ZSH, *ZSH_COMPILED, *BASH, *READLINE)
 
 #: The variables that name a file a shell reads as it starts, wherever the file lies.
 ENV_FILES: tuple[str, ...] = ("BASH_ENV", "ENV")
@@ -78,9 +70,10 @@ ZDOTDIR = "ZDOTDIR"
 ZDOTDIR_NAME = "zdotdir"
 
 
-#: The names the home holds as an empty directory of the harness's own: what a shell of the
-#: binary reads from the home by name, whatever ``ZDOTDIR`` says.
-HELD: tuple[str, ...] = (".zshrc",)
+#: The names the home holds as an empty directory of the harness's own: every file a shell
+#: runs as it starts or ends. zsh's would be out of play with ``ZDOTDIR`` alone, but for
+#: ``.zshrc``; held all the same, so the home is safe whatever the environment says.
+HELD: tuple[str, ...] = (*ZSH, *ZSH_COMPILED, *BASH)
 
 
 def _empty_directory(path: str) -> bool:
