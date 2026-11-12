@@ -41,8 +41,10 @@ const CONFIG = {
   },
 };
 
-const DONE = { next_step: { kind: "done", subtask_id: null }, halted: null };
-const GOING = { next_step: { kind: "session", subtask_id: S1 }, halted: null };
+/** What the status route sends beside the next step, for a run that owes nothing. */
+const NOTHING_OWED = { halted: null, owed_halt: null, completion: { owner: false, modules: [] } };
+const DONE = { next_step: { kind: "done", subtask_id: null }, ...NOTHING_OWED };
+const GOING = { next_step: { kind: "session", subtask_id: S1 }, ...NOTHING_OWED };
 
 const EVENTS = [
   { seq: 1, ts: "2026-11-06T10:00:00Z", kind: "run_started", run_id: "r-series", gate_mode: "on" },
