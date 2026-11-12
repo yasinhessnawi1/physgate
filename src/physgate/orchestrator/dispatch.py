@@ -923,8 +923,35 @@ def runtime_paths(worktree: Path, home: Path) -> None:
         os.close(fd)
 
 
+#: What a version's runtime makes in the target repository's git directory when a session
+#: starts inside the OS layer, each with the mode it gives it, parents first. Measured on
+#: macOS through the real binary (12.11.2026): 2.1.322 makes three empty directories there;
+#: the earlier pins make none.
+RUNTIME_GIT_DIRECTORIES: dict[str, tuple[tuple[tuple[str, ...], int], ...]] = {
+    "2.1.322": (
+        (("branches",), 0o755),
+        (("remotes",), 0o755),
+        (("objects", "info", "commit-graphs"), 0o755),
+    ),
+}
+
+
 def runtime_git_paths(git_dir: Path, claude_version: str) -> None:
-    """Make what the runtime of ``claude_version`` makes in a repository's git directory."""
+    """Make what the runtime of ``claude_version`` makes in a repository's git directory.
+
+    The git directory is a root every session's end is held to: a session whose runtime made
+    a directory there would end as one that changed it. Made here first, before the record
+    is taken, they are part of it; nothing is exempted, and a session that changes one is
+    still caught. A path already present is left as it is. Nothing is made through a link or
+    beneath a parent that is not a real directory already there.
+    """
+    for parts, mode in RUNTIME_GIT_DIRECTORIES.get(claude_version, ()):
+        path = git_dir.joinpath(*parts)
+        parents = [git_dir.joinpath(*parts[:n]) for n in range(len(parts))]
+        if any(p.is_symlink() or not p.is_dir() for p in parents) or os.path.lexists(path):
+            continue
+        path.mkdir(mode=mode)
+        path.chmod(mode)
 
 
 class Installed(BaseModel):
@@ -1302,6 +1329,7 @@ class ClaudeDispatcher:
         # Made before the installation, so the OS layer's rules name them as they will stand.
         (sdir / "home").mkdir(parents=True, exist_ok=True)
         runtime_paths(worktree, sdir / "home")
+        runtime_git_paths(common_dir(self._run.repo), self._config.claude_version)
         installed = self._install(request, worktree, sdir, temp)
         # Read before the session starts, while nothing of it can have touched the file.
         end_check = session_end_command(Path(installed.settings))
