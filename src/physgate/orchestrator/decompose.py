@@ -1070,7 +1070,7 @@ def _registry_reads(unit: str) -> bool:
 
 def model_declined(stdout: str) -> bool:
     """Whether the stream shows the model declining: a ``model_refusal`` system event."""
-    for line in stdout.splitlines():
+    for line in split_lines(stdout):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
