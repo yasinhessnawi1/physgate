@@ -57,13 +57,18 @@ file from where the call starts.
 **What this layer cannot see**, stated plainly:
 
 - what only running decides: a path a program builds as it runs, an upload a program starts
-  itself, a project file that names an upload as its default target, a directory reached
-  through a link;
+  itself, a directory reached through a link;
+- what a build is told to run by the files it builds from. A session writes its own project
+  file, and a project file can name a script the build runs, a command of its own for a
+  target, or an upload as the default target; a board definition can do the same for the
+  sketch tool. A plain build of such a project is a build-only use by its words, and no
+  reading of words can tell otherwise. That is also why the options that point a build at a
+  project directory or a project file are allowed: the default one is the session's too;
 - a flasher this file does not name, run under its own name;
 - a programmer that talks to USB without a device node (on macOS, through the system's
   device framework).
 
-For the first two the OS layer holds wherever the board is one of the devices in the table:
+For the first three the OS layer holds wherever the board is one of the devices in the table:
 its sandbox denies them to every command of the session, read and write, so an upload that
 got that far finds no board. On Linux the table holds the USB nodes too. On macOS a USB
 device is not a file, the table cannot name it, and what the sandbox allows there has not
@@ -208,7 +213,8 @@ _IMAGE_TOOL: Guard = (
         "merge-bin": ({**_IMAGE, "--format": 1}, _NONE, True),
     },
 )
-#: The sketch tool: a compile, with none of the options that upload after it.
+#: The sketch tool: a compile, with none of the options that upload after it, and without the
+#: one that sets a build property, which can redefine a recipe or a hook to run any program.
 _SKETCH_TOOL: Guard = (
     {},
     {
@@ -216,7 +222,7 @@ _SKETCH_TOOL: Guard = (
         "compile": (
             {
                 "-b": 1, "--fqbn": 1, "--build-path": 1, "--output-dir": 1, "--warnings": 1,
-                "--build-property": 1, "--libraries": 1, "-v": 0, "--verbose": 0, "--clean": 0,
+                "--libraries": 1, "-v": 0, "--verbose": 0, "--clean": 0,
                 "-e": 0, "--export-binaries": 0,
             },
             _NONE,
