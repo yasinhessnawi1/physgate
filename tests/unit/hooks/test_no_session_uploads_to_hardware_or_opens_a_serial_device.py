@@ -603,6 +603,22 @@ def test_a_file_tool_on_a_serial_device_is_refused(
 
 
 @pytest.mark.parametrize(("tool", "key"), FILE_TOOLS)
+def test_a_path_that_names_a_device_as_written_is_refused_where_it_resolves_elsewhere(
+    tmp_path: Path, tool: str, key: str
+) -> None:
+    # On any platform, not only where /tmp is itself a link: the written path climbs from a
+    # linked directory to /dev by its words, and resolves somewhere else through the link.
+    deep = tmp_path / "a" / "b" / "c"
+    deep.mkdir(parents=True)
+    (tmp_path / "link").symlink_to(deep)
+    climb = "../" * len(tmp_path.resolve().parts)
+    path = f"{tmp_path.resolve()}/link/{climb}dev/ttyACM0"
+    assert os.path.normpath(path) == "/dev/ttyACM0"
+    assert not os.path.realpath(path).startswith("/dev/")
+    assert _tool(tmp_path, tool, {key: path}) == H.DEVICE.format(device=path)
+
+
+@pytest.mark.parametrize(("tool", "key"), FILE_TOOLS)
 def test_a_relative_path_is_judged_from_the_call_s_directory(
     tmp_path: Path, tool: str, key: str
 ) -> None:
