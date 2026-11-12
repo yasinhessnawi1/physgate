@@ -5,10 +5,12 @@ place in it the binary treats as its own is ``.claude``: skills, mods, settings 
 user keeps are read from a directory of that name, and a later version may read more of it than
 the measured ones do. So nothing of a session writes it or reads it: not a file tool, not a
 command that names it, and not a sandboxed command that builds its name at run time (the OS
-layer is told to deny it both ways). It is not put back after a call: inside the OS layer the
+layer is told to deny it both ways). Where the OS layer does not run, nothing else stands
+behind the hooks, so whatever appears there is moved aside at the next hook and that call is
+refused. Where it runs, the layer denies the write, and the directory is not put back: the
 runtime itself makes directories there before a shell command, on both pinned versions, as it
-writes its configuration directory; the user settings file in it keeps its own root, whose
-changes are logged as before. The rest of the home stays the session's own.
+writes its configuration directory. The user settings file in it keeps its own root. The rest
+of the home stays the session's own.
 
 The home the installing user really has is not a scratch one: other sessions write its
 ``.claude`` all day, and it is left as it was (two named files, changes logged).
@@ -38,7 +40,9 @@ def _home(base: Path) -> Path:
     return base / "outside" / "home"
 
 
-def _config(base: Path, profile: str = "role", home: Path | None = None) -> SessionConfig:
+def _config(
+    base: Path, profile: str = "role", home: Path | None = None, *, layer: bool = False
+) -> SessionConfig:
     wt = base / "run" / "wt"
     wt.mkdir(parents=True, exist_ok=True)
     (home or _home(base)).mkdir(parents=True, exist_ok=True)
@@ -54,6 +58,7 @@ def _config(base: Path, profile: str = "role", home: Path | None = None) -> Sess
         user_home=str(home or _home(base)),
         token_ceiling=40960,
         read_roots=(str(base / "run"),) if profile == "reviewer" else (),
+        os_layer_temp_dir="/tmp/pg-1" if layer else None,
     )
     # Built as the spawner builds it, whose own home is another place; the hooks then run
     # with the scratch home as theirs (the fixture below), as a session's hooks do.
@@ -84,16 +89,20 @@ def _shell(config: SessionConfig, command: str) -> bool:
 
 
 @pytest.mark.parametrize("profile", PROFILES)
-def test_the_directory_is_one_protected_root_refused_before_a_write_and_read_by_nothing(
-    base: Path, profile: str
+@pytest.mark.parametrize(("layer", "watch"), [(False, "revert"), (True, "none")])
+def test_the_directory_is_one_root_read_by_nothing_and_put_back_unless_the_os_layer_holds_it(
+    base: Path, profile: str, layer: bool, watch: str
 ) -> None:
-    config = _config(base, profile)
+    # Without the OS layer nothing but the hooks stands between a script and the directory,
+    # so what appears there is put back; with it, the layer denies the write and the runtime
+    # makes its own directories there, which must not be taken for a session's.
+    config = _config(base, profile, layer=layer)
     held = [
         (r.watch, r.reads, r.shell_writes, r.exceptions)
         for r in config.protected_roots
         if r.path == str(_home(base) / ".claude")
     ]
-    assert held == [("none", "denied", "denied", ())]
+    assert held == [(watch, "denied", "denied", ())]
 
 
 def _spellings(base: Path, config: SessionConfig) -> dict[str, str]:
@@ -189,7 +198,7 @@ RUNTIME_MADE = {
 def test_what_the_runtime_makes_there_inside_the_os_layer_refuses_no_call(
     base: Path, version: str
 ) -> None:
-    config = _config(base)
+    config = _config(base, layer=True)
     assert _check(config, "SessionStart") == "allow"
     for relative, mode in RUNTIME_MADE[version].items():
         made = _home(base) / relative
@@ -202,13 +211,37 @@ def test_what_the_runtime_makes_there_inside_the_os_layer_refuses_no_call(
     assert not log.exists() or "put back" not in log.read_text()
 
 
+def test_without_the_os_layer_what_a_script_left_there_is_seen_moved_aside_and_the_call_refused(
+    base: Path,
+) -> None:
+    config = _config(base)
+    assert _check(config, "SessionStart") == "allow"
+    planted = _home(base) / ".claude" / "skills" / "s" / "SKILL.md"
+    planted.parent.mkdir(parents=True)
+    planted.write_text("---\nname: s\n---\n")
+    ordinary = _home(base) / "notes.txt"
+    ordinary.write_text("the session's own\n")
+    reason = _check(config, "PostToolUse")
+    assert reason != "allow" and str(_home(base) / ".claude") in reason
+    assert not planted.exists() and not (_home(base) / ".claude").exists()
+    assert ordinary.read_text() == "the session's own\n"
+    log = base / "outside" / "state" / LOG_NAME
+    events = [json.loads(line) for line in log.read_text().split("\n") if line]
+    assert "put back" in [e["decision"] for e in events if e.get("session") == SESSION]
+    # And again at the next call, should it be written again.
+    planted.parent.mkdir(parents=True)
+    planted.write_text("again\n")
+    assert _check(config, "PreToolUse") != "allow"
+    assert not planted.exists()
+
+
 def test_the_user_settings_file_in_it_is_still_a_root_of_its_own_and_a_change_is_logged(
     base: Path,
 ) -> None:
     settings = _home(base) / ".claude" / "settings.json"
     settings.parent.mkdir(parents=True)
     settings.write_text("{}\n")
-    config = _config(base)
+    config = _config(base, layer=True)
     assert [r.watch for r in config.protected_roots if r.path == str(settings)] == ["log"]
     assert _check(config, "SessionStart") == "allow"
     settings.write_text('{"disableAllHooks": true}\n')
