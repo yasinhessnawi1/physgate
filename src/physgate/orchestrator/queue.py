@@ -529,14 +529,14 @@ class PersonDecision(BaseModel):
     verb: Verb
     note: Annotated[str, StringConstraints(max_length=MAX_NOTE)] | None
     position: Position | None = None
-    #: What a choice of have or make states of a part, and no other decision carries.
+    #: What a choice of have or make states of a part, and no other decision carries. Whether
+    #: the body goes with the choice is the decision line's to hold (``QueueResolution``), which
+    #: every decision passes through before it is written.
     parts: PartsBody | None = None
 
     @model_validator(mode="after")
     def _a_note_is_clean_and_a_rejection_has_one(self) -> PersonDecision:
         if (problem := position_problem(self.verb, self.position)) is not None:
-            raise ValueError(problem)
-        if (problem := parts_problem(self.verb, self.position, self.parts)) is not None:
             raise ValueError(problem)
         if self.note is not None:
             if (problem := note_problem(self.note)) is not None:
