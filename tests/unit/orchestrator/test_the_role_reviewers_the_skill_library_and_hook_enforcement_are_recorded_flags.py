@@ -183,8 +183,7 @@ def test_the_escalation_backend_is_a_flag_whose_values_are_the_backend_register_
     assert typing.get_args(getattr(flags, "EscalationBackend", None)) == flag.values
     for row in rows:
         assert row.status in flag.meanings[row.name]
-    # The run's configuration takes exactly those names, or none for a run before the binding.
-    annotation = RunConfig.model_fields["escalation_backend"].annotation
-    named = [arm for arm in typing.get_args(annotation) if arm is not type(None)]
-    assert [typing.get_args(arm) for arm in named] == [flag.values]
-    assert type(None) in typing.get_args(annotation)
+    # The run's configuration holds a name to the backend register itself, and takes only a
+    # backend that ships: of the flag's values, exactly those.
+    taken = [v for v in flag.values if isinstance(_config(escalation_backend=v), RunConfig)]
+    assert taken == [row.name for row in rows if row.status == "ships"]

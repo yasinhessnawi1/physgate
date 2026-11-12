@@ -29,7 +29,6 @@ from pydantic import (
 import physgate
 from physgate.flags import (
     DesignReview,
-    EscalationBackend,
     Hooks,
     OsLayerAbsent,
     QueueDecisions,
@@ -45,7 +44,7 @@ from physgate.orchestrator.common import (
     first_problem,
     model_named,
 )
-from physgate.orchestrator.escalation import REGISTER
+from physgate.orchestrator.escalation import REGISTER, BackendName
 from physgate.orchestrator.exceptions import EscalationBackendError, GitError, RunConfigError
 from physgate.orchestrator.git import GitBinary, git
 from physgate.orchestrator.role_python import RolePython
@@ -348,7 +347,7 @@ class RunConfig(_Frozen):
     #: (ARCH-131), by its register name (ARCH-132). Required, like the gate mode, and never
     #: taken from the environment. ``None`` only on a run recorded before the field existed,
     #: whose loop asked no interface; no loop drives such a run.
-    escalation_backend: EscalationBackend | None
+    escalation_backend: BackendName | None
 
     #: Whether the run acts on a person's queue decisions (ARCH-133), a flag of the register.
     #: Required, never taken from the environment. A run recorded before the field existed
