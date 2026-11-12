@@ -10,15 +10,32 @@ removes them is in scope again.
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
-from git_rig import ScopeChecker, run_layout
+from git_rig import (
+    DispatchPort,
+    EmptyGraph,
+    Gate,
+    GitDispatcher,
+    Reviewer,
+    ScopeChecker,
+    config,
+    plan_entry,
+    run_layout,
+    sh,
+)
 
 from physgate.orchestrator import merge
+from physgate.orchestrator.apply import GitChangeChecker
+from physgate.orchestrator.canaries import CanaryCheck
+from physgate.orchestrator.escalation import bind
+from physgate.orchestrator.events import GateRan, ProposalsChecked, ReviewRan, read_events
 from physgate.orchestrator.git import head_of
-from physgate.orchestrator.merge import RunGit, commit_attempt, write_scope_violations
+from physgate.orchestrator.loop import Loop
+from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt, write_scope_violations
 
 pytestmark = pytest.mark.integration
 
@@ -81,8 +98,22 @@ def test_a_built_file_in_the_module_is_named(tmp_path: Path, path: str) -> None:
         ),
         ({f"{MODULE}/firmware/.pio/build/idedata.json": "{}\n"}, f"{MODULE}/firmware/.pio", 1),
         ({f"{MODULE}/.PIO/build/notes.txt": "x\n"}, f"{MODULE}/.PIO", 1),
+        (
+            {
+                f"{MODULE}/.pio/libdeps/balboa/LSM6/.pio/build/a.o": "x\n",
+                f"{MODULE}/.pio/build/balboa/firmware.elf": "x\n",
+            },
+            f"{MODULE}/.pio",
+            2,
+        ),
     ],
-    ids=["one file", "a whole tree, named once", "below the module's top", "another case"],
+    ids=[
+        "one file",
+        "a whole tree, named once",
+        "below the module's top",
+        "another case",
+        "a library's own tree inside it, named by the outer one",
+    ],
 )
 def test_a_build_directory_in_the_module_is_named_once_with_its_size(
     tmp_path: Path, files: dict[str, str | None], directory: str, count: int
@@ -188,3 +219,86 @@ def test_the_change_check_refuses_such_an_attempt_and_its_reason_names_the_paths
     clean = run_layout(tmp_path / "clean")
     _, commit = attempt(clean, {f"{MODULE}/src/main.cpp": "int main() {}\n"})
     assert ScopeChecker(clean, {"s1": MODULE}).check("s1", commit, "firmware").refused_by is None
+
+
+def test_the_change_check_the_loop_runs_refuses_it_before_any_proposal_is_read(
+    tmp_path: Path,
+) -> None:
+    # The orchestrator's own change check, not the rig's: refused by the scope check, its
+    # reason naming both artefacts and its subject naming each path once. No store exists at
+    # the root it is given, so a refusal that read any proposal would fail here instead.
+    run = run_layout(tmp_path)
+    _, commit = attempt(
+        run,
+        {
+            f"{MODULE}/.pio/build/balboa/firmware.elf": "x\n",
+            f"{MODULE}/firmware.hex": "x\n",
+            f"{MODULE}/src/main.cpp": "int main() {}\n",
+        },
+    )
+    checked = GitChangeChecker(run, tmp_path / "no-store", {"s1": MODULE}).check(
+        "s1", commit, "firmware"
+    )
+    assert checked.refused_by == "write_scope"
+    assert checked.reason is not None
+    assert f"{MODULE}/.pio/ ({TREE}, 1 files)" in checked.reason
+    assert f"{MODULE}/firmware.hex ({BUILT})" in checked.reason
+    assert checked.subject == f"{MODULE}/.pio/,{MODULE}/firmware.hex"
+
+
+@pytest.mark.injected
+def test_a_session_that_builds_into_its_module_is_refused_before_the_gate_and_the_review(
+    tmp_path: Path,
+) -> None:
+    # The injected error: the first session builds into its module, and the loop refuses
+    # the attempt at the change check, so the gate never runs on it and no reviewer reads
+    # it. The repair session is told the paths and removes them; only that attempt is gated,
+    # reviewed and merged, and the run branch holds no artefact.
+    run = run_layout(tmp_path)
+    built = (
+        f"{MODULE}/.pio/build/balboa/firmware.elf",
+        f"{MODULE}/.pio/build/balboa/firmware.hex",
+        f"{MODULE}/firmware.hex",
+    )
+
+    def build(worktree: Path) -> None:
+        for rel in built:
+            (worktree / rel).parent.mkdir(parents=True, exist_ok=True)
+            (worktree / rel).write_text("built\n")
+
+    def remove(worktree: Path) -> None:
+        shutil.rmtree(worktree / MODULE / ".pio")
+        (worktree / MODULE / "firmware.hex").unlink()
+
+    dispatcher = GitDispatcher(run, during={1: build, 2: remove})
+    gate, reviewer = Gate(), Reviewer()
+    loop = Loop(
+        config=config(),
+        run_dir=run.run_dir,
+        gate=gate,
+        reviewers={"electrical": reviewer},
+        dispatcher=DispatchPort(dispatcher),
+        changes=ScopeChecker(run, {"s1": MODULE}),
+        merger=GitMerger(run, removal_timeout_s=60.0),
+        graph=EmptyGraph(),
+        escalation=bind("rules"),
+        material=CanaryCheck(held_out=frozenset(), review_material=frozenset()),
+        sleep=lambda _: None,
+    )
+    loop.start([plan_entry("s1", MODULE)])
+    assert loop.run().kind == "done"
+    loop.close()
+    assert (gate.calls, reviewer.calls) == (1, 1)
+    # From the durable record a fresh process reads back, not only from the stand-ins.
+    events = read_events(run.run_dir / "events.jsonl")
+    checks = [(e.attempt, e.refused_by) for e in events if isinstance(e, ProposalsChecked)]
+    assert checks == [(1, "write_scope"), (2, None)]
+    assert [e.attempt for e in events if isinstance(e, GateRan)] == [2]
+    assert [e.attempt for e in events if isinstance(e, ReviewRan)] == [2]
+    repair = dispatcher.requests[1].repair_instruction
+    assert repair is not None and "write-scope check" in repair
+    assert f"{MODULE}/.pio/ ({TREE}, 2 files)" in repair
+    assert f"{MODULE}/firmware.hex ({BUILT})" in repair
+    merged = sh(run.repo, "ls-tree", "-r", "--name-only", run.run_branch).split()
+    assert f"{MODULE}/attempt2.py" in merged
+    assert not [p for p in merged if ".pio" in p.split("/") or p.endswith((".hex", ".elf"))]
