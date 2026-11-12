@@ -242,6 +242,23 @@ def test_a_zdotdir_that_is_not_an_empty_directory_of_its_own_is_refused(
     assert not (target / "settings.json").exists()
 
 
+@pytest.mark.parametrize("profile", UNDER_TEST)
+def test_a_session_under_test_is_never_installed_on_the_home_of_whoever_runs_the_install(
+    tmp_path: Path, profile: str, own_temp: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The install holds a place in the session's home and judges what the home holds; the
+    # operator's own home is neither the harness's to write nor empty of startup files.
+    base = tmp_path.resolve()
+    operator = base / "operator"
+    operator.mkdir()
+    monkeypatch.setenv("HOME", str(operator))
+    request = _request(base, profile, temp_dir=own_temp, user_home=str(operator))
+    with pytest.raises(ValueError, match="home of the user who runs the install"):
+        install(request, REGISTRY)
+    assert list(operator.iterdir()) == []
+    assert not Path(request.target_dir).exists()
+
+
 def test_the_orchestrator_s_own_session_keeps_its_home_as_it_is(tmp_path: Path) -> None:
     # Not a session under test: it runs in the operator's own home, whose startup files are
     # the operator's, and nothing of it is sandboxed.

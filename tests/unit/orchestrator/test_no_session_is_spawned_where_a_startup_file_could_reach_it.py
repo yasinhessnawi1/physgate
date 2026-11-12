@@ -134,8 +134,8 @@ def test_a_home_that_holds_a_startup_file_at_the_spawn_is_refused(
     assert os.path.lexists(home / name), "the refusal changed the home"
 
 
-@pytest.mark.parametrize("case", ["missing", "holds something", "a file"])
-def test_a_home_where_nothing_holds_the_place_of_the_zshrc_is_refused(
+@pytest.mark.parametrize("case", ["holds something", "a file"])
+def test_a_home_where_something_else_has_the_place_of_the_zshrc_is_refused(
     tmp_path: Path, case: str
 ) -> None:
     home, zdotdir, marker = _places(tmp_path)
@@ -143,9 +143,16 @@ def test_a_home_where_nothing_holds_the_place_of_the_zshrc_is_refused(
         (home / ".zshrc" / "inside").write_text("")
     else:
         (home / ".zshrc").rmdir()
-    if case == "a file":
         (home / ".zshrc").write_text("echo planted\n")
     _refused(tmp_path, _env(home, zdotdir), marker, r"\.zshrc")
+
+
+def test_the_spawn_holds_the_place_of_the_zshrc_where_nothing_does_yet(tmp_path: Path) -> None:
+    # A home made after the install: the place is held before the binary exists.
+    home, zdotdir, marker = _places(tmp_path)
+    (home / ".zshrc").rmdir()
+    assert _spawn(tmp_path, _env(home, zdotdir), marker) == 0
+    assert (home / ".zshrc").is_dir() and list((home / ".zshrc").iterdir()) == []
 
 
 def test_every_session_of_the_harness_is_spawned_by_that_one_function() -> None:
