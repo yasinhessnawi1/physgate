@@ -259,6 +259,8 @@ RELATIVE = [
     # After a second move, or one a search path could send elsewhere, nothing is followed.
     (None, "cd modules && cat ttyACM0", "ttyACM0"),
     (None, "cd ./a && cd ./b && cat ttyACM0", "ttyACM0"),
+    (None, "cd .. && cat ttyACM0", "ttyACM0"),
+    (None, "cd ./a/../b && cat ttyACM0", "ttyACM0"),
     (None, "cd / && cd dev && cat ttyACM0", "ttyACM0"),
     (None, "cd / && cd ./dev && cat ttyACM0", "ttyACM0"),
     ("/", "cd dev && cat ttyACM0", "ttyACM0"),
@@ -292,6 +294,8 @@ NOT_RELATIVE = [
     (None, "cd dev"),
     (None, "cd bus && ls"),
     (None, "cd ./a && cd .. && ls src"),
+    (None, "cd .. && ls src"),
+    (None, "cd ../other && cat dev/tty.c"),
     (None, "CDPATH=/ cd dev && cat x"),
 ]
 
@@ -442,6 +446,31 @@ def test_a_relative_name_that_lands_elsewhere_passes(
     tmp_path: Path, cwd: str | None, command: str
 ) -> None:
     assert _shell(tmp_path, command, cwd=cwd) == "allow"
+
+
+def _linked_at_the_root() -> str | None:
+    """A directory at the root that is a link to one deeper down, if this machine has one."""
+    for name in sorted(os.listdir("/")):
+        path = "/" + name
+        deeper = os.path.dirname(os.path.realpath(path)) != "/"
+        if os.path.islink(path) and os.path.isdir(path) and deeper:
+            return path
+    return None
+
+
+def test_a_move_upwards_is_not_followed_since_the_shell_and_the_kernel_may_differ(
+    tmp_path: Path,
+) -> None:
+    # The shell climbs from the directory as it was named, the kernel from where it really
+    # is; from a linked directory at the root the first is the root and the second is not.
+    linked = _linked_at_the_root()
+    if linked is None:
+        pytest.skip("no directory at the root of this machine is a link to a deeper one")
+    assert os.path.dirname(os.path.realpath(linked)) != "/"
+    reason = _shell(tmp_path, "cd .. && cat dev/ttyACM0", cwd=linked)
+    assert reason == H.DEVICE.format(device="dev/ttyACM0")
+    reason = _shell(tmp_path, "cd ./../ && cat dev/ttyACM0", cwd=linked)
+    assert reason == H.DEVICE.format(device="dev/ttyACM0")
 
 
 def test_the_call_s_directory_is_read_as_it_resolves(tmp_path: Path) -> None:
