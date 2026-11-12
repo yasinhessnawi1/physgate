@@ -202,6 +202,26 @@ NOT_BUILD_ONLY = [
     ("esptool.py --port COM3 version", "esptool.py"),
     ("esptool -p COM3 image_info firmware.bin", "esptool"),
     ("pio pkg -c exec list", "pio"),
+    # A word this rule does not read exactly as the program does is refused, not guessed:
+    # short options run together, an option it has not been told of, a bare "--".
+    ("pio run -vt upload", "pio"),
+    ("pio run -st upload", "pio"),
+    ("pio run -vtupload", "pio"),
+    ("pio run -ve balboa", "pio"),
+    ("pio run --no-such-option", "pio"),
+    ("pio run extra", "pio"),
+    ("pio run -- -t upload", "pio"),
+    ("pio run -t", "pio"),
+    ("pio --no-such-global run", "pio"),
+    ("pio check --upload-port=COM3", "pio"),
+    ("pio test --without-uploading --without-testing --upload-port COM3", "pio"),
+    ("arduino-cli --additional-urls compile upload", "arduino-cli"),
+    ("arduino-cli --config-file x.yaml compile .", "arduino-cli"),
+    ("arduino-cli compile -vu .", "arduino-cli"),
+    ("arduino-cli compile -vp COM3 .", "arduino-cli"),
+    ("arduino-cli compile --no-such-option .", "arduino-cli"),
+    ("esptool.py --no-such-global version", "esptool.py"),
+    ("esptool.py image_info --no-such-option firmware.bin", "esptool.py"),
     ("arduino-cli burn-bootloader", "arduino-cli"),
     ("arduino-cli debug", "arduino-cli"),
     ("arduino-cli board list", "arduino-cli"),
@@ -232,8 +252,22 @@ RELATIVE = [
     (None, "cd - && cat ttyUSB0", "ttyUSB0"),
     (None, "cd && cat cu.usbmodem1", "cu.usbmodem1"),
     (None, "cd ~ && cat ttyACM0", "ttyACM0"),
+    # A directory on the way to a device is one of the places a command could be anywhere.
+    (None, "cd $WHERE && cat usb/001/004", "usb/001/004"),
+    (None, "cd $WHERE && ls bus/usb", "bus/usb"),
+    # After a second move, or one a search path could send elsewhere, nothing is followed.
+    (None, "cd modules && cat ttyACM0", "ttyACM0"),
+    (None, "cd ./a && cd ./b && cat ttyACM0", "ttyACM0"),
 ]
 ENTERS_BY_STEPS = [
+    # A search path sends a bare relative move wherever it says.
+    (None, "CDPATH=/ cd dev && cat x"),
+    (None, "export CDPATH=/; cd dev; cat x"),
+    (None, "cd dev"),
+    (None, "cd bus"),
+    (None, "cd /dev/bus && ls"),
+    (None, "cd /dev/bus/usb"),
+    (None, "cd / && cd ./dev"),
     (None, "cd / && cd dev && cat x"),
     (None, "cd / && pushd dev"),
     ("/", "cd dev"),
@@ -242,14 +276,16 @@ ENTERS_BY_STEPS = [
 NOT_RELATIVE = [
     (None, "cat dev/ttyACM0"),
     (None, "cat ttyACM0"),
-    (None, "cd modules && cat dev/tty.c"),
+    (None, "cd ./modules && cat dev/tty.c"),
+    (None, "cd ./dev && cat ttyACM0"),
+    (None, "cd modules/firmware && pio run"),
+    (None, "cd modules && cat src/main.cpp"),
     (None, "cd /tmp && cat dev/ttyACM0"),
     (None, "cd / && cat tmp/ttyACM0"),
     (None, "cd / && ls dev/null"),
     ("/usr", "cat dev/ttyACM0"),
     ("/", "ls dev"),
     ("/dev", "cat /tty.c"),
-    (None, "cd dev && cat ttyACM0"),
     (None, "cd $WHERE && echo $NAME"),
 ]
 
@@ -321,7 +357,6 @@ NOT_DEVICES = [
     "cat $HOME/dev/tty.notes",
     "ls dev/",
     "cd ./dev && ls",
-    "cd dev",
     "cat docs/ttyUSB-notes.md",
     "echo ttyACM0",
 ]
@@ -408,17 +443,6 @@ def test_the_call_s_directory_is_read_as_it_resolves(tmp_path: Path) -> None:
     os.symlink("/", link)
     reason = _shell(tmp_path, "cat dev/ttyACM0", cwd=str(link))
     assert reason == H.DEVICE.format(device="dev/ttyACM0")
-
-
-def test_past_the_bound_on_followed_moves_a_command_could_be_anywhere(tmp_path: Path) -> None:
-    def moves(count: int) -> str:
-        return "; ".join(f"cd d{n}" for n in range(count)) + "; cat ttyACM0"
-
-    # Each move may or may not have happened, so each doubles the places: the bound is
-    # passed after this many, and the move after that is no longer followed.
-    doublings = H.MAX_PLACES.bit_length()
-    assert _shell(tmp_path, moves(doublings - 1)) == "allow"
-    assert _shell(tmp_path, moves(doublings + 1)) == H.DEVICE.format(device="ttyACM0")
 
 
 @pytest.mark.parametrize("command", UNREAD, ids=UNREAD)
