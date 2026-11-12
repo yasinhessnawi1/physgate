@@ -175,6 +175,76 @@ def test_settings_that_do_not_deny_the_web_tools_are_never_written(
     assert not list(Path(request.target_dir).glob("settings*.json"))
 
 
+def _merged(more: dict[str, object]) -> object:
+    """The permissions of a role session's settings once ``more`` is merged in, or the refusal."""
+    from physgate.hooks import settings as module
+
+    settings: dict[str, object] = {"permissions": {"deny": ["WebFetch", "WebSearch"]}, "x": 1}
+    try:
+        module._merge(settings, more)
+    except ValueError as exc:
+        return exc
+    return settings["permissions"]
+
+
+@pytest.mark.parametrize(
+    ("layer", "merged"),
+    [
+        ({"deny": ["Bash(curl:*)"]}, {"deny": ["WebFetch", "WebSearch", "Bash(curl:*)"]}),
+        ({"deny": ("Bash(curl:*)",)}, {"deny": ["WebFetch", "WebSearch", "Bash(curl:*)"]}),
+        ({"deny": ()}, {"deny": ["WebFetch", "WebSearch"]}),
+        (
+            {"deny": ("WebSearch", "Bash(curl:*)")},
+            {"deny": ["WebFetch", "WebSearch", "Bash(curl:*)"]},
+        ),
+        ({}, {"deny": ["WebFetch", "WebSearch"]}),
+        (
+            {"allow": ("Bash(ls:*)",), "defaultMode": "default"},
+            {"deny": ["WebFetch", "WebSearch"], "allow": ["Bash(ls:*)"], "defaultMode": "default"},
+        ),
+    ],
+    ids=repr,
+)
+def test_a_merged_permissions_block_adds_to_the_deny_whatever_sequence_it_is(
+    layer: dict[str, object], merged: dict[str, object]
+) -> None:
+    assert _merged({"permissions": layer}) == merged
+
+
+@pytest.mark.parametrize(
+    "permissions",
+    [
+        None,
+        [],
+        "deny",
+        ("WebFetch",),
+        {"deny": None},
+        {"deny": "Bash(curl:*)"},
+        {"deny": {"WebFetch": False}},
+        {"deny": [["Bash(curl:*)"]]},
+        {"deny": [7]},
+        {"allow": "Bash(ls:*)"},
+        {"ask": None},
+        {"additionalDirectories": [None]},
+    ],
+    ids=repr,
+)
+def test_the_merge_itself_refuses_a_permissions_block_not_of_the_form(permissions: object) -> None:
+    got = _merged({"permissions": permissions})
+    assert isinstance(got, ValueError), f"merged as {got!r}"
+    assert "permissions" in str(got)
+
+
+def test_a_layer_naming_the_web_tools_itself_still_adds_to_the_session_s_own_deny(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The session's own rules stay first, each once: the layer's block is merged, never taken whole.
+    _layered(monkeypatch, {"deny": ["Bash(curl:*)", "WebSearch", "WebFetch"]})
+    done = install(_request(outside_tmp, "/var/tmp/pgs/0123456789"), REGISTRY)
+    permissions = json.loads(done.settings_path.read_text()).get("permissions", {})
+    assert permissions == {"deny": ["WebFetch", "WebSearch", "Bash(curl:*)"]}
+
+
 def test_a_directory_claude_code_would_replace_is_refused(outside_tmp: Path) -> None:
     long = "/var/tmp/pgs/" + "p" * OS_LAYER_TEMP_LIMIT
     with pytest.raises(ValueError, match="shares"):
