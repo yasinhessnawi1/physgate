@@ -66,6 +66,8 @@ def test_have_is_decided_with_each_value_it_states(tmp_path: Path) -> None:
         },
         "texts": [],
     }
+    # A whole number is written as one: 2, never 2.0, which equals it in Python and is not it.
+    assert b'"stall_current":{"value":2,"unit":"A"}' in decisions_bytes(run_dir)
     assert line["shown_sha256"] == read_queue(run_dir).digests[IDS[0]]
 
 

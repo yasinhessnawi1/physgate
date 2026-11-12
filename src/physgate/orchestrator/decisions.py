@@ -908,7 +908,7 @@ def _require_parts_taken(state: RunState, event: DecisionTaken) -> None:
         event.shown_sha256 is None
         or not event.acts
         or event.why_not is not None
-        or event.effect != PARTS_EFFECTS[position]
+        or event.effect != PARTS_EFFECTS.get(position)
         or named != (None, None, None, False, None, None)
     ):
         msg = (

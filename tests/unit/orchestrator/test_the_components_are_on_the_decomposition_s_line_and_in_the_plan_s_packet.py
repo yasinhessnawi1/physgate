@@ -214,7 +214,9 @@ def test_the_reviewer_is_shown_the_components_fenced_as_the_plan_s_own_words() -
     assert HEADING in text, "the plan's rendering shows no components"
     lines = text.splitlines()
     at = lines.index(next(line for line in lines if line.startswith(HEADING)))
-    opens = lines.index(f"<<<DATA {nonce} components", at)
+    fence = f"<<<DATA {nonce} components"
+    assert fence in lines, "the components are not inside a fence of their own"
+    opens = lines.index(fence, at)
     closes = lines.index(f"DATA {nonce}>>>", opens)
     shown = json.loads("\n".join(lines[opens + 1 : closes]))
     assert [one["node"] for one in shown] == ["control.motor_left", "control.imu"]
