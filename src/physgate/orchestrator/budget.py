@@ -15,11 +15,13 @@ How a session ended is read from the binary's result object by ``is_error`` and
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from physgate.lines import split_lines
 from physgate.orchestrator.exceptions import RepairBudgetExhaustedError
 
 #: Implementation attempts per subtask before it goes to the approval queue (ARCH-030).
@@ -55,12 +57,38 @@ SANDBOX_UNAVAILABLE = "Sandbox required but unavailable"
 CREDENTIAL_REFUSED_STATUSES = frozenset({401, 403})
 
 #: The event the binary writes after its result when a full disk, or a used-up quota, lost
-#: lines of the session's own transcript or changes to its own configuration.
+#: lines of the session's own transcript or changes to its own configuration. Measured on
+#: 2.1.322 with the transcripts on a full volume: the result says ``completed``, the exit
+#: status is 0, and this event follows. 2.1.301 loses the same writes and says nothing.
 WRITES_LOST = "session_writes_lost"
 
+#: What the event may name as lost, and as the cause: the binary's own lists. Anything else
+#: in those fields is left out of what is recorded, since a stream is not trusted text.
+_LOST_RECORDS = ("transcript", "global_config")
+_LOST_CAUSES = ("ENOSPC", "EDQUOT")
 
-def writes_lost(stream: str) -> str | None:  # noqa: ARG001 - not read yet
-    """What the binary said it could not save, and why, or ``None`` if it said nothing."""
+
+def writes_lost(stream: str) -> str | None:
+    """What the binary said it could not save, and why, or ``None`` if it said nothing.
+
+    Read from the binary's own event wherever it stands in ``stream``; the same words
+    inside another event (a tool's output) are not it. A session that says this did not
+    keep its own records, so no reader takes its end for a completed one.
+    """
+    for line in split_lines(stream):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") != "system" or event.get("subtype") != WRITES_LOST:
+            continue
+        named = event.get("lost")
+        lost = [what for what in _LOST_RECORDS if isinstance(named, list) and what in named]
+        code = event.get("error_code")
+        cause = code if code in _LOST_CAUSES else "a cause it did not name"
+        return f"{', '.join(lost) or 'records'} ({cause})"
     return None
 
 

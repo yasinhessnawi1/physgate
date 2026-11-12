@@ -32,7 +32,7 @@ from physgate.gate.catalogue import shadowing_names
 from physgate.knowledge.library import LibraryError, put_into, read_library
 from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import classify_session_end
+from physgate.orchestrator.budget import classify_session_end, writes_lost
 from physgate.orchestrator.common import NonEmptyStr, first_problem
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
@@ -131,6 +131,7 @@ FailureCause = Literal[
     "turn_limit",
     "no_result",
     "unexpected_exit",
+    "writes_lost",
 ]
 
 
@@ -373,12 +374,15 @@ def judge(
     roles: Sequence[str],
     answered: frozenset[str],
     refused: str | None = None,
-    lost: str | None = None,  # noqa: ARG001 - not read yet
+    lost: str | None = None,
 ) -> tuple[FailureCause | None, str, Plan | None, str | None, int]:
     """Decide from the result object whether the call produced a usable plan.
 
     ``refused`` is the binary's schema refusal from the stream, if any: a call
     that ran out of turns after one is ``schema_refused``, not ``turn_limit``.
+    ``lost`` is what the binary said in the stream it could not save, if anything
+    (:func:`~physgate.orchestrator.budget.writes_lost`): a call that ended as a finished
+    one and said so gives no plan, under its own cause.
     """
     end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
     turns = int((result or {}).get("num_turns") or 0)
@@ -388,6 +392,9 @@ def judge(
         return "schema_refused", refused, None, seen_model, turns
     if end.cause is not None:
         return end.cause, f"the call ended with {end.cause}", None, seen_model, turns
+    if lost is not None:
+        detail = f"the binary could not save its own {lost}"
+        return "writes_lost", detail, None, seen_model, turns
     if echoed != [model]:
         return "model_mismatch", f"asked for {model}, answered by {echoed}", None, seen_model, turns
     answer = (result or {}).get("structured_output")
@@ -515,6 +522,7 @@ def call(
         roles=roles,
         answered=answered,
         refused=schema_refusal(stdout),
+        lost=writes_lost(stdout),
     )
     changed = drift(workdir / "config", system_before)
     seen = traffic_refusal(observed, reported) if observed is not None else None

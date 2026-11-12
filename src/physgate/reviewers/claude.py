@@ -56,7 +56,7 @@ from typing import Any
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
 from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import classify_session_end
+from physgate.orchestrator.budget import classify_session_end, writes_lost
 from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.credentials import (
     Credential,
@@ -335,7 +335,8 @@ def unavailable_end(
     model, then the binary's cap on refused structured answers (an invalid verdict,
     with the last refusal); then the session's end as every session's is classified,
     where running out of turns is no verdict (a schema refusal before it, an invalid
-    one) and anything else is infrastructure.
+    one) and anything else is infrastructure. A session that ended as a finished one and
+    said a full disk lost its own records is infrastructure too, with the loss named.
     """
     events = _events(stream)
     if any(e.get("type") == "system" and e.get("subtype") == COMPACT_BOUNDARY for e in events):
@@ -355,6 +356,9 @@ def unavailable_end(
         return "invalid_verdict", f"the binary's cap on refused verdicts ended it: {last}"[:300]
     end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
     if end.outcome == "completed":
+        lost = writes_lost(stream)
+        if lost is not None:
+            return "infrastructure", f"the binary could not save the session's own {lost}"
         return None
     if end.cause == "turn_limit":
         refused = schema_refusal(stream)
