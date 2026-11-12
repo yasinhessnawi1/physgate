@@ -28,7 +28,7 @@ import subprocess
 import threading
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,7 +36,6 @@ from typing import Any
 from physgate.evaluation.per_role.answer import MAX_ANSWER_BYTES
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.task import Task
-from physgate.hooks.settings import PROFILE_TOOLS
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.credentials import (
     Credential,
@@ -59,7 +58,13 @@ from physgate.orchestrator.dispatch import (
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.processes import kill_own, stop_tree
 from physgate.orchestrator.role_python import RolePython, session_bin
-from physgate.orchestrator.run_config import Effort, Network, RunBounds, ThinkingDisplay
+from physgate.orchestrator.run_config import (
+    Effort,
+    Network,
+    RunBounds,
+    ThinkingDisplay,
+    endpoint_of,
+)
 from physgate.oslayer.probe import Absent, Present
 from physgate.reviewers.ending import SessionEnd, await_session
 
@@ -612,15 +617,39 @@ def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> No
         raise RawArmError(msg, work=str(work))
 
 
+def canaries_sha256(canaries: Iterable[str]) -> str:
+    """The digest a record holds for a list of held-out canaries: it names none of them."""
+    return hashlib.sha256("\n".join(sorted(canaries)).encode()).hexdigest()
+
+
 def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
-    """Everything the raw arm is held equal to the harness arm on (criterion: fair arms)."""
+    """Everything the raw arm is held equal to the harness arm on, as it ran.
+
+    The tool list is not here: the comparison reads it from the session's generated
+    configuration, the list the session was actually given.
+    """
+    max_turns, wall_clock = raw_bounds(setup.bounds)
     return {
+        # No raw session is given an advisor; a field to give one records it here.
+        "advisor": None,
+        "auth": setup.credential.mode,
+        # As the session ran them: the binary's retries as given, the turns and the wall
+        # clock a role session's times the repair budget.
+        "bounds": {
+            "binary_max_retries": setup.bounds.binary_max_retries,
+            "infra_retry_delays_s": list(setup.bounds.infra_retry_delays_s),
+            "session_max_turns": max_turns,
+            "session_wall_clock_s": wall_clock,
+        },
+        "endpoint": endpoint_of(setup.base_url),
+        "held_out": sorted(setup.held_out),
+        # The canaries its stream was scanned for, which the harness run's must equal.
+        "held_out_canaries_sha256": canaries_sha256(setup.held_out_canaries),
         "model": setup.model,
         "claude_version": setup.claude_version,
         "effort": setup.effort,
         "max_output_tokens": setup.max_output_tokens,
         "thinking_display": setup.thinking_display,
-        "tools": sorted(PROFILE_TOOLS["baseline"]),
         "role_python": None if setup.role_python is None else setup.role_python.model_dump(),
         "network": setup.network,
         "os_layer": setup.os_layer.model_dump(),

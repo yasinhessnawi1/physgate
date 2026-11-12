@@ -35,27 +35,49 @@ from physgate.orchestrator.protocols import Usage
 _FINAL = ("pass", "fail", "flaky", "unscored")
 
 
+class ScoreError(ReportError):
+    """A score holds a verdict that is not a bool: the scorer writes none such."""
+
+
+def _verdict(value: object, what: str) -> bool:
+    """``value`` as a verdict, taken only as the bool the scorer writes.
+
+    ``bool`` would read the string ``"false"`` as true, so nothing else is read at all.
+
+    Raises:
+        ScoreError: ``value`` is not a bool.
+    """
+    if not isinstance(value, bool):
+        msg = f"the score's {what} is not a bool"
+        raise ScoreError(msg, type=type(value).__name__)
+    return value
+
+
 def control_trial(task: Task, score: Mapping[str, Any]) -> tuple[Outcome, ControlFlags]:
     """A control score's outcome and flags.
 
     On a task with a secondary view (secondary specs bounding the gain margin), each
     reading passes when the headline passes and every secondary spec of that reading does:
     the gain margin as a ratio or in dB, and every other secondary spec in both.
+
+    Raises:
+        ScoreError: a verdict of the score (passed, a flag, a spec row) is not a bool.
     """
-    passed = bool(score["passed"])
+    passed = _verdict(score.get("passed"), "passed")
     flags = score.get("flags") or {}
+    crossover = _verdict(flags.get("no_gain_crossover", False), "no_gain_crossover flag")
     secondary = [s for s in task.specs if s.counts == "secondary"]
     if not secondary:
-        return ("pass" if passed else "fail"), ControlFlags(
-            no_gain_crossover=bool(flags.get("no_gain_crossover", False))
-        )
-    held = {row["name"]: bool(row["passed"]) for row in score.get("specs", [])}
+        return ("pass" if passed else "fail"), ControlFlags(no_gain_crossover=crossover)
+    held = {
+        row["name"]: _verdict(row["passed"], "spec row's passed") for row in score.get("specs", [])
+    }
 
     def reading(skip: str) -> bool:
         return passed and all(held.get(s.name, False) for s in secondary if s.metric != skip)
 
     return ("pass" if passed else "fail"), ControlFlags(
-        no_gain_crossover=bool(flags.get("no_gain_crossover", False)),
+        no_gain_crossover=crossover,
         full_view_ratio=reading("gain_margin_db"),
         full_view_db=reading("gain_margin_ratio"),
     )

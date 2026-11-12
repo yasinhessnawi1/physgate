@@ -292,3 +292,27 @@ def test_a_model_the_sheet_does_not_price_is_refused(tmp_path: Path) -> None:
     _stream(stream, "s-1", result=True)
     with pytest.raises(ReportError, match="no price"):
         raw_cost(stream, "s-1", "another-model", load_price_sheet("2026-10-16"), subscription=True)
+
+
+@pytest.mark.parametrize(
+    ("task", "score"),
+    [
+        (own_task, {"passed": "false", "flags": {}, "specs": []}),
+        (own_task, {"passed": 1, "flags": {}, "specs": []}),
+        (own_task, {"passed": False, "flags": {"no_gain_crossover": "false"}, "specs": []}),
+        (
+            None,
+            {
+                "passed": True,
+                "flags": {},
+                "specs": [{"name": "gain_margin_as_ratio", "passed": "false"}],
+            },
+        ),
+    ],
+    ids=["passed as a string", "passed as a number", "a flag", "a spec row"],
+)
+def test_a_score_whose_verdicts_are_not_bools_is_refused(task: Any, score: dict[str, Any]) -> None:
+    """A string "false" is true to ``bool``; a verdict is taken only as the scorer writes it."""
+    parsed = parse_task(json.dumps(task()).encode()) if task else _benchmark_task()
+    with pytest.raises(ReportError, match="not a bool"):
+        control_trial(parsed, score)

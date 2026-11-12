@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -11,6 +12,7 @@ import pytest
 from task_fixtures import own_task
 
 from physgate.evaluation.per_role.arms import raw
+from physgate.evaluation.per_role.arms.compare import RAW_PINS
 from physgate.evaluation.per_role.arms.raw import BudgetWatch, RawSetup, raw_bounds, stream_total
 from physgate.evaluation.tiers.task import parse_task
 from physgate.orchestrator.credentials import Credential
@@ -212,16 +214,29 @@ def test_the_pins_name_every_condition_the_arms_are_held_equal_on(tmp_path: Path
     pins = raw.pins(
         task, _setup(tmp_path, os_layer=Present(mechanism="seatbelt", claude_version="2.1.301"))
     )
-    assert set(pins) == {
-        "model",
-        "claude_version",
-        "effort",
-        "max_output_tokens",
-        "thinking_display",
-        "tools",
-        "role_python",
-        "network",
-        "os_layer",
-        "brief_sha256",
-        "answer",
+    # Exactly the pins the comparison knows: one the comparison would not read, or one it
+    # reads that the raw arm never writes, is a difference no fair pair could clear.
+    assert set(pins) == RAW_PINS
+    assert pins["advisor"] is None and pins["endpoint"] == "default"
+
+
+def test_the_raw_arm_records_the_canaries_it_looked_for_as_their_digest(tmp_path: Path) -> None:
+    """The comparison holds them to the harness run's; the digest names no canary."""
+    task = parse_task(json.dumps(own_task()).encode())
+    canaries = ("f" * 32, "0" * 32)
+    pins = raw.pins(task, _setup(tmp_path, held_out_canaries=canaries))
+    digest = hashlib.sha256("\n".join(sorted(canaries)).encode()).hexdigest()
+    assert pins.get("held_out_canaries_sha256") == digest
+
+
+def test_the_raw_arm_records_its_bounds_as_it_ran_them(tmp_path: Path) -> None:
+    """The binary's retries and delays as given, the turns and wall clock as multiplied."""
+    task = parse_task(json.dumps(own_task()).encode())
+    bounds = BOUNDS.model_copy(update={"binary_max_retries": 2, "infra_retry_delays_s": (60.0,)})
+    pins = raw.pins(task, _setup(tmp_path, bounds=bounds))
+    assert pins.get("bounds") == {
+        "binary_max_retries": 2,
+        "infra_retry_delays_s": [60.0],
+        "session_max_turns": 450,
+        "session_wall_clock_s": 5400.0,
     }
