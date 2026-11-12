@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +84,8 @@ class End:
     requests: int
 
 
-#: Measured at the scripted endpoint on macOS, 12.11.2026; the two pins end alike.
+#: Measured at the scripted endpoint on macOS, 12.11.2026; the two pins end alike, and this
+#: is what each reader makes of each end on 2.1.301.
 _MEASURED: dict[str, End] = {
     # The end is taken; that this session carried no plan is the decomposition's next check.
     "completed": End(
@@ -153,7 +154,25 @@ _MEASURED: dict[str, End] = {
         3,
     ),
 }
-ENDS: dict[str, dict[str, End]] = {"2.1.301": dict(_MEASURED), "2.1.322": dict(_MEASURED)}
+#: The binaries end alike. What a role session and the decomposition call make of two of the
+#: ends differs by pin: from 2.1.322 on each is a cause of its own, by the binary's name for
+#: it; on 2.1.301 both stay the cause without a name, as that pin's runs recorded them.
+ENDS: dict[str, dict[str, End]] = {
+    "2.1.301": dict(_MEASURED),
+    "2.1.322": {
+        **_MEASURED,
+        "prompt_too_long": replace(
+            _MEASURED["prompt_too_long"],
+            role_session=("infrastructure", "prompt_too_long"),
+            decomposition="prompt_too_long",
+        ),
+        "structured_output_retry_exhausted": replace(
+            _MEASURED["structured_output_retry_exhausted"],
+            role_session=("infrastructure", "structured_output_retry_exhausted"),
+            decomposition="structured_output_retry_exhausted",
+        ),
+    },
+}
 
 #: The binary's cap on refused structured answers, per pin.
 REFUSALS_BEFORE_THE_CAP = {"2.1.301": 5, "2.1.322": 5}

@@ -102,6 +102,7 @@ class Ended:
             exit_code=self.exit_code,
             stopped_at_wall_clock=False,
             lost=captured.lost,
+            claude_version=self.version,
         )
 
     def as_a_review(self) -> str | None:
@@ -121,6 +122,7 @@ class Ended:
             answered=answered,
             refused=schema_refusal(self.stdout),
             lost=writes_lost(self.stdout),
+            claude_version=self.version,
         )[0]
 
 

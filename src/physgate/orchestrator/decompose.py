@@ -126,6 +126,8 @@ FailureCause = Literal[
     "credential_refused",
     "sandbox_unavailable",
     "disk_full",
+    "prompt_too_long",
+    "structured_output_retry_exhausted",
     "schema_refused",
     "managed_settings_changed",
     "wall_clock",
@@ -376,6 +378,7 @@ def judge(
     answered: frozenset[str],
     refused: str | None = None,
     lost: str | None = None,
+    claude_version: str | None = None,  # noqa: ARG001 - not read yet
 ) -> tuple[FailureCause | None, str, Plan | None, str | None, int]:
     """Decide from the result object whether the call produced a usable plan.
 

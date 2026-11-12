@@ -46,6 +46,8 @@ InfraCause = Literal[
     "credential_refused",
     "sandbox_unavailable",
     "disk_full",
+    "prompt_too_long",
+    "structured_output_retry_exhausted",
     "wall_clock",
     "turn_limit",
     "no_result",
@@ -55,6 +57,18 @@ InfraCause = Literal[
 #: How the binary names a sandbox it was told it must have and could not start
 #: (measured on 2.1.301 on Linux without bubblewrap: exit 1, before any request).
 SANDBOX_UNAVAILABLE = "Sandbox required but unavailable"
+
+#: The result's ``terminal_reason`` when a request outgrew the window (measured).
+PROMPT_TOO_LONG = "prompt_too_long"
+#: The result's ``terminal_reason`` when the binary's own cap on refused structured
+#: answers (five, on both binaries) ended the session: every refusal before it was told
+#: to the session, so a fresh one would repeat it (measured on both binaries).
+STRUCTURED_OUTPUT_EXHAUSTED = "structured_output_retry_exhausted"
+
+#: The pins on which those two ends are a cause of their own outside a review. On the
+#: earlier pins they stay the cause every end without a name of its own gets, so what
+#: those pins' runs record is what it was.
+NAMED_END_VERSIONS = frozenset({"2.1.322"})
 
 #: The HTTP statuses the binary reports for a credential the API refused.
 CREDENTIAL_REFUSED_STATUSES = frozenset({401, 403})
@@ -120,6 +134,7 @@ def classify_session_end(
     exit_code: int | None,
     stopped_at_wall_clock: bool,
     lost: str | None = None,
+    claude_version: str | None = None,  # noqa: ARG001 - not read yet
 ) -> SessionEnd:
     """Classify how a session ended from its result object and exit.
 
@@ -131,6 +146,7 @@ def classify_session_end(
         lost: what the binary said after its result it could not save, if it said so: a
             session that would otherwise be a completed one is infrastructure under
             ``disk_full``, and one that ended for another reason keeps that reason.
+        claude_version: the pin the session ran on, if the caller names it.
     """
     if stopped_at_wall_clock:
         return SessionEnd(outcome="infrastructure", cause="wall_clock")

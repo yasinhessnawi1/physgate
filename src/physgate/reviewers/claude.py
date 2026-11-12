@@ -56,7 +56,12 @@ from typing import Any
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
 from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import classify_session_end, writes_lost
+from physgate.orchestrator.budget import (
+    PROMPT_TOO_LONG,
+    STRUCTURED_OUTPUT_EXHAUSTED,
+    classify_session_end,
+    writes_lost,
+)
 from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.credentials import (
     Credential,
@@ -141,12 +146,6 @@ from physgate.reviewers.verdict import Unavailable, judge, to_result
 SYNTHETIC_MODEL = "<synthetic>"
 #: How the binary marks a compaction in the stream (measured on both binaries).
 COMPACT_BOUNDARY = "compact_boundary"
-#: The result's ``terminal_reason`` when a request outgrew the window (measured).
-PROMPT_TOO_LONG = "prompt_too_long"
-#: The result's ``terminal_reason`` when the binary's own cap on refused structured
-#: answers (five, on both binaries) ended the session: every refusal before it was told
-#: to the reviewer, so a fresh session would repeat it (measured on both binaries).
-STRUCTURED_OUTPUT_EXHAUSTED = "structured_output_retry_exhausted"
 
 
 def _parts(read: Path, parts: tuple[Part, ...]) -> str:

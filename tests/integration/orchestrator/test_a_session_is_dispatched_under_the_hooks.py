@@ -25,6 +25,7 @@ from scripted_endpoint import (  # noqa: E402
     DUMMY_KEY,
     DUMMY_OAUTH_TOKEN,
     Script,
+    failure,
     serving,
     text,
     tool,
@@ -274,6 +275,22 @@ def test_the_turn_limit_is_an_infrastructure_outcome(tmp_path: Path, install_bin
     steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("x")]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps, cfg)
     assert report.end.cause == "turn_limit"
+
+
+#: What a dispatched session whose request outgrew the window ends under, per pin: the
+#: binary's own name for it from 2.1.322 on, and the cause without a name before.
+OUTGREW_THE_WINDOW = {"2.1.301": "unexpected_exit", "2.1.322": "prompt_too_long"}
+
+
+def test_a_dispatched_session_whose_request_outgrew_the_window_ends_under_its_pin_s_cause(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    too_long = failure(400, "invalid_request_error", "prompt is too long: 210000 tokens > 200000")
+    api, (report, _), _ = dispatch(tmp_path, install_bin, [too_long])
+    version = binary_version(claude_binary())
+    assert version in OUTGREW_THE_WINDOW, f"nothing was measured on {version}"
+    assert (report.end.outcome, report.end.cause) == ("infrastructure", OUTGREW_THE_WINDOW[version])
+    assert report.attempt_commit is None and report.trajectory_tampered is None
 
 
 def test_a_binary_that_is_not_the_recorded_version_is_refused_before_any_spawn(
