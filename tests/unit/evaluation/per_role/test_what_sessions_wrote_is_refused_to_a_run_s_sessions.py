@@ -376,6 +376,8 @@ def test_the_install_command_carries_a_protected_root_s_exceptions(
     argv += ["--state-dir", str(base / "state"), "--target", str(base / "session")]
     argv += ["--claude-config-dir", str(base / "config"), "--user-home", str(base / "home")]
     argv += ["--ceiling", "40960", "--protect", str(store), "--protect-except", str(own)]
+    # What every baseline session is installed with: its own directory and its own temp.
+    argv += ["--sessions-root", str(base / "session"), "--temp", "/var/tmp/pgs/0123456789"]
     try:
         assert main(argv) == 0
     except (SystemExit, ValueError) as exc:
