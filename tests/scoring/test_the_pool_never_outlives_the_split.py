@@ -552,9 +552,9 @@ def test_a_version_removed_or_renamed_while_the_check_ran_refuses_its_answer(
 
     checked = _checked(tmp_path, monkeypatch, answer_and_move)
     assert checked.get("raised"), f"the check's answer was taken after a version was {how}"
-    if how != "renamed in another case":
-        # Renamed, its visible tier is no longer a version's, so the canary walk refuses first.
-        assert checked.get("refused_because") == "version_changed", checked
+    # Renamed, its visible tier is no longer a version's, so the canary walk refuses first.
+    expected = "canary_list_missing" if how == "renamed in another case" else "version_changed"
+    assert checked.get("refused_because") == expected, checked
     assert (_root(tmp_path) / "check.working").is_file(), "the record went, though a version moved"
 
 
@@ -574,6 +574,8 @@ def test_a_task_copy_dropped_in_the_role_s_root_refuses_the_answer_and_stays_ref
     # Its record stays for a person, so nothing starts on the store until one has looked.
     record = _root(tmp_path) / "check.working"
     assert record.is_file() and "copy.json" in record.read_text()
+    assert json.loads(record.read_text()).get("session") == "ended", record.read_text()
+    assert checked.get("session_ended") == "ended", checked
     assert leftovers(_store(tmp_path))["work_left"] >= 1
     assert not check_work(_store(tmp_path)).exists(), "the check's work stayed out"
 
@@ -624,7 +626,18 @@ def test_the_role_s_root_is_looked_at_again_however_the_check_s_session_ends(
     # A refusal the check already raised keeps its own reason; any other end is the change's.
     expected = "held_out_seen" if ending == "its stream showed a canary" else "version_changed"
     assert raised.context.get("refused_because") == expected
-    assert (_root(tmp_path) / "check.working").is_file(), "the record went, though the root changed"
+    record = _root(tmp_path) / "check.working"
+    assert record.is_file(), "the record went, though the root changed"
+    # The refusal replaces a stop, so the record says which the session's end was.
+    ended = {
+        "an exception": "failed",
+        "a stop": "stopped",
+        "a timeout": "failed",
+        "its stream showed a canary": "refused",
+    }[ending]
+    assert json.loads(record.read_text()).get("session") == ended, record.read_text()
+    if ending != "its stream showed a canary":
+        assert raised.context.get("session_ended") == ended, raised.context
 
 
 def test_an_author_whose_session_does_not_withhold_every_role_s_root_is_refused(
@@ -654,8 +667,10 @@ def test_an_author_refuses_a_store_where_another_role_s_root_would_trip_its_sess
     fake = FakeSession(_tasks(24))
     monkeypatch.setattr(author_session, "run_session", fake)
     (tmp_path / "scratch").mkdir()
-    with pytest.raises(AuthoringError):
+    with pytest.raises(AuthoringError) as refused:
         author_session.author(_plan(tmp_path), _setup(tmp_path / "private"))
+    assert refused.value.context.get("refused_because") == "root_would_trip_the_session"
+    assert "a-link" in refused.value.context.get("problems", "")
     assert fake.calls == []
 
 

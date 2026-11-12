@@ -301,7 +301,12 @@ def _require_clear(root: Path) -> None:
             "the protected root would have the session refused every tool call; "
             "remove these first: " + "; ".join(problems)
         )
-        raise AuthoringError(msg, root=str(root), problems=" | ".join(problems))
+        raise AuthoringError(
+            msg,
+            refused_because="root_would_trip_the_session",
+            root=str(root),
+            problems=" | ".join(problems),
+        )
 
 
 #: The largest canary list read: a few dozen canaries per tier, a few tiers per root.
@@ -1189,15 +1194,35 @@ def _why(tops: Sequence[str]) -> str:
     return "role_root_changed"
 
 
-def _held_for_a_person(record: Path, work: Path, changed: Sequence[str]) -> None:
+def _ending(raised: BaseException | None) -> str:
+    """How the check's session ended, in one word a record and a refusal carry.
+
+    ``ended`` (it returned and nothing refused its answer), ``refused`` (a refusal of the
+    check's own), ``stopped`` (a person's stop or the process's exit), or ``failed`` (anything
+    else raised).
+    """
+    if raised is None:
+        return "ended"
+    if isinstance(raised, AuthoringError):
+        return "refused"
+    if isinstance(raised, KeyboardInterrupt | SystemExit):
+        return "stopped"
+    return "failed"
+
+
+def _held_for_a_person(record: Path, work: Path, changed: Sequence[str], session: str) -> None:
     """Leave the check's record of its work with what changed, for a person to look at.
 
     The record stays (a ``.working`` record), so no run, author or check starts on the store
     until a person has looked at what changed and removed it (:func:`.tiers.store.leftovers`).
+    It says how the session ended (:func:`_ending`): a refusal raised for the change after a
+    person's stop reads as a refusal, and the record is where the stop is told apart.
     """
     # The record is there whatever it says: it refuses all the same.
     with contextlib.suppress(OSError):
-        record.write_text(json.dumps({"work": str(work), "changed": list(changed)}) + "\n")
+        record.write_text(
+            json.dumps({"work": str(work), "changed": list(changed), "session": session}) + "\n"
+        )
 
 
 def bundle(tier: Path) -> dict[str, dict[str, Any]]:
@@ -1258,7 +1283,12 @@ def blind_check(
     However its session ends, an answer, an error, a timeout or a stop, everything under the
     role's root but ``work`` is looked at again and held to what it was before the session;
     a change anywhere, a version removed, renamed or rewritten, a file added, refuses the
-    answer and leaves the check's record for a person to look at.
+    answer and leaves the check's record for a person to look at. That refusal replaces
+    whatever else the session ended with but a refusal of the check's own, a person's stop
+    included: a stop during which the root changed is raised as the refusal, never passed on
+    as a stop, and the refusal (``session_ended``) and the record (``session``) both say which
+    it was: ``ended``, ``stopped`` or ``failed`` (``refused`` in the record of a refusal that
+    kept its own reason).
 
     Raises:
         AuthoringError: the checking model is the implementers', ``work`` is inside a
@@ -1309,6 +1339,7 @@ def blind_check(
     before = _looked_at(root, work)
     changed: list[str] = []
     refused: AuthoringError | None = None
+    raised: BaseException | None = None
     try:
         try:
             record = run_session(
@@ -1318,22 +1349,32 @@ def blind_check(
             _require_none_came(root, canaries, "its answer is not taken")
             answers = read_answers(work / "worktree" / "answers.json", list(tasks))
         except AuthoringError as exc:
-            refused = exc
+            refused = raised = exc
+            raise
+        except BaseException as exc:
+            raised = exc
             raise
         finally:
             # However the session ended (an answer, an error, a timeout, a stop): the role's
             # root is looked at again, and anything changed but the check's own work refuses,
             # its record kept for a person. A refusal already raised keeps its own reason.
             changed = _changed(before, _looked_at(root, work))
+            session = _ending(raised)
             if changed:
-                _held_for_a_person(working, work, changed)
+                _held_for_a_person(working, work, changed, session)
             if changed and refused is None:
                 tops = sorted({c.split(":")[0].split("/")[0] for c in changed})
                 msg = (
                     f"the role's root changed while the check ran ({'; '.join(changed[:8])}); "
-                    "its answer is not taken, and its record stays for a person to look at"
+                    "its answer is not taken, and its record stays for a person to look at "
+                    f"(the session {session})"
                 )
-                raise AuthoringError(msg, refused_because=_why(tops), changed=" | ".join(tops))
+                raise AuthoringError(
+                    msg,
+                    refused_because=_why(tops),
+                    changed=" | ".join(tops),
+                    session_ended=session,
+                )
     finally:
         # The work holds the held-out tasks it was given: it never stays outside the root.
         _closed(_keep_evidence(work, record, check_evidence(store, role)))
