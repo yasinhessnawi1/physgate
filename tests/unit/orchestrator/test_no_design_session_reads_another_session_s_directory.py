@@ -105,9 +105,10 @@ def _installed(base: Path, monkeypatch: pytest.MonkeyPatch, profile: str) -> Ses
         i = argv.index("--role")
         argv = argv[:i] + argv[i + 2 :]
         argv[argv.index("--profile") + 1] = profile
-    # The installer is run in this process; whether the OS layer may be absent is its own
-    # question, not this row's.
+    # The installer is run in this process; whether the OS layer may be absent, and whether the
+    # hooks asked for are the ones the run recorded, are their own questions, not this row's.
     monkeypatch.setattr(hooks_cli, "_os_layer_refusal", lambda _args: None)
+    monkeypatch.setattr(hooks_cli, "_hooks_refusal", lambda _args: None)
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         assert hooks_cli.main(argv[1:]) == 0
