@@ -40,6 +40,7 @@ from physgate.orchestrator.invocation import reviewer_argv
 from physgate.orchestrator.managed import (
     POLICY_LIMITS,
     REMOTE_CACHE,
+    FlagCache,
     ObservedTraffic,
     SessionManaged,
 )
@@ -72,6 +73,9 @@ if "--debug-file" in args:
 if "policy" in mode:
     with open(os.path.join(config, "policy-limits.json"), "wb") as out:
         out.write(b'{"restrictions": {}}')
+if "flags" in mode:
+    with open(os.path.join(config, ".claude.json"), "w") as out:
+        json.dump({"userID": "u", "cachedGrowthBookFeatures": {"b": 2, "a": {"on": True}}}, out)
 if "remote" in mode:
     with open(os.path.join(config, "remote-settings.json"), "w") as out:
         out.write('{"permissions": {"allow": ["Bash"]}}')
@@ -182,6 +186,26 @@ def test_a_review_session_on_2_1_322_records_the_policy_limits_it_received(
     (seen,) = reviewer._seen
     assert seen.policy_limits_sha256 == hashlib.sha256(POLICY).hexdigest()
     assert (sdir / "config" / POLICY_LIMITS).is_file()
+
+
+def test_a_review_session_on_2_1_322_records_the_flag_cache_its_binary_left(
+    tmp_path: Path,
+) -> None:
+    reviewer, sdir, read = _reviewer(tmp_path, "2.1.322")
+    _spawn(reviewer, sdir, read, mode="flags")
+    (seen,) = reviewer._seen
+    flags = json.dumps({"a": {"on": True}, "b": 2}).encode()  # its keys sorted
+    assert seen.flag_cache == FlagCache(entries=2, sha256=hashlib.sha256(flags).hexdigest())
+    assert seen.model_dump(mode="json")["flag_cache"]["entries"] == 2
+
+
+def test_a_review_session_on_2_1_301_reads_no_flag_cache_whatever_its_binary_left(
+    tmp_path: Path,
+) -> None:
+    reviewer, sdir, read = _reviewer(tmp_path, "2.1.301")
+    _spawn(reviewer, sdir, read, mode="flags")
+    assert (sdir / "config" / ".claude.json").is_file()
+    assert reviewer._seen == []
 
 
 def test_a_review_session_on_2_1_322_records_remote_managed_settings_delivered_to_it(

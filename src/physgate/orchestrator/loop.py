@@ -1064,6 +1064,7 @@ class Loop:
                 decisions_bytes=self._decisions_bytes(),
                 policy_limits_sha256=report.policy_limits_sha256,
                 observed_traffic=report.observed_traffic,
+                flag_cache=report.flag_cache,
                 issued_spec_sha256=report.issued_spec_sha256,
                 series=report.series,
             )

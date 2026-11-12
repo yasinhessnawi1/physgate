@@ -42,7 +42,7 @@ from physgate.orchestrator.invocation import (  # noqa: E402
     claude_binary,
     session_env_settings,
 )
-from physgate.orchestrator.managed import system_managed_paths  # noqa: E402
+from physgate.orchestrator.managed import flag_cache, system_managed_paths  # noqa: E402
 from physgate.orchestrator.merge import RunGit  # noqa: E402
 from physgate.orchestrator.ports import SessionRequest  # noqa: E402
 from physgate.orchestrator.run_config import RunConfig, write_run_config  # noqa: E402
@@ -216,6 +216,13 @@ def test_a_session_reads_works_and_proposes_under_the_generated_settings(
     assert (report.observed_traffic is not None) == on
     assert not (sdir / "config" / "debug.log").exists()
     assert ("--debug-file" in record["argv"]) == on
+    # The flag cache the binary left is recorded on 2.1.322 as it is read from the session's
+    # own configuration directory, and never on the earlier pins, which fetch no flags.
+    # Measured at the scripted endpoint (macOS, 12.11.2026): 2.1.322 leaves about 1,250
+    # flags there even so, fetched from the provider's own service; 2.1.301 leaves none.
+    left = flag_cache(sdir / "config")
+    assert report.flag_cache == (left if on else None)
+    assert on or left is None
 
 
 def test_the_first_tool_but_read_is_refused_until_the_reading_is_done(

@@ -85,7 +85,12 @@ from physgate.orchestrator.invocation import (
     role_argv,
     session_search_path,
 )
-from physgate.orchestrator.managed import ObservedTraffic, drift, policy_limits_digest
+from physgate.orchestrator.managed import (
+    ObservedTraffic,
+    drift,
+    flag_cache,
+    policy_limits_digest,
+)
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import (
     Leftover,
@@ -1544,6 +1549,13 @@ class ClaudeDispatcher:
             managed_drift=drift(sdir / "config", system_before),
             policy_limits_sha256=policy_limits_digest(sdir / "config"),
             observed_traffic=observed,
+            # Read on a pin whose sessions fetch the flags, where the binary keeps them; the
+            # earlier pins fetch none, and their record is what it was.
+            flag_cache=(
+                flag_cache(sdir / "config")
+                if self._config.claude_version in TRAFFIC_ALLOWED_VERSIONS
+                else None
+            ),
             trajectory_seal=sealed,
             trajectory_tampered=tampered,
             review_material_seen=seen,

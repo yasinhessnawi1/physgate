@@ -52,8 +52,10 @@ from physgate.orchestrator.invocation import (
     version_argv,
 )
 from physgate.orchestrator.managed import (
+    FlagCache,
     ObservedTraffic,
     drift,
+    flag_cache,
     flags_off_by_setting,
     observe_traffic,
     policy_limits_digest,
@@ -293,6 +295,8 @@ class Outcome(_Frozen):
     policy_limits_sha256: str | None = None
     #: The served catalog and feature flags as the call's debug log showed them.
     observed_traffic: ObservedTraffic | None = None
+    #: The flag cache the call left, on a pin whose sessions fetch the flags.
+    flag_cache: FlagCache | None = None
 
 
 def read_stream(
@@ -528,6 +532,10 @@ def call(
         num_turns=turns,
         policy_limits_sha256=policy_limits_digest(workdir / "config"),
         observed_traffic=observed,
+        # The run's first reading, on a pin whose sessions fetch the flags.
+        flag_cache=(
+            flag_cache(workdir / "config") if reported in TRAFFIC_ALLOWED_VERSIONS else None
+        ),
     )
 
 
@@ -732,6 +740,7 @@ def start_run(
             head_revision=head,
             policy_limits_sha256=outcome.policy_limits_sha256,
             observed_traffic=outcome.observed_traffic,
+            flag_cache=outcome.flag_cache,
         ),
     )
     return record

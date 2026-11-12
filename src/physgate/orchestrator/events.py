@@ -592,8 +592,20 @@ class Decomposed(_Event):
 
 
 def flag_cache_readings(events: Iterable[_Event]) -> tuple[FlagCache, ...]:
-    """Every flag cache a run's sessions left, in the order the log holds them."""
-    return ()
+    """Every flag cache a run's sessions left, in the order the log holds them.
+
+    The decomposition call's, each role session's, and each invocation of each review's
+    session, whether or not the review gave a verdict.
+    """
+    found: list[FlagCache | None] = []
+    for event in events:
+        if isinstance(event, (Decomposed, SessionEnded)):
+            found.append(event.flag_cache)
+        elif isinstance(event, ReviewRan):
+            found.extend(m.flag_cache for m in event.result.managed)
+        elif isinstance(event, ReviewUnavailable):
+            found.extend(m.flag_cache for m in event.managed)
+    return tuple(r for r in found if r is not None)
 
 
 class WriteIntended(_Event):

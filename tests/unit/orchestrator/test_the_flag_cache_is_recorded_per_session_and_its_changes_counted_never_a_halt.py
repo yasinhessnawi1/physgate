@@ -18,11 +18,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import stat
+import sys
 from pathlib import Path
 
 import pytest
 from loop_fakes import FakeDispatcher, Rig, plan, usage
+from orch_helpers import SCRIPTED_BOUNDS, make_config
 
+import physgate.orchestrator.decompose as decompose
+from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.events import (
     Halted,
     Incident,
@@ -253,3 +258,47 @@ def test_a_session_that_left_no_cache_is_recorded_byte_for_byte_as_before(tmp_pa
     lines = (tmp_path / "events.jsonl").read_text().split("\n")
     assert not any("flag_cache" in line for line in lines)
     assert flag_drift(flag_cache_readings(read_events(tmp_path / "events.jsonl"))) is None
+
+
+#: A stand-in binary for the decomposition call: it reports the version in its own name, writes
+#: the log it is asked for, and leaves a state file with a table of flags as 2.1.322 does.
+STANDIN = r"""
+import json, os, sys
+args = sys.argv[1:]
+if args == ["--version"]:
+    print(os.path.basename(sys.argv[0]).removeprefix("claude-") + " (Claude Code)")
+    sys.exit(0)
+with open(args[args.index("--debug-file") + 1], "w") as out:
+    out.write("[servedCatalog] off (essential_traffic)\nGrowthBook is off for this session\n")
+config = os.environ["CLAUDE_CONFIG_DIR"]
+os.makedirs(config, exist_ok=True)
+with open(os.path.join(config, ".claude.json"), "w") as out:
+    json.dump({"cachedGrowthBookFeatures": {"tengu_b": 1, "tengu_a": 2}}, out)
+sys.exit(0)
+"""
+
+
+@pytest.mark.parametrize(
+    ("version", "read"),
+    [
+        ("2.1.322", FlagCache(entries=2, sha256=_digest({"tengu_a": 2, "tengu_b": 1}))),
+        ("2.1.301", None),  # an earlier pin fetches no flags: nothing is read, whatever is there
+    ],
+)
+def test_the_decomposition_call_s_flag_cache_is_the_run_s_first_reading_on_the_new_pin_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: str, read: FlagCache | None
+) -> None:
+    binary = tmp_path / "bin" / f"claude-{version}"
+    binary.parent.mkdir()
+    binary.write_text(f"#!{sys.executable}\n{STANDIN}")
+    binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(binary))
+    outcome = decompose.call(
+        "brief",
+        config=make_config(claude_version=version, bounds=SCRIPTED_BOUNDS),
+        workdir=tmp_path / "w",
+        base_url=None,
+        credential=Credential("api_key", "not-a-key"),
+    )
+    assert (tmp_path / "w" / "config" / ".claude.json").is_file()
+    assert outcome.flag_cache == read

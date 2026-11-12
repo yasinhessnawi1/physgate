@@ -182,6 +182,7 @@ class RunRecord:
                     head_revision=decomposed.head_revision,
                     policy_limits_sha256=decomposed.policy_limits_sha256,
                     observed_traffic=decomposed.observed_traffic,
+                    flag_cache=decomposed.flag_cache,
                 )
             )
         for entry in plan:

@@ -223,13 +223,34 @@ class FlagDrift(BaseModel):
 
 
 def flag_cache(config_dir: Path) -> FlagCache | None:
-    """The flag cache an invocation left in its configuration directory, or ``None``."""
-    return None
+    """The flag cache an invocation left in its configuration directory, or ``None``.
+
+    ``None`` where the binary left no state file, one that is not a JSON table, or one with
+    no table of flags in it: no reading, which is not an empty cache. Only the count and the
+    digest leave here; the file holds the account's own state beside the flags.
+    """
+    try:
+        state = json.loads((Path(config_dir) / FLAG_CACHE_FILE).read_bytes())
+    except (OSError, ValueError):
+        return None
+    flags = state.get(FLAG_CACHE_KEY) if isinstance(state, dict) else None
+    if not isinstance(flags, dict):
+        return None
+    canonical = json.dumps(flags, sort_keys=True).encode()
+    return FlagCache(entries=len(flags), sha256=hashlib.sha256(canonical).hexdigest())
 
 
 def flag_drift(readings: Iterable[FlagCache | None]) -> FlagDrift | None:
-    """The count of a run's flag-cache readings and of the changes between them."""
-    return None
+    """The count of a run's flag-cache readings and of the changes between them, or ``None``.
+
+    A session that left no cache is no reading and is skipped; a run with no reading at all
+    has no count. A cache that went back to an earlier state changed twice.
+    """
+    read = [r for r in readings if r is not None]
+    if not read:
+        return None
+    changes = sum(1 for before, now in zip(read, read[1:], strict=False) if now != before)
+    return FlagDrift(readings=len(read), changes=changes)
 
 
 class SessionManaged(BaseModel):

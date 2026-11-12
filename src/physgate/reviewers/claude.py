@@ -96,6 +96,7 @@ from physgate.orchestrator.managed import (
     SessionManaged,
     SystemManagedFile,
     drift,
+    flag_cache,
     policy_limits_digest,
     system_managed_facts,
 )
@@ -837,6 +838,7 @@ class ClaudeReviewer:
             observed_traffic=observed,
             managed_drift=drift(config, system_before),
             policy_limits_sha256=policy_limits_digest(config),
+            flag_cache=flag_cache(config),
         )
 
 
