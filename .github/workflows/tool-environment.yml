@@ -142,7 +142,10 @@ jobs:
         # address is given to that loopback with a listener behind it: the address the
         # tests' own network probe names. A session with the OS layer off must still be
         # seen reaching it, or the probe's "refused" inside the layer would prove nothing;
-        # the sandbox's own namespace does not have that loopback.
+        # the sandbox's own namespace does not have that loopback. The listener stands in
+        # for the outside host and is not one: it lives on the namespace's own loopback,
+        # answers nothing, and ends with the command, so the control reaches something
+        # while no packet leaves the namespace.
         run: |
           cat > "$RUNNER_TEMP/offline" <<'SH'
           #!/usr/bin/env bash
