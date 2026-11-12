@@ -22,6 +22,7 @@ const VIEWS = [
   "Run records",
   "Library",
   "Glossary",
+  "Settings",
 ];
 
 function operatorHash(): string {

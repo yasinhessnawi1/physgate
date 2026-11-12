@@ -18,7 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -29,9 +29,12 @@ from ui_rig import context_over, evaluation_rig, fake_ui, sealed_session, servin
 from physgate.orchestrator.protocols import QuantityRef
 from physgate.orchestrator.run_config import load_run_config
 from physgate.state.store import journal_records_after
+from physgate.ui import engines
 from physgate.ui.routes import Route
 from physgate.ui.table import ROUTES
 
+#: The checkout itself, whose engine catalogue the sweep serves, so that route has a record too.
+REPO = Path(__file__).resolve().parents[3]
 RUN = "run-held"
 PRICES = "2026-09-27"
 #: The tier's fields in the record, each of which no answer may carry.
@@ -113,6 +116,7 @@ def _serve(world: World, *targets: str) -> list[tuple[str, int, bytes]]:
     held_out = tuple(str(r) for r in world.roots)
     answers = []
     context = context_over(world.runs, ui_root=world.ui, held_out=held_out, library=world.library)
+    context = replace(context, engines=engines.load(REPO, context.allowlist))
     with serving(context) as live:
         for target in targets:
             status, _, body = live.request("GET", target)

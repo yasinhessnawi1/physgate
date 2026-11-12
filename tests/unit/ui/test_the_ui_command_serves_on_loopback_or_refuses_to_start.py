@@ -554,3 +554,35 @@ def test_a_command_its_test_never_stops_is_stopped_when_the_test_ends(
         assert process.stdout is not None
         left_running.children.append(int(process.stdout.readline()))
     assert str(_started(process)["url"]).startswith("http://127.0.0.1:")
+
+
+# -- the engine catalogue ------------------------------------------------------------------------
+
+
+def test_the_command_serves_this_checkout_s_engine_catalogue_as_its_bytes_read_at_start(
+    world: dict[str, Path], commands: Launch
+) -> None:
+    """Through the real command: the catalogue it serves is the checkout's own file, whole."""
+    import hashlib
+
+    real = Path(__file__).resolve().parents[3] / "desktop" / "onboarding" / "engines.json"
+    data = real.read_bytes()
+    process = commands(str(world["ui"]), "ui", "--root", str(world["root"]), "--port", "0")
+    try:
+        started = _started(process)
+        port = int(str(started["url"]).rsplit(":", 1)[1].strip("/"))
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=STOP_WITHIN_S)
+        connection.request("GET", "/api/engines")
+        response = connection.getresponse()
+        answer = json.loads(response.read())
+        connection.close()
+    finally:
+        stop_command(process)
+    assert response.status == 200, answer
+    assert answer == {
+        "file": "desktop/onboarding/engines.json",
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "length": len(data),
+        "catalogue": json.loads(data),
+    }
+    assert process.returncode == 0
