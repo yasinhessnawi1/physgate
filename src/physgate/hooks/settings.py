@@ -228,6 +228,11 @@ class InstallRequest(BaseModel):
 DISCIPLINE_HOOKS = ("graph", "reading", "token_ceiling")
 
 
+def full_session(request: InstallRequest) -> InstallRequest:
+    """``request`` as a full role session's, the discipline on: what the OS layer is made of."""
+    return request.model_copy(update={"hooks": "on"})
+
+
 def wired_hooks(request: InstallRequest, registry: Mapping[str, HookSpec]) -> dict[str, HookSpec]:
     """The hooks ``request``'s session runs: all of ``registry``, or all but the discipline's."""
     dropped = DISCIPLINE_HOOKS if request.hooks == "off" else ()
@@ -482,9 +487,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         for path in _design_discipline(worktree):
             protected.pop(path, None)
     if request.hooks == "off":
-        # An ablation run's arm without the design discipline: the worktree's own sources are
-        # writable, and nothing else is. The series writer and its outbox are kept, unlike the
-        # raw agent's: the gate and the reviewers read the records sealed through them.
+        # An ablation run's arm without the design discipline: the hooks leave the worktree's own
+        # sources to the file tools, and nothing else. The OS layer still denies them to every
+        # shell command (``install``). The series writer and its outbox are kept, unlike the raw
+        # agent's: the gate and the reviewers read the records sealed through them.
         for path in _worktree_sources(worktree):
             protected.pop(path, None)
     # The one root the OS layer leaves to scripts: a record arrives by a script's own write,
@@ -999,7 +1005,8 @@ def install(
         misplaced = placement_refusal(Path(request.worktree), writable)
         if misplaced is not None:
             raise ValueError(misplaced)
-    config = build_config(request, installation or current_installation())
+    installation = installation or current_installation()
+    config = build_config(request, installation)
     target = Path(request.target_dir)
     target.mkdir(parents=True, exist_ok=True)
     config_path = target / CONFIG_NAME
@@ -1054,7 +1061,10 @@ def install(
             spawn_env.update(reaper_install.spawn_env(reaper_dir))
         _make_file_tool_dirs(request.worktree)
         policy = sandbox_policy(
-            config,
+            # Under hooks: off the hooks drop the discipline and the OS layer keeps every rule it
+            # gives a full role session: the arm switches off hooks, not the operating system's
+            # layer, so the layer is generated from the registry a full session's hooks read.
+            config if request.hooks == "on" else build_config(full_session(request), installation),
             home=request.user_home,
             temp_dir=temp,
             readable=readable,

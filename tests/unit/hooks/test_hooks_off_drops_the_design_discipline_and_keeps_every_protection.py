@@ -6,8 +6,12 @@ under ``hooks: off`` drops exactly that discipline and nothing else:
 - the hooks that hold it, unwired: required reading, the always-loaded ceiling and the checks on
   a proposal before it is written. Each is checked again where it counts: a proposal by the store
   and the change check at apply, the completion declaration and a dispute by the loop;
-- the write protection of the worktree's own gate source, hook source and knowledge tree. The
-  live gate and hooks run from the harness checkout and the installation, which stay protected.
+- the hooks' write protection of the worktree's own gate source, hook source and knowledge tree,
+  which the file tools may then write. The live gate and hooks run from the harness checkout and
+  the installation, which stay protected.
+
+The arm switches off hooks, not the operating system's layer: the layer's rules are exactly a
+full role session's, those three sources still denied to every shell command.
 
 Every other root is kept exactly as a role session has it: the run's own records, the series
 writer and its outbox, the harness checkout and installation, the held-out tier, the answer keys,
@@ -399,8 +403,10 @@ def test_the_os_layer_denies_exactly_what_it_denies_a_full_session(outside_tmp: 
         k: v for k, v in on.items() if k != "hooks"
     }
     deny_write = set(off["sandbox"]["filesystem"]["denyWrite"])
-    assert _dropped(outside_tmp) <= deny_write
     worktree = outside_tmp / "worktree"
+    # The knowledge tree is denied around its staging directory, entry by entry, as for a full
+    # session; the equality above holds it. The two source trees are denied whole.
+    assert {str(worktree / "src/physgate/gate"), str(worktree / "src/physgate/hooks")} <= deny_write
     for held in (graph.PROPOSALS_DIR, graph.COMPLETION_DIR, graph.DISPUTES_DIR):
         assert str(worktree / held) in deny_write, held
 
