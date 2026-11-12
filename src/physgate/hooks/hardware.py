@@ -15,11 +15,15 @@ be complete the table says what is allowed instead:
 
 - the programs that only ever reach a board (flashers, debug probes' servers) are a list, and
   it is not complete: a flasher it does not name is refused by nothing here;
-- the build tool and the other programs that both build and reach a board are **guarded**:
-  only the uses named as build-only pass (a build with build-only targets, a static check, a
-  listing), so an upload by a route this file does not know (a test on the target, a debug
-  session, a remote run, a program run through the tool's packages, a target added later) is
-  refused without being named;
+- the build tool and the other programs that both build and reach a board are **guarded**,
+  and a guarded program's words are read exactly or refused. Each build-only use is named
+  with every option it may carry and whether that option takes a value. A use that is not
+  named, an option that is not named, short options run together, an option glued to its
+  value, a bare ``--``, a missing value: each is refused, because this file is not the
+  program's own parser and every word the two would read differently is a way past it. So
+  an upload by a route this file does not know (a test on the target, a debug session, a
+  remote run, a program run through the tool's packages, a target or an option added later)
+  is refused without being named;
 - the devices of each platform, which the OS layer reads from here too (``oslayer.policy``),
   so the two layers cannot name different devices.
 
@@ -34,12 +38,19 @@ that names an upload is text and passes. A word of such a command that only runn
 command is fed: a device is opened by whatever program is handed its name, so there is no
 list of commands that may name one. A path is folded in case and normalised first, a pattern
 that could expand to a device (a glob, a variable) is refused as the device, and a brace
-pattern is read as every word it becomes. **A relative name is read from every directory the
-command could be in**: the call's own, and each one a ``cd`` of the call names, since the
-parser keeps no order a failed or skipped ``cd`` could be told by. A ``cd`` whose target only
-running decides could be anywhere, the devices' directory and the root among them, so after
-one a name that would be a device there is refused. Moving into the devices' directory is
-refused outright.
+pattern is read as every word it becomes.
+
+**A relative name is read from where the command could be.** Without a move that is the
+call's own directory, as it resolves. One move is followed, when it is the call's only one
+and its target is written from a known place (an absolute path, or one that starts with
+``./`` or ``../``): the command is then there, or still where it started. Anything else is
+not followed: a second move (the parser keeps no order in which two could be told apart), a
+bare relative target (the shell's search path for ``cd`` may send it anywhere), a target only
+running decides. After one of those the command could be anywhere, the devices' directories
+and the root among them, so a relative name that would be a device from one of those is
+refused. A followed move into a directory of devices is refused outright. The cost is a
+false refusal of ``cd firmware && cc usb/x.c`` where a ``usb`` directory exists: name the
+file from where the call starts.
 
 **What this layer cannot see**, stated plainly:
 
@@ -73,8 +84,9 @@ if TYPE_CHECKING:
 
     from physgate.hooks.views import ConfigView, InputView
 
-    Use = tuple[frozenset[str] | None, frozenset[str]]
-    Guard = tuple[Mapping[str, Use], frozenset[str], frozenset[str]]
+    Options = Mapping[str, int]
+    Use = tuple[Options, frozenset[str], bool]
+    Guard = tuple[Options, Mapping[str, Use]]
 
 UPLOAD = (
     "Uploading or flashing to hardware is refused: no session reaches a board, and behaviour "
@@ -88,9 +100,10 @@ DEVICE = (
 )
 ENTERING = DEVICE.format(device="the devices' directory, as the place to work from")
 NOT_BUILD = (
-    "This use of {program} is refused: it is not one of its build-only uses, and the others "
-    "can reach a board. A session builds, checks and reads sizes; it uploads, tests on a "
-    "target, debugs and monitors nothing."
+    "This use of {program} is refused: it is not one of its build-only uses, written with "
+    "options this check knows, each as a word of its own. The others can reach a board. A "
+    "session builds, checks and reads sizes; it uploads, tests on a target, debugs and "
+    "monitors nothing."
 )
 DYNAMIC = (
     "A word of this command is decided only when it runs, and the command is one that can "
@@ -136,40 +149,79 @@ _TARGET_OPTIONS = ("-t", "--target")
 #: Its serial monitor: these two words, in this order, among its own.
 MONITOR = ("device", "monitor")
 
-#: One guarded program's build-only uses: each first word that is one, with the second words
-#: it is held to (``None``: any) and the options it must carry; the options that are refused
-#: with any use; and the options before the first word that take a value.
-#: (The shape is ``Guard``, named with the other types above.)
-_ANY: Use = (None, frozenset())
+#: Options every use of the build tool that reads a project takes, each with the number of
+#: words that follow it.
+_PROJECT = {"-d": 1, "--project-dir": 1, "-e": 1, "--environment": 1}
+_QUIET = {"-s": 0, "--silent": 0, "-v": 0, "--verbose": 0}
+_NONE: frozenset[str] = frozenset()
+#: The build tool: the options before its first word, then each build-only use with the
+#: options it takes, the options it must carry, and whether it takes words of its own.
 _BUILD_TOOL: Guard = (
+    {"--version": 0, "-h": 0, "--help": 0, "--no-ansi": 0, "-c": 1, "--caller": 1},
     {
-        "run": _ANY,
-        "check": _ANY,
-        "boards": _ANY,
-        "project": _ANY,
-        "system": (frozenset({"info"}), frozenset()),
-        "settings": (frozenset({"get"}), frozenset()),
-        "pkg": (frozenset({"list", "show", "outdated", "search"}), frozenset()),
-        "device": (frozenset({"list"}), frozenset()),
+        "run": (
+            {
+                **_PROJECT, **_QUIET, "-t": 1, "--target": 1, "-c": 1, "--project-conf": 1,
+                "-j": 1, "--jobs": 1, "--disable-auto-clean": 0, "--list-targets": 0,
+            },
+            _NONE,
+            False,
+        ),
+        "check": (
+            {
+                **_PROJECT, **_QUIET, "-c": 1, "--project-conf": 1, "--pattern": 1,
+                "--severity": 1, "--fail-on-defect": 1, "--skip-packages": 0, "--json-output": 0,
+            },
+            _NONE,
+            False,
+        ),
         # Its tests upload and then read the board's port; with both stages off it only builds.
-        "test": (None, frozenset({"--without-uploading", "--without-testing"})),
+        "test": (
+            {**_PROJECT, **_QUIET, "--without-uploading": 0, "--without-testing": 0},
+            frozenset({"--without-uploading", "--without-testing"}),
+            False,
+        ),
+        "boards": ({"--installed": 0, "--json-output": 0}, _NONE, True),
+        "project config": ({**_PROJECT, "--json-output": 0}, _NONE, False),
+        "project metadata": ({**_PROJECT, "--json-output": 0}, _NONE, False),
+        "system info": ({"--json-output": 0}, _NONE, False),
+        "settings get": ({}, _NONE, True),
+        "pkg list": ({**_PROJECT, "-g": 0, "--global": 0}, _NONE, False),
+        "pkg outdated": ({**_PROJECT}, _NONE, False),
+        "pkg show": ({}, _NONE, True),
+        "pkg search": ({}, _NONE, True),
+        "device list": ({"--json-output": 0}, _NONE, False),
     },
-    frozenset({"--upload-port", "--monitor-port"}),
-    frozenset({"-c", "--caller"}),
-)
+)  # fmt: skip
+_IMAGE = {"-o": 1, "--output": 1, "--flash_mode": 1, "--flash_freq": 1, "--flash_size": 1}
+#: The image tool: what it does to files on disk, and nothing it does to a chip.
 _IMAGE_TOOL: Guard = (
+    {"-h": 0, "--help": 0, "--chip": 1},
     {
-        name: _ANY
-        for name in ("version", "image_info", "image-info", "elf2image", "merge_bin", "merge-bin")
+        "version": ({}, _NONE, False),
+        "image_info": ({"--version": 1}, _NONE, True),
+        "image-info": ({"--version": 1}, _NONE, True),
+        "elf2image": ({**_IMAGE, "--version": 1}, _NONE, True),
+        "merge_bin": ({**_IMAGE, "--format": 1}, _NONE, True),
+        "merge-bin": ({**_IMAGE, "--format": 1}, _NONE, True),
     },
-    frozenset({"-p", "--port"}),
-    frozenset({"-c", "--chip"}),
 )
+#: The sketch tool: a compile, with none of the options that upload after it.
 _SKETCH_TOOL: Guard = (
-    {"compile": _ANY, "version": _ANY},
-    frozenset({"-u", "--upload", "-p", "--port", "-P", "--programmer"}),
-    frozenset(),
-)
+    {},
+    {
+        "version": ({}, _NONE, False),
+        "compile": (
+            {
+                "-b": 1, "--fqbn": 1, "--build-path": 1, "--output-dir": 1, "--warnings": 1,
+                "--build-property": 1, "--libraries": 1, "-v": 0, "--verbose": 0, "--clean": 0,
+                "-e": 0, "--export-binaries": 0,
+            },
+            _NONE,
+            True,
+        ),
+    },
+)  # fmt: skip
 #: The programs that both build and reach a board, each held to its build-only uses.
 GUARDED: Mapping[str, Guard] = {
     "pio": _BUILD_TOOL,
@@ -199,11 +251,6 @@ _TOKEN_END = re.compile(r"""[\s'"=,;:()<>|&`]+""")
 #: Characters the shell, or a program reading a pattern, turns into something else.
 _OPEN = frozenset("*?[{$\\")
 _CD = frozenset({"cd", "pushd", "chdir"})
-#: Where a command could be after a move only running decides: anywhere, these two among
-#: them, which are the two from which a short relative name is a device.
-_ANYWHERE = ("/", "/" + _DEVICES)
-#: The most directories a call's moves are followed to; past it they count as anywhere.
-MAX_PLACES = 64
 
 
 # ---- serial devices ----------------------------------------------------------------------
@@ -219,6 +266,22 @@ def _device_names() -> tuple[str, ...]:
 
 
 _NAMES = _device_names()
+
+
+def _device_dirs() -> tuple[str, ...]:
+    """Every directory on the way to a device: the devices' own, and any between it and one."""
+    dirs = {"/" + _DEVICES}
+    for name in _NAMES:
+        parts = name.split("/")
+        for depth in range(1, len(parts)):
+            dirs.add("/" + "/".join([_DEVICES, *parts[:depth]]))
+    return tuple(sorted(dirs))
+
+
+_DEVICE_DIRS = _device_dirs()
+#: Where a command could be after a move that is not followed: anywhere, the places from
+#: which a short relative name is a device among them.
+_ANYWHERE = ("/", *_DEVICE_DIRS)
 
 
 def _could_start(pattern: str, start: str) -> bool:
@@ -323,46 +386,44 @@ def _moves_to(cmd: SimpleCommand) -> str | None | bool:
     return None
 
 
-def places_of(commands: Sequence[SimpleCommand], cwd: str) -> tuple[list[str], list[str]]:
-    """Every directory the commands of a call could be in, and those a move of theirs names.
+def places_of(commands: Sequence[SimpleCommand], cwd: str) -> tuple[list[str], bool]:
+    """Every directory a call's commands could be in, and whether a move enters the devices.
 
-    The first holds the call's own directory, as it resolves, each directory a
-    move names read from every directory before it, and the two of :data:`_ANYWHERE` once a
-    move is one only running decides or there are more than :data:`MAX_PLACES`.
+    The call's own directory, as it resolves; the target of an absolute move; the target of
+    the call's only move when it is written from that directory (``./``, ``../``); and the
+    places of :data:`_ANYWHERE` once any other move is made.
     """
-    places = [_normal(os.path.realpath(cwd))]
-    moved: list[str] = []
+    here = _normal(os.path.realpath(cwd))
+    places = [here]
+    targets = [target for target in map(_moves_to, commands) if target is not False]
     anywhere = False
-    for cmd in commands:
-        target = _moves_to(cmd)
-        if target is False:
-            continue
-        if target is None or len(places) > MAX_PLACES:
+    entering = False
+    for target in targets:
+        if target is None:
             anywhere = True
             continue
         assert isinstance(target, str)
+        from_here = len(targets) == 1 and (
+            target in (".", "..") or target.startswith(("./", "../"))
+        )
         if target.startswith("/"):
             reached = [_normal(target)]
+            places += reached
+        elif from_here:
+            reached = [_normal(here + "/" + target)]
+            places += reached
         else:
-            reached = [_normal(place + "/" + target) for place in places]
-        moved += reached
-        places += [place for place in reached if place not in places]
+            # Not followed: the command could be anywhere after it, which already holds
+            # every name that would be a device from a directory of devices.
+            anywhere = True
+            reached = []
+        # A target that climbs is read from the root as well, as every such name is.
+        climbed = _rooted(target if "/" in target else target + "/")
+        reached += [climbed] if climbed is not None else []
+        entering = entering or any(r in _DEVICE_DIRS or _is_device(r) for r in reached)
     if anywhere:
         places += _ANYWHERE
-    return places, moved
-
-
-def _enters_devices(argv: Sequence[str]) -> bool:
-    """Whether a command moves the shell into the devices' directory."""
-    if not argv or command_key(argv[0]) not in _CD:
-        return False
-    for word in argv[1:]:
-        rooted = _rooted(word if "/" in word else word + "/")
-        if rooted is not None:
-            parts = rooted.split("/")
-            if len(parts) == 2 and parts[1] and _could_be(parts[1], _DEVICES):
-                return True
-    return False
+    return places, entering
 
 
 def _words_of(cmd: SimpleCommand) -> Iterator[str]:
@@ -419,42 +480,72 @@ def upload_in(program: str, words: Sequence[str]) -> bool:
     return program in BUILD_TOOLS and (_names_upload_target(words) or _names_monitor(words))
 
 
-def build_only(program: str, words: Sequence[str]) -> bool:
-    """Whether ``words`` are one of a guarded program's build-only uses.
+def _read_options(
+    words: Sequence[str], start: int, options: Options, *, positionals: bool | None
+) -> tuple[int, dict[str, list[str]]] | None:
+    """Read ``words`` from ``start`` as options of a known shape, or ``None`` if they are not.
 
-    A program that is not guarded has no uses to hold it to. One run with options alone
-    (``--version``) does nothing.
+    Each word that starts with a dash must be one of ``options``, written whole: alone, with
+    the one word it takes after it, or as ``--name=value`` for a long one that takes a value.
+    ``positionals`` says what another word is: allowed (``True``), refused (``False``), or
+    where the reading stops (``None``). Returns where it stopped and each option's values.
+    """
+    seen: dict[str, list[str]] = {}
+    n = start
+    while n < len(words):
+        word = words[n]
+        if not word.startswith("-"):
+            if positionals is None:
+                break
+            if not positionals:
+                return None
+            n += 1
+            continue
+        name, glued, value = word.partition("=")
+        takes = options.get(name)
+        if takes is None:
+            return None
+        if glued:
+            if takes != 1 or not name.startswith("--"):
+                return None
+        elif takes == 1:
+            n += 1
+            if n >= len(words):
+                return None
+            value = words[n]
+        seen.setdefault(name, []).append(value)
+        n += 1
+    return n, seen
+
+
+def build_only(program: str, words: Sequence[str]) -> bool:
+    """Whether ``words`` are, read exactly, one of a guarded program's build-only uses.
+
+    A program that is not guarded has no uses to hold it to. One run with its own options
+    alone (``--version``) does nothing.
     """
     guard = GUARDED.get(program)
     if guard is None:
         return True
-    uses, refused, valued = guard
-    folded = [word.casefold() for word in words]
-    if any(word.split("=", 1)[0] in refused for word in folded):
+    before, uses = guard
+    opened = _read_options(words, 0, before, positionals=None)
+    if opened is None:
         return False
-    bare: list[str] = []
-    skip = False
-    for word in folded:
-        if skip:
-            skip = False
-        elif word.startswith("-"):
-            # Only before the first word does an option's value need stepping over.
-            skip = not bare and word in valued
-        else:
-            bare.append(word)
-    if not bare:
+    n = opened[0]
+    if n == len(words):
         return True
-    use = uses.get(bare[0])
+    name = words[n]
+    if name not in uses and n + 1 < len(words):
+        name, n = f"{name} {words[n + 1]}", n + 1
+    use = uses.get(name)
     if use is None:
         return False
-    seconds, required = use
-    if seconds is not None and (len(bare) < 2 or bare[1] not in seconds):
+    options, required, positionals = use
+    read = _read_options(words, n + 1, options, positionals=positionals)
+    if read is None or not required <= set(read[1]):
         return False
-    if not required <= set(folded):
-        return False
-    if program in BUILD_TOOLS and bare[0] == "run":
-        return all(target in BUILD_TARGETS for target in _targets(words))
-    return True
+    given = [target for option in _TARGET_OPTIONS for target in read[1].get(option, [])]
+    return program not in BUILD_TOOLS or all(target in BUILD_TARGETS for target in given)
 
 
 def refusal_of(program: str, words: Sequence[str]) -> str | None:
@@ -498,8 +589,6 @@ def _check_command(cmd: SimpleCommand, places: Sequence[str]) -> str | None:
         if device is not None:
             return DEVICE.format(device=device)
     argv = unwrap(cmd.argv)
-    if _enters_devices(argv):
-        return ENTERING
     unread = cmd.dynamic | cmd.expanding
     stepped = len(cmd.argv) - len(argv)
     found = _program_at(argv)
@@ -531,8 +620,8 @@ def command_refusal(command: str, cwd: str) -> str | None:
             pending[0:0] = git_ops._found_in(cmd, position)
     except ShellSyntaxError:
         return None
-    places, moved = places_of(commands, cwd)
-    if "/" + _DEVICES in moved:
+    places, entering = places_of(commands, cwd)
+    if entering:
         return ENTERING
     for cmd in commands:
         reason = _check_command(cmd, places)

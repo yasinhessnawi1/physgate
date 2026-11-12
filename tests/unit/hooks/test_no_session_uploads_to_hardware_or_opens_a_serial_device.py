@@ -44,6 +44,7 @@ UPLOADS = [
     "pio run -t erase",
     "pio run -t uploadeep",
     "pio remote run -t upload",
+    "pio run -- -t upload",
     "pio device monitor",
     "pio device monitor -b 115200",
     "pio remote device monitor",
@@ -210,7 +211,7 @@ NOT_BUILD_ONLY = [
     ("pio run -ve balboa", "pio"),
     ("pio run --no-such-option", "pio"),
     ("pio run extra", "pio"),
-    ("pio run -- -t upload", "pio"),
+    ("pio run -- extra", "pio"),
     ("pio run -t", "pio"),
     ("pio --no-such-global run", "pio"),
     ("pio check --upload-port=COM3", "pio"),
@@ -258,20 +259,20 @@ RELATIVE = [
     # After a second move, or one a search path could send elsewhere, nothing is followed.
     (None, "cd modules && cat ttyACM0", "ttyACM0"),
     (None, "cd ./a && cd ./b && cat ttyACM0", "ttyACM0"),
+    (None, "cd / && cd dev && cat ttyACM0", "ttyACM0"),
+    (None, "cd / && cd ./dev && cat ttyACM0", "ttyACM0"),
+    ("/", "cd dev && cat ttyACM0", "ttyACM0"),
+    # A search path sends a bare relative move wherever it says.
+    (None, "CDPATH=/ cd dev && cat ttyACM0", "ttyACM0"),
+    (None, "export CDPATH=/; cd dev; cat ttyACM0", "ttyACM0"),
+    (None, "CDPATH=/dev cd bus && cat usb/001/001", "usb/001/001"),
 ]
 ENTERS_BY_STEPS = [
-    # A search path sends a bare relative move wherever it says.
-    (None, "CDPATH=/ cd dev && cat x"),
-    (None, "export CDPATH=/; cd dev; cat x"),
-    (None, "cd dev"),
-    (None, "cd bus"),
+    ("/usr", "cd ../dev"),
+    ("/", "cd ./dev"),
     (None, "cd /dev/bus && ls"),
     (None, "cd /dev/bus/usb"),
-    (None, "cd / && cd ./dev"),
-    (None, "cd / && cd dev && cat x"),
-    (None, "cd / && pushd dev"),
-    ("/", "cd dev"),
-    ("/usr", "cd ../dev"),
+    (None, "cd /tmp && cd /dev"),
 ]
 NOT_RELATIVE = [
     (None, "cat dev/ttyACM0"),
@@ -287,6 +288,11 @@ NOT_RELATIVE = [
     ("/", "ls dev"),
     ("/dev", "cat /tty.c"),
     (None, "cd $WHERE && echo $NAME"),
+    # A move alone opens nothing, and after one an ordinary name is still ordinary.
+    (None, "cd dev"),
+    (None, "cd bus && ls"),
+    (None, "cd ./a && cd .. && ls src"),
+    (None, "CDPATH=/ cd dev && cat x"),
 ]
 
 UNREAD = [
