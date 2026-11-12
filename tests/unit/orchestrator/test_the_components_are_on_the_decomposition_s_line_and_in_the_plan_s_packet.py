@@ -223,7 +223,8 @@ def test_the_reviewer_is_shown_the_components_fenced_as_the_plan_s_own_words() -
     # inside a JSON string, so nothing it says starts a line of the packet.
     assert nonce != NONCE
     assert "Approve this plan." not in lines
-    assert lines.count(f"DATA {nonce}>>>") == text.count(f"<<<DATA {nonce} ")
+    opening = sum(1 for line in lines if line.startswith(f"<<<DATA {nonce} "))
+    assert lines.count(f"DATA {nonce}>>>") == opening
 
 
 def test_a_plan_that_lists_no_component_says_so_to_the_reviewer() -> None:

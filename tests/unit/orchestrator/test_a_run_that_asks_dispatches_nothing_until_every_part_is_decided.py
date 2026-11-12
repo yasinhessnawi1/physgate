@@ -13,7 +13,6 @@ item offers.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -205,8 +204,11 @@ def _forged(run_dir: Path, **fields: Any) -> None:  # noqa: ANN401
     }
     line.update(fields)
     kept = {key: value for key, value in line.items() if value is not None}
+    # Appended by hand, in the one form the queue's writer writes: the reader refuses a line
+    # in any other, and this row is about a line it reads and the run refuses.
+    written = QueueResolution.model_validate(kept).model_dump_json()
     with (run_dir / "queue_decisions.jsonl").open("a") as handle:
-        handle.write(json.dumps(kept, separators=(",", ":")) + "\n")
+        handle.write(written + "\n")
 
 
 @pytest.mark.parametrize(
