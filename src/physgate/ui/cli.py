@@ -110,7 +110,7 @@ def _fail(message: str, **context: str) -> int:
 
 
 def _serve(args: argparse.Namespace) -> int:
-    from physgate.ui import assets
+    from physgate.ui import assets, engines
     from physgate.ui.exceptions import StartupRefusedError
     from physgate.ui.paths import Allowlist
     from physgate.ui.routes import Context
@@ -125,13 +125,15 @@ def _serve(args: argparse.Namespace) -> int:
             harness=harness_root(),
             library=_library_argument(args.library),
         )
+        # Read once, here, before the server listens: no request reads the catalogue again.
+        catalogue = engines.load(harness_root(), allowlist)
         ui_root = _ui_root()
         if ui_root is None:
             msg = "the operator UI is served from a source checkout, and this is none"
             raise StartupRefusedError(msg)
         built = assets.load(ui_root)
         server = make_server(
-            Context(allowlist=allowlist, assets=built, operator=args.operator),
+            Context(allowlist=allowlist, assets=built, operator=args.operator, engines=catalogue),
             bind=args.bind,
             port=args.port,
         )

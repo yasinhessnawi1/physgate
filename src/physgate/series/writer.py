@@ -80,13 +80,96 @@ MAX_TITLE = 200
 MAX_INPUT_INTEGER = 2**63 - 1
 NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
 _UNIT_FACTOR = r"[A-Za-z_\u00b5\u03bc\u03a9]+(?:(?:\*\*|\^)-?[0-9]{1,2})?"
-UNIT_GRAMMAR_PATTERN = rf"(?:1|{_UNIT_FACTOR})(?:[ ]*[*/][ ]*{_UNIT_FACTOR})*"
+_UNIT_DENOMINATOR = rf"\([ ]*{_UNIT_FACTOR}(?:[ ]*\*[ ]*{_UNIT_FACTOR})*[ ]*\)"
+_UNIT_TERM = rf"[ ]*\*[ ]*{_UNIT_FACTOR}|[ ]*/[ ]*(?:{_UNIT_FACTOR}|{_UNIT_DENOMINATOR})"
+UNIT_GRAMMAR_PATTERN = rf"(?:1|{_UNIT_FACTOR})(?:{_UNIT_TERM})*"
 
 #: Where records go, relative to the worktree.
 OUTBOX = os.path.join(".physgate", "series")
 
 _NAME = re.compile(NAME_PATTERN)
 _UNIT = re.compile(UNIT_GRAMMAR_PATTERN)
+
+
+# The spelling a refused unit has in the unit grammar: the end of ``physgate.unit_spelling``,
+# byte for byte (a test holds it), as this file imports nothing from physgate.
+_SPELLING_TOKEN = re.compile(r"[ ]*([A-Za-z_\u00b5\u03bc\u03a9]+|[0-9]+|\*\*|[-^*/()])")
+
+
+def accepted_spelling(unit: str, longest: int) -> str | None:
+    """The spelling the unit grammar takes for ``unit``, read as the registry reads it, or None.
+
+    The unit is read with brackets nested, a power on a bracket and a quotient in one: named
+    units (the grammar's letters), the number 1, ``*``, ``/``, and a power ``**`` or ``^`` of a
+    whole number, with the registry's precedence. Anything else (another number, a fraction, a
+    power of a power, a letter the grammar does not take) has no spelling. The spelling is a
+    product of the units named, each once, in the order they first appear: those with a
+    positive power first, joined by ``*`` (``1`` where there is none), then each with a negative
+    power after a ``/``. None where a power is over 99 or the spelling over ``longest``.
+    """
+    if len(unit) > 2 * longest:
+        return None
+    tokens: list[str] = []
+    at, end = 0, len(unit.rstrip(" "))
+    while at < end:
+        found = _SPELLING_TOKEN.match(unit, at)
+        if found is None:
+            return None
+        tokens.append(found.group(1))
+        at = found.end()
+    try:
+        powers, at = _spelling_product(tokens, 0)
+    except ValueError:
+        return None
+    if at != len(tokens) or any(abs(power) > 99 for power in powers.values()):
+        return None
+    above = [n if p == 1 else f"{n}**{p}" for n, p in powers.items() if p > 0]
+    below = [n if p == -1 else f"{n}**{-p}" for n, p in powers.items() if p < 0]
+    spelling = "*".join(above) or "1"
+    for factor in below:
+        spelling += "/" + factor
+    return spelling if len(spelling) <= longest else None
+
+
+def _spelling_product(tokens: list[str], at: int) -> tuple[dict[str, int], int]:
+    """Terms joined by ``*`` and ``/`` from ``tokens[at]``: their powers, and where they end."""
+    powers, at = _spelling_term(tokens, at)
+    while at < len(tokens) and tokens[at] in ("*", "/"):
+        sign = 1 if tokens[at] == "*" else -1
+        more, at = _spelling_term(tokens, at + 1)
+        for name, power in more.items():
+            powers[name] = powers.get(name, 0) + sign * power
+    return {name: power for name, power in powers.items() if power != 0}, at
+
+
+def _spelling_term(tokens: list[str], at: int) -> tuple[dict[str, int], int]:
+    """A named unit, 1 or a bracket, with its power, from ``tokens[at]``.
+
+    Raises:
+        ValueError: the tokens hold no such term there.
+    """
+    if at >= len(tokens):
+        raise ValueError(at)
+    token = tokens[at]
+    if token == "(":
+        powers, at = _spelling_product(tokens, at + 1)
+        if at >= len(tokens) or tokens[at] != ")":
+            raise ValueError(at)
+        at += 1
+    elif token == "1":
+        powers, at = {}, at + 1
+    elif token[0] not in "0123456789-^*/()":
+        powers, at = {token: 1}, at + 1
+    else:
+        raise ValueError(at)
+    if at < len(tokens) and tokens[at] in ("**", "^"):
+        sign = -1 if at + 1 < len(tokens) and tokens[at + 1] == "-" else 1
+        at += 2 if sign == -1 else 1
+        if at >= len(tokens) or not tokens[at].isdigit() or len(tokens[at]) > 2:
+            raise ValueError(at)
+        exponent = sign * int(tokens[at])
+        powers, at = {name: power * exponent for name, power in powers.items()}, at + 1
+    return powers, at
 
 
 class SeriesWriterError(ValueError):
@@ -115,13 +198,15 @@ def _name(value: object, what: str) -> str:
 
 
 def _unit(value: object, what: str) -> str:
-    if not isinstance(value, str) or not value.strip() or len(value) > 64:
+    if not isinstance(value, str) or not value.strip():
         msg = f"{what} has no unit; every axis carries one"
         raise SeriesWriterError(msg)
-    if not _UNIT.fullmatch(value):
+    if len(value) > 64 or not _UNIT.fullmatch(value):
+        spelling = accepted_spelling(value, 64)
         msg = (
             f"{what} has the unit {value!r}, which is not a product of named units with small "
-            "integer powers (for example m, rad/s, kg*m/s**2)"
+            "integer powers (for example m, rad/s, kg*m/s**2, 1/(rad*s)), in at most 64 "
+            "characters" + ("" if spelling is None else f"; write it as {spelling}")
         )
         raise SeriesWriterError(msg)
     return value

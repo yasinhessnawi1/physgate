@@ -16,6 +16,7 @@ file for appending and writing nothing leaves its bytes, its mtime and its ctime
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -33,11 +34,12 @@ from ui_rig import (
     snapshot,
 )
 
+from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.state.store import journal_records_after
-from physgate.ui import actions
+from physgate.ui import actions, engines
 from physgate.ui.exceptions import UnregisteredKindError
 from physgate.ui.routes import PARAMETERS, Context, Response, Route, json_response
-from physgate.ui.table import ROUTES
+from physgate.ui.table import ROUTES, RUN
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -70,10 +72,24 @@ def _valid(world: dict[str, Path], run: str) -> dict[str, str]:
         "revision": "1",
         "round": "2",
         "node": journal_records_after(world["root"] / run / "store", 0)[-1].node_id,
+        # The simulation routes: the run's first subtask, at its first attempt. These runs record
+        # no simulation, so the routes refuse each request; the series runs' own tests read them.
+        "subtask": _first_subtask(world["root"] / run),
+        "attempt": "1",
+        "record": "step_nominal",
         "library_file": "standards",
         "role": "control",
         "candidate": STANDARDS_CANDIDATE,
     }
+
+
+def _first_subtask(run_dir: Path) -> str:
+    """The first subtask a session of the run ended for."""
+    for event in read_events(run_dir / "events.jsonl"):
+        if isinstance(event, SessionEnded):
+            return event.subtask_id
+    msg = "the run has no session"
+    raise AssertionError(msg)
 
 
 def _targets(route: Route, world: dict[str, Path]) -> list[str]:
@@ -130,12 +146,15 @@ def _replanned_run(scratch: Path, run_dir: Path) -> None:
 
 
 def _context(world: dict[str, Path]) -> Context:
-    return context_over(
+    context = context_over(
         world["root"],
         ui_root=world["ui"],
         held_out=(str(world["held"]),),
         library=world["library"],
     )
+    # The checkout's own engine catalogue, read as the command reads it at start, so its route
+    # answers 200 in the sweep like every other read.
+    return replace(context, engines=engines.load(REPO, context.allowlist))
 
 
 def test_every_route_is_a_read_but_exactly_one_action_whose_handler_is_the_decision() -> None:
@@ -229,6 +248,8 @@ def test_a_method_the_table_does_not_name_is_405_with_allow_never_501(
 def test_every_read_route_answers_get_and_head_alike(world: dict[str, Path]) -> None:
     with serving(_context(world)) as live:
         for route in (r for r in ROUTES if r.kind == "read"):
+            if route.pattern.startswith(f"{RUN}/series/"):
+                continue  # read over runs that record simulations, in their own tests
             target = _targets(route, world)[0]
             if any(kind == "round" for _, kind in route.segments):
                 # Only a re-planned run has a later round's stream to serve.
@@ -299,3 +320,38 @@ def test_a_planted_route_that_writes_through_get_is_refused_by_the_guard(
     assert b"opened a file for writing" in body
     assert writes, "the recorder must see the attempted open"
     assert snapshot(world["root"]) == before
+
+
+# -- the engine catalogue's route ----------------------------------------------------------------
+
+
+def test_the_engine_catalogue_is_one_more_read_placed_after_the_built_app_s_files() -> None:
+    patterns = [route.pattern for route in ROUTES]
+    assert "/api/engines" in patterns
+    (route,) = [r for r in ROUTES if r.pattern == "/api/engines"]
+    assert (route.method, route.kind) == ("GET", "read")
+    assert patterns.index("/api/engines") == patterns.index("/assets/{name:asset}") + 1
+    assert [r.kind for r in ROUTES].count("act") == 1
+
+
+@pytest.mark.parametrize("state", ["read", "absent", "refused"])
+def test_the_engine_catalogue_answers_get_and_head_alike_and_every_other_method_405(
+    world: dict[str, Path], state: str
+) -> None:
+    held = {
+        "read": engines.load(REPO, _context(world).allowlist),
+        "absent": engines.ABSENT,
+        "refused": engines.EngineCatalogue(state="refused", reason="it is a link"),
+    }[state]
+    assert held.state == state
+    expected = {"read": 200, "absent": 404, "refused": 422}[state]
+    with serving(replace(_context(world), engines=held)) as live:
+        get_status, get_headers, body = live.request("GET", "/api/engines")
+        head_status, head_headers, head_body = live.request("HEAD", "/api/engines")
+        others = {
+            m: live.request(m, "/api/engines")[0] for m in METHODS if m not in ("GET", "HEAD")
+        }
+    assert get_status == head_status == expected
+    assert head_body == b""
+    assert get_headers["content-length"] == head_headers["content-length"] == str(len(body))
+    assert others == {m: 405 for m in others}, others

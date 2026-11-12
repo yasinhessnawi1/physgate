@@ -30,9 +30,8 @@ from typing import Any
 
 from physgate.contracts.clause import agrees, joined
 from physgate.orchestrator.followed import FollowedInterface as FollowedInterface
-from physgate.orchestrator.followed import written
 from physgate.state.schema import Node, Quantity
-from physgate.state.store import followed_payload, payload_digest
+from physgate.state.store import followed_payload, payload_digest, written_quantity
 
 Payload = dict[str, Any]
 #: The finding source a follow refusal is recorded under.
@@ -108,7 +107,7 @@ def derive(
                 raise FollowRefusedError(msg, iid)
     after = followed_payload(interface, [first], role, attempt)
     old, new = interface.get("quantities", {}), after["quantities"]
-    if all(written(old[name]) == written(new[name]) for name in new):
+    if all(written_quantity(old[name]) == written_quantity(new[name]) for name in new):
         return None
     return after
 

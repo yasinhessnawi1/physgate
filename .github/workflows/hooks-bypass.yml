@@ -131,6 +131,8 @@ jobs:
           tests/integration/hooks/test_a_shell_command_cannot_write_the_proposals_inside_the_os_layer.py
           tests/integration/hooks/test_the_proposals_deny_holds_on_more_routes.py
           tests/integration/hooks/test_no_session_writes_the_tool_environment_through_the_real_tool_path.py
+          tests/integration/hooks/test_the_holes_closed_after_2_1_301_are_measured_inside_the_os_layer_on_each_pin.py
+          tests/integration/hooks/test_no_shell_startup_file_runs_outside_the_sandbox.py
 
       - name: Every other test marked integration, wherever it lives
         # The whole test tree with only the hook suite left out, so that a marked test added

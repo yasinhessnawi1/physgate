@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from startup_stand_in import stand_in_spawn_env
 
 from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.per_role.arms.raw import BudgetWatch
@@ -427,7 +428,7 @@ def test_the_raw_session_declares_its_reaper_canary_wherever_the_reaper_runs(
 
     def capture(argv: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
         seen.append(argv)
-        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": {}}
+        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": stand_in_spawn_env()}
         return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
 
     monkeypatch.setattr(subprocess, "run", capture)
