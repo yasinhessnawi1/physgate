@@ -30,6 +30,11 @@ writable place three rules apply:
 - a root above a writable place (the run's ``sessions/`` above the session's
   home) is not named at all: the OS already denies everything in it but the home.
 
+The home is writable, but for what a program started outside the sandbox would read from it:
+git's user configuration, and every shell startup file, which a shell the binary starts
+outside the sandbox would run (:mod:`physgate.hooks.shell_startup`). Each is a protected
+root, so it is named here like any other.
+
 **The node proposals are the file tools' alone.** A node reaches the graph as a proposal
 file the Write and Edit tools write in ``.physgate/proposals``, where the hooks check it
 before it exists. The hooks refuse a command that names the directory, but a command that
@@ -90,6 +95,7 @@ from typing import Any, Literal
 
 from physgate.hooks.config import ExperimentRule, SessionConfig
 from physgate.hooks.graph import COMPLETION_DIR, DISPUTES_DIR, PROPOSALS_DIR
+from physgate.hooks.reasons import SESSION_TEMPS_REASON
 
 #: What the OS layer does with each path field of the session configuration.
 FIELD_RULES: dict[str, str] = {
@@ -98,7 +104,7 @@ FIELD_RULES: dict[str, str] = {
         "completion declaration and its disputes, which only the file tools write"
     ),
     "store_root": "write-denied (named whole)",
-    "state_dir": "write- and read-denied to shell commands: the hooks' records",
+    "state_dir": "write- and read-denied (the file tools are the hooks'): the hooks' records",
     "protected_roots": (
         "write-denied unless `shell_writes` leaves it to scripts; read-denied as `reads` says "
         "(a root scripts write: whole on macOS, by its entries on Linux)"
@@ -184,19 +190,33 @@ def sandbox_policy(
             read-denied path, where the session could not work; or ``platform`` has no
             mechanism that keeps the series outbox unreadable.
     """
+    # Where it really is, as the parent of every session's temporary directory is named.
+    temp_dir = os.path.realpath(temp_dir)
     writable = (config.worktree, temp_dir, home, *shared_temp)
     read_denied = _read_denied(config, platform)
+    # The one parent of every session's own temporary directory is denied, and the session's
+    # own child there opened again: the one read-denied root a temporary directory may lie in.
+    temps = {r.path for r in config.protected_roots if r.reason == SESSION_TEMPS_REASON}
+
+    def real_under(place: str, roots: Iterable[str]) -> bool:
+        # As the kernel finds it: /var is /private/var on macOS, and either may be spelt.
+        return any(_under(os.path.realpath(place), os.path.realpath(root)) for root in roots)
+
     for place in (config.worktree, temp_dir):
-        if any(_under(place, denied) for denied in read_denied):
+        others = read_denied - temps if place == temp_dir else read_denied
+        if real_under(place, others):
             what = "worktree" if place == config.worktree else "temporary directory"
             msg = f"the session's {what} ({place}) is inside a read-denied path"
             raise ValueError(msg)
     deny_write, absent_named = _write_denied(config, writable, exists, children)
     # The home, and any further place of the session's own its commands read, may sit
-    # inside a read-denied root (the run's sessions/): opened again.
+    # inside a read-denied root (the run's sessions/), and its temporary directory inside the
+    # parent of every session's: opened again.
     allow_read = sorted(
-        place for place in {home, *readable} if any(_under(place, denied) for denied in read_denied)
+        place for place in {home, temp_dir, *readable} if real_under(place, read_denied)
     )
+    # Written by the session's commands, as its home is, where it lies in a denied parent.
+    own_writes = (temp_dir,) if real_under(temp_dir, temps) else ()
     settings: dict[str, Any] = {
         "sandbox": {
             "enabled": True,
@@ -205,7 +225,7 @@ def sandbox_policy(
             "autoAllowBashIfSandboxed": True,
             "excludedCommands": [],
             "filesystem": {
-                "allowWrite": _spelled(home, *shared_temp),
+                "allowWrite": _spelled(home, *own_writes, *shared_temp),
                 "denyWrite": _spelled(*deny_write, *claude_temp),
                 "denyRead": _spelled(*read_denied, *claude_temp),
                 "allowRead": _spelled(*allow_read),

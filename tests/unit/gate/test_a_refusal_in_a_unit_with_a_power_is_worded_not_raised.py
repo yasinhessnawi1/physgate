@@ -1,4 +1,4 @@
-"""M-200: a unit refusal on a unit with a power other than one is worded, never raised.
+"""A unit refusal on a unit with a power other than one is worded, never raised.
 
 pint 0.26.1, computing in fractions, cannot print a unit whose power is not one: its formatter asks
 the fraction for the format ``n``, which a fraction does not support. The unit check put pint's
@@ -181,7 +181,7 @@ def test_where_pint_can_print_the_units_the_words_are_pint_s_own(kind: str, unit
     [
         (UREG.Unit("m**2"), "meter ** 2"),
         (UREG.Unit("1/s**2"), "1 / second ** 2"),
-        # pint sorts a unit's factors by name (C1 of the M-198 check)
+        # pint sorts a unit's factors by name
         (UREG.Unit("kg*m**2/s**3/A"), "kilogram * meter ** 2 / ampere / second ** 3"),
         (UREG.Unit("dimensionless"), "dimensionless"),
         ("dimensionless", "dimensionless"),

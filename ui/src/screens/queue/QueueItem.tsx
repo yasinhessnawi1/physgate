@@ -3,7 +3,8 @@
  * the queue's own source under it), what triggered it, up to three quantities with their source,
  * the artefact diff as recorded, and the transcripts' seals folded into one line. Where the run
  * that listed it acts on decisions, what each verb and each position will do, from the item's own
- * fields. A decided item shows its decision, the queue's own mark word for word, what the run did
+ * fields. The decision controls come right under the headline, before the finding, so they are in
+ * view when the item opens however long the finding is. A decided item shows its decision, the queue's own mark word for word, what the run did
  * with it once it took it, and no way to decide again.
  */
 import { Fragment, type ReactNode } from "react";
@@ -19,6 +20,7 @@ import { nodeLabel, quantityLabel } from "../../words/humanise";
 import {
   chooseWords,
   consequenceWords,
+  diffWords,
   POSITION_WORDS,
   queueHeadline,
   reviewTimeWords,
@@ -74,6 +76,48 @@ export function QueueItem({
           {item.decisionRequired}
         </pre>
       </details>
+      {/* The decision, or the way to take it, before the long finding: in view when the item
+          opens, however long what triggered it is. */}
+      {decided !== undefined ? (
+        <section className="pg-card pg-panel" aria-label="Decision">
+          <h3 className="pg-section-label">
+            <span>Decision</span>
+            <StatusTag status="resolved" />
+          </h3>
+          <dl className="pg-facts">
+            <dt>Recorded</dt>
+            <dd className="mono pg-queue-decided-text">{decided.decision}</dd>
+            <dt>By</dt>
+            <dd>
+              <ActorTag actor={{ kind: "human", name: decided.resolvedBy }} size="sm" />
+            </dd>
+            <dt>At</dt>
+            <dd className="mono">{decided.ts}</dd>
+            {decided.taken !== null && (
+              <>
+                <dt>What the run did</dt>
+                <dd className="pg-queue-taken">{takenWords(decided.taken)}</dd>
+              </>
+            )}
+            <dt>Time to decide</dt>
+            <dd className="pg-queue-review-time">{reviewTimeWords(decided)}</dd>
+          </dl>
+          {decided.flag !== null && (
+            <p className="pg-queue-flag" role="note">
+              Marked by the queue: {decided.flag}
+            </p>
+          )}
+        </section>
+      ) : (
+        <>
+          {supersededBy !== undefined && (
+            <p className="pg-queue-superseded" role="note">
+              {supersededWords(supersededBy)}
+            </p>
+          )}
+          {children}
+        </>
+      )}
       <section className="pg-card pg-panel" aria-label="What you are deciding on">
         <h3 className="pg-section-label">What you are deciding on</h3>
         <dl className="pg-facts">
@@ -159,51 +203,11 @@ export function QueueItem({
               tabIndex={0}
               aria-label="The artefact diff as recorded"
             >
-              {item.artefactDiff}
+              {diffWords(item.artefactDiff)}
             </pre>
           )}
         </details>
       </section>
-      {decided !== undefined ? (
-        <section className="pg-card pg-panel" aria-label="Decision">
-          <h3 className="pg-section-label">
-            <span>Decision</span>
-            <StatusTag status="resolved" />
-          </h3>
-          <dl className="pg-facts">
-            <dt>Recorded</dt>
-            <dd className="mono pg-queue-decided-text">{decided.decision}</dd>
-            <dt>By</dt>
-            <dd>
-              <ActorTag actor={{ kind: "human", name: decided.resolvedBy }} size="sm" />
-            </dd>
-            <dt>At</dt>
-            <dd className="mono">{decided.ts}</dd>
-            {decided.taken !== null && (
-              <>
-                <dt>What the run did</dt>
-                <dd className="pg-queue-taken">{takenWords(decided.taken)}</dd>
-              </>
-            )}
-            <dt>Time to decide</dt>
-            <dd className="pg-queue-review-time">{reviewTimeWords(decided)}</dd>
-          </dl>
-          {decided.flag !== null && (
-            <p className="pg-queue-flag" role="note">
-              Marked by the queue: {decided.flag}
-            </p>
-          )}
-        </section>
-      ) : (
-        <>
-          {supersededBy !== undefined && (
-            <p className="pg-queue-superseded" role="note">
-              {supersededWords(supersededBy)}
-            </p>
-          )}
-          {children}
-        </>
-      )}
     </section>
   );
 }

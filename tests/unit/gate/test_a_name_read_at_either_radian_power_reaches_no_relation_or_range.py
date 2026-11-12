@@ -1,4 +1,4 @@
-"""M-198 check, C8 and the first fix order: a reading at either radian power stays the name's.
+"""A reading at either radian power stays the name's.
 
 A name read at either power of the radian (``EITHER_ANGLE``: a ``_frequency``, f or omega; a
 ``torque_constant``, Kt or Ke) is converted to its kind's unit as pint converts it. For a

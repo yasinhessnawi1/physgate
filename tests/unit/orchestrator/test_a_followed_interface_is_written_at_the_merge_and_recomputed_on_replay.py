@@ -1,4 +1,4 @@
-"""The loop follows an interface only at sizing's opening pass, and replay recomputes it (M-195).
+"""The loop follows an interface only at sizing's opening pass, and replay recomputes it.
 
 The change check is asked to derive a sizing-produced interface only for an attempt of sizing's
 opening subtask, and only while no subtask of any other module directory has entered ``spawn``:

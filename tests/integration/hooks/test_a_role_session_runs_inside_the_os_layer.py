@@ -633,7 +633,7 @@ print('growing' if os.path.getsize('alive.log') > before else 'still')
 @pytest.mark.parametrize("reaper", [True, False], ids=["reaper", "red-control-without-it"])
 def test_nothing_a_command_starts_outlives_it(layout: Layout, *, reaper: bool) -> None:
     # A process started in a session of its own got past the refusal of backgrounding and,
-    # on macOS, lived on across later commands (M-128). Linux's process namespace ends it
+    # on macOS, lived on across later commands. Linux's process namespace ends it
     # with its command; on macOS the reaper, inside the command's own sandbox, stops it,
     # and the hook layer refuses the command that left it.
     if not reaper and sys.platform != "darwin":

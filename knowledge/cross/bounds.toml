@@ -9,8 +9,8 @@
 # figures were confirmed in the document named, and what it does and does not claim.
 #
 # Two envelopes are loaded, and each is a definition, not a product class: an efficiency
-# and a duty cycle are fractions, 0 to 1, whatever the machine (D-A2-38, 03.11.2026). They
-# are at the end of this file. Every other one, drafted below, is withheld.
+# and a duty cycle are fractions, 0 to 1, whatever the machine (loaded by a ruling of
+# 03.11.2026). They are at the end of this file. Every other one, drafted below, is withheld.
 #
 # Every envelope drafted below is a product-class assumption, not
 # physics: what a hobby-class machine happens to run at, not what a design cannot be. Each

@@ -54,6 +54,7 @@ import socket
 import sys
 from collections.abc import Mapping
 from dataclasses import replace
+from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import ClassVar
@@ -247,7 +248,17 @@ class Handler(BaseHTTPRequestHandler):
         if sites and sites != ["same-origin"]:
             return 403, "an action is taken only from this server's own page"
         tokens = self.headers.get_all(ACT_TOKEN_HEADER) or []
-        if len(tokens) != 1 or not hmac.compare_digest(tokens[0].encode(), self.act_token.encode()):
+        if len(tokens) == 1 and not hmac.compare_digest(
+            tokens[0].encode(), self.act_token.encode()
+        ):
+            # A page that holds a token, and not this start's: a server started again since.
+            return (
+                403,
+                "this page's action token is not this server's: the server was restarted since "
+                "the page was opened, so open the newest operator's address in the run's ui.out "
+                "to decide",
+            )
+        if len(tokens) != 1:
             return (
                 403,
                 "an action carries the token from the operator's address this server printed",
@@ -328,6 +339,10 @@ class UIServer(ThreadingHTTPServer):
     """The server, holding this start's action token; the command prints it, nothing serves it."""
 
     daemon_threads = True
+    #: Deep enough for a page's burst of asset loads. macOS resets a connection that arrives
+    #: while the listen queue is full, and the stdlib's queue holds five, so a page's chunks,
+    #: fonts and icons were cut there and a screen whose chunk was cut never loaded.
+    request_queue_size = 64
     act_token: str = ""
 
 
@@ -368,6 +383,10 @@ def make_server(
     require_operator(context.operator)
     token = secrets.token_urlsafe(32)
     context = replace(context, assets=context.assets.with_operator(context.operator))
+    # Python imports its time parser on the first parse. Once the guard is installed that import
+    # is an open of a compiled cache, refused wherever the cache sits outside the roots (a fresh
+    # ``PYTHONPYCACHEPREFIX``): the trace route's first answer would be a 500. Parsed once here.
+    datetime.strptime("2026", "%Y")
     guard.install()
     server_class = _Server6 if ":" in bind else UIServer
     server = server_class((bind, port), Handler)

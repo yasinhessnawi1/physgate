@@ -1,4 +1,4 @@
-"""The decomposition is told where the gate judges, and who writes an interface (M-195, M-196).
+"""The decomposition is told where the gate judges, and who writes an interface.
 
 The gate judges a value only where a table bounds its name or kind, and a relation only where the
 nodes and their ``constrains`` edges form it. Both are generated from what the gate loads, never

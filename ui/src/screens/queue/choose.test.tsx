@@ -140,6 +140,14 @@ describe("a choice's text, line and request are the queue's own", () => {
 describe("what each position does is read from the item", () => {
   it("is both positions, in the set's order", () => {
     expect(ARBITRATION.item.consequence?.onChoose).toEqual(BOTH);
+    // The server's routes sort every object's keys, so the set arrives in the alphabet's order.
+    const sorted = { domain: "record_only", sizing: "retry" };
+    expect(
+      Object.entries(itemView(raw("arbitration", sorted)).item.consequence?.onChoose ?? {}),
+    ).toEqual([
+      ["sizing", "retry"],
+      ["domain", "record_only"],
+    ]);
     expect(itemView(raw("review_unavailable", undefined)).item.consequence?.onChoose).toBeNull();
   });
 
@@ -150,7 +158,6 @@ describe("what each position does is read from the item", () => {
 
   it("a position set of another shape is refused whole", () => {
     for (const forged of [
-      { domain: "record_only", sizing: "record_only" },
       { sizing: "record_only" },
       { sizing: "record_only", domain: "merge" },
       { ...BOTH, producer: "record_only" },
@@ -301,9 +308,16 @@ describe("a failed contract's item is read with its own positions", () => {
     expect(() => itemView(raw("contract", BOTH))).toThrow(ShapeError);
     expect(() => itemView(raw("arbitration", PAIR))).toThrow(ShapeError);
     expect(() => itemView(raw("contract", undefined))).toThrow(ShapeError);
-    expect(() =>
-      itemView(raw("contract", { consumer: "record_only", producer: "record_only" })),
-    ).toThrow(ShapeError);
+  });
+
+  it("reads the pair sent in the alphabet's order, as the routes send it, in the set's order", () => {
+    const sorted = { consumer: "record_only", producer: "reopen" };
+    expect(
+      Object.entries(itemView(raw("contract", sorted)).item.consequence?.onChoose ?? {}),
+    ).toEqual([
+      ["producer", "reopen"],
+      ["consumer", "record_only"],
+    ]);
   });
 
   it("offers the contract's two positions on a contract item, and no arbitration choice", () => {

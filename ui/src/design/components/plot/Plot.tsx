@@ -1,9 +1,10 @@
 import "uplot/dist/uPlot.min.css";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
 
 import { unitLabel, valueLabel } from "../../quantity";
+import { Button } from "../actions/Button";
 import type { Source } from "../data/source";
 
 /** An axis: what it measures and its unit. There is no unitless axis. */
@@ -68,6 +69,9 @@ export function checkPlot(spec: PlotSpec): PlotSpec {
   if (spec.x.scale === "log" && !spec.xValues.every((v) => v > 0)) {
     throw new PlotSpecError("a log axis cannot hold zero or a negative value");
   }
+  if (spec.y.scale === "log" && !spec.series.every((s) => s.y.every((v) => v > 0))) {
+    throw new PlotSpecError("a log axis cannot hold zero or a negative value");
+  }
   return spec;
 }
 
@@ -86,6 +90,9 @@ export function plotOptions(spec: PlotSpec, width: number, height: number): uPlo
     title: spec.title,
     width,
     height,
+    // uPlot's own legend shows the value under the cursor in fewer digits than recorded; the
+    // frame's legend names each series instead, and the table holds every value as recorded.
+    legend: { show: false },
     scales: {
       x: { time: false, distr: distribution(spec.x) },
       y: { distr: distribution(spec.y) },
@@ -132,33 +139,75 @@ export function Plot({ spec }: { readonly spec: PlotSpec }) {
   return <div ref={holder} className="pg-plot-canvas" aria-hidden="true" />;
 }
 
-/** The plot's points as a table: every x and every series value, as recorded. */
+/** How many rows the data table shows at once; every row stays reachable, page by page. */
+export const PAGE_ROWS = 500;
+
+/**
+ * The plot's points as a table: every x and every series value, as recorded, in pages of
+ * ``PAGE_ROWS`` rows. Paging never thins, skips or rounds a row.
+ */
 export function PlotTable({ spec }: { readonly spec: PlotSpec }) {
   const checked = checkPlot(spec);
+  const [page, setPage] = useState(0);
+  const rows = checked.xValues.length;
+  const pages = Math.max(1, Math.ceil(rows / PAGE_ROWS));
+  const shown = Math.min(page, pages - 1);
+  const from = shown * PAGE_ROWS;
+  const to = Math.min(rows, from + PAGE_ROWS);
+  const label = `${checked.title}: the data`;
   return (
-    <table className="pg-table pg-plot-table" aria-label={`${checked.title}: the data`}>
-      <thead>
-        <tr>
-          <th scope="col">{axisLabel(checked.x)}</th>
-          {checked.series.map((s) => (
-            <th key={s.label} scope="col">
-              {s.label} [{unitLabel(s.unit)}]
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {checked.xValues.map((x, row) => (
-          <tr key={String(row)}>
-            <td className="pg-num">{valueLabel(x)}</td>
+    <div className="pg-plot-data">
+      <div className="pg-plot-pager" role="group" aria-label={`${label}, by page`}>
+        {pages > 1 && (
+          <Button
+            size="sm"
+            disabled={shown === 0}
+            onClick={() => {
+              setPage(shown - 1);
+            }}
+          >
+            Previous rows
+          </Button>
+        )}
+        <span className="pg-plot-rows" aria-live="polite">
+          Rows {rows === 0 ? 0 : from + 1}–{to} of {rows}
+        </span>
+        {pages > 1 && (
+          <Button
+            size="sm"
+            disabled={shown === pages - 1}
+            onClick={() => {
+              setPage(shown + 1);
+            }}
+          >
+            Next rows
+          </Button>
+        )}
+      </div>
+      <table className="pg-table pg-plot-table" aria-label={label}>
+        <thead>
+          <tr>
+            <th scope="col">{axisLabel(checked.x)}</th>
             {checked.series.map((s) => (
-              <td key={s.label} className="pg-num">
-                {valueLabel(s.y[row] ?? Number.NaN)}
-              </td>
+              <th key={s.label} scope="col">
+                {s.label} [{unitLabel(s.unit)}]
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {checked.xValues.slice(from, to).map((x, i) => (
+            <tr key={String(from + i)}>
+              <td className="pg-num">{valueLabel(x)}</td>
+              {checked.series.map((s) => (
+                <td key={s.label} className="pg-num">
+                  {valueLabel(s.y[from + i] ?? Number.NaN)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

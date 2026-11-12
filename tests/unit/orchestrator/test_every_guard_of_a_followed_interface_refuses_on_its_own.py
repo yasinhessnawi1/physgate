@@ -1,4 +1,4 @@
-"""Each guard on a followed interface refuses on its own (M-195, D-A2-37).
+"""Each guard on a followed interface refuses on its own.
 
 The derivation refuses a second joined node that lacks a name as it refuses the first. The store's
 own method refuses a revision copied from a node not joined to the interface, from a joined node of

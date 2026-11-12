@@ -64,6 +64,41 @@ HARNESS_REASON = (
     "session in another worktree writes"
 )
 
+#: Given for a read or a write of a run record no session doing design work reads: the run's
+#: recorded configuration, which holds the canaries the stream scan looks for.
+WITHHELD_REASON = (
+    "it is one of the run's own records that no session doing design work reads: the run's "
+    "configuration names what the stream scan looks for to tell that the held-out tier was read"
+)
+
+#: Given for any tool's read or write of the session's hook state directory. The hooks keep there
+#: what the sentinel needs to put a protected path back, their log and, in the api_key mode, the
+#: credential's helper; they read and write it in their own processes, never through a tool.
+HOOK_STATE_REASON = "it holds the hook layer's own records of this session"
+
+#: Given for a role or baseline session's read of the run's session directories: every session's
+#: login, captured stream, settings and hook records. Only what it is given to read there is open.
+SESSIONS_REASON = (
+    "it is the run's session directories, which hold each session's login, stream and records; "
+    "a session reads there only what it is given to read"
+)
+
+#: Given for a role, baseline or reviewer session's read or write of the temporary directory every
+#: Claude Code session of the user on the machine shares, which holds the other sessions' task
+#: outputs. The session's own binary is pointed at a directory of its own, so none of it is there.
+CLAUDE_TEMP_REASON = (
+    "it is the temporary directory every Claude Code session of this user on the machine shares, "
+    "which holds the other sessions' output; this session has a temporary directory of its own"
+)
+
+#: Given for a role, baseline or reviewer session's read or write of another session's own
+#: temporary directory: every one lies directly beneath one parent, and only the session's own
+#: child there is open to it.
+SESSION_TEMPS_REASON = (
+    "it is where each session keeps its own temporary files, which no other session reads or "
+    "writes; this session's own temporary directory is the one child there open to it"
+)
+
 #: Given to a reviewer for a read outside its allowance. Neutral on purpose: a
 #: reviewer is shown nothing that says what is being measured.
 OUTSIDE_REVIEW_REASON = "it is outside the files this review is given"
@@ -75,4 +110,8 @@ GIT_USER_CONFIG_REASON = (
     "it is git's user configuration for this session, where a key could make a later git "
     "command run a program the session chose; a role session reads git's configuration and "
     "never writes it"
+)
+SHELL_STARTUP_REASON = (
+    "it is a shell startup file in this session's home, which a shell started outside the "
+    "session's sandbox would run; no session writes one"
 )

@@ -1,0 +1,59 @@
+{
+ "attempts": [
+  {
+   "attempt": 1,
+   "deviations": [],
+   "ended_utc": "2026-10-30T04:29:34Z",
+   "launch": "/home/ubuntu/runs/rpg01b/launch-1-1",
+   "round": 1,
+   "slots": {
+    "F": 3,
+    "I": 4
+   },
+   "started_utc": "2026-10-29T13:12:22Z",
+   "valid": true,
+   "void_causes": []
+  },
+  {
+   "attempt": 1,
+   "deviations": [
+    "\u00a711's idle-account rule waived by the owner at L1: Decided by the owner on 30.10.2026: the orchestrator session and its agents keep working on this same account during round 2, as during round 1; the idle-account rule of CRITERIA section 11 is waived and the waiver is disclosed in RESULT."
+   ],
+   "ended_utc": "2026-10-31T07:43:06Z",
+   "launch": "/home/ubuntu/runs/rpg01b/launch-2-1",
+   "round": 2,
+   "slots": {
+    "F": 1,
+    "I": 2
+   },
+   "started_utc": "2026-10-30T20:49:48Z",
+   "valid": false,
+   "void_causes": [
+    "usage limit",
+    "a crashed or killed process"
+   ]
+  },
+  {
+   "attempt": 2,
+   "deviations": [],
+   "ended_utc": "2026-11-01T04:01:55Z",
+   "launch": "/home/ubuntu/runs/rpg01b/launch-2-2",
+   "round": 2,
+   "slots": {
+    "F": 5,
+    "I": 6
+   },
+   "started_utc": "2026-10-31T11:49:51Z",
+   "valid": true,
+   "void_causes": []
+  }
+ ],
+ "draw": {
+  "F1": 3,
+  "F2": 1,
+  "I1": 4,
+  "I2": 2
+ },
+ "drawn_utc": "2026-10-29T13:03:42Z",
+ "seed": 29
+}

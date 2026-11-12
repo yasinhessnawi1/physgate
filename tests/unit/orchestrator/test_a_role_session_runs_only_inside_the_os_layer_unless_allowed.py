@@ -33,6 +33,7 @@ from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.requirements import RunFacts
 from physgate.orchestrator.run_config import load_run_config, os_layer_refusal, write_run_config
 from physgate.oslayer.probe import Absent, Present
+from physgate.oslayer.session_temp import session_temps_root
 
 PRESENT = Present(mechanism="seatbelt", claude_version="2.1.301")
 ABSENT = Absent(reason="Linux: bubblewrap (bwrap) is not on the session's search path")
@@ -451,7 +452,7 @@ def test_the_dispatcher_spawns_a_role_session_inside_the_layer_with_its_temporar
 ) -> None:
     started, _ = _dispatched(monkeypatch, outside_tmp, PRESENT, os_layer_absent="refuse")
     (temp,) = started
-    assert temp is not None and temp.name.startswith("pg-")
+    assert temp is not None and temp.parent == Path(session_temps_root())
 
 
 def _role_install(tmp_path: Path, *extra: str) -> list[str]:
@@ -461,7 +462,9 @@ def _role_install(tmp_path: Path, *extra: str) -> list[str]:
         *("hooks", "install", "--profile", "role", "--role", "electrical"),
         *("--worktree", str(worktree), "--state-dir", str(tmp_path / "state")),
         *("--target", str(tmp_path / "session"), "--claude-config-dir", str(tmp_path / "cfg")),
-        *("--ceiling", "1000", *extra),
+        *("--ceiling", "1000", "--sessions-root", str(tmp_path / "sessions")),
+        # A home of the session's own, unless the call names one (the last one given holds).
+        *("--user-home", str(tmp_path / "home"), *extra),
     ]
 
 
@@ -507,7 +510,8 @@ def test_the_installer_writes_a_role_s_settings_without_the_sandbox_for_a_run_th
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     write_run_config(tmp_path / "run.json", make_config(os_layer_absent="allow"))
-    assert main(_role_install(tmp_path, "--run-config", str(tmp_path / "run.json"))) == 0
+    run_config = ("--run-config", str(tmp_path / "run.json"))
+    assert main(_role_install(tmp_path, *run_config, "--temp", "/var/tmp/pgs/0123456789")) == 0
     settings = json.loads(Path(json.loads(capsys.readouterr().out)["settings"]).read_text())
     assert "sandbox" not in settings
 
@@ -515,7 +519,7 @@ def test_the_installer_writes_a_role_s_settings_without_the_sandbox_for_a_run_th
 def test_the_installer_writes_a_role_s_settings_with_the_sandbox_and_needs_no_run_configuration(
     outside_tmp: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    temp = "/tmp/pg-0123456789ab"
+    temp = "/var/tmp/pgs/0123456789"
     home = str(outside_tmp / "home")
     args = _role_install(
         outside_tmp, "--os-layer-temp", temp, "--spawns-with-canary", "--user-home", home
@@ -547,7 +551,7 @@ def test_the_dispatcher_names_the_run_s_configuration_to_an_install_without_the_
 
     absent = _install_argv(tmp_path, monkeypatch, temp=None)
     assert _values(absent, "--run-config") == [str(tmp_path / "run" / "run.json")]
-    inside = _install_argv(tmp_path, monkeypatch, temp=Path("/tmp/pg-0123456789ab"))
+    inside = _install_argv(tmp_path, monkeypatch, temp=Path("/var/tmp/pgs/0123456789"))
     assert "--run-config" not in inside
 
 

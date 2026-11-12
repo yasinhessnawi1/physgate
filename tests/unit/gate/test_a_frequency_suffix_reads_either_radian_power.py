@@ -1,4 +1,4 @@
-"""M-198, change 3: a name ending in ``_frequency`` is read at either power of the radian.
+"""A name ending in ``_frequency`` is read at either power of the radian.
 
 "Frequency" names both f, in hertz, and the angular frequency omega, in radians per second, in
 control and vibration alike: run 4 wrote ``tilt_mode_natural_frequency`` as 13.885 rad/s, and the

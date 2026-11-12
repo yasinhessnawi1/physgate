@@ -326,3 +326,37 @@ describe("the folded ledger as drawn", () => {
     expect(host.querySelector("table.pg-ledger-history")).toBeNull();
   });
 });
+
+describe("a review the ledger records as blocked", () => {
+  /** The firmware subtask's review blocked at attempt 2, as a run that acts recorded it. */
+  const BLOCKED: readonly LedgerLine[] = [
+    line("control-1", 0),
+    line("firmware-2", 0),
+    line("firmware-2", 1, "pass", "fail"),
+    line("firmware-2", 2),
+    line("firmware-2", 2, "pass"),
+    line("firmware-2", 2, "pass", "blocked"),
+  ];
+  const rows = () => fold({ queue: { open: [], decided: [] } }, BLOCKED);
+
+  it("folds to a recorded review that is blocked, never a pass or a fail", () => {
+    const firmware = rows().find((r) => r.id === "firmware-2");
+    expect(firmware?.review).toEqual({ kind: "recorded", result: "blocked" });
+  });
+
+  it("is drawn as a neutral state naming why, with no verdict glyph or hue", () => {
+    let html = "";
+    expect(() => {
+      html = renderToStaticMarkup(
+        <LedgerTable rows={rows()} lines={BLOCKED.length} mode="on" run="0/run" />,
+      );
+    }).not.toThrow();
+    const page = new DOMParser().parseFromString(html, "text/html");
+    const review = page.querySelector('tr[data-subtask="firmware-2"] td:nth-child(5)');
+    expect(review?.querySelector(".pg-status")?.textContent).toBe(
+      "blocked: the specification lacks an input",
+    );
+    expect(review?.querySelector(".pg-verdict, .pg-badge")).toBeNull();
+    expect(review?.textContent).not.toMatch(/[✓✕!○]/);
+  });
+});

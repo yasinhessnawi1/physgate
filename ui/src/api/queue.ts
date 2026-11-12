@@ -99,9 +99,11 @@ export function offeredPositions(source: QueueSource): readonly Position[] {
 }
 
 /**
- * The positions an item states, held to its kind's set in its order: any other shape is refused.
- * As the queue's own model holds it: only an arbitration or a failed contract's item states them,
- * and one that says what its verbs do must say what choosing each position does.
+ * The positions an item states, held to its kind's set: any other shape is refused. As the queue's
+ * own model holds it: only an arbitration or a failed contract's item states them, and one that
+ * says what its verbs do must say what choosing each position does. The order is the kind's, as
+ * read here: the server's routes write every object's keys sorted, so the order the queue's line
+ * holds them in does not reach the page, and the set is what is held.
  */
 function onChoose(
   value: unknown,
@@ -114,7 +116,9 @@ function onChoose(
   }
   if (offered === undefined) throw new ShapeError("positions on an item of another kind");
   const stated = object(value, "what choosing each position does");
-  if (Object.keys(stated).join() !== offered.join()) throw new ShapeError("an item's positions");
+  const keys = Object.keys(stated);
+  if (keys.length !== offered.length || !offered.every((p) => keys.includes(p)))
+    throw new ShapeError("an item's positions");
   return Object.fromEntries(
     offered.map((p) => [p, oneOf(stated[p], ON_CHOOSE, `what choosing ${p} does`)]),
   );

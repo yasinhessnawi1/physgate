@@ -1,4 +1,4 @@
-"""M-198: each new kind holds a value to its unit and its definitional sign, through the gate.
+"""Each new kind holds a value to its unit and its definitional sign, through the gate.
 
 A catalogued name is refused when its unit or sign is not its kind's; a suffix or qualified name
 is recorded, never refused. Either way the gate returns a result: a unit with a squared factor

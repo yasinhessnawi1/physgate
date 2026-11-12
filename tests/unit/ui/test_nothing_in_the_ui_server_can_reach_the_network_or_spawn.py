@@ -93,6 +93,39 @@ ALLOWED_MODULES = {
     # The attempts a subtask gets, sent beside the run's configuration: a constant, which the
     # event log's own model already imports.
     "physgate.orchestrator.budget",
+    # The simulation routes. The gate's record shapes, read to join a checked quantity to the
+    # gate records that name it; pydantic models, which the event log's model already imports.
+    "physgate.orchestrator.protocols",
+    # The series reader's own rule for which records an attempt sealed: the one the change check
+    # and the review packet use, so a file no session's end seals is never named.
+    "physgate.series.reader",
+    # The shape of a quantity's check against its record, as the change check wrote it.
+    "physgate.series.seal",
+    # The frozen agreement tolerance, shown in words, never copied.
+    "physgate.series.tolerance",
+    # The reader's two refusals, each turned into a row of its own or a refusal, never a 500.
+    "physgate.series.exceptions",
+    # The names of a loop's two traces, so the harness's own extractors decide what is drawn as
+    # a loop's frequency response. It imports the standard-library series writer, which runs
+    # nothing when imported.
+    "physgate.series.extract",
+    # The record format's column and record shapes, as the reader returns them, and its one
+    # parser, which admits the sealed bytes the record route then serves unchanged.
+    "physgate.series.record",
+    # The review listing's per-column arithmetic, so the screen states the reviewer's numbers.
+    "physgate.series.summary",
+    # The curated library's readers. The changed lines of a proposed change, made in memory.
+    "difflib",
+    # The role rule, the candidate's schema, and promotion's own finder and pure description of
+    # what it writes, so the screen describes the write the terminal makes. Nothing here calls
+    # promotion's write, its terminal check or its helpers that make folders.
+    "physgate.knowledge.loader",
+    "physgate.knowledge.staging",
+    "physgate.knowledge.promote",
+    "physgate.knowledge.exceptions",
+    # The bounds tables as the gate loads them, and the catalogue's energy-store classes.
+    "physgate.gate.bounds_table",
+    "physgate.gate.catalogue",
 }
 #: Names that load or evaluate code however they are reached.
 FORBIDDEN_NAMES = {"eval", "exec", "compile", "__import__", "import_module", "breakpoint"}

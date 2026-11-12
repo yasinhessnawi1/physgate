@@ -12,6 +12,7 @@ export const GLOSSARY_GROUPS = [
   "The queue",
   "Who did what",
   "Drafts and records",
+  "The library",
 ] as const;
 export type GlossaryGroup = (typeof GLOSSARY_GROUPS)[number];
 
@@ -168,10 +169,166 @@ export const GLOSSARY = {
       "The digest of a run's whole configuration: models, gate mode, limits. Runs with the same manifest were set up the same way.",
     group: "Drafts and records",
   },
+  "simulation-record": {
+    term: "Simulation record",
+    means:
+      "A file of columns a role's script wrote each time it ran a simulation, sealed when the session that wrote it ended. It shows what the committed code recorded; the harness does not re-run the code.",
+    group: "Drafts and records",
+  },
+  "read-off": {
+    term: "Read off a record",
+    means:
+      "A design-graph value a role took from one of its simulation records by a named rule, such as a trace's final value or a loop's phase margin. It is checked against that record before the gate.",
+    group: "Drafts and records",
+  },
+  agreement: {
+    term: "Agreement",
+    means:
+      "Whether a value read off a record is the value the record gives, within the harness's fixed relative tolerance. A value that differs, or cannot be read off, refuses the attempt before the gate.",
+    group: "Drafts and records",
+  },
+  "set-aside": {
+    term: "Set aside",
+    means:
+      "A file a session left beside its records that its end did not seal: not a record, or written by code from outside its module. It is listed with the reason and never shown as a record.",
+    group: "Drafts and records",
+  },
+  superseded: {
+    term: "Superseded",
+    means:
+      "A record an earlier session of an attempt sealed and a later session of the same attempt recorded again. The later one is the attempt's record.",
+    group: "Drafts and records",
+  },
+  "tool-view": {
+    term: "Tool view",
+    means:
+      "A view of the design in another tool, such as a CAD viewer or a circuit-board viewer, shown inside the app. None is added yet.",
+    group: "Drafts and records",
+  },
   "list-price": {
     term: "List-price estimate",
     means:
       "What the run's tokens would cost at the provider's published prices on a dated price sheet. It is not a bill.",
+    group: "Drafts and records",
+  },
+  library: {
+    term: "Library",
+    means:
+      "The standards, skills, reviewer rubrics and bounds tables in this checkout, which a run started from it reads. Standards, skills and rubrics enter it only by a person's promotion.",
+    group: "The library",
+  },
+  promotion: {
+    term: "Promotion",
+    means:
+      "A person's act, at a terminal, that writes a proposed change into the library and one line to the promotion log naming them. No agent session can promote, and this app cannot either.",
+    group: "The library",
+  },
+  "proposed-change": {
+    term: "Proposed change",
+    means:
+      "A change to the library that an agent staged after a run. It changes nothing until a person promotes it.",
+    group: "The library",
+  },
+  "standards-file": {
+    term: "Standards file",
+    means:
+      "One role's rules for its work. A run that plans the role gives them to its sessions. A promotion replaces the file whole.",
+    group: "The library",
+  },
+  "skill-file": {
+    term: "Skill file",
+    means:
+      "One role's patterns that worked. A promotion adds to the end of it, or replaces it whole when the change says so.",
+    group: "The library",
+  },
+  antipattern: {
+    term: "Antipattern",
+    means: "A pattern that failed. Promoting one adds it to the end of its role's skill file.",
+    group: "The library",
+  },
+  "reviewer-rubric": {
+    term: "Reviewer rubric",
+    means:
+      "What a role's reviewer judges the work by. Only reviewers read it, so this app shows when it was promoted and never its text.",
+    group: "The library",
+  },
+  "bounds-table": {
+    term: "Bounds table",
+    means:
+      "A file of sourced ratings the gate checks values against: for a class of component, the lowest and highest value it is rated for. It is curated by hand and not promoted.",
+    group: "The library",
+  },
+  "data-sheet-rating": {
+    term: "Data-sheet rating",
+    means:
+      "A range or a limit taken from a maker's data sheet or a standard, with the source it was taken from and the date it was confirmed.",
+    group: "The library",
+  },
+  // How physgate is set up: the Settings screen's terms.
+  engine: {
+    term: "Engine",
+    means:
+      "What the agents' sessions run on: Claude Code with a subscription, or the Claude API with a key. A run's parameters name how its sessions reach it.",
+    group: "How a run works",
+  },
+  "engine-catalogue": {
+    term: "Engine catalogue",
+    means:
+      "The list of engines the desktop app's engine step offers, kept in the checkout. Engines marked Not yet are listed so the choice can be switched on later; nothing runs on them.",
+    group: "How a run works",
+  },
+  "builder-model": {
+    term: "Builder model",
+    means:
+      "The model a role's sessions build the work on, named for each role in the run's parameters.",
+    group: "How a run works",
+  },
+  "reviewer-model": {
+    term: "Reviewer model (pairing)",
+    means:
+      "The model a role's reviewer runs on. It must differ from the model whose work it reviews: the harness refuses to start a reviewer on its builder's model, however the model is spelled.",
+    group: "How a run works",
+  },
+  "plan-reviewer": {
+    term: "Plan reviewer",
+    means:
+      "A reviewer that judges the plan the brief was split into, before anything is dispatched. It runs on a model other than the one that split the brief.",
+    group: "How a run works",
+  },
+  endpoint: {
+    term: "Endpoint",
+    means:
+      "The address the engine's requests go to. Most runs use the engine's own; a run may name another, and records it.",
+    group: "How a run works",
+  },
+  effort: {
+    term: "Effort",
+    means:
+      "How much reasoning each request may spend before it answers, from low to maximum, passed to every session of the run.",
+    group: "How a run works",
+  },
+  "token-ceiling": {
+    term: "Token ceiling",
+    means:
+      "The most a role session may load before it starts work: its standards, its spec and its skill file. It is counted generously, one token for every byte, so a set can be refused while really under it. It is not a budget for the run.",
+    group: "How a run works",
+  },
+  "session-limits": {
+    term: "Session limits",
+    means:
+      "The bounds each session of a run works within: how long it may run, how many turns it may take, how many times the engine's binary may try again, and how long the harness waits before trying a failed start again.",
+    group: "How a run works",
+  },
+  "default-for-new-runs": {
+    term: "Default for new runs",
+    means:
+      "A value a new run would take when its parameters name none. physgate keeps none yet: every run names its own values in its parameters, and records them.",
+    group: "Drafts and records",
+  },
+  "recorded-value": {
+    term: "Recorded value",
+    means:
+      "What a run wrote in its record when it was set up. A run recorded before a field existed did not write it; the harness reads such a run as having run under that field's documented setting, and Settings shows what the harness reads.",
     group: "Drafts and records",
   },
 } as const satisfies Record<string, GlossaryEntry>;

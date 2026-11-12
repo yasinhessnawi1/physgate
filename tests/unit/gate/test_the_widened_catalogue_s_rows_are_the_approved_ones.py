@@ -1,16 +1,16 @@
-"""M-198, the table rows: the catalogue widened by definitions alone, and by nothing else.
+"""The table rows: the catalogue widened by definitions alone, and by nothing else.
 
-The owner approved the widening on 04.11.2026, in the scope of the research's section 6
-(``CATALOGUE_WIDEN_research.md``), as ruled at the red rows' review the same day: eight new
-kinds, each sign from a definition or a law and never from a product class, and each reached by
-a name or a suffix; temperature and frequency never negative; five new exact names, and
-``bore_diameter`` read as an extent; the new suffixes that reach a value G11 run 4 wrote, and
-``_utilization``, the spelling twin of ``_utilisation`` (one meaning, so no new reach). Held
-back, and pinned here as held back: the inductance and capacitance kinds (no name or suffix
-would reach them, so they would only move the digest), the ``max_duty`` name, the suffixes no
-run-4 value reaches (``_inductance``, ``_capacitance``, ``_winding_resistance``,
-``_terminal_resistance``, ``_armature_resistance``), the ``_diameter`` and ``_thickness``
-re-kinds, a kind with the radian to the power -1, an alias, and any new envelope or range.
+The owner approved the widening on 04.11.2026, for the names a count of the run's unchecked values
+showed a definition alone could cover, as ruled at the red rows' review the same day: eight new
+kinds, each sign from a definition or a law and never from a product class, and each reached by a
+name or a suffix; temperature and frequency never negative; five new exact names, and
+``bore_diameter`` read as an extent; the new suffixes that reach a value the fourth slice run wrote,
+and ``_utilization``, the spelling twin of ``_utilisation`` (one meaning, so no new reach). Held
+back, and pinned here as held back: the inductance and capacitance kinds (no name or suffix would
+reach them, so they would only move the digest), the ``max_duty`` name, the suffixes no run-4 value
+reaches (``_inductance``, ``_capacitance``, ``_winding_resistance``, ``_terminal_resistance``,
+``_armature_resistance``), the ``_diameter`` and ``_thickness`` re-kinds, a kind with the radian to
+the power -1, an alias, and any new envelope or range.
 
 Every row is pinned against the catalogue at a64e805f (digest ``3da50073...``), so a row that is
 added, dropped or changed without a ruling turns this red. The rules for an envelope kind's

@@ -65,7 +65,7 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
-from physgate.orchestrator.managed import ObservedTraffic
+from physgate.orchestrator.managed import ObservedTraffic, PolicyEntry, stricter_only
 from physgate.orchestrator.plan import (
     CriterionWords,
     InterfaceConsumers,
@@ -475,6 +475,10 @@ class SessionEnded(_Event):
     #: The digest of the policy limits the session's invocation received, ``None`` if
     #: none: held to the decomposition call's.
     policy_limits_sha256: Sha256 | None = None
+    #: Why the session's missing policy limits were recorded and not held to the decomposition
+    #: call's: it ended for infrastructure before any model answered it. ``None`` where they were
+    #: judged, and on a line written before this was recorded.
+    policy_limits_unjudged: NonEmptyStr | None = None
     #: The digest of the session's specification as the decomposition issued it,
     #: taken before the session was spawned; ``None`` for a plan given directly.
     issued_spec_sha256: Sha256 | None = None
@@ -490,6 +494,11 @@ class SessionEnded(_Event):
             raise ValueError(msg)
         if completed and None in (self.attempt_commit, self.trajectory, self.worktree):
             msg = "a completed session names its attempt commit, trajectory and worktree"
+            raise ValueError(msg)
+        if self.policy_limits_unjudged is not None and (
+            completed or self.policy_limits_sha256 is not None
+        ):
+            msg = "only an infrastructure end that left no policy limits has them unjudged"
             raise ValueError(msg)
         return self
 
@@ -520,7 +529,10 @@ class ProposalsChecked(_Event):
     attempt: Attempt
     checked_commit: Sha
     refused_by: (
-        Literal["proposal", "write_scope", "series", "declaration", "dispute", "interface"] | None
+        Literal[
+            "proposal", "write_scope", "series", "declaration", "dispute", "interface", "long_line"
+        ]
+        | None
     )
     reason: NonEmptyStr | None
     subject: NonEmptyStr | None
@@ -531,7 +543,7 @@ class ProposalsChecked(_Event):
     #: Every proposed quantity that names a simulation record, held to it, passes included;
     #: empty on every line written before the field existed.
     series_checks: tuple[SeriesCheck, ...] = ()
-    #: Each interface the attempt's nodes revise, derived at the check (D-A2-37): the interface
+    #: Each interface the attempt's nodes revise, derived at the check: the interface
     #: as it stood, every joined node's payload and the derived revision, so replay derives it
     #: again. Left out of the line when empty, so every other line keeps its bytes.
     followed: tuple[FollowedInterface, ...] = ()
@@ -844,6 +856,57 @@ class Incident(_Event):
     detail: NonEmptyStr
 
 
+#: Who resolves an incident by the owner's rule rather than by a person: never a person's name.
+RULE = "rule"
+#: Why the rule resolves a change: what the change is, in the owner's words.
+RULE_REASON = (
+    "the change only adds restrictions, each set to allowed: false, which the owner's rule "
+    "resolves on the record"
+)
+
+
+class IncidentResolved(_Event):
+    """A change of the run's policy limits, resolved on the record, and the new baseline.
+
+    A person resolves a ``managed_settings_changed`` halt at a terminal, naming who and why, and
+    the run's resume then accepts it; or the owner's rule resolves a change that only adds
+    restrictions set to ``allowed: false`` as the session ends, and the run goes on. Either way
+    the line carries both digests and the change by key and value: every later session is held to
+    the new limits, and the baseline moves by this line alone.
+    """
+
+    kind: Literal["incident_resolved"] = "incident_resolved"
+    subtask_id: NonEmptyStr | None
+    #: The session whose end showed the change.
+    session_id: NonEmptyStr
+    cause: Literal["managed_settings_changed"] = "managed_settings_changed"
+    by: NonEmptyStr
+    reason: NonEmptyStr
+    #: Whether the owner's rule resolved it, with no person.
+    rule: bool
+    old_sha256: Sha256 | None
+    new_sha256: Sha256 | None
+    changes: tuple[PolicyEntry, ...]
+    #: How many more keys differ than :attr:`changes` lists.
+    omitted: Annotated[int, Field(ge=0)] = 0
+
+    @model_validator(mode="after")
+    def _as_resolved(self) -> IncidentResolved:
+        if self.rule != (self.by == RULE):
+            msg = f"the rule, and only the rule, resolves as {RULE!r}"
+            raise ValueError(msg)
+        if self.old_sha256 == self.new_sha256:
+            msg = "a resolution moves the policy limits to other ones"
+            raise ValueError(msg)
+        if self.rule and (
+            None in (self.old_sha256, self.new_sha256)
+            or not stricter_only(self.changes, self.omitted)
+        ):
+            msg = "the rule resolves only a change that adds restrictions set to allowed: false"
+            raise ValueError(msg)
+        return self
+
+
 class SessionFinding(BaseModel):
     """One thing a session's end showed that a person must look at, as its incident says it."""
 
@@ -992,6 +1055,9 @@ class PlanProposed(_Event):
     cause: NonEmptyStr | None = None
     started: Timestamp
     ended: Timestamp
+    #: The round's first call, or its second: made once, when the first's output was refused
+    #: by its schema. Left out of the line for a first call.
+    call: Literal[1, 2] = 1
 
     @model_validator(mode="after")
     def _a_plan_or_why_not(self) -> PlanProposed:
@@ -1006,7 +1072,27 @@ class PlanProposed(_Event):
         for absent in ("plan_sha256", "cause"):
             if data.get(absent) is None:
                 data.pop(absent, None)
+        if data.get("call") == 1:
+            data.pop("call", None)
         return data
+
+
+#: The one cause a decomposition call is made again for: its output refused by its schema.
+RETRIED_CAUSE: Literal["schema_refused"] = "schema_refused"
+
+
+class DecompositionRetried(_Event):
+    """A run that does not review its plan made its call again, once: the first was refused.
+
+    Written in the opening after the refused call's tokens and before the second call's: the
+    refused call's session and why. A second refusal fails the decomposition; nothing else is
+    retried, and no call a third time.
+    """
+
+    kind: Literal["decomposition_retried"] = "decomposition_retried"
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    cause: Literal["schema_refused"]
+    detail: NonEmptyStr
 
 
 class DesignUnavailable(BaseModel):
@@ -1461,8 +1547,10 @@ Event = Annotated[
     | FollowUpEnded
     | FindingsRecorded
     | Incident
+    | IncidentResolved
     | Resumed
     | Decomposed
+    | DecompositionRetried
     | PlanProposed
     | DesignReviewRan
     | PlanRejected

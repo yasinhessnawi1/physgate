@@ -1,4 +1,4 @@
-"""The reviewer of an attempt whose nodes revise an interface is shown each change (D-A2-37).
+"""The reviewer of an attempt whose nodes revise an interface is shown each change.
 
 The packet carries ``interface-followed.md``, built by code from the change check's derivation: one
 line per changed quantity, old -> new, with the node and attempt it followed. It is required

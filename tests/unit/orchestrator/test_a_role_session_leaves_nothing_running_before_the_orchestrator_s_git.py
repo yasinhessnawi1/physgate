@@ -346,6 +346,8 @@ class Session:
             worktree: Path,
             sdir: Path,
             _temp: Path | None,
+            *,
+            own_temp: Path,
         ) -> Installed:
             (sdir / "state").mkdir(parents=True)
             done = install(
@@ -361,6 +363,8 @@ class Session:
                     user_home=str(sdir / "home"),
                     token_ceiling=100_000,
                     extra_protected=(str(root),),
+                    sessions_root=str(sdir.parent),
+                    temp_dir=str(own_temp),
                 ),
                 REGISTRY,
             )
@@ -461,8 +465,8 @@ def test_a_session_s_record_names_the_shell_its_commands_run_in(
     dispatcher = session.dispatcher(monkeypatch)
     installed = ClaudeDispatcher._install
 
-    def install(*args: Any) -> Installed:  # noqa: ANN401
-        done: Installed = installed(*args)
+    def install(*args: Any, **kwargs: Any) -> Installed:  # noqa: ANN401
+        done: Installed = installed(*args, **kwargs)
         env = {**done.spawn_env, "CLAUDE_CODE_SHELL": SHELL} if pinned else done.spawn_env
         return done.model_copy(update={"spawn_env": env})
 

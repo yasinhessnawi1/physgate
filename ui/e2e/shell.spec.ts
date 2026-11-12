@@ -20,7 +20,10 @@ const VIEWS = [
   "Design graph",
   "Gate checks",
   "Run records",
+  "Simulation",
+  "Library",
   "Glossary",
+  "Settings",
 ];
 
 function operatorHash(): string {

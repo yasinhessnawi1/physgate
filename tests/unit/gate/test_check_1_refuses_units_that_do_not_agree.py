@@ -467,7 +467,7 @@ def test_every_kind_declares_its_sign_and_the_thirteen_that_have_one_say_so() ->
         "mass": "nonnegative",
         "thermal_resistance": "positive",
         "energy": "positive",
-        # The two fractions (D-A2-38): an efficiency and a duty cycle are never negative.
+        # The two fractions: an efficiency and a duty cycle are never negative.
         "efficiency": "nonnegative",
         "duty_cycle": "nonnegative",
         # The catalogue widening (04.11.2026): five new kinds never negative by a definition or

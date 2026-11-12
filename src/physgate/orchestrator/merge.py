@@ -269,7 +269,7 @@ class GitMerger:
         The merge commit's parents are the run branch and ``attempt_commit``; its tree is the
         merged tree without the disputes directory, with each of ``contracts`` (an interface's
         contract file, by path under the interfaces directory) holding the bytes given: the
-        revisions the attempt followed (D-A2-37), so later sessions read them.
+        revisions the attempt followed, so later sessions read them.
 
         Raises:
             MergeRefusedError: the subtask's branch no longer points at the checked

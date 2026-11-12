@@ -19,8 +19,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from physgate.contracts.pairs import ContractPair
 from physgate.orchestrator.common import NonEmptyStr, Timestamp, utc_now, utc_stamp
 from physgate.orchestrator.events import (
+    RETRIED_CAUSE,
     ContractPairsPlanned,
     Decomposed,
+    DecompositionRetried,
     DesignReviewRan,
     DesignUnavailable,
     Envelope,
@@ -168,6 +170,16 @@ class PlanReviewed(RoundReview):
     install: ReviewInstall
 
 
+class RetriedCall(BaseModel):
+    """A round's first call, whose output its schema refused, and so made once more (ARCH-001)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    round: Annotated[int, Field(ge=1)]
+    call: DecompositionCall
+    detail: NonEmptyStr
+
+
 class Proposal(BaseModel):
     """What one round's call proposed and when, and when its review ran, as its opening records it.
 
@@ -187,6 +199,8 @@ class Proposal(BaseModel):
     ended: Timestamp
     review_started: Timestamp | None
     review_ended: Timestamp | None
+    #: The round's first call, or the second made after the first's output was refused.
+    call: Literal[1, 2] = 1
 
 
 class EarlierRound(BaseModel):
@@ -366,7 +380,7 @@ class RunRecord:
         review that wrote a line (its ending, seal and times); and every token the opening spent,
         in turn, against each round's call usage and review usage.
         """
-        from physgate.orchestrator.design_rounds import RoundEnded
+        from physgate.orchestrator.design_rounds import CallRefused, RoundEnded
 
         # The reader holds the first line to round 1's start, the one that names the arm.
         first, state = journal.lines[0], self.state
@@ -381,6 +395,13 @@ class RunRecord:
             (*_fields(e, call), e.call_ended, why) for e, why in zip(ended, cause, strict=True)
         ]
         yield "calls", calls, [(*_fields(p, call), p.ended, p.cause) for p in state.proposals]
+        again = [e for e in journal.lines if isinstance(e, CallRefused)]
+        refused = ("round", "session_id", "model", "num_turns")
+        yield (
+            "refused calls",
+            [(*_fields(e, refused), e.call_ended) for e in again],
+            [(*_fields(p, refused), p.ended) for p in state.retried_calls],
+        )
         seen = ("result", "unavailable", "stream_seal")
         ran = [(e, r) for e in ended if (r := e.review) is not None and not r.exposed]
         reviews = [(e.round, *_fields(r, seen), e.review_started, e.ended) for e, r in ran]
@@ -388,6 +409,9 @@ class RunRecord:
         yield "reviews", reviews, [_fields(r, ("round", *seen, "started", "ended")) for r in lines]
         spent = []
         for e in ended:
+            for first in (one for one in again if one.round == e.round):
+                who = f"decomposition:{first.session_id}"
+                spent += [(who, m.message_id, m.usage) for m in first.usage]
             spent += [(f"decomposition:{e.session_id}", m.message_id, m.usage) for m in e.usage]
             if e.review is not None:
                 who = f"reviewer:{e.review.session_id or 'none'}"
@@ -451,20 +475,38 @@ class RunRecord:
         reviewed: PlanReviewed | None = None,
         earlier: Sequence[EarlierRound] = (),
         proposals: Sequence[Proposal] = (),
+        retried: Sequence[RetriedCall] = (),
     ) -> None:
         if self.log.events:
             msg = "the run was already started"
             raise RunStateError(msg, run_dir=str(self.run_dir))
         write_run_config(self.config_path, self.config)
-        for line in self._opening(call, self.envelope, reviewed, earlier, proposals):
+        for line in self._opening(call, self.envelope, reviewed, earlier, proposals, retried):
             self.emit(line)
 
     def _require_proposals(
-        self, earlier: Sequence[EarlierRound], proposals: Sequence[Proposal]
+        self,
+        earlier: Sequence[EarlierRound],
+        proposals: Sequence[Proposal],
+        retried: Sequence[RetriedCall] = (),
     ) -> None:
-        """A run that reviews its plan proposes each round in turn; any other run proposes none."""
-        rounds = len(earlier) + 1 if self.config.design_review != "off" else 0
-        if [one.round for one in proposals] != list(range(1, rounds + 1)):
+        """A run that reviews its plan proposes each round in turn; any other run proposes none.
+
+        A round whose first call's output was refused proposes twice, its first call and then its
+        second, and its refused call is given in ``retried``; a run that does not review its plan
+        can have retried its one call alone.
+        """
+        reviews = self.config.design_review != "off"
+        rounds = len(earlier) + 1 if reviews else 0
+        firsts = [one.round for one in proposals if one.call == 1]
+        seconds = [one.round for one in proposals if one.call == 2]
+        again = [one.round for one in retried]
+        if (
+            firsts != list(range(1, rounds + 1))
+            or (seconds if reviews else [1] * len(again)) != (again)
+            or len(again) > (rounds if reviews else 1)
+            or len(set(again)) != len(again)
+        ):
             msg = "a run that reviews its plan records every round's proposal, and only such a run"
             raise RunConfigError(msg, design_review=self.config.design_review)
 
@@ -475,6 +517,7 @@ class RunRecord:
         reviewed: PlanReviewed | None = None,
         earlier: Sequence[EarlierRound] = (),
         proposals: Sequence[Proposal] = (),
+        retried: Sequence[RetriedCall] = (),
     ) -> Iterator[Event]:
         """The run's start line, what its first call spent, the review's installation, each round.
 
@@ -493,16 +536,44 @@ class RunRecord:
         )
         calls = [*(one.call for one in earlier), *((call,) if call is not None else ())]
         if calls:
-            yield from self._spent(calls[0], envelope, proposals[:1])
+            yield from self._calls(1, calls[0], envelope, proposals, retried)
         ran = reviewed or (earlier[0].reviewed if earlier else None)
         if ran is not None:
             # The review's session ran under this installation, before anything was written.
             yield InstallChecked(**envelope(), **ran.install.model_dump())
         for index, one in enumerate(earlier):
-            timed = proposals[index] if index < len(proposals) else None
+            mine = [p for p in proposals if p.round == index + 1]
+            timed = mine[-1] if mine else None
             yield from self._reviewing(one.reviewed, one.plan_sha256, envelope, timed, last=False)
             if index + 1 < len(calls):
-                yield from self._spent(calls[index + 1], envelope, proposals[index + 1 : index + 2])
+                yield from self._calls(index + 2, calls[index + 1], envelope, proposals, retried)
+
+    def _calls(
+        self,
+        round_: int,
+        call: DecompositionCall,
+        envelope: Callable[[], Envelope],
+        proposals: Sequence[Proposal],
+        retried: Sequence[RetriedCall],
+    ) -> Iterator[Event]:
+        """Round ``round_``'s calls: a refused first call and why, if there was one, then its own.
+
+        In a run that reviews its plan the refused call's proposal names it; in any other run a
+        line of its own does (:class:`DecompositionRetried`). Each call's tokens come before its
+        line, so replay ties each to its session.
+        """
+        mine = [p for p in proposals if p.round == round_]
+        for again in (one for one in retried if one.round == round_):
+            yield from self._spent(again.call, envelope, mine[:1])
+            if not proposals:
+                yield DecompositionRetried(
+                    **envelope(),
+                    session_id=again.call.session_id,
+                    cause=RETRIED_CAUSE,
+                    detail=again.detail,
+                )
+            mine = mine[1:]
+        yield from self._spent(call, envelope, mine)
 
     @staticmethod
     def _spent(
@@ -654,6 +725,7 @@ class RunRecord:
         reviewed: PlanReviewed | None = None,
         earlier: Sequence[EarlierRound] = (),
         proposals: Sequence[Proposal] = (),
+        retried: Sequence[RetriedCall] = (),
     ) -> None:
         """Record the configuration, the decomposition call, the plan and its review, once.
 
@@ -678,7 +750,7 @@ class RunRecord:
         if reviewed is not None and digest is None:
             msg = "a plan's review names the plan by its digest, and this run records none"
             raise RunConfigError(msg, run_dir=str(self.run_dir))
-        self._require_proposals(earlier, proposals)
+        self._require_proposals(earlier, proposals, retried)
         for entry in plan:
             if entry.assigned_role not in self.config.models.roles:
                 msg = "a planned subtask's role has no pinned model"
@@ -693,7 +765,7 @@ class RunRecord:
         unwritten = self._unwritten()
         timed = proposals[-1] if proposals else None
         opening = [
-            *self._opening(call, unwritten, reviewed, earlier, proposals),
+            *self._opening(call, unwritten, reviewed, earlier, proposals, retried),
             *self._planning(plan, decomposed, marked, unwritten),
         ]
         if reviewed is not None and digest is not None:
@@ -702,7 +774,7 @@ class RunRecord:
             require_writable(opening, RunState())
         except ValueError as exc:
             raise RunConfigError(str(exc), run_dir=str(self.run_dir)) from None
-        self._begin(call, reviewed, earlier, proposals)
+        self._begin(call, reviewed, earlier, proposals, retried)
         for line in self._planning(plan, decomposed, marked, self.envelope):
             self.emit(line)
         if reviewed is not None and digest is not None:
@@ -715,10 +787,11 @@ class RunRecord:
         detail: str,
         earlier: Sequence[EarlierRound] = (),
         proposals: Sequence[Proposal] = (),
+        retried: Sequence[RetriedCall] = (),
     ) -> None:
         """Record a run whose last call produced no plan it could start, after ``earlier``."""
-        self._require_proposals(earlier, proposals)
-        self._begin(call, None, earlier, proposals)
+        self._require_proposals(earlier, proposals, retried)
+        self._begin(call, None, earlier, proposals, retried)
         self.emit(Halted(**self.envelope(), reason="decomposition_failed", detail=detail))
 
     def remove(self, subtask_id: str, reason: str) -> None:

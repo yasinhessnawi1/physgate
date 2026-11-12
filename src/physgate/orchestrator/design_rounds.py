@@ -40,6 +40,7 @@ from physgate.orchestrator.decompose import (
     replan_findings,
     replan_prompt,
     require_startable,
+    retry_prompt,
     start_run,
 )
 from physgate.orchestrator.decomposition_review import review_over, review_spawned
@@ -53,7 +54,7 @@ from physgate.orchestrator.endings import (
     round_ending,
     what_follows,
 )
-from physgate.orchestrator.events import DesignUnavailable, Sha256
+from physgate.orchestrator.events import RETRIED_CAUSE, DesignUnavailable, Sha256
 from physgate.orchestrator.exceptions import (
     AccountingError,
     DecompositionError,
@@ -75,6 +76,7 @@ from physgate.orchestrator.record import (
     EarlierRound,
     PlanReviewed,
     Proposal,
+    RetriedCall,
     ReviewInstall,
     RoundReview,
     RunRecord,
@@ -82,6 +84,8 @@ from physgate.orchestrator.record import (
 from physgate.orchestrator.run_config import RunConfig
 from physgate.reviewers.exceptions import ReviewError
 
+#: The directory a round's second call runs in, beneath the round's own.
+RETRY_NAME = "retry"
 #: What a round's ending class is, plan or review, as the terminal line names it.
 EndingClass = PlanClass | ReviewClass
 
@@ -155,6 +159,23 @@ class RoundEnded(_Line):
     elapsed: Elapsed
 
 
+class CallRefused(_Line):
+    """A round's first call, whose output its schema refused: what it spent, and the next call.
+
+    Written between the round's start and end lines, once a round at most. The round's call is
+    then made once more, as ``retry_session_id``, and the end line is that call's.
+    """
+
+    kind: Literal["call_refused"] = "call_refused"
+    session_id: NonEmptyStr
+    model: str | None
+    num_turns: int
+    usage: tuple[MessageUsage, ...]
+    detail: str
+    call_ended: Timestamp
+    retry_session_id: NonEmptyStr
+
+
 class RoundsEnded(_Line):
     """The rounds' end: the round they ended on, its class and cause, and what followed."""
 
@@ -165,7 +186,9 @@ class RoundsEnded(_Line):
     detail: str
 
 
-JournalLine = Annotated[RoundStarted | RoundEnded | RoundsEnded, Field(discriminator="kind")]
+JournalLine = Annotated[
+    RoundStarted | CallRefused | RoundEnded | RoundsEnded, Field(discriminator="kind")
+]
 _LINE: TypeAdapter[JournalLine] = TypeAdapter(JournalLine)
 
 
@@ -195,6 +218,11 @@ def round_dir(run_dir: Path, k: int) -> Path:
     return run_dir.joinpath(*round_parts(k))
 
 
+def retry_dir(run_dir: Path, k: int) -> Path:
+    """Where round k's second call runs, once its first call's output was refused."""
+    return round_dir(run_dir, k) / RETRY_NAME
+
+
 def plan_path(run_dir: Path, k: int) -> Path:
     """Round k's plan file: the canonical bytes its digest is taken over."""
     return run_dir.joinpath(*plan_parts(k))
@@ -209,7 +237,7 @@ def _synced(path: Path, data: bytes, mode: Literal["ab", "wb"]) -> None:
         os.fsync(handle.fileno())
 
 
-def _append(journal: Path, line: RoundStarted | RoundEnded | RoundsEnded) -> None:
+def _append(journal: Path, line: RoundStarted | CallRefused | RoundEnded | RoundsEnded) -> None:
     _synced(journal, line.model_dump_json().encode() + b"\n", "ab")
 
 
@@ -290,6 +318,7 @@ def read_journal(run_dir: Path, *, last: int, holds: bool = True) -> Journal:
         msg = "the round journal is missing, or a line of it is not one the rounds write"
         raise RunStateError(msg, run_dir=str(run_dir), cause="record_missing") from exc
     k, session, terminal, opened = 0, "", False, ""
+    retried = 0
     seen: set[str] = set()
     before: RoundEnded | None = None
     for line in lines:
@@ -310,6 +339,14 @@ def read_journal(run_dir: Path, *, last: int, holds: bool = True) -> Journal:
             ):
                 raise _refused(run_dir, before.round, "follows")
             k, session, opened = line.round, line.session_id, line.started
+            seen.add(session)
+        elif isinstance(line, CallRefused):
+            # Once a round, by the call the round started with, made again as a session of its own.
+            if not session or line.session_id != session or retried == k:
+                raise _refused(run_dir, k, "order")
+            if line.retry_session_id in seen:
+                raise _refused(run_dir, k, "session")
+            retried, session = k, line.retry_session_id
             seen.add(session)
         elif isinstance(line, RoundEnded):
             if not session or line.session_id != session:
@@ -408,6 +445,9 @@ class _Ran:
     findings: ReplanFindings | None
     call_ended: tuple[str, float]
     review_started: tuple[str, float] | None
+    #: The round's first call, where its output was refused and the call made once more.
+    refused: Outcome | None = None
+    refused_ended: str | None = None
 
 
 def _one_round(
@@ -422,6 +462,28 @@ def _one_round(
     workdir = round_dir(loop.run_dir, k)
     outcome = loop.make_call(brief, workdir=workdir, prompt=prompt, session_id=session)
     call_ended = loop.now()
+    refused: Outcome | None = None
+    if outcome.cause == RETRIED_CAUSE:
+        # The output was refused by its schema: the call is made once more, the first journalled.
+        refused, again = outcome, str(uuid.uuid4())
+        _append(
+            loop.run_dir / ROUNDS_JOURNAL,
+            CallRefused(
+                round=k,
+                session_id=outcome.session_id,
+                model=outcome.model,
+                num_turns=outcome.num_turns,
+                usage=outcome.usage,
+                detail=outcome.detail,
+                call_ended=call_ended[0],
+                retry_session_id=again,
+            ),
+        )
+        workdir = retry_dir(loop.run_dir, k)
+        # Sent the prompt as it was, and, where a unit of the plan was refused, why.
+        told = retry_prompt(brief, sorted(loop.config.models.roles), prompt, refused)
+        outcome = loop.make_call(brief, workdir=workdir, prompt=told, session_id=again)
+        refused_ended, call_ended = call_ended[0], loop.now()
     cause: PlanCause | None = outcome.cause
     detail = outcome.detail
     if outcome.ok and outcome.plan is not None:
@@ -466,7 +528,17 @@ def _one_round(
     # review came to is on no record before that line.
     # No budget is set on the designer's call (its argv names none), so a spent one is never its.
     ending = round_ending(cause, review_cause, budget_set=False, canary=canary)
-    return _Ran(outcome, ending, detail, reviewed, findings, call_ended, review_started)
+    return _Ran(
+        outcome,
+        ending,
+        detail,
+        reviewed,
+        findings,
+        call_ended,
+        review_started,
+        refused,
+        refused_ended if refused is not None else None,
+    )
 
 
 @dataclass(frozen=True)
@@ -536,6 +608,18 @@ def decompose_in_rounds(
         outcome = make_call(
             brief, workdir=round_dir(run_dir, 1), prompt=None, session_id=str(uuid.uuid4())
         )
+        retried: tuple[RetriedCall, ...] = ()
+        if outcome.cause == RETRIED_CAUSE:
+            # Its output refused by its schema: the call is made once more, and both recorded.
+            spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
+            retried = (RetriedCall(round=1, call=spent, detail=outcome.detail or RETRIED_CAUSE),)
+            outcome = make_call(
+                brief,
+                workdir=retry_dir(run_dir, 1),
+                # The brief's prompt as it was, and, where a unit of the plan was refused, why.
+                prompt=retry_prompt(brief, sorted(config.models.roles), None, outcome),
+                session_id=str(uuid.uuid4()),
+            )
         found = start_run(
             outcome,
             config=config,
@@ -543,6 +627,7 @@ def decompose_in_rounds(
             target_repo=target_repo,
             library=library,
             brief=brief,
+            retried=retried,
         )
         return RoundsOutcome(found, outcome.ok, outcome.cause, outcome.detail, None)
     loop = _Loop(
@@ -557,6 +642,7 @@ def decompose_in_rounds(
     last = replans(config.design_review) + 1
     earlier: list[EarlierRound] = []
     proposals: list[Proposal] = []
+    retried_calls: list[RetriedCall] = []
     prompt: str | None = None
     k = 0
     while True:
@@ -620,8 +706,31 @@ def decompose_in_rounds(
         )
         # The round's end is journalled with what its review came to: its record goes now.
         review_over(run_dir)
+        refused_first = ran.refused
+        if refused_first is not None and ran.refused_ended is not None:
+            spent_first = DecompositionCall(
+                session_id=refused_first.session_id, usage=refused_first.usage
+            )
+            retried_calls.append(
+                RetriedCall(round=k, call=spent_first, detail=refused_first.detail or RETRIED_CAUSE)
+            )
+            proposals.append(
+                Proposal(
+                    round=k,
+                    session_id=refused_first.session_id,
+                    model=refused_first.model,
+                    num_turns=refused_first.num_turns,
+                    plan_sha256=None,
+                    cause=RETRIED_CAUSE,
+                    started=started,
+                    ended=ran.refused_ended,
+                    review_started=None,
+                    review_ended=None,
+                )
+            )
         proposals.append(
             Proposal(
+                call=2 if refused_first is not None else 1,
                 round=k,
                 session_id=outcome.session_id,
                 model=outcome.model,
@@ -664,6 +773,7 @@ def decompose_in_rounds(
                 earlier=tuple(earlier),
                 refused=refused,
                 proposals=tuple(proposals),
+                retried=tuple(retried_calls),
             )
         except OrchestratorError as exc:
             loop.end(k, "void", "infrastructure", _cause(exc), str(exc))

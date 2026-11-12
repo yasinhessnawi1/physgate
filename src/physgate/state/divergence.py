@@ -45,7 +45,7 @@ def _owner_the_guard_would_have_checked(store: Store, change: NodeChange) -> str
 CROSS_NODE = "cross_node"
 INTERFACE_CREATION = "interface_creation"
 #: An interface node rewritten after the decomposition wrote it, other than by the one revision
-#: the step's change check derived and the caller admits (D-A2-37).
+#: the step's change check derived and the caller admits.
 INTERFACE_REWRITTEN = "interface_rewritten"
 COMPLETION_OWNER_NODE = "completion_owner_node"
 
@@ -158,7 +158,7 @@ def divergence(
             ownership alone, as for a store no register stands behind. Always passed, so
             a caller cannot drop the duties by leaving them out.
         admitted: the revisions of interface nodes the step wrote as its change check's
-            followed revisions (D-A2-37); any other rewrite of an interface is named.
+            followed revisions; any other rewrite of an interface is named.
 
     Returns:
         One entry per offending change, in the order the changes arrived. A node

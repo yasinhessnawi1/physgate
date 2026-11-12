@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
 import shutil
 import subprocess
 import sys
@@ -37,6 +36,7 @@ from physgate.hooks.registry import REGISTRY
 from physgate.hooks.runtime import HookSpec
 from physgate.hooks.settings import Installed, InstallRequest, install
 from physgate.oslayer.reaper_install import with_canary
+from physgate.oslayer.session_temp import make_session_temp
 
 #: The Claude Code version the hook contract was measured on: the one role
 #: sessions run on, so the hooks are proven on the binary that runs them.
@@ -74,6 +74,12 @@ def claude_binary() -> str:
         )
         raise HarnessError(msg)
     return binary
+
+
+def pinned_version() -> str:
+    """The pinned version the binary under test reports."""
+    claude_binary()
+    return PINNED_VERSION
 
 
 @dataclass
@@ -156,26 +162,15 @@ def run_session(
     of the same session configuration the hooks read. ``check_installed`` is shown
     what was installed and the settings as written, before the session starts, and
     may refuse by raising.
+
+    Without the layer too the session gets a temporary directory of its own, as the dispatcher
+    gives every session one: its binary is pointed at it, never at the shared one.
     """
-    if not os_layer:
-        return _run_session(
-            root,
-            script,
-            files=files,
-            outside_files=outside_files,
-            prepare=prepare,
-            registry=registry,
-            api_url_override=api_url_override,
-            setting_sources=setting_sources,
-            unpin_disable=unpin_disable,
-            check_installed=check_installed,
-            request_fields=request_fields,
-        )
-    if "os_layer_temp_dir" in request_fields:
-        msg = "the OS layer's temporary directory is made here, as the dispatcher makes it"
+    if {"os_layer_temp_dir", "temp_dir"} & set(request_fields):
+        msg = "the session's temporary directory is made here, as the dispatcher makes it"
         raise HarnessError(msg)
-    temp = Path("/tmp") / f"pg-{secrets.token_hex(6)}"
-    temp.mkdir(mode=0o700)
+    temp = make_session_temp()
+    which = "os_layer_temp_dir" if os_layer else "temp_dir"
     try:
         return _run_session(
             root,
@@ -188,7 +183,7 @@ def run_session(
             setting_sources=setting_sources,
             unpin_disable=unpin_disable,
             check_installed=check_installed,
-            request_fields={**request_fields, "os_layer_temp_dir": str(temp)},
+            request_fields={**request_fields, which: str(temp)},
         )
     finally:
         shutil.rmtree(temp, ignore_errors=True)
@@ -228,6 +223,7 @@ def _run_session(
         "claude_config_dir": str(outside / "claude-config"),
         "user_home": str(outside / "home"),
         "token_ceiling": 100_000,
+        "sessions_root": str(outside / "sessions"),
         # Spawned below with its pid exported as the survivor reaper's canary.
         "spawns_with_canary": True,
     }

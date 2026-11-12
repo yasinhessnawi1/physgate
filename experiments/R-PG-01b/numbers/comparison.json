@@ -1,0 +1,56 @@
+{
+ "numbers_final": {
+  "commit": "a73a7892110d2b335073ba813f44e6d6b63c7e82",
+  "sha256": "719602a055ebf2fdb40b2af3bcc17563da541ee47d41dba3dbda0f4d5837d832"
+ },
+ "r_pg_01": {
+  "A": 0,
+  "C": 0,
+  "kill": true
+ },
+ "step_1_replication": {
+  "injected": {
+   "D_cross": 0.0,
+   "D_cross_minus_D_same": {
+    "high": 0.0,
+    "low": 0.0,
+    "undefined_draws": 0,
+    "value": 0.0
+   },
+   "D_same": 0.0,
+   "discordant": [
+    0,
+    0
+   ],
+   "exact_p": 1.0,
+   "replicated": true
+  },
+  "twins": {
+   "D_cross": 4.0,
+   "D_cross_minus_D_same": {
+    "high": 1.5,
+    "low": -5.0,
+    "undefined_draws": 0,
+    "value": -2.0
+   },
+   "D_same": 6.0,
+   "discordant": [
+    6,
+    2
+   ],
+   "exact_p": 0.2890625,
+   "replicated": true
+  }
+ },
+ "step_2_share_of_r_pg_01_advantage": null,
+ "step_3_gate_records_identical_to_r_pg_01": {
+  "F1": true,
+  "F2": true,
+  "I1": true,
+  "I2": true
+ },
+ "step_4_D1": {
+  "row": 2,
+  "sentence": "The complete sheet did not change the kill reading."
+ }
+}

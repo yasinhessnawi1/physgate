@@ -12,7 +12,7 @@ for its name and no envelope for its kind is recorded as unchecked for magnitude
 never as passed.
 
 Two envelopes are loaded, each a definition rather than a product class: an efficiency and
-a duty cycle are fractions, 0 to 1, in every domain (D-A2-38). Every product-class envelope
+a duty cycle are fractions, 0 to 1, in every domain. Every product-class envelope
 drafted (a voltage, a temperature, a mass, a length) is an assumption, not physics, and is
 withheld in the cross-domain table's comments until a ruling loads it, so a quantity of
 those kinds with no range for its name in its domain is unchecked. The inertial sensor's

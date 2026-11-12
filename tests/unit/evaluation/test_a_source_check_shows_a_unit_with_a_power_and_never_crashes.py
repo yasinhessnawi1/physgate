@@ -1,9 +1,9 @@
-"""M-201: the source check shows a number in a unit with a power, and never crashes on it.
+"""The source check shows a number in a unit with a power, and never crashes on it.
 
 The source check writes each number it reports as its value and its unit in pint's short
 symbols (``7.5 V``). It printed the unit with pint's ``~`` format, which pint 0.26.1, computing
 in fractions, cannot do for a power other than one: its formatter asks the fraction for the
-format ``n``, which a fraction does not support (M-200, in the gate). So a corpus number in
+format ``n``, which a fraction does not support (the gate had the same fault). So a corpus number in
 ``kg*m**2`` or ``m/s**2`` that its source does not support raised ``ValueError`` from the inject
 command's source check instead of a fact. The unit is now spelt from its factors, in pint's
 short symbols and order, so a fact reads as pint would have written it where pint can.
@@ -101,7 +101,7 @@ def test_a_corpus_number_in_a_squared_unit_is_reported_not_raised(tmp_path: Path
 def test_a_derived_number_whose_arithmetic_mixes_powered_units_is_refused_in_words(
     tmp_path: Path,
 ) -> None:
-    # M-201's sibling in the corpus loader: a derived quantity whose arithmetic does not check
+    # The same fault in the corpus loader: a derived quantity whose arithmetic does not check
     # under pint is refused with pint's reason, which pint cannot print once a power is not one.
     rows = {
         **SOURCE_ROWS,

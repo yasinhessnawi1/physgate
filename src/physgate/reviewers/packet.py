@@ -35,7 +35,7 @@ reviewer judges the work without another session's free text in it.
 - ``integration_state.md``: for an attempt of integration's subtask, the issued state its session
   read, byte for byte (``orchestrator.integration_state``), held to the digest its line records.
   Absent for every other attempt.
-- ``interface-followed.md``: for an attempt whose nodes revise an interface (D-A2-37), one line
+- ``interface-followed.md``: for an attempt whose nodes revise an interface, one line
   per changed quantity, old -> new, built by code from the change check's derivation, with the
   node and attempt it followed; no session's text. Absent for every other attempt.
 - ``knowledge/``: the role's curated library files, copied from the harness; for a
@@ -79,7 +79,7 @@ import subprocess
 import tempfile
 import unicodedata
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 from pydantic import (
     BaseModel,
@@ -136,6 +136,84 @@ PART_MAX_LINES = 2_000
 def fits_one_read(data: bytes) -> bool:
     """Whether ``data``, issued as one file, is shown whole by one read."""
     return len(data) <= PART_MAX_BYTES and data.count(b"\n") <= PART_MAX_LINES
+
+
+#: The longest line a committed file may hold for the diff to show it in one part: the diff
+#: puts a mark before the line and a line break after it.
+LINE_MAX_BYTES = PART_MAX_BYTES - 2
+#: Where a line sits before the diff names its file.
+_UNNAMED = "(a file the diff does not name)"
+
+
+class LongLine(NamedTuple):
+    """A line of an attempt's diff that no part can hold, where the attempt's files have it."""
+
+    #: The file, as the diff names it.
+    path: str
+    #: The line's number in the file, on the side the diff shows it from; ``None`` for a line
+    #: of the diff's own header.
+    line: int | None
+    #: Whether the line is the file's as it stood before the attempt: one the attempt removed.
+    before: bool
+    #: The line's length in the file, its line break left out.
+    bytes: int
+
+
+_HUNK = re.compile(rb"^@@ -([0-9]+)(?:,[0-9]+)? \+([0-9]+)(?:,[0-9]+)? @@")
+
+
+def _named(header: bytes, side: bytes) -> str | None:
+    """The path a ``---``/``+++`` header line names, or ``None`` for ``/dev/null``."""
+    name = header[4:]
+    if name == b"/dev/null":
+        return None
+    return name.removeprefix(side).decode("utf-8", errors="replace")
+
+
+def _both_sides(names: bytes) -> str:
+    """The path a ``diff --git a/<path> b/<path>`` line names, when both sides name one path."""
+    half = (len(names) - 5) // 2
+    path = names[2 : 2 + half]
+    if names != b"a/" + path + b" b/" + path:
+        return _UNNAMED
+    return path.decode("utf-8", errors="replace")
+
+
+def first_long_line(diff: bytes) -> LongLine | None:
+    """The first line of ``diff`` that :func:`split_parts` cannot issue, by file and line.
+
+    A line is refused as :func:`split_parts` refuses one: longer than a part, where a line ends
+    as ``bytes.splitlines`` ends it. Each line is then placed in its file by the diff's own
+    headers, so the finding names what the attempt wrote, not a line of the diff.
+    """
+    path, header, old, new = _UNNAMED, True, 0, 0
+    for raw in diff.split(b"\n"):
+        if raw.startswith(b"diff --git "):
+            path, header = _both_sides(raw.removeprefix(b"diff --git ")), True
+        elif header and raw.startswith((b"--- ", b"+++ ")):
+            path = _named(raw, b"a/" if raw.startswith(b"-") else b"b/") or path
+        elif (hunk := _HUNK.match(raw)) is not None:
+            header, old, new = False, int(hunk.group(1)), int(hunk.group(2))
+        if any(len(piece) > PART_MAX_BYTES for piece in (raw + b"\n").splitlines(keepends=True)):
+            if header:
+                return LongLine(path=path, line=None, before=False, bytes=len(raw))
+            before = raw.startswith(b"-")
+            number = old if before else new
+            return LongLine(path=path, line=number, before=before, bytes=len(raw) - 1)
+        if not header and raw.startswith((b"-", b" ")):
+            old += 1
+        if not header and raw.startswith((b"+", b" ")):
+            new += 1
+    return None
+
+
+def long_line(repo: Path | GitDir, base: str, commit: str) -> LongLine | None:
+    """The first line of the diff a review of ``commit`` is issued that one part cannot hold.
+
+    The diff is the one the packet issues (:func:`build_packet`), byte for byte, so an attempt
+    this finds nothing in is never refused by the packet for a line of its diff.
+    """
+    return first_long_line(_diff(repo, base, commit))
 
 
 SPEC_AS_ISSUED_NAME = "spec_as_issued.md"

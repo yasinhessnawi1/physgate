@@ -91,7 +91,7 @@ def board(volts: float | int, unit: str = "V", name: str = "supply_voltage") -> 
 
 
 def test_the_real_cross_table_loads_the_two_definitions_and_keeps_the_drafts() -> None:
-    # D-A2-38: an efficiency and a duty cycle are fractions by definition, 0 to 1; every
+    # An efficiency and a duty cycle are fractions by definition, 0 to 1; every
     # product-class envelope stays withheld in the comments.
     loaded = load_bounds().envelopes
     assert {k: (e.low, e.high, e.unit) for k, e in loaded.items()} == {

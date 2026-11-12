@@ -4,7 +4,7 @@ A command can start a process in a session of its own (``Popen(start_new_session
 double fork): the hooks' refusal of backgrounding cannot see it in the command's text, it
 leaves the command's process group, and once its parent ends macOS hands it to launchd, so
 neither a group kill nor a parent chain reaches it. On macOS it lived on across later
-commands (M-128).
+commands.
 
 **What does reach it is the command's own Seatbelt sandbox.** Claude Code runs each sandboxed
 command under a ``sandbox-exec`` of its own, whose profile allows a signal only to a process
@@ -83,6 +83,28 @@ def command_shell(platform: str = sys.platform, usable: Callable[[str], bool] = 
     if platform == "darwin":
         return "/bin/zsh"
     return next((shell for shell in _ELSEWHERE[:-1] if usable(shell)), _ELSEWHERE[-1])
+
+
+def no_startup_files(shell: str) -> tuple[str, ...]:
+    """The options that keep ``shell`` from reading any user's startup file as it starts.
+
+    The command already runs inside the sandbox, so a startup file it read would be bounded
+    like the command; with these it reads none there either. zsh's ``-f`` leaves only the
+    system's own ``/etc/zshenv``; plain sh takes no such option and reads none for a command
+    string.
+    """
+    name = os.path.basename(shell)
+    if name == "zsh":
+        return ("-f",)
+    if name == "bash":
+        return ("--noprofile", "--norc")
+    return ()
+
+
+def shell_argv(command: str, shell: str | None = None) -> list[str]:
+    """How the command string is run: the command shell, reading no startup file."""
+    shell = shell or SHELL
+    return [shell, *no_startup_files(shell), "-c", command]
 
 
 #: This machine's command shell, chosen once. The installer pins it in a session's
@@ -331,13 +353,13 @@ def run(
     dry_run = "--dry-run" in argv[:-1]
     command = argv[-1]
     if sys.platform != "darwin":
-        execv(SHELL, [SHELL, "-c", command])
+        execv(SHELL, shell_argv(command))
         return 0
     kernel = kernel or Kernel()
     me = os.getpid()
     if not kernel.sandboxed(me):
         # Guard 1: not sandboxed. Only run the command; nothing is signalled, ever.
-        execv(SHELL, [SHELL, "-c", command])
+        execv(SHELL, shell_argv(command))
         return 0
     own = kernel.info(me)
     started = own.started_us if own is not None else None
@@ -369,7 +391,7 @@ def run(
 def _run_and_reap(
     command: str, reaper: Reaper, why_not: str | None, stopped: list[int], waiting: list[bool]
 ) -> int:
-    child = subprocess.Popen([SHELL, "-c", command], close_fds=False)  # noqa: S603
+    child = subprocess.Popen(shell_argv(command), close_fds=False)  # noqa: S603
     returncode: int | None = None
     try:
         waiting[0] = True

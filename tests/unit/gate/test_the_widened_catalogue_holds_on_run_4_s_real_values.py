@@ -1,4 +1,4 @@
-"""M-198: the widened catalogue, held to every value G11 run 4 wrote, and its coverage counted.
+"""The widened catalogue, held to every value the fourth slice run wrote, and its coverage counted.
 
 ``run4/values.json`` holds run 4's 203 values: one row per distinct node, name, value and unit
 across the run's 124 node files (its store, each attempt's graph, the worktrees' interfaces and
@@ -9,10 +9,12 @@ for its unit, so a check that refuses one of them is a check that fails a correc
 Two things are held here:
 
 - **No regression.** Every value the catalogue gives a kind passes that kind's unit and sign
-  rules, and its envelope where it has one, in every domain; the only refusals are the four
-  units no name can save (``count/update`` three times, and ``rad/(s*count)``), which run 4's
-  own gate refused (seq 182 and seq 403). At a64e805f three values are mis-kinded by the
-  ``_radius`` and ``_frequency`` suffixes (gate seq 271), so this is red until the fix.
+  rules, and its envelope where it has one, in every domain; the only refusals are the three
+  units no name can save (``count/update`` three times), which run 4's own gate refused (seq
+  182). Run 4's gate also refused ``rad/(s*count)`` (seq 403) for its bracket; since the unit
+  grammar takes a bracketed denominator (11.11.2026) it parses, and has no kind. At a64e805f
+  three values are mis-kinded by the ``_radius`` and ``_frequency`` suffixes (gate seq 271), so
+  this is red until the fix.
 - **The coverage the fix must reach**, counted by the research's own script with the approved
   row set (``classify.py`` narrowed to research section 6 as ruled on 04.11.2026):
 
@@ -25,12 +27,12 @@ Two things are held here:
   - by qualifier (recorded only)       0           32
   a sign check                         5           37
   a definitional envelope (0 to 1)     1           2
-  unchecked: the unit parses, no kind  161         93
-  unit refused by parse                4           4
+  unchecked: the unit parses, no kind  161         93 (94 with the bracket taken)
+  unit refused by parse                4           4 (3 with the bracket taken)
   a kind the unit disagrees with       3           0
   ===================================  ==========  =====================
 
-  By name, of 174: 25 have a kind at a64e805f, 86 after. M-198's own figures (110, 31, 40, 5,
+  By name, of 174: 25 have a kind at a64e805f, 86 after. The research's own figures (110, 31, 40, 5,
   89) include ``max_duty`` (3 values), the radian -1 kind (1) and the alias (1), all held back.
 """
 
@@ -54,12 +56,12 @@ from physgate.gate.units import UnitRefusedError, parse
 
 VALUES = json.loads((Path(__file__).parent / "run4" / "values.json").read_text())
 
-#: The four values whose unit fails under any name, as run 4's own gate refused them.
+#: The three values whose unit fails under any name, as run 4's own gate refused them. Its gate
+#: refused ``gyro_sensitivity`` in ``rad/(s*count)`` too, for the bracket the grammar now takes.
 PARSE_REFUSED = {
     ("cruise_drive_increment", "count/update"),
     ("cruise_drive_increment_applied", "count/update"),
     ("proposed_cruise_drive_increment", "count/update"),
-    ("gyro_sensitivity", "rad/(s*count)"),
 }
 
 #: Every run-4 name the approved row set gives a kind, and the kind. Every other run-4 name stays
@@ -177,7 +179,7 @@ DOMAINS = sorted({*load_bounds().tables, "control"})
 def _qualifiers() -> tuple[str, ...]:
     words = getattr(catalogue, "QUALIFIERS", None)
     if words is None:
-        pytest.fail("the catalogue has no closed QUALIFIERS list yet (M-198, change 1)")
+        pytest.fail("the catalogue has no closed QUALIFIERS list yet (the widening's first change)")
     return tuple(words)
 
 
@@ -226,7 +228,8 @@ def test_the_fixture_is_run_4_s_203_values_as_name_value_and_unit_only() -> None
     assert len({r["name"] for r in VALUES}) == 174
     assert all(set(r) == {"name", "value", "unit"} for r in VALUES)
     assert {(r["name"], r["unit"]) for r in VALUES if not _parses(r)} == PARSE_REFUSED
-    assert sum(not _parses(r) for r in VALUES) == 4
+    assert sum(not _parses(r) for r in VALUES) == 3
+    assert any(r["unit"] == "rad/(s*count)" and _parses(r) for r in VALUES)
 
 
 @pytest.mark.parametrize("domain", DOMAINS)

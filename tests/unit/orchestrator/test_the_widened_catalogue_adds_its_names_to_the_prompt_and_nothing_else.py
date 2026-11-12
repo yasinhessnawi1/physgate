@@ -1,4 +1,4 @@
-"""M-198: the decomposition prompt gains the widened catalogue's names and kinds, and no more.
+"""The decomposition prompt gains the widened catalogue's names and kinds, and no more.
 
 The prompt's catalogue sentence is generated from the catalogue: every catalogued name, grouped by
 its kind with the kind's unit. The widening adds five names (``torque_constant``,
@@ -10,7 +10,7 @@ so the bounds and relations sentences, and every other byte of the prompt, stay 
 at a64e805f. The new kinds with no catalogued name (an area, a moment of inertia, a duration, a
 velocity), reached by suffixes only, get no label.
 
-One more sentence moves, with the check round (04.11.2026, finding C3): the sentence after the
+One more sentence moves, with the check round (04.11.2026): the sentence after the
 groups said that a name adding words to a catalogued one "is another quantity to the gate and goes
 unchecked". With the qualifier words that is untrue: ``duty_cycle_max`` = 1.5 is refused by its
 duty cycle's envelope, and ``stall_current_max`` has its unit and sign read. The sentence now says
@@ -34,6 +34,7 @@ import pytest
 from physgate import roles
 from physgate.gate.catalogue import QUALIFIERS, RELATIONS
 from physgate.orchestrator.decompose import (
+    UNIT_SPELLING_SENTENCE,
     bounds_sentence,
     catalogue_sentence,
     prompt_for,
@@ -63,7 +64,7 @@ QUALIFIER_WORDS = (
     "_max, _min, _nominal, _measured, _applied, _bound, _budget, _typical, _lower, _upper, "
     "_implied, _estimated, _indicative"
 )
-#: The words after the groups since the check round (C3).
+#: The words after the groups since the check round.
 TAIL = (
     ". A name that adds words to one of them is not that quantity to the gate: it joins no "
     "relation and no range by name. Where the added words end the name and only say which value "
@@ -209,11 +210,14 @@ def test_the_bounds_and_relations_sentences_are_unchanged() -> None:
 def test_every_other_byte_of_the_prompt_is_as_it_was(
     run_roles: tuple[str, ...], sizing_registered: None
 ) -> None:
-    # Guard: with the catalogue sentence put back as it was, and the relations sentence without
-    # the peak headroom added since, the prompt is a64e805f's.
+    # Guard: with the catalogue sentence put back as it was, the relations sentence without the
+    # peak headroom added since, and without the sentence on how a unit is spelt (added
+    # 12.11.2026), the prompt is a64e805f's.
     prompt = prompt_for(BRIEF, run_roles)
     assert prompt.count(catalogue_sentence()) == 1
     assert prompt.count(relations_sentence()) == 1
+    assert prompt.count(f"{UNIT_SPELLING_SENTENCE} ") == 1
+    prompt = prompt.replace(f"{UNIT_SPELLING_SENTENCE} ", "")
     before = prompt.replace(catalogue_sentence(), _base_sentence()).replace(
         relations_sentence(), _relations_before_the_peak()
     )

@@ -17,8 +17,8 @@ import type { Verdict } from "../../design/components/verdict/verdict";
 
 /** What the latest attempt recorded for one stage, the gate or the review. */
 export type StageResult =
-  /** The verdict the ledger recorded, or the stage skipped. */
-  | { readonly kind: "recorded"; readonly result: Verdict | "skipped" }
+  /** The verdict the ledger recorded, the stage skipped, or a review blocked. */
+  | { readonly kind: "recorded"; readonly result: Verdict | "skipped" | "blocked" }
   /** The review ran and reached no verdict: never a pass or a fail. */
   | { readonly kind: "no-verdict"; readonly cause: string }
   /** The run is on this attempt and the stage has not recorded yet. */
@@ -141,7 +141,7 @@ function onLatestAttempt(state: SubtaskState, attempts: number): boolean {
 }
 
 function stageOf(
-  recorded: Verdict | "skipped" | null,
+  recorded: Verdict | "skipped" | "blocked" | null,
   attempts: number,
   open: boolean,
   noVerdict: string | null,

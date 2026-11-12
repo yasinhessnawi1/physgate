@@ -210,3 +210,141 @@ def test_a_route_that_starts_a_thread_is_refused(built: dict[str, Path], tmp_pat
     assert status == 500
     assert b"started a thread" in body
     assert not written.exists()
+
+
+# -- the engine catalogue, read at start --------------------------------------------------------
+
+
+@pytest.mark.parametrize("toward", ("held-out tier", "outside the checkout", "a credential"))
+def test_an_engine_catalogue_planted_as_a_link_is_refused_at_start_and_never_opened(
+    built: dict[str, Path], tmp_path: Path, toward: str
+) -> None:
+    """The catalogue is read once, at start, not by a route: a planted link is refused then.
+
+    Its route then answers 422 with the reason and none of the target's bytes, and nothing,
+    then or later, opens the target.
+    """
+    from dataclasses import replace
+
+    from physgate.orchestrator.credentials import LOGIN_FILE
+    from physgate.ui import engines
+
+    world = _world(built, tmp_path)
+    checkout = tmp_path / "checkout"
+    (checkout / "desktop" / "onboarding").mkdir(parents=True)
+    if toward == "held-out tier":
+        target = world["held"] / "target"
+    elif toward == "outside the checkout":
+        target = world["outside"] / "target"
+    else:
+        target = checkout / LOGIN_FILE
+        target.write_bytes(MARKER + b"\n")
+    (checkout / engines.CATALOGUE_FILE).symlink_to(target)
+    context = context_over(world["root"], ui_root=built["ui"], held_out=(str(world["held"]),))
+    with RECORDER.recording():
+        held = engines.load(checkout, context.allowlist)
+        with serving(replace(context, engines=held)) as live:
+            status, _, body = live.request("GET", "/api/engines")
+    assert held.state == "refused", held
+    assert status == 422, body[:200]
+    assert MARKER not in body
+    real_target = str(target.resolve())
+    tried = [p for p in RECORDER.opened if str(Path(p).resolve()) == real_target]
+    assert tried == [], f"the planted target was opened: {tried}"
+
+
+# -- the curated library ---------------------------------------------------------------------
+#
+# Every file a library route reads, planted the same three ways. A file a listing reads is
+# refused in its own row (the listing answers, the row carries the error and none of the
+# target's bytes); a file a route serves or describes is a 403. Either way the target is never
+# opened.
+
+#: Each library file a route reads, and per route whether it answers 403 or refuses in a row.
+LIBRARY_PLANTS: dict[str, dict[str, str]] = {
+    "control/standards.md": {
+        "/api/library": "row",
+        "/api/library/files/standards/control": "403",
+        "/api/library/staged/cand-standards-control": "403",
+    },
+    "control/skill.md": {
+        "/api/library": "row",
+        "/api/library/files/skill/control": "403",
+        "/api/library/staged/cand-skill-control": "403",
+    },
+    "electrical/bounds.toml": {
+        "/api/library": "row",
+        "/api/library/files/bounds/electrical": "403",
+        "/api/library/ratings": "403",
+    },
+    "promotions.jsonl": {
+        "/api/library": "403",
+        "/api/library/files/standards/control": "403",
+    },
+    "staging/skill/cand-skill-control.json": {
+        "/api/library/staged": "row",
+        "/api/library/staged/cand-skill-control": "403",
+    },
+}
+
+
+def _library_world(tmp_path: Path, toward: str) -> tuple[dict[str, Path], Path]:
+    from ui_library_rig import build_library
+
+    library = build_library(tmp_path / "checkout").root
+    runs = tmp_path / "runs"
+    (runs / "run-1").mkdir(parents=True)
+    held = tmp_path / "held"
+    outside = tmp_path / "outside"
+    for place in (held, outside):
+        place.mkdir()
+        (place / "target").write_bytes(MARKER + b"\n")
+    if toward == "held-out tier":
+        target = held / "target"
+    elif toward == "outside every root":
+        target = outside / "target"
+    else:
+        target = runs / "run-1" / ".credentials.json"
+        target.write_bytes(MARKER + b"\n")
+    return {"library": library, "runs": runs, "held": held}, target
+
+
+@pytest.mark.parametrize("toward", TOWARD)
+@pytest.mark.parametrize("planted", sorted(LIBRARY_PLANTS))
+def test_a_library_route_refuses_a_file_it_reads_that_links_out_of_its_roots(
+    built: dict[str, Path], tmp_path: Path, planted: str, toward: str
+) -> None:
+    import json
+
+    world, target = _library_world(tmp_path, toward)
+    path = world["library"] / planted
+    path.unlink()
+    path.symlink_to(target)
+    context = context_over(
+        world["runs"],
+        ui_root=built["ui"],
+        held_out=(str(world["held"]),),
+        library=world["library"],
+    )
+    routes = LIBRARY_PLANTS[planted]
+    with serving(context) as live, RECORDER.recording():
+        answers = {route: live.request("GET", route) for route in routes}
+    for route, expected in routes.items():
+        status, _, body = answers[route]
+        assert MARKER not in body, route
+        if expected == "403":
+            assert status == 403, (route, status, body[:200])
+            continue
+        assert status == 200, (route, status, body[:200])
+        answer = json.loads(body)
+        rows = answer.get("documents", answer.get("candidates", []))
+        refused = [
+            row
+            for row in rows
+            if "error" in row
+            and planted.endswith(row.get("path", row.get("name", "")).removeprefix("knowledge/"))
+        ]
+        assert refused, (route, rows)
+    real_target = str(target.resolve())
+    tried = [p for p in RECORDER.opened if str(Path(p).resolve()) == real_target]
+    assert tried == [], f"a library route tried to open the planted target: {tried}"

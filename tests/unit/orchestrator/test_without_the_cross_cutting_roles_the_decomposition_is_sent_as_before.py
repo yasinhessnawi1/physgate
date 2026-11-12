@@ -10,7 +10,7 @@ The digests below are of the prompt and the schema as the code sent them before 
 two roles were planned for, with what every run has been sent since: the store's pattern
 on an interface node's id in the schema, and the sentence giving that form in the
 prompt; and in the prompt, the gate's quantity names, generated from its catalogue, and who
-writes interface nodes; and since D-A2-38, where the gate has a bound and what forms each of its
+writes interface nodes; and since 03.11.2026, where the gate has a bound and what forms each of its
 relations, generated from the tables and the catalogue it loads; and since the catalogue widening
 of 04.11.2026, its new names and kinds. A change to either for such a run is a change to what
 every ordinary run sends, and turns this red.
@@ -50,11 +50,14 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: update_rate, sensitivity_peak, gain_margin) and its four new kind labels (resistance, extent,
 #: torque constant, modulus), bore_diameter moved from the lengths to the extents, and, since the
 #: check round, the sentence after the groups saying what the gate reads of a name with added
-#: words (C3); every other byte as before
-#: (test_the_widened_catalogue_adds_its_names_to_the_prompt_and_nothing_else). At 470b3f34,
-#: before C3: ca0317a59ce7..., 8abeae4b5f23... and 44175ad46745...; before the widening, since
-#: D-A2-38 (03.11.2026): dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
-#: before D-A2-38: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
+#: words; every other byte as before
+#: (test_the_widened_catalogue_adds_its_names_to_the_prompt_and_nothing_else); and, since
+#: 12.11.2026, the one sentence on how a unit is spelt, after the words that ask for a unit
+#: (test_the_decomposition_prompt_states_how_a_unit_is_spelt). Before that sentence:
+#: c14dba963d6c..., ad94ba0d6bbe... and d713661a9904.... At 470b3f34,
+#: before that sentence: ca0317a59ce7..., 8abeae4b5f23... and 44175ad46745...; before the
+#: widening, since 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
+#: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
 #: Since the law library's rows (07.11.2026), the catalogue sentence also holds their twelve names
 #: and two kind labels (charge capacity, duration), and every other byte is as above
 #: (test_the_law_library_s_names_reach_the_prompt_and_nothing_else). Before those rows:
@@ -81,7 +84,10 @@ PROMPT = (
     "modules/ that no other module's directory contains, and a specification an implementer "
     'can work from. For each interface give one graph node of kind "interface", owned by '
     "the role that produces it, with every quantity as a value, a unit, a source and the role "
-    "that wrote it. Each node's id is two or more parts joined by dots, each of lowercase "
+    "that wrote it. A unit is spelt as named units with small integer powers, joined by `*` "
+    "and `/`, with at most one bracketed denominator, itself a product of named units, and no "
+    "numbers: `V/(rad/s)` is refused, and is written `V*s/rad`. "
+    "Each node's id is two or more parts joined by dots, each of lowercase "
     "letters, digits and underscores only, the first beginning with a letter, such as "
     '"pump.flow_rate".\n\n'
     # The catalogue's names, from the catalogue: a copy here would hold the test to a list the
@@ -127,7 +133,7 @@ def test_with_sizing_alone_the_schema_is_as_before_and_the_prompt_gains_one_sent
     sizing_registered: None,
 ) -> None:
     # Sizing is planned as an ordinary module, so the plan's form does not change; the
-    # prompt says that it has one module at most, and (D-A2-37) that the interfaces it produces
+    # prompt says that it has one module at most, and that the interfaces it produces
     # follow a node of its own joined to them, in place of the sentence every other run is sent.
     run_roles = ("control", "firmware", "sizing")
     schema = plan_schema(run_roles)

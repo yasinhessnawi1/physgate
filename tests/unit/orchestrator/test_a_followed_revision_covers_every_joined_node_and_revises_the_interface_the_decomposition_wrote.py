@@ -1,4 +1,4 @@
-"""A followed revision covers every joined node and revises the interface as it was written (M-195).
+"""A followed revision covers every joined node and revises the interface as it was written.
 
 The store's own method writes an interface's followed revision only as the copy from every node
 of the owner role joined to the interface in its heads: a revision that names some of them, and

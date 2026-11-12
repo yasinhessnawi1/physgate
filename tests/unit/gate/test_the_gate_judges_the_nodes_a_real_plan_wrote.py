@@ -1,13 +1,13 @@
-"""The gate judges what a real plan writes, with no check loosened (M-196, ARCH-080 amended).
+"""The gate judges what a real plan writes, with no check loosened (ARCH-080 amended).
 
-G11's run 4 wrote three interface nodes and one sizing node. On those nodes, as they were written,
-the magnitude check found nothing with a bound and the power check no relation: a consumer and its
-supply sat on one node, and no envelope or range covered any name sizing wrote. Here the same
-nodes, unchanged (``run4/``), are judged at the scopes sizing's opening pass now gets, and both
-checks evaluate; the same node with a stall above its own limit is refused; a stall current no
-limit bounds is recorded as unchecked, never passed; the two kinds whose span is a definition (an
-efficiency, a duty cycle: 0 to 1) are held to it in every domain; and the inertial sensor's output-
-data-rate range holds under its own name in firmware as in electrical.
+The fourth slice run on the reference brief wrote three interface nodes and one sizing node. On
+those nodes, as they were written, the magnitude check found nothing with a bound and the power
+check no relation: a consumer and its supply sat on one node, and no envelope or range covered any
+name sizing wrote. Here the same nodes, unchanged (``run4/``), are judged at the scopes sizing's
+opening pass now gets, and both checks evaluate; the same node with a stall above its own limit is
+refused; a stall current no limit bounds is recorded as unchecked, never passed; the two kinds whose
+span is a definition (an efficiency, a duty cycle: 0 to 1) are held to it in every domain; and the
+inertial sensor's output-data-rate range holds under its own name in firmware as in electrical.
 """
 
 from __future__ import annotations

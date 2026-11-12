@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test } from "@playwright/test";
 
+import { namesACommand } from "../src/rules/commands";
+
 /**
  * The built bundle, read from disk: fonts and licences inside it, nothing that names another
  * origin, no inline style in the page, every asset under a name the server serves, and none of
@@ -103,4 +105,12 @@ test("the bundle never says 'interview' or 'state of the art'", () => {
   );
   expect(found).toEqual([]);
   expect(BANNED.some((w) => w.test("STATE-OF-THE-ART"))).toBe(true);
+});
+
+test("the Settings screen ships in its own chunk, and names no terminal command", () => {
+  const chunks = assets().filter((a) => /^Settings-[\w-]+\.js$/.test(a));
+  expect(chunks).toHaveLength(1);
+  const text = chunks.map(read).join("\n");
+  expect(text).toContain("pg-catalogue-source");
+  expect(namesACommand(text)).toBe(false);
 });

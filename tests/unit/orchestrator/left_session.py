@@ -63,6 +63,8 @@ def sentinel_installed(sdir: Path, protected: Path) -> None:
             extra_protected=(str(protected),),
             # The run's held records, compared as the dispatcher's installer has them compared.
             extra_protected_record=tuple(str(sdir.parent.parent / n) for n in HELD_RECORDS),
+            sessions_root=str(sdir.parent),
+            temp_dir="/var/tmp/pgs/0123456789",
         ),
         REGISTRY,
     )

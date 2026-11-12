@@ -51,7 +51,7 @@ SI_BROCHURE = (
     "section 2.3.4 and the notes to Table 4 (read via search, not in full, 26.09.2026)"
 )
 WORKLOAD = "the name as the design-state graph's reference workload uses it"
-#: The two kinds whose span is a definition, not a product class (D-A2-38): each is a
+#: The two kinds whose span is a definition, not a product class: each is a
 #: fraction, so the cross-domain table bounds it from 0 to 1 in every domain.
 EFFICIENCY = (
     "the power a stage delivers over the power it takes in, a quantity of dimension one; at "

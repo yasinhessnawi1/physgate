@@ -250,7 +250,7 @@ class Artefact(_Frozen):
     #: Integration's issued state, for an attempt of integration's subtask: what its session was
     #: given to read. Left out of a dump when absent, so every other attempt is recorded as before.
     integration_state: IssuedState | None = None
-    #: The interfaces the attempt's nodes revise, as its change check derived them (D-A2-37),
+    #: The interfaces the attempt's nodes revise, as its change check derived them,
     #: which its reviewer is shown quantity by quantity. Left out of a dump when empty, so every
     #: other attempt is recorded as before.
     followed: tuple[FollowedInterface, ...] = ()

@@ -1,4 +1,4 @@
-"""M-200's last site: a bounds table row whose unit does not convert is refused in pint's words.
+"""The power fault's last site: a bounds table row whose unit does not convert is refused in words.
 
 A range or an envelope whose unit does not convert to its kind's does not load, and the table's
 refusal says why. The reason printed pint's own error, which pint 0.26.1, computing in fractions,

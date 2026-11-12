@@ -73,6 +73,7 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.gate_events import GateEvent, gate_events, recorded_gate_events
 from physgate.orchestrator.git import harness_git, head_of
+from physgate.orchestrator.incident import resolve
 from physgate.orchestrator.install import (
     manifest_entries,
     prepare_install,
@@ -82,6 +83,7 @@ from physgate.orchestrator.install import (
 from physgate.orchestrator.invocation import claude_binary, session_search_path
 from physgate.orchestrator.loop import Loop, escalation_for, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
+from physgate.orchestrator.params_record import record_params
 from physgate.orchestrator.protocols import Gate, PlanReviewer, Reviewer
 from physgate.orchestrator.queue import (
     POSITIONS,
@@ -302,6 +304,23 @@ def add_parsers(
     )
     resolve.add_argument("--by", required=True)
     resolve.set_defaults(func=_queue_resolve)
+
+    incident = subparsers.add_parser("incident", help="an incident that halted a run")
+    incident_actions = incident.add_subparsers(dest="action", required=True)
+    settle = incident_actions.add_parser(
+        "resolve",
+        help="resolve a managed-settings incident at a terminal, so the run can resume",
+        description=(
+            "Resolve the halt of a run whose session received other policy limits than the "
+            "run's. Shows the change by key and value, asks you to type yes, and records who "
+            "resolved it, why, and both digests; the run's resume then accepts it, and every "
+            "later session is held to the new limits. Refused unless run at a terminal."
+        ),
+    )
+    settle.add_argument("--run-dir", required=True, type=Path)
+    settle.add_argument("--by", required=True, help="who resolves it")
+    settle.add_argument("--reason", required=True, help="why the new limits are accepted")
+    settle.set_defaults(func=_incident_resolve)
 
     g = subparsers.add_parser(
         "gate-events",
@@ -713,6 +732,9 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
         return _fail(str(exc), **exc.context)
     try:
         require_fresh(run_dir)
+        # The parameters name the held-out canaries: recorded first, so every session of the run
+        # is installed with the file withheld, wherever it lies.
+        record_params(run_dir, args.params)
         reviewing = _plan_reviewer(args, config, credential, registrations)
         # The root the reviewer runs under, as every reader takes it: recorded before the review
         # runs, so a later command looks for this run's reviews where they are.
@@ -945,6 +967,15 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         }
     )
     return 0 if step.kind == "done" else 1
+
+
+def _incident_resolve(args: argparse.Namespace) -> int:
+    try:
+        resolved = resolve(args.run_dir, by=args.by, reason=args.reason)
+    except OrchestratorError as exc:
+        return _fail(str(exc), **exc.context)
+    _print({"resolved": resolved.model_dump(mode="json")})
+    return 0
 
 
 def _queue_list(args: argparse.Namespace) -> int:

@@ -75,8 +75,8 @@ export function whyNot(operator: string | null, holdsToken = true): string | nul
     return "This server was started without naming an operator, so no decision can be taken here.";
   if (!holdsToken)
     return (
-      "This page was opened without the operator's address, so it can only read. Open the " +
-      "operator's address the server gave when it started (the one ending in #act=…) to decide here."
+      "This page was opened without the operator's address, so it can only read. To decide, " +
+      "open the operator address from the run's ui.out (the newest one, ending in #act=…)."
     );
   return null;
 }

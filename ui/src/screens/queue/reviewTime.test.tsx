@@ -338,6 +338,15 @@ describe("the queue page reads the chosen item's view again when it is chosen", 
     );
   });
 
+  it("and the list still marks that item as the one shown, though its view was read anew", async () => {
+    const { host, views } = await mounted();
+    expect(views).toEqual([]);
+    const on = host.querySelectorAll(".pg-queue-entry-on");
+    expect(on).toHaveLength(1);
+    expect(on[0]?.getAttribute("aria-current")).toBe("true");
+    expect(on[0]?.getAttribute("href")).toContain("item=run-esc-s1");
+  });
+
   it("and the decision sends the id of that view", async () => {
     const { host, views, posted } = await mounted();
     // Read once for the list, and once more because it is the item chosen.

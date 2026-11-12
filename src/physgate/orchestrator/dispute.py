@@ -188,7 +188,7 @@ def _interface_refusal(
     """Why an interface's quantity is not disputed, naming the cross node to dispute instead.
 
     The cross nodes joined to the interface (an edge either way) that hold the quantity, in id
-    order: an interface sizing produces takes their values (D-A2-37), so a dispute of the value is
+    order: an interface sizing produces takes their values, so a dispute of the value is
     a dispute of one of them.
     """
     holders = sorted(

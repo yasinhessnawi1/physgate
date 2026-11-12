@@ -92,6 +92,29 @@ describe("the view registry", () => {
     expect(records?.area).toBe("home");
     expect(records?.group).toBe("run");
   });
+
+  it("lists the library under Reference, before the glossary, with an inspector", () => {
+    const library = VIEWS.find((v) => v.slug === "library");
+    expect(library?.group).toBe("reference");
+    expect(library?.area).toBe("reference");
+    expect(library?.title).toBe("Library");
+    expect(library?.icon).toBe("library");
+    expect(library?.inspector).toBe(true);
+    const reference = VIEWS.filter((v) => v.group === "reference").map((v) => v.slug);
+    expect(reference).toEqual(["library", "glossary"]);
+  });
+});
+
+describe("the Simulation screen's registry line", () => {
+  it("lists it under Analyse, at the simulation address, with the chart icon and no what-if icon", () => {
+    const simulation = VIEWS.find((v) => v.slug === "series");
+    expect(simulation?.group).toBe("analyse");
+    expect(simulation?.area).toBe("simulation");
+    expect(simulation?.title).toBe("Simulation");
+    expect(simulation?.icon).toBe("chart-line");
+    expect(simulation?.inspector).toBeUndefined();
+    expect(VIEWS.filter((v) => v.group === "analyse").map((v) => v.slug)).toEqual(["series"]);
+  });
 });
 
 describe("the shell", () => {
@@ -101,6 +124,7 @@ describe("the shell", () => {
       "This run",
       "Analyse",
       "Reference",
+      "This app",
     ]);
   });
 
@@ -115,7 +139,8 @@ describe("the shell", () => {
     expect(shown).toEqual(
       GROUPS.filter((g) => VIEWS.some((v) => v.group === g.id)).map((g) => g.name),
     );
-    expect(shown).not.toContain("Analyse");
+    // Analyse lists the Simulation screen now; a group with no view is still left out above.
+    expect(shown).toContain("Analyse");
   });
 
   it("a skip link is the first tab stop; it focuses the content and leaves the route alone", () => {
@@ -301,5 +326,87 @@ describe("a two-key shortcut survives a change of route between its keys", () =>
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "t" }));
     });
     expect(window.location.hash).toBe("#/orchestration/run-timeline?run=0%2Fb");
+  });
+});
+
+describe("the navigation's foot: how this app is set up", () => {
+  /** A view under the foot group, drawing nothing of its own. */
+  const settings: ViewDef = {
+    group: "settings",
+    area: "home",
+    slug: "settings",
+    title: "Settings",
+    icon: "settings",
+    component: () => <p>settings</p>,
+  };
+  const home: ViewDef = {
+    group: "home",
+    area: "home",
+    slug: "overview",
+    title: "Home",
+    icon: "layout-dashboard",
+    component: () => <p>home</p>,
+  };
+
+  it("is the last group, This app, drawn at the foot", () => {
+    expect(GROUPS.at(-1)).toEqual({ id: "settings", name: "This app", foot: true });
+    expect(GROUPS.filter((g) => g.foot === true).map((g) => g.id)).toEqual(["settings"]);
+  });
+
+  it("lists its views at the foot, above About and licences, under a heading read but not shown", () => {
+    const host = mount([settings, home]);
+    const foot = host.querySelector(".pg-nav-foot");
+    const section = foot?.querySelector('section[aria-label="This app"]');
+    expect(section?.querySelector("a.pg-nav-link")?.textContent).toBe("Settings");
+    expect(section?.querySelector("a.pg-nav-link")?.getAttribute("href")).toBe("#/home/settings");
+    const heading = section?.querySelector("h2");
+    expect(heading?.textContent).toBe("This app");
+    expect(heading?.classList.contains("pg-visually-hidden")).toBe(true);
+    const links = [...(foot?.querySelectorAll("a.pg-nav-link") ?? [])].map((a) => a.textContent);
+    expect(links).toEqual(["Settings", "About and licences"]);
+    // The main list holds the other groups only.
+    const main = [...host.querySelectorAll('nav[aria-label="Areas"] > section')].map((s) =>
+      s.getAttribute("aria-label"),
+    );
+    expect(main).toEqual(["Home and Queue"]);
+  });
+
+  it("draws no foot section when no view is registered under it", () => {
+    const host = mount([home]);
+    expect(host.querySelector('section[aria-label="This app"]')).toBeNull();
+    expect(host.querySelector(".pg-nav-foot a.pg-nav-link")?.textContent).toBe(
+      "About and licences",
+    );
+  });
+
+  it("names its group in the breadcrumb: This app, then the view", () => {
+    window.location.hash = "#/home/settings";
+    const host = mount([home, settings]);
+    const crumbs = [...host.querySelectorAll(".pg-breadcrumb li")].map((li) => li.textContent);
+    expect(crumbs).toEqual(["This app", "Settings"]);
+    const link = host.querySelector('.pg-nav-foot a[aria-current="page"]');
+    expect(link?.textContent).toBe("Settings");
+  });
+
+  it("is listed last in the palette's Go to", () => {
+    const host = mount([settings, home]);
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }));
+    });
+    const goTo = [
+      ...host.querySelectorAll('[role="group"][aria-label="Go to"] [role="option"]'),
+    ].map((o) => o.textContent);
+    expect(goTo).toEqual(["Home", "Settings"]);
+  });
+
+  it("registers Settings last, under This app, at the home address", () => {
+    const last = VIEWS.at(-1);
+    expect([last?.group, last?.area, last?.slug, last?.title, last?.icon]).toEqual([
+      "settings",
+      "home",
+      "settings",
+      "Settings",
+      "settings",
+    ]);
   });
 });

@@ -107,7 +107,10 @@ class ChangesPart(_Frozen):
     """From the change check (``ProposalsChecked``): the changed-node summary."""
 
     refused_by: (
-        Literal["proposal", "write_scope", "series", "declaration", "dispute", "interface"] | None
+        Literal[
+            "proposal", "write_scope", "series", "declaration", "dispute", "interface", "long_line"
+        ]
+        | None
     )
     proposed: tuple[Identifier, ...]
 

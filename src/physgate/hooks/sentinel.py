@@ -16,7 +16,11 @@ says:
 - ``revert``: put it back. A modified or deleted file is restored from the
   bytes kept when the session started, by replacing it; anything new, or of the
   wrong type, is moved aside into the session's quarantine, never deleted. The
-  call is reported as refused, with the paths.
+  call is reported as refused, with the paths. No byte is kept of a file the
+  session may not read (the held-out tier, a withheld run record), because the
+  kept bytes would be one more place to read it from: such a file is written by
+  no session on any layer, so a change to it is found by its digest, nothing is
+  put back, and every later call is refused.
 - ``journal``: the graph store's journal. The orchestrator appends to it while
   sessions run, so an append cannot be told from an agent's; the check is that
   the bytes already there are unchanged, and an append is left to the store's
@@ -70,7 +74,7 @@ import sys
 import time
 from typing import TYPE_CHECKING
 
-from physgate.hooks import withheld
+from physgate.hooks import paths, withheld
 from physgate.hooks.journal_view import Head, heads
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.snapshot import BlobStore, Entry, file_digest, quarantine, record, signature
@@ -117,7 +121,7 @@ WITHHELD_EVENTS = frozenset({"SessionStart", "SessionEnd"})
 
 
 def _withheld_roots(config: ConfigView) -> tuple[str, ...]:
-    return (*config.held_out, *config.answer_keys)
+    return withheld.roots_of(config)
 
 
 def _roots(config: ConfigView, watch: str) -> list[str]:
@@ -176,7 +180,8 @@ def _frozen_experiment_paths(config: ConfigView) -> list[str]:
 #: this list leaves out, so a new import upstream cannot slip past it.
 LAZY_MODULES = (
     "pydantic", "pydantic_core", "annotated_types", "typing_extensions", "typing_inspection",
-    "physgate.state", "physgate.roles", "physgate.knowledge", "physgate.orchestrator.exceptions",
+    "physgate.state", "physgate.unit_spelling", "physgate.roles", "physgate.knowledge",
+    "physgate.orchestrator.exceptions",
     "_bisect", "_bz2", "_compression", "_contextvars", "_csv", "_datetime", "_decimal",
     "_lzma", "_opcode", "_osx_support", "_random", "_sha2", "_socket", "_struct", "_uuid",
     "_weakrefset", "_zoneinfo", "array", "ast", "base64", "binascii", "bisect", "bz2", "calendar",
@@ -434,11 +439,22 @@ def _record_change(path: str, was: dict[str, Any] | None) -> dict[str, Any] | No
 def _baseline(config: ConfigView, state: _State) -> dict[str, Any]:
     revert_roots = sorted(set(_roots(config, "revert") + _frozen_experiment_paths(config)))
     revert_exceptions = sorted(set(_exceptions(config, "revert")))
-    entries = record(revert_roots, state.blobs, revert_exceptions)
+    shut: list[str] = []
+
+    def sealed(path: str) -> bool:
+        # A file no tool of the session may read: its digest is taken, and no byte kept.
+        if paths.read_refused(path, config):
+            shut.append(path)
+            return True
+        return False
+
+    with paths.resolve_roots_once():
+        entries = record(revert_roots, state.blobs, revert_exceptions, sealed)
     return {
         "revert_roots": revert_roots,
         "revert_exceptions": revert_exceptions,
         "revert": {p: _entry_json(e) for p, e in entries.items()},
+        "sealed": sorted(shut),
         "journal": {r: _journal_state(r, state.blobs) for r in _roots(config, "journal")},
         "halt": _halt_record(config),
         "nodes": {r: _nodes_record(r, heads(r)) for r in _roots(config, "journal")},
@@ -453,13 +469,15 @@ def _depth(path: str) -> int:
     return path.count("/")
 
 
-def _restore_entry(path: str, entry: Entry, state: _State) -> None:
+def _restore_entry(path: str, entry: Entry, state: _State, sealed: frozenset[str]) -> None:
     kind = entry.signature[0]
     mode = entry.signature[1]
     if kind == "dir":
         os.makedirs(path, exist_ok=True)
         os.chmod(path, mode)
-    elif kind == "file" and entry.digest is not None:
+    elif kind == "file" and entry.digest is not None and path not in sealed:
+        # A sealed file has no bytes kept: it stays as it is, and the check after the
+        # put-back reports it as not put back.
         state.blobs.restore(path, entry.digest, mode)
     elif kind == "link" and entry.link is not None:
         os.symlink(entry.link, path)
@@ -476,6 +494,7 @@ def _revert(base: dict[str, Any], state: _State) -> tuple[list[str], list[str]]:
         # further walks the path below takes.
         return [], []
     recorded = {p: _entry(raw) for p, raw in base["revert"].items()}
+    sealed = frozenset(base.get("sealed", ()))
     touched: list[str] = []
     moved: list[str] = []
     for path in sorted(set(current) - set(recorded), key=_depth):
@@ -493,23 +512,28 @@ def _revert(base: dict[str, Any], state: _State) -> tuple[list[str], list[str]]:
         if was.signature[0] != now[0]:
             quarantine(path, state.quarantine)
             moved.append(path)
-            _restore_entry(path, was, state)
+            _restore_entry(path, was, state, sealed)
             touched.append(path)
         elif now[0] == "file":
-            if now[1] != was.signature[1] or file_digest(path) != was.digest:
-                _restore_entry(path, was, state)
+            if path in sealed and file_digest(path) == was.digest:
+                # Its bytes are what they were; only its mode can have moved.
+                if now[1] != was.signature[1]:
+                    os.chmod(path, was.signature[1])
+                    touched.append(path)
+            elif now[1] != was.signature[1] or file_digest(path) != was.digest:
+                _restore_entry(path, was, state, sealed)
                 touched.append(path)
         elif now[0] == "dir" and now[1] != was.signature[1]:
             os.chmod(path, was.signature[1])
             touched.append(path)
         elif now[0] == "link" and os.readlink(path) != was.link:
             quarantine(path, state.quarantine)
-            _restore_entry(path, was, state)
+            _restore_entry(path, was, state, sealed)
             touched.append(path)
     for path in sorted(
         set(recorded) - set(take_signatures(base["revert_roots"], exclude)), key=_depth
     ):
-        _restore_entry(path, recorded[path], state)
+        _restore_entry(path, recorded[path], state, sealed)
         touched.append(path)
     # Verify, and take the restored files' new signatures as the baseline: a
     # replaced file has a new inode, with the content it had before.

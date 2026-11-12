@@ -67,6 +67,9 @@ class SessionRequest(_Frozen):
     #: How often a person's choice reopened the merged subtask: its session runs in that
     #: reopen's own worktree and branch.
     reopened: Annotated[int, Field(ge=0)] = 0
+    #: The interface nodes the plan's contract pairs hold the subtask's role to, as producer or
+    #: consumer, in id order: the session is told to join each.
+    interfaces: tuple[NonEmptyStr, ...] = ()
 
     @model_validator(mode="after")
     def _a_fix_is_told_what_to_fix(self) -> SessionRequest:
@@ -97,6 +100,9 @@ class SessionReport(_Frozen):
     trajectory_tampered: NonEmptyStr | None = None
     #: The digest of the policy limits the invocation received, if it received any.
     policy_limits_sha256: NonEmptyStr | None = None
+    #: Whether a model answered the session at least once (:func:`managed.model_answered`).
+    #: A report that does not say is taken as answered, so its limits are judged.
+    model_answered: bool = True
     #: A canary of reviewer material found in the session's own stream, if one was:
     #: the session read what only reviewers read, by a path no hook could judge.
     review_material_seen: NonEmptyStr | None = None
@@ -214,7 +220,10 @@ class ChangeCheck(_Frozen):
     """The verdict on an attempt's changes before the gate sees them."""
 
     refused_by: (
-        Literal["proposal", "write_scope", "series", "declaration", "dispute", "interface"] | None
+        Literal[
+            "proposal", "write_scope", "series", "declaration", "dispute", "interface", "long_line"
+        ]
+        | None
     )
     reason: NonEmptyStr | None
     #: The offending paths or node id, for the finding's key.
@@ -233,7 +242,7 @@ class ChangeCheck(_Frozen):
     #: Every dispute the attempt holds, read from the commit checked, sorted by node and quantity.
     #: Never on the change check's own line: the loop records each on a line of its own.
     disputes: tuple[Dispute, ...] = ()
-    #: Each interface the attempt's nodes revise, derived at this check (D-A2-37), in id order;
+    #: Each interface the attempt's nodes revise, derived at this check, in id order;
     #: empty unless the check was asked to follow and something differed.
     followed: tuple[FollowedInterface, ...] = ()
 
@@ -332,7 +341,7 @@ class Merger(Protocol):
         Idempotent: a merge already made is returned, not redone. Refuses a commit
         that is no longer what the subtask's branch points at. ``contracts`` are interface
         contract files, by path, the merge commit writes with these bytes: the revisions the
-        attempt followed (D-A2-37).
+        attempt followed.
         """
         ...
 

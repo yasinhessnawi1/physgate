@@ -61,7 +61,8 @@ from physgate.orchestrator.dispute import DISPUTES_DIR, UNRECORDABLE, disputer_p
 from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
 from physgate.orchestrator.escalation_state import RUBRIC_ITEM, escalation_state
 from physgate.orchestrator.events import (
-    RESUMABLE_HALTS,
+    RULE,
+    RULE_REASON,
     ArbitrationDecided,
     AttemptRejected,
     AttemptReturned,
@@ -87,6 +88,7 @@ from physgate.orchestrator.events import (
     Halted,
     Incident,
     IncidentCause,
+    IncidentResolved,
     InfraRetryScheduled,
     IntegrationEscalated,
     IntegrationGateRan,
@@ -139,7 +141,16 @@ from physgate.orchestrator.follow_up import follow_up_order, owed
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.held_records import record_change, second_names, unaccounted
 from physgate.orchestrator.integration_state import issued_state
-from physgate.orchestrator.managed import policy_limits_change
+from physgate.orchestrator.managed import (
+    UnshowableKeyError,
+    limits_with,
+    policy_diff,
+    policy_limits_change,
+    policy_limits_unjudged,
+    read_limits,
+    session_limits,
+    stricter_only,
+)
 from physgate.orchestrator.merge import merge_message
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
@@ -322,6 +333,13 @@ LEFTOVER_HALTS: tuple[IncidentCause, ...] = (
     "reaper_unverified",
     "run_records_changed",
 )
+
+
+def _unjudged(report: SessionReport) -> str | None:
+    """Why a session's missing policy limits are recorded and not judged, if they are."""
+    return policy_limits_unjudged(
+        report.end, answered=report.model_answered, now=report.policy_limits_sha256
+    )
 
 
 def _possible_abort(session_id: str, tool_uses: tuple[str, ...]) -> str:
@@ -560,7 +578,7 @@ class Loop:
         if self._took_an_owed_halt():
             return self._drive()
         halted = self.state.halted
-        if halted is not None and halted.reason not in RESUMABLE_HALTS:
+        if halted is not None and not self.state.halt_resumable():
             msg = f"the run halted for {halted.reason}; a person resolves that before any resume"
             raise RunStateError(msg, run_dir=str(self.run_dir), detail=halted.detail)
         self._require_confirmable(confirm, confirmed_by)
@@ -1677,6 +1695,7 @@ class Loop:
                 for s in self.state.subtasks.values()
             ),
             reopened=sub.reopens,
+            interfaces=self._shared_interfaces(sub.plan.assigned_role),
         )
         try:
             report = self._dispatcher.run(request, on_spawn=self._spawned)
@@ -1686,6 +1705,12 @@ class Loop:
             self._incident(subtask_id, "os_layer_misplaced", str(exc))
             return False
         found = self._session_findings(report)
+        ruled = self._by_the_rule(subtask_id, report, found)
+        if ruled is not None:
+            # The owner's rule: a change that only adds restrictions is no incident. Recorded
+            # before the session's end line, and every later session is held to the new limits.
+            self._emit(ruled)
+            found = None
         if found is not None:
             # Before anything says the session ended: a process killed after this line owes the
             # halt, and one killed before it finds the session again (``stop_leftovers``).
@@ -1714,6 +1739,7 @@ class Loop:
                 trajectory_seal=report.trajectory_seal,
                 decisions_bytes=self._decisions_bytes(),
                 policy_limits_sha256=report.policy_limits_sha256,
+                policy_limits_unjudged=_unjudged(report),
                 issued_spec_sha256=report.issued_spec_sha256,
                 series=report.series,
             )
@@ -1757,7 +1783,11 @@ class Loop:
             # Settings above every source the hooks were installed in changed under the
             # session: nothing it did is taken, and a person looks first.
             return "managed_settings_changed", report.managed_drift
-        changed = policy_limits_change(self._policy_baseline(), report.policy_limits_sha256)
+        changed = (
+            policy_limits_change(self._policy_baseline(), report.policy_limits_sha256)
+            if _unjudged(report) is None
+            else None
+        )
         if changed is not None:
             # The account's policy limits are applied without a trace the hooks see: the
             # session ran under other limits than the run began with.
@@ -1884,12 +1914,66 @@ class Loop:
         """The commit that issued every subtask's specification: the decomposition's."""
         return next((e.spec_commit for e in self.log.events if isinstance(e, Decomposed)), None)
 
+    def _shared_interfaces(self, role: str) -> tuple[str, ...]:
+        """The interfaces the recorded contract pairs hold ``role`` to, either side, in id order.
+
+        By role, as a clause reads a module's nodes: so a closing pass, which no pair names by
+        its subtask, is told the interfaces its role produces, as the opening pass is.
+        """
+        return tuple(
+            sorted(
+                {
+                    interface
+                    for pair in self.state.contract_pairs or ()
+                    if role in (pair.producer.role, pair.consumer.role)
+                    for interface in pair.interfaces
+                }
+            )
+        )
+
     def _policy_baseline(self) -> str | None:
-        """The policy limits the decomposition call received: what every session is held to."""
-        for event in self.log.events:
-            if isinstance(event, Decomposed):
-                return event.policy_limits_sha256
-        return None
+        """The policy limits every session is held to: the decomposition call's, as resolved since.
+
+        Moved only by a resolution on the record (:class:`IncidentResolved`), as the replay does.
+        """
+        return self.state.policy_baseline
+
+    def _by_the_rule(
+        self, subtask_id: str, report: SessionReport, found: object
+    ) -> IncidentResolved | None:
+        """The owner's rule's resolution of the session's change of policy limits, if it applies.
+
+        Only where that change is all the session's end shows (``found`` is its lone finding),
+        both limits are files held to their digests, and the change only adds restrictions set to
+        ``allowed: false``. Any other change is the incident it was, for a person to resolve.
+        """
+        baseline, now = self._policy_baseline(), report.policy_limits_sha256
+        changed = policy_limits_change(baseline, now) if _unjudged(report) is None else None
+        lone = ([("managed_settings_changed", changed)], "managed_settings_changed")
+        if changed is None or baseline is None or now is None or found != lone:
+            return None
+        before = limits_with(self.run_dir, baseline)
+        after = read_limits(session_limits(self.run_dir, report.session_id), now)
+        if before is None or after is None:
+            return None
+        try:
+            changes, omitted = policy_diff(before, after)
+        except UnshowableKeyError:
+            return None
+        if not stricter_only(changes, omitted):
+            return None
+        return IncidentResolved(
+            **self._env(),
+            subtask_id=subtask_id,
+            session_id=report.session_id,
+            by=RULE,
+            reason=RULE_REASON,
+            rule=True,
+            old_sha256=baseline,
+            new_sha256=now,
+            changes=changes,
+            omitted=omitted,
+        )
 
     def _repair_node_files(self, subtask_id: str, attempt: int) -> bool:
         """Reopen the store so recovery rebuilds node files from the journal, before any read."""
@@ -2120,7 +2204,7 @@ class Loop:
             self._reject(subtask_id, attempt, Finding(source="reading", text=UNREAD))
             return False
         self._stage(subtask_id, attempt, "implement")
-        # Only the cross-nodes owner's opening pass follows its interfaces (D-A2-37).
+        # Only the cross-nodes owner's opening pass follows its interfaces.
         follows = self.state.follows(subtask_id) if role in owners_of("cross_nodes") else None
         check = self._recordable(
             subtask_id,
@@ -2400,7 +2484,7 @@ class Loop:
         try:
             if changes.followed:
                 # The merge commit rewrites each followed interface's contract file, so every
-                # later session reads the revised values (D-A2-37).
+                # later session reads the revised values.
                 contracts = contracts_of([Node.model_validate(e.after) for e in changes.followed])
                 merge_commit = self._merger.merge(
                     subtask_id, attempt, checked, merge_text, reopen=sub.reopens,
@@ -2501,7 +2585,7 @@ class Loop:
 
         A module is complete when the last planned subtask for its directory is
         judged; a subtask taken out of the plan does not count. Every subtask of the
-        cross-nodes owner is also judged at module scope (ARCH-080, D-A2-38): the domains
+        cross-nodes owner is also judged at module scope (ARCH-080): the domains
         read sizing's nodes as they stand after its opening pass, so the relations those
         nodes form are judged there. A domain's subtask keeps module scope only when it
         completes its module, since a half-written module would fail its mass sum falsely.
