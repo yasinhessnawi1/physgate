@@ -33,6 +33,8 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from physgate.contracts.pairs import ContractError, ContractPair, pairing_problems, plan_pairs
 from physgate.gate.bounds_table import load_bounds
 from physgate.gate.catalogue import KINDS, QUALIFIERS, QUANTITIES, RELATIONS, shadowing_names
+from physgate.gate.units import UnitRefusedError
+from physgate.gate.units import parse as read_by_registry
 from physgate.hooks.settings import WEB_TOOLS, protected_in_a_worktree
 from physgate.knowledge.library import LibraryError, put_into, read_library
 from physgate.orchestrator.accounting import require_matching_totals
@@ -104,7 +106,12 @@ from physgate.series.collect import series_library
 from physgate.state.exceptions import MalformedNodeIdError
 from physgate.state.schema import Node, validate_node_id
 from physgate.state.store import Store, payload_digest
-from physgate.unit_spelling import UnitSpellingError, require_bounded_spelling
+from physgate.unit_spelling import (
+    MAX_LENGTH,
+    UnitSpellingError,
+    accepted_spelling,
+    require_bounded_spelling,
+)
 
 #: Where the run branch holds each interface node the decomposition planned, one JSON file
 #: per node named by its id, written in the commit that issues the specifications. Every
@@ -922,30 +929,77 @@ def judge(
     return None, "a plan", plan, seen_model, turns
 
 
+#: How the refusal of a plan's interface unit begins: the node and the quantity follow. The
+#: binary's own refusal of an answer never begins so.
+UNIT_REFUSAL_HEAD = "interface node "
+
+
 def _units_as_products(plan: Plan, roles: Sequence[str]) -> Plan:
     """``plan`` with every interface unit the product the unit grammar reads it as.
 
-    The function the change check reads a stored unit with (:func:`require_bounded_spelling`), so
-    no interface is stored in a unit the change check cannot read.
+    Each unit is read as the change check and the gate read a stored one: held to the grammar
+    (:func:`require_bounded_spelling`), then handed, as its product, to the gate's unit registry
+    (:func:`physgate.gate.units.parse`). So no interface is stored in a unit the change check
+    cannot read: one the grammar takes and the registry does not (``counts/rev``, ``Nm``,
+    ``m**0``) is refused here as one the grammar refuses is.
 
     Raises:
-        UnitSpellingError: an interface unit the grammar refuses; the message names the node, the
-            quantity and the spelling the grammar takes, where one exists.
+        UnitSpellingError: an interface unit the grammar or the registry refuses; the message
+            names the node, the quantity and the spelling to write, where one exists.
     """
     dumped = plan.model_dump(mode="json")
     changed = False
     for node in dumped["interface_nodes"]:
         for name, quantity in node["quantities"].items():
             try:
-                product = require_bounded_spelling(quantity["unit"])
+                product = _read_unit(quantity["unit"])
             except UnitSpellingError as exc:
-                msg = f"interface node {node['id']!r}'s {name}: {exc}"
+                msg = f"{UNIT_REFUSAL_HEAD}{node['id']!r}'s {name}: {exc}"
                 raise UnitSpellingError(msg, exc.spelling) from None
             changed = changed or product != quantity["unit"]
             quantity["unit"] = product
     if not changed:
         return plan
     return plan_model(roles).model_validate_json(json.dumps(dumped))
+
+
+def _read_unit(unit: str) -> str:
+    """``unit`` as the product the grammar reads it as, where the gate's registry reads it.
+
+    Raises:
+        UnitSpellingError: the grammar refuses ``unit``, or the registry cannot read it. The
+            message is the grammar's or the registry's own, naming ``unit`` as written, and
+            names a spelling to write only where the registry reads that spelling (``1`` for
+            ``m**0``, ``V*s/rad`` for ``V/(rad/s)``): never one a retry would be refused for.
+    """
+    try:
+        product = require_bounded_spelling(unit)
+    except UnitSpellingError as exc:
+        if exc.spelling is None or _registry_reads(exc.spelling):
+            raise
+        raise UnitSpellingError(str(exc).removesuffix(_hint(exc.spelling)), None) from None
+    try:
+        read_by_registry(1, unit)
+    except UnitRefusedError as exc:
+        spelling = accepted_spelling(unit, MAX_LENGTH)
+        if spelling is None or spelling == product or not _registry_reads(spelling):
+            raise UnitSpellingError(str(exc), None) from None
+        raise UnitSpellingError(f"{exc}{_hint(spelling)}", spelling) from None
+    return product
+
+
+def _hint(spelling: str) -> str:
+    """How a refusal names the spelling to write, as the grammar's own refusal does."""
+    return f"; write it as {spelling}"
+
+
+def _registry_reads(unit: str) -> bool:
+    """Whether the gate reads ``unit``: the grammar takes it and the registry knows it."""
+    try:
+        read_by_registry(1, unit)
+    except UnitRefusedError:
+        return False
+    return True
 
 
 def model_declined(stdout: str) -> bool:
