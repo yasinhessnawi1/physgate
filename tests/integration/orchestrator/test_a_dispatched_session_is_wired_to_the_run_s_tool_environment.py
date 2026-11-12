@@ -74,7 +74,14 @@ def _stand_in(tmp_path: Path) -> dict[str, Any]:
         "distributions": [["control", "0.10.1"]],
     }
     _program(root / "bin" / "python3", json.dumps(answer))
-    _program(root / "bin" / "report-size", "FLASH 4798 RAM 173")
+    # A tool that reads its store through the link in the session's own directory, as a build
+    # tool does, and says where that directory is.
+    report = root / "bin" / "report-size"
+    report.write_text(
+        "#!/bin/sh\necho 'FLASH 4798 RAM 173'\necho \"CORE=$BUILD_CORE_DIR\"\n"
+        'cat "$BUILD_CORE_DIR/store/package.txt"\n'
+    )
+    report.chmod(0o755)
     (root / "store" / "package.txt").write_text("a package of the store\n")
     (root / SESSION_FILE).write_text(json.dumps(WIRING))
     return {"interpreter": str(root / "bin" / "python3"), "roots": [str(root)], "native": {}}
@@ -103,11 +110,6 @@ def test_a_session_finds_the_environment_s_programs_and_variables_as_its_file_sa
                 "echo PYTHON=$(command -v python3); echo QUIET=$BUILD_QUIET; echo PATH=$PATH"
             ),
         ),
-        # A plain read: a command that is not one may not name the session's temporary
-        # directory, which the variable leads into.
-        tool(
-            "Bash", command="ls -d $BUILD_CORE_DIR/store && cat $BUILD_CORE_DIR/store/package.txt"
-        ),
         text("done"),
     ]
     api, (report, _), _ = dispatch(tmp_path, install_bin, steps, cfg=_config(named))
@@ -121,9 +123,10 @@ def test_a_session_finds_the_environment_s_programs_and_variables_as_its_file_sa
     assert "QUIET=yes" in lines
     paths = [line for line in lines if line.startswith("PATH=")]
     assert paths and paths[0][5:].split(":")[0] == str(sdir / "bin"), paths
-    cores = [line for line in lines if line.endswith("/core/store")]
+    cores = [line[5:] for line in lines if line.startswith("CORE=")]
     assert cores, told[-1500:]
     core = cores[0]
+    assert core.endswith("/core"), core
     assert core.startswith("/var/tmp/pgs/") or core.startswith("/private/var/tmp/pgs/"), core
     assert "a package of the store" in lines
     assert sorted(p.name for p in (sdir / "bin").iterdir()) == ["python3", "report-size"]
