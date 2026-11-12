@@ -169,7 +169,8 @@ def test_everything_that_decides_a_refusal_is_a_protected_path(tmp_path: Path) -
         str(tmp_path / "state"),
         str(tmp_path / "claude-config"),
         str(tmp_path / "store"),
-        str(tmp_path / "home" / ".claude" / "settings.json"),
+        # The scratch home's whole directory, the user settings file in it.
+        str(tmp_path / "home" / ".claude"),
         str(tmp_path / "home" / ".claude.json"),
         str(tmp_path / "worktree" / ".claude"),
         str(tmp_path / "worktree" / "src" / "physgate" / "gate"),

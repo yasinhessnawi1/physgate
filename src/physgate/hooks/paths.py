@@ -72,6 +72,7 @@ from typing import TYPE_CHECKING
 from physgate.hooks.reasons import (
     ANSWER_KEY_REASON,
     HELD_OUT_REASON,
+    HOME_CLAUDE_REASON,
     OUTSIDE_REVIEW_REASON,
     REVIEW_MATERIAL_REASON,
 )
@@ -321,10 +322,12 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
         # A root that scripts write blind (the series outbox) is read by no tool of the
         # session either: what a script left there is the collector's to judge, and the OS
         # layer keeps the shell's reads from it by the same rule.
+        # Claude Code's directory in the session's scratch home is read by none either: what
+        # is there is not the session's, and the OS layer denies the shell's reads alike.
         for root in config.protected_roots:
             if (
-                root.shell_writes == "allowed"
-                and root.reads == "denied"
+                root.reads == "denied"
+                and (root.shell_writes == "allowed" or root.reason == HOME_CLAUDE_REASON)
                 and _reaches(absolute, root.path, chain)
             ):
                 return root.reason

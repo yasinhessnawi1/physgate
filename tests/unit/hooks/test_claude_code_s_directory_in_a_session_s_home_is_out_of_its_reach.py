@@ -191,6 +191,18 @@ def test_what_a_script_left_there_is_moved_aside_at_the_next_hook(base: Path) ->
     assert [e["decision"] for e in events if e.get("session") == SESSION] == ["put back"]
 
 
+def test_a_settings_file_there_from_the_start_is_put_back_when_it_changes(base: Path) -> None:
+    settings = _home(base) / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text("{}\n")
+    config = _config(base)
+    assert [r.path for r in config.protected_roots if r.path == str(settings)] == []
+    assert _check(config, "SessionStart") == "allow"
+    settings.write_text('{"disableAllHooks": true}\n')
+    assert str(settings) in _check(config, "PostToolUse")
+    assert settings.read_text() == "{}\n"
+
+
 @pytest.mark.parametrize("profile", PROFILES)
 def test_the_rest_of_the_home_stays_the_session_s_own(base: Path, profile: str) -> None:
     config = _config(base, profile)

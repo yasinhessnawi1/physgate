@@ -51,6 +51,7 @@ from physgate.hooks.reasons import GATE_REASON as GATE_REASON
 from physgate.hooks.reasons import GIT_USER_CONFIG_REASON as GIT_USER_CONFIG_REASON
 from physgate.hooks.reasons import HARNESS_REASON as HARNESS_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
+from physgate.hooks.reasons import HOME_CLAUDE_REASON as HOME_CLAUDE_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
@@ -289,6 +290,18 @@ def _startup_watch(site_packages: Path) -> tuple[str, ...]:
     )
 
 
+def _is_the_installing_user_s_home(home: Path) -> bool:
+    """True where a session is given the home of the user installing it, not a scratch one.
+
+    Other sessions of that user write its ``.claude`` all day, and it holds far more than a
+    hook could compare at every call: it is left to the two named files, as before.
+    """
+    try:
+        return home.resolve() == Path.home().resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
 def _design_discipline(worktree: Path) -> tuple[str, ...]:
     """The roots that are the harness's discipline over a design worktree, not integrity."""
     return (
@@ -357,11 +370,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         installation.package_dir: (hook_code, "halt"),
         installation.environment_root: (hook_code, "halt"),
         installation.base_prefix: (hook_code, "halt"),
-        # Other sessions on the machine write these legitimately.
-        str(home / ".claude" / "settings.json"): (
-            "it is the user's Claude Code settings, which later sessions read",
-            "log",
-        ),
+        # Other sessions on the machine write this legitimately.
         str(home / ".claude.json"): (
             "it is the user's Claude Code state, which later sessions read",
             "log",
@@ -398,6 +407,21 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         request.state_dir: "shell_denied",
         request.claude_config_dir: "shell_denied",
     }
+    if _is_the_installing_user_s_home(home):
+        # Other sessions on the machine write it legitimately.
+        protected[str(home / ".claude" / "settings.json")] = (
+            "it is the user's Claude Code settings, which later sessions read",
+            "log",
+        )
+    else:
+        # A scratch home is the session's own to write, all but the one directory in it the
+        # binary reads a user's skills, mods, commands and settings from: a file a session
+        # left there is a file a later version may load. Whole, both ways, on every route,
+        # the settings file with the rest. Measured on 2.1.301 and 2.1.322: the binary itself
+        # writes nothing there while its configuration directory is elsewhere, and no other
+        # session has this home, so whatever appears is put back.
+        protected[str(home / ".claude")] = (HOME_CLAUDE_REASON, "revert")
+        reads[str(home / ".claude")] = "denied"
     reaper_on = request.os_layer_temp_dir is not None and reaper_install.wanted()
     if reaper_on:
         # The reaper's front tells a hook command from a sandboxed one by whether it can
