@@ -102,6 +102,79 @@ def test_the_web_deny_survives_a_layer_whose_settings_carry_permissions(
     assert permissions.get("additionalDirectories") == ["/var/tmp/pgs/extra"]
 
 
+def _layered(monkeypatch: pytest.MonkeyPatch, permissions: object) -> None:
+    """The layer's settings carry ``permissions``, whatever it is."""
+    from physgate.hooks import settings as module
+    from physgate.oslayer.policy import sandbox_policy as real
+
+    def with_permissions(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 - the policy's own
+        policy = real(*args, **kwargs)
+        policy.settings["permissions"] = permissions
+        return policy
+
+    monkeypatch.setattr(module, "sandbox_policy", with_permissions)
+
+
+def test_the_web_deny_survives_a_layer_whose_deny_is_a_tuple(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # This module's own deny lists are tuples: a layer handing one on adds to the deny as a
+    # list does, and is never the whole deny once written.
+    _layered(monkeypatch, {"deny": ("Bash(curl:*)",)})
+    done = install(_request(outside_tmp, "/var/tmp/pgs/0123456789"), REGISTRY)
+    permissions = json.loads(done.settings_path.read_text()).get("permissions", {})
+    assert permissions.get("deny") == ["WebFetch", "WebSearch", "Bash(curl:*)"]
+
+
+@pytest.mark.parametrize(
+    "permissions",
+    [
+        None,
+        [],
+        "deny",
+        ("WebFetch",),
+        {"deny": None},
+        {"deny": "Bash(curl:*)"},
+        {"deny": {"WebFetch": False}},
+        {"deny": [["Bash(curl:*)"]]},
+        {"deny": [None]},
+        {"deny": [7]},
+        # Any rule list of the block: one the binary cannot read may cost the file its deny.
+        {"allow": "Bash(ls:*)"},
+        {"ask": None},
+        {"deny": ["Bash(curl:*)"], "additionalDirectories": "/var/tmp/pgs/extra"},
+    ],
+    ids=repr,
+)
+def test_a_layer_whose_permissions_are_not_of_the_form_is_refused_and_nothing_is_written(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch, permissions: object
+) -> None:
+    # A block that is no mapping, or a deny that is no list of rule names, is no rule the binary
+    # reads as written: the install refuses it, and no settings file is left without the deny.
+    _layered(monkeypatch, permissions)
+    request = _request(outside_tmp, "/var/tmp/pgs/0123456789")
+    with pytest.raises(ValueError, match="permissions"):
+        install(request, REGISTRY)
+    assert not list(Path(request.target_dir).glob("settings*.json"))
+
+
+@pytest.mark.parametrize("left", [[], ["WebFetch"], ["WebSearch", "Bash(curl:*)"]], ids=repr)
+def test_settings_that_do_not_deny_the_web_tools_are_never_written(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch, left: list[str]
+) -> None:
+    # Whatever a merge did: the settings are held to their profile's deny before they are written.
+    from physgate.hooks import settings as module
+
+    def replacing(settings: dict[str, object], more: object) -> None:
+        settings["permissions"] = {"deny": left}
+
+    monkeypatch.setattr(module, "_merge", replacing)
+    request = _request(outside_tmp, "/var/tmp/pgs/0123456789")
+    with pytest.raises(ValueError, match="deny"):
+        install(request, REGISTRY)
+    assert not list(Path(request.target_dir).glob("settings*.json"))
+
+
 def test_a_directory_claude_code_would_replace_is_refused(outside_tmp: Path) -> None:
     long = "/var/tmp/pgs/" + "p" * OS_LAYER_TEMP_LIMIT
     with pytest.raises(ValueError, match="shares"):
