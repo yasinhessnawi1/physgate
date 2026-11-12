@@ -326,6 +326,7 @@ PARAMS = {
     "queue_decisions",
     "os_layer_absent",
     "design_review",
+    "parts_on_hand",
     "held_out",
     "held_out_canaries",
     "held_out_sha256",

@@ -161,8 +161,15 @@ def test_the_plan_quoted_is_the_bytes_its_digest_is_taken_over() -> None:
 def test_a_replan_names_no_repair_budget_and_no_round() -> None:
     prompt_of = _named("replan_prompt")
     assert prompt_of is not None, "no re-plan prompt is built"
-    # A pure function of the brief, the roles, the plan and the findings: no round, no budget.
-    assert list(inspect.signature(prompt_of).parameters) == ["brief", "roles", "plan", "findings"]
+    # A pure function of the brief, the roles, the plan and the findings, and of whether the run
+    # asks for a parts list as its first prompt did: no round, no budget.
+    assert list(inspect.signature(prompt_of).parameters) == [
+        "brief",
+        "roles",
+        "plan",
+        "findings",
+        "parts",
+    ]
     findings = decompose.replan_findings(_review())
     first = prompt_of(BRIEF, ROLES, _plan(), findings)
     again = prompt_of(BRIEF, ROLES, _plan(), decompose.replan_findings(_review()))

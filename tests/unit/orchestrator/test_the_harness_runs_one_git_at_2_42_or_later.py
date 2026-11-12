@@ -174,6 +174,7 @@ def test_a_run_recorded_before_the_field_loads_and_keeps_its_bytes(tmp_path: Pat
         "queue_decisions",
         "os_layer_absent",
         "design_review",
+        "parts_on_hand",
     ):  # recorded before these too
         del legacy[later]
     legacy_bytes = json.dumps(legacy, separators=(",", ":")).encode() + b"\n"
