@@ -24,7 +24,7 @@ import pytest
 from fake_messages_api import tool
 from os_layer_rig import Layout, layer_here, make_layout, python, run_session
 
-from physgate.oslayer.policy import serial_devices
+from physgate.oslayer.policy import board_devices
 
 pytestmark = pytest.mark.integration
 
@@ -43,7 +43,7 @@ def _opens(path: str) -> bool:
 def device() -> str:
     """A serial device of this machine that its user can open: the quietest one there is."""
     found = sorted(
-        (path for pattern in serial_devices(sys.platform) for path in glob.glob(pattern)),
+        (path for pattern in board_devices(sys.platform) for path in glob.glob(pattern)),
         key=lambda path: ("debug" not in path and "ttyUSB" not in path, path),
     )
     for path in found:
@@ -72,9 +72,9 @@ def _built_open(device: str) -> dict[str, object]:
         "for mode, name in ((os.O_RDONLY, 'READ'), (os.O_WRONLY, 'WRITE')):\n"
         "    try:\n"
         "        os.close(os.open(target, mode | os.O_NONBLOCK | os.O_NOCTTY))\n"
-        "        print('SERIAL-' + name + '-OPENED')\n"
+        "        print('DEVICE-' + name + '-OPENED')\n"
         "    except OSError as exc:\n"
-        "        print('SERIAL-' + name + '-DENIED', exc.errno)\n"
+        "        print('DEVICE-' + name + '-DENIED', exc.errno)\n"
     )
     return tool("Bash", command=python(program))
 
@@ -99,7 +99,7 @@ def _said(done: dict[str, object]) -> list[str]:
 def _held_by_the_hooks(said: list[str]) -> None:
     read, written, by_tool, upload, flasher = said
     for refused in (read, written, by_tool, flasher):
-        assert "Opening a serial device is refused" in refused
+        assert "Opening a board's device is refused" in refused
     assert "Uploading or flashing to hardware is refused" in upload
 
 
@@ -111,13 +111,13 @@ def test_inside_the_layer_no_open_reaches_the_device_and_other_devices_still_wor
     done = run_session(layout, [*_named(device), _built_open(device), ordinary], layer=True)
     *named, built, others = _said(done)
     _held_by_the_hooks(named)
-    assert "SERIAL-READ-DENIED" in built and "SERIAL-WRITE-DENIED" in built
+    assert "DEVICE-READ-DENIED" in built and "DEVICE-WRITE-DENIED" in built
     assert "OPENED" not in built
     assert "4" in others
     settings = done["settings"]
     assert isinstance(settings, dict)
     filesystem = settings["sandbox"]["filesystem"]
-    for pattern in serial_devices(sys.platform):
+    for pattern in board_devices(sys.platform):
         assert pattern in filesystem["denyRead"] and pattern in filesystem["denyWrite"]
 
 
@@ -129,4 +129,4 @@ def test_without_the_layer_the_hooks_refuse_what_names_it_and_a_built_name_opens
     # The red control: the built name is an open no text layer sees, and it succeeds.
     done = run_session(layout, [_built_open(device)], layer=False)
     (built,) = _said(done)
-    assert "SERIAL-READ-OPENED" in built
+    assert "DEVICE-READ-OPENED" in built

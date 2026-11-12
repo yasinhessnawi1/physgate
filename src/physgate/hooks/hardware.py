@@ -56,9 +56,15 @@ UPLOAD = (
     "on the target is shown in simulation. Build without an upload target, and leave the "
     "board to the person who owns it."
 )
-SERIAL = (
-    "Opening a serial device is refused: no session reaches a board or a port of the machine. "
-    "The call names {device}. Work from the build's own output and from simulation."
+DEVICE = (
+    "Opening a board's device is refused: no session reaches a board, a serial port or a USB "
+    "device of the machine. The call names {device}. Work from the build's own output and "
+    "from simulation."
+)
+NOT_BUILD = (
+    "This use of {program} is refused: it is not one of its build-only uses, and the others "
+    "can reach a board. A session builds, checks and reads sizes; it uploads, tests on a "
+    "target, debugs and monitors nothing."
 )
 DYNAMIC = (
     "A word of this command is decided only when it runs, and the command is one that can "
@@ -72,7 +78,7 @@ UNREADABLE = (
 #: The serial devices of each platform, as the patterns the OS layer denies. A board on USB
 #: appears under these names; the machine's own terminals (``/dev/tty``, the pseudo-terminals)
 #: do not.
-SERIAL_DEVICES: Mapping[str, tuple[str, ...]] = {
+BOARD_DEVICES: Mapping[str, tuple[str, ...]] = {
     "darwin": ("/dev/cu.*", "/dev/tty.*"),
     "linux": ("/dev/ttyACM*", "/dev/ttyUSB*"),
 }
@@ -127,7 +133,7 @@ _CD = frozenset({"cd", "pushd", "chdir"})
 def _device_names() -> tuple[str, ...]:
     """The start of every serial device's name within the devices' directory, case-folded."""
     names = []
-    for patterns in SERIAL_DEVICES.values():
+    for patterns in BOARD_DEVICES.values():
         for pattern in patterns:
             names.append(pattern.rsplit("/", 1)[1].rstrip("*").casefold())
     return tuple(names)
@@ -307,10 +313,10 @@ def _check_command(cmd: SimpleCommand) -> str | None:
     for text in _words_of(cmd):
         device = serial_device_in(text)
         if device is not None:
-            return SERIAL.format(device=device)
+            return DEVICE.format(device=device)
     argv = unwrap(cmd.argv)
     if _enters_devices(argv):
-        return SERIAL.format(device="the devices' directory, as the place to work from")
+        return DEVICE.format(device="the devices' directory, as the place to work from")
     unread = cmd.dynamic | cmd.expanding
     stepped = len(cmd.argv) - len(argv)
     found = _program_at(argv)
@@ -406,7 +412,7 @@ def arguments_refusal(arguments: object) -> str | None:
     for key, text in found:
         device = serial_device_in(text)
         if device is not None:
-            return SERIAL.format(device=device)
+            return DEVICE.format(device=device)
         if "target" in key.casefold() and text.casefold() in UPLOAD_TARGETS:
             return UPLOAD
         if _upload_among(text.split()):
@@ -432,7 +438,7 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
         if isinstance(path, str) and path:
             cwd = hook_input.cwd if os.path.isabs(hook_input.cwd) else config.worktree
             device = serial_device_path(path, cwd)
-            reason = None if device is None else SERIAL.format(device=device)
+            reason = None if device is None else DEVICE.format(device=device)
     elif tool.startswith(_SERVER_TOOL):
         reason = arguments_refusal(tool_input)
     return ALLOW if reason is None else refuse(reason)

@@ -22,7 +22,7 @@ from physgate.hooks.config import HookInput
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.runtime import dispatch
 from physgate.hooks.state import LOG_NAME
-from physgate.oslayer.policy import sandbox_policy, serial_devices
+from physgate.oslayer.policy import board_devices, sandbox_policy
 
 H = hardware
 
@@ -231,7 +231,7 @@ def test_a_word_only_running_decides_is_refused_in_a_command_that_can_upload(
 def test_a_command_that_names_a_serial_device_is_refused(
     tmp_path: Path, command: str, device: str
 ) -> None:
-    assert _shell(tmp_path, command) == H.SERIAL.format(device=device)
+    assert _shell(tmp_path, command) == H.DEVICE.format(device=device)
 
 
 @pytest.mark.parametrize("command", NOT_DEVICES, ids=NOT_DEVICES)
@@ -242,21 +242,21 @@ def test_another_device_and_a_file_named_like_one_pass(tmp_path: Path, command: 
 @pytest.mark.parametrize("command", ENTERS, ids=ENTERS)
 def test_moving_into_the_devices_directory_is_refused(tmp_path: Path, command: str) -> None:
     reason = _shell(tmp_path, command)
-    assert reason.startswith("Opening a serial device is refused")
+    assert reason.startswith("Opening a board's device is refused")
     assert "the devices' directory" in reason
 
 
 @pytest.mark.parametrize("profile", ["role", "baseline", "orchestrator", "reviewer"])
 def test_every_profile_is_refused(tmp_path: Path, profile: str) -> None:
     assert _shell(tmp_path, "pio run -t upload", profile) == H.UPLOAD
-    assert _shell(tmp_path, "cat /dev/ttyACM0", profile) == H.SERIAL.format(device="/dev/ttyACM0")
+    assert _shell(tmp_path, "cat /dev/ttyACM0", profile) == H.DEVICE.format(device="/dev/ttyACM0")
 
 
 def test_an_upload_refusal_wins_over_nothing_and_a_device_is_named_first(tmp_path: Path) -> None:
     # Both faults at once: the device is what the reason names, so a session is told the
     # thing no rewording of the command would get past.
     reason = _shell(tmp_path, "pio run -t upload --upload-port /dev/ttyACM0")
-    assert reason == H.SERIAL.format(device="/dev/ttyACM0")
+    assert reason == H.DEVICE.format(device="/dev/ttyACM0")
 
 
 @pytest.mark.xfail(strict=True, reason="a path a program builds as it runs is the OS layer's")
@@ -299,7 +299,7 @@ DEVICE_PATHS = [
 def test_a_file_tool_on_a_serial_device_is_refused(
     tmp_path: Path, tool: str, key: str, path: str
 ) -> None:
-    assert _tool(tmp_path, tool, {key: path}) == H.SERIAL.format(device=path)
+    assert _tool(tmp_path, tool, {key: path}) == H.DEVICE.format(device=path)
 
 
 @pytest.mark.parametrize(("tool", "key"), FILE_TOOLS)
@@ -317,7 +317,7 @@ def test_a_link_to_a_serial_device_is_refused_as_the_device(
 ) -> None:
     link = tmp_path / "port"
     os.symlink("/dev/ttyACM0", link)
-    assert _tool(tmp_path, tool, {key: str(link)}) == H.SERIAL.format(device=str(link))
+    assert _tool(tmp_path, tool, {key: str(link)}) == H.DEVICE.format(device=str(link))
 
 
 @pytest.mark.parametrize(("tool", "key"), FILE_TOOLS)
@@ -349,11 +349,11 @@ REFUSED_ARGUMENTS: list[tuple[dict[str, Any], str]] = [
     ({"command": "avrdude -p m32u4"}, H.UPLOAD),
     ({"argv": ["esptool.py", "write_flash", "0", "x.bin"]}, H.UPLOAD),
     ({"command": "pio device monitor"}, H.UPLOAD),
-    ({"port": "/dev/ttyACM0"}, H.SERIAL.format(device="/dev/ttyACM0")),
-    ({"upload_port": "/dev/cu.usbmodem1"}, H.SERIAL.format(device="/dev/cu.usbmodem1")),
-    ({"a": {"b": [{"c": "see /dev/tty.usbserial"}]}}, H.SERIAL.format(device="/dev/tty.usbserial")),
-    ({"/dev/ttyUSB0": True}, H.SERIAL.format(device="/dev/ttyUSB0")),
-    ({"model_path": "/DEV/../dev/ttyUSB0"}, H.SERIAL.format(device="/DEV/../dev/ttyUSB0")),
+    ({"port": "/dev/ttyACM0"}, H.DEVICE.format(device="/dev/ttyACM0")),
+    ({"upload_port": "/dev/cu.usbmodem1"}, H.DEVICE.format(device="/dev/cu.usbmodem1")),
+    ({"a": {"b": [{"c": "see /dev/tty.usbserial"}]}}, H.DEVICE.format(device="/dev/tty.usbserial")),
+    ({"/dev/ttyUSB0": True}, H.DEVICE.format(device="/dev/ttyUSB0")),
+    ({"model_path": "/DEV/../dev/ttyUSB0"}, H.DEVICE.format(device="/DEV/../dev/ttyUSB0")),
 ]
 ALLOWED_ARGUMENTS: list[dict[str, Any]] = [
     {"projectDir": "/w/modules/firmware", "environment": "balboa"},
@@ -396,7 +396,7 @@ def test_arguments_nested_past_the_bound_are_refused_and_at_it_are_read(tmp_path
     reason = _tool(tmp_path, SERVER_TOOL, past_it)
     assert reason == H.UNREADABLE.format(detail=f"nested more than {H.MAX_DEPTH} deep")
     # At the bound the innermost string is still read.
-    assert _tool(tmp_path, SERVER_TOOL, nested(H.MAX_DEPTH, "/dev/ttyACM0")) == H.SERIAL.format(
+    assert _tool(tmp_path, SERVER_TOOL, nested(H.MAX_DEPTH, "/dev/ttyACM0")) == H.DEVICE.format(
         device="/dev/ttyACM0"
     )
 
@@ -428,7 +428,7 @@ def test_the_rule_runs_with_every_other_hook_and_its_refusal_is_recorded(tmp_pat
         ("linux", ["/dev/ttyACM*", "/dev/ttyUSB*"]),
     ],
 )
-def test_the_os_layer_denies_the_platform_s_serial_devices_both_ways(
+def test_the_os_layer_denies_the_platform_s_board_devices_both_ways(
     tmp_path: Path, platform: str, expected: list[str]
 ) -> None:
     _, _, config = write_config(tmp_path)
@@ -437,19 +437,19 @@ def test_the_os_layer_denies_the_platform_s_serial_devices_both_ways(
     temp.mkdir()
     policy = sandbox_policy(config, home=str(home), temp_dir=str(temp), platform=platform)
     filesystem = policy.settings["sandbox"]["filesystem"]
-    assert list(serial_devices(platform)) == expected
-    assert serial_devices("linux2") == serial_devices("linux")
-    assert serial_devices("win32") == ()
+    assert list(board_devices(platform)) == expected
+    assert board_devices("linux2") == board_devices("linux")
+    assert board_devices("win32") == ()
     for kind in ("denyRead", "denyWrite"):
         assert [p for p in filesystem[kind] if p.startswith("/dev/")] == expected
     assert not [p for p in filesystem["allowRead"] + filesystem["allowWrite"] if "/dev/" in p]
 
 
 def test_every_device_the_os_layer_denies_is_one_the_hooks_refuse_by_name(tmp_path: Path) -> None:
-    patterns = [p for platform in ("darwin", "linux") for p in serial_devices(platform)]
+    patterns = [p for platform in ("darwin", "linux") for p in board_devices(platform)]
     assert len(patterns) == 4
     for pattern in patterns:
         device = pattern.replace("*", "board1")
         assert H.serial_device_in(f"cat {device}") == device
         assert H.serial_device_in(pattern) == pattern
-        assert _tool(tmp_path, "Read", {"file_path": device}) == H.SERIAL.format(device=device)
+        assert _tool(tmp_path, "Read", {"file_path": device}) == H.DEVICE.format(device=device)

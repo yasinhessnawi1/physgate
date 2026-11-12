@@ -97,7 +97,7 @@ from typing import Any, Literal
 
 from physgate.hooks.config import ExperimentRule, SessionConfig
 from physgate.hooks.graph import COMPLETION_DIR, DISPUTES_DIR, PROPOSALS_DIR
-from physgate.hooks.hardware import SERIAL_DEVICES
+from physgate.hooks.hardware import BOARD_DEVICES
 from physgate.hooks.reasons import SESSION_TEMPS_REASON
 
 #: What the OS layer does with each path field of the session configuration.
@@ -220,7 +220,7 @@ def sandbox_policy(
     )
     # Written by the session's commands, as its home is, where it lies in a denied parent.
     own_writes = (temp_dir,) if real_under(temp_dir, temps) else ()
-    devices = serial_devices(platform)
+    devices = board_devices(platform)
     settings: dict[str, Any] = {
         "sandbox": {
             "enabled": True,
@@ -241,10 +241,10 @@ def sandbox_policy(
     return OsPolicy(settings=settings, absent_named=tuple(sorted(absent_named)))
 
 
-def serial_devices(platform: str) -> tuple[str, ...]:
+def board_devices(platform: str) -> tuple[str, ...]:
     """The serial devices no command on ``platform`` opens, as the patterns the sandbox reads."""
     key = "linux" if platform.startswith("linux") else platform
-    return tuple(SERIAL_DEVICES.get(key, ()))
+    return tuple(BOARD_DEVICES.get(key, ()))
 
 
 def _spelled(*paths: str) -> list[str]:
