@@ -133,9 +133,9 @@ INERTIA_MM5 = {
 }
 #: Each part's geometry hash, the same on macOS arm64 and Linux x86_64.
 GEOMETRY_HASH = {
-    "plate": "sha256:" + "0" * 64,
-    "motor_mount": "sha256:" + "0" * 64,
-    "battery_holder": "sha256:" + "0" * 64,
+    "plate": "sha256:ff88fca266977bd1de7ea23c66e94b95492e4b3d1f976f49ca4521dac68dd151",
+    "motor_mount": "sha256:dabb7f3026ecf4db2552a614e8a2b329d00c6bbf72e6f71b42d01073a764e0d7",
+    "battery_holder": "sha256:00c84fd975b86e0ac2fbaca54811622903d39c01a54c2adfc11eef2f87fb6acc",
 }
 #: The volume the mount pushed 1 mm into the plate shares with it, in mm**3.
 PUSHED_IN_MM3 = 376.3973457783126

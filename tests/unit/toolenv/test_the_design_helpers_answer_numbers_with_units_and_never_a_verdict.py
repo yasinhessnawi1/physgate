@@ -19,6 +19,7 @@ import json
 import math
 import random
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -31,6 +32,15 @@ from physgate.unit_spelling import require_bounded_spelling
 REPO = Path(__file__).resolve().parents[3]
 HELPERS = REPO / "toolenv" / "helpers"
 FILES = ("geometry.py", "result_file.py", "structure.py")
+
+
+def _raised(call: Callable[[], object]) -> BaseException | None:
+    """What ``call`` raised, of any kind, so that a wrong error fails an assertion too."""
+    try:
+        call()
+    except Exception as exc:  # noqa: BLE001 - every kind is wanted here
+        return exc
+    return None
 
 
 def _helper(name: str) -> ModuleType:
@@ -123,8 +133,8 @@ def test_a_value_has_a_unit_and_is_a_finite_number(result_file: ModuleType) -> N
         [1.0, math.nan],
         [[1.0], [False]],
     ):
-        with pytest.raises(result_file.HelperRefusedError):
-            result_file.quantity(bad, "kg")
+        refused = _raised(lambda bad=bad: result_file.quantity(bad, "kg"))  # type: ignore[misc]
+        assert isinstance(refused, result_file.HelperRefusedError), (bad, repr(refused))
     with pytest.raises(result_file.HelperRefusedError, match="unit"):
         result_file.quantity(2.5, "")
 
@@ -226,8 +236,8 @@ def test_a_result_with_a_field_more_or_fewer_than_its_kind_s_is_refused(
         result_file.checked(sound | {"margin_of_safety": _q(1.2, "dimensionless")})
     for name in sound:
         fewer = {k: v for k, v in sound.items() if k != name}
-        with pytest.raises(result_file.HelperRefusedError):
-            result_file.checked(fewer)
+        refused = _raised(lambda fewer=fewer: result_file.checked(fewer))  # type: ignore[misc]
+        assert isinstance(refused, result_file.HelperRefusedError), (name, repr(refused))
     for kind in ("", "verdict", "series", None, 1):
         with pytest.raises(result_file.HelperRefusedError, match="kind"):
             result_file.checked(sound | {"kind": kind})
@@ -387,9 +397,9 @@ def test_an_input_is_the_same_in_any_of_its_units_and_recorded_in_si(structure: 
 def test_an_input_without_a_unit_or_not_above_zero_is_refused(
     structure: ModuleType, bad: object
 ) -> None:
-    with pytest.raises(structure.HelperRefusedError):
+    with pytest.raises(structure.HelperRefusedError, match="the length"):
         structure.cantilever_end_load("arm", **(BEAM | {"length": bad}))
-    with pytest.raises(structure.HelperRefusedError):
+    with pytest.raises(structure.HelperRefusedError, match="the span"):
         structure.simply_supported_centre_load(
             "deck", **({k: v for k, v in BEAM.items() if k != "length"} | {"span": bad})
         )
@@ -662,8 +672,11 @@ def test_a_density_without_a_unit_or_not_above_zero_is_refused(
     with pytest.raises(geometry.HelperRefusedError, match="density"):
         _properties(geometry, density=bad)
     # Before any shape is measured: a refusal needs no kernel.
-    with pytest.raises(geometry.HelperRefusedError, match="density"):
-        geometry.mass_properties(object(), density=bad, density_source="a datasheet")
+    refused = _raised(
+        lambda: geometry.mass_properties(object(), density=bad, density_source="a datasheet")
+    )
+    assert isinstance(refused, geometry.HelperRefusedError), repr(refused)
+    assert "density" in str(refused)
 
 
 @pytest.mark.parametrize("source", ["", "   ", None, 7])
@@ -676,16 +689,18 @@ def test_a_density_is_stated_with_its_source(geometry: ModuleType, source: objec
 def test_an_export_is_refused_a_name_that_is_not_a_part_s(
     geometry: ModuleType, tmp_path: Path, name: object
 ) -> None:
-    with pytest.raises(geometry.HelperRefusedError, match="name"):
-        geometry.export(object(), tmp_path, name)
+    refused = _raised(lambda: geometry.export(object(), tmp_path, name))
+    assert isinstance(refused, geometry.HelperRefusedError), repr(refused)
+    assert "name" in str(refused)
     assert list(tmp_path.iterdir()) == []
 
 
 def test_an_export_goes_into_a_module_s_own_directory(geometry: ModuleType, tmp_path: Path) -> None:
     assert geometry.EXPORTS == "exports"
     assert geometry.STEP_TIMESTAMP == "2000-01-01T00:00:00"
-    with pytest.raises(geometry.HelperRefusedError, match="directory"):
-        geometry.export(object(), tmp_path / "absent", "plate")
+    refused = _raised(lambda: geometry.export(object(), tmp_path / "absent", "plate"))
+    assert isinstance(refused, geometry.HelperRefusedError), repr(refused)
+    assert "directory" in str(refused)
     assert not (tmp_path / "absent").exists()
 
 

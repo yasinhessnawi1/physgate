@@ -21,6 +21,7 @@ import re
 import sys
 import tarfile
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
@@ -61,6 +62,15 @@ def _pins() -> dict[str, object]:
     loaded = json.loads((TOOLENV / "pins.json").read_text(encoding="utf-8"))
     assert isinstance(loaded, dict)
     return loaded
+
+
+def _raised(call: Callable[[], object]) -> BaseException | None:
+    """What ``call`` raised, of any kind, so that a wrong error fails an assertion too."""
+    try:
+        call()
+    except Exception as exc:  # noqa: BLE001 - every kind is wanted here
+        return exc
+    return None
 
 
 def _package(name: str = "libgl1", **changed: object) -> dict[str, object]:
@@ -169,8 +179,9 @@ def test_a_pin_without_one_of_its_fields_is_refused(missing: str) -> None:
     package = _package()
     del package[missing]
     pins = {"system_libraries": {"linux-x86_64": [package]}}
-    with pytest.raises(provision.ProvisionError, match="pin names"):
-        provision.system_packages(pins, "Linux", "x86_64")
+    found = _raised(lambda: provision.system_packages(pins, "Linux", "x86_64"))
+    assert isinstance(found, provision.ProvisionError), repr(found)
+    assert "pin names" in str(found)
 
 
 @pytest.mark.parametrize(
@@ -215,9 +226,9 @@ def test_a_kept_package_whose_bytes_changed_is_refused_and_nothing_is_unpacked(
     monkeypatch.setattr(provision, "_package_tree", lambda path, work: read.append(path))
     dest = tmp_path / "env"
     dest.mkdir()
-    with pytest.raises(provision.ProvisionError, match="digest"):
-        provision._system_libraries(dest, pins, tmp_path / "cache", tmp_path)
+    found = _raised(lambda: provision._system_libraries(dest, pins, tmp_path / "cache", tmp_path))
     assert read == []
+    assert isinstance(found, provision.ProvisionError) and "digest" in str(found), repr(found)
     assert list((dest / "system-libraries").iterdir()) == []
 
 
@@ -508,6 +519,6 @@ def test_the_helpers_are_copied_into_the_environment_byte_for_byte(tmp_path: Pat
     own = sorted(p.name for p in (TOOLENV / "helpers").glob("*.py"))
     assert copied == own
     assert {"geometry.py", "result_file.py", "structure.py"} <= set(own)
+    assert sorted(p.name for p in (dest / "helpers").iterdir()) == own
     for name in own:
         assert (dest / "helpers" / name).read_bytes() == (TOOLENV / "helpers" / name).read_bytes()
-    assert sorted(p.name for p in (dest / "helpers").iterdir()) == own
