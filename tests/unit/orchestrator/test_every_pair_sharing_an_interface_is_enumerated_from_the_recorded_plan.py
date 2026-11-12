@@ -79,8 +79,8 @@ INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c3296
 #: and two kind labels. Before those rows: f42a779e91ee... and 4faaf7ada5eb..., in this order.
 #: Since check 4 gained the peak headroom (07.11.2026), the relations sentence holds its statement
 #: too; with the rows and the peak headroom, before the sentence on how a unit is spelt:
-#: 58ac53907fa6... and 1545282914c0..., in this order; with the rows alone: 144a71155f84... and 6808f856328d...,
-#: in this order.
+#: 58ac53907fa6... and 1545282914c0..., in this order;
+#: with the rows alone: 144a71155f84... and 6808f856328d..., in this order.
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
         "8ee1fd6a05c3024fbfd218f6b5c22c5ca4071d5a0c78d7e5f4b206776c9d25f2"
