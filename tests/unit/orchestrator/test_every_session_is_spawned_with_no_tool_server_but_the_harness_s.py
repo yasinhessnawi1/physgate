@@ -65,7 +65,6 @@ def test_a_reviewer_starts_no_tool_server_and_a_resume_neither(tmp_path: Path) -
 def test_the_decomposition_call_starts_no_tool_server(tmp_path: Path) -> None:
     argv = decomposition_argv(
         "/bin/claude",
-        prompt="p",
         schema="{}",
         model="claude-sonnet-5",
         session_id="abc",

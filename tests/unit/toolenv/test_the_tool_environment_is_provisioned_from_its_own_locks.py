@@ -104,10 +104,23 @@ def test_the_lock_was_taken_a_week_back_and_holds_every_pin_with_its_hashes() ->
 def test_the_harness_lock_and_interpreter_hold_none_of_the_tool_libraries() -> None:
     # pint changes how it handles units when numpy is importable, so the tools' libraries
     # never enter the harness's own environment.
+    # The lock also holds the evaluation side's group, which names some of them for the scorers
+    # and is installed only into an environment of its own; what is held here is everything
+    # the harness's own installation brings in: the project's dependencies and the development
+    # group, with all they depend on.
     harness = tomllib.loads((REPO / "uv.lock").read_text(encoding="utf-8"))
-    names = {package["name"] for package in harness["package"]}
-    assert names, "the harness lock lists no package"
-    assert not names & set(LIBRARIES)
+    packages = {package["name"]: package for package in harness["package"]}
+    project = packages["physgate"]
+    waiting = [dep["name"] for dep in project["dependencies"]]
+    waiting += [dep["name"] for dep in project["dev-dependencies"]["dev"]]
+    installed: set[str] = set()
+    while waiting:
+        name = waiting.pop()
+        if name not in installed:
+            installed.add(name)
+            waiting += [dep["name"] for dep in packages[name].get("dependencies", [])]
+    assert {"pint", "pytest"} <= installed, "the harness's own installation was not read"
+    assert not installed & set(LIBRARIES)
     for name in LIBRARIES:
         assert importlib.util.find_spec(name) is None, name
 

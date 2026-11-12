@@ -201,7 +201,10 @@ def test_an_interpreter_that_answers_no_json_object_is_refused(tmp_path: Path) -
         def run(argv: Sequence[str], answer: str | None = answer) -> str | None:
             return "tool 1.0\n" if argv[1:2] == ["--version"] else answer
 
-        raised = _raised(lambda run=run: _measure(root, python, tool, runner=run))
+        def measured(run: Callable[[Sequence[str]], str | None] = run) -> object:
+            return _measure(root, python, tool, runner=run)
+
+        raised = _raised(measured)
         assert isinstance(raised, ToolEnvironmentError), (answer, raised)
 
 

@@ -150,7 +150,6 @@ def _decomposition(binary: str, root: Path) -> list[str]:
     settings.write_text("{}")
     return decomposition_argv(
         binary,
-        prompt="ok",
         schema='{"type":"object","properties":{"ok":{"type":"string"}},"required":["ok"]}',
         model="claude-sonnet-5",
         session_id="33333333-3333-4333-8333-333333333333",
@@ -184,7 +183,9 @@ def _run(argv: list[str], cwd: Path, home: Path, config: Path, url: str) -> None
         argv,
         env=env,
         cwd=cwd,
-        stdin=subprocess.DEVNULL,
+        # A call that names no prompt among its arguments (the decomposition call) takes it
+        # here; one that names its prompt reads nothing.
+        input="ok" if argv[argv.index("-p") + 1].startswith("--") else "",
         capture_output=True,
         text=True,
         timeout=120,

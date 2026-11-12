@@ -155,7 +155,9 @@ def test_a_session_computes_and_builds_offline_with_git_and_the_network_refused(
     before = scan([env])
     steps = _steps(env, layout.temp.resolve(), layout)
     done = run_session(layout, steps, layer=True, network="none", timeout=600)
-    margins, simulated, built, git, gitdir, net = done["told"]  # type: ignore[misc]
+    told = done["told"]
+    assert isinstance(told, list)
+    margins, simulated, built, git, gitdir, net = (str(said) for said in told)
     assert _line(margins, "MARGINS")["phase_margin_deg"] == pytest.approx(28.0202, abs=1e-3)
     assert _line(simulated, "MUJOCO")["time_s"] == pytest.approx(1.0)
     assert "used 4798 bytes from 28672 bytes" in built and "used 173 bytes from 2560 bytes" in built
@@ -179,7 +181,9 @@ def test_with_the_layer_off_the_git_directory_and_the_network_are_reached(
 ) -> None:
     probes = [tool("Bash", command=_git_write(layout.common)), tool("Bash", command=NET_PROBE)]
     done = run_session(layout, probes, layer=False)
-    gitdir, net = done["told"]  # type: ignore[misc]
+    told = done["told"]
+    assert isinstance(told, list)
+    gitdir, net = (str(said) for said in told)
     assert "GITDIR-WRITTEN" in gitdir
     # The hooks' after-command sentinel may already have taken the write back out.
     (layout.common / "probe-written").unlink(missing_ok=True)
