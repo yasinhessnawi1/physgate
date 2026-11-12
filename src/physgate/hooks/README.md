@@ -23,6 +23,7 @@ session is started with them.
 | `paths.py` | No file tool writes a protected path, and nothing reads the held-out tier |
 | `shell_paths.py`, `shell.py` | No shell command names a protected path unless it only reads; no background jobs; no nested Claude Code. `shell.py` splits a command into the commands it would run |
 | `git_ops.py` | No force push, no skipping the repository's hooks, no rebase, no hard reset beyond the session's own branch, no ref writes |
+| `hardware.py` | No upload or flash to hardware, and no serial device, by a shell command, a file tool or a tool server's arguments; the table of serial devices the OS layer denies |
 | `graph.py`, `journal_view.py` | A graph node reaches the store only as a proposal file, checked for owner, kind, schema and quantity names that shadow none a relation reads, as it is written; the journal is read without ever opening a store |
 | `reading.py` | No tool but Read until the required reading is done (ARCH-020) |
 | `token_ceiling.py` | Every tool refused while the always-loaded set is over its ceiling (ARCH-023) |
