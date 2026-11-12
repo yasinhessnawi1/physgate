@@ -190,3 +190,29 @@ example = [
 ]
 status = "warn"
 approved = { candidate_id = "576dabf321a64d60998c40322092ab72", date = 2026-11-06 }
+
+[[law]]
+id = "within_rating_voltage"
+statement = "the nominal voltage of the rail a part is connected to is within the part's absolute maximum voltage rating for that terminal"
+expression = "V <= M"
+pattern = "node"
+anchor = "M"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "supply_voltage is the nominal voltage at the part's power input and absolute_maximum_voltage the absolute maximum its data sheet rates for that same terminal; a part with several supply terminals (a driver's logic and motor supplies) is two terminals, and a rating copied from the other terminal is not this law. The nominal voltage is not the top of the rail's range: a rail whose top exceeds the rating while its nominal does not passes, so the law misses it rather than refusing a correct design"
+literals = []
+requires = []
+unless = [
+  { name = "stall_voltage", place = "self", reason = "a node that declares stall_voltage is a motor behind a driver: its supply_voltage is the driver's rail, the voltage the bridge switches, while a motor's maximum is at its winding, which sees on average only the duty times that rail; a 6 V motor on a 7.2 V rail at duty 0.75 is a correct design the comparison would refuse" },
+  { name = "rated_voltage", place = "self", reason = "rated_voltage is a motor's data-sheet voltage, so a node that declares it is a motor, and a motor behind a driver has the driver's rail as its supply_voltage while its maximum is at its winding, which sees on average only the duty times that rail; this covers the motor nodes that write no stall_voltage (the practice motor node writes rated_voltage and no stall_voltage)" },
+  { name = "power_supply", place = "self", reason = "a node that declares power_supply supplies others, and its supply_voltage is the voltage at its output, while a converter's absolute maximum rating is for its input (a boost stage from a 3.7 V cell with a 6 V input maximum and a 12 V output), so the two are not one terminal's" },
+  { name = "rated_output_power", place = "self", reason = "a node that declares rated_output_power supplies others (the supply_voltage definition lists it with power_supply), so its supply_voltage is the voltage at its output, while a converter's or bench supply's absolute maximum rating is for its input; the two are not one terminal's" },
+]
+symbols = { V = { name = "supply_voltage", place = "self" }, M = { name = "absolute_maximum_voltage", place = "self" } }
+source = { kind = "standard", title = "ECSS-Q-ST-30-11C Rev.2, Space product assurance: Derating - EEE components", edition = "Rev.2, 23 June 2021", section = "3.2 Terms specific to the present standard, 3.2.8 rating (with its note), p. 13", read = 2026-11-07, reading = "in full" }
+example = [
+  { outcome = "pass", source = "TI DRV8837/DRV8838 data sheet, SLVSBA4F (revised April 2021), section 6.1 Absolute Maximum Ratings: motor power-supply voltage VM, -0.3 to 12 V; the driver's VM rail is six Energizer NH15 NiMH cells in series (NH15 data sheet: nominal voltage 1.2 volts), 7.2 V", values = { V = { value = 7.2, unit = "V" }, M = { value = 12, unit = "V" } } },
+  { outcome = "fail", source = "the same DRV8838 VM maximum, 12 V, with the VM rail made of two such six-cell packs in series, 14.4 V nominal", values = { V = { value = 14.4, unit = "V" }, M = { value = 12, unit = "V" } } },
+]
+status = "warn"
+approved = { candidate_id = "713d93a3bb8b4370b333458ffcbe75b3", date = 2026-11-12 }
