@@ -19,7 +19,7 @@ from typing import Any
 from scripted_endpoint import DUMMY_KEY, DUMMY_OAUTH_TOKEN, Recorded, Script, serving
 
 from physgate.lines import split_lines
-from physgate.orchestrator.budget import SessionEnd, classify_session_end
+from physgate.orchestrator.budget import SessionEnd, classify_session_end, writes_lost
 from physgate.orchestrator.credentials import write_login
 from physgate.orchestrator.decompose import binary_version, judge, read_stream, schema_refusal
 from physgate.orchestrator.invocation import isolated_env
@@ -104,6 +104,7 @@ class Ended:
             roles=["control"],
             answered=answered,
             refused=schema_refusal(self.stdout),
+            lost=writes_lost(self.stdout),
         )[0]
 
 

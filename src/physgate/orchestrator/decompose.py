@@ -373,6 +373,7 @@ def judge(
     roles: Sequence[str],
     answered: frozenset[str],
     refused: str | None = None,
+    lost: str | None = None,  # noqa: ARG001 - not read yet
 ) -> tuple[FailureCause | None, str, Plan | None, str | None, int]:
     """Decide from the result object whether the call produced a usable plan.
 

@@ -54,6 +54,15 @@ SANDBOX_UNAVAILABLE = "Sandbox required but unavailable"
 #: The HTTP statuses the binary reports for a credential the API refused.
 CREDENTIAL_REFUSED_STATUSES = frozenset({401, 403})
 
+#: The event the binary writes after its result when a full disk, or a used-up quota, lost
+#: lines of the session's own transcript or changes to its own configuration.
+WRITES_LOST = "session_writes_lost"
+
+
+def writes_lost(stream: str) -> str | None:  # noqa: ARG001 - not read yet
+    """What the binary said it could not save, and why, or ``None`` if it said nothing."""
+    return None
+
 
 class SessionEnd(BaseModel):
     """How one session ended, as far as the budget is concerned."""
