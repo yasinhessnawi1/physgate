@@ -47,19 +47,22 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: torque constant, modulus), bore_diameter moved from the lengths to the extents, and, since the
 #: check round, the sentence after the groups saying what the gate reads of a name with added
 #: words; every other byte as before
-#: (test_the_widened_catalogue_adds_its_names_to_the_prompt_and_nothing_else). At 470b3f34,
+#: (test_the_widened_catalogue_adds_its_names_to_the_prompt_and_nothing_else); and, since
+#: 12.11.2026, the one sentence on how a unit is spelt, after the words that ask for a unit
+#: (test_the_decomposition_prompt_states_how_a_unit_is_spelt). Before that sentence:
+#: c14dba963d6c..., ad94ba0d6bbe... and d713661a9904.... At 470b3f34,
 #: before that sentence: ca0317a59ce7..., 8abeae4b5f23... and 44175ad46745...; before the
 #: widening, since 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
 #: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
 PROMPT_SHA256 = {
-    ("control", "firmware"): "c14dba963d6cf4c2398f7a063a4956790d8fa365d4bc298c4d55b598c221531b",
-    ("electrical",): "ad94ba0d6bbec1ea325fa445b579581d6392f054ee357d1b4edf0703b581d2f4",
+    ("control", "firmware"): "cd9d3713e8dd9f7417686af3897cafbcc4eaa7c0b5554f2967174fb54165211c",
+    ("electrical",): "66e80cd16451939cf8ab9fefe9e0d683ede5c3b8ac3e9251c7078db6d9c93d8a",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "d713661a9904e6f967d97604e2519e9c76884744cc2a0601b9d7371f6735547d",
+    ): "6fd51bcf6f3a5b8fe9c1983c48148122206053d0d92fe7a139aa1a07460bd4db",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -71,7 +74,10 @@ PROMPT = (
     "modules/ that no other module's directory contains, and a specification an implementer "
     'can work from. For each interface give one graph node of kind "interface", owned by '
     "the role that produces it, with every quantity as a value, a unit, a source and the role "
-    "that wrote it. Each node's id is two or more parts joined by dots, each of lowercase "
+    "that wrote it. A unit is spelt as named units with small integer powers, joined by `*` "
+    "and `/`, with at most one bracketed denominator, itself a product of named units, and no "
+    "numbers: `V/(rad/s)` is refused, and is written `V*s/rad`. "
+    "Each node's id is two or more parts joined by dots, each of lowercase "
     "letters, digits and underscores only, the first beginning with a letter, such as "
     '"pump.flow_rate".\n\n'
     # The catalogue's names, from the catalogue: a copy here would hold the test to a list the

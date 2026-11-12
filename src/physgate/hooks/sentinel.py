@@ -180,7 +180,8 @@ def _frozen_experiment_paths(config: ConfigView) -> list[str]:
 #: this list leaves out, so a new import upstream cannot slip past it.
 LAZY_MODULES = (
     "pydantic", "pydantic_core", "annotated_types", "typing_extensions", "typing_inspection",
-    "physgate.state", "physgate.roles", "physgate.knowledge", "physgate.orchestrator.exceptions",
+    "physgate.state", "physgate.unit_spelling", "physgate.roles", "physgate.knowledge",
+    "physgate.orchestrator.exceptions",
     "_bisect", "_bz2", "_compression", "_contextvars", "_csv", "_datetime", "_decimal",
     "_lzma", "_opcode", "_osx_support", "_random", "_sha2", "_socket", "_struct", "_uuid",
     "_weakrefset", "_zoneinfo", "array", "ast", "base64", "binascii", "bisect", "bz2", "calendar",
