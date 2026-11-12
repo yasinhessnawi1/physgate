@@ -33,6 +33,7 @@ import pytest
 from physgate import roles
 from physgate.gate.catalogue import QUALIFIERS
 from physgate.orchestrator.decompose import (
+    UNIT_SPELLING_SENTENCE,
     bounds_sentence,
     catalogue_sentence,
     prompt_for,
@@ -193,9 +194,12 @@ def test_the_bounds_and_relations_sentences_are_unchanged() -> None:
 def test_every_other_byte_of_the_prompt_is_as_it_was(
     run_roles: tuple[str, ...], sizing_registered: None
 ) -> None:
-    # Guard: with the catalogue sentence put back as it was, the prompt is a64e805f's.
+    # Guard: with the catalogue sentence put back as it was, and without the sentence on how a
+    # unit is spelt (added 12.11.2026), the prompt is a64e805f's.
     prompt = prompt_for(BRIEF, run_roles)
     assert prompt.count(catalogue_sentence()) == 1
+    assert prompt.count(f"{UNIT_SPELLING_SENTENCE} ") == 1
+    prompt = prompt.replace(f"{UNIT_SPELLING_SENTENCE} ", "")
     assert (
         _sha(prompt.replace(catalogue_sentence(), _base_sentence()))
         == (BASE_PROMPT_SHA256[run_roles])

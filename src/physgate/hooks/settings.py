@@ -34,6 +34,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 import physgate
+from physgate.hooks import shell_startup
 from physgate.hooks.config import (
     AbsolutePath,
     ExperimentRule,
@@ -57,6 +58,7 @@ from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import SESSION_TEMPS_REASON as SESSION_TEMPS_REASON
 from physgate.hooks.reasons import SESSIONS_REASON as SESSIONS_REASON
+from physgate.hooks.reasons import SHELL_STARTUP_REASON as SHELL_STARTUP_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.reasons import WITHHELD_REASON as WITHHELD_REASON
 from physgate.hooks.reasons import series_outbox_reason
@@ -86,6 +88,20 @@ PROFILE_TOOLS: Mapping[Profile, tuple[str, ...]] = {
     "baseline": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
 }
 
+#: The web tools, which bring in text nobody reviewed.
+WEB_TOOLS = ("WebFetch", "WebSearch")
+#: The tools each profile's settings deny, a second layer beside the tools hook: a deny rule
+#: binds in ``bypassPermissions``, which every session runs in, and refuses the tool whether or
+#: not a hook ran (measured on the pinned binary, 11.11.2026). The web tools need it: the tools
+#: hook was their only layer, and ``network: none`` binds a session's shell but not its WebFetch
+#: tool. Every profile denies them. A profile made to read the web (a researcher's) would be the
+#: one exception, and would be listed here without them, with its own test.
+PROFILE_DENIED: Mapping[Profile, tuple[str, ...]] = {
+    "role": WEB_TOOLS,
+    "reviewer": WEB_TOOLS,
+    "orchestrator": WEB_TOOLS,
+    "baseline": WEB_TOOLS,
+}
 
 #: The events on which Claude Code applies a tool matcher.
 _TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure"}
@@ -432,8 +448,18 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         # path, an alias, a program to run) holds for every later git command the session
         # runs. The session's environment is built without XDG_CONFIG_HOME, so git looks in
         # ``$HOME/.config/git``; that directory also holds git's user attributes and ignore.
+        # The raw agent's stays writable: it is measured without the harness's discipline
+        # over git, and what a configuration there names runs only when the session's own
+        # commands run git, inside the sandbox; the binary runs none of it outside (measured
+        # through the real binary, by a row of its own).
         for git_config in (home / ".gitconfig", home / ".config" / "git"):
             protected[str(git_config)] = (GIT_USER_CONFIG_REASON, "revert")
+    if request.profile in ("role", "baseline"):
+        # A shell startup file in the session's own home, which its commands write: a shell
+        # the binary starts outside the sandbox would run it. The raw agent keeps it too, since
+        # it is what keeps a session inside the layer that bounds the evaluation's protections.
+        for name in shell_startup.NAMES:
+            protected[str(home / name)] = (SHELL_STARTUP_REASON, "revert")
     #: Who may read each root, for the OS layer (see ``ProtectedRoot.reads``): the
     #: session's credentials are kept from its shell commands, and the hooks' records from
     #: every tool of the session (the file tools' refusal is the hooks' own, in ``paths``).
@@ -697,10 +723,91 @@ def render_settings(
         if event in _TOOL_EVENTS:
             group["matcher"] = "*"
         hooks[event] = [group]
-    settings: dict[str, object] = {"disableAllHooks": False, "hooks": hooks}
+    settings: dict[str, object] = {
+        "disableAllHooks": False,
+        "hooks": hooks,
+        "permissions": {"deny": list(PROFILE_DENIED[config.profile])},
+    }
     if api_key_helper is not None:
         settings["apiKeyHelper"] = api_key_helper
     return settings
+
+
+#: The rule lists of a permissions block: each a list of rule names, as the binary reads them.
+RULE_LISTS = ("allow", "ask", "deny", "additionalDirectories")
+
+
+def _rules(name: str, value: object) -> list[str]:
+    """``value`` as the list of rule names a permissions block holds under ``name``.
+
+    A list or a tuple of strings, which is what this module's own deny lists are. Anything else
+    is refused, never written: a file whose rule list is a string, a mapping or ``null`` is not
+    one the binary is known to read its deny from.
+
+    Raises:
+        ValueError: ``value`` is not a list or a tuple of strings.
+    """
+    if not isinstance(value, (list, tuple)) or not all(isinstance(rule, str) for rule in value):
+        msg = (
+            f"a settings layer's permissions.{name} is not a list of rule names "
+            f"({type(value).__name__}), so it is not merged into the session's settings"
+        )
+        raise ValueError(msg)
+    return list(value)
+
+
+def _merge(settings: dict[str, object], more: Mapping[str, object]) -> None:
+    """Merge ``more`` into ``settings``: a permissions block adds to theirs, its deny included.
+
+    Never a plain update: a ``permissions`` key of ``more`` would replace the whole block, and the
+    web tools' deny with it. The block is held to its form first, and what is not of it is
+    refused before anything is replaced: the block a mapping, each of its rule lists
+    (:data:`RULE_LISTS`) a list or a tuple of rule names. A deny is added to the session's own,
+    whose rules stay, first and each once.
+
+    Raises:
+        ValueError: ``more`` carries a permissions block that is not of that form, or the
+            settings it is merged into hold no deny list of their own.
+    """
+    for key, value in more.items():
+        if key != "permissions":
+            settings[key] = value
+            continue
+        own = settings.get(key)
+        if not isinstance(value, Mapping) or not isinstance(own, dict):
+            msg = (
+                "a settings layer's permissions are not a mapping of rule lists "
+                f"({type(value).__name__}), so they are not merged into the session's settings"
+            )
+            raise ValueError(msg)
+        merged = {name: _rules(name, rule) for name, rule in value.items() if name in RULE_LISTS}
+        held = _rules("deny", own.get("deny"))
+        for name, rule in value.items():
+            own[name] = merged.get(name, rule)
+        own["deny"] = [*held, *(r for r in merged.get("deny", ()) if r not in held)]
+
+
+def _require_denied(settings: Mapping[str, object], profile: Profile) -> None:
+    """Refuse settings that do not carry ``profile``'s deny, whatever was merged into them.
+
+    The last check before the settings are written, and independent of the merge: the deny is a
+    list of rule names holding every tool the profile is denied.
+
+    Raises:
+        ValueError: it is not.
+    """
+    permissions = settings.get("permissions")
+    deny = permissions.get("deny") if isinstance(permissions, Mapping) else None
+    if (
+        not isinstance(deny, list)
+        or not all(isinstance(rule, str) for rule in deny)
+        or not set(PROFILE_DENIED[profile]) <= set(deny)
+    ):
+        msg = (
+            f"the session's settings do not deny {', '.join(PROFILE_DENIED[profile])} to the "
+            f"{profile} profile (permissions.deny is {deny!r}), so they are not written"
+        )
+        raise ValueError(msg)
 
 
 def _dump(value: object) -> bytes:
@@ -730,6 +837,25 @@ def _make_file_tool_dirs(worktree: str) -> None:
                 raise ValueError(msg)
             if not os.path.lexists(step):
                 os.mkdir(step)
+
+
+def _make_zdotdir(target: Path, home: str) -> str:
+    """Make the empty directory the session's ``ZDOTDIR`` names, in its settings directory.
+
+    zsh reads its startup files from there and not from the home, in every shell the binary
+    starts outside the sandbox; the settings directory is written by no session.
+
+    Raises:
+        ValueError: it is there already and is not an empty directory of its own, or it lies
+            in the session's home.
+    """
+    where = target / shell_startup.ZDOTDIR_NAME
+    if not os.path.lexists(where):
+        where.mkdir(mode=0o755)
+    refusal = shell_startup.zdotdir_refusal(str(where), home)
+    if refusal is not None:
+        raise ValueError(refusal)
+    return str(where)
 
 
 def _own_temp(request: InstallRequest) -> str | None:
@@ -795,6 +921,20 @@ def install(
         )
         raise ValueError(msg)
     own_temp = _own_temp(request)
+    if request.profile in OWN_TEMP_PROFILES:
+        # Before anything is written: the binary's snapshot step sources the home's startup
+        # files outside the sandbox, once, as the session starts.
+        # The harness holds a place in the home it gives a session, and judges what the
+        # home holds: never in the home of whoever runs the install.
+        if shell_startup.own_home_refusal(request.user_home) is not None:
+            msg = (
+                f"a {request.profile} session is installed only with a home of its own, and "
+                f"{request.user_home} is the home of the user who runs the install"
+            )
+            raise ValueError(msg)
+        found = shell_startup.home_refusal(request.user_home)
+        if found is not None:
+            raise ValueError(found)
     helper = request.api_key_helper
     if helper is not None and not any(
         _inside(helper, root) for root in (request.target_dir, request.state_dir)
@@ -826,6 +966,11 @@ def install(
         config, str(config_path), digest(config_bytes), registry, request.api_key_helper
     )
     spawn_env = {"CLAUDE_CONFIG_DIR": request.claude_config_dir}
+    if request.profile in OWN_TEMP_PROFILES:
+        spawn_env[shell_startup.ZDOTDIR] = _make_zdotdir(target, request.user_home)
+        # Every startup file a shell would run from the home: its place is held by an empty
+        # directory, before the OS layer's rules name what is there.
+        shell_startup.hold(request.user_home)
     if own_temp is not None:
         # The binary keeps the session's temporary files here, its background commands' output
         # among them, and not in the directory every session of the user shares (``TMPDIR`` was
@@ -864,7 +1009,8 @@ def install(
             claude_temp=request.shared_claude_temp,
             network=request.os_layer_network,
         )
-        settings.update(policy.settings)
+        _merge(settings, policy.settings)
+    _require_denied(settings, config.profile)
     settings_path = target / SETTINGS_NAME
     settings_path.write_bytes(_dump(settings))
     unenforced = (

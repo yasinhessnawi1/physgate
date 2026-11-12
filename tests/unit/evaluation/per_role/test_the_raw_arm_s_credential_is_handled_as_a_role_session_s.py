@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from startup_stand_in import stand_in_spawn_env
 from task_fixtures import own_task
 
 from physgate.evaluation.per_role.arms import raw
@@ -40,7 +41,12 @@ def _fake_install(tmp_path: Path) -> Path:
     settings.write_text(
         json.dumps({"hooks": {"SessionEnd": [{"hooks": [{"command": "true", "timeout": 5}]}]}})
     )
-    out = {"settings": str(settings), "config": "c", "spawn_args": [], "spawn_env": {}}
+    out = {
+        "settings": str(settings),
+        "config": "c",
+        "spawn_args": [],
+        "spawn_env": stand_in_spawn_env(),
+    }
     return _script(tmp_path / "install-bin", f"echo '{json.dumps(out)}'\n")
 
 
@@ -128,7 +134,7 @@ def test_the_raw_session_s_shell_is_denied_its_credential_files_by_the_os_layer(
 
     def capture(argv: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
         seen.append(argv)
-        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": {}}
+        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": stand_in_spawn_env()}
         return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
 
     monkeypatch.setattr(subprocess, "run", capture)

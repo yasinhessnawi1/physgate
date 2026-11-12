@@ -36,8 +36,11 @@ from urllib.parse import unquote
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.queue import LAST_ROUND
 from physgate.orchestrator.run_config import load_run_config
+from physgate.series.reader import SUBTASK_PATTERN
+from physgate.series.seal import NAME_PATTERN
 from physgate.state.schema import NODE_ID_PATTERN
 from physgate.ui.assets import Assets
+from physgate.ui.engines import ABSENT, EngineCatalogue
 from physgate.ui.exceptions import PathRefusedError, UIError
 from physgate.ui.guard import RouteKind, require_registered
 from physgate.ui.paths import Allowlist
@@ -58,6 +61,12 @@ PARAMETERS: Mapping[str, re.Pattern[str]] = {
     # The node identifier rule itself: lowercase dotted parts, so no separator, no
     # leading dot and no parent reference can pass.
     "node": NODE_ID_PATTERN,
+    # A subtask id as the series reader spells it (its own pattern, not a copy), and one of a
+    # subtask's attempts, so a simulation route never names what the reader would refuse.
+    "subtask": SUBTASK_PATTERN,
+    "attempt": re.compile(r"^[1-9]$"),
+    # A record's id as the record format names it, from the format's own rule.
+    "record": re.compile(NAME_PATTERN),
     # The curated library's files: which kind, which role (the knowledge layer's own role rule,
     # with a length cap) and which staged candidate (the id staging writes).
     "library_file": re.compile(r"^(standards|skill|bounds)$"),
@@ -88,13 +97,16 @@ class Context:
     """What every handler is given: the allowlist, the built app, and who acts, if anyone.
 
     ``operator`` is the name the server was started with; an action is recorded as theirs.
-    Without one, every action route is refused. ``views`` is the register of the item views this
-    server rendered, which a decision's review time starts from.
+    Without one, every action route is refused. ``engines`` is the checkout's engine catalogue
+    as the command read it at start, before listening; no request reads it again. ``views`` is
+    the register of the item views this server rendered, which a decision's review time starts
+    from.
     """
 
     allowlist: Allowlist
     assets: Assets
     operator: str | None = None
+    engines: EngineCatalogue = ABSENT
     views: ViewRegister = field(default_factory=ViewRegister)
 
 
@@ -197,10 +209,14 @@ def split_target(target: str) -> tuple[str, ...] | None:
         return None
 
 
+#: The media type of every JSON answer.
+JSON_TYPE = "application/json; charset=utf-8"
+
+
 def json_response(payload: object, status: int = 200) -> Response:
     """A JSON body, keys sorted, so the same records give the same bytes."""
     body = json.dumps(payload, sort_keys=True, indent=1).encode() + b"\n"
-    return Response(status=status, body=body, content_type="application/json; charset=utf-8")
+    return Response(status=status, body=body, content_type=JSON_TYPE)
 
 
 def error_response(status: int, error: Exception | str) -> Response:
@@ -231,6 +247,21 @@ def asset(context: Context, params: Mapping[str, str]) -> Response:
         return error_response(404, "no such file in the built app")
     body, content_type = found
     return Response(200, body, content_type)
+
+
+def engine_catalogue(context: Context, params: Mapping[str, str]) -> Response:
+    """The engine catalogue read at start, as the bytes written then; nothing is read or written.
+
+    Its path inside the checkout, the bytes' digest and length, and their parse. A checkout
+    with none is a 404; one the start-time checks refused is a 422 with their sentence, so only
+    the screen's engine section shows an error, never the whole app.
+    """
+    held = context.engines
+    if held.answer is not None:
+        return Response(200, held.answer, JSON_TYPE)
+    if held.state == "absent":
+        return error_response(404, "this checkout lists no engines")
+    return error_response(422, f"the engine catalogue could not be read: {held.reason}")
 
 
 def run_directories(allowlist: Allowlist) -> list[tuple[int, str, Path]]:

@@ -8,8 +8,9 @@ Before the integration call the loop therefore reopens, once, each domain module
 reached (ARCH-051).
 
 Computed from the canonical journal and the change history alone, so a fresh process computes
-the same, and on the safe side: a value counts as changed when its quantities differ as written
-(a respelled unit included), where the check compares physical values. A follow-up the check
+the same, and on the safe side: a value counts as changed when its quantities differ as written,
+a unit compared in its canonical form (another spelling of one unit is no change, another unit
+such as ``mA`` for ``A`` is), where the check compares physical values. A follow-up the check
 would not have asked for costs a session; none is ever left out that it would. The check stays
 the authority over what passes.
 """
@@ -23,6 +24,7 @@ from physgate.orchestrator.protocols import ChangeSet, PersonOrder
 from physgate.orchestrator.repair import _quantity_name, quoted
 from physgate.state.schema import Node, validate_node
 from physgate.state.store import JournalLine
+from physgate.unit_spelling import canonical_unit
 
 
 def owed(
@@ -61,7 +63,7 @@ def owed(
                 continue
             before = _at(revisions, min(revs) - 1)
             after = _at(revisions, max(revs))
-            if after is None or (before is not None and before.quantities == after.quantities):
+            if after is None or (before is not None and _as_written(before) == _as_written(after)):
                 continue
             since = min(revs)
             targets |= set(after.constrains) | set(before.constrains if before else ())
@@ -80,6 +82,14 @@ def owed(
     return {
         subtask_id: tuple(OwedEdge(source=s, target=t) for s, t in sorted(edges))
         for subtask_id, edges in sorted(found.items())
+    }
+
+
+def _as_written(node: Node) -> dict[str, dict[str, object]]:
+    """The node's quantities, each unit in its canonical form: a respelling is no change."""
+    return {
+        name: {**quantity.model_dump(mode="json"), "unit": canonical_unit(quantity.unit)}
+        for name, quantity in node.quantities.items()
     }
 
 
