@@ -34,6 +34,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 import physgate
+from physgate.hooks import shell_startup
 from physgate.hooks.config import (
     AbsolutePath,
     ExperimentRule,
@@ -57,6 +58,7 @@ from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import SESSION_TEMPS_REASON as SESSION_TEMPS_REASON
 from physgate.hooks.reasons import SESSIONS_REASON as SESSIONS_REASON
+from physgate.hooks.reasons import SHELL_STARTUP_REASON as SHELL_STARTUP_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.reasons import WITHHELD_REASON as WITHHELD_REASON
 from physgate.hooks.reasons import series_outbox_reason
@@ -434,6 +436,12 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         # ``$HOME/.config/git``; that directory also holds git's user attributes and ignore.
         for git_config in (home / ".gitconfig", home / ".config" / "git"):
             protected[str(git_config)] = (GIT_USER_CONFIG_REASON, "revert")
+    if request.profile in ("role", "baseline"):
+        # A shell startup file in the session's own home, which its commands write: a shell
+        # the binary starts outside the sandbox would run it. The raw agent keeps it too, since
+        # it is what keeps a session inside the layer that bounds the evaluation's protections.
+        for name in shell_startup.NAMES:
+            protected[str(home / name)] = (SHELL_STARTUP_REASON, "revert")
     #: Who may read each root, for the OS layer (see ``ProtectedRoot.reads``): the
     #: session's credentials are kept from its shell commands, and the hooks' records from
     #: every tool of the session (the file tools' refusal is the hooks' own, in ``paths``).
@@ -732,6 +740,25 @@ def _make_file_tool_dirs(worktree: str) -> None:
                 os.mkdir(step)
 
 
+def _make_zdotdir(target: Path, home: str) -> str:
+    """Make the empty directory the session's ``ZDOTDIR`` names, in its settings directory.
+
+    zsh reads its startup files from there and not from the home, in every shell the binary
+    starts outside the sandbox; the settings directory is written by no session.
+
+    Raises:
+        ValueError: it is there already and is not an empty directory of its own, or it lies
+            in the session's home.
+    """
+    where = target / shell_startup.ZDOTDIR_NAME
+    if not os.path.lexists(where):
+        where.mkdir(mode=0o755)
+    refusal = shell_startup.zdotdir_refusal(str(where), home)
+    if refusal is not None:
+        raise ValueError(refusal)
+    return str(where)
+
+
 def _own_temp(request: InstallRequest) -> str | None:
     """The session's own temporary directory, refused where it is missing or unusable.
 
@@ -795,6 +822,20 @@ def install(
         )
         raise ValueError(msg)
     own_temp = _own_temp(request)
+    if request.profile in OWN_TEMP_PROFILES:
+        # Before anything is written: the binary's snapshot step sources the home's startup
+        # files outside the sandbox, once, as the session starts.
+        if os.path.realpath(request.user_home) == os.path.realpath(os.path.expanduser("~")):
+            # The harness holds a place in the home it gives a session, and judges what the
+            # home holds: never in the home of whoever runs the install.
+            msg = (
+                f"a {request.profile} session is installed only with a home of its own, and "
+                f"{request.user_home} is the home of the user who runs the install"
+            )
+            raise ValueError(msg)
+        found = shell_startup.home_refusal(request.user_home, held=False)
+        if found is not None:
+            raise ValueError(found)
     helper = request.api_key_helper
     if helper is not None and not any(
         _inside(helper, root) for root in (request.target_dir, request.state_dir)
@@ -826,6 +867,11 @@ def install(
         config, str(config_path), digest(config_bytes), registry, request.api_key_helper
     )
     spawn_env = {"CLAUDE_CONFIG_DIR": request.claude_config_dir}
+    if request.profile in OWN_TEMP_PROFILES:
+        spawn_env[shell_startup.ZDOTDIR] = _make_zdotdir(target, request.user_home)
+        # The one startup file a shell of the binary reads from the home by name: its place
+        # is held by an empty directory, before the OS layer's rules name what is there.
+        shell_startup.hold(request.user_home)
     if own_temp is not None:
         # The binary keeps the session's temporary files here, its background commands' output
         # among them, and not in the directory every session of the user shares (``TMPDIR`` was

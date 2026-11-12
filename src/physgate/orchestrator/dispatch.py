@@ -46,6 +46,8 @@ from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import outstanding
 from physgate.hooks.sentinel import _frozen_experiment_paths
 from physgate.hooks.settings import CONFIG_NAME, SETTINGS_NAME
+from physgate.hooks.shell_startup import hold as hold_startup_places
+from physgate.hooks.shell_startup import spawn_refusal
 from physgate.hooks.snapshot import Signature, file_digest, signature
 from physgate.hooks.state import LOG_NAME
 from physgate.knowledge import loader
@@ -169,10 +171,21 @@ def spawn_held(
     precede the session). Any failure there stops the held process, which has run nothing,
     and raises. Returns the process and its start time.
 
+    Nothing is spawned with an environment through which a shell startup file could reach a
+    shell the binary starts outside the sandbox (``shell_startup.spawn_refusal``): held here,
+    where every session of the harness is spawned, on the environment as it stands.
+
     Raises:
-        InvocationError: the process's start time could not be read.
+        InvocationError: the environment is refused, or the process's start time could not
+            be read.
         ProcessTableError: the process table could not be read.
     """
+    if env.get("HOME"):
+        # Held again where the home may have been made after the install, then judged.
+        hold_startup_places(env["HOME"])
+    refused = spawn_refusal(env)
+    if refused is not None:
+        raise InvocationError(refused, session_id=session_id)
     hold, release = os.pipe()
     try:
         process = subprocess.Popen(

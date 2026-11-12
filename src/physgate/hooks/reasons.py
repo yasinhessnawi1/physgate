@@ -111,3 +111,7 @@ GIT_USER_CONFIG_REASON = (
     "command run a program the session chose; a role session reads git's configuration and "
     "never writes it"
 )
+SHELL_STARTUP_REASON = (
+    "it is a shell startup file in this session's home, which a shell started outside the "
+    "session's sandbox would run; no session writes one"
+)

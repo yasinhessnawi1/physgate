@@ -26,6 +26,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from startup_stand_in import stand_in_spawn_env
 
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import Installed
@@ -244,7 +245,7 @@ def test_the_claude_reviewer_s_session_leaves_nothing_running(
     sdir = tmp_path / "rs" / "review" / "session"
     sdir.mkdir()
     reviewer = _reviewer(tmp_path, binary, wall_clock_s)
-    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env={})
+    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env=stand_in_spawn_env())
     packet = cast(Packet, SimpleNamespace(read_root=str(read)))
     result: Any = reviewer._spawn(packet, sdir, installed, "sid", prompt="p", schema={})
     same, own = _pids(marker)

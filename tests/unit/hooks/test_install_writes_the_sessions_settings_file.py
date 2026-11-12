@@ -151,6 +151,8 @@ def test_the_session_is_spawned_with_no_worktree_settings_and_this_file_by_flag(
         "CLAUDE_CONFIG_DIR": str(tmp_path / "claude-config"),
         "CLAUDE_CODE_TMPDIR": OWN_TEMP,
         "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+        # Where zsh looks for its startup files: an empty directory among the session's files.
+        "ZDOTDIR": str(done.settings_path.parent / "zdotdir"),
     }
     assert not (tmp_path / "worktree" / ".claude").exists()
 
