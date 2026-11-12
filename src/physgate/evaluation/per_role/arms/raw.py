@@ -51,6 +51,7 @@ from physgate.orchestrator.dispatch import (
     read_captured,
     redact,
     review_material_seen,
+    runtime_git_paths,  # noqa: F401 - not called yet
     runtime_paths,
     session_end_command,
     spawn_held,
