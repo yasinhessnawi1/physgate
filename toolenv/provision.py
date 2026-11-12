@@ -7,9 +7,11 @@ Run it outside every session, with the network, once per machine:
 Every download is held to a digest recorded before it was fetched: the interpreter by uv's own
 table, each wheel by ``uv.lock``, Node by ``pins.json``, each npm package by the server's
 ``package-lock.json``, and each PlatformIO package by its registry's checksum at the pinned
-version. Every file is copied into the destination, never linked to a cache: a file with a
-second name outside the environment could be changed through that name, unseen by anything
-that guards the environment's own paths. The result is one directory:
+version. On Linux the display libraries the CAD kernel links are fetched as distribution
+packages, each by the file name, version and sha256 in ``pins.json``. Every file is copied into
+the destination, never linked to a cache: a file with a second name outside the environment
+could be changed through that name, unseen by anything that guards the environment's own
+paths. The result is one directory:
 
     python/             the uv-managed interpreter
     venv/               the libraries, installed from ``uv.lock``
@@ -18,10 +20,13 @@ that guards the environment's own paths. The result is one directory:
     node/               the pinned Node release
     platformio-server/  the PlatformIO tool server, installed from its npm lock
     servers/            this repository's own tool servers
+    helpers/            this repository's own helpers for the design libraries
+    system-libraries/   on Linux, the display libraries the CAD kernel links, unpacked
     provisioned.json    what was built, and what the self-check measured
 
 It ends by checking itself offline (the libraries import at their pins and compute, a firmware
-fixture builds with every download refused, the PlatformIO server answers), and leaves every
+fixture builds with every download refused, the PlatformIO server answers, a fixture part is
+built, exported, measured and hashed with the CAD kernel), and leaves every
 file read-only. The harness measures the result before a run may use it; this script only
 builds it. It runs on any Python 3.12 and imports nothing from the harness.
 """
@@ -52,6 +57,24 @@ NODE_PLATFORMS = {
     ("Darwin", "arm64"): "darwin-arm64",
     ("Linux", "x86_64"): "linux-x64",
     ("Linux", "aarch64"): "linux-arm64",
+}
+#: Where a distribution package is fetched from by its file name. It serves a build after the
+#: distribution's own index has moved on to a newer one, so a pin stays fetchable.
+PACKAGE_FILES = "https://launchpad.net/ubuntu/+archive/primary/+files"
+#: Where the system libraries for each machine are named in ``pins.json``; ``None`` where the
+#: CAD kernel links nothing the machine does not always have.
+SYSTEM_LIBRARY_PLATFORMS = {
+    ("Darwin", "arm64"): None,
+    ("Linux", "x86_64"): "linux-x86_64",
+}
+#: The licences of what the design libraries add, each as its own distribution states it. The
+#: system libraries' full texts are kept in the environment, under
+#: ``system-libraries/usr/share/doc/<package>/copyright``.
+DESIGN_LICENCES = {
+    "build123d": "Apache-2.0",
+    "cadquery-ocp-novtk": "Apache-2.0 (the bindings); LGPL-2.1 with the Open CASCADE exception "
+    "(the kernel inside the wheel)",
+    "system libraries": "MIT, X11 and BSD families; see each package's copyright file",
 }
 #: The most a single download may hold.
 MAX_DOWNLOAD_BYTES = 200 << 20
@@ -94,6 +117,33 @@ for _ in range(100):
 names = ("control", "numpy", "scipy", "mujoco", "platformio")
 print(json.dumps({"versions": {n: m.version(n) for n in names},
                   "phase_margin_deg": float(pm), "time_s": float(data.time)}))
+"""
+
+
+#: What the self-check asks the design libraries: a fixture plate built, exported, measured and
+#: hashed through the helpers, a closed-form load case, and which files the loader mapped.
+DESIGN_CHECK = """
+import json, os, sys
+sys.path.insert(0, sys.argv[1])
+import geometry, structure
+from build123d import Box, BuildPart, Cylinder, GridLocations, Mode
+with BuildPart() as built:
+    Box(110.0, 60.0, 3.0)
+    with GridLocations(98.0, 48.0, 2, 2):
+        Cylinder(1.6, 3.0, mode=Mode.SUBTRACT)
+plate = built.part
+exports = geometry.export(plate, sys.argv[2], "plate")
+part = geometry.geometry_result(
+    "plate", plate, density={"value": 1240, "unit": "kg/m**3"},
+    density_source="a figure for the self-check only", exports=exports)
+beam = structure.cantilever_end_load(
+    "self-check", length={"value": 60, "unit": "mm"}, width={"value": 10, "unit": "mm"},
+    thickness={"value": 3, "unit": "mm"}, modulus={"value": 2.3, "unit": "GPa"},
+    force={"value": 1, "unit": "N"})
+maps = "/proc/self/maps"
+lines = open(maps).read().splitlines() if os.path.exists(maps) else []
+mapped = sorted({line.split()[-1] for line in lines if "/" in line})
+print(json.dumps({"part": part, "load_case": beam, "mapped": mapped}))
 """
 
 
@@ -171,51 +221,177 @@ def extract(archive: Path, into: Path) -> Path:
 
 # ---- distribution packages: the display libraries the CAD kernel links on Linux ---------------
 
-PACKAGE_FILES = ""
-DESIGN_LICENCES: dict[str, str] = {}
-
 
 def system_packages(pins: Mapping[str, object], system: str, machine: str) -> list[dict[str, str]]:
-    """Not built yet."""
-    return []
+    """The pinned distribution packages for a machine; none where the kernel needs none.
+
+    Raises:
+        ProvisionError: the machine is one no packages are pinned for, or a pin lacks its
+            package name, version, file name, sha256 or the library it provides.
+    """
+    if (system, machine) not in SYSTEM_LIBRARY_PLATFORMS:
+        raise ProvisionError(f"no pinned system libraries for {system} {machine}")
+    name = SYSTEM_LIBRARY_PLATFORMS[(system, machine)]
+    if name is None:
+        return []
+    libraries = pins.get("system_libraries")
+    packages = libraries.get(name) if isinstance(libraries, dict) else None
+    if not isinstance(packages, list) or not packages:
+        raise ProvisionError(f"pins.json names no system libraries for {system} {machine}")
+    found = []
+    for package in packages:
+        fields = {"package", "version", "file", "sha256", "provides"}
+        if not isinstance(package, dict) or not fields <= set(package):
+            raise ProvisionError(f"a system library's pin names {sorted(fields)}")
+        if "/" in str(package["file"]) or "/" in str(package["provides"]):
+            raise ProvisionError(f"{package['file']}: a pin names files, never paths")
+        found.append({field: str(package[field]) for field in sorted(fields)})
+    return found
 
 
 def unpack_tree(archive: Path, into: Path) -> None:
-    """Not built yet."""
+    """Unpack a package's file tree (an uncompressed tar) under ``into``.
+
+    The standard library's ``data`` filter refuses a member that would land outside ``into``,
+    an absolute or escaping link, and device files.
+    """
+    try:
+        with tarfile.open(archive, "r:") as tar:
+            tar.extractall(into, filter="data")
+    except (tarfile.TarError, OSError) as exc:
+        raise ProvisionError(f"the package tree {archive.name} was refused: {exc}") from None
+
+
+def _package_tree(package: Path, work: Path) -> Path:
+    """The file tree of a distribution package, as an uncompressed tar in ``work``.
+
+    The distribution's own tool only decompresses: nothing of the package is run or
+    installed, and the tree is unpacked by :func:`unpack_tree`.
+    """
+    tool = shutil.which("dpkg-deb", path="/usr/bin:/bin")
+    if tool is None:
+        raise ProvisionError("dpkg-deb is needed to read a distribution package, and is absent")
+    tree = Path(tempfile.mkdtemp(prefix="package-", dir=work)) / "tree.tar"
+    with tree.open("wb") as handle:
+        done = subprocess.run(  # noqa: S603
+            [tool, "--fsys-tarfile", str(package)],
+            env=base_environment(work),
+            stdout=handle,
+            stderr=subprocess.PIPE,
+            timeout=STEP_TIMEOUT_S,
+            check=False,
+        )
+    if done.returncode != 0:
+        tail = done.stderr.decode("utf-8", "replace")[-2000:]
+        raise ProvisionError(f"dpkg-deb could not read {package.name}:\n{tail}")
+    return tree
 
 
 def place_beside_kernel(
     dest: Path, packages: Sequence[Mapping[str, str]], beside: str
 ) -> list[str]:
-    """Not built yet."""
-    return []
+    """Link each provided library into the directory the CAD kernel's own run path searches.
 
+    The kernel's wheel names one directory of its own for the libraries it brought; a library
+    found there needs no variable set for a session and no file outside the environment.
+    Each link is relative, so the environment may be restored at another path.
 
-def _package_tree(package: Path, work: Path) -> Path:
-    return package
+    Raises:
+        ProvisionError: the kernel's directory is not there exactly once, or a package did
+            not provide the library its pin names.
+    """
+    homes = sorted((dest / "venv").glob(f"lib/python*/site-packages/{beside}"))
+    if len(homes) != 1 or not homes[0].is_dir():
+        raise ProvisionError(f"the kernel's library directory {beside} was not found once")
+    unpacked = dest / "system-libraries"
+    placed = []
+    for package in packages:
+        name = package["provides"]
+        found = sorted(unpacked.glob(f"usr/lib/*/{name}"))
+        if len(found) != 1 or not found[0].resolve().is_file():
+            raise ProvisionError(f"{package['file']} did not provide {name}")
+        link = homes[0] / name
+        link.symlink_to(os.path.relpath(found[0], homes[0]))
+        placed.append(name)
+    return placed
 
 
 def _system_libraries(
     dest: Path, pins: Mapping[str, object], cache: Path, work: Path
 ) -> list[dict[str, str]]:
-    return []
+    packages = system_packages(pins, platform.system(), platform.machine())
+    if not packages:
+        return []
+    libraries = pins["system_libraries"]
+    assert isinstance(libraries, dict)
+    (dest / "system-libraries").mkdir()
+    for package in packages:
+        kept = cache / "system-libraries" / package["file"]
+        if not kept.exists():
+            # As for Node: checked before it is kept, so the cache only holds what matched.
+            downloads = Path(tempfile.mkdtemp(prefix="package-", dir=work))
+            fetched = fetch(f"{PACKAGE_FILES}/{package['file']}", downloads / "archive", work)
+            require_digest(fetched, package["sha256"])
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(fetched, kept)
+        require_digest(kept, package["sha256"])
+        unpack_tree(_package_tree(kept, work), dest / "system-libraries")
+    place_beside_kernel(dest, packages, str(libraries["placed_beside"]))
+    return packages
 
 
 def _helpers(dest: Path) -> list[str]:
-    return []
+    (dest / "helpers").mkdir()
+    copied = []
+    source = HERE / "helpers"
+    for path in sorted(source.glob("*.py")) if source.is_dir() else []:
+        shutil.copyfile(path, dest / "helpers" / path.name)
+        copied.append(path.name)
+    return copied
 
 
 def mapped_outside(
     mapped: Sequence[str], packages: Sequence[Mapping[str, str]], dest: Path
 ) -> list[str]:
-    """Not built yet."""
-    return []
+    """Which provided libraries the loader took from outside the environment, or not at all.
+
+    ``mapped`` is every file the checking process had mapped. Each library a pinned package
+    provides must be among them, and the file mapped under that name must lie inside
+    ``dest``: a host that happens to have the library must not be the one that served it.
+    """
+    root = os.path.realpath(dest)
+    wrong = []
+    for package in packages:
+        name = package["provides"]
+        files = [path for path in mapped if os.path.basename(path).startswith(name)]
+        if not files:
+            wrong.append(f"{name}: not loaded")
+        wrong += [path for path in files if not os.path.realpath(path).startswith(root + os.sep)]
+    return wrong
 
 
 def _check_design(
     dest: Path, packages: Sequence[Mapping[str, str]], work: Path
 ) -> dict[str, object]:
-    return {"part": {}, "load_case": {}}
+    module = work / "design-module"
+    module.mkdir()
+    env = base_environment(work) | {
+        "XDG_CACHE_HOME": str(work / "xdg-cache"),
+        "HTTP_PROXY": DEAD_PROXY,
+        "HTTPS_PROXY": DEAD_PROXY,
+        "ALL_PROXY": DEAD_PROXY,
+    }
+    python = str(dest / "venv" / "bin" / "python")
+    out = run([python, "-I", "-c", DESIGN_CHECK, str(dest / "helpers"), str(module)], env)
+    found = json.loads(out.strip().splitlines()[-1])
+    project = (dest / "project" / "pyproject.toml").read_text(encoding="utf-8")
+    for name, version in found["part"]["libraries"].items():
+        if f'"{name}=={version}"' not in project:
+            raise ProvisionError(f"{name} {version} is not the pinned version")
+    wrong = mapped_outside(found["mapped"], packages, dest)
+    if wrong:
+        raise ProvisionError(f"the kernel's display libraries are not the environment's: {wrong}")
+    return {"part": found["part"], "load_case": found["load_case"]}
 
 
 # ---- the commands, and the settings they run with --------------------------------------------
@@ -564,6 +740,8 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
         _platformio(dest, pins, work)
         _server(dest, cache, work)
         servers = _own_servers(dest)
+        helpers = _helpers(dest)
+        system = _system_libraries(dest, pins, cache, work)
         require_one_name_each(dest)
         require_links_inside(dest)
         make_read_only(dest)
@@ -575,6 +753,9 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
             "python": str(python.relative_to(dest)),
             "node_archive_sha256": node_digest,
             "own_servers": servers,
+            "helpers": helpers,
+            "system_libraries": system,
+            "licences": DESIGN_LICENCES,
             "locks_sha256": {
                 name: sha256_of(HERE / name)
                 for name in ("pyproject.toml", "uv.lock", "pins.json",
@@ -584,6 +765,7 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
                 "libraries": _check_libraries(dest, pins, work),
                 "firmware": _check_build(dest, work),
                 "platformio_server": _check_server(dest, work),
+                "design": _check_design(dest, system, work),
             },
         }  # fmt: skip
     written = dest / "provisioned.json"
