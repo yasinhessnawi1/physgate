@@ -134,14 +134,19 @@ jobs:
           bwrap --unshare-user --unshare-pid --unshare-net --ro-bind / / --dev /dev \
             --proc /proc /bin/true && echo "bubblewrap starts here"
 
-      - name: A stand-in for a board's serial device
+      - name: Stand-ins for a board's devices
         # A runner has no board, and its own serial ports are not this user's to open. So
-        # the null device is given a second node under a serial device's name, which every
-        # user can open: outside the OS layer a session's program opens it, and inside the
-        # layer nothing does. Nothing is fetched.
+        # the null device is given a node under each name the OS layer denies on Linux (two
+        # kinds of serial port, a HID node, a USB node), which every user can open: outside
+        # the OS layer a session's program opens each, and inside the layer nothing does.
+        # Nothing is fetched.
         run: |
-          sudo mknod --mode=666 /dev/ttyUSB7 c 1 3
-          : < /dev/ttyUSB7 && echo "the stand-in opens here"
+          sudo mkdir -p /dev/bus/usb/909
+          for node in /dev/ttyACM7 /dev/ttyUSB7 /dev/hidraw7 /dev/bus/usb/909/001; do
+            sudo mknod --mode=666 "$node" c 1 3
+            : < "$node" && echo "the stand-in $node opens here"
+          done
+          sudo chmod 755 /dev/bus /dev/bus/usb /dev/bus/usb/909
 
       # ---- the half that tests: nothing below this line reaches the network ------------
       - name: How a step below runs with no network

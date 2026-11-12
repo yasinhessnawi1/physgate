@@ -1,19 +1,27 @@
-"""No session uploads or flashes to hardware, or opens a serial device.
+"""No session uploads or flashes to hardware, or opens a board's device.
 
 A session builds firmware and shows its behaviour in simulation. Nothing it runs reaches a
-board: an upload would write a device no check has seen, and a serial port is a channel in
-and out of the machine that no other layer watches. So both are refused, for every profile,
-through each door a session has:
+board: an upload would write a device no check has seen, and a serial port or a USB node is a
+channel in and out of the machine that no other layer watches. So both are refused, for every
+profile, through each door a session has:
 
-- **a shell command** that runs a build tool with an upload target, a flashing program, or a
-  serial monitor, and any command at all that names a serial device;
-- **a file tool** whose path is a serial device, as written or as it resolves;
-- **a tool server's tool** whose arguments name a serial device or an upload.
+- **a shell command** that runs a program which only ever reaches a board, or a guarded
+  program in any but its build-only uses, and any command at all that names a board's device;
+- **a file tool** whose path is such a device, as written or as it resolves;
+- **a tool server's tool** whose arguments name a device, an upload, or either kind of command.
 
-**What is refused is data** (the tables below): the build tool's names and the targets that
-write to a board, the programs that only ever flash, the programs that flash when given one of
-a few words, and the serial devices of each platform. The OS layer reads the same device table
-(``oslayer.policy``), so the two layers cannot name different devices.
+**What is refused is data** (the tables below), and where a list of what to refuse could not
+be complete the table says what is allowed instead:
+
+- the programs that only ever reach a board (flashers, debug probes' servers) are a list, and
+  it is not complete: a flasher it does not name is refused by nothing here;
+- the build tool and the other programs that both build and reach a board are **guarded**:
+  only the uses named as build-only pass (a build with build-only targets, a static check, a
+  listing), so an upload by a route this file does not know (a test on the target, a debug
+  session, a remote run, a program run through the tool's packages, a target added later) is
+  refused without being named;
+- the devices of each platform, which the OS layer reads from here too (``oslayer.policy``),
+  so the two layers cannot name different devices.
 
 **Commands are matched, not text.** The parser hands over each command a call would run, those
 inside substitutions, ``sh -c``, ``eval`` and a script fed to a shell on its input included, and
@@ -22,17 +30,31 @@ found the way the git rule finds them, with that rule's own list of such program
 that names an upload is text and passes. A word of such a command that only running it decides
 (``$TARGET``) is refused: the tool would not get the word that was read.
 
-**A serial device is matched wherever it is named**, in any word, assignment, redirection or
-text a command is fed: a device is opened by whatever program is handed its name, so there is
-no list of commands that may name one. A path is folded in case and normalised first, a
-pattern that could expand to a device (a glob, a variable) is refused as the device, a brace
-pattern is read as every word it becomes, and so is moving into the
-devices' directory, after which a bare name would reach one.
+**A device is matched wherever it is named**, in any word, assignment, redirection or text a
+command is fed: a device is opened by whatever program is handed its name, so there is no
+list of commands that may name one. A path is folded in case and normalised first, a pattern
+that could expand to a device (a glob, a variable) is refused as the device, and a brace
+pattern is read as every word it becomes. **A relative name is read from every directory the
+command could be in**: the call's own, and each one a ``cd`` of the call names, since the
+parser keeps no order a failed or skipped ``cd`` could be told by. A ``cd`` whose target only
+running decides could be anywhere, the devices' directory and the root among them, so after
+one a name that would be a device there is refused. Moving into the devices' directory is
+refused outright.
 
-**What this layer cannot see** is what only running decides: a path a program builds as it
-runs, an upload a program starts itself, a project file that names an upload as its default
-target. There the OS layer holds: its sandbox denies the serial devices to every command of
-the session, read and write, so an upload that got that far finds no board.
+**What this layer cannot see**, stated plainly:
+
+- what only running decides: a path a program builds as it runs, an upload a program starts
+  itself, a project file that names an upload as its default target, a directory reached
+  through a link;
+- a flasher this file does not name, run under its own name;
+- a programmer that talks to USB without a device node (on macOS, through the system's
+  device framework).
+
+For the first two the OS layer holds wherever the board is one of the devices in the table:
+its sandbox denies them to every command of the session, read and write, so an upload that
+got that far finds no board. On Linux the table holds the USB nodes too. On macOS a USB
+device is not a file, the table cannot name it, and what the sandbox allows there has not
+been measured: that is the residual of both layers.
 """
 
 from __future__ import annotations
@@ -51,6 +73,9 @@ if TYPE_CHECKING:
 
     from physgate.hooks.views import ConfigView, InputView
 
+    Use = tuple[frozenset[str] | None, frozenset[str]]
+    Guard = tuple[Mapping[str, Use], frozenset[str], frozenset[str]]
+
 UPLOAD = (
     "Uploading or flashing to hardware is refused: no session reaches a board, and behaviour "
     "on the target is shown in simulation. Build without an upload target, and leave the "
@@ -61,6 +86,7 @@ DEVICE = (
     "device of the machine. The call names {device}. Work from the build's own output and "
     "from simulation."
 )
+ENTERING = DEVICE.format(device="the devices' directory, as the place to work from")
 NOT_BUILD = (
     "This use of {program} is refused: it is not one of its build-only uses, and the others "
     "can reach a board. A session builds, checks and reads sizes; it uploads, tests on a "
@@ -75,38 +101,86 @@ UNREADABLE = (
     "an upload or a serial device is not known, and the call is refused."
 )
 
-#: The serial devices of each platform, as the patterns the OS layer denies. A board on USB
-#: appears under these names; the machine's own terminals (``/dev/tty``, the pseudo-terminals)
-#: do not.
+#: The devices of each platform a board appears as, as the patterns the OS layer denies: its
+#: serial ports, and on Linux the USB and HID nodes a programmer opens directly. The
+#: machine's own terminals (``/dev/tty``, the pseudo-terminals) are not among them.
 BOARD_DEVICES: Mapping[str, tuple[str, ...]] = {
     "darwin": ("/dev/cu.*", "/dev/tty.*"),
-    "linux": ("/dev/ttyACM*", "/dev/ttyUSB*"),
+    "linux": ("/dev/bus/usb", "/dev/hidraw*", "/dev/ttyACM*", "/dev/ttyUSB*"),
 }
 #: The directory every one of them lies in.
 _DEVICES = "dev"
 
+#: Programs that only ever reach a board: flashers, and the servers of debug probes.
+FLASHERS = frozenset(
+    {
+        "avrdude", "dfu-util", "dfu-programmer", "bossac", "openocd", "st-flash", "st-info",
+        "pyocd", "teensy_loader_cli", "picotool", "stm32flash", "jlinkexe", "nrfjprog",
+        "micronucleus",
+    }
+)  # fmt: skip
+
 #: The build tool, by each name it is run under.
 BUILD_TOOLS = frozenset({"pio", "platformio"})
 #: Its targets that write to a board: the program, a filesystem image, the fuses, the
-#: bootloader, the EEPROM, or an erase.
+#: bootloader, the EEPROM, or an erase. Named so the refusal can say what was asked.
 UPLOAD_TARGETS = frozenset(
     {"upload", "uploadfs", "uploadfsota", "program", "fuses", "bootloader", "erase", "uploadeep"}
+)
+#: Its targets that only build, clean or report. A target not named here is refused.
+BUILD_TARGETS = frozenset(
+    {"clean", "cleanall", "size", "checkprogsize", "buildprog", "buildfs", "compiledb", "envdump"}
 )
 #: How it is given a target.
 _TARGET_OPTIONS = ("-t", "--target")
 #: Its serial monitor: these two words, in this order, among its own.
 MONITOR = ("device", "monitor")
-#: Programs that do nothing but write to a board.
-FLASHERS = frozenset({"avrdude"})
-#: Programs that write to a board when given one of these words.
-_FLASH_WRITES = frozenset({"write_flash", "erase_flash", "write-flash", "erase-flash"})
-FLASH_WORDS: Mapping[str, frozenset[str]] = {
-    "esptool": _FLASH_WRITES,
-    "esptool.py": _FLASH_WRITES,
+
+#: One guarded program's build-only uses: each first word that is one, with the second words
+#: it is held to (``None``: any) and the options it must carry; the options that are refused
+#: with any use; and the options before the first word that take a value.
+#: (The shape is ``Guard``, named with the other types above.)
+_ANY: Use = (None, frozenset())
+_BUILD_TOOL: Guard = (
+    {
+        "run": _ANY,
+        "check": _ANY,
+        "boards": _ANY,
+        "project": _ANY,
+        "system": (frozenset({"info"}), frozenset()),
+        "settings": (frozenset({"get"}), frozenset()),
+        "pkg": (frozenset({"list", "show", "outdated", "search"}), frozenset()),
+        "device": (frozenset({"list"}), frozenset()),
+        # Its tests upload and then read the board's port; with both stages off it only builds.
+        "test": (None, frozenset({"--without-uploading", "--without-testing"})),
+    },
+    frozenset({"--upload-port", "--monitor-port"}),
+    frozenset({"-c", "--caller"}),
+)
+_IMAGE_TOOL: Guard = (
+    {
+        name: _ANY
+        for name in ("version", "image_info", "image-info", "elf2image", "merge_bin", "merge-bin")
+    },
+    frozenset({"-p", "--port"}),
+    frozenset({"-c", "--chip"}),
+)
+_SKETCH_TOOL: Guard = (
+    {"compile": _ANY, "version": _ANY},
+    frozenset({"-u", "--upload", "-p", "--port", "-P", "--programmer"}),
+    frozenset(),
+)
+#: The programs that both build and reach a board, each held to its build-only uses.
+GUARDED: Mapping[str, Guard] = {
+    "pio": _BUILD_TOOL,
+    "platformio": _BUILD_TOOL,
+    "esptool": _IMAGE_TOOL,
+    "esptool.py": _IMAGE_TOOL,
+    "arduino-cli": _SKETCH_TOOL,
 }
 #: Interpreters that run one of the programs above as a module (``python -m platformio``).
 _MODULE_RUNNERS = re.compile(r"python[0-9.]*|pypy[0-9.]*")
-_PROGRAMS = BUILD_TOOLS | FLASHERS | frozenset(FLASH_WORDS)
+_PROGRAMS = FLASHERS | frozenset(GUARDED)
 
 #: The tools that name the one file they act on, and the argument that names it.
 _PATH_KEYS = {
@@ -125,17 +199,22 @@ _TOKEN_END = re.compile(r"""[\s'"=,;:()<>|&`]+""")
 #: Characters the shell, or a program reading a pattern, turns into something else.
 _OPEN = frozenset("*?[{$\\")
 _CD = frozenset({"cd", "pushd", "chdir"})
+#: Where a command could be after a move only running decides: anywhere, these two among
+#: them, which are the two from which a short relative name is a device.
+_ANYWHERE = ("/", "/" + _DEVICES)
+#: The most directories a call's moves are followed to; past it they count as anywhere.
+MAX_PLACES = 64
 
 
 # ---- serial devices ----------------------------------------------------------------------
 
 
 def _device_names() -> tuple[str, ...]:
-    """The start of every serial device's name within the devices' directory, case-folded."""
+    """The start of every device's path beneath the devices' directory, case-folded."""
     names = []
     for patterns in BOARD_DEVICES.values():
         for pattern in patterns:
-            names.append(pattern.rsplit("/", 1)[1].rstrip("*").casefold())
+            names.append(pattern.split("/", 2)[2].rstrip("*").casefold())
     return tuple(names)
 
 
@@ -167,7 +246,8 @@ def _is_device(path: str) -> bool:
     parts = path.split("/")
     if len(parts) < 3 or parts[0] != "" or not _could_be(parts[1], _DEVICES):
         return False
-    return any(_could_start(parts[2], name) for name in _NAMES)
+    rest = "/".join(parts[2:])
+    return any(_could_start(rest, name) for name in _NAMES)
 
 
 def _normal(path: str) -> str:
@@ -192,25 +272,84 @@ def _rooted(token: str) -> str | None:
     return None
 
 
-def serial_device_in(text: str) -> str | None:
-    """The serial device ``text`` names, as written, or ``None``.
+def serial_device_in(text: str, places: Sequence[str] = ()) -> str | None:
+    """The device ``text`` names, as written, or ``None``.
 
-    Every path-like token is read as the absolute path it could name (:func:`_rooted`).
+    Every path-like token is read as the absolute path it could name (:func:`_rooted`), and
+    a relative one from each of ``places`` as well: the directories the command could be in.
+    A token that starts with a variable or a home directory is not a relative name: where it
+    leads only running decides.
     """
     for token in _TOKEN_END.split(text):
+        if not token:
+            continue
         rooted = _rooted(token)
         if rooted is not None and _is_device(rooted):
+            return token
+        if not token.startswith(("/", "-", "$", "~")) and any(
+            _is_device(_normal(place + "/" + token)) for place in places
+        ):
             return token
     return None
 
 
 def serial_device_path(path: str, cwd: str) -> str | None:
-    """The serial device a file tool's ``path`` is, as written or as it resolves, or ``None``."""
+    """The device a file tool's ``path`` is, as written or as it resolves, or ``None``."""
     absolute = path if os.path.isabs(path) else os.path.join(cwd, path)
     for spelling in (absolute, os.path.realpath(absolute)):
         if _is_device(_normal(spelling)):
             return path
     return None
+
+
+def _moves_to(cmd: SimpleCommand) -> str | None | bool:
+    """Where a command moves the shell, if it does.
+
+    A written target; ``None`` for a move only running decides; ``False`` for a command that
+    moves nowhere.
+    """
+    argv = unwrap(cmd.argv)
+    if not argv or command_key(argv[0]) not in _CD:
+        return False
+    stepped = len(cmd.argv) - len(argv)
+    unread = cmd.dynamic | cmd.expanding
+    for n, word in enumerate(argv[1:], 1):
+        if word.startswith(("-", "+")) and word not in ("-", "+"):
+            continue
+        if stepped + n in unread or word in ("-", "+") or word.startswith("~"):
+            return None
+        return word
+    # No target: the home, which the command's own text may have set.
+    return None
+
+
+def places_of(commands: Sequence[SimpleCommand], cwd: str) -> tuple[list[str], list[str]]:
+    """Every directory the commands of a call could be in, and those a move of theirs names.
+
+    The first holds the call's own directory, as given and as it resolves, each directory a
+    move names read from every directory before it, and the two of :data:`_ANYWHERE` once a
+    move is one only running decides or there are more than :data:`MAX_PLACES`.
+    """
+    places = [_normal(cwd), _normal(os.path.realpath(cwd))]
+    moved: list[str] = []
+    anywhere = False
+    for cmd in commands:
+        target = _moves_to(cmd)
+        if target is False:
+            continue
+        if target is None or len(places) > MAX_PLACES:
+            anywhere = True
+            continue
+        assert isinstance(target, str)
+        if target.startswith("/"):
+            reached = [_normal(target)]
+        else:
+            reached = [_normal(place + "/" + target) for place in places]
+        moved += reached
+        places += [place for place in reached if place not in places]
+    if anywhere:
+        places += _ANYWHERE
+    return places, moved
 
 
 def _enters_devices(argv: Sequence[str]) -> bool:
@@ -247,21 +386,23 @@ def _words_of(cmd: SimpleCommand) -> Iterator[str]:
 # ---- uploads -----------------------------------------------------------------------------
 
 
-def _names_upload_target(words: Sequence[str]) -> bool:
-    """Whether ``words`` give the build tool a target that writes to a board."""
+def _targets(words: Sequence[str]) -> list[str]:
+    """Every target ``words`` give the build tool, case-folded."""
+    given = []
     for n, word in enumerate(words):
         folded = word.casefold()
         if folded in _TARGET_OPTIONS:
-            given = words[n + 1].casefold() if n + 1 < len(words) else ""
+            given.append(words[n + 1].casefold() if n + 1 < len(words) else "")
         elif folded.startswith("--target="):
-            given = folded.split("=", 1)[1]
+            given.append(folded.split("=", 1)[1])
         elif folded.startswith("-t") and not folded.startswith("--"):
-            given = folded[2:]
-        else:
-            continue
-        if given in UPLOAD_TARGETS:
-            return True
-    return False
+            given.append(folded[2:])
+    return given
+
+
+def _names_upload_target(words: Sequence[str]) -> bool:
+    """Whether ``words`` give the build tool a target that writes to a board."""
+    return any(target in UPLOAD_TARGETS for target in _targets(words))
 
 
 def _names_monitor(words: Sequence[str]) -> bool:
@@ -272,13 +413,55 @@ def _names_monitor(words: Sequence[str]) -> bool:
 
 
 def upload_in(program: str, words: Sequence[str]) -> bool:
-    """Whether ``program``, run with ``words``, uploads, flashes or opens the serial monitor."""
+    """Whether ``program``, run with ``words``, is a flasher, an upload or the serial monitor."""
     if program in FLASHERS:
         return True
-    if program in BUILD_TOOLS:
-        return _names_upload_target(words) or _names_monitor(words)
-    refused = FLASH_WORDS.get(program)
-    return refused is not None and any(word.casefold() in refused for word in words)
+    return program in BUILD_TOOLS and (_names_upload_target(words) or _names_monitor(words))
+
+
+def build_only(program: str, words: Sequence[str]) -> bool:
+    """Whether ``words`` are one of a guarded program's build-only uses.
+
+    A program that is not guarded has no uses to hold it to. One run with options alone
+    (``--version``) does nothing.
+    """
+    guard = GUARDED.get(program)
+    if guard is None:
+        return True
+    uses, refused, valued = guard
+    folded = [word.casefold() for word in words]
+    if any(word.split("=", 1)[0] in refused for word in folded):
+        return False
+    bare: list[str] = []
+    skip = False
+    for word in folded:
+        if skip:
+            skip = False
+        elif word.startswith("-"):
+            # Only before the first word does an option's value need stepping over.
+            skip = not bare and word in valued
+        else:
+            bare.append(word)
+    if not bare:
+        return True
+    use = uses.get(bare[0])
+    if use is None:
+        return False
+    seconds, required = use
+    if seconds is not None and (len(bare) < 2 or bare[1] not in seconds):
+        return False
+    if not required <= set(folded):
+        return False
+    if program in BUILD_TOOLS and bare[0] == "run":
+        return all(target in BUILD_TARGETS for target in _targets(words))
+    return True
+
+
+def refusal_of(program: str, words: Sequence[str]) -> str | None:
+    """The reason ``program`` may not be run with ``words``, or ``None``."""
+    if upload_in(program, words):
+        return UPLOAD
+    return None if build_only(program, words) else NOT_BUILD.format(program=program)
 
 
 def _program_at(argv: Sequence[str]) -> tuple[int, str] | None:
@@ -308,15 +491,15 @@ def _program_at(argv: Sequence[str]) -> tuple[int, str] | None:
     return None
 
 
-def _check_command(cmd: SimpleCommand) -> str | None:
+def _check_command(cmd: SimpleCommand, places: Sequence[str]) -> str | None:
     """The reason ``cmd`` is refused, or ``None``."""
     for text in _words_of(cmd):
-        device = serial_device_in(text)
+        device = serial_device_in(text, places)
         if device is not None:
             return DEVICE.format(device=device)
     argv = unwrap(cmd.argv)
     if _enters_devices(argv):
-        return DEVICE.format(device="the devices' directory, as the place to work from")
+        return ENTERING
     unread = cmd.dynamic | cmd.expanding
     stepped = len(cmd.argv) - len(argv)
     found = _program_at(argv)
@@ -325,33 +508,36 @@ def _check_command(cmd: SimpleCommand) -> str | None:
         named_late = bool(argv) and stepped in unread
         return UPLOAD if named_late and _names_upload_target(argv[1:]) else None
     start, program = found
-    if upload_in(program, argv[start + 1 :]):
+    words = argv[start + 1 :]
+    if upload_in(program, words):
         return UPLOAD
     if any(n >= stepped + start for n in unread):
         return DYNAMIC
-    return None
+    return None if build_only(program, words) else NOT_BUILD.format(program=program)
 
 
-def command_refusal(command: str) -> str | None:
-    """The reason a shell command is refused, or ``None`` when this rule lets it run.
+def command_refusal(command: str, cwd: str) -> str | None:
+    """The reason a shell command run from ``cwd`` is refused, or ``None``.
 
     A command the parser cannot split is left to the rules that refuse it for that.
     """
     try:
-        commands = parse(command)
-    except ShellSyntaxError:
-        return None
-    pending: list[tuple[SimpleCommand, str]] = [(c, "command") for c in commands]
-    while pending:
-        cmd, position = pending.pop(0)
-        reason = _check_command(cmd)
-        if reason is not None:
-            return reason
-        try:
+        pending: list[tuple[SimpleCommand, str]] = [(c, "command") for c in parse(command)]
+        commands: list[SimpleCommand] = []
+        while pending:
+            cmd, position = pending.pop(0)
+            commands.append(cmd)
             # The git rule's own walk: one reading of what a command runs, for both rules.
             pending[0:0] = git_ops._found_in(cmd, position)
-        except ShellSyntaxError:
-            return None
+    except ShellSyntaxError:
+        return None
+    places, moved = places_of(commands, cwd)
+    if any(place == "/" + _DEVICES or _is_device(place) for place in moved):
+        return ENTERING
+    for cmd in commands:
+        reason = _check_command(cmd, places)
+        if reason is not None:
+            return reason
     return None
 
 
@@ -386,24 +572,27 @@ def _lists(value: object) -> Iterator[list[str]]:
             yield from _lists(inner)
 
 
-def _upload_among(words: Sequence[str]) -> bool:
-    """Whether ``words``, read as a command line or the end of one, name an upload."""
+def _refused_among(words: Sequence[str]) -> str | None:
+    """The reason ``words``, read as a command line or the end of one, are refused, or ``None``."""
     if _names_upload_target(words):
-        return True
+        return UPLOAD
     for n, word in enumerate(words):
         program = command_key(word)
-        if program in _PROGRAMS and upload_in(program, words[n + 1 :]):
-            return True
-    return False
+        if program in _PROGRAMS:
+            reason = refusal_of(program, words[n + 1 :])
+            if reason is not None:
+                return reason
+    return None
 
 
 def arguments_refusal(arguments: object) -> str | None:
     """The reason a tool server's tool is refused for its arguments, or ``None``.
 
     The hooks see what a tool is asked, never what its server then does, so the arguments are
-    read as text: a serial device named in any string or key; an upload target under a key
-    that asks for a target; and any string, or list of strings, that reads as a command line
-    with an upload in it.
+    read as text: a device named in any string or key; an upload target under a key that
+    asks for a target; and any string, or list of strings, that reads as a command line with
+    a flasher, an upload or a use of a guarded program that is not build-only in it. A
+    relative name is read from the root only: where a server runs is its own affair.
     """
     try:
         found = list(_strings(arguments))
@@ -415,10 +604,13 @@ def arguments_refusal(arguments: object) -> str | None:
             return DEVICE.format(device=device)
         if "target" in key.casefold() and text.casefold() in UPLOAD_TARGETS:
             return UPLOAD
-        if _upload_among(text.split()):
-            return UPLOAD
-    if any(_upload_among(words) for words in _lists(arguments)):
-        return UPLOAD
+        reason = _refused_among(text.split())
+        if reason is not None:
+            return reason
+    for words in _lists(arguments):
+        reason = _refused_among(words)
+        if reason is not None:
+            return reason
     return None
 
 
@@ -430,13 +622,13 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     tool = hook_input.tool_name or ""
     tool_input = hook_input.tool_input or {}
     reason: str | None = None
+    cwd = hook_input.cwd if os.path.isabs(hook_input.cwd) else config.worktree
     if tool == "Bash":
         command = tool_input.get("command")
-        reason = command_refusal(command) if isinstance(command, str) else None
+        reason = command_refusal(command, cwd) if isinstance(command, str) else None
     elif tool in _PATH_KEYS:
         path = tool_input.get(_PATH_KEYS[tool])
         if isinstance(path, str) and path:
-            cwd = hook_input.cwd if os.path.isabs(hook_input.cwd) else config.worktree
             device = serial_device_path(path, cwd)
             reason = None if device is None else DEVICE.format(device=device)
     elif tool.startswith(_SERVER_TOOL):
