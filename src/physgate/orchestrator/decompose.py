@@ -939,7 +939,12 @@ RETRY_SENTENCE = (
 
 
 def retry_prompt(
-    brief: str, roles: Sequence[str], prompt: str | None, refused: Outcome
+    brief: str,
+    roles: Sequence[str],
+    prompt: str | None,
+    refused: Outcome,
+    *,
+    parts: bool = False,
 ) -> str | None:
     """What the one retry of a call is sent: ``prompt`` as it was, or with why a unit was refused.
 
@@ -949,10 +954,12 @@ def retry_prompt(
     names the node, the quantity, the unit and the spelling to write, between fences the text
     cannot close. The text is this module's own and the designer's own unit, never another
     session's words. Any other refusal by the schema is made again with ``prompt`` as it was.
+    ``parts`` is as the refused call's own prompt took it, so the brief's prompt rebuilt here
+    asks for the components exactly when the first did.
     """
     if refused.cause != "schema_refused" or not refused.detail.startswith(UNIT_REFUSAL_HEAD):
         return prompt
-    first = prompt_for(brief, sorted(roles)) if prompt is None else prompt
+    first = prompt_for(brief, sorted(roles), parts=parts) if prompt is None else prompt
     return (
         f"{first}\n{RETRY_SENTENCE}\n\n"
         "Why the plan was refused:\n"
@@ -1166,7 +1173,8 @@ def _units_as_products(plan: Plan, roles: Sequence[str]) -> Plan:
             quantity["unit"] = product
     if not changed:
         return plan
-    return plan_model(roles).model_validate_json(json.dumps(dumped))
+    # Read again as the form it was read in: the run's, with its component list where it asks.
+    return type(plan).model_validate_json(json.dumps(dumped))
 
 
 def _read_unit(unit: str) -> str:

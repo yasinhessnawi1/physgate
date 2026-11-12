@@ -658,6 +658,55 @@ def test_the_retry_after_a_refused_unit_asks_again_only_when_the_run_asks() -> N
     assert sentence(ROLES) not in plain
 
 
+@pytest.mark.parametrize(
+    ("design_review", "steps"),
+    [("off", ("refused", "fail")), ("on", ("refused", "pass"))],
+    ids=["a_run_that_does_not_review_its_plan", "a_reviewed_round"],
+)
+def test_the_command_s_one_retry_asks_as_its_run_does(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    design_review: str,
+    steps: tuple[str, str],
+) -> None:
+    # Through the decompose command with a scripted call: the first call's plan is refused
+    # for a unit, and the retry is sent the brief's prompt again. Each run's own, so one that
+    # asks is asked again, and one that does not is not.
+    import replan_rig
+
+    import physgate.orchestrator.cli as orchestrator_cli
+
+    sentence = getattr(decompose, "parts_sentence", None)
+    assert sentence is not None, NOT_BUILT
+    refusal = _unit_refusal(ROLES, parts=True).detail
+    scripted = replan_rig.Script.call
+
+    def call(self: Any, brief: str, *, workdir: Path, **given: Any) -> Any:  # noqa: ANN401
+        outcome = scripted(self, brief, workdir=workdir, **given)
+        if outcome.cause != "schema_refused":
+            return outcome
+        return outcome.model_copy(update={"detail": refusal})
+
+    monkeypatch.setattr(replan_rig.Script, "call", call)
+    script = [replan_rig.Step(call="schema_refused"), replan_rig.Step(review=steps[1])]
+    rig_roles = ("electrical",)
+    plain = replan_rig.decompose(tmp_path / "plain", design_review, script)
+    assert len(plain.script.calls) == 2, plain.code
+    assert sentence(rig_roles) not in plain.script.calls[1]["prompt"]
+
+    configured = orchestrator_cli._config
+    monkeypatch.setattr(
+        orchestrator_cli,
+        "_config",
+        lambda given: configured(given).model_copy(update={"parts_on_hand": "on"}),
+    )
+    asking = replan_rig.decompose(tmp_path / "asking", design_review, script)
+    assert len(asking.script.calls) == 2, asking.code
+    again = asking.script.calls[1]["prompt"]
+    assert again.startswith(prompt_for(replan_rig.BRIEF, rig_roles, parts=True))
+    assert again.count(sentence(rig_roles)) == 1 and again.count(refusal) == 1
+
+
 def test_a_unit_respelt_as_its_product_leaves_the_components_in_the_plan() -> None:
     # A unit the grammar takes in another spelling is rewritten as its product, and the plan
     # read again: as the form it was read in, with its list.
