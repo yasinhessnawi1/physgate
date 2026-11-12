@@ -160,7 +160,7 @@ def test_a_session_computes_and_builds_offline_with_git_and_the_network_refused(
     margins, simulated, built, git, gitdir, net = (str(said) for said in told)
     assert _line(margins, "MARGINS")["phase_margin_deg"] == pytest.approx(28.0202, abs=1e-3)
     assert _line(simulated, "MUJOCO")["time_s"] == pytest.approx(1.0)
-    assert "used 4799 bytes from 28672 bytes" in built and "used 173 bytes from 2560 bytes" in built
+    assert "used 4798 bytes from 28672 bytes" in built and "used 173 bytes from 2560 bytes" in built
     assert "[SUCCESS]" in built
     assert "does not run git" in git
     assert "GITDIR-DENIED" in gitdir
