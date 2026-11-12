@@ -17,8 +17,9 @@ is held to a spelling before the registry ever sees it:
 - or a leading ``1`` (``1/s``);
 - after a ``/``, a bracketed product of such units (``1/(rad*s)``, ``V/(m*s)``), which is read
   as the chain of divisions it means (``1/rad/s``, ``V/m/s``): :func:`require_bounded_spelling`
-  returns that product, so the registry is handed no bracket and two spellings of one unit
-  compare equal;
+  returns that product, so the registry is handed no bracket. Two spellings of one unit
+  compare equal in the form :func:`canonical_unit` gives, not in that product, which keeps
+  the order and the powers as written;
 - at most :data:`MAX_LENGTH` characters, matched whole (a trailing newline does not slip
   past an end-of-line anchor).
 
