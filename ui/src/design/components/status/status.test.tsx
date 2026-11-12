@@ -98,6 +98,15 @@ describe("states that are not verdicts are neutral", () => {
       expect(kinds).toContain(k);
     expect(kinds.filter((k) => k.startsWith("seal-")).length).toBe(6);
   });
+
+  it("covers a library file's states, in the library's own words", () => {
+    const table = STATUS_KINDS as Readonly<Record<string, readonly [string, string]>>;
+    expect(table["promotion-matches"]?.[1]).toBe("Matches its promotion");
+    expect(table["promotion-differs"]?.[1]).toBe("Differs from every promotion");
+    expect(table["never-promoted"]?.[1]).toBe("Never promoted");
+    expect(table["no-digest"]?.[1]).toBe("No digest recorded");
+    expect(table["wrote-this-file"]?.[1]).toBe("Wrote this file");
+  });
 });
 
 describe("what-if and in-progress", () => {

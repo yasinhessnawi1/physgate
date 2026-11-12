@@ -58,6 +58,11 @@ PARAMETERS: Mapping[str, re.Pattern[str]] = {
     # The node identifier rule itself: lowercase dotted parts, so no separator, no
     # leading dot and no parent reference can pass.
     "node": NODE_ID_PATTERN,
+    # The curated library's files: which kind, which role (the knowledge layer's own role rule,
+    # with a length cap) and which staged candidate (the id staging writes).
+    "library_file": re.compile(r"^(standards|skill|bounds)$"),
+    "role": re.compile(r"^[a-z][a-z0-9_]{0,63}$"),
+    "candidate": re.compile(r"^[A-Za-z0-9_-]{1,128}$"),
 }
 
 #: The run's configuration file, whose presence makes a directory a run directory.

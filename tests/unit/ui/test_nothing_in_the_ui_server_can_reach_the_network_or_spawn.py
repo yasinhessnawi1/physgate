@@ -93,6 +93,18 @@ ALLOWED_MODULES = {
     # The attempts a subtask gets, sent beside the run's configuration: a constant, which the
     # event log's own model already imports.
     "physgate.orchestrator.budget",
+    # The curated library's readers. The changed lines of a proposed change, made in memory.
+    "difflib",
+    # The role rule, the candidate's schema, and promotion's own finder and pure description of
+    # what it writes, so the screen describes the write the terminal makes. Nothing here calls
+    # promotion's write, its terminal check or its helpers that make folders.
+    "physgate.knowledge.loader",
+    "physgate.knowledge.staging",
+    "physgate.knowledge.promote",
+    "physgate.knowledge.exceptions",
+    # The bounds tables as the gate loads them, and the catalogue's energy-store classes.
+    "physgate.gate.bounds_table",
+    "physgate.gate.catalogue",
 }
 #: Names that load or evaluate code however they are reached.
 FORBIDDEN_NAMES = {"eval", "exec", "compile", "__import__", "import_module", "breakpoint"}

@@ -20,6 +20,7 @@ const VIEWS = [
   "Design graph",
   "Gate checks",
   "Run records",
+  "Library",
   "Glossary",
 ];
 

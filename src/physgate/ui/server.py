@@ -339,6 +339,10 @@ class UIServer(ThreadingHTTPServer):
     """The server, holding this start's action token; the command prints it, nothing serves it."""
 
     daemon_threads = True
+    #: Deep enough for a page's burst of asset loads. macOS resets a connection that arrives
+    #: while the listen queue is full, and the stdlib's queue holds five, so a page's chunks,
+    #: fonts and icons were cut there and a screen whose chunk was cut never loaded.
+    request_queue_size = 64
     act_token: str = ""
 
 

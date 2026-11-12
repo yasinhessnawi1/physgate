@@ -1,3 +1,4 @@
+import { LIBRARY_COPY, STATE_WORDS } from "../../../words/library";
 import { Icon, type IconName } from "../icons/Icon";
 
 /**
@@ -21,6 +22,12 @@ export const STATUS_KINDS = {
   "seal-elsewhere": ["minus", "Not in this run"],
   "seal-too-large": ["minus", "Too large to check"],
   "coming-soon": ["clock", "Coming soon"],
+  // A library file's state, chosen by its bytes against the promotion log: none is a verdict.
+  "promotion-matches": ["circle-dot", STATE_WORDS.matches],
+  "promotion-differs": ["git-compare", STATE_WORDS.differs],
+  "never-promoted": ["minus", STATE_WORDS["never-promoted"]],
+  "no-digest": ["minus", STATE_WORDS["no-digest"]],
+  "wrote-this-file": ["file-text", LIBRARY_COPY.wroteThisFile],
 } as const satisfies Record<string, readonly [IconName, string]>;
 
 export type StatusKind = keyof typeof STATUS_KINDS;

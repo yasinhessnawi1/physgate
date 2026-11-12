@@ -15,9 +15,11 @@ file for appending and writing nothing leaves its bytes, its mtime and its ctime
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
+from ui_library_rig import STANDARDS_CANDIDATE, build_library
 from ui_rig import (
     METHODS,
     RECORDER,
@@ -68,6 +70,9 @@ def _valid(world: dict[str, Path], run: str) -> dict[str, str]:
         "revision": "1",
         "round": "2",
         "node": journal_records_after(world["root"] / run / "store", 0)[-1].node_id,
+        "library_file": "standards",
+        "role": "control",
+        "candidate": STANDARDS_CANDIDATE,
     }
 
 
@@ -103,7 +108,8 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     held.mkdir()
     (held / "scenario.json").write_text("{}\n")
     ui = fake_ui(base / "checkout")
-    return {"root": root, "held": held, "ui": ui}
+    library = build_library(base / "checkout").root
+    return {"root": root, "held": held, "ui": ui, "library": library}
 
 
 #: A run held on its second round's review: the one run with a later round's stream to serve.
@@ -124,7 +130,12 @@ def _replanned_run(scratch: Path, run_dir: Path) -> None:
 
 
 def _context(world: dict[str, Path]) -> Context:
-    return context_over(world["root"], ui_root=world["ui"], held_out=(str(world["held"]),))
+    return context_over(
+        world["root"],
+        ui_root=world["ui"],
+        held_out=(str(world["held"]),),
+        library=world["library"],
+    )
 
 
 def test_every_route_is_a_read_but_exactly_one_action_whose_handler_is_the_decision() -> None:
@@ -164,7 +175,14 @@ def test_every_parameter_pattern_refuses_every_hostile_spelling() -> None:
 
 
 def test_no_route_with_any_method_changes_any_file(world: dict[str, Path]) -> None:
-    watched = (world["root"], world["held"], world["ui"], REPO / "src", REPO / "tests")
+    watched = (
+        world["root"],
+        world["held"],
+        world["ui"],
+        world["library"],
+        REPO / "src",
+        REPO / "tests",
+    )
     before = snapshot(*watched)
     answered = 0
     with serving(_context(world)) as live, RECORDER.recording() as writes:
@@ -184,8 +202,11 @@ def test_no_route_with_any_method_changes_any_file(world: dict[str, Path]) -> No
     # Every file any route opened lies where the request may read: the property the sweep holds
     # for every route in the table, present and future, by where each open really landed.
     assert RECORDER.opened, "a sweep that opened nothing proves nothing about what it opened"
-    assert opened_outside(RECORDER.opened, (world["root"],), (world["held"],)) == []
-    assert opened_outside(RECORDER.listed, (world["root"],), (world["held"],)) == []
+    readable = (world["root"], world["library"])
+    assert opened_outside(RECORDER.opened, readable, (world["held"],)) == []
+    assert opened_outside(RECORDER.listed, readable, (world["held"],)) == []
+    reviewers = os.path.realpath(world["library"] / "reviewers")
+    assert [p for p in RECORDER.opened + RECORDER.listed if p.startswith(reviewers)] == []
 
 
 def test_a_method_the_table_does_not_name_is_405_with_allow_never_501(
