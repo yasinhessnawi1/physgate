@@ -45,7 +45,7 @@ from physgate.knowledge.library import LibraryError, read_library
 from physgate.orchestrator.common import ModelString, NonEmptyStr
 from physgate.orchestrator.decompose import read_stream
 from physgate.orchestrator.exceptions import TrajectoryTamperedError
-from physgate.orchestrator.plan import IntegratedPlan, Plan, plan_sha256
+from physgate.orchestrator.plan import IntegratedPlan, PartsPlan, Plan, plan_sha256
 from physgate.orchestrator.protocols import PlanUnderReview as PlanUnderReview
 from physgate.orchestrator.protocols import require_separate_models
 from physgate.orchestrator.run_config import DESIGN_REVIEWER
@@ -136,6 +136,11 @@ NO_LISTS = (
     "This run has no integration role, so the plan's form holds no consumers of the interfaces "
     "and no system requirements allocated to integration."
 )
+COMPONENTS_HEADING = "## The components a person decides"
+NO_COMPONENTS = (
+    "This plan lists no component: it has no part a person could already own or could make, "
+    "so nothing is held for a person to decide."
+)
 
 
 def _json(value: object) -> str:
@@ -175,6 +180,14 @@ def render_plan(plan: Plan, *, nonce: str | None = None) -> tuple[str, str]:
         data("system requirements", _json([r.model_dump() for r in plan.system_requirements]))
     else:
         lines += ["", NO_LISTS]
+    if isinstance(plan, PartsPlan):
+        # Last, so a plan without a list is rendered as it always was. The labels are the
+        # decomposition's words, fenced as every value of its plan is.
+        lines += ["", COMPONENTS_HEADING, ""]
+        if plan.components:
+            data("components", _json([c.model_dump(mode="json") for c in plan.components]))
+        else:
+            lines += [NO_COMPONENTS]
     text = PLAN_PREAMBLE.format(nonce=chosen) + "\n".join(lines) + "\n"
     return "\n".join(piece for line in text.splitlines() for piece in cut_line(line)) + "\n", chosen
 

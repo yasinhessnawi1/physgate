@@ -67,9 +67,12 @@ from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import ObservedTraffic, PolicyEntry, stricter_only
 from physgate.orchestrator.plan import (
+    MAX_COMPONENTS,
+    Component,
     CriterionWords,
     InterfaceConsumers,
     SystemRequirements,
+    component_list_problems,
     list_problems,
     words_problems,
 )
@@ -634,16 +637,29 @@ class Escalated(_Event):
 
 #: A position a person may choose on an item whose kind offers two (``choose``): an arbitration's
 #: sizing (the graph's value stands) or domain (the disputing subtask's); a failed contract's
-#: producer or consumer (whose merged work stands).
-Position = Literal["sizing", "domain", "producer", "consumer"]
+#: producer or consumer (whose merged work stands); a part's have (the person states its values),
+#: make (the constraints a made part must meet) or find (it is sourced and sized as before).
+Position = Literal["sizing", "domain", "producer", "consumer", "have", "make", "find"]
 #: What a person's decision did when the loop took it (ARCH-133). ``resize``: the subtask waits
 #: for sizing's closing pass, ordered to write the domain's value, then returns to the gate.
 #: ``reopen``: a merged module's planning subtask takes one more attempt, to conform to the
 #: interface of a failed contract.
 #: ``release`` and ``end_run``: an approve of the plan's item lets the held run dispatch, a reject
 #: ends it with nothing dispatched.
+#: ``declare`` and ``find``: a choice on a part's item. The part is one the person has or makes,
+#: and what they stated of it is fixed; or it is sourced and sized as before.
 DecisionEffect = Literal[
-    "merge", "retry", "fix", "end_subtask", "resize", "reopen", "release", "end_run", "none"
+    "merge",
+    "retry",
+    "fix",
+    "end_subtask",
+    "resize",
+    "reopen",
+    "release",
+    "end_run",
+    "declare",
+    "find",
+    "none",
 ]
 #: Why a decision taken did not act. ``record_only_source``: approve or reject on an item whose
 #: source neither verb acts on. ``last_rejection_automated``: approve where an automated check,
@@ -706,6 +722,16 @@ class DecisionTaken(_Event):
     order_too_long: bool = False
     #: The planning subtask a choice on a failed contract's item reopens, with that effect alone.
     reopens: NonEmptyStr | None = None
+    #: The digest of what a choice of have or make stated of a part, as the decisions file
+    #: holds it: its values and its texts, in canonical form. Left out of every other line.
+    parts_sha256: Sha256 | None = None
+
+    @model_validator(mode="after")
+    def _only_a_part_one_has_or_makes_states_anything(self) -> DecisionTaken:
+        if (self.parts_sha256 is not None) != (self.position in ("have", "make")):
+            msg = "a choice of have or make names the digest of what it stated, and no other does"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _an_act_needs_no_excuse_and_a_non_act_has_one(self) -> DecisionTaken:
@@ -740,7 +766,7 @@ class DecisionTaken(_Event):
     @model_serializer(mode="wrap")
     def _omit_absent_position(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for absent in ("position", "reopens"):
+        for absent in ("position", "reopens", "parts_sha256"):
             if getattr(self, absent) is None:
                 data.pop(absent, None)
         return data
@@ -986,6 +1012,19 @@ class Decomposed(_Event):
     #: payload as the store held it; left out where that role produces none, or no one role owns
     #: the cross nodes, and then no interface follows.
     followable: Followable | None = None
+    #: The components a person decides before anything is dispatched, as the plan of a run that
+    #: asks which parts they have lists them, none included; left out of a run that does not
+    #: ask, so its line keeps its bytes. Typed with the plan's own model and bound, and held to
+    #: the plan's rules for the list and the line's own interface nodes.
+    components: Annotated[tuple[Component, ...], Field(max_length=MAX_COMPONENTS)] | None = None
+
+    @model_validator(mode="after")
+    def _the_components_hold_the_plan_s_rules(self) -> Decomposed:
+        if self.components is not None:
+            problems = component_list_problems(self.interface_nodes, self.components)
+            if problems:
+                raise ValueError("; ".join(problems))
+        return self
 
     @model_validator(mode="after")
     def _the_followable_interfaces_are_its_own(self) -> Decomposed:
@@ -1033,6 +1072,7 @@ class Decomposed(_Event):
             "system_requirements",
             "brief_words",
             "followable",
+            "components",
         ):
             if data.get(name) is None:
                 data.pop(name, None)

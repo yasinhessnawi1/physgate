@@ -23,6 +23,7 @@ import getpass
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from collections.abc import Callable, Mapping
@@ -87,9 +88,11 @@ from physgate.orchestrator.params_record import record_params
 from physgate.orchestrator.protocols import Gate, PlanReviewer, Reviewer
 from physgate.orchestrator.queue import (
     POSITIONS,
+    PartsBody,
     PersonDecision,
     ShownItem,
     queue_listing,
+    read_queue,
     record_decision,
     statuses_now,
 )
@@ -300,10 +303,37 @@ def add_parsers(
     )
     resolve.add_argument("--note", help="why; required to reject")
     resolve.add_argument(
+        "--declare",
+        action="append",
+        metavar="NAME=VALUE:UNIT",
+        help=(
+            "with --choose have or make: a value the part has, once per value; the value ends "
+            "at the first colon, so a unit may hold what it likes after it"
+        ),
+    )
+    resolve.add_argument(
+        "--text",
+        action="append",
+        help="with --choose make: a constraint the made part must meet that no quantity says",
+    )
+    resolve.add_argument(
         "--sha256", help="the item line's digest as `queue list` printed it; required with a verb"
     )
     resolve.add_argument("--by", required=True)
     resolve.set_defaults(func=_queue_resolve)
+    parts = actions.add_parser(
+        "parts",
+        help="decide every open part at once",
+        description=(
+            "Choose find on every open part's item, each on the view its own line gives, as the "
+            "person named by --by: the parts are sourced and sized as before. A part already "
+            "decided stays as it was decided, and an item of another kind is left alone."
+        ),
+    )
+    parts.add_argument("--run-dir", required=True, type=Path)
+    parts.add_argument("--find-remaining", required=True, action="store_true")
+    parts.add_argument("--by", required=True)
+    parts.set_defaults(func=_queue_parts)
 
     incident = subparsers.add_parser("incident", help="an incident that halted a run")
     incident_actions = incident.add_subparsers(dest="action", required=True)
@@ -987,6 +1017,71 @@ def _queue_list(args: argparse.Namespace) -> int:
     return 0
 
 
+_WHOLE_NUMBER = re.compile(r"[+-]?[0-9]+")
+
+
+def _parts_body(declared: list[str] | None, texts: list[str] | None) -> PartsBody | None:
+    """What ``--declare`` and ``--text`` state of a part, held to the one body's rules.
+
+    ``None`` where neither is given. Each ``--declare`` is ``name=value:unit``: the name ends at
+    the first equals sign and the value at the next colon, so a unit holds whatever follows.
+
+    Raises:
+        QueueError: a declaration is not of that form, repeats a name, or states a value that
+            is not a number; the body's own rules are the function's, and refuse the rest.
+    """
+    if not declared and not texts:
+        return None
+    stated: dict[str, dict[str, object]] = {}
+    for entry in declared or ():
+        name, equals, rest = entry.partition("=")
+        number, colon, unit = rest.partition(":")
+        if not equals or not colon:
+            msg = "a declaration is name=value:unit"
+            raise QueueError(msg, declare=entry[:80])
+        if name in stated:
+            msg = "a declaration names each quantity once"
+            raise QueueError(msg, name=name[:80])
+        try:
+            value: int | float = int(number) if _WHOLE_NUMBER.fullmatch(number) else float(number)
+        except ValueError:
+            msg = "a declaration's value is a number"
+            raise QueueError(msg, declare=entry[:80]) from None
+        stated[name] = {"value": value, "unit": unit}
+    try:
+        return PartsBody.model_validate({"declared": stated, "texts": tuple(texts or ())})
+    except ValidationError as exc:
+        msg = "the values the part is declared with are not ones the queue can record"
+        raise QueueError(msg, reason=first_problem(exc)) from None
+
+
+def _queue_parts(args: argparse.Namespace) -> int:
+    run_dir = args.run_dir.resolve()
+    decided: list[dict[str, object]] = []
+    try:
+        view = read_queue(run_dir)
+        for item in view.open_items():
+            if item.source != "parts":
+                continue
+            digest = view.digests[item.item_id]
+            record = record_decision(
+                run_dir,
+                item.item_id,
+                person=PersonDecision(verb="choose", note=None, position="find"),
+                resolved_by=args.by,
+                shown=ShownItem(
+                    item_sha256=digest, trajectories=statuses_now(run_dir, item.item_id)
+                ),
+            )
+            decided.append(record.model_dump())
+    except (OrchestratorError, ValidationError) as exc:
+        if isinstance(exc, ValidationError):
+            return _fail("the decision is not one the queue can record", reason=first_problem(exc))
+        return _fail(str(exc), **exc.context)
+    _print({"resolved": decided})
+    return 0
+
+
 def _queue_resolve(args: argparse.Namespace) -> int:
     run_dir = args.run_dir.resolve()
     try:
@@ -1006,6 +1101,7 @@ def _queue_resolve(args: argparse.Namespace) -> int:
                     verb="choose" if args.choose else "approve" if args.approve else "reject",
                     note=args.note,
                     position=args.choose,
+                    parts=_parts_body(args.declare, args.text),
                 )
                 shown = ShownItem(
                     item_sha256=args.sha256, trajectories=statuses_now(run_dir, args.item)

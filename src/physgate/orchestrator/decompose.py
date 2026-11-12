@@ -79,7 +79,13 @@ from physgate.orchestrator.plan import REQUIREMENT_MAX_CHARS as REQUIREMENT_MAX_
 from physgate.orchestrator.plan import SPEC_MAX_CHARS as SPEC_MAX_CHARS
 from physgate.orchestrator.plan import Component as Component
 from physgate.orchestrator.plan import Contribution as Contribution
-from physgate.orchestrator.plan import CriterionWords, plan_bytes
+from physgate.orchestrator.plan import (
+    CriterionWords,
+    component_id_problems,
+    component_name_problems,
+    duplicate_id_problems,
+    plan_bytes,
+)
 from physgate.orchestrator.plan import IntegratedPartsPlan as IntegratedPartsPlan
 from physgate.orchestrator.plan import IntegratedPlan as IntegratedPlan
 from physgate.orchestrator.plan import InterfaceConsumers as InterfaceConsumers
@@ -385,10 +391,7 @@ def _component_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
     """What is wrong with the component list of a plan that has one."""
     if not isinstance(plan, PartsPlan):
         return []
-    found: list[str] = []
-    ids = [entry.node for entry in plan.components]
-    if len(set(ids)) != len(ids):
-        found.append("two components share a node id")
+    found = duplicate_id_problems(plan.components)
     interfaces = {node.id for node in plan.interface_nodes}
     module_roles = {module.role for module in plan.modules}
     owners = _in_run("cross_nodes", roles)
@@ -398,24 +401,12 @@ def _component_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
     held: dict[str, str] = {}
     for entry in plan.components:
         said = f"component {entry.node!r}"
-        if entry.node in interfaces:
-            found.append(f"{said} has the id of an interface node")
+        found += component_id_problems(entry, interfaces)
         if entry.role in owners:
             found.append(f"{said} is given the {entry.role} role, which writes no node of a domain")
         elif entry.role not in module_roles:
             found.append(f"{said} is given a role no module has")
-        for name, count in Counter((*entry.own, *entry.shared)).items():
-            if name in entry.own and name in entry.shared:
-                found.append(f"{said} names {name!r} as its own and as shared")
-            elif count > 1:
-                found.append(f"{said} names {name!r} more than once")
-        # The rule an interface node's names are held to: a name that shadows a relation's
-        # quantity would put a person's value where no relation reads it.
-        for name, relation in shadowing_names(dict.fromkeys((*entry.own, *entry.shared))):
-            found.append(
-                f"{said} names {name!r}, which shadows {relation!r}, a quantity a relation "
-                "reads; it is named by the catalogue's name"
-            )
+        found += component_name_problems(entry)
         if not entry.shared:
             continue
         if owner is None:
@@ -1923,6 +1914,7 @@ def start_run(
             contract_pairs=pairs,
             brief_words=words or None,
             followable=followable,
+            components=plan.components if isinstance(plan, PartsPlan) else None,
         ),
         reviewed=reviewed,
         earlier=earlier,
@@ -1930,6 +1922,7 @@ def start_run(
         retried=retried,
     )
     record.hold_plan()  # a plan its review did not pass, under on: the one item it is held on
+    record.hold_parts()  # each part a person decides, once no plan's review holds the run
     return record
 
 

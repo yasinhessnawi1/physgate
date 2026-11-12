@@ -197,6 +197,7 @@ from physgate.orchestrator.queue import (
     held_windows_of,
     integration_item,
     item_id_for,
+    parts_sha256,
     read_queue,
     round_stream,
     stream_parts,
@@ -1001,6 +1002,7 @@ class Loop:
                 if self._decisions_refused_at_the_end():
                     continue  # the run halts on it: that is the step it ends on
                 self.record.hold_plan()  # a decompose killed before it listed the plan's item
+                self.record.hold_parts()  # and before it listed each part, or the plan's hold left
                 self._clean_up_worktrees()
                 return step
             if step.kind == "halt":
@@ -1214,7 +1216,7 @@ class Loop:
         No attempt is in progress here, so an incident names no subtask; its detail does.
         """
         contract = item.source == "contract"
-        whole = item.subtask_id == INTEGRATION or item.source == "plan_review"
+        whole = item.subtask_id == INTEGRATION or item.source in ("plan_review", "parts")
         subtask_id = None if whole or contract else item.subtask_id
         digest = view.digests.get(item.item_id)
         if digest is None:
@@ -1264,6 +1266,8 @@ class Loop:
             if subtask_id is not None
             else self.record.plan_item()
             if item.source == "plan_review"
+            else self.record.parts_item_of(item.item_id)
+            if item.source == "parts"
             else item
         )
         if resolution.verb is not None and rebuilt != item:
@@ -1313,6 +1317,9 @@ class Loop:
                 confirmed_by=confirmed_by,
                 order_too_long=taken.order_too_long,
                 reopens=taken.reopens,
+                parts_sha256=(
+                    parts_sha256(resolution.parts) if resolution.parts is not None else None
+                ),
             )
         )
         return True

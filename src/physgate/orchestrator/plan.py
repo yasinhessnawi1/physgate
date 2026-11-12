@@ -12,13 +12,14 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.state.schema import NODE_ID_MAX_LENGTH, Node, NodeIdKey
+from physgate.state.vocabulary import shadowing_quantity_names
 
 
 class _Frozen(BaseModel):
@@ -168,6 +169,57 @@ class PartsPlan(Plan):
 
 class IntegratedPartsPlan(IntegratedPlan, PartsPlan):
     """The plan of a run with the integration role that also asks about parts: both forms."""
+
+
+def duplicate_id_problems(components: Sequence[Component]) -> list[str]:
+    """What is wrong where two components of a list are given one id."""
+    ids = [entry.node for entry in components]
+    return ["two components share a node id"] if len(set(ids)) != len(ids) else []
+
+
+def component_id_problems(entry: Component, interfaces: Collection[str]) -> list[str]:
+    """What is wrong with a component's id, given the plan's interface nodes' ids."""
+    if entry.node in interfaces:
+        return [f"component {entry.node!r} has the id of an interface node"]
+    return []
+
+
+def component_name_problems(entry: Component) -> list[str]:
+    """What is wrong with the quantity names a component lists, in its two lists."""
+    said = f"component {entry.node!r}"
+    found: list[str] = []
+    for name, count in Counter((*entry.own, *entry.shared)).items():
+        if name in entry.own and name in entry.shared:
+            found.append(f"{said} names {name!r} as its own and as shared")
+        elif count > 1:
+            found.append(f"{said} names {name!r} more than once")
+    # The rule an interface node's names are held to: a name that shadows a relation's
+    # quantity would put a person's value where no relation reads it.
+    for name, relation in shadowing_quantity_names(tuple((*entry.own, *entry.shared))):
+        found.append(
+            f"{said} names {name!r}, which shadows {relation!r}, a quantity a relation "
+            "reads; it is named by the catalogue's name"
+        )
+    return found
+
+
+def component_list_problems(
+    interfaces: Sequence[str], components: Sequence[Component]
+) -> list[str]:
+    """What is wrong with a component list, given only the interface nodes' ids.
+
+    The plan's rules that need nothing but the list and ``interfaces``: no two components
+    share an id, none has an interface node's, and each one's names are given once, in one
+    list, by the catalogue's spelling. The plan check holds a plan to them, beside the rules
+    that need its modules and the run's roles; the run-event log holds a recorded line to
+    them, with the line's own interface nodes, on its way back in.
+    """
+    found = duplicate_id_problems(components)
+    known = set(interfaces)
+    for entry in components:
+        found += component_id_problems(entry, known)
+        found += component_name_problems(entry)
+    return found
 
 
 class CriterionWords(_Frozen):

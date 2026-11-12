@@ -589,6 +589,8 @@ def decision_effect(
         raise QueueItemMismatchError(msg, item=item.item_id, decided=resolution.item_id)
     if item.source == "contract":
         return _contract_effect(state, item, resolution, line_sha256=line_sha256, held=held)
+    if item.source == "parts":
+        return _parts_effect(item, resolution, line_sha256=line_sha256)
     if item.source == "plan_review" and resolution.verb is None:
         msg = "a plan's item is decided by approve or reject, and this decision is neither"
         raise QueueItemMismatchError(msg, item=item.item_id)
@@ -641,6 +643,42 @@ def decision_effect(
             effect=effect, acts=False, why_not="held_os_layer_off", order_too_long=too_long
         )
     return Taken(effect=effect, acts=True, why_not=None, order_too_long=too_long)
+
+
+#: What choosing each position of a part's item does: have and make declare what the person
+#: stated of it, find leaves it to be sourced and sized as before.
+PARTS_EFFECTS: dict[Position, DecisionEffect] = {
+    "have": "declare",
+    "make": "declare",
+    "find": "find",
+}
+
+
+def _parts_effect(item: QueueItem, resolution: QueueResolution, *, line_sha256: str) -> Taken:
+    """What the loop does with a choice on a part's item: always the effect of its position.
+
+    A part is decided by choosing have, make or find, on the view the item's line gives; any
+    other line on it is no decision, and the run halts on it rather than read it as one. It
+    acts, and is never held for the OS layer: no session runs while a part is undecided. That
+    the run holds this part, and the item is the one its record builds, are the loop's to check
+    beside this, and the replay's to check again.
+
+    Raises:
+        QueueItemMismatchError: the line is no bound choice of a position the item offers, or the
+            item's line changed since it was decided.
+    """
+    position = resolution.position
+    if (
+        resolution.verb != "choose"
+        or position not in PARTS_EFFECTS
+        or resolution.shown_sha256 is None
+    ):
+        msg = "a part's item is decided by choosing have, make or find, on the view it was shown"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    if resolution.shown_sha256 != line_sha256:
+        msg = "the item's line is not the one the decision was taken on"
+        raise QueueItemMismatchError(msg, item=item.item_id)
+    return Taken(effect=PARTS_EFFECTS[position], acts=True, why_not=None)
 
 
 def _contract_effect(
@@ -737,6 +775,9 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
         raise ValueError(msg)
     if event.item_id in state.contract_items:
         _require_contract_taken(state, event)
+        return
+    if event.item_id in state.parts_ids:
+        _require_parts_taken(state, event)
         return
     if state.design_review is not None and event.item_id == state.design_review.held_item:
         _require_plan_taken(state, event)
@@ -837,6 +878,46 @@ def _require_plan_taken(state: RunState, event: DecisionTaken) -> None:
         raise ValueError(msg)
     if event.acts and event.verb == "reject" and event.note is None:
         msg = "a reject that acts carries its note"
+        raise ValueError(msg)
+
+
+def _require_parts_taken(state: RunState, event: DecisionTaken) -> None:
+    """Refuse a decision on a part's item that this code could not have taken.
+
+    It is taken in a run that acts, once the plan's own hold is released and the plan was not
+    rejected. It is a choice of have, make or find on the view the item's line gave, which
+    acts, is never held, names no subtask, attempt or commit, and has the effect its position
+    has. Approve, reject and free text decide no part.
+    """
+    if not state.acts or state.plan_hold() is not None or state.plan_ends():
+        msg = (
+            "a part is decided in a run that acts, once the plan's hold is released and the "
+            "plan was not rejected"
+        )
+        raise ValueError(msg)
+    position = event.position
+    if event.verb != "choose" or position not in PARTS_EFFECTS:
+        msg = "a decision on a part's item is a choice of have, make or find, and nothing else"
+        raise ValueError(msg)
+    named = (
+        event.subtask_id,
+        event.attempt,
+        event.attempt_commit,
+        event.order_too_long,
+        event.reopens,
+        event.confirmed_by,
+    )
+    if (
+        event.shown_sha256 is None
+        or not event.acts
+        or event.why_not is not None
+        or event.effect != PARTS_EFFECTS[position]
+        or named != (None, None, None, False, None, None)
+    ):
+        msg = (
+            "a decision on a part's item is a bound choice that acts, has its position's "
+            "effect, and names no subtask, attempt or commit"
+        )
         raise ValueError(msg)
 
 

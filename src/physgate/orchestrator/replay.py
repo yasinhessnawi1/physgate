@@ -127,9 +127,20 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.follow import rederived
 from physgate.orchestrator.managed import policy_limits_change
-from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR, CriterionWords, SystemRequirement
+from physgate.orchestrator.plan import (
+    INTEGRATION_MODULE_DIR,
+    Component,
+    CriterionWords,
+    SystemRequirement,
+)
 from physgate.orchestrator.protocols import ChosenValue, QuantityRef
-from physgate.orchestrator.queue import DECOMPOSITION_NAME, PLAN, contract_item_id, item_id_for
+from physgate.orchestrator.queue import (
+    DECOMPOSITION_NAME,
+    PLAN,
+    contract_item_id,
+    item_id_for,
+    parts_item_id,
+)
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
 from physgate.state.store import payload_digest
@@ -361,6 +372,11 @@ class RunState:
         #: person's reject of the plan's item led to.
         self.holds_plan = False
         self.plan_rejected: PlanRejected | None = None
+        #: Whether the run asks which parts a person has, as its first line says; the components
+        #: the decomposition's line lists, and the id of the item each one is decided on.
+        self.asks_parts = False
+        self.components: tuple[Component, ...] | None = None
+        self.parts_ids: tuple[str, ...] = ()
         self.order: list[str] = []
         self.subtasks: dict[str, SubtaskState] = {}
         self.halted: Halted | None = None
@@ -503,6 +519,9 @@ class RunState:
             self.reviews_plan = event.design_review is not None
             self.holds_plan = self.reviews_plan and event.design_review != "observe"
             self.replans = replans(event.design_review or "off")
+            self.asks_parts = event.parts_on_hand == "on"
+            if self.asks_parts and not self.acts:
+                _refuse("a run that asks which parts a person has acts on decisions")
             return
         if isinstance(event, IncidentResolved):
             self._incident_resolved(event)
@@ -637,6 +656,17 @@ class RunState:
             self.system_requirements = event.system_requirements
             self.brief_words = event.brief_words or ()
             self.plan_sha256 = event.plan_sha256
+            if (event.components is not None) != self.asks_parts:
+                _refuse(
+                    "the decomposition's line lists the plan's components exactly when the run "
+                    "asks which parts a person has"
+                )
+            self.components = event.components
+            rounds = len(self.earlier_reviews) + 1
+            self.parts_ids = tuple(
+                parts_item_id(event.run_id, number, rounds)
+                for number, _ in enumerate(event.components or (), start=1)
+            )
             return
         if isinstance(event, ContractPairsPlanned):
             self._pairs(event)
@@ -662,6 +692,8 @@ class RunState:
             return
         if dispatch and self.plan_hold() is not None:
             _refuse("nothing is dispatched while the plan's review holds the run")
+        if dispatch and self.parts_hold() is not None:
+            _refuse("nothing is dispatched while a part is undecided")
         if dispatch and self.plan_ends() and not isinstance(event, IntegrationGateSkipped):
             _refuse("nothing is dispatched in a run whose plan a person rejected")
         if isinstance(event, ContractTested):
@@ -992,6 +1024,16 @@ class RunState:
         """Whether a person's reject of the plan's item was taken: nothing of it is dispatched."""
         decided = self.plan_decision()
         return decided is not None and decided.effect == "end_run"
+
+    def parts_hold(self) -> str | None:
+        """The first part's item every dispatch is held on, until each one is decided.
+
+        None while the plan's own hold is open, and once a person rejected the plan: no part of
+        a plan that is not run is decided.
+        """
+        if self.plan_hold() is not None or self.plan_ends():
+            return None
+        return next((one for one in self.parts_ids if one not in self.taken), None)
 
     def planned(self) -> tuple[str, ...]:
         """Every planned subtask not yet dispatched or removed, in plan order."""
@@ -2166,6 +2208,8 @@ class RunState:
             return Step(kind="wait") if self.acts else Step(kind="escalated")
         if self.plan_ends():
             return Step(kind="integrate") if self.integration is None else Step(kind="done")
+        if self.parts_hold() is not None:
+            return Step(kind="wait")  # only a run that acts asks, and so only a run that acts waits
         if self.pending_reopen is not None:
             return Step(kind="reopen", subtask_id=self.pending_reopen.reopens)
         if any(o is not None for o in (self.owed_ruling(), self.owed_item(), self.owed_contract())):

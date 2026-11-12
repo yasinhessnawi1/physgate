@@ -46,13 +46,19 @@ from physgate.orchestrator.exceptions import (
     RunStateError,
 )
 from physgate.orchestrator.managed import ObservedTraffic
-from physgate.orchestrator.plan import CriterionWords, InterfaceConsumers, SystemRequirement
+from physgate.orchestrator.plan import (
+    Component,
+    CriterionWords,
+    InterfaceConsumers,
+    SystemRequirement,
+)
 from physgate.orchestrator.protocols import MessageUsage, ReviewResult
 from physgate.orchestrator.queue import (
     PLAN,
     ApprovalQueue,
     QueueItem,
     item_id_for,
+    parts_item,
     plan_consequence,
     plan_item,
     round_stream,
@@ -117,6 +123,10 @@ class DecompositionSummary(BaseModel):
     #: The interfaces the role that owns the cross nodes produces, by their digests; ``None``
     #: where none follows.
     followable: Followable | None = None
+    #: The components a person decides before anything is dispatched, as the plan of a run that
+    #: asks which parts they have lists them, none included; ``None`` in a run that does not ask,
+    #: and then left out of the line.
+    components: tuple[Component, ...] | None = None
 
 
 class ReviewInstall(BaseModel):
@@ -667,6 +677,42 @@ class RunRecord:
         if item is not None and item.item_id not in {i.item_id for i in self.queue.items()}:
             self.queue.add(item)
 
+    def parts_item_of(self, item_id: str) -> QueueItem | None:
+        """The item the record builds for a part, by its id; ``None`` if it lists no such part."""
+        state = self.state
+        components = state.components
+        if components is None or item_id not in state.parts_ids:
+            return None
+        decomposed = next(e for e in self.log.events if isinstance(e, Decomposed))
+        number = state.parts_ids.index(item_id) + 1
+        return parts_item(
+            item_id=item_id,
+            run_id=self.config.run_id,
+            component=components[number - 1],
+            number=number,
+            of=len(components),
+            plan_sha256=decomposed.plan_sha256 or "",
+            spec_commit=decomposed.spec_commit,
+            # Relative to the run, as the plan's item is: the stream of the round the plan is of.
+            stream=round_stream(len(state.earlier_reviews) + 1),
+            ts=decomposed.ts,
+        )
+
+    def hold_parts(self) -> None:
+        """List the item of each part, once, while the plan's own hold is not open.
+
+        A plan its review holds, or a person rejected, lists none. Written again at every drive,
+        so a process killed between the plan's release and the last item loses none.
+        """
+        state = self.state
+        if state.plan_hold() is not None or state.plan_ends():
+            return
+        listed = {i.item_id for i in self.queue.items()}
+        for item_id in state.parts_ids:
+            item = self.parts_item_of(item_id)
+            if item is not None and item_id not in listed:
+                self.queue.add(item)
+
     def _planning(
         self,
         plan: Sequence[PlanEntry],
@@ -696,6 +742,7 @@ class RunRecord:
                 system_requirements=decomposed.system_requirements,
                 brief_words=decomposed.brief_words or None,
                 followable=decomposed.followable,
+                components=decomposed.components,
             )
         for entry in plan:
             # The mark is written only where it is set: every other line keeps the bytes it

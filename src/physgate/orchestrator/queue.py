@@ -31,6 +31,7 @@ import contextlib
 import errno
 import fcntl
 import hashlib
+import json
 import os
 import re
 import stat
@@ -82,6 +83,7 @@ from physgate.orchestrator.events import (
     read_jsonl,
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError, QueueError, StaleViewError
+from physgate.orchestrator.plan import Component, QuantityName
 from physgate.orchestrator.protocols import (
     REJECTING_RESULTS,
     GateResult,
@@ -108,6 +110,7 @@ QueueSource = Literal[
     "escalation_decision",
     "contract",
     "plan_review",
+    "parts",
 ]
 
 
@@ -137,14 +140,19 @@ Sha1 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 #: What choosing a position does: order the next attempt to the graph's value, order the one fix
 #: to it, end the subtask, resize (the subtask waits for sizing's closing pass, ordered to write
 #: the domain's value, then returns to the gate), reopen the other module of a failed contract, or
-#: record the decision only.
-OnChoose = Literal["retry", "fix", "end_subtask", "resize", "reopen", "record_only"]
+#: record the decision only; or, on a part's item, declare (the part is one the person has or
+#: makes, and what they stated of it is fixed) or find (it is sourced and sized as before).
+OnChoose = Literal[
+    "retry", "fix", "end_subtask", "resize", "reopen", "record_only", "declare", "find"
+]
 #: The positions each kind of item offers, in the order the item states them: an arbitration's
 #: sizing (the graph's value stands) and domain (the disputing subtask's); a failed contract's
-#: producer and consumer (whose merged work stands). No other kind offers any.
+#: producer and consumer (whose merged work stands); a part's have, make and find (ARCH-122).
+#: No other kind offers any.
 POSITIONS: Mapping[QueueSource, tuple[Position, ...]] = {
     "arbitration": ("sizing", "domain"),
     "contract": ("producer", "consumer"),
+    "parts": ("have", "make", "find"),
 }
 
 
@@ -299,6 +307,120 @@ def note_problem(note: str) -> str | None:
     return None
 
 
+#: The most values a decision on a part states, the most texts a made part carries, and the
+#: longest of those texts in characters. Bounds on what reaches every role's reading: sizes,
+#: not thresholds on anything measured.
+MAX_DECLARED = 12
+MAX_TEXTS = 8
+MAX_TEXT = 500
+
+
+class DeclaredValue(BaseModel):
+    """One value a person states of a part: a finite number with its unit, never a bare number."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    value: Annotated[float, Field(allow_inf_nan=False)] | int
+    unit: NonEmptyStr
+
+
+def text_problem(text: str) -> str | None:
+    """Why ``text`` cannot be one of a made part's texts, or ``None``: a note's rules, shorter."""
+    if len(text) > MAX_TEXT:
+        return f"a made part's text is at most {MAX_TEXT} characters"
+    problem = note_problem(text)
+    return None if problem is None else f"a made part's text is held as a note is: {problem}"
+
+
+def declared_problem(name: str, stated: DeclaredValue) -> str | None:
+    """Why ``stated`` cannot be the value of the quantity called ``name``, or ``None`` if it can.
+
+    The name shadows no quantity a relation reads, as a node's names may not. The unit is
+    spelt as the physics gate reads units, which bounds what parsing it costs before any
+    parser is handed it. Where the gate's catalogue gives the name a kind, the value has that
+    kind's dimension and sign; a name the catalogue does not know is admitted in any unit the
+    gate reads, and the gate records it as unchecked. How large a value may be is the gate's
+    to judge, never this function's: a part someone owns can still be the wrong part.
+    """
+    from physgate.gate.catalogue import angles_of, kind_of
+    from physgate.gate.units import PINT_ERRORS, UnitRefusedError, measure, parse, pint_message
+    from physgate.state.vocabulary import shadowing_quantity_names
+
+    shadowed = shadowing_quantity_names((name,))
+    if shadowed:
+        return (
+            f"{name!r} shadows {shadowed[0][1]!r}, a quantity a relation reads; it is named "
+            "by the catalogue's name"
+        )
+    kind = kind_of(name)
+    try:
+        if kind is None:
+            parse(stated.value, stated.unit)
+        else:
+            measure(kind, stated.value, stated.unit, angles=angles_of(name))
+    except UnitRefusedError as exc:
+        return f"{name!r}: {exc}"
+    except PINT_ERRORS as exc:
+        return f"{name!r} is not written in a unit of its kind: {pint_message(exc)}"
+    return None
+
+
+class PartsBody(BaseModel):
+    """What a choice of have or make states of a part (ARCH-122).
+
+    ``declared`` is each value the person states, by its quantity's name; ``texts`` the
+    constraints of a made part that no quantity says. Every value and every text is held to
+    its rule wherever a body is built or read, so a line the writer would refuse is never read
+    as one it wrote.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    declared: Annotated[dict[QuantityName, DeclaredValue], Field(max_length=MAX_DECLARED)]
+    texts: Annotated[tuple[str, ...], Field(max_length=MAX_TEXTS)]
+
+    @model_validator(mode="after")
+    def _each_value_and_each_text_holds_its_rule(self) -> PartsBody:
+        for name, stated in self.declared.items():
+            if (problem := declared_problem(name, stated)) is not None:
+                raise ValueError(problem)
+        for text in self.texts:
+            if (problem := text_problem(text)) is not None:
+                raise ValueError(problem)
+        return self
+
+
+def parts_sha256(parts: PartsBody) -> str:
+    """The digest of what a decision stated of a part: sha256 of its canonical JSON.
+
+    The names sorted, so two bodies that state the same values have one digest; the texts in
+    the order they were given, which is part of what was said.
+    """
+    canonical = json.dumps(parts.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def parts_problem(
+    verb: Verb | None, position: Position | None, parts: PartsBody | None
+) -> str | None:
+    """Why ``parts`` cannot go with the decision, or ``None``: what each choice on a part states.
+
+    Have states the part's values, at least one, and no text. Make states at least one value or
+    one text. Find states nothing, and nor does any other decision.
+    """
+    if verb != "choose" or position not in ("have", "make", "find"):
+        return None if parts is None else "only a choice of have or make states a part's values"
+    if position == "find":
+        return None if parts is None else "choosing find states nothing of the part"
+    if position == "have":
+        if parts is None or not parts.declared:
+            return "choosing have states at least one value of the part, each with its unit"
+        return "choosing have states the part's values, and no text" if parts.texts else None
+    if parts is None or not (parts.declared or parts.texts):
+        return "choosing make states at least one value or one text the made part must meet"
+    return None
+
+
 #: The longest a person may take to decide an item before it is logged as a decomposition
 #: defect: ARCH-130 asks for a median review under one minute.
 REVIEW_LIMIT = timedelta(minutes=1)
@@ -339,6 +461,8 @@ class QueueResolution(_Record):
     shown_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
     shown_at: Timestamp | None = None
     decomposition_defect: Literal[True] | None = None
+    #: What a choice of have or make states of a part; left out of every other decision's line.
+    parts: PartsBody | None = None
 
     @model_validator(mode="after")
     def _one_meaning(self) -> QueueResolution:
@@ -346,6 +470,8 @@ class QueueResolution(_Record):
         # acts on: one line may not say two things. A verb comes with the digest of the view it
         # was taken on and its text is exactly the verb's; with no verb, nothing binds.
         if (problem := position_problem(self.verb, self.position)) is not None:
+            raise ValueError(problem)
+        if (problem := parts_problem(self.verb, self.position, self.parts)) is not None:
             raise ValueError(problem)
         took = review_time(self)
         if took is not None and took < timedelta(0):
@@ -388,6 +514,7 @@ class QueueResolution(_Record):
             "shown_sha256",
             "shown_at",
             "decomposition_defect",
+            "parts",
         ):
             if data.get(name) is None:
                 data.pop(name, None)
@@ -402,10 +529,14 @@ class PersonDecision(BaseModel):
     verb: Verb
     note: Annotated[str, StringConstraints(max_length=MAX_NOTE)] | None
     position: Position | None = None
+    #: What a choice of have or make states of a part, and no other decision carries.
+    parts: PartsBody | None = None
 
     @model_validator(mode="after")
     def _a_note_is_clean_and_a_rejection_has_one(self) -> PersonDecision:
         if (problem := position_problem(self.verb, self.position)) is not None:
+            raise ValueError(problem)
+        if (problem := parts_problem(self.verb, self.position, self.parts)) is not None:
             raise ValueError(problem)
         if self.note is not None:
             if (problem := note_problem(self.note)) is not None:
@@ -915,6 +1046,91 @@ def plan_item(
     )
 
 
+#: The subtask field of a part's item: it is about one component of the plan, not one subtask.
+PARTS = "parts"
+
+
+def parts_item_id(run_id: str, number: int, round_: int) -> str:
+    """The id of the item for the ``number``-th component of the plan of round ``round_``.
+
+    The run, ``parts`` and the component's place in its plan, counted from one; from the second
+    round on, the round, as every item's id says it.
+
+    Raises:
+        QueueError: the number or the round is not a positive number, or the run's id is not a
+            plain identifier.
+    """
+    if isinstance(number, bool) or number < 1:
+        msg = "a part's number counts from one"
+        raise QueueError(msg, number=str(number))
+    return item_id_for(run_id, f"{PARTS}-{number}", round_)
+
+
+def parts_consequence() -> ItemConsequence:
+    """What each choice does to a part's item, and that approve and reject do nothing to it."""
+    return ItemConsequence(
+        attempt=None,
+        attempt_commit=None,
+        on_approve="record_only",
+        on_reject="record_only",
+        why_record_only="source",
+        confirmed_indicators=(),
+        scan_hits=(),
+        on_choose={"have": "declare", "make": "declare", "find": "find"},
+    )
+
+
+def parts_item(
+    *,
+    item_id: str,
+    run_id: str,
+    component: Component,
+    number: int,
+    of: int,
+    plan_sha256: str,
+    spec_commit: str,
+    stream: str,
+    ts: str,
+) -> QueueItem:
+    """The item a run that asks which parts a person has lists for one component of its plan.
+
+    The plan's words for the part are the plan's, not the harness's: its label is quoted as a
+    JSON string, so a line break or a control character in it cannot start a line of the
+    item. Nothing is a value yet: the person states each one by choosing have or make.
+    """
+    names = (*component.own, *component.shared)
+    stated = (
+        "names no quantity"
+        if not names
+        else "lists " + ", ".join(names) + " as the quantities a part on hand states"
+    )
+    return QueueItem(
+        item_id=item_id,
+        ts=ts,
+        run_id=run_id,
+        subtask_id=PARTS,
+        source="parts",
+        decision_required=(
+            f"Part {number} of {of} in the plan: {json.dumps(component.label)} "
+            f"(node {component.node}), which the plan {stated}. Nothing has been dispatched. "
+            "Choose have to state the values of a part you already own, each with its unit; "
+            "choose make to state what a part you will make must meet; choose find to have it "
+            "sourced and sized as before. Approve and reject decide no part."
+        ),
+        artefact_diff=(
+            f"The plan of digest {plan_sha256}, as the run recorded it: see {stream} and the "
+            f"specifications commit {spec_commit}."
+        ),
+        triggering_finding=(
+            f"The run asks which parts a person has; component {component.node} is "
+            f"{number} of {of} the plan lists."
+        ),
+        quantities=(),
+        trajectories=(stream,),
+        consequence=parts_consequence(),
+    )
+
+
 #: The subtask field of a failed contract's item: it is about a pair of modules, not one subtask.
 CONTRACT = "contract"
 
@@ -1123,8 +1339,8 @@ class _Records:
             offered = POSITIONS.get(self.items[record.item_id].source, ())
             if not offered:
                 msg = (
-                    "a choice is made only on an item whose kind offers positions: an arbitration "
-                    "or a failed contract"
+                    "a choice is made only on an item whose kind offers positions: an arbitration, "
+                    "a failed contract or a part"
                 )
                 raise ValueError(msg)
             if record.position not in offered:
@@ -1853,6 +2069,7 @@ def record_decision(
             verb=person.verb if person is not None else None,
             position=person.position if person is not None else None,
             note=person.note if person is not None else None,
+            parts=person.parts if person is not None else None,
             shown_sha256=shown.item_sha256 if person is not None and shown is not None else None,
             shown_at=None if shown_at is None else utc_stamp(shown_at),
             decomposition_defect=True if late else None,
@@ -1942,6 +2159,11 @@ def _decide(dir_fd: int, run_dir: Path, record: QueueResolution, shown: ShownIte
         if record.verb is None and records.items[record.item_id].source == "plan_review":
             # Free text binds to nothing, and would close the one item the run is held on.
             msg = "a plan's item is decided by approve or reject, and free text is neither"
+            raise QueueError(msg, item=record.item_id)
+        if record.verb != "choose" and records.items[record.item_id].source == "parts":
+            # Neither verb, and no free text, says whether the part is had, made or found, and
+            # any of them would close the item the run is held on.
+            msg = "a part's item is decided by choosing have, make or find, and by nothing else"
             raise QueueError(msg, item=record.item_id)
         if record.verb is not None and shown is not None:
             _require_bindable(records.items[record.item_id], record, shown)
