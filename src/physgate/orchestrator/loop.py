@@ -1766,6 +1766,18 @@ class Loop:
             )
             self._emit(Halted(**self._env(), reason="os_layer_unavailable", detail=detail))
             return
+        if cause == "disk_full":
+            # Never retried: the binary said a full disk lost the session's own records,
+            # and the harness measured the volume as full. Nothing the session did is
+            # taken, and a person looks before anything else runs.
+            detail = (
+                f"subtask {subtask_id} attempt {attempt}: the session's binary said a full "
+                "disk lost the session's own records, and the volume holding them was "
+                "measured full when it ended; free the space and look at the session "
+                "before the run goes on"
+            )
+            self._emit(Halted(**self._env(), reason="disk_full", detail=detail))
+            return
         if delay is None:
             detail = (
                 f"subtask {subtask_id} attempt {attempt}: {cause} after "

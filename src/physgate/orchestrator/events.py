@@ -106,7 +106,8 @@ HaltReason = Literal[
 #: Halts a resume continues from, the same attempt with a fresh schedule: the
 #: infrastructure schedule ran out, the credential was refused and has since been
 #: replaced, or the OS layer would not start and has since been repaired. Any other
-#: halt is resolved by a person first.
+#: halt is resolved by a person first; ``disk_full`` is one of those, since a session
+#: whose records a full disk lost is looked at before the run goes on.
 RESUMABLE_HALTS: frozenset[str] = frozenset(
     {"infrastructure_exhausted", "credential_refused", "os_layer_unavailable"}
 )

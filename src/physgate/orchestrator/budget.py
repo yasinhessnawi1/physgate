@@ -39,8 +39,9 @@ ATTEMPT_LIMIT = REPAIR_BUDGET + 1
 #: refused credential, so the loop halts on it for a person to replace it.
 #: ``sandbox_unavailable``: the session refused to start because the OS layer it was
 #: started with could not run; retrying cannot fix that either, so the loop halts.
-#: ``disk_full``: the session ended as a finished one and the binary then said a full disk,
-#: or a used-up quota, lost the session's own records; nothing it did is taken.
+#: ``disk_full``: the session ended as a finished one, the binary then said a full disk,
+#: or a used-up quota, lost the session's own records, and the harness measured the volume
+#: holding them as full; nothing it did is taken, it is not retried, and the loop halts.
 InfraCause = Literal[
     "api_error",
     "credential_refused",

@@ -200,6 +200,8 @@ def test_the_free_space_is_the_harness_s_own_measurement_of_the_least_volume(
     space = {str(here): (4096, 10), str(there): (512, 3)}
 
     def statvfs(path: object) -> object:
+        if str(path) not in space:
+            raise FileNotFoundError(2, "no such place", str(path))
         frsize, bavail = space[str(path)]
 
         class _Volume:
@@ -316,6 +318,6 @@ def test_a_run_halted_for_a_full_disk_is_resumed_by_no_one_until_a_person_has_lo
     loop.close()
     again = rig.open()
     with pytest.raises(RunStateError, match="disk_full"):
-        again.run()
+        again.resume()
     again.close()
     assert len(rig.dispatcher.requests) == 1

@@ -53,7 +53,11 @@ from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import WRITES_LOST_VERSIONS, classify_session_end
+from physgate.orchestrator.budget import (
+    DISK_FULL_BELOW_BYTES,
+    WRITES_LOST_VERSIONS,
+    classify_session_end,
+)
 from physgate.orchestrator.canaries import canary_seen, redact_text
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
@@ -387,22 +391,41 @@ class Captured:
     lost: str | None = None
 
 
-def free_bytes(*places: Path) -> int | None:  # noqa: ARG001 - not read yet
-    """The least free space on the volumes holding ``places``, or ``None`` if unmeasured."""
-    return None
+def free_bytes(*places: Path) -> int | None:
+    """The least free space on the volumes holding ``places``, or ``None`` if unmeasured.
 
-
-def tail_owner(
-    claude_version: str,
-    session_id: str,
-    free: int | None = None,  # noqa: ARG001 - not read yet
-) -> str | None:
-    """The session whose own word may follow its result on this pin, or ``None``.
-
-    Only a pin measured to write that word has one; on every other, a stream holds nothing
-    after its result.
+    The harness's own measurement, of the volume each place resolves to. A place that is
+    not there holds nothing; a volume that cannot be measured, or no place at all, gives
+    ``None``, which is never read as a full volume.
     """
-    return session_id if claude_version in WRITES_LOST_VERSIONS else None
+    least: int | None = None
+    for place in places:
+        try:
+            volume = os.statvfs(place)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return None
+        free = volume.f_bavail * volume.f_frsize
+        least = free if least is None else min(least, free)
+    return least
+
+
+def tail_owner(claude_version: str, session_id: str, free: int | None = None) -> str | None:
+    """The session whose own word may follow its result here, or ``None``.
+
+    A binary on a pin measured to write it says, in one event after its result, that a
+    full disk lost the session's records. A stream is something a session can reach, so
+    that event is never taken on its own word: it counts only where ``free``, the
+    harness's measurement of the volumes holding the session's records when it ended
+    (:func:`free_bytes`), is below ``DISK_FULL_BELOW_BYTES``. With space to spare, with
+    nothing measured, or on any other pin, a stream holds nothing after its result.
+    """
+    if claude_version not in WRITES_LOST_VERSIONS:
+        return None
+    if free is None or free >= DISK_FULL_BELOW_BYTES:
+        return None
+    return session_id
 
 
 def read_stream_file(stream: Path) -> bytes:
@@ -439,8 +462,9 @@ def captured_from(data: bytes, *, own_tail_of: str | None = None) -> Captured:
     the runtime's result is parsed only up to that result; the tail is reported, never read.
 
     ``own_tail_of`` is the session whose binary may say, in one event after its result,
-    that a full disk lost its records (:func:`tail_owner`): that event alone is no forged
-    tail, and what it names is returned as ``lost``. Nothing after a result is parsed.
+    that a full disk lost its records, and is given only where the harness measured the
+    records' volume as full (:func:`tail_owner`): that event alone is then no forged tail,
+    and what it names is returned as ``lost``. Nothing after a result is parsed.
     """
     text = data.decode(errors="replace")
     tampered = forged_tail(text)
@@ -1501,6 +1525,9 @@ class ClaudeDispatcher:
                 # waits for the resume, which refuses while it runs.
                 kill_own(process)
             stop_done = time.time()
+        # Measured by the harness as the session ends, before anything of it is removed:
+        # the only thing that bears out a binary's word that a full disk lost its records.
+        records_free = free_bytes(sdir / "config", sdir / "config" / "projects")
         if ended is not None:
             # The table is read again: nothing the stop concluded is taken as its proof.
             unconfirmed = still_running(
@@ -1575,7 +1602,8 @@ class ClaudeDispatcher:
         # the sweep refuses, or a sweep that fails, is recorded and refuses the attempt.
         placeholders_refused = self._sweep(worktree, before, sdir) if temp is not None else None
         captured = read_captured(
-            stdout, own_tail_of=tail_owner(self._config.claude_version, session_id)
+            stdout,
+            own_tail_of=tail_owner(self._config.claude_version, session_id, records_free),
         )
         # A command bubblewrap aborted never ran: recorded as such, never as a denial.
         aborted = (
@@ -1801,9 +1829,9 @@ class ClaudeDispatcher:
         # The same read as a session that ended under its orchestrator: sealed as read, a
         # tail after the runtime's result not taken, and a stream with a result held to the
         # runtime's own totals.
-        captured = captured_from(
-            data, own_tail_of=tail_owner(self._config.claude_version, session_id)
-        )
+        # No one measured its records' volume when it ended, so nothing bears out a word
+        # after its result: a tail is a forged one here on every pin.
+        captured = captured_from(data)
         tampered = captured.tampered
         if tampered is None:
             try:
