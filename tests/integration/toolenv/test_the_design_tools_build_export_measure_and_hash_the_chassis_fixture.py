@@ -310,6 +310,10 @@ def test_a_part_s_exports_are_in_its_exports_folder_named_by_size_and_digest(
         assert entry["size"] == {"value": path.stat().st_size, "unit": "byte"}
         assert entry["size"]["value"] > 1000
         assert entry["sha256"] == _sha256(path)
+    # A binary STL: an 80-byte header, a count, then 50 bytes for each triangle.
+    stl = (run.module / "exports" / f"{name}.stl").read_bytes()
+    triangles = int.from_bytes(stl[80:84], "little")
+    assert triangles >= 12 and len(stl) == 84 + 50 * triangles
     step = (run.module / "exports" / f"{name}.step").read_text(encoding="utf-8", errors="replace")
     assert step.startswith("ISO-10303-21;")
     assert "AUTOMOTIVE_DESIGN" in step[:2000]
