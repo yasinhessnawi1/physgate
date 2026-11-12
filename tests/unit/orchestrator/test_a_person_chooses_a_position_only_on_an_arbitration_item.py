@@ -145,6 +145,7 @@ def test_arbitration_and_contract_items_offer_their_own_positions() -> None:
     assert getattr(queue_module, "POSITIONS", None) == {
         "arbitration": ("sizing", "domain"),
         "contract": ("producer", "consumer"),
+        "parts": ("have", "make", "find"),
     }
     assert "choose" in getattr(queue_module.Verb, "__args__", ())
 

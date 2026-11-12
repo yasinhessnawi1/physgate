@@ -68,6 +68,12 @@ export const SOURCE_WORDS: Readonly<Record<QueueSource, SourceWords>> = {
       "verdict on it: in a run that acts on decisions, nothing is dispatched until a person " +
       "decides; in one that only records them, the run ends with the item open.",
   },
+  parts: {
+    kind: "A part of the plan to decide",
+    why:
+      "The run asks which parts you already have or will make: nothing is dispatched until " +
+      "you have decided each part of the plan.",
+  },
 };
 
 /** Every sentence a screen says about a decision. Nothing else on a screen says it. */
@@ -144,6 +150,7 @@ const HEADLINES: Readonly<Record<QueueSource, string>> = {
   escalation_decision: "A subtask was sent to a person",
   contract: "Two merged modules break an interface contract",
   plan_review: "The plan's review did not pass",
+  parts: "A part of the plan to decide",
 };
 
 /**
