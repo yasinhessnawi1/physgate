@@ -14,8 +14,9 @@ Measured (macOS, 12.11.2026):
 
 Where the binary says it, no reader takes the session for a completed one: a review is
 infrastructure, the decomposition call gives no plan under a cause of its own, and a role
-session's stream, which is held to ending at its result, is not taken as the runtime's
-alone, so nothing the session did is taken and a person looks.
+session is infrastructure under a cause of its own. A role session's stream is held to
+ending at its result; the one event this pin writes after it is the binary's own word and
+is read as that, and nothing else after a result is.
 
 The full volume is one this test is given (``PHYSGATE_FULL_VOLUME``: a directory on a
 volume of at most 16 MiB, which the test fills and empties again) or, on macOS, a 4 MiB
@@ -39,6 +40,7 @@ from plain_session import run_session
 from scripted_endpoint import text, tool
 
 from physgate.orchestrator.budget import writes_lost
+from physgate.orchestrator.dispatch import captured_from
 from physgate.orchestrator.trajectory import forged_tail
 
 BINARIES = [
@@ -144,6 +146,7 @@ def test_a_full_volume_under_the_transcript_is_read_as_each_pin_says_it(
         # This pin says nothing: the loss cannot be seen, and each reader takes the end.
         assert ended.after_result == [] and ended.stderr == ""
         assert ended.as_a_role_session().outcome == "completed"
+        assert ended.forged is None
         assert ended.as_a_review() is None
         assert ended.as_the_decomposition() == "no_structured_output"
         assert forged_tail(ended.stdout) is None
@@ -161,5 +164,12 @@ def test_a_full_volume_under_the_transcript_is_read_as_each_pin_says_it(
     assert "could not save" in ended.stderr and "(ENOSPC)" in ended.stderr
     assert ended.as_a_review() == "infrastructure"
     assert ended.as_the_decomposition() == "writes_lost"
-    # A role session's stream may hold nothing after its result: this one is not taken.
+    # A role session's stream may hold nothing after its result but this, the binary's own
+    # word of this session: the session is infrastructure for a full disk, and no forgery.
     assert forged_tail(ended.stdout) is not None
+    role = ended.as_a_role_session()
+    assert (role.outcome, role.cause) == ("infrastructure", "disk_full")
+    assert ended.forged is None
+    # The same stream with one more line after the binary's word is a forged tail still.
+    longer = captured_from((ended.stdout + ended.stdout).encode(), own_tail_of=ended.session_id)
+    assert longer.tampered is not None and longer.lost is None

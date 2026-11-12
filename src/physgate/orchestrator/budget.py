@@ -43,6 +43,7 @@ InfraCause = Literal[
     "api_error",
     "credential_refused",
     "sandbox_unavailable",
+    "disk_full",
     "wall_clock",
     "turn_limit",
     "no_result",
@@ -61,6 +62,9 @@ CREDENTIAL_REFUSED_STATUSES = frozenset({401, 403})
 #: 2.1.322 with the transcripts on a full volume: the result says ``completed``, the exit
 #: status is 0, and this event follows. 2.1.301 loses the same writes and says nothing.
 WRITES_LOST = "session_writes_lost"
+
+#: The pins measured to write that event. On any other, nothing after a result is the binary's.
+WRITES_LOST_VERSIONS = frozenset({"2.1.322"})
 
 #: What the event may name as lost, and as the cause: the binary's own lists. Anything else
 #: in those fields is left out of what is recorded, since a stream is not trusted text.
@@ -113,6 +117,7 @@ def classify_session_end(
     *,
     exit_code: int | None,
     stopped_at_wall_clock: bool,
+    lost: str | None = None,  # noqa: ARG001 - not read yet
 ) -> SessionEnd:
     """Classify how a session ended from its result object and exit.
 
@@ -121,6 +126,7 @@ def classify_session_end(
             ended without one (a killed or crashed session).
         exit_code: the process's exit status, ``None`` if it was never reaped.
         stopped_at_wall_clock: the orchestrator stopped it at its wall clock.
+        lost: what the binary said after its result it could not save, if it said so.
     """
     if stopped_at_wall_clock:
         return SessionEnd(outcome="infrastructure", cause="wall_clock")

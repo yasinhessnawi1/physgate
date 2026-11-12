@@ -22,6 +22,7 @@ from physgate.lines import split_lines
 from physgate.orchestrator.budget import SessionEnd, classify_session_end, writes_lost
 from physgate.orchestrator.credentials import write_login
 from physgate.orchestrator.decompose import binary_version, judge, read_stream, schema_refusal
+from physgate.orchestrator.dispatch import Captured, captured_from, tail_owner
 from physgate.orchestrator.invocation import isolated_env
 from physgate.reviewers.claude import COMPACT_BOUNDARY, unavailable_end
 
@@ -82,10 +83,25 @@ class Ended:
             e.get("type") == "system" and e.get("subtype") == COMPACT_BOUNDARY for e in self.events
         )
 
+    def _as_dispatch_reads_it(self) -> Captured:
+        """The stream as the dispatcher reads a role session's on this pin."""
+        return captured_from(
+            self.stdout.encode(), own_tail_of=tail_owner(self.version, self.session_id)
+        )
+
+    @property
+    def forged(self) -> str | None:
+        """Why a role session's stream is not taken as the runtime's alone, or ``None``."""
+        return self._as_dispatch_reads_it().tampered
+
     def as_a_role_session(self) -> SessionEnd:
         """How a role session with this end is classified."""
+        captured = self._as_dispatch_reads_it()
         return classify_session_end(
-            self.result, exit_code=self.exit_code, stopped_at_wall_clock=False
+            captured.result,
+            exit_code=self.exit_code,
+            stopped_at_wall_clock=False,
+            lost=captured.lost,
         )
 
     def as_a_review(self) -> str | None:

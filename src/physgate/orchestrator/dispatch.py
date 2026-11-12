@@ -377,6 +377,12 @@ class Captured:
     result: dict[str, Any] | None
     usage: tuple[MessageUsage, ...]
     answered: frozenset[str]
+    lost: str | None = None
+
+
+def tail_owner(claude_version: str, session_id: str) -> str | None:  # noqa: ARG001 - not read yet
+    """The session whose own word may follow its result on this pin, or ``None``."""
+    return None
 
 
 def read_stream_file(stream: Path) -> bytes:
@@ -396,12 +402,16 @@ def read_stream_file(stream: Path) -> bytes:
     return data
 
 
-def read_captured(stream: Path, data: bytes | None = None) -> Captured:
+def read_captured(
+    stream: Path, data: bytes | None = None, *, own_tail_of: str | None = None
+) -> Captured:
     """Parse a session's stream (:func:`captured_from`), from ``data`` if its read is in hand."""
-    return captured_from(read_stream_file(stream) if data is None else data)
+    return captured_from(
+        read_stream_file(stream) if data is None else data, own_tail_of=own_tail_of
+    )
 
 
-def captured_from(data: bytes) -> Captured:
+def captured_from(data: bytes, *, own_tail_of: str | None = None) -> Captured:  # noqa: ARG001
     """Seal a session's stream bytes, find a forged tail, parse what the runtime wrote.
 
     One path for every reader, the session that ended under its orchestrator and the

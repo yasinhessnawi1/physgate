@@ -101,6 +101,11 @@ def forged_tail(text: str) -> str | None:
     return None
 
 
+def own_loss_tail(text: str, session_id: str) -> str | None:  # noqa: ARG001 - not read yet
+    """What the binary's own word after its result says it could not save, or ``None``."""
+    return None
+
+
 def through_first_result(text: str) -> str:
     """The stream up to and including its first result: what the runtime wrote, if forged after."""
     results = result_lines(text)
