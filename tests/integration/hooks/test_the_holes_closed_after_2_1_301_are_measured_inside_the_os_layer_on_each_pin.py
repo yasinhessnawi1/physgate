@@ -92,7 +92,8 @@ NOTHING = {
 
 
 _ZSH_AT_START = [".zlogin", ".zprofile", ".zshenv", ".zshrc"]
-#: Measured through the real binaries (macOS, Seatbelt, 12.11.2026), per platform and pin; a
+#: Measured through the real binaries (macOS on Seatbelt, Linux on bubblewrap, 12.11.2026),
+#: per platform and pin; a
 #: platform with no entry has not been measured, and its row fails saying what it found.
 #: A startup file the session wrote itself: on 2.1.301 the next command's shell ran ``.zshenv``
 #: outside the sandbox, which wrote where no sandboxed process can and copied the read-denied
@@ -104,15 +105,23 @@ WRITTEN_BY_THE_SESSION = {
         "held-out text told": False,
     },
     ("darwin", "2.1.322"): NOTHING,
+    # Linux, bubblewrap (CI, 12.11.2026): the same hole on 2.1.301, through bash.
+    ("linux", "2.1.301"): {
+        "written outside the sandbox": [".bashrc"],
+        "held-out text copied": True,
+        "held-out text told": False,
+    },
+    ("linux", "2.1.322"): NOTHING,
 }
 #: Startup files in the home before the session starts: both versions run zsh's four outside
 #: the sandbox. A session's home is made fresh for it, so nothing is there at its start.
 THERE_AT_THE_START = {
-    ("darwin", version): {
-        "written outside the sandbox": _ZSH_AT_START,
+    (platform, version): {
+        "written outside the sandbox": ran,
         "held-out text copied": True,
         "held-out text told": False,
     }
+    for platform, ran in (("darwin", _ZSH_AT_START), ("linux", [".bash_profile", ".bashrc"]))
     for version in ("2.1.301", "2.1.322")
 }
 
