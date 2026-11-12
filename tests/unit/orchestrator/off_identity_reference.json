@@ -1,0 +1,18 @@
+{
+ "prompt:control+electrical+firmware+mechanical": "d648779cd4cdc05649bf1a1d3b61c56dcf62202d501d56aa86ab5b2fefce5964",
+ "prompt:control+firmware": "5e30408ee722cfdf8d7e32ff4ede0f36625df30ef80324c19b35beba38dfdaea",
+ "prompt:control+firmware+integration+sizing": "e9d7404e0dd091d8bf173130b952c5eec1d276fb8197528727d69935e190af6a",
+ "run:ended": "done",
+ "run:events": "42",
+ "run:events.jsonl": "c715cfac1102f2ce3741b45e35728f61af6fe72af5ad060971b2db43a2e28b8f",
+ "run:ledger.jsonl": "d8c86d0cfda8a508aa6c85599f9142e84638e624b45a71a2e9900d5664571d1b",
+ "run:queue.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+ "run:queue_decisions.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+ "run:run.json": "b18d0d91c5f1f497b572c21bba20fafe102b9b292d13aa1732c30dd3686fb43b",
+ "schema:control+electrical+firmware+mechanical": "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f3357",
+ "schema:control+firmware": "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f3357",
+ "schema:control+firmware+integration+sizing": "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08",
+ "store:journal.jsonl": "1b14000196d432659fb1beb624d1a5863f5b52d205a15cf1cf7878bcde144f62",
+ "store:nodes/electrical.battery.json": "1e3fe62babc0855275d8fc231e78109e94ea9b9aee9aae5f1d88796e7281e13e",
+ "store:nodes/iface.power_bus.json": "58809340215feacb3a4a033e240501b14b99db130b143ac1120cb1409ee59b00"
+}
