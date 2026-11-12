@@ -180,6 +180,9 @@ REFUSED = {
     "an absolute link target": _changed(links={"core/packages": "/etc"}),
     "a link target that is not there": _changed(links={"core/packages": "store/absent"}),
     "a link over a directory made": _changed(links={"core": "store/packages"}),
+    "a link over a directory made beneath another": _changed(
+        directories=["core", "core/held"], links={"core/held": "store/packages"}
+    ),
     "the search path": _changed(variables={"PATH": "{root}/bin"}),
     "a variable the session already holds": _changed(variables={"BUILD_HELD": "x"}),
     "a variable the harness sets": _changed(variables={"ANTHROPIC_BASE_URL": "http://x"}),
@@ -209,8 +212,13 @@ def test_what_the_harness_cannot_hold_to_the_environment_is_refused(
     tmp_path: Path, why: str
 ) -> None:
     root = _environment(tmp_path, REFUSED[why])
-    with pytest.raises(ToolEnvironmentError, match="session"):
+    raised: BaseException | None = None
+    try:
         _wire(tmp_path, root, taken=("PATH", "ANTHROPIC_BASE_URL", "BUILD_HELD"))
+    except Exception as exc:  # noqa: BLE001 - a refusal must be the domain error, never another
+        raised = exc
+    assert isinstance(raised, ToolEnvironmentError), (why, raised)
+    assert "session file is refused" in str(raised)
     # A refusal leaves the session nothing half-wired to run with.
     assert not (tmp_path / "session" / "bin").exists()
     assert list((tmp_path / "session" / "temp").iterdir()) == []
