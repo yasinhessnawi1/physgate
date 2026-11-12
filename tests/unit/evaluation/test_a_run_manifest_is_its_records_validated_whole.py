@@ -20,6 +20,7 @@ from observe_rig import fake_run, git, target_repo
 from physgate.evaluation.observe.exceptions import ManifestError
 from physgate.evaluation.observe.manifest import BINARY_DEFAULTS, RunManifest, read_manifest
 from physgate.orchestrator.invocation import PINNED_VERSIONS
+from physgate.orchestrator.managed import FlagDrift
 from physgate.orchestrator.run_config import ModelStrings
 
 
@@ -117,3 +118,23 @@ def test_a_commit_the_record_names_that_git_does_not_hold_is_an_error(tmp_path: 
 def test_a_directory_with_no_run_is_a_domain_error(tmp_path: Path) -> None:
     with pytest.raises(ManifestError):
         read_manifest(tmp_path)
+
+
+def test_a_run_whose_sessions_left_no_flag_cache_has_no_count_in_its_manifest(run: Path) -> None:
+    assert read_manifest(run).flag_cache is None
+
+
+def test_the_manifest_counts_the_flag_caches_the_run_s_sessions_left(tmp_path: Path) -> None:
+    run = fake_run(tmp_path, "run-a", target_repo(tmp_path))
+    log = run / "events.jsonl"
+    digests = iter(("8c" * 32, "ca" * 32))
+    lines = []
+    for line in log.read_text().split("\n"):
+        event = json.loads(line) if line else None
+        if event is not None and event["kind"] == "session_ended":
+            # As a session on a pin that fetches the flags is recorded: what its binary held.
+            event["flag_cache"] = {"entries": 1256, "sha256": next(digests)}
+            line = json.dumps(event)
+        lines.append(line)
+    log.write_text("\n".join(lines))
+    assert read_manifest(run).flag_cache == FlagDrift(readings=2, changes=1)

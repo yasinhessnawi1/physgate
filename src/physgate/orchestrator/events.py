@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import io
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, Protocol, TypedDict, TypeVar, cast
@@ -46,7 +46,7 @@ from physgate.orchestrator.escalation import BackendName, Decision
 from physgate.orchestrator.escalation_state import EscalationState
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
 from physgate.orchestrator.install import InstallFacts
-from physgate.orchestrator.managed import ObservedTraffic, SessionManaged
+from physgate.orchestrator.managed import FlagCache, ObservedTraffic, SessionManaged
 from physgate.orchestrator.protocols import (
     GateResult,
     RecordedUnavailableCause,
@@ -347,6 +347,10 @@ class SessionEnded(_Event):
     #: and then not written at all, so a session on an earlier pin is recorded byte for byte
     #: as it was before the field existed.
     observed_traffic: ObservedTraffic | None = Field(default=None, exclude_if=lambda v: v is None)
+    #: The remote feature flags the session's binary held when it ended, counted and
+    #: digested: a record only, since they differ between sessions minutes apart with nothing
+    #: of the run's changed. Not written where there is none, as above.
+    flag_cache: FlagCache | None = Field(default=None, exclude_if=lambda v: v is None)
     #: The digest of the session's specification as the decomposition issued it,
     #: taken before the session was spawned; ``None`` for a plan given directly.
     issued_spec_sha256: Sha256 | None = None
@@ -583,6 +587,13 @@ class Decomposed(_Event):
     #: The binary's served catalog and remote feature flags as the call's debug log
     #: showed them; ``None`` for a run started with no call.
     observed_traffic: ObservedTraffic | None = None
+    #: The flag cache the call left, the run's first reading; not written where none.
+    flag_cache: FlagCache | None = Field(default=None, exclude_if=lambda v: v is None)
+
+
+def flag_cache_readings(events: Iterable[_Event]) -> tuple[FlagCache, ...]:
+    """Every flag cache a run's sessions left, in the order the log holds them."""
+    return ()
 
 
 class WriteIntended(_Event):

@@ -32,10 +32,11 @@ import os
 import re
 import stat
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from physgate.lines import split_lines
 
@@ -187,6 +188,50 @@ class ObservedTraffic(BaseModel):
         return self.served_catalog == "off" and self.feature_flags in ("off", FLAGS_OFF_BY_SETTING)
 
 
+#: Where the binary keeps the remote feature flags it fetched, inside its configuration
+#: directory, and the key they sit under. Measured on 2.1.322 against the real API
+#: (12.11.2026): present after the first session in a fresh directory, about 1,250 entries,
+#: and different between two sessions minutes apart with nothing of ours changed. The debug
+#: log names no flag at all, so this is the only record of them.
+FLAG_CACHE_FILE = ".claude.json"
+FLAG_CACHE_KEY = "cachedGrowthBookFeatures"
+
+
+class FlagCache(BaseModel):
+    """The remote feature flags one session's binary held: how many, and their digest.
+
+    Never a flag's name or value: the cache holds whatever the provider's side put there.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    entries: Annotated[int, Field(ge=0)]
+    #: Of the cache as JSON with its keys sorted, so the order the binary wrote them in
+    #: is no difference.
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
+class FlagDrift(BaseModel):
+    """How often the flag cache differed from one reading of a run to the next."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    #: The sessions of the run that left a flag cache, the decomposition call among them.
+    readings: Annotated[int, Field(ge=0)]
+    #: The readings whose digest was not the one before it.
+    changes: Annotated[int, Field(ge=0)]
+
+
+def flag_cache(config_dir: Path) -> FlagCache | None:
+    """The flag cache an invocation left in its configuration directory, or ``None``."""
+    return None
+
+
+def flag_drift(readings: Iterable[FlagCache | None]) -> FlagDrift | None:
+    """The count of a run's flag-cache readings and of the changes between them."""
+    return None
+
+
 class SessionManaged(BaseModel):
     """What one invocation of a session showed of the conditions it ran under.
 
@@ -200,6 +245,9 @@ class SessionManaged(BaseModel):
     observed_traffic: ObservedTraffic | None
     managed_drift: str | None
     policy_limits_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None
+    #: The flag cache the invocation left: recorded, and never a reason to hold a review.
+    #: Not written where there is none.
+    flag_cache: FlagCache | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 _SERVED = re.compile(r"\[servedCatalog\] (\S+)(?: \(([a-z_]{1,40})\))?")

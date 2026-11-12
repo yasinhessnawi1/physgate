@@ -34,12 +34,13 @@ from physgate.orchestrator.events import (
     Merged,
     RunStarted,
     SessionEnded,
+    flag_cache_readings,
     read_events,
 )
 from physgate.orchestrator.exceptions import GitError, OrchestratorError
 from physgate.orchestrator.git import git
 from physgate.orchestrator.install import InstallFacts
-from physgate.orchestrator.managed import ObservedTraffic
+from physgate.orchestrator.managed import FlagDrift, ObservedTraffic, flag_drift
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.state.exceptions import DesignStateError
 from physgate.state.store import journal_records_after
@@ -307,6 +308,10 @@ class RunManifest(_Frozen):
     #: The binary's served catalog and remote flags as the decomposition call observed them.
     observed_traffic: ObservedTraffic | None
     policy_limits_sha256: Sha256 | None
+    #: How many of the run's sessions left a flag cache, and how often it was not the one
+    #: before: counted, never a halt, since the provider's side changes it between sessions.
+    #: ``None`` for a run whose sessions left none.
+    flag_cache: FlagDrift | None
     environments: tuple[InstallFacts, ...]
     artefacts: ArtefactHashes
 
@@ -474,6 +479,7 @@ def read_manifest(run_dir: Path) -> RunManifest:
             binary_defaults=defaults,
             observed_traffic=decomposed.observed_traffic if decomposed else None,
             policy_limits_sha256=decomposed.policy_limits_sha256 if decomposed else None,
+            flag_cache=flag_drift(flag_cache_readings(events)),
             environments=tuple(e.facts for e in events if isinstance(e, EnvironmentRecorded)),
             artefacts=_artefacts(run_dir, config, events),
         )
