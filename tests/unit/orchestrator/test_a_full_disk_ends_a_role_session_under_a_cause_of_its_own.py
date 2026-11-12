@@ -11,6 +11,13 @@ Only that one event is let through, and only as it was measured: alone after the
 result, of this session, with the binary's own keys and listed values, on a pin measured
 to write it. Anything else after a result is what it always was. 2.1.301 never writes
 the event, so on it the same bytes are a forged tail still.
+
+A stream is something a session can reach, so the event is never taken on its own word.
+It counts only where the harness itself, when the session ended, measured the volumes
+holding the session's records as full. With space to spare there, or with nothing
+measured, the same bytes are a forged tail. A leftover a resume finds was not measured
+when it ended, so its tail is a forged one on every pin. And a full disk is never retried
+in silence: the run halts under that name for a person, and a resume refuses until then.
 """
 
 from __future__ import annotations
@@ -24,10 +31,23 @@ from left_session import INSTALL_BIN, sentinel_installed, spawn_logged
 from loop_fakes import FakeDispatcher, Rig, plan
 from orch_helpers import make_config
 
-from physgate.orchestrator.budget import WRITES_LOST_VERSIONS, SessionEnd, classify_session_end
+from physgate.orchestrator.budget import (
+    DISK_FULL_BELOW_BYTES,
+    WRITES_LOST_VERSIONS,
+    SessionEnd,
+    classify_session_end,
+)
 from physgate.orchestrator.credentials import Credential
-from physgate.orchestrator.dispatch import ClaudeDispatcher, captured_from, tail_owner
-from physgate.orchestrator.events import Incident, InfraRetryScheduled, SessionEnded, read_events
+from physgate.orchestrator.dispatch import ClaudeDispatcher, captured_from, free_bytes, tail_owner
+from physgate.orchestrator.events import (
+    RESUMABLE_HALTS,
+    Halted,
+    Incident,
+    InfraRetryScheduled,
+    SessionEnded,
+    read_events,
+)
+from physgate.orchestrator.exceptions import RunStateError
 from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.trajectory import forged_tail, own_loss_tail
 
@@ -136,14 +156,78 @@ def test_on_a_pin_that_never_writes_the_event_the_same_bytes_are_a_forged_tail()
     assert captured.result == RESULT
 
 
+FULL = 0
+AMPLE = 500 * 1024 * 1024 * 1024
+
+
 @pytest.mark.parametrize("version", ["2.1.272", "2.1.283", "2.1.301", "9.9.9", ""])
 def test_no_pin_but_one_measured_to_write_the_event_has_a_tail_of_its_own(version: str) -> None:
-    assert tail_owner(version, SESSION) is None
+    assert tail_owner(version, SESSION, FULL) is None
 
 
-def test_the_pin_measured_to_write_the_event_reads_it_for_the_session_itself() -> None:
+def test_the_pin_measured_to_write_the_event_reads_it_only_on_a_volume_measured_full() -> None:
     assert frozenset({"2.1.322"}) == WRITES_LOST_VERSIONS
-    assert tail_owner("2.1.322", SESSION) == SESSION
+    assert tail_owner("2.1.322", SESSION, FULL) == SESSION
+    assert tail_owner("2.1.322", SESSION, DISK_FULL_BELOW_BYTES - 1) == SESSION
+
+
+@pytest.mark.parametrize(
+    "free", [AMPLE, DISK_FULL_BELOW_BYTES, DISK_FULL_BELOW_BYTES + 1, None], ids=str
+)
+def test_with_space_to_spare_or_nothing_measured_no_tail_is_the_binary_s(free: int | None) -> None:
+    assert tail_owner("2.1.322", SESSION, free) is None
+    # The exact event, on the pin that writes it, for the session itself: a forged tail.
+    captured = captured_from(NOT_SAVED.encode(), own_tail_of=tail_owner("2.1.322", SESSION, free))
+    assert captured.tampered is not None and "after its result" in captured.tampered
+    assert captured.lost is None
+
+
+def test_the_bound_is_fixed_and_small() -> None:
+    assert DISK_FULL_BELOW_BYTES == 16 * 1024 * 1024
+
+
+def test_the_free_space_is_the_harness_s_own_measurement_of_the_least_volume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    here, there, gone = tmp_path / "here", tmp_path / "there", tmp_path / "gone"
+    here.mkdir()
+    there.mkdir()
+    measured = free_bytes(here)
+    assert measured is not None and measured > 0
+    import os
+
+    real = os.statvfs
+    space = {str(here): (4096, 10), str(there): (512, 3)}
+
+    def statvfs(path: object) -> object:
+        frsize, bavail = space[str(path)]
+
+        class _Volume:
+            f_frsize, f_bavail = frsize, bavail
+
+        return _Volume()
+
+    monkeypatch.setattr(os, "statvfs", statvfs)
+    assert free_bytes(here) == 40960
+    assert free_bytes(here, there) == 1536
+    assert free_bytes(there, here) == 1536
+    # A place that is not there holds no records; with none to measure, nothing is known.
+    assert free_bytes(here, gone) == 40960
+    assert free_bytes(gone) is None
+    assert free_bytes() is None
+    monkeypatch.setattr(os, "statvfs", real)
+
+
+def test_a_volume_that_cannot_be_measured_is_not_a_full_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    def refuses(path: object) -> object:
+        raise PermissionError(13, "denied", str(path))
+
+    monkeypatch.setattr(os, "statvfs", refuses)
+    assert free_bytes(tmp_path) is None
 
 
 def test_a_finished_session_that_lost_its_records_is_infrastructure_under_its_own_cause() -> None:
@@ -190,46 +274,48 @@ def _dispatcher(run_dir: Path, version: str) -> ClaudeDispatcher:
     )
 
 
-def test_a_leftover_that_ends_in_the_binary_s_own_word_is_no_forgery_on_the_pin_that_writes_it(
-    tmp_path: Path,
+@pytest.mark.parametrize("version", ["2.1.322", "2.1.301"])
+def test_a_leftover_that_ends_in_the_binary_s_event_is_a_forged_tail_on_every_pin(
+    tmp_path: Path, version: str
 ) -> None:
+    # No one measured the volume when a leftover ended: nothing bears its tail out.
     run_dir = tmp_path / "run"
     _left(run_dir, SESSION, NOT_SAVED)
-    (left,) = _dispatcher(run_dir, "2.1.322").stop_leftovers()
-    assert left.tampered is None and left.complete is True
+    (left,) = _dispatcher(run_dir, version).stop_leftovers()
+    assert left.tampered is not None and "after its result" in left.tampered
     assert [u.message_id for u in left.usage] == ["m1"]
 
 
-def test_a_leftover_with_the_same_bytes_on_the_earlier_pin_is_a_forged_tail(
+def test_a_full_disk_halts_the_run_under_its_own_name_and_is_never_retried(
     tmp_path: Path,
 ) -> None:
-    run_dir = tmp_path / "run"
-    _left(run_dir, SESSION, NOT_SAVED)
-    (left,) = _dispatcher(run_dir, "2.1.301").stop_leftovers()
-    assert left.tampered is not None and "after its result" in left.tampered
+    rig = Rig(tmp_path, dispatcher=FakeDispatcher(infra={1: "disk_full"}), delays=(0.0, 0.0))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    assert loop.run().kind == "halted"
+    loop.close()
+    events = read_events(tmp_path / "events.jsonl")
+    ended = [e for e in events if isinstance(e, SessionEnded)]
+    assert [e.cause for e in ended] == ["disk_full"] and ended[0].attempt_commit is None
+    # One session, no retry, and no forgery named: the halt carries the cause itself.
+    assert len(rig.dispatcher.requests) == 1
+    assert not [e for e in events if isinstance(e, InfraRetryScheduled)]
+    assert not [e for e in events if isinstance(e, Incident)]
+    (halt,) = [e for e in events if isinstance(e, Halted)]
+    assert halt.reason == "disk_full" and "s1" in halt.detail
 
 
-def test_a_leftover_whose_tail_names_another_session_is_a_forged_tail_on_either_pin(
+def test_a_run_halted_for_a_full_disk_is_resumed_by_no_one_until_a_person_has_looked(
     tmp_path: Path,
 ) -> None:
-    run_dir = tmp_path / "run"
-    _left(run_dir, OTHER, NOT_SAVED)
-    (left,) = _dispatcher(run_dir, "2.1.322").stop_leftovers()
-    assert left.tampered is not None
-
-
-def test_the_loop_retries_a_full_disk_as_infrastructure_and_calls_nothing_a_forgery(
-    tmp_path: Path,
-) -> None:
+    assert "disk_full" not in RESUMABLE_HALTS
     rig = Rig(tmp_path, dispatcher=FakeDispatcher(infra={1: "disk_full"}), delays=(0.0,))
     loop = rig.open()
     loop.start(plan("s1"))
     loop.run()
     loop.close()
-    events = read_events(tmp_path / "events.jsonl")
-    ended = [e for e in events if isinstance(e, SessionEnded)]
-    assert ended[0].cause == "disk_full" and ended[0].attempt_commit is None
-    assert [e for e in events if isinstance(e, InfraRetryScheduled)]
-    assert not [e for e in events if isinstance(e, Incident)]
-    # The retry is the same attempt in a fresh session: no attempt was spent.
-    assert [r.attempt for r in rig.dispatcher.requests[:2]] == [1, 1]
+    again = rig.open()
+    with pytest.raises(RunStateError, match="disk_full"):
+        again.run()
+    again.close()
+    assert len(rig.dispatcher.requests) == 1

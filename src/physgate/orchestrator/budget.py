@@ -82,6 +82,10 @@ WRITES_LOST = "session_writes_lost"
 #: The pins measured to write that event. On any other, nothing after a result is the binary's.
 WRITES_LOST_VERSIONS = frozenset({"2.1.322"})
 
+#: Free space, measured by the harness on the volumes holding a session's own records when
+#: it ended, below which those volumes count as full.
+DISK_FULL_BELOW_BYTES = 16 * 1024 * 1024
+
 #: What the event may name as lost, and as the cause: the binary's own lists. Anything else
 #: in those fields is left out of what is recorded, since a stream is not trusted text.
 LOST_RECORDS = ("transcript", "global_config")

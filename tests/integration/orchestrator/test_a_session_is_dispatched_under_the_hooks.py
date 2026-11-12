@@ -684,6 +684,41 @@ def test_a_tail_after_the_runtime_s_result_is_found_and_not_read(
     assert len(report.usage) == len(reads) + 2  # every read, the spec read, and "done"
 
 
+def test_the_binary_s_full_disk_event_forged_onto_a_stream_with_space_to_spare_is_a_forged_tail(
+    tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As above, the test stands in for a foreign writer; here the tail is the one event a
+    # binary writes after its result when a full disk lost its records, exact in every
+    # field and naming this very session. The volume was not full, so it is a forgery on
+    # every pin, the one that writes such an event included.
+    import physgate.orchestrator.dispatch as dispatch_module
+
+    real_redact = dispatch_module.redact
+
+    def redact_then_append(path: Path, secret: str | None) -> None:
+        real_redact(path, secret)
+        if path.name == "stdout.jsonl":
+            session = path.parent.name
+            event = {
+                "type": "system",
+                "subtype": "session_writes_lost",
+                "error_code": "ENOSPC",
+                "lost": ["transcript"],
+                "transcript_session_ids": [session],
+                "uuid": "0a37ef0a-4f10-4967-bafb-d35df17b58a4",
+                "session_id": session,
+            }
+            with path.open("a") as stream:
+                stream.write(json.dumps(event) + "\n")
+
+    monkeypatch.setattr(dispatch_module, "redact", redact_then_append)
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    assert report.trajectory_tampered is not None, "a forged event was taken on its word"
+    assert report.end.cause != "disk_full"
+
+
 def test_a_clean_stream_is_sealed_as_it_is_on_disk(tmp_path: Path, install_bin: Path) -> None:
     worktree = tmp_path / "run" / "worktrees" / "s1"
     steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]

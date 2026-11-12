@@ -100,6 +100,7 @@ HaltReason = Literal[
     "credential_refused",
     "decomposition_failed",
     "os_layer_unavailable",
+    "disk_full",
 ]
 
 #: Halts a resume continues from, the same attempt with a fresh schedule: the

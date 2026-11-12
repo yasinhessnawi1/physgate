@@ -33,14 +33,15 @@ import subprocess
 import sys
 import uuid
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from plain_session import run_session
 from scripted_endpoint import text, tool
 
-from physgate.orchestrator.budget import writes_lost
-from physgate.orchestrator.dispatch import captured_from
+from physgate.orchestrator.budget import DISK_FULL_BELOW_BYTES, writes_lost
+from physgate.orchestrator.dispatch import captured_from, free_bytes
 from physgate.orchestrator.trajectory import forged_tail
 
 BINARIES = [
@@ -170,6 +171,15 @@ def test_a_full_volume_under_the_transcript_is_read_as_each_pin_says_it(
     role = ended.as_a_role_session()
     assert (role.outcome, role.cause) == ("infrastructure", "disk_full")
     assert ended.forged is None
+    # It is taken because the harness itself measured the records' volume as full, not on
+    # the stream's word: the same stream with space to spare there is a forged tail.
+    assert ended.free is not None and ended.free < DISK_FULL_BELOW_BYTES
+    spare = replace(ended, free=free_bytes(tmp_path))
+    assert spare.free is not None and spare.free > DISK_FULL_BELOW_BYTES
+    assert spare.forged is not None
+    assert spare.as_a_role_session().outcome == "completed"  # and never taken: it is forged
+    unmeasured = replace(ended, free=None)
+    assert unmeasured.forged is not None
     # The same stream with one more line after the binary's word is a forged tail still.
     longer = captured_from((ended.stdout + ended.stdout).encode(), own_tail_of=ended.session_id)
     assert longer.tampered is not None and longer.lost is None

@@ -22,7 +22,7 @@ from physgate.lines import split_lines
 from physgate.orchestrator.budget import SessionEnd, classify_session_end, writes_lost
 from physgate.orchestrator.credentials import write_login
 from physgate.orchestrator.decompose import binary_version, judge, read_stream, schema_refusal
-from physgate.orchestrator.dispatch import Captured, captured_from, tail_owner
+from physgate.orchestrator.dispatch import Captured, captured_from, free_bytes, tail_owner
 from physgate.orchestrator.invocation import isolated_env
 from physgate.reviewers.claude import COMPACT_BOUNDARY, unavailable_end
 
@@ -50,6 +50,8 @@ class Ended:
     exit_code: int
     requests: tuple[Recorded, ...]
     session_id: str
+    #: The least free space on the volumes holding the session's records when it ended.
+    free: int | None = None
 
     @property
     def events(self) -> list[dict[str, Any]]:
@@ -86,7 +88,8 @@ class Ended:
     def _as_dispatch_reads_it(self) -> Captured:
         """The stream as the dispatcher reads a role session's on this pin."""
         return captured_from(
-            self.stdout.encode(), own_tail_of=tail_owner(self.version, self.session_id)
+            self.stdout.encode(),
+            own_tail_of=tail_owner(self.version, self.session_id, self.free),
         )
 
     @property
@@ -205,7 +208,9 @@ def run_session(  # noqa: PLR0913 - one session, with everything it is given
             timeout=180,
         )
         requests = tuple(api.requests)
+        free = free_bytes(work / "config", work / "config" / "projects")
     return Ended(
+        free=free,
         version=version,
         stdout=done.stdout,
         stderr=done.stderr,

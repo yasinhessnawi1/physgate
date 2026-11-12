@@ -387,7 +387,16 @@ class Captured:
     lost: str | None = None
 
 
-def tail_owner(claude_version: str, session_id: str) -> str | None:
+def free_bytes(*places: Path) -> int | None:  # noqa: ARG001 - not read yet
+    """The least free space on the volumes holding ``places``, or ``None`` if unmeasured."""
+    return None
+
+
+def tail_owner(
+    claude_version: str,
+    session_id: str,
+    free: int | None = None,  # noqa: ARG001 - not read yet
+) -> str | None:
     """The session whose own word may follow its result on this pin, or ``None``.
 
     Only a pin measured to write that word has one; on every other, a stream holds nothing
