@@ -14,6 +14,15 @@ dependencies = [
   "platformio==6.2.0",
 ]
 
+# The design roles' libraries: a CAD kernel with its exact wheel named, so the kernel a part is
+# built and measured with is a pin of its own and never whatever the library's range admits.
+[dependency-groups]
+design = [
+  "build123d==0.13.0",
+  "cadquery-ocp-novtk==8.0.1.1.0",
+]
+
 [tool.uv]
 package = false
+default-groups = ["design"]
 exclude-newer = "2026-10-24T00:00:00Z"
