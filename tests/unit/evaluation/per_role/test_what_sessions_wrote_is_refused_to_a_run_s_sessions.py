@@ -315,6 +315,74 @@ def test_a_check_s_session_writes_nowhere_in_the_store_but_its_own_work(
     assert not shell_paths.check(parse(f"echo x > {own / 'worktree' / 'a.txt'}")[0], wt, config)
 
 
+@pytest.mark.parametrize("to", ["the store", "the role's root", "the work root"])
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_a_check_s_write_through_a_link_in_its_own_work_is_refused_before_it_lands(
+    tmp_path: Path, profile: str, to: str
+) -> None:
+    """The check's own work is an allowance, held on the path as written and as resolved.
+
+    A link made in the worktree to the store names a place that is spelt beneath the check's
+    own work and lies outside it. The hook refuses the write itself: the sentinel would undo
+    it only at the next hook event, which a session stopped in between never reaches.
+    """
+    base = tmp_path.resolve()
+    store = base / "private" / "store"
+    (store / "control" / VERSION / "held_out").mkdir(parents=True)
+    own = Path(_api("physgate.evaluation.tiers.store.work_root")(store, "control")) / "check-own"
+    (own / "worktree").mkdir(parents=True)
+    config = _check_config(base, profile, store, own)
+    wt = own / "worktree"
+    target = {
+        "the store": store,
+        "the role's root": store / "control",
+        "the work root": store / "control" / "work",
+    }[to]
+    (wt / "s").symlink_to(target)
+    for spelt in (str(wt / "s" / "copy.json"), "s/copy.json", "./s/copy.json"):
+        assert paths.protection(spelt, str(wt), config, writing=True), (
+            f"a check's {profile} session's file tool may write {spelt} through a link to {to}"
+        )
+    assert shell_paths.check(parse(f"echo x > {wt / 's' / 'copy.json'}")[0], str(wt), config), (
+        f"a check's {profile} session's shell may write through a link to {to}"
+    )
+
+
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_a_check_s_own_work_holds_no_link_on_the_way_to_what_it_writes(
+    tmp_path: Path, profile: str
+) -> None:
+    """A link beneath the check's own work is refused wherever it points, its own work too.
+
+    What a link points at can be changed between the hook's look and the tool's write, so no
+    component of an allowed path beneath the check's work is one; a plain path there, and one
+    not yet made, is written.
+    """
+    base = tmp_path.resolve()
+    store = base / "private" / "store"
+    (store / "control" / VERSION / "held_out").mkdir(parents=True)
+    own = Path(_api("physgate.evaluation.tiers.store.work_root")(store, "control")) / "check-own"
+    wt = own / "worktree"
+    (wt / "notes").mkdir(parents=True)
+    config = _check_config(base, profile, store, own)
+    (wt / "inside").symlink_to(wt / "notes")
+    (wt / "leaf.json").symlink_to(wt / "notes" / "n.json")
+    for place in (wt / "inside" / "n.json", wt / "leaf.json"):
+        assert paths.protection(str(place), str(wt), config, writing=True), (
+            f"a check's {profile} session may write {place.relative_to(wt)}, which is or "
+            "passes a link"
+        )
+    for place in (wt / "notes" / "n.json", wt / "new" / "deep" / "n.json"):
+        assert not paths.protection(str(place), str(wt), config, writing=True)
+    # Nor is its work written by a spelling that lies outside it: a link elsewhere to it.
+    (base / "elsewhere").mkdir()
+    (base / "elsewhere" / "in").symlink_to(wt / "notes")
+    spelt = str(base / "elsewhere" / "in" / "n.json")
+    assert paths.protection(spelt, str(wt), config, writing=True), (
+        f"a check's {profile} session may write its work by a path spelt outside it"
+    )
+
+
 def test_an_exception_beneath_no_protected_root_is_refused(tmp_path: Path) -> None:
     base = tmp_path.resolve()
     for d in ("wt", "outside/state", "outside/session", "outside/config", "outside/home"):

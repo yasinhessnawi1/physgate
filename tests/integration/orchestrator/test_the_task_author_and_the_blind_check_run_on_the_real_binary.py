@@ -132,7 +132,7 @@ def _setup(install_bin: Path, url: str, root: Path) -> RawSetup:
         bounds=RunBounds(
             binary_max_retries=0,
             session_wall_clock_s=60.0,
-            session_max_turns=10,
+            session_max_turns=20,
             infra_retry_delays_s=(),
         ),
         credential=Credential("api_key", DUMMY_KEY),
@@ -253,11 +253,16 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
         store / "planted.json",
         store / "firmware" / "planted.json",
     ]
+    link = work / "worktree" / "s"
     steps = [
         tool("Read", file_path=str(work / "worktree" / "tasks.json")),
         tool("Read", file_path=str(store / "firmware" / "withheld" / "item.json")),
         *[tool("Write", file_path=str(p), content='{"a": "copy"}') for p in planted],
         tool("Bash", command=f"cp {work}/worktree/tasks.json {root}/planted.sh", description="x"),
+        # A link to the store, made in the check's own worktree with a target built at run
+        # time, then a write through it: spelt beneath the check's own work, landing outside.
+        tool("Bash", command=f"d=$(printf ..); ln -s $d/$d/$d/$d {link}", description="x"),
+        tool("Write", file_path=str(link / "through_link.json"), content='{"a": "copy"}'),
         tool(
             "Write", file_path=str(work / "worktree" / "answers.json"), content=json.dumps(answers)
         ),
@@ -277,10 +282,18 @@ def test_a_blind_check_answers_in_booleans_on_its_tasks_file(
         )
         argv_prompt = api.requests[0].last_user if api.requests else ""
         told = " ".join(r.last_user for r in api.requests)
+        said = " ".join(f"{r.last_user} {r.after_user}" for r in api.requests)
     assert out["answered"] and out["tasks"] == 8 and out["flagged"] == [keys[0]]
     assert "Hold the unstable plant" not in argv_prompt
     assert OTHER_TIER not in told, "the check read another role's root"
     assert not [p for p in [*planted, root / "planted.sh"] if p.exists()], (
         "the check's session wrote in the store outside its own work"
     )
+    # The write through the link was refused before it landed, by the hook and for the store's
+    # reason: one that landed and was moved away at the next hook event would not be told so.
+    streams = " ".join(p.read_text() for p in (root / "withheld").rglob("stdout.jsonl"))
+    assert "through_link.json is protected" in said + streams, (
+        "the check's write through a link in its own worktree was not refused by the hook"
+    )
+    assert not (store / "through_link.json").exists()
     assert not work.exists()
