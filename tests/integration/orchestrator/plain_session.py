@@ -141,11 +141,13 @@ def run_session(  # noqa: PLR0913 - one session, with everything it is given
     subscription: bool = False,
     on_request: Callable[[str, str, int], dict[str, Any] | None] | None = None,
     prepare: Callable[[Path], None] | None = None,
+    permission_mode: str = "bypassPermissions",
 ) -> Ended:
     """Run one session in ``work`` on the scripted ``steps`` and return how it ended.
 
     ``env`` is added to, or replaces, what the pin's sessions get; ``prepare`` is given the
     session's directory once its ``home``, ``config`` and ``cwd`` exist, before it starts.
+    ``permission_mode`` is every harness session's unless a row measures another.
     """
     version = binary_version(binary)
     for name in ("home", "config", "cwd"):
@@ -195,7 +197,7 @@ def run_session(  # noqa: PLR0913 - one session, with everything it is given
             "--max-turns",
             str(max_turns),
             "--permission-mode",
-            "bypassPermissions",
+            permission_mode,
         ]
         done = subprocess.run(
             argv,
