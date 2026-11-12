@@ -23,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from ui_library_rig import STANDARDS_CANDIDATE, build_library
 from ui_rig import context_over, evaluation_rig, fake_ui, sealed_session, serving
 
 from physgate.orchestrator.protocols import QuantityRef
@@ -53,6 +54,8 @@ class World:
     roots: tuple[Path, ...]
     #: The fixture build.
     ui: Path
+    #: The fixture library, so the library's routes have a record to serve too.
+    library: Path
 
 
 @pytest.fixture(scope="module")
@@ -86,7 +89,12 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> World:
             "held_out_sha256": tuple(_digest(r.name) for r in roots),
         },
     )
-    return World(runs=runs, roots=roots, ui=fake_ui(base / "checkout"))
+    return World(
+        runs=runs,
+        roots=roots,
+        ui=fake_ui(base / "checkout"),
+        library=build_library(base / "checkout").root,
+    )
 
 
 def _tier_strings(world: World) -> list[str]:
@@ -104,7 +112,8 @@ def _tier_strings(world: World) -> list[str]:
 def _serve(world: World, *targets: str) -> list[tuple[str, int, bytes]]:
     held_out = tuple(str(r) for r in world.roots)
     answers = []
-    with serving(context_over(world.runs, ui_root=world.ui, held_out=held_out)) as live:
+    context = context_over(world.runs, ui_root=world.ui, held_out=held_out, library=world.library)
+    with serving(context) as live:
         for target in targets:
             status, _, body = live.request("GET", target)
             answers.append((target, status, body))
@@ -148,6 +157,9 @@ def _valid(world: World) -> dict[str, str]:
         "revision": "1",
         "round": "2",
         "node": journal_records_after(run_dir / "store", 0)[-1].node_id,
+        "library_file": "standards",
+        "role": "control",
+        "candidate": STANDARDS_CANDIDATE,
     }
 
 
