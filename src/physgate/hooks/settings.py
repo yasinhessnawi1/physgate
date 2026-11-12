@@ -293,8 +293,8 @@ def _startup_watch(site_packages: Path) -> tuple[str, ...]:
 def _is_the_installing_user_s_home(home: Path) -> bool:
     """True where a session is given the home of the user installing it, not a scratch one.
 
-    Other sessions of that user write its ``.claude`` all day, and it holds far more than a
-    hook could compare at every call: it is left to the two named files, as before.
+    That home's ``.claude`` is the user's own Claude Code directory, which their other
+    sessions read and write: it is left to the two named files, as before.
     """
     try:
         return home.resolve() == Path.home().resolve()
@@ -370,7 +370,11 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         installation.package_dir: (hook_code, "halt"),
         installation.environment_root: (hook_code, "halt"),
         installation.base_prefix: (hook_code, "halt"),
-        # Other sessions on the machine write this legitimately.
+        # Other sessions on the machine write these legitimately.
+        str(home / ".claude" / "settings.json"): (
+            "it is the user's Claude Code settings, which later sessions read",
+            "log",
+        ),
         str(home / ".claude.json"): (
             "it is the user's Claude Code state, which later sessions read",
             "log",
@@ -407,20 +411,17 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         request.state_dir: "shell_denied",
         request.claude_config_dir: "shell_denied",
     }
-    if _is_the_installing_user_s_home(home):
-        # Other sessions on the machine write it legitimately.
-        protected[str(home / ".claude" / "settings.json")] = (
-            "it is the user's Claude Code settings, which later sessions read",
-            "log",
-        )
-    else:
+    if not _is_the_installing_user_s_home(home):
         # A scratch home is the session's own to write, all but the one directory in it the
-        # binary reads a user's skills, mods, commands and settings from: a file a session
-        # left there is a file a later version may load. Whole, both ways, on every route,
-        # the settings file with the rest. Measured on 2.1.301 and 2.1.322: the binary itself
-        # writes nothing there while its configuration directory is elsewhere, and no other
-        # session has this home, so whatever appears is put back.
-        protected[str(home / ".claude")] = (HOME_CLAUDE_REASON, "revert")
+        # binary treats as a user's own: skills, mods, commands and settings a user keeps are
+        # read from a directory of that name, and a file a session left there is a file a
+        # later version may load. Whole, both ways, for every tool and every command.
+        # Refused before a write and never put back: inside the OS layer the runtime itself
+        # makes directories there before a shell command (measured on macOS, 12.11.2026:
+        # 2.1.301 makes ``.claude`` and ``bridge-spawn`` in it, 2.1.322 those and ``ssh``,
+        # with other modes), as it writes its configuration directory. A write a script
+        # builds at run time is the OS layer's to deny.
+        protected[str(home / ".claude")] = (HOME_CLAUDE_REASON, "none")
         reads[str(home / ".claude")] = "denied"
     reaper_on = request.os_layer_temp_dir is not None and reaper_install.wanted()
     if reaper_on:
