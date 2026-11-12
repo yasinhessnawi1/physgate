@@ -127,3 +127,54 @@ def test_nothing_is_made_in_the_git_directory_through_a_link_or_beneath_a_missin
     bare.mkdir(parents=True)
     runtime_git_paths(bare, "2.1.322")  # no objects/info to make the third beneath
     assert _entries(bare) == ["branches", "remotes"]
+
+
+#: On Linux (bubblewrap, CI, 12.11.2026) 2.1.322 leaves four more entries there: three marker
+#: directories of its own, each 0755, and an empty ``alternates`` file, 0644.
+LINUX_MORE = {
+    "info/.claude-sandbox-noreplace": "dir 0o755",
+    "objects/info/.claude-sandbox-noreplace": "dir 0o755",
+    "objects/info/alternates": "file 0o644 0",
+    "objects/info/commit-graphs/.claude-sandbox-noreplace": "dir 0o755",
+}
+
+
+def _kinds(top: Path) -> dict[str, str]:
+    found = {}
+    for path in sorted(top.rglob("*")):
+        name = str(path.relative_to(top))
+        if path.is_dir():
+            found[name] = f"dir {oct(_mode(path))}"
+        else:
+            found[name] = f"file {oct(_mode(path))} {path.stat().st_size}"
+    return found
+
+
+def test_on_linux_2_1_322_s_four_further_entries_are_made_first_too(tmp_path: Path) -> None:
+    git_dir = _git_dir(tmp_path)
+    (git_dir / "info").mkdir()
+    runtime_git_paths(git_dir, "2.1.322", platform="linux")
+    expected = {
+        "info": "dir 0o755",
+        "objects": "dir 0o755",
+        "objects/info": "dir 0o755",
+        **dict.fromkeys(GIT_MADE, "dir 0o755"),
+        **LINUX_MORE,
+    }
+    made = _kinds(git_dir)
+    assert {name: made.get(name) for name in LINUX_MORE} == LINUX_MORE
+    assert sorted(made) == sorted(expected)
+
+
+def test_on_macos_none_of_linux_s_further_entries_is_made(tmp_path: Path) -> None:
+    git_dir = _git_dir(tmp_path)
+    (git_dir / "info").mkdir()
+    runtime_git_paths(git_dir, "2.1.322", platform="darwin")
+    assert sorted(_kinds(git_dir)) == sorted([*GIT_MADE, "info", "objects", "objects/info"])
+
+
+def test_an_alternates_file_already_there_keeps_its_bytes(tmp_path: Path) -> None:
+    git_dir = _git_dir(tmp_path)
+    (git_dir / "objects" / "info" / "alternates").write_text("/elsewhere/objects\n")
+    runtime_git_paths(git_dir, "2.1.322", platform="linux")
+    assert (git_dir / "objects" / "info" / "alternates").read_text() == "/elsewhere/objects\n"

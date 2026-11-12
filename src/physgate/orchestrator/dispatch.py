@@ -31,6 +31,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import sysconfig
 import time
 import uuid
@@ -936,7 +937,7 @@ RUNTIME_GIT_DIRECTORIES: dict[str, tuple[tuple[tuple[str, ...], int], ...]] = {
 }
 
 
-def runtime_git_paths(git_dir: Path, claude_version: str) -> None:
+def runtime_git_paths(git_dir: Path, claude_version: str, platform: str = sys.platform) -> None:
     """Make what the runtime of ``claude_version`` makes in a repository's git directory.
 
     The git directory is a root every session's end is held to: a session whose runtime made
