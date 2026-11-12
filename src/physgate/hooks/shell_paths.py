@@ -199,21 +199,29 @@ STARTUP_ENV = (
     "hands a shell a startup file. Run the shell without it."
 )
 #: The variables that name a file a shell reads as it starts. ``BASH_ENV`` has no other use,
-#: and bash reads it however deep it is started (a recipe, a script's interpreter line), so
-#: any command that sets it is refused. ``ENV`` is an everyday name in other programs'
-#: environments (``ENV=production make``), so it is refused only where the command it is set
-#: for is itself a shell.
+#: and bash reads it however deep it is started (a recipe, a script's interpreter line), so a
+#: command that sets it by name is refused whatever it runs. ``ENV`` is an everyday name in
+#: other programs' environments (``ENV=production make``), so it is refused only where the
+#: command it is set for is itself a shell this hook knows by name.
 _STARTUP_ENV_ALWAYS = ("BASH_ENV",)
 _STARTUP_ENV_FOR_A_SHELL = ("ENV",)
 
 
 def _sets_a_startup_file(cmd: SimpleCommand) -> str | None:
-    """The startup-file variable ``cmd`` sets for a shell, if it sets one.
+    """The startup-file variable ``cmd`` sets for a shell by name, if it sets one.
 
-    Looked for where a command gives a variable to what it runs: its prefix assignments,
-    the assignments a wrapper carries (``env NAME=… sh``), and the words of ``export`` and
-    its kin. An ``export ENV=…`` is let through: whether a later command of the call is a
-    shell that would read it cannot be told from the words, and the variable is ordinary.
+    Looked for where a command's own words give a variable to what it runs: its prefix
+    assignments, the assignments a wrapper carries (``env NAME=… sh``), and the words of
+    ``export`` and its kin, each with the name written out.
+
+    **This is a rule on the words, and not a bound.** It does not see a name built as the
+    command runs (``export $X=…``, ``declare -n``), a wrapper's own string of words
+    (``env --split-string``), a command another program starts (``xargs``, ``find -exec``,
+    ``timeout``), a shell under another name (``busybox sh``, ``exec -a``), or an ``ENV``
+    exported for a later command. Each of those passes this hook. What bounds them is the
+    sandbox: a command's environment ends with the command and reaches no shell the binary
+    starts outside it (held by a row through the real binary), so the file such a variable
+    names runs inside the sandbox or not at all.
     """
     argv = unwrap(cmd.argv)
     wrappers = cmd.argv[: len(cmd.argv) - len(argv)]

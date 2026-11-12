@@ -434,6 +434,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         # path, an alias, a program to run) holds for every later git command the session
         # runs. The session's environment is built without XDG_CONFIG_HOME, so git looks in
         # ``$HOME/.config/git``; that directory also holds git's user attributes and ignore.
+        # The raw agent's stays writable: it is measured without the harness's discipline
+        # over git, and what a configuration there names runs only when the session's own
+        # commands run git, inside the sandbox; the binary runs none of it outside (measured
+        # through the real binary, by a row of its own).
         for git_config in (home / ".gitconfig", home / ".config" / "git"):
             protected[str(git_config)] = (GIT_USER_CONFIG_REASON, "revert")
     if request.profile in ("role", "baseline"):
@@ -825,9 +829,9 @@ def install(
     if request.profile in OWN_TEMP_PROFILES:
         # Before anything is written: the binary's snapshot step sources the home's startup
         # files outside the sandbox, once, as the session starts.
-        if os.path.realpath(request.user_home) == os.path.realpath(os.path.expanduser("~")):
-            # The harness holds a place in the home it gives a session, and judges what the
-            # home holds: never in the home of whoever runs the install.
+        # The harness holds a place in the home it gives a session, and judges what the
+        # home holds: never in the home of whoever runs the install.
+        if shell_startup.own_home_refusal(request.user_home) is not None:
             msg = (
                 f"a {request.profile} session is installed only with a home of its own, and "
                 f"{request.user_home} is the home of the user who runs the install"

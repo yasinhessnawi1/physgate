@@ -38,8 +38,10 @@ Four things close it, each on its own:
   refused at the install and again at the spawn, which holds the directories' places first.
 
 A session's own commands run inside the sandbox, and nothing they export reaches the binary's
-environment. The shell hook still refuses a command that hands a shell a startup file by
-``BASH_ENV``, or by ``ENV`` where the command it prefixes is a shell (``shell_paths``).
+environment or any shell it starts for a later command (held by a row through the real binary).
+The shell hook also refuses a command whose words set ``BASH_ENV``, or ``ENV`` for a command
+that is itself a shell (``shell_paths``): a rule on the words, which an indirect form passes,
+and not what bounds them.
 """
 
 from __future__ import annotations
@@ -146,10 +148,17 @@ def zdotdir_refusal(path: str, home: str) -> str | None:
     return None
 
 
-def spawn_refusal(env: Mapping[str, str]) -> str | None:
-    """Why a session is not spawned with ``env``; ``None`` when no startup file can reach it.
+def own_home_refusal(home: str) -> str | None:
+    """Why ``home`` is no session's: it is the home of the user this process runs as."""
+    if os.path.realpath(home) == os.path.realpath(os.path.expanduser("~")):
+        return f"{home} is the home of the user who runs the harness, and no session's own"
+    return None
 
-    Held at the spawn itself, on the environment the binary gets, whoever built it.
+
+def environment_refusal(env: Mapping[str, str]) -> str | None:
+    """Why a session is not spawned with ``env``, whatever its home holds; ``None`` otherwise.
+
+    Everything that can be judged before anything is made in the home the environment names.
     """
     named = [name for name in ENV_FILES if name in env]
     if named:
@@ -166,4 +175,18 @@ def spawn_refusal(env: Mapping[str, str]) -> str | None:
             f"the session's environment sets no {ZDOTDIR}, so zsh would read its startup "
             "files from the home, which the session's commands write"
         )
-    return zdotdir_refusal(where, home) or home_refusal(home)
+    return own_home_refusal(home) or zdotdir_refusal(where, home)
+
+
+def held_or_refused(env: Mapping[str, str]) -> str | None:
+    """Hold the startup files' places in the session's home, or say why it is not spawned.
+
+    Held at the spawn itself, on the environment the binary gets, whoever built it. The
+    environment is judged first, and nothing is made in the home of one that is refused; then
+    the places are held, where the home was made after the install; then the home is judged.
+    """
+    refused = environment_refusal(env)
+    if refused is not None:
+        return refused
+    hold(env["HOME"])
+    return home_refusal(env["HOME"])
