@@ -24,6 +24,7 @@ from typing import Any
 
 import pytest
 from orch_helpers import SCRIPTED_BOUNDS, make_config
+from pydantic import ValidationError
 from test_the_physgate_command_starts_and_decides import PARAMS, fake_binary
 
 from physgate.orchestrator import cli, dispatch
@@ -168,6 +169,7 @@ def test_a_run_that_names_none_records_what_it_did_before_the_field_existed(
     assert b"tool_environment" not in config.canonical_bytes()
     path = tmp_path / "run.json"
     write_run_config(path, config)
+    assert b"tool_environment" not in path.read_bytes()
     loaded = load_run_config(path)
     assert loaded.tool_environment is None and loaded.sha256() == config.sha256()
 
@@ -232,10 +234,13 @@ def test_a_new_run_s_configuration_measures_the_environment_its_parameters_name(
     assert given["run_dir"] == (tmp_path / "run").resolve()
     assert given["target"] == Path(__file__).resolve().parents[3]
     assert given["harness"] == cli._harness_root()
-    # Named null, or not named at all: no environment, and nothing is measured.
+    # Named null: no environment, and nothing is measured.
     assert configured({**PARAMS, "tool_environment": None}).tool_environment is None
-    assert configured(dict(PARAMS)).tool_environment is None
     assert len(asked) == 1
+    # Not named at all: not a complete configuration, as for every other input of a run.
+    with pytest.raises(ValidationError) as missing:
+        configured({k: v for k, v in PARAMS.items() if k != "tool_environment"})
+    assert missing.value.errors()[0]["loc"] == ("tool_environment",)
     with pytest.raises(RunConfigError, match="tool environment"):
         configured({**PARAMS, "tool_environment": {**named, "manifest_digest": "0" * 64}})
 

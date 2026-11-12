@@ -42,6 +42,7 @@ from physgate.orchestrator.protocols import Usage
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig
 from physgate.oslayer.probe import Present
+from physgate.toolenv.record import Distribution, ToolEnvironment
 
 TASK = parse_task(json.dumps(own_task()).encode())
 MODEL = "claude-opus-5-5"
@@ -505,6 +506,27 @@ def test_a_harness_run_that_is_not_clean_or_not_reportable_is_named(
     run = _harness_run(tmp_path, config=_config(**changes))
     found = differences(run, _raw_dir(tmp_path), role="control", task=TASK)
     assert sorted(f.split(":", 1)[0] for f in found) == named
+
+
+def test_a_harness_run_that_named_a_tool_environment_is_named(tmp_path: Path) -> None:
+    """The raw arm is given no tool environment, so a run that had one is no arm to pair it with."""
+    environment = ToolEnvironment(
+        interpreter="/opt/tools/env/bin/python3",
+        resolved="/opt/tools/env/bin/python3.12",
+        python_version="3.12.9",
+        prefix="/opt/tools/env",
+        distributions=(Distribution(name="control", version="0.10.1"),),
+        native_tools=(),
+        roots=("/opt/tools/env",),
+        manifest_digest="a" * 64,
+        entries=1,
+        total_bytes=0,
+    )
+    run = _harness_run(
+        tmp_path, config=_config(tool_environment=environment.model_dump(mode="json"))
+    )
+    found = differences(run, _raw_dir(tmp_path), role="control", task=TASK)
+    assert [f.split(":", 1)[0] for f in found] == ["tool_environment"]
 
 
 def test_both_arms_canaries_are_compared_as_digests(tmp_path: Path) -> None:

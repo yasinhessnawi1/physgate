@@ -379,8 +379,8 @@ class RunConfig(_Frozen):
     #: tool with its version, the roots, and one digest over every file. The parameters name
     #: the interpreter, the roots and the tools, or nothing. Held to this record before every
     #: session. ``None`` for a run that names none, which is what a run recorded before the
-    #: field existed did; such a run's record is unchanged, so the field has this one default.
-    tool_environment: ToolEnvironment | None = None
+    #: field existed did, and reads so.
+    tool_environment: ToolEnvironment | None
 
     @model_validator(mode="after")
     def _the_binding_is_a_backend_that_ships(self) -> RunConfig:
@@ -612,6 +612,8 @@ def load_run_config(path: Path) -> RunConfig:
         ("os_layer_absent", "refuse"),
         # Recorded before the field existed: no plan was reviewed.
         ("design_review", "off"),
+        # Recorded before the field existed: no tool environment was named.
+        ("tool_environment", None),
     ):
         if isinstance(recorded, dict) and name not in recorded:
             # Recorded before the field existed: nothing was held out, the network was open

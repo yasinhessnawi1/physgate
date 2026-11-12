@@ -32,6 +32,7 @@ PARAMS = {
     "max_output_tokens": 64000,
     "thinking_display": "summarized",
     "role_python": None,
+    "tool_environment": None,
     "escalation_backend": "rules",
     "queue_decisions": "record",
     # The stand-in binary predates the OS layer's pin, so the layer is absent here.

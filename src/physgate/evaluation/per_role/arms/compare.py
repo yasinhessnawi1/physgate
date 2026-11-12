@@ -129,6 +129,26 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     # Whether the run may go on where the OS layer is absent; the layer each arm ran
     # with is compared (``os_layer``), and a reportable run allows no absence.
     "os_layer_absent": "not_compared",
+    # The raw arm is given no tool environment and records none, so a harness run that
+    # named one computed and built with tools its baseline lacked: it must name none, and
+    # a pair whose harness run names one is named whatever the raw arm did.
+    "tool_environment": "required",
+    "tool_environment.interpreter": "required",
+    "tool_environment.resolved": "required",
+    "tool_environment.python_version": "required",
+    "tool_environment.prefix": "required",
+    "tool_environment.distributions": "required",
+    "tool_environment.distributions.name": "required",
+    "tool_environment.distributions.version": "required",
+    "tool_environment.native_tools": "required",
+    "tool_environment.native_tools.name": "required",
+    "tool_environment.native_tools.path": "required",
+    "tool_environment.native_tools.resolved": "required",
+    "tool_environment.native_tools.version": "required",
+    "tool_environment.roots": "required",
+    "tool_environment.manifest_digest": "required",
+    "tool_environment.entries": "required",
+    "tool_environment.total_bytes": "required",
 }
 
 #: Every pin the raw arm's record carries. Each is compared below; one the record lacks,
@@ -332,6 +352,11 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
         found.append("reportable: the harness run is not reportable; no baseline is held to it")
     if not config.harness.clean:
         found.append("harness: the harness run's checkout was not clean")
+    if config.tool_environment is not None:
+        found.append(
+            "tool_environment: the harness run named a tool environment, and the raw arm is "
+            "given none"
+        )
     if hashlib.sha256(task.brief.encode()).hexdigest() != config.brief_sha256:
         found.append("brief: the harness run was not given this task's brief")
     if record.get("task") != task.id:

@@ -32,6 +32,7 @@
  "max_output_tokens": 64000,
  "thinking_display": "summarized",
  "role_python": null,
+ "tool_environment": null,
  "escalation_backend": "rules",
  "queue_decisions": "record",
  "os_layer_absent": "refuse",

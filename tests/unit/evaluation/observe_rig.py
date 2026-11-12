@@ -114,6 +114,7 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         "max_output_tokens": 64000,
         "thinking_display": "summarized",
         "role_python": None,
+        "tool_environment": None,
         "git_binary": None,
         "escalation_backend": "rules",
         "queue_decisions": "record",
