@@ -344,7 +344,9 @@ def test_what_a_taken_line_on_a_part_is_refused_for(tmp_path: Path) -> None:
         acts=False,
         why_not="record_only_source",
     )
-    assert NOT_A_CHOICE in refusal(tmp_path, [*log, approve])
+    said = refusal(tmp_path, [*log, approve])
+    assert NOT_A_CHOICE in said
+    assert "choice of have, make or find" in said  # refused as no choice, not as a bad one
     assert "taken once" in refusal(tmp_path, [*log, taken(log, 1), taken(log, 1)])
 
 
