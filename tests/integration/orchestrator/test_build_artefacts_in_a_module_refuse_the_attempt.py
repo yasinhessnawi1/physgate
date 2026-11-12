@@ -98,6 +98,7 @@ def test_a_build_directory_in_the_module_is_named_once_with_its_size(
         f"{MODULE}/notes/hex.md",
         f"{MODULE}/elf.py",
         f"{MODULE}/pio/readme.md",
+        f"{MODULE}/.pio",
         f"{MODULE}/x.pio/readme.md",
         f"{MODULE}/.pioneer/readme.md",
         f"{MODULE}/firmware.hex.md",

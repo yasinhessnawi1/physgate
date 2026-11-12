@@ -248,10 +248,8 @@ def write_scope_violations(
         if disputes and path.parent == DISPUTES and change.new_mode in (_REGULAR, _ABSENT):
             continue
         found.append(f"{change.path} (outside {module_dir})")
-    found += [
-        f"{tree}/ ({BUILD_DIRECTORY}, {count} files)" for tree, count in sorted(trees.items())
-    ]
-    built.sort()
+    # Both in the order git lists changes, which is by path.
+    found += [f"{tree}/ ({BUILD_DIRECTORY}, {count} files)" for tree, count in trees.items()]
     found += [f"{path} ({BUILD_ARTEFACT})" for path in built[:MAX_ARTEFACTS_NAMED]]
     if len(built) > MAX_ARTEFACTS_NAMED:
         rest = len(built) - MAX_ARTEFACTS_NAMED
