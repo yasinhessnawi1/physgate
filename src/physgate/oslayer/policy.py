@@ -232,6 +232,12 @@ def sandbox_policy(
     return OsPolicy(settings=settings, absent_named=tuple(sorted(absent_named)))
 
 
+def serial_devices(platform: str) -> tuple[str, ...]:
+    """The serial devices no command on ``platform`` opens: none are named yet."""
+    del platform
+    return ()
+
+
 def _spelled(*paths: str) -> list[str]:
     """Each path as given and where it really is, when the two differ.
 
