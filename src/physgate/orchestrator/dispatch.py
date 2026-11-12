@@ -923,6 +923,10 @@ def runtime_paths(worktree: Path, home: Path) -> None:
         os.close(fd)
 
 
+def runtime_git_paths(git_dir: Path, claude_version: str) -> None:
+    """Make what the runtime of ``claude_version`` makes in a repository's git directory."""
+
+
 class Installed(BaseModel):
     """What the hook layer's installer prints: its files and how to spawn the session."""
 
