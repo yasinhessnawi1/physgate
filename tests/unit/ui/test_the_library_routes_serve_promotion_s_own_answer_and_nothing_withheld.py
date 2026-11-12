@@ -144,9 +144,6 @@ def _every_target() -> list[str]:
     return [LISTING, STAGED, RATINGS, *files, *candidates]
 
 
-NO_LAWS = LawTable(laws={}, sha256="", path="")
-
-
 def _row(listing: dict[str, Any], kind: str, role: str) -> dict[str, Any]:
     rows = [d for d in listing["documents"] if (d["kind"], d["role"]) == (kind, role)]
     assert len(rows) == 1, (kind, role, listing["documents"])
@@ -362,7 +359,7 @@ def test_the_ratings_carry_every_value_with_its_unit_and_its_source(
     for store, served in zip(STORE_CLASSES, sent, strict=True):
         assert served["fastest_discharge"] == {"value": store.per_hour, "unit": "1/h"}
         assert served["source"] == store.source
-    assert answer["catalogue_digest"] == catalogue_digest(NO_LAWS)
+    assert answer["catalogue_digest"] == catalogue_digest(LawTable(laws={}, sha256="", path=""))
 
 
 def test_with_no_library_every_library_route_answers_404(world: dict[str, Any]) -> None:

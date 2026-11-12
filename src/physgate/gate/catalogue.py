@@ -1097,6 +1097,15 @@ def catalogue_digest(laws: LawTable) -> str:
     reproduced. An empty table adds nothing, so the digest of a gate with no law is the
     catalogue's alone, as it was before laws existed; any law moves it.
     """
+    return _digest_of(laws.content() if laws.laws else None)
+
+
+def catalogue_alone_digest() -> str:
+    """The digest of the catalogue with no law table: :func:`catalogue_digest` of an empty one."""
+    return _digest_of(None)
+
+
+def _digest_of(laws_content: Any) -> str:
     content: dict[str, Any] = {
         "kinds": [KINDS[k].model_dump() for k in sorted(KINDS)],
         "quantities": [QUANTITIES[q].model_dump() for q in sorted(QUANTITIES)],
@@ -1108,7 +1117,7 @@ def catalogue_digest(laws: LawTable) -> str:
         "qualifiers": list(QUALIFIERS),
         "either_angle": [[key, list(powers)] for key, powers in sorted(EITHER_ANGLE.items())],
     }
-    if laws.laws:
-        content["laws"] = laws.content()
+    if laws_content is not None:
+        content["laws"] = laws_content
     canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
