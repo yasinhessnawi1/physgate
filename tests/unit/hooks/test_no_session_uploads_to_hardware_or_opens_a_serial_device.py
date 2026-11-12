@@ -295,7 +295,7 @@ NOT_RELATIVE = [
     (None, "cd bus && ls"),
     (None, "cd ./a && cd .. && ls src"),
     (None, "cd .. && ls src"),
-    (None, "cd ../other && cat dev/tty.c"),
+    (None, "cd ../other && cat src/main.c"),
     (None, "CDPATH=/ cd dev && cat x"),
 ]
 

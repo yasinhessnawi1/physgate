@@ -43,12 +43,14 @@ pattern is read as every word it becomes.
 **A relative name is read from where the command could be.** Without a move that is the
 call's own directory, as it resolves. One move is followed, when it is the call's only one
 and its target is written from a known place (an absolute path, or one that starts with
-``./`` or ``../``): the command is then there, or still where it started. Anything else is
-not followed: a second move (the parser keeps no order in which two could be told apart), a
-bare relative target (the shell's search path for ``cd`` may send it anywhere), a target only
-running decides. After one of those the command could be anywhere, the devices' directories
-and the root among them, so a relative name that would be a device from one of those is
-refused. A followed move into a directory of devices is refused outright. The cost is a
+``./``) and does not climb: the command is then there, or still where it started. Anything
+else is not followed: a second move (the parser keeps no order in which two could be told
+apart), a bare relative target (the shell's search path for ``cd`` may send it anywhere), a
+target with ``..`` in it (the shell climbs from the directory as it was named, the kernel
+from where it really is), a target only running decides. After one of those the command
+could be anywhere, the devices' directories and the root among them, so a relative name that
+would be a device from one of those is refused. A followed move into a directory of devices
+is refused outright. The cost is a
 false refusal of ``cd firmware && cc usb/x.c`` where a ``usb`` directory exists: name the
 file from where the call starts.
 
@@ -390,8 +392,8 @@ def places_of(commands: Sequence[SimpleCommand], cwd: str) -> tuple[list[str], b
     """Every directory a call's commands could be in, and whether a move enters the devices.
 
     The call's own directory, as it resolves; the target of an absolute move; the target of
-    the call's only move when it is written from that directory (``./``, ``../``); and the
-    places of :data:`_ANYWHERE` once any other move is made.
+    the call's only move when it is written from that directory (``./``) and does not climb;
+    and the places of :data:`_ANYWHERE` once any other move is made.
     """
     here = _normal(os.path.realpath(cwd))
     places = [here]
@@ -403,8 +405,12 @@ def places_of(commands: Sequence[SimpleCommand], cwd: str) -> tuple[list[str], b
             anywhere = True
             continue
         assert isinstance(target, str)
-        from_here = len(targets) == 1 and (
-            target in (".", "..") or target.startswith(("./", "../"))
+        # A target that climbs is never followed: the shell climbs from the directory as
+        # it was named, the kernel from where it really is, and only one of them is known.
+        from_here = (
+            len(targets) == 1
+            and (target == "." or target.startswith("./"))
+            and ".." not in target.split("/")
         )
         if target.startswith("/"):
             reached = [_normal(target)]
