@@ -55,6 +55,27 @@ status = "warn"
 approved = { candidate_id = "c910034318894f3facaa68dff0d58293", date = 2026-11-12 }
 
 [[law]]
+id = "overall_gear_ratio_product"
+statement = "a drive's overall gear ratio, from the motor shaft to its last output, is the ratio of the gearmotor's built-in gearbox times the ratio of the external stage after it"
+expression = "N == G * E"
+pattern = "node"
+anchor = "N"
+tolerance = "rounding"
+overlaps = "none"
+idealisation = "one drive train on one node: a gearmotor whose built-in gearbox ratio is gear_ratio, followed by exactly one added stage (or one added train written as one figure) whose ratio is external_gear_ratio, and overall_gear_ratio from the armature to the last output of that same train; each ratio is input speed over output speed, above 1 for a reduction; a gear_ratio that already means the whole train, or a second added stage written under another name, is not this law"
+literals = []
+requires = []
+unless = []
+symbols = { N = { name = "overall_gear_ratio", place = "self" }, G = { name = "gear_ratio", place = "self" }, E = { name = "external_gear_ratio", place = "self" } }
+source = { kind = "textbook", title = "Introduction to Mechanisms (Y. Zhang, S. Finger, S. Behrens; Carnegie Mellon University, course 39-245)", edition = "web edition, www.cs.cmu.edu/~rapidproto/mechanisms", section = "Chapter 7 Gears, 7.6 Ordinary Gear Trains, 7.6.1 Velocity Ratio, equations 7-14 to 7-16", read = 2026-11-07, reading = "in full" }
+example = [
+  { outcome = "pass", source = "Pololu, Balboa 32U4 Balancing Robot User's Guide (pololu.com/docs/0J70), encoders: '50:1 motors (which have gear ratios more accurately specified as 51.45:1) are used along with the plastic gears that give an additional 2.88:1 reduction'; the guide's instruction is to calculate the total gear ratio 'by multiplying their individual gear ratios': 51.45 x 2.88 = 148.176, written 148.2", values = { N = { value = 148.2, unit = "1" }, G = { value = 51.45, unit = "1" }, E = { value = 2.88, unit = "1" } } },
+  { outcome = "fail", source = "the same gearmotor and stage, with the overall ratio taken from the gearmotor's nominal name, 50:1, times 2.88: 144, written beside the exact 51.45:1 (Pololu #3073 product page: 'Exact gear ratio: (32x33x35x38) / (15x14x13x10) ~~ 51.45:1')", values = { N = { value = 144, unit = "1" }, G = { value = 51.45, unit = "1" }, E = { value = 2.88, unit = "1" } } },
+]
+status = "warn"
+approved = { candidate_id = "d0bb972ef5ac445cb9b131255f7e35aa", date = 2026-11-12 }
+
+[[law]]
 id = "rate_throughput_output_data_rate"
 statement = "a consumer updated once per delivered sample updates no faster than the output data rate of the sensor its edge names"
 expression = "U <= R"
