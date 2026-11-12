@@ -37,6 +37,7 @@ from physgate.orchestrator.events import (
     flag_cache_readings,
     read_events,
 )
+from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.managed import (
     FlagCache,
     FlagDrift,
@@ -223,6 +224,24 @@ def test_a_review_whose_flag_cache_changed_is_taken_and_its_readings_are_counted
     assert not any(isinstance(e, (Incident, Halted)) for e in events)
     assert flag_cache_readings(events) == (A, A, B, A)
     assert flag_drift(flag_cache_readings(events)) == FlagDrift(readings=4, changes=2)
+
+
+def test_a_review_with_no_verdict_still_has_its_flag_cache_counted(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, dispatcher=FakeDispatcher(traffic={1: SEEN}, flag_caches={1: A}))
+    same = SessionManaged(observed_traffic=SEEN, managed_drift=None, policy_limits_sha256=None)
+    rig.reviewer.unavailable[1] = ReviewUnavailableError(
+        "the session ended with api_error",
+        cause="infrastructure",
+        session_id="rev-1",
+        reviewer_model=rig.reviewer.model,
+        managed=(same.model_copy(update={"flag_cache": B}),),
+    )
+    _start(rig, A, "s1")
+    _run(rig)
+    events = read_events(tmp_path / "events.jsonl")
+    assert not any(isinstance(e, Incident) for e in events)
+    # The decomposition call's, the session's, then the review that gave no verdict.
+    assert flag_cache_readings(events)[:3] == (A, A, B)
 
 
 def test_another_served_catalog_state_still_halts_whatever_the_flag_cache_did(

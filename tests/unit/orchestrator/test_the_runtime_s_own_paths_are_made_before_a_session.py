@@ -120,7 +120,10 @@ def test_nothing_is_made_in_the_git_directory_through_a_link_or_beneath_a_missin
     git_dir.mkdir(parents=True)
     (git_dir / "objects").symlink_to(elsewhere)
     (git_dir / "branches").symlink_to(elsewhere)
-    runtime_git_paths(git_dir, "2.1.322", platform="darwin")
+    try:
+        runtime_git_paths(git_dir, "2.1.322", platform="darwin")
+    except OSError as exc:  # a path in the way is left alone, never an error
+        raise AssertionError(f"a link in the way was not left alone: {exc!r}") from exc
     assert list(elsewhere.iterdir()) == []
     assert (git_dir / "remotes").is_dir()  # the one with nothing in its way
     bare = tmp_path / "bare" / ".git"
