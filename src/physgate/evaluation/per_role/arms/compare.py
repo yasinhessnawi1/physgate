@@ -95,6 +95,12 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "queue_decisions": "harness",
     # Whether the plan is reviewed before anything is dispatched; the raw arm has no plan.
     "design_review": "harness",
+    # Who reviews a role's work, whether a role session is given its skill file, and whether
+    # its hooks enforce the design discipline: the raw arm has no reviewer, library or hooks
+    # of the harness's.
+    "reviewers": "harness",
+    "skills": "harness",
+    "hooks": "harness",
     # The binary's retries and the infrastructure retry delays must be equal: retries in
     # the binary hide requests from the raw arm's cap. The turn and wall-clock bounds are
     # compared at the harness's times its repair budget, so neither binds before the cap.
@@ -117,6 +123,8 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "harness.uncommitted_sha256": "required",
     "harness.commit": "identity",
     "reportable": "required",
+    # An ablation run is never reportable, and a run that is not reportable is named already.
+    "ablation": "not_compared",
     # The git the harness's own commands ran; the raw arm runs none of them.
     "git_binary": "not_compared",
     "git_binary.path": "not_compared",

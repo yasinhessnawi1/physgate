@@ -312,6 +312,10 @@ def test_the_command_refuses_a_reportable_run_whose_record_allows_the_absence(
         reportable=True,
         harness=CLEAN_HARNESS,
         os_layer_absent="allow",
+        reviewers="paired",
+        skills="on",
+        hooks="on",
+        ablation=False,
         os_layer=PRESENT,
     )
     code, spawned = _through_the_command(tmp_path, monkeypatch, command, PRESENT)
@@ -442,6 +446,10 @@ def test_the_dispatcher_never_spawns_without_the_layer_for_a_run_that_acts_on_de
             tmp_path,
             ABSENT,
             os_layer_absent="allow",
+            reviewers="paired",
+            skills="on",
+            hooks="on",
+            ablation=False,
             queue_decisions="act",
             os_layer=PRESENT,
         )

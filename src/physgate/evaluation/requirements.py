@@ -20,6 +20,9 @@ A reportable run that asks for ``network: none`` is refused on the same ground: 
 the OS layer refuses a shell remote hosts, so without it the record would say ``none`` while
 the sessions stay online.
 
+An ablation run is held to every one of these (ARCH-140): it is measured like a reportable run,
+with a component switched off, and each refusal names it as what it is.
+
 These are the evaluation's rules, not the product's: the command's composition root
 registers them with the core, and removing the evaluation removes them.
 """
@@ -27,18 +30,29 @@ registers them with the core, and removing the evaluation removes them.
 from __future__ import annotations
 
 from physgate.orchestrator.requirements import RunFacts, RunRequirement
-from physgate.orchestrator.run_config import network_enforced
+from physgate.orchestrator.run_config import RunConfig, network_enforced
 from physgate.oslayer.policy import NETWORK_UNENFORCED
 from physgate.oslayer.probe import Absent
 
 
+def measured(config: RunConfig) -> str | None:
+    """What kind of measured run ``config`` is, as a refusal names it; ``None`` for neither.
+
+    The two kinds are held to the same rules, and a run is never both.
+    """
+    if config.reportable:
+        return "a reportable run"
+    return "an ablation run" if config.ablation else None
+
+
 def os_layer_for_reportable_runs(facts: RunFacts) -> str | None:
-    """Refuse a reportable run with shell sessions where the OS layer is absent."""
-    if not facts.config.reportable or not facts.shell_sessions:
+    """Refuse a reportable or ablation run with shell sessions where the OS layer is absent."""
+    kind = measured(facts.config)
+    if kind is None or not facts.shell_sessions:
         return None
     if isinstance(facts.os_layer, Absent):
         return (
-            "a reportable run's role sessions run only inside the OS layer, and here it is "
+            f"{kind}'s role sessions run only inside the OS layer, and here it is "
             f"absent: {facts.os_layer.reason}"
         )
     return None
@@ -51,11 +65,9 @@ def no_os_layer_allowance_for_reportable_runs(facts: RunFacts) -> str | None:
     absent in any case (:func:`os_layer_for_reportable_runs`); this refuses the allowance itself,
     present layer or not, so no reportable run's record names it.
     """
-    if facts.config.reportable and facts.config.os_layer_absent == "allow":
-        return (
-            "a reportable run never allows role sessions without the OS layer: "
-            "os_layer_absent: refuse"
-        )
+    kind = measured(facts.config)
+    if kind is not None and facts.config.os_layer_absent == "allow":
+        return f"{kind} never allows role sessions without the OS layer: os_layer_absent: refuse"
     return None
 
 
@@ -65,10 +77,11 @@ def network_none_for_reportable_runs(facts: RunFacts) -> str | None:
     Only the OS layer refuses a shell remote hosts. The core records such a run and goes on;
     a reportable run's sessions would be online while its record says ``none``.
     """
-    if not facts.config.reportable or not facts.shell_sessions:
+    kind = measured(facts.config)
+    if kind is None or not facts.shell_sessions:
         return None
     if network_enforced(facts.config.network, facts.os_layer) is False:
-        return f"a reportable run's {NETWORK_UNENFORCED}: the OS layer is absent"
+        return f"{kind}'s {NETWORK_UNENFORCED}: the OS layer is absent"
     return None
 
 
@@ -79,8 +92,9 @@ def record_decisions_for_reportable_runs(facts: RunFacts) -> str | None:
     hand, so a measured outcome would no longer be the harness's alone. A reportable run records
     decisions and acts on none (ARCH-133).
     """
-    if facts.config.reportable and facts.config.queue_decisions != "record":
-        return "a reportable run records queue decisions and acts on none: queue_decisions: record"
+    kind = measured(facts.config)
+    if kind is not None and facts.config.queue_decisions != "record":
+        return f"{kind} records queue decisions and acts on none: queue_decisions: record"
     return None
 
 
@@ -94,9 +108,10 @@ def observed_design_review_for_reportable_runs(facts: RunFacts) -> str | None:
     Asked of a new run only: a reportable run recorded before the flag existed reads as ``off``,
     and it still resumes.
     """
-    if facts.new_run and facts.config.reportable and facts.config.design_review == "off":
+    kind = measured(facts.config)
+    if facts.new_run and kind is not None and facts.config.design_review == "off":
         return (
-            "a reportable run records its plan's review: design_review: observe, or the arm its "
+            f"{kind} records its plan's review: design_review: observe, or the arm its "
             "criteria name"
         )
     return None

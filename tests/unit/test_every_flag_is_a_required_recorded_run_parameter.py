@@ -21,6 +21,10 @@ def test_the_register_is_not_empty_and_names_the_gate_mode() -> None:
         "queue_decisions",
         "os_layer_absent",
         "design_review",
+        "reviewers",
+        "skills",
+        "hooks",
+        "escalation_backend",
     ]
     assert GATE_MODE.architecture == "ARCH-140"
     assert QUEUE_DECISIONS.architecture == "ARCH-133"
@@ -41,7 +45,12 @@ def test_every_flag_is_a_required_field_of_the_run_configuration_with_no_default
 ) -> None:
     field = RunConfig.model_fields[flag.name]
     assert field.is_required(), f"{flag.name} has a default"
-    assert typing.get_args(field.annotation) == flag.values
+    named = typing.get_args(field.annotation)
+    if type(None) in named:
+        # A flag a run recorded before it could lack altogether: its values, or none.
+        (values,) = (arm for arm in named if arm is not type(None))
+        named = typing.get_args(values)
+    assert named == flag.values
 
 
 @pytest.mark.parametrize("flag", REGISTER, ids=lambda f: f.name)

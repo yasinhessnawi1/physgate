@@ -249,6 +249,10 @@ def params() -> dict[str, Any]:
         "queue_decisions": "record",
         # A real run: inside the OS layer, or not at all.
         "os_layer_absent": "refuse",
+        "reviewers": "paired",
+        "skills": "on",
+        "hooks": "on",
+        "ablation": False,
         "design_review": "off",
         "held_out": [],
         "held_out_canaries": [],

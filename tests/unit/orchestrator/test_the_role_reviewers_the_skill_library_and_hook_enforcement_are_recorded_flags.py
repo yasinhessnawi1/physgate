@@ -128,7 +128,7 @@ def _line(**said: Any) -> Any:  # noqa: ANN401 - the line, or why there is none
     return outcome_of(
         lambda: RunStarted(
             seq=0,
-            ts="2026-11-12T00:00:00.000Z",
+            ts="2026-11-12T00:00:00.000000Z",
             run_id="run-1",
             gate_mode="on",
             config_sha256="0" * 64,

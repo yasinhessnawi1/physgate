@@ -13,8 +13,19 @@ path or its version; a run recorded before git was recorded is not compared on
 it, since nothing was measured), or when the endpoint differs. The way past the
 refusal is a fresh baseline under the candidate's pins.
 
+It refuses as well when the two runs were not asked the same thing from the same
+place: another brief, another commit of the target, other session bounds, another
+always-loaded ceiling, another network setting or another held-out tier.
+
 What an ablation changes on purpose is reported beside the numbers, never
-refused: the gate mode, the harness commit and the auth mode.
+refused: the gate mode and every other flag, the run's kind, the OS layer, the
+harness commit and the auth mode.
+
+**No field is equal by being overlooked.** Every field of a run's configuration,
+and each kind of model string, is in exactly one of :data:`DRIFT`,
+:data:`REPORTED` and :data:`PER_RUN`; :func:`census_problems` names any that is
+not, so a switch or a pin added later is classed before two runs are compared
+across it.
 
 The check runs on the two configurations before anything else is read, so a
 drifted run is refused as drifted, not for some later reason. It cannot see a
@@ -43,15 +54,69 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 
+#: Refused when they differ, in the order they are named: what answered the run, then what it
+#: was asked and from where. Each kind of model string has its own entry.
+DRIFT: tuple[str, ...] = (
+    "models.decomposition",
+    "models.roles",
+    "models.reviewers",
+    "effort",
+    "max_output_tokens",
+    "thinking_display",
+    "role_python",
+    "claude_version",
+    "git_binary",
+    "endpoint",
+    "brief_sha256",
+    "target_head",
+    "bounds",
+    "token_ceiling",
+    "network",
+    "held_out_sha256",
+)
+
 #: Reported when they differ, never refused: what an ablation varies on purpose.
-REPORTED = (
+REPORTED: tuple[str, ...] = (
     "gate_mode",
     "auth",
     "harness",
     "escalation_backend",
     "queue_decisions",
     "design_review",
+    "reportable",
+    "ablation",
+    "os_layer",
+    "os_layer_absent",
+    "reviewers",
+    "skills",
+    "hooks",
 )
+
+#: Never compared: what names one run (its id and seed), where its held-out tier was and the
+#: tokens its tasks carry (the tier's digests are compared), and what is measured from the
+#: network setting and the OS layer, which are both classed above.
+PER_RUN: tuple[str, ...] = ("run_id", "seed", "held_out", "held_out_canaries", "network_enforced")
+
+#: Compared only where both runs recorded it: ``None`` is a run that measured nothing.
+_WHERE_BOTH_RECORDED = frozenset({"git_binary"})
+
+
+def census_problems(model: type[RunConfig] = RunConfig) -> list[str]:
+    """Every way the three lists fail to class each field of ``model`` exactly once, by name.
+
+    A field of the model nested as ``models`` is named by its path, so a model string of a new
+    kind is a field with no decision like one added at the top.
+    """
+    kinds: dict[str, Any] = getattr(model.model_fields["models"].annotation, "model_fields", {})
+    fields = set(model.model_fields) - {"models"} | {f"models.{kind}" for kind in kinds}
+    classed = [*DRIFT, *REPORTED, *PER_RUN]
+    found = [
+        f"{name}: in no list, so two runs that differ on it would compare as equal"
+        for name in fields - set(classed)
+    ]
+    found += [f"{name}: in more than one list" for name in set(classed) if classed.count(name) > 1]
+    found += [f"{name}: names no field of a run's configuration" for name in set(classed) - fields]
+    return sorted(found)
 
 
 class _Frozen(BaseModel):
@@ -71,6 +136,12 @@ class RunNumbers(_Frozen):
     #: The escalation backend the run was bound to; ``None`` for a run recorded before the
     #: binding existed.
     escalation_backend: str | None
+    queue_decisions: str
+    design_review: str
+    reviewers: str
+    skills: str
+    hooks: str
+    ablation: bool
     harness_commit: str | None
     harness_clean: bool
     reportable: bool
@@ -94,38 +165,33 @@ class SideBySide(_Frozen):
 
 
 def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
-    """Every pinned field the candidate does not share with the baseline, by path."""
+    """Every field of :data:`DRIFT` the candidate does not share with the baseline, by path.
+
+    A set of model strings is compared name by name: a role or a reviewer present in one run
+    only is named like one pinned to another string.
+    """
     drifted = []
-    if baseline.models.decomposition != candidate.models.decomposition:
-        drifted.append("models.decomposition")
-    for kind in ("roles", "reviewers"):
-        mine: dict[str, str] = getattr(baseline.models, kind)
-        theirs: dict[str, str] = getattr(candidate.models, kind)
-        drifted += [
-            f"models.{kind}.{k}"
-            for k in sorted(mine.keys() | theirs.keys())
-            if mine.get(k) != theirs.get(k)
-        ]
-    if baseline.effort != candidate.effort:
-        drifted.append("effort")
-    if baseline.max_output_tokens != candidate.max_output_tokens:
-        drifted.append("max_output_tokens")
-    if baseline.thinking_display != candidate.thinking_display:
-        drifted.append("thinking_display")
-    if baseline.role_python != candidate.role_python:
-        drifted.append("role_python")
-    if baseline.claude_version != candidate.claude_version:
-        drifted.append("claude_version")
-    # Only where both runs recorded it: ``None`` is a run that measured nothing, not a git.
-    if (
-        baseline.git_binary is not None
-        and candidate.git_binary is not None
-        and baseline.git_binary != candidate.git_binary
-    ):
-        drifted.append("git_binary")
-    if baseline.endpoint != candidate.endpoint:
-        drifted.append("endpoint")
+    for path in DRIFT:
+        mine, theirs = _at(baseline, path), _at(candidate, path)
+        if isinstance(mine, dict) and isinstance(theirs, dict):
+            drifted += [
+                f"{path}.{key}"
+                for key in sorted(mine.keys() | theirs.keys())
+                if mine.get(key) != theirs.get(key)
+            ]
+        elif path in _WHERE_BOTH_RECORDED and (mine is None or theirs is None):
+            continue
+        elif mine != theirs:
+            drifted.append(path)
     return drifted
+
+
+def _at(config: RunConfig, path: str) -> Any:  # noqa: ANN401 - each field's own type
+    """The value of ``config`` at a dotted ``path``."""
+    value: Any = config
+    for part in path.split("."):
+        value = getattr(value, part)
+    return value
 
 
 def _config(run_dir: Path) -> RunConfig:
@@ -148,6 +214,12 @@ def _numbers(run_dir: Path, config: RunConfig) -> RunNumbers:
         max_output_tokens=config.max_output_tokens,
         thinking_display=config.thinking_display,
         escalation_backend=config.escalation_backend,
+        queue_decisions=config.queue_decisions,
+        design_review=config.design_review,
+        reviewers=config.reviewers,
+        skills=config.skills,
+        hooks=config.hooks,
+        ablation=config.ablation,
         harness_commit=config.harness.commit,
         harness_clean=config.harness.clean,
         reportable=config.reportable,
@@ -170,17 +242,17 @@ def compare(baseline: Path, candidate: Path) -> SideBySide:
     """The two runs' numbers side by side, unless what answered them has drifted.
 
     Raises:
-        CompareRefusedError: a pinned model string, the effort level, the
-            output-token limit, the binary version or the endpoint differs; every
-            drifted field is named.
+        CompareRefusedError: a field of :data:`DRIFT` differs (a pinned model string or
+            setting, the binary, the endpoint, or what the run was asked and from where);
+            every drifted field is named.
         ManifestError: either directory does not hold a complete run.
     """
     mine, theirs = _config(baseline), _config(candidate)
     drifted = drift(mine, theirs)
     if drifted:
         msg = (
-            "the runs were answered under different pins: re-run the baseline under the "
-            "candidate's before comparing"
+            "the runs were answered under different pins, or asked different things: re-run "
+            "the baseline under the candidate's before comparing"
         )
         raise CompareRefusedError(msg, drifted=",".join(drifted))
     a, b = mine.model_dump(), theirs.model_dump()

@@ -36,6 +36,10 @@ PARAMS = {
     "queue_decisions": "record",
     # The stand-in binary predates the OS layer's pin, so the layer is absent here.
     "os_layer_absent": "allow",
+    "reviewers": "paired",
+    "skills": "on",
+    "hooks": "on",
+    "ablation": False,
     "design_review": "off",
     "held_out": [],
     "held_out_canaries": [],
