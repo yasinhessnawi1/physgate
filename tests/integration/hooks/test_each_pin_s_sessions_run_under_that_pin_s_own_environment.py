@@ -23,6 +23,8 @@ from hook_session import (
     run_session,
     session_switches,
 )
+from os_layer_rig import layer_here, make_layout
+from os_layer_rig import run_session as os_layer_session
 
 from physgate.orchestrator.invocation import TRAFFIC_ALLOWED_VERSIONS, session_env_settings
 
@@ -61,6 +63,25 @@ def _environment(tmp_path: Path) -> dict[str, str]:
 def test_a_session_s_own_shell_sees_exactly_its_pin_s_switches(tmp_path: Path) -> None:
     version = pinned_version()
     seen = _environment(tmp_path)
+    for name, value in session_switches(version).items():
+        assert seen.get(name) == value, (version, name, seen.get(name))
+    if version in TRAFFIC_ALLOWED_VERSIONS:
+        assert [n for n in FLAG_STOPPING if n in seen] == []
+
+
+def test_a_session_of_the_os_layer_s_harness_sees_exactly_its_pin_s_switches(
+    tmp_path: Path,
+) -> None:
+    # The sessions that prove the OS layer are installed by a harness of their own; what they
+    # prove on a pin is worth what the environment they ran under is worth there too.
+    version = pinned_version()
+    with make_layout(tmp_path) as layout:
+        ran = os_layer_session(
+            layout, [tool("Bash", command="env | sort", description="x")], layer=layer_here()
+        )
+    told = str(ran["told"][0])  # type: ignore[index]
+    seen = dict(line.split("=", 1) for line in told.split("\n") if "=" in line)
+    assert "PATH" in seen, f"the shell's environment was not shown: {told[:300]}"
     for name, value in session_switches(version).items():
         assert seen.get(name) == value, (version, name, seen.get(name))
     if version in TRAFFIC_ALLOWED_VERSIONS:
