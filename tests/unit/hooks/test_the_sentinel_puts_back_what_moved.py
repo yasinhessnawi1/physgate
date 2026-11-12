@@ -238,7 +238,10 @@ def test_an_append_to_the_journal_is_left_to_the_store_and_a_rewrite_is_put_back
     assert journal.read_bytes() == appended
 
 
-def test_user_settings_are_logged_not_reverted(root: Path) -> None:
+def test_user_settings_are_logged_not_reverted(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The home of the user installing the session, which their other sessions write. In a
+    # scratch home made for the session, without the OS layer, the whole directory is put back.
+    monkeypatch.setenv("HOME", str(root / "outside" / "home"))
     _started(root)
     user = root / "outside" / "home" / ".claude" / "settings.json"
     user.write_text('{"hooks": {}}\n')

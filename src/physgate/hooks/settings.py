@@ -416,12 +416,15 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         # binary treats as a user's own: skills, mods, commands and settings a user keeps are
         # read from a directory of that name, and a file a session left there is a file a
         # later version may load. Whole, both ways, for every tool and every command.
-        # Refused before a write and never put back: inside the OS layer the runtime itself
-        # makes directories there before a shell command (measured on macOS, 12.11.2026:
-        # 2.1.301 makes ``.claude`` and ``bridge-spawn`` in it, 2.1.322 those and ``ssh``,
-        # with other modes), as it writes its configuration directory. A write a script
-        # builds at run time is the OS layer's to deny.
-        protected[str(home / ".claude")] = (HOME_CLAUDE_REASON, "none")
+        # Where the OS layer does not run, nothing stands behind the hooks: whatever appears
+        # there is put back, and the binary makes nothing there itself (measured on 2.1.301
+        # and 2.1.322). Where it runs, the layer denies the write, and the root is not put
+        # back, because the runtime then makes directories there before a shell command
+        # (measured on macOS, 12.11.2026: 2.1.301 makes ``.claude`` and ``bridge-spawn`` in
+        # it, 2.1.322 those and ``ssh``, with other modes), as it writes its configuration
+        # directory.
+        watched: Watch = "revert" if request.os_layer_temp_dir is None else "none"
+        protected[str(home / ".claude")] = (HOME_CLAUDE_REASON, watched)
         reads[str(home / ".claude")] = "denied"
     reaper_on = request.os_layer_temp_dir is not None and reaper_install.wanted()
     if reaper_on:
