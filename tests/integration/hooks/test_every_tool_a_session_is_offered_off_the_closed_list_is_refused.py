@@ -28,12 +28,14 @@ REFUSED = "is not available to a role session"
 #: How the binary itself answers a call it refuses before any hook: its own check of the input.
 INPUT_REFUSED = "<tool_use_error>"
 
-#: Measured on CI (linux-x64, 11.11.2026): what each pin offers a role session beyond its list,
+#: Measured on CI (linux-x64, 12.11.2026): what each pin offers a role session beyond its list,
 #: under the pin's own switches, and under the traffic-off switches 2.1.301's sessions carry.
+#: The two web tools are no longer among them on either pin: a session's settings now deny
+#: both, and a tool the settings deny is not offered.
 _BEYOND_2_1_301 = [
     "Agent", "CronCreate", "CronDelete", "CronList", "EnterWorktree", "ExitWorktree",
     "ListAgents", "ReportFindings", "ScheduleWakeup", "SendMessage", "Skill", "Task",
-    "TaskStop", "WebFetch", "WebSearch", "Workflow",
+    "TaskStop", "Workflow",
 ]  # fmt: skip
 _NEW_SINCE_2_1_301 = ["DeferredToolPlaceholder", "Monitor", "ToolSearch"]
 _ONLY_WITH_TRAFFIC = ["DesignSync", "PushNotification"]

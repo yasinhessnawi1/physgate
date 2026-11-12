@@ -35,7 +35,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.lines import split_lines
-from physgate.orchestrator.budget import LOST_CAUSES, LOST_RECORDS, WRITES_LOST, writes_lost
+from physgate.orchestrator.budget import LOST_CAUSES, LOST_RECORDS, writes_lost
 from physgate.orchestrator.exceptions import TrajectoryTamperedError
 
 
@@ -133,9 +133,10 @@ def own_loss_tail(text: str, session_id: str) -> str | None:
     if not isinstance(event, dict) or set(event) != _LOSS_EVENT_KEYS:
         return None
     lost, named = event["lost"], event["transcript_session_ids"]
+    # That it is the binary's event, by its type and name, is read where its words are
+    # (``writes_lost``, below); here, that it is this session's and holds listed values only.
     if (
-        (event["type"], event["subtype"]) != ("system", WRITES_LOST)
-        or event["session_id"] != session_id
+        event["session_id"] != session_id
         or event["error_code"] not in LOST_CAUSES
         or not isinstance(event["uuid"], str)
         or not isinstance(lost, list)

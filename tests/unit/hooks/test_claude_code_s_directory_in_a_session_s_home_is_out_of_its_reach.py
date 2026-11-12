@@ -26,7 +26,7 @@ from typing import Any
 import pytest
 from hook_helpers import SESSION, bash, event
 
-from physgate.hooks import paths, sentinel, shell_paths
+from physgate.hooks import paths, sentinel, shell_paths, shell_startup
 from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 from physgate.hooks.state import LOG_NAME
@@ -296,6 +296,10 @@ def test_the_installing_user_s_own_home_is_left_as_it_was(
     )
     config = build_config(request, current_installation())
     held = {r.path: r.watch for r in config.protected_roots if r.path.startswith(str(own))}
+    # The home's shell startup names are roots of their own, by another rule.
+    startup = {str(own / name) for name in shell_startup.NAMES}
+    assert startup <= set(held)
+    held = {path: watch for path, watch in held.items() if path not in startup}
     assert held == {
         str(own / ".claude" / "settings.json"): "log",
         str(own / ".claude.json"): "log",
