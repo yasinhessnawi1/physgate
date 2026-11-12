@@ -252,3 +252,96 @@ def test_a_write_through_a_case_variant_or_a_link_of_its_own_directory_is_refuse
     variant = str(own_dir).replace(f"/temps/{OWN}", f"/temps/{OWN.upper()}") + "/new.txt"
     for target in (variant, str(own_dir / "dir-link" / "planted.txt")):
         assert _shell(f"echo x > {target}", config) != "allow", target
+
+
+# The parent's spelling. On Linux the parent is named where it is (/var/tmp/pgs). On macOS /var
+# is a link to /private/var, so the parent the harness names and the spelling a session's
+# variables carry pass through a link above it, while the installer names the session's own
+# directory where it really is. Both are built here on one machine: the parent named as it is,
+# and the parent named through a linked ancestor.
+SPELLINGS = ("named where it is", "named through a linked ancestor")
+
+
+@pytest.fixture
+def spelt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> tuple[Path, Path]:
+    """The test's root and the parent as the harness and the session's variables spell it."""
+    base = tmp_path.resolve()
+    (base / "run" / "worktrees" / "s1").mkdir(parents=True)
+    real = base / "real" / "temps"
+    _task_file(real / OWN, OWN_MARKER)
+    _task_file(real / OTHER, OTHER_MARKER)
+    (base / "alias").symlink_to(base / "real")
+    parent = real if request.param == SPELLINGS[0] else base / "alias" / "temps"
+    monkeypatch.setattr(settings, "session_temps_root", lambda: str(parent), raising=False)
+    # A store outside every session's directory, linked into the session's own as the harness
+    # links a build tool's packages there.
+    store = base / "store"
+    store.mkdir()
+    (store / "package.txt").write_text("a package of the store\n")
+    (real / OWN / "core").mkdir()
+    (real / OWN / "core" / "store").symlink_to(store)
+    return base, parent
+
+
+def _spelt_config(base: Path, profile: str) -> SessionConfig:
+    # The installer names the session's own directory where it really is.
+    request = InstallRequest.model_validate(_fields(base, profile, base / "real" / "temps" / OWN))
+    return build_config(request, installation())
+
+
+@pytest.mark.parametrize("spelt", SPELLINGS, indirect=True)
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_a_read_through_a_link_in_the_own_directory_is_refused_however_the_parent_is_spelt(
+    spelt: tuple[Path, Path], profile: str
+) -> None:
+    base, parent = spelt
+    config = _spelt_config(base, profile)
+    through = parent / OWN / "core" / "store" / "package.txt"
+    assert _shell(f"cat {through}", config) != "allow", through
+    assert _shell(f"ls -d {parent / OWN / 'core' / 'store'}", config) != "allow"
+
+
+@pytest.mark.parametrize("spelt", SPELLINGS, indirect=True)
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_a_write_through_a_link_in_the_own_directory_is_refused_however_the_parent_is_spelt(
+    spelt: tuple[Path, Path], profile: str
+) -> None:
+    base, parent = spelt
+    config = _spelt_config(base, profile)
+    target = parent / OWN / "core" / "store" / "planted.txt"
+    assert _shell(f"echo x > {target}", config) != "allow", target
+
+
+@pytest.mark.parametrize("spelt", SPELLINGS, indirect=True)
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_the_session_s_own_directory_stays_open_to_its_commands_however_the_parent_is_spelt(
+    spelt: tuple[Path, Path], profile: str
+) -> None:
+    # Spelt as the installer names it, where it really is: what the rule refuses through a
+    # link, it never refuses in the session's own directory itself.
+    base, _ = spelt
+    config = _spelt_config(base, profile)
+    own_dir = base / "real" / "temps" / OWN
+    assert _shell(f"cat {_own_spelt(base)}", config) == "allow"
+    assert _shell(f"ls {own_dir / 'core'}", config) == "allow"
+    assert _shell(f"echo x > {own_dir / 'new.txt'}", config) == "allow"
+
+
+@pytest.mark.parametrize("spelt", SPELLINGS, indirect=True)
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_another_session_s_directory_is_refused_however_the_parent_is_spelt(
+    spelt: tuple[Path, Path], profile: str
+) -> None:
+    base, parent = spelt
+    config = _spelt_config(base, profile)
+    (found,) = (base / "real" / "temps" / OTHER).rglob("*.output")
+    other = parent / found.relative_to(base / "real" / "temps")
+    assert _shell(f"cat {other}", config) != "allow", other
+    assert _shell(f"echo x > {parent / OTHER / 'planted.txt'}", config) != "allow"
+
+
+def _own_spelt(base: Path) -> Path:
+    (found,) = (base / "real" / "temps" / OWN).rglob("*.output")
+    return found
