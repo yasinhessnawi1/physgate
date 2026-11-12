@@ -134,8 +134,9 @@ def test_a_full_volume_under_the_transcript_is_read_as_each_pin_says_it(
         [tool("Read", file_path="a.txt"), text("done")],
         prepare=on_the_full_volume,
     )
-    # No line of the transcript was saved, and the session ended as a finished one.
-    assert not any(p.is_file() for p in full_directory.rglob("*"))
+    # No line of the transcript was saved (a volume may still take an empty file's name),
+    # and the session ended as a finished one.
+    assert not any(p.is_file() and p.stat().st_size for p in full_directory.rglob("*"))
     result = ended.result
     assert result is not None, ended.stderr
     assert (result.get("terminal_reason"), result.get("is_error")) == ("completed", False)

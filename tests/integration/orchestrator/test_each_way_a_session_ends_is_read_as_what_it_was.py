@@ -121,8 +121,8 @@ _MEASURED: dict[str, End] = {
         "credential_refused",
         1,
     ),
-    # Infrastructure for a role session and for the decomposition, under the cause every end
-    # without a name of its own gets; a review names it.
+    # Infrastructure for a role session, under the cause every end without a name of its own
+    # gets; a review and the decomposition call each name it.
     "prompt_too_long": End(
         PROMPT_TOO_LONG,
         True,
@@ -130,7 +130,7 @@ _MEASURED: dict[str, End] = {
         1,
         ("infrastructure", "unexpected_exit"),
         "context_exceeded",
-        "unexpected_exit",
+        "context_exceeded",
         2,
     ),
     "structured_output_retry_exhausted": End(
@@ -140,7 +140,7 @@ _MEASURED: dict[str, End] = {
         1,
         ("infrastructure", "unexpected_exit"),
         "invalid_verdict",
-        "unexpected_exit",
+        "schema_refused",
         5,
     ),
     "usage_credits_stop": End(
@@ -154,9 +154,10 @@ _MEASURED: dict[str, End] = {
         3,
     ),
 }
-#: The binaries end alike. What a role session and the decomposition call make of two of the
-#: ends differs by pin: from 2.1.322 on each is a cause of its own, by the binary's name for
-#: it; on 2.1.301 both stay the cause without a name, as that pin's runs recorded them.
+#: The binaries end alike. What a role session makes of two of the ends differs by pin: from
+#: 2.1.322 on each is a cause of its own, by the binary's name for it; on 2.1.301 both stay
+#: the cause without a name, as that pin's runs recorded them. The decomposition call names
+#: both from a table of its own on every pin.
 ENDS: dict[str, dict[str, End]] = {
     "2.1.301": dict(_MEASURED),
     "2.1.322": {
@@ -164,12 +165,10 @@ ENDS: dict[str, dict[str, End]] = {
         "prompt_too_long": replace(
             _MEASURED["prompt_too_long"],
             role_session=("infrastructure", "prompt_too_long"),
-            decomposition="prompt_too_long",
         ),
         "structured_output_retry_exhausted": replace(
             _MEASURED["structured_output_retry_exhausted"],
             role_session=("infrastructure", "structured_output_retry_exhausted"),
-            decomposition="structured_output_retry_exhausted",
         ),
     },
 }

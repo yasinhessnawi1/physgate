@@ -114,10 +114,13 @@ OUTLIVING = python(
 #: its commands, per platform and pin (measured). Where it does, the write deny is all that
 #: stands between it and the proposals once the session is gone.
 #: macOS (Seatbelt, 12.11.2026): it outlives the session on both pins, still inside the
-#: sandbox it was started in, and lands nothing.
+#: sandbox it was started in, and lands nothing. Linux (bubblewrap, CI, 12.11.2026): it
+#: does not outlive the session on either pin, so nothing is left to write.
 OUTLIVES_THE_SESSION: dict[tuple[str, str], bool] = {
     ("darwin", "2.1.301"): True,
     ("darwin", "2.1.322"): True,
+    ("linux", "2.1.301"): False,
+    ("linux", "2.1.322"): False,
 }
 
 
