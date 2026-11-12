@@ -30,6 +30,18 @@ _THREE_DIRECTORIES = {
 MADE: dict[tuple[str, str], dict[str, str]] = {
     ("darwin", "2.1.301"): {},
     ("darwin", "2.1.322"): _THREE_DIRECTORIES,
+    # Linux, bubblewrap (CI, 12.11.2026). The two empty ``config.worktree`` files are made for
+    # a linked worktree's repository; a session's end is not held to them.
+    ("linux", "2.1.301"): {},
+    ("linux", "2.1.322"): {
+        **_THREE_DIRECTORIES,
+        "config.worktree": "file 0o644 0 e3b0c44298fc1c14",
+        "info/.claude-sandbox-noreplace": "dir 0o755",
+        "objects/info/.claude-sandbox-noreplace": "dir 0o755",
+        "objects/info/alternates": "file 0o644 0 e3b0c44298fc1c14",
+        "objects/info/commit-graphs/.claude-sandbox-noreplace": "dir 0o755",
+        "worktrees/sub1/config.worktree": "file 0o644 0 e3b0c44298fc1c14",
+    },
 }
 
 

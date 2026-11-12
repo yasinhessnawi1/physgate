@@ -937,6 +937,18 @@ RUNTIME_GIT_DIRECTORIES: dict[str, tuple[tuple[tuple[str, ...], int], ...]] = {
 }
 
 
+#: On Linux (bubblewrap, measured on CI, 12.11.2026) a version that makes the directories
+#: above also leaves three marker directories of its own and an empty ``alternates`` file.
+RUNTIME_GIT_DIRECTORIES_LINUX: tuple[tuple[tuple[str, ...], int], ...] = (
+    (("info", ".claude-sandbox-noreplace"), 0o755),
+    (("objects", "info", ".claude-sandbox-noreplace"), 0o755),
+    (("objects", "info", "commit-graphs", ".claude-sandbox-noreplace"), 0o755),
+)
+RUNTIME_GIT_FILES_LINUX: tuple[tuple[tuple[str, ...], int], ...] = (
+    (("objects", "info", "alternates"), 0o644),
+)
+
+
 def runtime_git_paths(git_dir: Path, claude_version: str, platform: str = sys.platform) -> None:
     """Make what the runtime of ``claude_version`` makes in a repository's git directory.
 
@@ -946,12 +958,21 @@ def runtime_git_paths(git_dir: Path, claude_version: str, platform: str = sys.pl
     still caught. A path already present is left as it is. Nothing is made through a link or
     beneath a parent that is not a real directory already there.
     """
-    for parts, mode in RUNTIME_GIT_DIRECTORIES.get(claude_version, ()):
+    made = RUNTIME_GIT_DIRECTORIES.get(claude_version, ())
+    files: tuple[tuple[tuple[str, ...], int], ...] = ()
+    if made and platform.startswith("linux"):
+        made = (*made, *RUNTIME_GIT_DIRECTORIES_LINUX)
+        files = RUNTIME_GIT_FILES_LINUX
+    for parts, mode in (*made, *files):
         path = git_dir.joinpath(*parts)
         parents = [git_dir.joinpath(*parts[:n]) for n in range(len(parts))]
         if any(p.is_symlink() or not p.is_dir() for p in parents) or os.path.lexists(path):
             continue
-        path.mkdir(mode=mode)
+        if (parts, mode) in files:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+            os.close(os.open(path, flags, mode))
+        else:
+            path.mkdir(mode=mode)
         path.chmod(mode)
 
 
