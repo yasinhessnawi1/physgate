@@ -146,3 +146,20 @@ def test_every_unit_the_decomposition_stores_is_one_the_change_check_reads(unit:
     (node,) = plan.interface_nodes
     for quantity in node.quantities.values():
         assert _read_by_the_change_check(quantity.unit) == ("pass", None), quantity.unit
+
+
+@pytest.mark.parametrize("unit", ["counts/(rev/s)", "(Nm)", "N*m/(rev/s)", "(ticks)**2"])
+def test_a_refusal_names_no_spelling_the_gate_s_registry_cannot_read(unit: str) -> None:
+    # The grammar has a spelling for each, and the registry reads none of them: naming one
+    # would have the retry write a unit that is refused again.
+    cause, detail, plan, *_ = _judged(unit)
+    assert cause == RETRIED_CAUSE and plan is None, (cause, detail)
+    assert repr(unit) in detail and "balance.controller" in detail and "angle_gain" in detail
+    assert "write it as" not in detail
+
+
+def test_a_refusal_names_the_unit_as_the_plan_wrote_it() -> None:
+    # A bracketed denominator the registry cannot read is named as written, not as its product.
+    cause, detail, *_ = _judged("counts/(rev*s)")
+    assert cause == RETRIED_CAUSE, (cause, detail)
+    assert "'counts/(rev*s)'" in detail and "write it as" not in detail
