@@ -119,9 +119,11 @@ def test_a_session_finds_the_environment_s_programs_and_variables_as_its_file_sa
     assert f"PROGRAM={sdir / 'bin' / 'report-size'}" in lines
     assert f"PYTHON={sdir / 'bin' / 'python3'}" in lines
     assert "QUIET=yes" in lines
-    path = next(line for line in lines if line.startswith("PATH="))
-    assert path[5:].split(":")[0] == str(sdir / "bin")
-    core = next(line for line in lines if line.endswith("/core/store"))
+    paths = [line for line in lines if line.startswith("PATH=")]
+    assert paths and paths[0][5:].split(":")[0] == str(sdir / "bin"), paths
+    cores = [line for line in lines if line.endswith("/core/store")]
+    assert cores, told[-1500:]
+    core = cores[0]
     assert core.startswith("/var/tmp/pgs/") or core.startswith("/private/var/tmp/pgs/"), core
     assert "a package of the store" in lines
     assert sorted(p.name for p in (sdir / "bin").iterdir()) == ["python3", "report-size"]
