@@ -119,6 +119,7 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         "queue_decisions": "record",
         # A development rig: its loops run with no OS-layer line recorded.
         "os_layer_absent": "allow",
+        "design_review": "off",
         "held_out": (),
         "held_out_canaries": (),
         "held_out_sha256": (),
@@ -204,6 +205,9 @@ class FakeSession:
 
     def stop_leftovers(self) -> list[Leftover]:
         return []
+
+    def end_leftovers(self) -> None:
+        return None
 
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         self.calls += 1

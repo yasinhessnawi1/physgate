@@ -12,7 +12,7 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 
@@ -21,7 +21,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "orchestrator"))
 from orch_helpers import make_config  # noqa: E402
 
-from physgate.hooks.config import digest
+from physgate.hooks.config import Profile, digest
 from physgate.hooks.lean import load_config
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec
 from physgate.hooks.settings import (
@@ -30,6 +30,7 @@ from physgate.hooks.settings import (
     build_config,
     current_installation,
     install,
+    render_settings,
 )
 from physgate.hooks.views import ConfigView, InputView
 
@@ -42,6 +43,10 @@ REGISTRY = {
     "alpha": HookSpec("alpha", {"PreToolUse": _allow, "SessionStart": _allow}),
     "beta": HookSpec("beta", {"PreToolUse": _allow, "PostToolUseFailure": _allow}),
 }
+
+
+#: The session's own temporary directory, as the dispatcher makes one.
+OWN_TEMP = "/var/tmp/pgs/0123456789"
 
 
 def _request(tmp: Path, **overrides: Any) -> InstallRequest:  # noqa: ANN401 - test fields
@@ -58,7 +63,10 @@ def _request(tmp: Path, **overrides: Any) -> InstallRequest:  # noqa: ANN401 - t
         "claude_config_dir": str(tmp / "claude-config"),
         "user_home": str(tmp / "home"),
         "token_ceiling": 4000,
+        "sessions_root": str(tmp / "sessions"),
     }
+    if "os_layer_temp_dir" not in overrides:
+        fields["temp_dir"] = OWN_TEMP
     fields.update(overrides)
     if fields["profile"] == "reviewer" and "read_roots" not in overrides:
         fields["read_roots"] = (str(worktree),)
@@ -140,7 +148,11 @@ def test_the_session_is_spawned_with_no_worktree_settings_and_this_file_by_flag(
 ) -> None:
     done = install(_request(tmp_path), REGISTRY)
     assert done.spawn_args == ("--setting-sources", "", "--settings", str(done.settings_path))
-    assert done.spawn_env == {"CLAUDE_CONFIG_DIR": str(tmp_path / "claude-config")}
+    assert done.spawn_env == {
+        "CLAUDE_CONFIG_DIR": str(tmp_path / "claude-config"),
+        "CLAUDE_CODE_TMPDIR": OWN_TEMP,
+        "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+    }
     assert not (tmp_path / "worktree" / ".claude").exists()
 
 
@@ -189,6 +201,36 @@ def test_each_profile_gets_its_closed_tool_list(tmp_path: Path, profile: str) ->
         assert refused not in config.tools_allowed
 
 
+#: The web tools: each brings in text nobody reviewed.
+WEB_TOOLS = {"WebFetch", "WebSearch"}
+
+
+@pytest.mark.parametrize("profile", get_args(Profile))
+def test_the_settings_layer_denies_the_web_tools_to_every_profile(
+    tmp_path: Path, profile: str
+) -> None:
+    # The tools hook refuses them already; the settings deny them too, so a session whose hooks
+    # did not run still cannot fetch. ``network: none`` binds the shell alone, not the WebFetch
+    # tool, on the pinned binary (measured, 11.11.2026). A deny rule binds in bypassPermissions.
+    done = install(_request(tmp_path, profile=profile), REGISTRY)
+    settings = json.loads(done.settings_path.read_text())
+    permissions = settings.get("permissions")
+    assert isinstance(permissions, dict), settings
+    assert set(permissions.get("deny", ())) >= WEB_TOOLS
+    assert "allow" not in permissions
+
+
+@pytest.mark.parametrize("profile", get_args(Profile))
+def test_the_settings_as_rendered_deny_the_web_tools_to_every_profile(
+    tmp_path: Path, profile: str
+) -> None:
+    # As rendered, before any layer is merged in and before the install's own last check of the
+    # deny: the rule is in the settings from the start, not put there by a later step.
+    config = build_config(_request(tmp_path, profile=profile), current_installation())
+    settings = render_settings(config, "/outside/config.json", "0" * 64, REGISTRY)
+    assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch"]}
+
+
 def _allowing_run(tmp_path: Path) -> str:
     """A run configuration that allows role sessions without the OS layer, for development."""
     from physgate.orchestrator.run_config import write_run_config  # noqa: PLC0415
@@ -217,6 +259,8 @@ def test_the_command_line_writes_the_files_and_prints_the_spawn_arguments(tmp_pa
             f"--claude-config-dir={tmp_path / 'cfg'}",
             f"--user-home={tmp_path / 'home'}",
             "--ceiling=8000",
+            f"--sessions-root={tmp_path / 'sessions'}",
+            f"--temp={OWN_TEMP}",
             _allowing_run(tmp_path),
         ],
         capture_output=True,
@@ -256,6 +300,8 @@ def test_two_processes_with_different_hash_seeds_write_the_same_bytes(tmp_path: 
                 f"--protect={tmp_path / 'p1'}",
                 f"--protect={tmp_path / 'p2'}",
                 "--ceiling=8000",
+                f"--sessions-root={tmp_path / 'sessions'}",
+                f"--temp={OWN_TEMP}",
                 _allowing_run(tmp_path),
             ],
             capture_output=True,

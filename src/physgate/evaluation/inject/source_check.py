@@ -43,7 +43,7 @@ from physgate.evaluation.inject.corpus import (
     _numbers,
     derivation,
 )
-from physgate.gate.units import PINT_ERRORS, UnitRefusedError, parse
+from physgate.gate.units import PINT_ERRORS, UnitRefusedError, parse, unit_text
 
 #: Half a unit in the third significant figure of the source's number, at most.
 SHARE = Fraction(5, 1000)
@@ -93,7 +93,7 @@ def _close(written: Any, expected: Any) -> bool:  # noqa: ANN401 - pint quantiti
 
 
 def _shown(quantity: Any) -> str:  # noqa: ANN401 - a pint quantity
-    return f"{float(quantity.magnitude):.4g} {quantity.units:~}"
+    return f"{float(quantity.magnitude):.4g} {unit_text(quantity.units, symbols=True)}"
 
 
 def _check_node(

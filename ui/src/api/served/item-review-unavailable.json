@@ -1,0 +1,46 @@
+{
+  "item": {
+    "artefact_diff": "diff --git a/modules/control/REPORT.md b/modules/control/REPORT.md\nnew file mode 100644\nindex 0000000..f2f5784\n--- /dev/",
+    "consequence": {
+      "attempt": 1,
+      "attempt_commit": "dddddddddddddddddddddddddddddddddddddddd",
+      "confirmed_indicators": [],
+      "on_approve": "record_only",
+      "on_reject": "retry",
+      "scan_hits": [
+        {
+          "evidence": "tool-use-1",
+          "kind": "disabled_checks",
+          "what": "a write to a protected path, refused by the hook layer"
+        },
+        {
+          "evidence": "tool-use-2",
+          "kind": "disabled_checks",
+          "what": "a lint rule suppressed"
+        }
+      ],
+      "why_record_only": "scan_hit"
+    },
+    "decision_required": "The review of subtask control-c2599c, attempt 1, reached no verdict (unprepared: a line is longer than one read can show whole, so it cannot be issued (review <session>, bytes=23475, limit=20000)). Decide whether to review it again, review it yourself, or set the attempt aside. No repair attempt was spent.",
+    "item_id": "run-7-control-c2599c",
+    "kind": "item",
+    "quantities": [],
+    "run_id": "run-7",
+    "source": "review_unavailable",
+    "subtask_id": "control-c2599c",
+    "trajectories": ["<run>/sessions/session-1/stdout.jsonl"],
+    "triggering_finding": "a line is longer than one read can show whole, so it cannot be issued (review <session>, bytes=23475, limit=20000)",
+    "ts": "2026-11-05T19:31:11.752599Z"
+  },
+  "item_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "open": false,
+  "position": 0,
+  "trajectories": [
+    {
+      "link": "<run>/sessions/session-1/stdout.jsonl",
+      "session_id": "session-1",
+      "status": "holds"
+    }
+  ],
+  "view_id": "VVVVVVVVVVVVVVVVVVVVVV"
+}

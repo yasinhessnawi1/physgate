@@ -8,6 +8,7 @@
     "gate-events",
     "generalist",
     "hooks",
+    "incident",
     "inject",
     "inject-sources",
     "knowledge",

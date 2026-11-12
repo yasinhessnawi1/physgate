@@ -74,7 +74,9 @@ ROLE = {
     "env_file": "A R R A R F T revert",
     "experiment_criteria": "A R R A R F T -",
     "session_files": "A R R A R F T revert",
-    "state_dir": "A R R A R T T none",
+    # The hooks' own records (what the sentinel keeps to put a path back, their log, the
+    # credential's helper): no tool of the session reads them, on any route.
+    "state_dir": "R R R R R T T none",
     "config_dir": "A R R A R T T none",
     "store": "A R R A R F T journal",
     "git_user_config": "A R R A R F T revert",

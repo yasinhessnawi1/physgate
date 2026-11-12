@@ -340,7 +340,7 @@ def test_a_fix_session_is_installed_with_exactly_a_role_sessions_hooks(
         config=make_config(),
         # A run with no event log yet: no interface contracts recorded, so both sessions read none.
         run=SimpleNamespace(  # type: ignore[arg-type]
-            subtask_branch=lambda subtask: f"b/{subtask}", run_dir=tmp_path / "run"
+            subtask_branch=lambda subtask, _reopen=0: f"b/{subtask}", run_dir=tmp_path / "run"
         ),
         store_root=tmp_path / "store",
         install_bin=tmp_path / "install" / "bin" / "physgate",
@@ -364,7 +364,9 @@ def test_a_fix_session_is_installed_with_exactly_a_role_sessions_hooks(
     installed = []
     for n, request in enumerate((base, fix)):
         sdir = tmp_path / f"sdir-{n}"
-        dispatcher._install(request, tmp_path / "worktree", sdir, None)
+        dispatcher._install(
+            request, tmp_path / "worktree", sdir, None, own_temp=Path("/var/tmp/pgs/0123456789")
+        )
         installed.append([arg.replace(str(sdir), "<session>") for arg in seen[-1]])
     assert installed[0] == installed[1] and installed[0]
     # Only the prompt's closing block reads the kind.

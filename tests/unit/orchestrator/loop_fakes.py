@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,6 +12,8 @@ from orch_helpers import gate_records, make_config, ticking_clock
 
 from physgate.orchestrator.budget import InfraCause, SessionEnd
 from physgate.orchestrator.common import GateMode
+from physgate.orchestrator.declaration import Declaration
+from physgate.orchestrator.dispute import Dispute
 from physgate.orchestrator.escalation import EscalationInterface, bind
 from physgate.orchestrator.exceptions import ReviewUnavailableError, WorktreeMisplacedError
 from physgate.orchestrator.loop import Loop
@@ -39,6 +41,7 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.trajectory import seal
 from physgate.series.seal import SeriesCheck, SessionSeries
+from physgate.state.divergence import Divergence
 from physgate.state.task_ledger import TaskLedger
 
 
@@ -76,6 +79,9 @@ class FakeDispatcher:
     traffic: dict[int, ObservedTraffic] = field(default_factory=dict)
     #: Per call: the remote feature flags the session's binary held when it ended.
     flag_caches: dict[int, FlagCache] = field(default_factory=dict)
+    #: The calls no model answered before the session ended: the binary wrote only its own
+    #: messages, as a connection dropped before the first request does.
+    unanswered: set[int] = field(default_factory=set)
     #: Per call: a canary of reviewer material found in the session's stream.
     material: dict[int, str] = field(default_factory=dict)
     #: Per call: a held-out task's canary found in the session's stream.
@@ -100,6 +106,9 @@ class FakeDispatcher:
 
     def stop_leftovers(self) -> list[Leftover]:
         return []
+
+    def end_leftovers(self) -> None:
+        return None
 
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         self.requests.append(request)
@@ -132,6 +141,8 @@ class FakeDispatcher:
                 series=self.series.get(call, SessionSeries()),
                 os_layer_aborted=self.aborted.get(call, ()),
                 reaper_unverified=self.unverified.get(call, ()),
+                policy_limits_sha256=self.policy.get(call),
+                model_answered=call not in self.unanswered,
             )
         trajectory = f"sessions/{sid}/stdout.jsonl"
         sealed = None
@@ -161,6 +172,7 @@ class FakeDispatcher:
             withheld_problems=self.withheld.get(call),
             os_layer_aborted=self.aborted.get(call, ()),
             reaper_unverified=self.unverified.get(call, ()),
+            model_answered=call not in self.unanswered,
             usage=(
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
@@ -179,6 +191,22 @@ class FakeChanges:
     seen: list[SessionSeries | None] = field(default_factory=list)
     #: Per call: the quantities' checks against their records the check reports.
     series_checks: dict[int, tuple[SeriesCheck, ...]] = field(default_factory=dict)
+    #: What each subtask's checks read as its declaration, unless ``declared`` names the call.
+    #: Read on a refused check too, as a checker that refuses after reading it would: the loop
+    #: records a declaration only after an accepted check.
+    declares: dict[str, Declaration] = field(default_factory=dict)
+    #: Per call: the declaration that check reads, in place of the subtask's.
+    declared: dict[int, Declaration | None] = field(default_factory=dict)
+    #: Per commit: what ``declaration_at`` reads there; otherwise what the declaring subtask's
+    #: last check read, as its merged commit holds that. An exception there is raised.
+    held: dict[str, Declaration | Exception | None] = field(default_factory=dict)
+    read: dict[str, Declaration | None] = field(default_factory=dict)
+    #: Every ``declaration_at`` call: the commit and the declaring subtask.
+    read_at: list[tuple[str, str]] = field(default_factory=list)
+    #: What each subtask's checks read as its disputes; read on a refused check too, as a
+    #: checker that refuses after reading them would: the loop records them only after an
+    #: accepted check.
+    disputes: dict[str, tuple[Dispute, ...]] = field(default_factory=dict)
 
     def check(
         self,
@@ -187,17 +215,29 @@ class FakeChanges:
         role: str,
         *,
         series: SessionSeries | None = None,
+        follows: int | None = None,
     ) -> ChangeCheck:
         self.calls += 1
         self.seen.append(series)
         refused = self.refuse.get(self.calls)
+        declaration = self.declared.get(self.calls, self.declares.get(subtask_id))
+        self.read[subtask_id] = declaration
         return ChangeCheck(
             refused_by=refused[0] if refused else None,  # type: ignore[arg-type]
             reason=refused[1] if refused else None,
             graph_root="scratch/graph",
             proposed=self.proposed.get(self.calls, ()),
             series_checks=self.series_checks.get(self.calls, ()),
+            declaration=declaration,
+            disputes=self.disputes.get(subtask_id, ()),
         )
+
+    def declaration_at(self, commit: str, declaring: str) -> Declaration | None:
+        self.read_at.append((commit, declaring))
+        found = self.held[commit] if commit in self.held else self.read.get(declaring)
+        if isinstance(found, Exception):
+            raise found
+        return found
 
 
 def failing_gate_result(mode: RunningGateMode) -> GateResult:
@@ -288,9 +328,20 @@ class FakeMerger:
     ledger_at_merge: list[Any] = field(default_factory=list)
 
     messages: list[str] = field(default_factory=list)
+    #: Per merge: how often the subtask had been reopened, which names its branch.
+    reopens: list[int] = field(default_factory=list)
 
-    def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
+    def merge(
+        self,
+        subtask_id: str,
+        attempt: int,
+        attempt_commit: str,
+        message: str,
+        reopen: int = 0,
+        contracts: Mapping[str, str] | None = None,
+    ) -> str:
         self.messages.append(message)
+        self.reopens.append(reopen)
         if self.ledger_path is not None:
             fresh = TaskLedger(self.ledger_path)
             self.ledger_at_merge.append(fresh.find(subtask_id))
@@ -310,11 +361,10 @@ class FakeMerger:
 
     removed: list[str] = field(default_factory=list)
 
-    def remove_worktree(self, subtask_id: str) -> WorktreeRemoval:
+    def remove_worktree(self, subtask_id: str, reopen: int = 0) -> WorktreeRemoval:
         self.removed.append(subtask_id)
-        return WorktreeRemoval(
-            path=f"worktrees/{subtask_id}", outcome="removed", seconds=0.01, detail=None
-        )
+        path = f"worktrees/{subtask_id}" + (f".reopen-{reopen}" if reopen else "")
+        return WorktreeRemoval(path=path, outcome="removed", seconds=0.01, detail=None)
 
 
 @dataclass
@@ -338,7 +388,7 @@ class FakeMaterial:
 class FakeGraph:
     """A graph port with an empty journal, reporting divergences on chosen diff calls."""
 
-    divergent: dict[int, tuple[str, ...]] = field(default_factory=dict)
+    divergent: dict[int, tuple[Divergence, ...]] = field(default_factory=dict)
     calls: list[tuple[int, str]] = field(default_factory=list)
     reopened: int = 0
     root: Path = Path("store")
@@ -352,13 +402,18 @@ class FakeGraph:
     def commit(self, message: str) -> None:
         return None
 
-    def proposals(self, subtask_id: str, attempt_commit: str) -> list[dict[str, Any]]:
+    def proposals(self, subtask_id: str, attempt_commit: str, role: str) -> list[dict[str, Any]]:
         return []
 
     def write(self, payload: dict[str, Any], role: str) -> int:
         raise AssertionError("no proposal, so nothing is written")
 
-    def divergences(self, since: int, acting_role: str) -> tuple[str, ...]:
+    def follow(self, payload: dict[str, Any], role: str, joined: tuple[str, ...]) -> int:
+        raise AssertionError("no proposal, so no interface is followed")
+
+    def divergences(
+        self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
+    ) -> tuple[Divergence, ...]:
         self.calls.append((since, acting_role))
         return self.divergent.get(len(self.calls), ())
 
@@ -401,7 +456,9 @@ class Rig:
             config=config,
             run_dir=self.run_dir,
             gate=self.gate,
-            reviewers={"electrical": self.reviewer},
+            # One reviewer for every role the run names: ``electrical`` alone, unless a test's
+            # own model strings name more.
+            reviewers=dict.fromkeys(config.models.roles, self.reviewer),
             dispatcher=self.dispatcher,
             changes=self.changes,
             merger=self.merger,

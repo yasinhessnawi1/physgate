@@ -29,6 +29,8 @@ from pydantic import (
 )
 
 from physgate.state.exceptions import CorruptRecordError
+from physgate.state.held_file import HeldFile
+from physgate.state.write_account import WriteAccount
 
 NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
 
@@ -116,13 +118,21 @@ class TaskLine(BaseModel):
     #: A person's decision on the subtask's queue item that acted on this attempt, and the
     #: item's id (ARCH-133). Left out of the line when absent, so a line without them is
     #: written exactly as before they existed.
-    person_decision: Literal["approve", "reject"] | None = None
+    person_decision: Literal["approve", "reject", "choose"] | None = None
     queue_item: NonEmptyStr | None = None
+    #: The failed contract's item a person's choice on which reopened the merged subtask; left
+    #: out when absent, as above.
+    reopened_by: NonEmptyStr | None = None
+    #: A follow-up's own gate and review results, once it ended without a merge: the line's
+    #: own results and merge are the standing merge's again. Left out when absent, as above.
+    follow_up_gate_result: Outcome | None = None
+    follow_up_review_result: Outcome | None = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_decision(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for name in ("person_decision", "queue_item"):
+        absent = ("person_decision", "queue_item", "reopened_by")
+        for name in (*absent, "follow_up_gate_result", "follow_up_review_result"):
             if data.get(name) is None:
                 data.pop(name, None)
         return data
@@ -146,7 +156,9 @@ class TaskLedger:
     here there is one writer and nothing to corrupt.
     """
 
-    def __init__(self, path: Path, *, on_corrupt: OnCorrupt = "raise") -> None:
+    def __init__(
+        self, path: Path, *, on_corrupt: OnCorrupt = "raise", account: WriteAccount | None = None
+    ) -> None:
         """Open the ledger at ``path``, creating it if it does not exist.
 
         Args:
@@ -156,6 +168,8 @@ class TaskLedger:
                 ``"truncate"`` drops that line and everything after it. The
                 default refuses, because a complete line that does not validate
                 was written by something that is not this class.
+            account: the run's write account, which names every line before it is written;
+                ``None`` for a ledger written for no orchestrator.
         """
         self.path = Path(path)
         self._on_corrupt = on_corrupt
@@ -175,6 +189,8 @@ class TaskLedger:
             self._handle.close()
             raise
         self._handle.seek(0, os.SEEK_END)
+        #: What this handle knows of its file, held to the path before every append.
+        self.held = HeldFile(self.path, self._handle.fileno(), account)
 
     def recover(self) -> None:
         """Read the file, dropping and reporting an incomplete final line.
@@ -234,11 +250,19 @@ class TaskLedger:
         return self._corrupt_tail_bytes
 
     def append(self, line: TaskLine) -> None:
-        """Append ``line`` and flush it to disk before returning."""
+        """Append ``line`` and flush it to disk before returning.
+
+        Raises:
+            RecordMovedError: the ledger is no longer the file this handle holds, at the size it
+                wrote: something replaced it or wrote to it. Nothing is written.
+        """
         payload = line.model_dump_json(exclude_none=False).encode() + b"\n"
+        self.held.require_current()
+        self.held.intend(payload)
         self._handle.write(payload)
         self._handle.flush()
         os.fsync(self._handle.fileno())
+        self.held.wrote(payload)
         self._by_id[line.id] = len(self._lines)
         self._lines.append(line)
 

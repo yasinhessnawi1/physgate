@@ -45,7 +45,6 @@ def _every_argv(debug_file: Path | None) -> list[list[str]]:
         ),
         decomposition_argv(
             "claude",
-            prompt="p",
             schema="{}",
             model="claude-opus-5-5",
             session_id="s",

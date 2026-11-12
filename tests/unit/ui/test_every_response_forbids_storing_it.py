@@ -44,6 +44,7 @@ def _targets(world: dict[str, Path]) -> list[str]:
         "session": sealed_session(run),
         "date": "2026-09-27",
         "revision": "1",
+        "round": "2",
         "node": journal_records_after(run / "store", 0)[-1].node_id,
         "library_file": "standards",
         "role": "control",
@@ -87,3 +88,26 @@ def test_a_refused_host_or_origin_is_answered_no_store_too(world: dict[str, Path
                 status, answered, _ = live.request("GET", "/", host=host, headers=headers)
                 assert status == 403
                 assert answered.get("cache-control") == "no-store"
+
+
+def test_the_engine_catalogue_answers_no_store_whether_read_absent_or_refused(
+    world: dict[str, Path],
+) -> None:
+    from physgate.ui import engines
+
+    plain = context_over(world["root"], ui_root=world["ui"])
+    repo = Path(__file__).resolve().parents[3]
+    states = (
+        engines.load(repo, plain.allowlist),
+        engines.ABSENT,
+        engines.EngineCatalogue(state="refused", reason="it is a link"),
+    )
+    assert [held.state for held in states] == ["read", "absent", "refused"]
+    seen = 0
+    for held in states:
+        with serving(replace(plain, engines=held)) as live:
+            for method in METHODS:
+                status, headers, _ = live.request(method, "/api/engines")
+                assert headers.get("cache-control") == "no-store", (held.state, method, status)
+                seen += 1
+    assert seen == 3 * len(METHODS)

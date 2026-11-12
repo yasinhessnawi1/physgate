@@ -24,6 +24,10 @@ class OrchestratorError(Exception):
         self.context: dict[str, str] = dict(context)
 
 
+class ArbitrationError(OrchestratorError):
+    """A precedence table that could leave a conflict without exactly one outcome."""
+
+
 class CorruptEventLogError(OrchestratorError):
     """The run-event log holds a complete line this package could not have written.
 
@@ -86,6 +90,14 @@ class RoleNotRegisteredError(OrchestratorError):
     """A run names a role the role register does not hold, so it may not dispatch it."""
 
 
+class RoleRegisterError(OrchestratorError):
+    """The role register would hold two roles of one name, or two owning one duty."""
+
+
+class DutyUnownedError(RoleRegisterError):
+    """No registered role owns a cross-cutting duty, so nothing done under it has a doer."""
+
+
 class RunStateError(OrchestratorError):
     """The run is not in a state that allows what was asked: started twice, or interrupted."""
 
@@ -119,6 +131,24 @@ class WorktreeMisplacedError(OrchestratorError):
 
 class DecompositionError(OrchestratorError):
     """The decomposition's plan cannot be written: a node the store refuses, a bad path."""
+
+
+class PlanRefusedError(DecompositionError):
+    """A plan the run cannot start for its own content: its shape, its ids, its pairs, its words.
+
+    The plan's outcome, the designer's, as a call that gives no usable plan is.
+    """
+
+    cause = "plan_refused"
+
+
+class LibraryRefusedError(DecompositionError):
+    """A plan the run cannot start for the library or the target repository it is put into.
+
+    The instrument's failure, never the designer's: the plan was not judged.
+    """
+
+    cause = "library_refused"
 
 
 class StoreRefusalError(OrchestratorError):

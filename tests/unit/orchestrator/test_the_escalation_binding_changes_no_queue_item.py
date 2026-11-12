@@ -55,10 +55,15 @@ ADDED_FIELDS: dict[str, dict[str, Any]] = {
         # The rig's loops run over fakes with no OS-layer line recorded, so its runs allow
         # the layer's absence, as every run the golden file recorded went on without it.
         "os_layer_absent": "allow",
+        "design_review": "off",
     },
     "run_started": {"escalation_backend": "rules"},
     # The series records a session left: none, in every session the golden file recorded.
-    "session_ended": {"series": {"records": [], "refused": [], "discarded": []}},
+    # Policy limits recorded and not judged: none, as every session it recorded was judged.
+    "session_ended": {
+        "series": {"records": [], "refused": [], "discarded": []},
+        "policy_limits_unjudged": None,
+    },
     # The proposed quantities held to the records they name: none, in every run recorded.
     "proposals_checked": {"series_checks": []},
 }
@@ -75,7 +80,12 @@ ADDED_WITHIN: dict[str, dict[str, dict[str, Any]]] = {
 #: default, so they are set aside whatever their value; their content is held by tests of
 #: their own. ``proposed`` on the change check names the nodes an attempt proposed, which
 #: the escalation decision's state reports (its tests check it against the proposals).
-SET_ASIDE: dict[str, frozenset[str]] = {"proposals_checked": frozenset({"proposed"})}
+#: ``plan_sha256`` on the decomposition line is the digest of the run's own plan, which
+#: decomposition's tests check against the plan.
+SET_ASIDE: dict[str, frozenset[str]] = {
+    "proposals_checked": frozenset({"proposed"}),
+    "decomposed": frozenset({"plan_sha256"}),
+}
 
 #: Every source the loop could put on an item before the interface: the golden file
 #: must show each of them, or it does not cover what it claims to.

@@ -10,7 +10,7 @@ answering inconsistently. ``README.md`` in this directory says why that matters
 and what else this package deliberately does not own.
 """
 
-from physgate.state.divergence import Divergence, divergence
+from physgate.state.divergence import OWNERSHIP_ONLY, Divergence, Duties, OwnershipOnly, divergence
 from physgate.state.exceptions import (
     CorruptRecordError,
     CrossRoleWriteError,
@@ -18,8 +18,10 @@ from physgate.state.exceptions import (
     InterfaceImmutableError,
     MalformedNodeIdError,
     MissingUnitError,
+    RecordMovedError,
     StoreStaleError,
 )
+from physgate.state.held_file import HeldFile, identity_of
 from physgate.state.protocol import (
     REJECT_CROSS_ROLE,
     REJECT_DUPLICATE_NODE,
@@ -42,9 +44,11 @@ from physgate.state.schema import (
     validate_node_id,
 )
 from physgate.state.store import (
+    REJECT_INTERFACE_NOT_FOLLOWED,
     JournalLine,
     RevisionNotFoundError,
     Store,
+    followed_payload,
     graph_at,
     journal_diff,
     journal_records_after,
@@ -52,6 +56,7 @@ from physgate.state.store import (
     node_file_path,
     node_history,
     write_node_file,
+    written_quantity,
 )
 from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
 from physgate.state.vocabulary import (
@@ -61,8 +66,20 @@ from physgate.state.vocabulary import (
     shadowing_quantity_names,
     unknown_quantity_names,
 )
+from physgate.state.write_account import (
+    ACCOUNT_NAME,
+    Completed,
+    Entry,
+    Intent,
+    Settled,
+    WriteAccount,
+    account_of,
+    parse_account,
+    read_account,
+)
 
 __all__ = [
+    "OWNERSHIP_ONLY",
     "QUANTITY_NAMES",
     "RELATION_QUANTITY_NAMES",
     "nearest_quantity_names",
@@ -71,6 +88,7 @@ __all__ = [
     "REJECT_CROSS_ROLE",
     "REJECT_DUPLICATE_NODE",
     "REJECT_INTERFACE_IMMUTABLE",
+    "REJECT_INTERFACE_NOT_FOLLOWED",
     "REJECT_MISSING_UNIT",
     "REJECT_UNKNOWN_NODE",
     "CorruptRecordError",
@@ -78,6 +96,7 @@ __all__ = [
     "DesignStateError",
     "DesignStateStore",
     "Divergence",
+    "Duties",
     "InterfaceImmutableError",
     "JournalLine",
     "MalformedNodeIdError",
@@ -85,12 +104,27 @@ __all__ = [
     "Node",
     "NodeChange",
     "NodeNotFoundError",
+    "OwnershipOnly",
     "Quantity",
     "SeriesRef",
     "RevisionNotFoundError",
     "Revision",
     "Store",
     "StoreStaleError",
+    "followed_payload",
+    "written_quantity",
+    "RecordMovedError",
+    "HeldFile",
+    "identity_of",
+    "ACCOUNT_NAME",
+    "Completed",
+    "Entry",
+    "Intent",
+    "Settled",
+    "WriteAccount",
+    "account_of",
+    "parse_account",
+    "read_account",
     "TaskLedger",
     "TaskLine",
     "WriteResult",

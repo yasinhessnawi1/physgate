@@ -53,6 +53,9 @@ DROPPED: tuple[str, ...] = (
     "system:status",
     "system:thinking_tokens",
 )
+#: The model name the binary gives the messages it writes itself, for an error or a
+#: refusal: not a model's answer, so not held to the pin (measured on both binaries).
+SYNTHETIC_MODEL = "<synthetic>"
 #: The longest line the rendering holds, well under what the Read tool shows of one.
 WIDTH = 1000
 #: Ends every piece of a cut line but the last.
@@ -190,7 +193,11 @@ def _event(out: _Writer, event: dict[str, Any]) -> None:
         out.data("event", json.dumps(event, sort_keys=True, ensure_ascii=False))
 
 
-def _cut(line: str) -> list[str]:
+def cut_line(line: str) -> list[str]:
+    """``line`` in pieces no longer than :data:`WIDTH`, each but the last ending in the mark.
+
+    The pieces joined, with the mark and its line break taken out (:func:`joined`), are ``line``.
+    """
     pieces = []
     while len(line) > WIDTH:
         pieces.append(line[:WIDTH] + CONTINUED)
@@ -224,7 +231,7 @@ def render(stream: str, *, nonce: str | None = None) -> tuple[str, str]:
         else:
             _event(out, event)
     text = PREAMBLE.format(nonce=chosen) + "\n".join(out.lines) + "\n"
-    return "\n".join(piece for line in split_lines(text) for piece in _cut(line)) + "\n", chosen
+    return "\n".join(piece for line in split_lines(text) for piece in cut_line(line)) + "\n", chosen
 
 
 def joined(rendered: str) -> str:

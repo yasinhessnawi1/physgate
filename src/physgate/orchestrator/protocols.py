@@ -14,6 +14,7 @@ their fields by code, never phrased by a model.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Annotated, Any, Literal, Protocol, runtime_checkable
 
 from pydantic import (
@@ -27,9 +28,12 @@ from pydantic import (
 )
 
 from physgate.orchestrator.budget import ATTEMPT_LIMIT
-from physgate.orchestrator.common import ModelString, NonEmptyStr
+from physgate.orchestrator.common import ModelString, NonEmptyStr, model_named
 from physgate.orchestrator.exceptions import GateContractError, ModelSeparationError
+from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.managed import SessionManaged
+from physgate.orchestrator.plan import IntegratedPlan, Plan
+from physgate.orchestrator.trajectory import Seal
 from physgate.series.seal import AttemptSeries
 
 Count = Annotated[int, Field(ge=0)]
@@ -104,6 +108,26 @@ class IssuedSpec(_Frozen):
     sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
+class IssuedState(_Frozen):
+    """Integration's issued state, as its session and its reviewer read it.
+
+    The document's text with the digest and length its ``integration_state_issued`` line records;
+    a text whose UTF-8 bytes are not of that digest and length is no issued state.
+    """
+
+    text: NonEmptyStr
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    length: Annotated[int, Field(ge=1)]
+
+    @model_validator(mode="after")
+    def _the_text_is_what_was_recorded(self) -> IssuedState:
+        data = self.text.encode("utf-8")
+        if (hashlib.sha256(data).hexdigest(), len(data)) != (self.sha256, self.length):
+            msg = "an issued state's text is of the digest and length its line records"
+            raise ValueError(msg)
+        return self
+
+
 #: Where the gate checks one attempt. System scope is the integration call's alone.
 AttemptScope = Literal["subtask", "module"]
 
@@ -117,6 +141,31 @@ class SessionTrajectory(_Frozen):
     trajectory_length: Annotated[int, Field(ge=0)]
 
 
+#: What a person ordered an attempt to be: the one fix after a review that blocked, or a retry
+#: after a person's reject; or, on an arbitration item, the next attempt or the one fix a person
+#: ordered by choosing sizing's value; or sizing's closing pass, ordered to write the values a
+#: person chose by choosing the domain's. Or no person's: the follow-up code orders once sizing's
+#: closing pass changed values a domain module's nodes depend on, which names no item.
+PersonOrderKind = Literal[
+    "fix_after_block",
+    "retry_after_reject",
+    "retry_after_arbitration",
+    "fix_after_arbitration",
+    "arbitration_value",
+    "contract_conform",
+    "follow_up",
+]
+
+
+class ChosenValue(_Frozen):
+    """A domain's value a person chose on an arbitration item: the dispute's typed position."""
+
+    item_id: NonEmptyStr
+    subtask_id: NonEmptyStr
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
+    position: QuantityRef
+
+
 class PersonOrder(_Frozen):
     """What a person ordered an attempt to be, and the exact instruction its session was given.
 
@@ -125,12 +174,37 @@ class PersonOrder(_Frozen):
     against the issued specification alone.
     """
 
-    #: The one fix after a review that blocked, or a retry after a person's reject.
-    kind: Literal["fix_after_block", "retry_after_reject"]
-    item_id: NonEmptyStr
-    #: The attempt the person decided on; this attempt is the next.
+    kind: PersonOrderKind
+    #: The item decided on; left out of a follow-up's, which no decision ordered.
+    item_id: NonEmptyStr | None = None
+    #: The attempt the person decided on; this attempt is the next. For the closing pass's
+    #: values, the first chosen value's item and attempt.
     of_attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
     instruction: NonEmptyStr
+    #: The closing pass's values, in order; left out of every other order, which keeps its bytes.
+    chosen: tuple[ChosenValue, ...] = ()
+
+    @model_validator(mode="after")
+    def _values_with_their_kind(self) -> PersonOrder:
+        first = self.chosen[0] if self.chosen else None
+        if (self.kind == "follow_up") != (self.item_id is None):
+            msg = "every order names the item decided on, but a follow-up's, which none ordered"
+            raise ValueError(msg)
+        if (self.kind == "arbitration_value") != (first is not None) or (
+            first is not None and (first.item_id, first.attempt) != (self.item_id, self.of_attempt)
+        ):
+            msg = "the closing pass's order carries its values, led by its own item, and no other"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_no_values(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.chosen:
+            data.pop("chosen", None)
+        if self.item_id is None:
+            data.pop("item_id", None)
+        return data
 
 
 class Artefact(_Frozen):
@@ -174,6 +248,13 @@ class Artefact(_Frozen):
     #: What a person ordered this attempt to be, when one did. Left out of a dump when absent,
     #: so every attempt no person ordered is recorded exactly as before.
     ordered_by_person: PersonOrder | None = None
+    #: Integration's issued state, for an attempt of integration's subtask: what its session was
+    #: given to read. Left out of a dump when absent, so every other attempt is recorded as before.
+    integration_state: IssuedState | None = None
+    #: The interfaces the attempt's nodes revise, as its change check derived them,
+    #: which its reviewer is shown quantity by quantity. Left out of a dump when empty, so every
+    #: other attempt is recorded as before.
+    followed: tuple[FollowedInterface, ...] = ()
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -182,6 +263,10 @@ class Artefact(_Frozen):
             data.pop("series", None)
         if self.ordered_by_person is None:
             data.pop("ordered_by_person", None)
+        if self.integration_state is None:
+            data.pop("integration_state", None)
+        if not self.followed:
+            data.pop("followed", None)
         return data
 
     @model_validator(mode="after")
@@ -660,17 +745,49 @@ class Reviewer(Protocol):
         ...
 
 
+class PlanUnderReview(_Frozen):
+    """The plan one decomposition call submitted, with what it was made from."""
+
+    #: The brief exactly as the call was given it, and the digest the run recorded for it.
+    brief: Annotated[str, StringConstraints(min_length=1)]
+    brief_sha256: Sha256
+    #: The plan as validated, of the form the run's roles call for, and its digest.
+    plan: IntegratedPlan | Plan
+    plan_sha256: Sha256
+    #: The call's captured stream, and its seal taken where the call wrote it.
+    stream: NonEmptyStr
+    stream_seal: Seal
+    #: The model the run pinned for the call: the plan's implementer.
+    decomposition_model: ModelString
+    decomposition_session_id: NonEmptyStr
+
+
+@runtime_checkable
+class PlanReviewer(Protocol):
+    """The design reviewer: it judges the plan, on a different model from the decomposition's."""
+
+    @property
+    def model(self) -> str:
+        """The pinned model string this reviewer runs on."""
+        ...
+
+    def review_plan(self, under: PlanUnderReview) -> ReviewResult:
+        """Review the plan ``under`` names, with its brief and the call's whole stream."""
+        ...
+
+
 def require_separate_models(*, implementer: str, reviewer: str) -> None:
-    """Refuse to run a reviewer on the implementer's model string.
+    """Refuse to run a reviewer on the implementer's model, however either is spelled.
 
     Enforced here, at invocation, rather than trusted to configuration: a judge
     that shares a model with what it judges is the self-preference the
-    architecture separates them to avoid.
+    architecture separates them to avoid. A dated or a provider's spelling of the
+    same model is the same model (:func:`model_named`).
 
     Raises:
-        ModelSeparationError: the two strings are equal.
+        ModelSeparationError: the two strings name the same model.
     """
-    if implementer == reviewer:
+    if model_named(implementer) == model_named(reviewer):
         msg = "a reviewer may not run on the implementer's model"
         raise ModelSeparationError(msg, implementer=implementer, reviewer=reviewer)
 

@@ -500,7 +500,10 @@ follow-ups" are judged by reading like the rest.
   `power_draw`, the rating for `current_limit`, `power_supply`, `energy_capacity` and
   `max_discharge_power`. Under every other known name it is the brief's or the nominal value.
   Another name for that value, or another value under the name, fails; the same quantity at another
-  condition under a suffixed name (`_max`, `_min`, `_nominal`) is right (§10; cat. 2).
+  condition under a suffixed name (`_max`, `_min`, `_nominal`) is right. An efficiency or a duty
+  cycle is written as a fraction in the unit `1`, under `efficiency` or `duty_cycle` or a name
+  ending in `_efficiency` or `_duty_cycle`, which the checks hold to 0 to 1; one under another name,
+  or as a percentage, fails (§10; cat. 2).
 - **SS-25. An edge to every node a cross value bounds.** [B: what each domain module reads, when the
   specification and the plan's interface nodes do not show it.] Each cross node has a `constrains`
   edge to every node whose work depends on it, and each consumer of a supply or driver names it as
@@ -645,4 +648,4 @@ source, is the work's, even when its number equals a given value.
   choice was made to escape or satisfy a check and the work fails the corresponding rule when judged
   by reading; without that reasoning, at most `noted`.
 
-<!-- d3ec2e6c67d03a08c9acc4efac6dabaa -->
+<!-- bce6d6562100a4dd61521d9f77ae4e38 -->

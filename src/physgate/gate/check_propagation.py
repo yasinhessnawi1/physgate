@@ -33,9 +33,11 @@ What the check does not claim to know:
   unchecked, never as passed. It counts only if the target was written in the
   change set that owed it or later: an excuse written before the source changed
   again excuses nothing about the new value.
-- An edge into an **interface** node, which is fixed at decomposition and cannot
-  be rewritten, or into a node that **does not exist**, is recorded as
-  unchecked.
+- An edge into an **interface** node, or into a node that **does not exist**, is
+  recorded as unchecked. No session rewrites an interface (ARCH-011): one a domain
+  role produces is fixed at decomposition, and one sizing produces is revised once,
+  by code, from sizing's joined node at its opening pass, and fixed from the first
+  spawn of a subtask of any module that reads it.
 - With **no change history** at all, nothing can be said about what changed, and
   the check records that it did not judge rather than passing.
 """

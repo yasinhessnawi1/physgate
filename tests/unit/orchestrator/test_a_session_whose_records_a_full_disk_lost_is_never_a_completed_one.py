@@ -110,6 +110,7 @@ def _judged(text: str) -> tuple[str | None, str, object]:
         model=MODEL,
         roles=["electrical"],
         answered=answered,
+        brief="brief",
         lost=writes_lost(text),
     )
     return cause, detail, plan
@@ -133,6 +134,7 @@ def test_a_call_that_failed_for_another_reason_keeps_that_reason() -> None:
         model=MODEL,
         roles=["electrical"],
         answered=answered,
+        brief="brief",
         lost="transcript (ENOSPC)",
     )[0]
     assert cause == "api_error"

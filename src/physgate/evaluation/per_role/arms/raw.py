@@ -28,7 +28,7 @@ import subprocess
 import threading
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,7 +36,6 @@ from typing import Any
 from physgate.evaluation.per_role.answer import MAX_ANSWER_BYTES
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.task import Task
-from physgate.hooks.settings import PROFILE_TOOLS
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.credentials import (
     Credential,
@@ -60,8 +59,15 @@ from physgate.orchestrator.dispatch import (
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.processes import kill_own, stop_tree
 from physgate.orchestrator.role_python import RolePython, session_bin
-from physgate.orchestrator.run_config import Effort, Network, RunBounds, ThinkingDisplay
+from physgate.orchestrator.run_config import (
+    Effort,
+    Network,
+    RunBounds,
+    ThinkingDisplay,
+    endpoint_of,
+)
 from physgate.oslayer.probe import Absent, Present
+from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SessionEnd, await_session
 
 #: How often the watcher reads the stream.
@@ -340,7 +346,14 @@ def raw_bounds(bounds: RunBounds) -> tuple[int, float]:
     return bounds.session_max_turns * REPAIR_BUDGET, bounds.session_wall_clock_s * REPAIR_BUDGET
 
 
-def _install(setup: RawSetup, worktree: Path, sdir: Path, temp: Path | None) -> dict[str, Any]:
+def _install(
+    setup: RawSetup,
+    worktree: Path,
+    sdir: Path,
+    temp: Path | None,
+    *,
+    own_temp: Path | None = None,
+) -> dict[str, Any]:
     state = sdir / "state"
     state.mkdir(mode=0o700, parents=True)
     (sdir / "config").mkdir(mode=0o700, exist_ok=True)
@@ -366,12 +379,21 @@ def _install(setup: RawSetup, worktree: Path, sdir: Path, temp: Path | None) -> 
         "--ceiling",
         str(NO_ALWAYS_LOADED_CEILING),
         *helper,
+        # The session's own directory, which holds its login, stream, settings and records: no
+        # tool of the raw agent reads it, as no role session's reads the run's. A raw session
+        # has no run around it, so its own directory is the whole of what there is to name,
+        # and the installer refuses a raw-agent session that names none.
+        "--sessions-root",
+        str(sdir),
         # The harness checkout is protected from the raw agent and its shell reads denied:
         # what it would find there (the knowledge, the rubrics) is the harness's help.
         *harness_protection(),
         *(arg for root in setup.held_out for arg in ("--held-out", root)),
         *(arg for root in setup.withheld_reads for arg in ("--review-material", root)),
         *(["--os-layer-temp", str(temp)] if temp is not None else []),
+        # Without the layer the session still keeps its temporary files in a directory of its
+        # own, never in the one every session of the user shares.
+        *(["--temp", str(own_temp)] if temp is None and own_temp is not None else []),
         # The session is spawned held (the dispatcher's spawn), which exports its pid as the
         # survivor reaper's canary; the installer refuses a reaped session that does not say so.
         "--spawns-with-canary",
@@ -449,15 +471,20 @@ def run_session(
             raise RawArmError(msg, name=name)
         (worktree / name).write_bytes(data)
     session_id = str(uuid.uuid4())
-    temp: Path | None = None
-    if isinstance(setup.os_layer, Present):
-        temp = Path(f"/tmp/pg-{uuid.uuid4().hex[:12]}")
-        temp.mkdir(mode=0o700)
+    # As a role session's: a temporary directory of its own, beneath the one parent no other
+    # session reads or writes; where the OS layer runs, it is the layer's too.
     try:
-        return _run(prompt, setup, work, worktree, sdir, session_id, temp, cap, check)
+        own_temp = make_session_temp()
+    except OSError as exc:
+        msg = "no temporary directory of the session's own could be made, so none is started"
+        raise RawArmError(msg, error=str(exc)) from exc
+    temp = own_temp if isinstance(setup.os_layer, Present) else None
+    try:
+        return _run(
+            prompt, setup, work, worktree, sdir, session_id, temp, cap, check, own_temp=own_temp
+        )
     finally:
-        if temp is not None:
-            shutil.rmtree(temp, ignore_errors=True)
+        shutil.rmtree(own_temp, ignore_errors=True)
 
 
 def run_raw(task: Task, setup: RawSetup, work: Path, *, cap: int) -> dict[str, Any]:
@@ -489,13 +516,15 @@ def _run(
     temp: Path | None,
     cap: int,
     check: Checkpoint | None = None,
+    *,
+    own_temp: Path | None = None,
 ) -> dict[str, Any]:
     stdout, stderr = sdir / "stdout.jsonl", sdir / "stderr.txt"
     # One boundary from the first write of the credential to its removal: whatever ends
     # the session (an error, a refusal, the clock, the cap, a kill), the cleanup runs.
     try:
         ended, watch, seconds, after = _session(
-            prompt, setup, worktree, sdir, session_id, temp, cap, check
+            prompt, setup, worktree, sdir, session_id, temp, cap, check, own_temp=own_temp
         )
     finally:
         _clean(work, sdir, setup.credential.secret, (stdout, stderr))
@@ -525,6 +554,8 @@ def _session(
     temp: Path | None,
     cap: int,
     checkpoint: Checkpoint | None = None,
+    *,
+    own_temp: Path | None = None,
 ) -> tuple[SessionEnd, BudgetWatch, float, dict[str, Any]]:
     """Install, spawn, watch and end the raw session; the credential's removal is the caller's."""
     # As a role session's: what the runtime makes is made first, so it is in the record.
@@ -532,7 +563,7 @@ def _session(
     runtime_paths(worktree, sdir / "home")
     # And what this pin's runtime makes in the work area's own git directory, per platform.
     runtime_git_paths(worktree / ".git", setup.claude_version)
-    installed = _install(setup, worktree, sdir, temp)
+    installed = _install(setup, worktree, sdir, temp, own_temp=own_temp)
     env = isolated_env(
         home=sdir / "home",
         config_dir=sdir / "config",
@@ -615,15 +646,39 @@ def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> No
         raise RawArmError(msg, work=str(work))
 
 
+def canaries_sha256(canaries: Iterable[str]) -> str:
+    """The digest a record holds for a list of held-out canaries: it names none of them."""
+    return hashlib.sha256("\n".join(sorted(canaries)).encode()).hexdigest()
+
+
 def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
-    """Everything the raw arm is held equal to the harness arm on (criterion: fair arms)."""
+    """Everything the raw arm is held equal to the harness arm on, as it ran.
+
+    The tool list is not here: the comparison reads it from the session's generated
+    configuration, the list the session was actually given.
+    """
+    max_turns, wall_clock = raw_bounds(setup.bounds)
     return {
+        # No raw session is given an advisor; a field to give one records it here.
+        "advisor": None,
+        "auth": setup.credential.mode,
+        # As the session ran them: the binary's retries as given, the turns and the wall
+        # clock a role session's times the repair budget.
+        "bounds": {
+            "binary_max_retries": setup.bounds.binary_max_retries,
+            "infra_retry_delays_s": list(setup.bounds.infra_retry_delays_s),
+            "session_max_turns": max_turns,
+            "session_wall_clock_s": wall_clock,
+        },
+        "endpoint": endpoint_of(setup.base_url),
+        "held_out": sorted(setup.held_out),
+        # The canaries its stream was scanned for, which the harness run's must equal.
+        "held_out_canaries_sha256": canaries_sha256(setup.held_out_canaries),
         "model": setup.model,
         "claude_version": setup.claude_version,
         "effort": setup.effort,
         "max_output_tokens": setup.max_output_tokens,
         "thinking_display": setup.thinking_display,
-        "tools": sorted(PROFILE_TOOLS["baseline"]),
         "role_python": None if setup.role_python is None else setup.role_python.model_dump(),
         "network": setup.network,
         "os_layer": setup.os_layer.model_dump(),

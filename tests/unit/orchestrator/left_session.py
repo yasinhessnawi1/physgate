@@ -18,6 +18,7 @@ from loop_fakes import Rig, plan
 
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import InstallRequest, install
+from physgate.orchestrator.dispatch import HELD_RECORDS
 
 #: The installation a resume's check runs from: this interpreter's environment, where the
 #: hooks the tests install come from.
@@ -42,7 +43,7 @@ def spawn_logged(run_dir: Path, spawns: list[tuple[str, int, str]]) -> None:
 def sentinel_installed(sdir: Path, protected: Path) -> None:
     """The session's hooks installed in ``sdir`` and its sentinel's record taken.
 
-    ``protected`` is the session's one put-back root.
+    ``protected`` is the session's one put-back root; the run's held records are compared.
     """
     worktree = sdir.parent.parent / "worktree"
     worktree.mkdir(parents=True, exist_ok=True)
@@ -60,6 +61,10 @@ def sentinel_installed(sdir: Path, protected: Path) -> None:
             user_home=str(sdir / "home"),
             token_ceiling=100_000,
             extra_protected=(str(protected),),
+            # The run's held records, compared as the dispatcher's installer has them compared.
+            extra_protected_record=tuple(str(sdir.parent.parent / n) for n in HELD_RECORDS),
+            sessions_root=str(sdir.parent),
+            temp_dir="/var/tmp/pgs/0123456789",
         ),
         REGISTRY,
     )

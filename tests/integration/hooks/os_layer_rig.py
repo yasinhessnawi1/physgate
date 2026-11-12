@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
 import shutil
 import subprocess
 import sys
@@ -29,6 +28,7 @@ from physgate.hooks.settings import InstallRequest, install
 from physgate.oslayer.abort import ABORT_PREFIX
 from physgate.oslayer.probe import Present, gather_facts, judge
 from physgate.oslayer.reaper_install import with_canary
+from physgate.oslayer.session_temp import make_session_temp
 
 MARKER = "STANDIN-HELDOUT-MARKER"
 SEARCH_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
@@ -89,8 +89,7 @@ def make_layout(tmp_path: Path) -> Iterator[Layout]:
     (held / "stand.txt").write_text(MARKER + "\n")
     decisions = run / "queue_decisions.jsonl"
     decisions.write_text("")
-    temp = Path("/tmp") / f"pg-{secrets.token_hex(6)}"
-    temp.mkdir(mode=0o700)
+    temp = make_session_temp()
     try:
         yield Layout(
             tmp_path,
@@ -149,7 +148,10 @@ def run_session(
         held_out=(str(layout.held),),
         extra_protected=(str(layout.common),),
         extra_protected_refuse_only=(str(layout.root / "run" / "sessions"), str(layout.decisions)),
+        sessions_root=str(layout.root / "run" / "sessions"),
+        # The session's own temporary directory, the OS layer's where it runs.
         os_layer_temp_dir=str(layout.temp.resolve()) if layer else None,
+        temp_dir=None if layer else str(layout.temp.resolve()),
         os_layer_network=network,
         spawns_with_canary=True,
     )

@@ -37,6 +37,7 @@ PARAMS = {
     "queue_decisions": "record",
     # The stand-in binary predates the OS layer's pin, so the layer is absent here.
     "os_layer_absent": "allow",
+    "design_review": "off",
     "held_out": [],
     "held_out_canaries": [],
     "held_out_sha256": [],
@@ -182,6 +183,10 @@ def test_the_hook_layer_is_still_reachable_through_the_one_command(
             "1000",
             "--run-config",
             str(tmp_path / "run.json"),
+            "--sessions-root",
+            str(tmp_path / "sessions"),
+            "--temp",
+            "/var/tmp/pgs/0123456789",
         ]
     )
     assert code == 0
@@ -284,6 +289,11 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
         assert "sk-" not in text and "TOKEN" not in named
         for role, model in config.models.roles.items():
             assert config.models.reviewers[role] != model  # ARCH-060: another model reviews
+        # The product's new-run paths review the plan and hold it: a design reviewer is pinned,
+        # on another model than the decomposition's, the one the file pins for the roles' reviews.
+        assert config.design_review == "on"
+        assert config.models.design_reviewer not in (None, config.models.decomposition)
+        assert {config.models.design_reviewer} == set(config.models.reviewers.values())
     assert set(found) == {"subscription", "api_key"}
     # The evaluation pins: Opus implements and decomposes, Sonnet reviews. On an API key,
     # the cheap end: Sonnet implements and Haiku reviews.

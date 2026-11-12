@@ -408,6 +408,15 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             step = {"step": "review", **at, "verdict": e["result"]["verdict"]}
         elif kind == "merged":
             step = {"step": "merged", **at}
+        elif kind == "dispute_recorded":
+            # Which quantity, never the value or the reason: those are the session's.
+            position = e["position"]
+            step = {"step": "disputed", **at, "node": position["node_id"]}
+            step["quantity"] = position["name"]
+        elif kind == "arbitration_decided":
+            conflict = e["conflict"]
+            step = {"step": "arbitrated", **at, "node": conflict["node_id"]}
+            step |= {"quantity": conflict["quantity"], "level": e["level"]}
         elif kind == "attempt_rejected":
             step = {"step": "rejected", **at, "finding_key": e["finding_key"]}
         elif kind == "escalation_decided":
@@ -419,6 +428,15 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             step["routed"] = decision["basis"] is not None
         elif kind == "escalated":
             step = {"step": "escalated", "subtask_id": e["subtask_id"]}
+        elif kind == "attempt_returned":
+            step = {"step": "returned", **at, "item_id": e["item_id"]}
+        elif kind == "subtask_reopened" and "cause" in e:
+            # Code's reopen after sizing's closing pass: its cause and edges, no decision.
+            step = {"step": "reopened", **at, "cause": e["cause"], "owed": e["owed"]}
+        elif kind == "subtask_reopened":
+            step = {"step": "reopened", **at, "item_id": e["item_id"]}
+        elif kind == "follow_up_ended":
+            step = {"step": "follow_up_ended", **at, "why": e["why"]}
         elif kind == "session_ended" and e["outcome"] == "infrastructure":
             step = {"step": "infrastructure", **at, "cause": e["cause"]}
         elif kind == "incident":
@@ -433,6 +451,26 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             step = {"step": "integration_escalated"}
         elif kind == "halted":
             step = {"step": "halted", "reason": e["reason"]}
+        elif kind == "completion_declared":
+            # The modules declared, never the digest of the file's bytes: the decision is the list.
+            step = {"step": "declared", **at, "modules": e["modules"]}
+        elif kind == "module_completed":
+            step = {"step": "completed", **at, "declared_by": e["declared_by"]}
+        elif kind == "contract_pairs_planned":
+            step = {"step": "contract_pairs", "pairs": e["pairs"]}
+        elif kind == "contract_tested":
+            # The pair, its verdict and whether it is the pair's first; never the commit, the
+            # revision or the definition's digest, which no two reruns share.
+            result = e["result"]
+            step = {"step": "contract", "pair": result["pair"], "verdict": result["outcome"]}
+            step["first"] = e["first"]
+        elif kind == "contract_ruled":
+            # The clause and its level; never the values or revisions, which no two reruns share.
+            conflict = e["conflict"]
+            step = {"step": "contract_ruled", "interface": conflict["interface"]}
+            step |= {"quantity": conflict["quantity"], "level": e["level"]}
+        elif kind == "contract_item_raised":
+            step = {"step": "contract_item", "item_id": e["item_id"]}
         if step is not None:
             out.append({**step, "seq": e["seq"]})
     return out

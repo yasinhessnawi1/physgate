@@ -1,0 +1,74 @@
+{
+  "completion": {
+    "modules": [
+      {
+        "open": [
+          {
+            "name": "system_scope",
+            "reason": "no integration call is on the record"
+          },
+          {
+            "name": "contract",
+            "reason": "sizing to control: no contract result; sizing to firmware: its latest contract result failed"
+          },
+          {
+            "name": "open_item",
+            "reason": "queue item run-7-contract-4 about sizing to firmware has no decision taken"
+          }
+        ],
+        "sizing": true,
+        "state": "not_declared",
+        "subtask_id": "sizing-3ac1b9"
+      },
+      {
+        "open": [
+          {
+            "name": "merged",
+            "reason": "not every subtask planned in modules/control merged: control-c2599c"
+          },
+          {
+            "name": "system_scope",
+            "reason": "no integration call is on the record"
+          },
+          {
+            "name": "contract",
+            "reason": "control to firmware: no contract result; firmware to control: no contract result; sizing to control: no contract result"
+          }
+        ],
+        "sizing": false,
+        "state": "not_declared",
+        "subtask_id": "control-c2599c"
+      },
+      {
+        "open": [
+          {
+            "name": "system_scope",
+            "reason": "no integration call is on the record"
+          },
+          {
+            "name": "contract",
+            "reason": "control to firmware: no contract result; firmware to control: no contract result; sizing to firmware: its latest contract result failed"
+          },
+          {
+            "name": "open_item",
+            "reason": "queue item run-7-contract-4 about sizing to firmware has no decision taken"
+          }
+        ],
+        "sizing": false,
+        "state": "not_declared",
+        "subtask_id": "firmware-a7cd7e"
+      }
+    ],
+    "owner": true
+  },
+  "halted": null,
+  "next_step": {
+    "attempt": 2,
+    "kind": "attempt",
+    "point": "verify_reading",
+    "subtask_id": "control-c2599c"
+  },
+  "owed_halt": null,
+  "superseded": {},
+  "waiting": []
+}

@@ -36,9 +36,9 @@ import re
 import stat
 import time
 import unicodedata
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -54,30 +54,47 @@ from pydantic import (
     model_validator,
 )
 
+from physgate.orchestrator.arbitration import Held, Standing
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.common import (
     NonEmptyStr,
     Timestamp,
     first_problem,
-    utc_now,
     utc_stamp,
 )
+
+# Exported: the clock a decision's time is written by is the one the UI stamps a view with.
+from physgate.orchestrator.common import utc_now as utc_now
 from physgate.orchestrator.escalation import CONFIDENCE_FLOOR, Decision
 from physgate.orchestrator.events import (
+    ContractRuled,
+    ContractTested,
+    ContractValue,
     DecisionTaken,
+    DesignReviewRan,
     Event,
     LeftoverRead,
     OsLayerChecked,
+    Position,
     SessionEnded,
     StageEntered,
     parse_events,
     read_jsonl,
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError, QueueError, StaleViewError
-from physgate.orchestrator.protocols import GateResult, IndicatorKind, QuantityRef, SpecDefect
-from physgate.orchestrator.repair import Finding
+from physgate.orchestrator.protocols import (
+    REJECTING_RESULTS,
+    GateResult,
+    IndicatorKind,
+    QuantityRef,
+    SpecDefect,
+)
+from physgate.orchestrator.repair import Finding, Writer, held_line
 from physgate.orchestrator.trajectory import Seal, seal
 from physgate.reviewers.scan import ScanHit
+from physgate.state.exceptions import RecordMovedError
+from physgate.state.held_file import HeldFile
+from physgate.state.write_account import WriteAccount
 
 #: The queue's sources (ARCH-130); a blocked review and one with no verdict are kept apart,
 #: and a subtask the escalation decision sent to a person while it had attempts left is its
@@ -89,6 +106,8 @@ QueueSource = Literal[
     "review_blocked",
     "arbitration",
     "escalation_decision",
+    "contract",
+    "plan_review",
 ]
 
 
@@ -99,11 +118,12 @@ class _Record(BaseModel):
     ts: Timestamp
 
 
-#: What approving an item does: merge the attempt it names, or record the decision only.
-OnApprove = Literal["merge_attempt", "record_only"]
+#: What approving an item does: merge the attempt it names, release the run its plan's review
+#: holds, or record the decision only.
+OnApprove = Literal["merge_attempt", "release", "record_only"]
 #: What rejecting an item does: start the next attempt from the note, order the one fix a
-#: blocked review gets, end the subtask, or record the decision only.
-OnReject = Literal["retry", "fix", "end_subtask", "record_only"]
+#: blocked review gets, end the subtask, end the run its plan's review holds, or record only.
+OnReject = Literal["retry", "fix", "end_subtask", "end_run", "record_only"]
 #: Why approving an item records only. ``gate``, ``change_check`` and ``reading``: an automated
 #: check refused the attempt, and a person overrides the reviewer alone. ``indicator_in_history``:
 #: a review of some attempt of the subtask confirmed a reward-hacking indicator.
@@ -114,6 +134,18 @@ WhyRecordOnly = Literal[
     "gate", "change_check", "reading", "indicator_in_history", "scan_hit", "source", "legacy"
 ]
 Sha1 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+#: What choosing a position does: order the next attempt to the graph's value, order the one fix
+#: to it, end the subtask, resize (the subtask waits for sizing's closing pass, ordered to write
+#: the domain's value, then returns to the gate), reopen the other module of a failed contract, or
+#: record the decision only.
+OnChoose = Literal["retry", "fix", "end_subtask", "resize", "reopen", "record_only"]
+#: The positions each kind of item offers, in the order the item states them: an arbitration's
+#: sizing (the graph's value stands) and domain (the disputing subtask's); a failed contract's
+#: producer and consumer (whose merged work stands). No other kind offers any.
+POSITIONS: Mapping[QueueSource, tuple[Position, ...]] = {
+    "arbitration": ("sizing", "domain"),
+    "contract": ("producer", "consumer"),
+}
 
 
 class ConfirmedIndicator(BaseModel):
@@ -148,14 +180,28 @@ class ItemConsequence(BaseModel):
     #: review never judged them; empty otherwise. Every field is written out: a line that
     #: leaves one out is not one the orchestrator wrote, and is refused rather than read as none.
     scan_hits: tuple[ScanHit, ...]
+    #: What choosing each position does, for an item whose kind offers positions; left out of
+    #: every other item's line, so it is written exactly as before positions existed.
+    on_choose: dict[Position, OnChoose] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_choice(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.on_choose is None:
+            data.pop("on_choose", None)
+        return data
 
     @model_validator(mode="after")
     def _approve_says_what_it_merges_or_why_it_does_not(self) -> ItemConsequence:
-        merges = self.on_approve == "merge_attempt"
-        if merges == (self.why_record_only is not None):
-            msg = "approve merges with no reason not to, or records only and says why"
+        if (self.on_approve == "record_only") != (self.why_record_only is not None):
+            msg = "approve acts with no reason not to, or records only and says why"
             raise ValueError(msg)
-        if merges and (self.attempt is None or self.attempt_commit is None):
+        if (self.on_approve == "release") != (self.on_reject == "end_run"):
+            msg = "a held plan's item releases the run or ends it, and no other item does either"
+            raise ValueError(msg)
+        if self.on_approve == "merge_attempt" and (
+            self.attempt is None or self.attempt_commit is None
+        ):
             msg = "an approve that merges names the attempt and the commit it merges"
             raise ValueError(msg)
         return self
@@ -177,6 +223,19 @@ class QueueItem(_Record):
     #: that only records decisions; either is taken as recording only.
     consequence: ItemConsequence | None = None
 
+    @model_validator(mode="after")
+    def _the_positions_are_its_kind_s(self) -> QueueItem:
+        # Held in the set's own order: a dict keeps the order it was read in, so a line with the
+        # positions reordered would otherwise read, and write back, in a form no writer wrote.
+        stated = None if self.consequence is None else self.consequence.on_choose
+        if stated is not None and tuple(stated) != POSITIONS.get(self.source):
+            msg = "an item states the positions its kind offers, in their order, and no others"
+            raise ValueError(msg)
+        if stated is None and self.consequence is not None and self.source in POSITIONS:
+            msg = "an item whose kind offers positions states what choosing each does"
+            raise ValueError(msg)
+        return self
+
     @model_serializer(mode="wrap")
     def _omit_absent_consequence(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         # Left out when absent, so an item with none is written exactly as before it existed.
@@ -187,7 +246,15 @@ class QueueItem(_Record):
 
 
 #: The words a person decides with, mapped onto the free-text decision.
-Verb = Literal["approve", "reject"]
+Verb = Literal["approve", "reject", "choose"]
+
+
+def position_problem(verb: Verb | None, position: Position | None) -> str | None:
+    """Why ``position`` cannot go with ``verb``, or ``None``: a position goes with choose alone."""
+    if (verb == "choose") != (position is not None):
+        return "a position is chosen with choose, and only with it"
+    return None
+
 
 #: The longest note a person's decision carries, in characters: a bound on what reaches a
 #: session's prompt, and so a size, not a threshold on anything measured.
@@ -232,29 +299,69 @@ def note_problem(note: str) -> str | None:
     return None
 
 
+#: The longest a person may take to decide an item before it is logged as a decomposition
+#: defect: ARCH-130 asks for a median review under one minute.
+REVIEW_LIMIT = timedelta(minutes=1)
+
+
+def review_time(resolution: QueueResolution) -> timedelta | None:
+    """How long the person took: from the server's showing of the view to the decision's line.
+
+    ``None`` for a decision with no view on record, never zero: the gap from the item's listing
+    to the decision is no review time, since it counts every hour the item waited.
+    """
+    if resolution.shown_at is None:
+        return None
+    return _moment(resolution.ts) - _moment(resolution.shown_at)
+
+
+def _moment(stamp: str) -> datetime:
+    return datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
+
+
 class QueueResolution(_Record):
     """A person's decision on one item.
 
     ``verb``, ``note`` and ``shown_sha256`` are written for a decision taken with a verb on a
     view of the item (ARCH-133); a free-text decision, and every line written before they
-    existed, carries none of them and binds to nothing.
+    existed, carries none of them and binds to nothing. ``shown_at`` is when the operator UI's
+    server showed the person that view, from its own register, and a decision written over a
+    minute after it is marked ``decomposition_defect`` (ARCH-130); a decision with no view on
+    record (the command line's) carries neither, and has no review time.
     """
 
     kind: Literal["resolution"] = "resolution"
     decision: NonEmptyStr
     resolved_by: NonEmptyStr
     verb: Verb | None = None
+    position: Position | None = None
     note: NonEmptyStr | None = None
     shown_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
+    shown_at: Timestamp | None = None
+    decomposition_defect: Literal[True] | None = None
 
     @model_validator(mode="after")
     def _one_meaning(self) -> QueueResolution:
         # The free text is what every reader of the file reads, and the verb is what the run
         # acts on: one line may not say two things. A verb comes with the digest of the view it
         # was taken on and its text is exactly the verb's; with no verb, nothing binds.
+        if (problem := position_problem(self.verb, self.position)) is not None:
+            raise ValueError(problem)
+        took = review_time(self)
+        if took is not None and took < timedelta(0):
+            msg = "a view is shown before the decision taken on it"
+            raise ValueError(msg)
+        if (took is not None and took > REVIEW_LIMIT) != (self.decomposition_defect is not None):
+            msg = (
+                "a decision is marked a decomposition defect exactly when it was written over one "
+                "minute after its view was shown"
+            )
+            raise ValueError(msg)
         if self.verb is None:
-            if self.note is not None or self.shown_sha256 is not None:
-                msg = "a note or a view's digest belongs to a decision with a verb"
+            if (self.note, self.shown_sha256, self.shown_at) != (None, None, None):
+                msg = (
+                    "a note, a view's digest or when it was shown belongs to a decision with a verb"
+                )
                 raise ValueError(msg)
             return self
         if self.shown_sha256 is None:
@@ -265,15 +372,23 @@ class QueueResolution(_Record):
             raise ValueError(msg)
         if self.note is not None and (problem := note_problem(self.note)) is not None:
             raise ValueError(problem)
-        if self.decision != (self.verb if self.note is None else f"{self.verb}: {self.note}"):
-            msg = "a decision's text is exactly its verb and note"
+        said = self.verb if self.position is None else f"{self.verb} {self.position}"
+        if self.decision != (said if self.note is None else f"{said}: {self.note}"):
+            msg = "a decision's text is exactly its verb, position and note"
             raise ValueError(msg)
         return self
 
     @model_serializer(mode="wrap")
     def _omit_unbound_fields(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for name in ("verb", "note", "shown_sha256"):
+        for name in (
+            "verb",
+            "position",
+            "note",
+            "shown_sha256",
+            "shown_at",
+            "decomposition_defect",
+        ):
             if data.get(name) is None:
                 data.pop(name, None)
         return data
@@ -286,9 +401,12 @@ class PersonDecision(BaseModel):
 
     verb: Verb
     note: Annotated[str, StringConstraints(max_length=MAX_NOTE)] | None
+    position: Position | None = None
 
     @model_validator(mode="after")
     def _a_note_is_clean_and_a_rejection_has_one(self) -> PersonDecision:
+        if (problem := position_problem(self.verb, self.position)) is not None:
+            raise ValueError(problem)
         if self.note is not None:
             if (problem := note_problem(self.note)) is not None:
                 raise ValueError(problem)
@@ -299,7 +417,7 @@ class PersonDecision(BaseModel):
 
     def text(self) -> str:
         """The free-text decision every reader of the decisions file already reads."""
-        return decision_text(self.verb, self.note or "")
+        return decision_text(self.verb, self.note or "", self.position)
 
 
 #: The items file, in the run directory.
@@ -403,13 +521,15 @@ def escalation_item(
     ts: str,
     spent_by_person: int = 0,
     consequence: ItemConsequence | None = None,
+    merged: int = 0,
 ) -> QueueItem:
     """The item for a subtask whose every attempt was rejected.
 
     The triggering finding is the last one. The quantities are the last
     finding's that has any, because the most recent evidence is the most
     relevant. An attempt a person rejected from the queue left no finding of its own, so
-    ``spent_by_person`` counts those; every attempt is still one finding or one of them.
+    ``spent_by_person`` counts those, and ``merged`` the attempts that merged before a person's
+    choice on a failed contract reopened the subtask; every attempt is one of the three.
 
     Raises:
         QueueError: fewer findings or trajectories than attempts were given.
@@ -417,7 +537,8 @@ def escalation_item(
     if (
         not findings
         or spent_by_person < 0
-        or len(findings) + spent_by_person != REPAIR_BUDGET
+        or merged < 0
+        or len(findings) + spent_by_person + merged != REPAIR_BUDGET
         or len(trajectories) != REPAIR_BUDGET
     ):
         msg = "an exhausted budget is escalated with every attempt's finding and trajectory"
@@ -425,9 +546,12 @@ def escalation_item(
     with_quantities = [f for f in findings if f.quantities]
     rejected = (
         f"was rejected on all {REPAIR_BUDGET} attempts"
-        if not spent_by_person
+        if not spent_by_person and not merged
         else f"has no attempt left of {REPAIR_BUDGET}: a person rejected {spent_by_person} of "
         "them from the queue, and the others were rejected"
+        if not merged
+        else f"has no attempt left of {REPAIR_BUDGET}: {merged} merged before a person's choice "
+        "reopened it, and the others were rejected"
     )
     return QueueItem(
         item_id=item_id,
@@ -509,6 +633,72 @@ def decided_item(
         trajectories=trajectories,
         consequence=consequence,
     )
+
+
+def arbitration_item(
+    *,
+    item_id: str,
+    run_id: str,
+    subtask_id: str,
+    attempt: int,
+    fix: bool,
+    rulings: tuple[tuple[QuantityRef, Held, Writer | None, str, Standing], ...],
+    artefact_diff: str,
+    trajectories: tuple[str, ...],
+    ts: str,
+    consequence: ItemConsequence | None = None,
+) -> QueueItem:
+    """The item for an attempt whose dispute the precedence rule sends to a person (level 3).
+
+    ``rulings`` is each dispute of the attempt ruled above the gate: the domain's typed position,
+    sizing's held value and who wrote it, the level and the standing. Both positions are shown,
+    and never the dispute's reason, which stays on the run's record; the quantities are the first
+    three held values ruled for the queue in a unit the gate's parser takes, and a fix (``fix``)
+    is named as the fix a person ordered, never by its place in the budget.
+    """
+    from physgate.orchestrator.integration_state import measure
+
+    queued = [(held, standing) for _, held, _, level, standing in rulings if level == "queue"]
+    why = []
+    if any(s.counted_before for _, s in queued):
+        why.append("the quantity was disputed in an earlier attempt")
+    if fix:
+        why.append("this is a fix a person ordered")
+    elif any(not s.attempt_left for _, s in queued):
+        why.append("this is the subtask's last attempt")
+    return QueueItem(
+        item_id=item_id,
+        ts=ts,
+        run_id=run_id,
+        subtask_id=subtask_id,
+        source="arbitration",
+        decision_required=(
+            f"Subtask {subtask_id}, attempt {attempt}{'' if fix else f' of {REPAIR_BUDGET}'}, "
+            "disputes a value of a cross node that sizing wrote, and the precedence rule sends it "
+            f"to a person: {', and '.join(why)}. Decide which value stands; the reason each "
+            "dispute gives is on the run's record."
+        ),
+        artefact_diff=artefact_diff,
+        triggering_finding="\n".join(
+            f"{held_line(held, writer)} The disputing subtask holds it at "
+            f"{measure(position.value, position.unit)}."
+            for position, held, writer, _, _ in rulings
+        ),
+        quantities=tuple(h.position for h, _ in queued if parses(h.position))[:3],
+        trajectories=trajectories,
+        consequence=consequence,
+    )
+
+
+def parses(position: QuantityRef) -> bool:
+    """Whether the gate's parser takes ``position``'s unit: no other is shown on an item."""
+    from physgate.gate.units import UnitRefusedError, parse
+
+    try:
+        parse(position.value, position.unit)
+    except UnitRefusedError:
+        return False
+    return True
 
 
 #: What a run id or a subtask id is, when an item id is made of it.
@@ -604,12 +794,14 @@ def integration_item(
     trajectories: tuple[str, ...],
     ts: str,
     consequence: ItemConsequence | None = None,
+    follow_ups: str | None = None,
 ) -> QueueItem:
     """The item for an integrated design the gate refused (a physics-gate escalation).
 
     No subtask owns a whole-system failure, so it goes to a person rather than to
     a repair session. ``run_span`` is the run branch's start and head, the design
-    that was judged.
+    that was judged. ``follow_ups`` says how each module sizing's closing pass reached was
+    followed up, where any was owed; an item with none keeps its words.
 
     Raises:
         QueueError: the refusal did not block, or no attempt left a trajectory.
@@ -631,6 +823,7 @@ def integration_item(
             f"The integrated design failed the physics gate's {result.failing_check} check at "
             "system scope, after every subtask had merged. No one subtask owns this. Decide "
             "which module changes, or whether to accept the design as it stands."
+            + (f" {follow_ups}" if follow_ups else "")
         ),
         artefact_diff=(
             f"The run branch from {start} to {head}: see `git diff {start} {head}` in the "
@@ -641,6 +834,267 @@ def integration_item(
         trajectories=trajectories,
         consequence=consequence,
     )
+
+
+#: The subtask field of the item a plan's review holds the run on: it is about the whole plan.
+PLAN = "plan"
+
+
+def plan_consequence() -> ItemConsequence:
+    """What each verb does to the plan's item: an approve releases the run, a reject ends it."""
+    return ItemConsequence(
+        attempt=None,
+        attempt_commit=None,
+        on_approve="release",
+        on_reject="end_run",
+        why_record_only=None,
+        confirmed_indicators=(),
+        scan_hits=(),
+    )
+
+
+def plan_item(
+    *,
+    review: DesignReviewRan,
+    spec_commit: str,
+    stream: str,
+    consequence: ItemConsequence | None,
+    earlier: Sequence[DesignReviewRan] = (),
+) -> QueueItem:
+    """The item a plan its review did not pass holds the run on, built from the review's line.
+
+    It names each earlier round's verdict, then what the review came to (its finding, each rubric
+    item it failed and each blocking specification defect, or why there is no verdict), the plan
+    by its digest and the commit of its specifications, and the held round's stream as its one
+    trajectory.
+
+    Raises:
+        QueueError: the review's line holds the run on no item.
+    """
+    if review.held_item is None:
+        msg = "a plan's review that holds nothing raises no item"
+        raise QueueError(msg, plan=review.plan_sha256)
+    result, why = review.result, review.unavailable
+    found = [
+        f"round {k}: {one.result.verdict}: {one.result.finding}"
+        for k, one in enumerate(earlier, start=1)
+        if one.result is not None
+    ]
+    found += [f"no verdict ({why.cause}): {why.detail}"] if why is not None else []
+    rubric = result.items if result is not None else ()
+    defects = (*(result.spec_defects if result else ()), *(why.spec_defects if why else ()))
+    found += [result.finding] if result is not None else []
+    found += [f"{i.item}: {i.result}" for i in rubric if i.result in REJECTING_RESULTS]
+    found += [f"blocking specification defect: {d.finding}" for d in defects if d.blocking]
+    return QueueItem(
+        item_id=review.held_item,
+        ts=review.ts,
+        run_id=review.run_id,
+        subtask_id=PLAN,
+        source="plan_review",
+        # What deciding it does, in the run it is in: a run that records decisions only ends with
+        # the item open, and a decision there is a record that releases nothing.
+        decision_required=(
+            "The design reviewer did not pass the plan the decomposition submitted, and nothing "
+            "has been dispatched. Approve to run the plan as it stands; reject to end the run "
+            "with no module dispatched (a new run is a new decomposition)."
+            if consequence is not None
+            else "The design reviewer did not pass the plan the decomposition submitted, and "
+            "nothing has been dispatched. This run records decisions only: it ended with this "
+            "item open, and a decision here is recorded and releases nothing (a new run is a new "
+            "decomposition)."
+        ),
+        artefact_diff=(
+            f"The plan of digest {review.plan_sha256}, as the run recorded it: see "
+            f"{stream} and the specifications commit {spec_commit}."
+        ),
+        triggering_finding="\n".join(found),
+        quantities=(),
+        trajectories=(stream,),
+        consequence=consequence,
+    )
+
+
+#: The subtask field of a failed contract's item: it is about a pair of modules, not one subtask.
+CONTRACT = "contract"
+
+
+@dataclass(frozen=True)
+class ContractChoice:
+    """What choosing one position of a failed contract's item does, and why, as the item says it.
+
+    ``why``: ``reopen``, the other module alone deviates and has an attempt left; ``deviates``, the
+    chosen module's own nodes break the contract; ``both``, both modules' do; ``spent``, the other
+    module has no attempt left; ``closed``, it is not merged now, or the integration call is on the
+    record. ``module`` and ``subtask`` are the other side's, ``attempt`` the one a reopen starts.
+    """
+
+    why: Literal["reopen", "deviates", "both", "spent", "closed"]
+    module: str
+    subtask: str
+    attempt: int
+    fix: bool
+
+    @property
+    def effect(self) -> OnChoose:
+        """What the choice does: reopen the other module, or record only."""
+        return "reopen" if self.why == "reopen" else "record_only"
+
+
+def _choice_words(choices: Mapping[Position, ContractChoice] | None) -> str:
+    """What each position does, one sentence each; the run's own sentence where nothing acts."""
+    from physgate.orchestrator import integration_state as render
+
+    if choices is None:
+        return "In this run a choice is recorded, and nothing in the run acts on it."
+    if all(choice.why == "both" for choice in choices.values()):
+        return (
+            "Either choice records only: the interface, fixed at decomposition, disagrees with "
+            "both modules, and a new decomposition is the remedy."
+        )
+    words = []
+    for position, choice in choices.items():
+        lead, other = f"Choosing the {position}", f"module {render.q(choice.module)}"
+        if choice.why == "reopen":
+            slot = "its one fix" if choice.fix else f"attempt {choice.attempt}"
+            words.append(
+                f"{lead} keeps its work and reopens {other} for one more attempt ({slot}), told "
+                "the interface's values."
+            )
+        elif choice.why == "deviates":
+            words.append(f"{lead} records only: its own nodes break the contract.")
+        elif choice.why == "spent":
+            words.append(f"{lead} records only: {other} has no attempt left.")
+        else:
+            words.append(f"{lead} records only: {other} is not merged now, or integration ran.")
+    return " ".join(words)
+
+
+def contract_item_id(run_id: str, pair_number: int, round_: int) -> str:
+    """A failed contract's item id: the run, the pair's number, and from its second item, the round.
+
+    The pair's number is its place in the run's recorded pairs, from one.
+
+    Raises:
+        QueueError: the pair's number or the round is not a positive number, or the run id is
+            not a plain identifier.
+    """
+    if isinstance(pair_number, bool) or pair_number < 1:
+        msg = "a pair's number counts from one"
+        raise QueueError(msg, pair=str(pair_number))
+    return item_id_for(run_id, f"{CONTRACT}-{pair_number}", round_)
+
+
+def contract_item(
+    *,
+    item_id: str,
+    run_id: str,
+    tested: ContractTested,
+    rulings: tuple[ContractRuled, ...],
+    round_: int,
+    run_span: tuple[str, str],
+    trajectories: tuple[str, ...],
+    ts: str,
+    consequence: ItemConsequence | None = None,
+    choices: Mapping[Position, ContractChoice] | None = None,
+) -> QueueItem:
+    """The item for a failed contract, a clause of which the precedence rule sends to a person.
+
+    Both modules merged, so neither waits on it. Built from the result and its rulings alone: the
+    pair by its modules and the subtasks that planned them, which side deviates, and per ruled
+    clause the interface's value and each failing node's, with their revisions, each part held to
+    its form. Never a node's free-text provenance, nor the clause's own words for a refused unit.
+
+    Raises:
+        QueueError: no ruling sends a clause to a person, or no merged attempt left a trajectory.
+    """
+    from physgate.orchestrator import integration_state as render
+    from physgate.orchestrator.arbitration import clause_conflicts
+
+    queued = [r for r in rulings if r.level == "queue"]
+    if not queued or not trajectories:
+        msg = "a contract item follows a clause ruled for a person, and links the merged work"
+        raise QueueError(msg, item=item_id)
+    pair = tested.result.pair
+    held = {c.conflict: c for c in clause_conflicts(tested.result)}
+    unjoined = {c.interface: c.not_joined for c in tested.result.interfaces}
+
+    def side(name: str, subtask: str, module: str) -> str:
+        sub = render.held(
+            subtask, render.SUBTASK_PATTERN, render.PLANNED_ID_MAX_LENGTH, render.REFUSED_SUBTASK
+        )
+        return f"module {render.q(module)} ({name}, subtask {sub})"
+
+    deviating = {s for r in queued for s in held[r.conflict].sides}
+    who = (
+        "Both modules' nodes deviate"
+        if len(deviating) == 2
+        else f"The {next(iter(deviating))}'s nodes deviate"
+    )
+    again = f" again (round {round_})" if round_ > 1 else ""
+    producer = side("producer", pair.producer.subtask_id, pair.producer.module)
+    consumer = side("consumer", pair.consumer.subtask_id, pair.consumer.module)
+    start, head = run_span
+    return QueueItem(
+        item_id=item_id,
+        ts=ts,
+        run_id=run_id,
+        subtask_id=CONTRACT,
+        source="contract",
+        decision_required=(
+            f"The interface contract of {producer} to {consumer} failed{again} "
+            "after both merged. The interfaces are fixed at decomposition, and no run changes "
+            f"them. {who} from the interface. Decide whose merged work stands: choose producer or "
+            f"choose consumer. {_choice_words(choices)}"
+        ),
+        artefact_diff=(
+            f"The run branch from {start} to {head}: see `git diff {start} {head}` in the "
+            "target repository."
+        ),
+        triggering_finding="\n".join(
+            _clause_line(r, held[r.conflict].failing, unjoined[r.conflict.interface])
+            for r in rulings
+        ),
+        quantities=tuple(
+            r.wanted.position for r in queued if r.wanted is not None and parses(r.wanted.position)
+        )[:3],
+        trajectories=trajectories,
+        consequence=consequence,
+    )
+
+
+def _clause_line(ruling: ContractRuled, failing: tuple[str, ...], unjoined: tuple[str, ...]) -> str:
+    """One ruled clause, as the item states it: each value by the registry's names and revision."""
+    from physgate.orchestrator import integration_state as render
+    from physgate.orchestrator.dispute import QUANTITY_MAX, QUANTITY_PATTERN
+
+    conflict = ruling.conflict
+    where = f"Interface {render.held(conflict.interface)}"
+    whose = " and the ".join(unjoined)
+    joined = f"the {whose} {'is' if len(unjoined) == 1 else 'are'} not joined to it"
+    level = "the gate" if ruling.level == "gate" else "a person"
+    if conflict.quantity is None or ruling.wanted is None:
+        return f"{where} has no quantity, and {joined}. Ruled for {level}."
+    name = conflict.quantity
+    named = (
+        render.q(name)
+        if len(name) <= QUANTITY_MAX and QUANTITY_PATTERN.fullmatch(name)
+        else "a quantity name the dispute path refuses"
+    )
+
+    def holds(value: ContractValue) -> str:
+        position = value.position
+        return f"{render.measure(position.value, position.unit)} (revision {value.revision})"
+
+    parts = [f"{where}, quantity {named}: the interface holds {holds(ruling.wanted)}"]
+    carried = {v.position.node_id: v for v in ruling.found}
+    for node in failing:
+        found = carried.get(node)
+        said = f"holds {holds(found)}" if found is not None else "does not carry it"
+        parts.append(f"node {render.held(node)} {said}")
+    if unjoined:
+        parts.append(joined)
+    return "; ".join(parts) + f". Ruled for {level}."
 
 
 class _Records:
@@ -665,6 +1119,17 @@ class _Records:
         elif record.item_id not in self.items or record.item_id in self.resolved:
             msg = f"a decision on {record.item_id!r}, which is not an open item"
             raise ValueError(msg)
+        elif record.verb == "choose":
+            offered = POSITIONS.get(self.items[record.item_id].source, ())
+            if not offered:
+                msg = (
+                    "a choice is made only on an item whose kind offers positions: an arbitration "
+                    "or a failed contract"
+                )
+                raise ValueError(msg)
+            if record.position not in offered:
+                msg = f"a position the item's kind does not offer: it offers {', '.join(offered)}"
+                raise ValueError(msg)
 
     def record(self, record: QueueItem | QueueResolution) -> None:
         """Take ``record`` as read; :meth:`check` has passed it."""
@@ -947,6 +1412,10 @@ def queue_listing(
         ]
         flag = f"made while session {during[0]} ran; confirm" if during else None
         entry: dict[str, object] = {**decision.model_dump(), "flag": flag}
+        if (took := review_time(decision)) is not None:
+            # Only where a server's view is on record: a decision with none (the command line's)
+            # has no review time, and its entry stays as it always was.
+            entry["review_time"] = {"value": took.total_seconds(), "unit": "s"}
         if decision.item_id in taken:
             # What the run did with it, from its own record; absent until it takes the decision,
             # and in every run that only records, whose listing is as it always was.
@@ -987,9 +1456,7 @@ def _stream_reader(
     except OSError as exc:
         raise _unreadable(Path(run_dir), exc) from None
     try:
-        yield lambda session_id: _read_in(
-            dir_fd, SESSIONS_NAME, session_id, STREAM_NAME, cap=RECORD_READ_CAP
-        )
+        yield lambda session_id: _read_in(dir_fd, *stream_parts(session_id), cap=RECORD_READ_CAP)
     finally:
         os.close(dir_fd)
 
@@ -1005,9 +1472,35 @@ def item_sha256(line: bytes) -> str:
 SESSIONS_NAME = "sessions"
 STREAM_NAME = "stdout.jsonl"
 EVENTS_NAME = "events.jsonl"
+DECOMPOSITION_NAME = "decomposition"
+#: What a link to the decomposition's stream reads as, in place of a session's id: no id has a
+#: separator in it, so no session is ever read as the decomposition, or the other way round.
+DECOMPOSITION_STREAM = f"{DECOMPOSITION_NAME}/{STREAM_NAME}"
 
 #: A session id as the event log's own model accepts it.
 _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+#: The highest round a link or a seal is read for: past every repair level the flag allows.
+LAST_ROUND = 9
+#: The directory of a round after the first, beneath the decomposition's.
+_ROUND = re.compile(rf"^round-([2-{LAST_ROUND}])$")
+#: Each round's plan file, beneath its round's directory: round 1's too.
+PLAN_NAME = "plan.json"
+
+
+def round_parts(k: int) -> tuple[str, ...]:
+    """Where round k's call runs, beneath the run: the decomposition's directory for round 1."""
+    return (DECOMPOSITION_NAME,) if k == 1 else (DECOMPOSITION_NAME, f"round-{k}")
+
+
+def plan_parts(k: int) -> tuple[str, ...]:
+    """Where round k's plan file is, beneath the run: in its own round directory, round 1's too."""
+    return (DECOMPOSITION_NAME, f"round-{k}", PLAN_NAME)
+
+
+def round_stream(k: int) -> str:
+    """The link to round k's stream: the decomposition's for round 1, its round's own after."""
+    return "/".join((*round_parts(k), STREAM_NAME))
+
 
 #: What an item's trajectory link is found to be, when its view is built and again when a
 #: decision is recorded on that view.
@@ -1021,16 +1514,38 @@ def trajectory_session(link: str) -> str | None:
 
     A link is the path the session's stream had on the machine that ran it. It is never
     opened as written: only its last three components are read, and they must be the
-    sessions directory, a session id, and the stream's name.
+    sessions directory, a session id, and the stream's name; or the decomposition's directory
+    and the stream's name, read as :data:`DECOMPOSITION_STREAM`.
     """
     parts = Path(link).parts
+    if parts[-2:] == (DECOMPOSITION_NAME, STREAM_NAME) and parts[-3:-2] != (SESSIONS_NAME,):
+        return DECOMPOSITION_STREAM
+    held = _ROUND.fullmatch(parts[-2]) if len(parts) >= 3 else None
+    if held is not None and parts[-3] == DECOMPOSITION_NAME and parts[-1] == STREAM_NAME:
+        return round_stream(int(held.group(1)))
     if len(parts) < 3 or parts[-3] != SESSIONS_NAME or parts[-1] != STREAM_NAME:
         return None
     return parts[-2] if _SESSION_ID.fullmatch(parts[-2]) else None
 
 
+def stream_parts(session_id: str) -> tuple[str, ...]:
+    """Where beneath the run directory the stream a trajectory's id names is read from."""
+    if session_id.startswith(f"{DECOMPOSITION_NAME}/"):
+        return tuple(session_id.split("/"))
+    return (SESSIONS_NAME, session_id, STREAM_NAME)
+
+
 def recorded_seal(events: list[Event], session_id: str) -> Seal | None:
-    """The seal recorded for a session's stream: at its end, or when a resume read it left over."""
+    """The seal recorded for a session's stream: at its end, or when a resume read it left over.
+
+    A round's stream is sealed by its round's review, which held it to that seal: round k's is the
+    k-th review line's, every round before the last having been reviewed.
+    """
+    rounds = [round_stream(k) for k in range(1, LAST_ROUND + 1)]
+    if session_id in rounds:
+        reviews = [e.stream_seal for e in events if isinstance(e, DesignReviewRan)]
+        k = rounds.index(session_id)
+        return reviews[k] if k < len(reviews) else None
     for event in events:
         if (
             isinstance(event, SessionEnded | LeftoverRead)
@@ -1188,25 +1703,29 @@ def statuses_now(run_dir: Path, item_id: str) -> tuple[TrajectoryStatus, ...]:
 # -- the one decision function ------------------------------------------------------------
 
 
-def decision_text(verb: Verb, note: str) -> str:
-    """The decision as recorded: the verb, and the note after a colon when there is one.
+def decision_text(verb: Verb, note: str, position: Position | None = None) -> str:
+    """The decision as recorded: the verb, its position, and the note after a colon if any.
 
-    A rejection must say why.
+    A rejection must say why; a choice names its position.
 
     Raises:
-        QueueError: a rejection without a note, or a verb that is not one of the two.
+        QueueError: a rejection without a note, a verb that is not one of the three, or a
+            position without choose or choose without one.
     """
-    if verb not in ("approve", "reject"):
-        msg = "a decision is to approve or to reject"
+    if verb not in ("approve", "reject", "choose"):
+        msg = "a decision is to approve or to reject, or to choose a position"
         raise QueueError(msg, verb=str(verb))
+    if (problem := position_problem(verb, position)) is not None:
+        raise QueueError(problem, verb=verb)
+    said = verb if position is None else f"{verb} {position}"
     # Blank means nothing but what ``str.strip`` removes; the operator UI's page mirrors this
     # set exactly, so its confirmation shows the decision this function makes.
     if not note.strip():
         if verb == "reject":
             msg = "a rejection says why: its note is required"
             raise QueueError(msg)
-        return verb
-    return f"{verb}: {note}"
+        return said
+    return f"{said}: {note}"
 
 
 #: How the decision function opens what it reads and writes: relative to the run directory's
@@ -1272,6 +1791,7 @@ def record_decision(
     resolved_by: str,
     clock: Callable[[], datetime] | None = None,
     shown: ShownItem | None = None,
+    shown_at: datetime | None = None,
     dir_fd: int | None = None,
 ) -> QueueResolution:
     """Record a person's decision on an open item: the one function that writes a decision.
@@ -1292,9 +1812,15 @@ def record_decision(
 
     The decision is ``decision``, free text that binds to nothing, or ``person``, a verb and a
     note bound to the view ``shown`` (ARCH-133): its line then also names the verb, the note and
-    the digest of the item line shown. A bound approve is refused unless every trajectory shown
-    held its seal, and an approve of a blocked review unless its note says how the blocked check
-    is decided.
+    the digest of the item line shown. A bound approve, and a choice of the domain's position
+    (which carries a session's typed value forward), is refused unless every trajectory shown
+    held its seal; a choice of sizing's position binds to any view, as a reject does. An approve
+    of a blocked review is refused unless its note says how the blocked check is decided.
+
+    ``shown_at`` is when the operator UI's server showed the view ``shown`` names, from its own
+    register; it is written into the same line, marked a decomposition defect when the decision
+    comes over a minute after it (ARCH-130). Only a bound decision carries one, and none that the
+    clock would put after the decision: the review time is then null, never negative.
 
     A refusal writes nothing. ``run_dir`` also names the files in a refusal.
 
@@ -1311,15 +1837,25 @@ def record_decision(
     if person is not None and shown is None:
         msg = "a decision with a verb is bound to the view it was taken on, and none was given"
         raise QueueError(msg, item=item_id)
+    now = (clock or utc_now)()
+    if person is None or shown_at is None or shown_at > now:
+        shown_at = None
+    late = (
+        shown_at is not None
+        and _moment(utc_stamp(now)) - _moment(utc_stamp(shown_at)) > REVIEW_LIMIT
+    )
     try:
         record = QueueResolution(
             item_id=item_id,
-            ts=utc_stamp((clock or utc_now)()),
+            ts=utc_stamp(now),
             decision=person.text() if person is not None else str(decision),
             resolved_by=resolved_by,
             verb=person.verb if person is not None else None,
+            position=person.position if person is not None else None,
             note=person.note if person is not None else None,
             shown_sha256=shown.item_sha256 if person is not None and shown is not None else None,
+            shown_at=None if shown_at is None else utc_stamp(shown_at),
+            decomposition_defect=True if late else None,
         )
     except ValidationError as exc:
         msg = "the decision is not one the queue can record"
@@ -1403,6 +1939,10 @@ def _decide(dir_fd: int, run_dir: Path, record: QueueResolution, shown: ShownIte
             raise QueueError(str(exc), queue=str(queue_path)) from None
         if shown is not None:
             _require_as_shown(dir_fd, run_dir, records, record.item_id, shown)
+        if record.verb is None and records.items[record.item_id].source == "plan_review":
+            # Free text binds to nothing, and would close the one item the run is held on.
+            msg = "a plan's item is decided by approve or reject, and free text is neither"
+            raise QueueError(msg, item=record.item_id)
         if record.verb is not None and shown is not None:
             _require_bindable(records.items[record.item_id], record, shown)
         if good_end != len(decided):
@@ -1440,11 +1980,21 @@ def _checked(item_id: str) -> None:
 
 
 def _require_bindable(item: QueueItem, record: QueueResolution, shown: ShownItem) -> None:
-    """Refuse a bound approve its view cannot carry.
+    """Refuse a bound approve, or a choice of the domain, its view cannot carry.
 
     A trajectory shown that did not hold its seal, or a blocked review approved without saying
-    how the check it could not decide is decided.
+    how the check it could not decide is decided. Choosing the domain's position carries a
+    session's typed value forward, so it is held to the seals as an approve is; choosing sizing
+    keeps the graph's value, as a reject keeps the record, and binds to any view.
     """
+    if record.verb == "choose" and record.position == "domain":
+        if not shown.trajectories or any(status != "holds" for status in shown.trajectories):
+            msg = (
+                "choosing the domain binds to an item every trajectory of which held its seal "
+                "when shown, and this one's did not, so the decision is refused"
+            )
+            raise QueueError(msg, item=item.item_id, shown=",".join(shown.trajectories))
+        return
     if record.verb != "approve":
         return
     if not shown.trajectories or any(status != "holds" for status in shown.trajectories):
@@ -1477,9 +2027,7 @@ def _require_as_shown(
     statuses = trajectory_statuses(
         records.items[item_id],
         events,
-        lambda session_id: _read_in(
-            dir_fd, SESSIONS_NAME, session_id, STREAM_NAME, cap=RECORD_READ_CAP
-        ),
+        lambda session_id: _read_in(dir_fd, *stream_parts(session_id), cap=RECORD_READ_CAP),
     )
     if statuses != shown.trajectories:
         msg = "a trajectory of the item is no longer as it was shown, so the decision is refused"
@@ -1495,12 +2043,24 @@ class ApprovalQueue:
     wrong for anything that only reads: a reader goes through :func:`read_queue`.
     """
 
-    def __init__(self, path: Path, *, clock: Callable[[], datetime] = utc_now) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        clock: Callable[[], datetime] = utc_now,
+        decisions_refused_later: bool = False,
+        account: WriteAccount | None = None,
+    ) -> None:
         """Open or create the queue at ``path``.
 
+        ``decisions_refused_later`` is the run's own opener's: a decisions line the reader refuses
+        is then refused by the next :meth:`refresh`, where the loop records it, and does not stop
+        the run from opening. ``account`` is the run's write account, which names every item
+        before it is listed.
+
         Raises:
-            QueueError: a complete line is not a record, or does not follow from the
-                lines before it (an item listed twice, a decision on no open item).
+            QueueError: a complete line is not a record, or does not follow from the lines
+                before it (an item listed twice, a decision on no open item).
         """
         self.path = Path(path)
         if self.path.name != QUEUE_NAME:
@@ -1508,10 +2068,26 @@ class ApprovalQueue:
             raise QueueError(msg, queue=str(self.path), expected=QUEUE_NAME)
         self.decisions_path = self.path.with_name(DECISIONS_NAME)
         self._clock = clock
+        #: What this writer knows of its items file, taken at its first read.
+        self._held: HeldFile | None = None
+        self._account = account
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.touch(exist_ok=True)
         self.decisions_path.touch(exist_ok=True)
-        self.refresh()
+        try:
+            self.refresh()
+        except QueueError as exc:
+            # A person writes the decisions file: a line of it that does not read is recorded by
+            # the loop as an incident at its first read of the decisions, never a run that cannot
+            # open. Every item is read by then; the refusal is read again there.
+            named = exc.context.get("queue", "")
+            if not decisions_refused_later or Path(named) != self.decisions_path:
+                raise
+
+    @property
+    def held(self) -> HeldFile | None:
+        """What this writer knows of its items file, from its first read on."""
+        return self._held
 
     def refresh(self) -> None:
         """Read both files again: a person may have decided since they were last read.
@@ -1520,6 +2096,10 @@ class ApprovalQueue:
             QueueError: a complete line is not a record of its file's kind, or does not
                 follow from the lines before it.
         """
+        if self._held is not None:
+            # Read again, the items file is still the one this writer holds, at the size it made
+            # it: anything else wrote or replaced it, and nothing of it is read.
+            self._held.require_current()
         self._records = _Records()
         # The items file has one writer, this one, so a torn tail there is this writer's own
         # interrupted write and is cut. The decisions file is appended to by whoever decides,
@@ -1537,6 +2117,8 @@ class ApprovalQueue:
         if len(items) != good_end:
             with self.path.open("r+b") as handle:
                 handle.truncate(good_end)
+        if self._held is None:
+            self._held = HeldFile(self.path, account=self._account)
         _parse(decided, _DECISION, self._records, name=str(self.decisions_path))
 
     def _append(self, record: QueueItem) -> None:
@@ -1547,10 +2129,19 @@ class ApprovalQueue:
         # Every listed item has a decisions file beside it, so it can always be decided: the
         # decision function never creates one, and refuses a run whose file has gone.
         self.decisions_path.touch(exist_ok=True)
+        held = self._held if self._held is not None else HeldFile(self.path, account=self._account)
+        held.require_current()
+        payload = record.model_dump_json().encode() + b"\n"
+        held.intend(payload)
         with self.path.open("ab") as handle:
-            handle.write(record.model_dump_json().encode() + b"\n")
+            opened = os.fstat(handle.fileno())
+            if (opened.st_dev, opened.st_ino) != held.identity:
+                msg = "the record is no longer the file this writer holds"
+                raise RecordMovedError(msg, path=str(self.path))
+            handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+        held.wrote(payload)
         self._records.record(record)
 
     def add(self, item: QueueItem) -> None:

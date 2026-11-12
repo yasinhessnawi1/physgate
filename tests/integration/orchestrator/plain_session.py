@@ -124,8 +124,8 @@ class Ended:
             roles=["control"],
             answered=answered,
             refused=schema_refusal(self.stdout),
+            brief=PROMPT,
             lost=writes_lost(self.stdout),
-            claude_version=self.version,
         )[0]
 
 

@@ -85,9 +85,10 @@ no-load speed, a torque at speed, a headroom) at the bottom. Where the specifica
 criterion to one design voltage, that criterion is checked at it, and what the other ends give is
 stated beside it as information; a demand against a part's rating is still checked at the top.
 
-**Judgement-only** — the gate checks a value against the catalogue's ranges for its name and a
-consumer's stall current against its supply's current limit (cross §3, §4); nothing reads which end
-of a voltage range a value was computed at.
+**Judgement-only** — the gate checks a value's size only where a bounds table gives its name or
+kind a span (cross §3; none is loaded for a voltage), and a stall current against the current limit
+on its own node or on the supply its edges name (§5, cross §4); nothing reads which end of a
+voltage range a value was computed at.
 
 ## 5. A motor's operating points come from its published points, by a stated model
 
@@ -109,9 +110,11 @@ recommendation for brushed DC motor operation is 25% or less of the stall curren
 Micro Metal Gearmotor HPCB 6V with Extended Motor Shaft, item #3073, retrieved 31.10.2026] (*rule
 of thumb*; a sourced analysis may override it).
 
-**Enforced:** in part: the gate holds each consumer's `stall_current` against the `current_limit` of
-the supply its own `constrains` edge names (gate check 4); a limit further along the path is not
-read. The fit and the conversions are judgement.
+**Enforced:** in part: the gate holds a `stall_current` against a `current_limit` on its own node,
+and against the `current_limit` of each supply its own `constrains` edges name (gate check 4); a
+limit further along the path is not read, and a `stall_current` that no limit bounds, on its node or
+on a node its edges name, is recorded unchecked, never passed. The fit and the conversions are
+judgement.
 
 ## 6. A command limit becomes a voltage only at a stated supply voltage
 
@@ -185,7 +188,11 @@ The automated checks read a quantity by its name (cross §3) and a relation by t
 edges that join nodes (cross §4, §5). Sizing uses the checks' own names wherever a quantity is one
 of them (for example `supply_voltage`, `rated_voltage`, `stall_current`, `stall_torque`,
 `no_load_speed`, `current_limit`, `power_supply`, `power_draw`, `energy_capacity`, `mass`,
-`gear_ratio`). Where a check compares the name with a bound, the value under it is the one the
+`gear_ratio`, `efficiency`, `duty_cycle`). An efficiency or a duty cycle is a fraction, written
+in the unit `1` (0.75, never 75), under its name or a name ending in `_efficiency` or `_duty_cycle`,
+and the checks hold it to 0 to 1 by definition (*derived*). A stall current and the current limit
+that carries it may sit on one node, and are then held to each other; a stall current whose node
+holds no limit is held to the supply its own edge names. Where a check compares the name with a bound, the value under it is the one the
 check must judge: the largest for a demand (`stall_current` at the largest voltage the motor can be
 commanded, §7; `power_draw`), and the rating for a capability (`current_limit`, `power_supply`,
 `energy_capacity`, `max_discharge_power`). Every other known name (`supply_voltage`, `mass`,
@@ -197,8 +204,20 @@ has a `constrains` edge to every node whose work depends on it, so that a change
 (§11). A name the checks do not know is recorded unchecked, visibly, not wrong; a needed edge left
 out leaves a change unpropagated.
 
+Each interface node the plan gives sizing is the domains' contract, and sizing keeps a node of its
+own joined to it: a node of domain `cross`, not an interface, that names the interface in its
+`constrains` edges and holds every one of the interface's quantities under the same name. At the
+first pass's change check the harness writes the interface from that node: each quantity takes its
+value and unit, and its source names the node and the attempt; nothing else of the interface
+changes. The gate and the reviewer judge the revised interface with the attempt, and the domains
+read it once the pass merges. The node holds the values the domains are to read; a value at another
+condition goes under a suffixed name, as above. Sizing never writes the interface node itself.
+
 **Enforced:** gate checks 2, 4, 5 and 7 run on the names and edges the design declares; an unknown
-name is recorded unchecked. Which value carries the name, and which edges a node needs, is
+name is recorded unchecked. The change check refuses a first-pass attempt in which no node is
+joined to an interface sizing produces, a joined node lacks one of its names, two joined nodes
+disagree on one, or a unit is not of the interface's kind; once another module has started, no
+interface is revised again. Which value carries the name, and which edges a node needs, is
 judgement.
 
 ## 11. The closing pass makes the cross values true to the domains' work

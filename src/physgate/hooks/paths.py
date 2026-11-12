@@ -2,8 +2,9 @@
 
 This hook covers the tools that name a file: Write, Edit and NotebookEdit, and
 Read for the held-out tier, which nothing may read before measurement
-(ARCH-141), and for an evaluation corpus that carries its own answers, which no
-reviewer may read. Shell commands are a separate check, and a sentinel behind both
+(ARCH-141), for an evaluation corpus that carries its own answers, which no
+reviewer may read, and for the session's own hook state directory, which the hooks
+alone read. Shell commands are a separate check, and a sentinel behind both
 catches what either misses.
 
 **What is protected is data, not code.** The session configuration lists
@@ -67,14 +68,20 @@ layer's use of it are the protection.
 from __future__ import annotations
 
 import os
+import stat
 from typing import TYPE_CHECKING
 
 from physgate.hooks.reasons import (
     ANSWER_KEY_REASON,
+    CLAUDE_TEMP_REASON,
     HELD_OUT_REASON,
     HOME_CLAUDE_REASON,
+    HOOK_STATE_REASON,
     OUTSIDE_REVIEW_REASON,
     REVIEW_MATERIAL_REASON,
+    SESSION_TEMPS_REASON,
+    SESSIONS_REASON,
+    WITHHELD_REASON,
 )
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 
@@ -301,8 +308,46 @@ def _resolved(path: str, cwd: str) -> str:
 HELD_OUT_READERS_REFUSED = ("role", "reviewer", "baseline")
 
 
-def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
-    """Why the one spelling ``absolute`` may not be touched this way, by the listed rules."""
+def _own_reading(path: str, place: str) -> bool:
+    """Whether ``path`` is the file ``place`` names, or beneath it, and so read after all.
+
+    An allowance, so it is held on the path as spelt and as resolved, both exactly beneath
+    ``place`` (as given or resolved), never case-folded, and the path is no symbolic link and no
+    file with a second name: a link made in the session's own directory to another session's file
+    is not the file it was given to read.
+
+    Every allowance lies where no command of the session writes (never in its home), so a path
+    there that does not exist reads nothing and cannot be made: it is no refusal. Nor is a
+    search-path list that starts with one (``<bin>:/usr/bin``, as ``$PATH`` expands), which names
+    no file of its own there.
+    """
+    places = [p.rstrip("/") for p in _spellings(place)]
+
+    def beneath(spelling: str) -> bool:
+        return any(_under(spelling, p) or spelling.startswith(p + ":") for p in places)
+
+    if not (beneath(path) and beneath(os.path.realpath(path))):
+        return False
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return not stat.S_ISLNK(st.st_mode) and not (stat.S_ISREG(st.st_mode) and st.st_nlink > 1)
+
+
+def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = False) -> str | None:
+    """Why the one spelling ``absolute`` may not be touched this way, by the listed rules.
+
+    ``shell`` is for a shell command's word: only a command opens the session's own temporary
+    directory, in the kernel, where the OS layer judges every open. A file tool never does: its
+    path is judged before the tool opens it, and the session's commands write there in between,
+    so a file judged could be a link by then. That holds while no role or baseline session runs
+    a command in the background, whose output the binary leaves there for a Read: the shell hook
+    refuses ``run_in_background``, and the installer sets ``CLAUDE_CODE_DISABLE_BACKGROUND_TASKS``
+    for every such session, which closes the binary's other routes there.
+    """
     chain = _chain_ids(absolute)
     for held in config.held_out:
         if _reaches(absolute, held, chain) and (
@@ -319,16 +364,42 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
             if _reaches(absolute, material, chain):
                 return REVIEW_MATERIAL_REASON
     if not writing:
+        # The hook layer's own records of this session, for every profile: what the sentinel
+        # keeps to put a protected path back, the hooks' log, and the credential's helper. The
+        # hooks read and write them in their own processes, never through a tool of the session.
+        if _reaches(absolute, config.state_dir, chain):
+            return HOOK_STATE_REASON
         # A root that scripts write blind (the series outbox) is read by no tool of the
         # session either: what a script left there is the collector's to judge, and the OS
-        # layer keeps the shell's reads from it by the same rule.
+        # layer keeps the shell's reads from it by the same rule. Nor is a withheld run
+        # record, which names what the stream scan looks for, nor the run's session
+        # directories, which hold every session's login and stream, but for what the session
+        # reads of its own there, nor the temporary directory every Claude Code session of the
+        # user shares, which holds the other sessions' task outputs, nor another session's own
+        # temporary directory, but for the session's own.
         # Claude Code's directory in the session's scratch home is read by none either: what
         # is there is not the session's, and the OS layer denies the shell's reads alike.
         for root in config.protected_roots:
             if (
                 root.reads == "denied"
-                and (root.shell_writes == "allowed" or root.reason == HOME_CLAUDE_REASON)
+                and (
+                    root.shell_writes == "allowed"
+                    or root.reason
+                    in (
+                        WITHHELD_REASON,
+                        SESSIONS_REASON,
+                        CLAUDE_TEMP_REASON,
+                        SESSION_TEMPS_REASON,
+                        HOME_CLAUDE_REASON,
+                    )
+                )
                 and _reaches(absolute, root.path, chain)
+                and not any(
+                    _own_reading(absolute, own)
+                    for own in (
+                        root.read_exceptions if shell or root.reason != SESSION_TEMPS_REASON else ()
+                    )
+                )
             ):
                 return root.reason
         return None
@@ -336,6 +407,15 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
         if _reaches(absolute, root.path, chain) and not any(
             _reaches(absolute, exception, chain) for exception in root.exceptions
         ):
+            # The session's own temporary directory is written by its own commands, never by a
+            # file tool: held exactly, as their reads are, so no link or case variant there
+            # reaches another session's.
+            if (
+                shell
+                and root.reason == SESSION_TEMPS_REASON
+                and any(_own_reading(absolute, own) for own in root.read_exceptions)
+            ):
+                continue
             return root.reason
     for rule in config.experiments:
         reason = _experiment_reason(
@@ -352,8 +432,13 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
     return None
 
 
-def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str | None:
+def protection(
+    path: str, cwd: str, config: ConfigView, *, writing: bool, shell: bool = False
+) -> str | None:
     """Why ``path`` may not be touched this way, or ``None`` if it may.
+
+    ``shell`` is for a shell command's word, the one route the session's own temporary
+    directory is open to (see :func:`_rules`).
 
     Judged on two spellings: the path normalised, and the path as the operating
     system resolves it. They differ exactly when a symlink is followed by ``..``,
@@ -368,7 +453,7 @@ def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str
     parted = os.path.realpath(lexical) != physical
     spellings = (lexical, physical) if parted else (lexical,)
     for spelling in spellings:
-        reason = _rules(spelling, config, writing=writing)
+        reason = _rules(spelling, config, writing=writing, shell=shell)
         if reason is not None:
             return reason
     if config.profile == "reviewer" and not writing:
@@ -377,6 +462,22 @@ def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str
         if _hard_linked(physical):
             return HARD_LINKED
     return None
+
+
+def read_refused(path: str, config: ConfigView) -> bool:
+    """Whether the listed rules refuse every tool of the session a read of the absolute ``path``.
+
+    The rules alone, not a reviewer's allowance: what the sentinel keeps no byte of, so that
+    its copies are never one more place to read a withheld file from. Judged on the path as
+    given and as the operating system resolves it, as :func:`protection` judges a read.
+    """
+    # The run's session directories are kept from a session for what the other sessions keep
+    # there; the session's own files there (its settings, its home's git configuration) are read
+    # by no other session, so their kept bytes need no seal.
+    return any(
+        _rules(spelling, config, writing=False) not in (None, SESSIONS_REASON)
+        for spelling in dict.fromkeys((path, os.path.realpath(path)))
+    )
 
 
 def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:

@@ -51,7 +51,13 @@ from physgate.orchestrator.credentials import (
     credential_for,
     fingerprint,
 )
-from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
+from physgate.orchestrator.decompose import (
+    binary_version,
+    call,
+    require_fresh,
+)
+from physgate.orchestrator.decomposition_review import stop_left_review
+from physgate.orchestrator.design_rounds import decompose_in_rounds
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
     Envelope,
@@ -73,6 +79,7 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.gate_events import GateEvent, gate_events, recorded_gate_events
 from physgate.orchestrator.git import harness_git, head_of
+from physgate.orchestrator.incident import resolve
 from physgate.orchestrator.install import (
     manifest_entries,
     prepare_install,
@@ -82,16 +89,23 @@ from physgate.orchestrator.install import (
 from physgate.orchestrator.invocation import claude_binary, session_search_path
 from physgate.orchestrator.loop import Loop, escalation_for, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
-from physgate.orchestrator.protocols import Gate, Reviewer
+from physgate.orchestrator.params_record import record_params
+from physgate.orchestrator.protocols import Gate, PlanReviewer, Reviewer
 from physgate.orchestrator.queue import (
+    POSITIONS,
     PersonDecision,
     ShownItem,
     queue_listing,
     record_decision,
     statuses_now,
 )
+from physgate.orchestrator.record import ReviewInstall
 from physgate.orchestrator.replay import recorded_ledger
 from physgate.orchestrator.requirements import RunFacts, refusals
+from physgate.orchestrator.review_root_record import (
+    record_review_root,
+    require_recorded_review_root,
+)
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.role_python import measure as measure_role_python
 from physgate.orchestrator.run_config import (
@@ -111,11 +125,11 @@ from physgate.orchestrator.run_config import (
 from physgate.oslayer.listeners import loopback_listeners
 from physgate.oslayer.policy import NETWORK_UNENFORCED
 from physgate.oslayer.probe import Absent, Present, judge_here
-from physgate.reviewers.claude import ReviewerSetup, claude_reviewers
+from physgate.reviewers.claude import ReviewerSetup, claude_reviewers, design_reviewer
 from physgate.reviewers.exceptions import ReviewError
-from physgate.reviewers.places import require_review_root
+from physgate.reviewers.places import require_review_root, review_root_path
 from physgate.roles import require_registered
-from physgate.state.exceptions import DesignStateError
+from physgate.state.exceptions import DesignStateError, RecordMovedError
 
 #: Example parameters files, one per auth mode.
 EXAMPLES = Path(__file__).resolve().parent / "examples"
@@ -134,6 +148,8 @@ RUN_GUIDANCE = (
 
 #: Builds a driven run's reviewers from its setup, once the run's facts are known.
 ReviewerFactory = Callable[[ReviewerSetup], Mapping[str, Reviewer]]
+#: Builds a run's design reviewer from its setup and configuration, or ``None`` if it pins none.
+PlanReviewerFactory = Callable[[ReviewerSetup, RunConfig], PlanReviewer | None]
 
 
 @dataclass(frozen=True)
@@ -150,6 +166,8 @@ class Registrations:
     gate: Gate | None = None
     reviewers: Mapping[str, Reviewer] = field(default_factory=dict)
     reviewer_factory: ReviewerFactory | None = None
+    #: The design reviewer of a run that reviews its plan, built by ``decompose`` before the call.
+    plan_reviewer_factory: PlanReviewerFactory | None = None
 
 
 def default_registrations() -> Registrations:
@@ -166,7 +184,11 @@ def default_registrations() -> Registrations:
     """
     from physgate.gate.runner import PhysicsGate
 
-    return Registrations(gate=PhysicsGate(), reviewer_factory=claude_reviewers)
+    return Registrations(
+        gate=PhysicsGate(),
+        reviewer_factory=claude_reviewers,
+        plan_reviewer_factory=design_reviewer,
+    )
 
 
 def add_parsers(
@@ -238,7 +260,23 @@ def add_parsers(
     )
     d.add_argument("--target", required=True, type=Path, help="the target repository")
     d.add_argument("--run-dir", required=True, type=Path)
-    d.set_defaults(func=_decompose)
+    d.add_argument(
+        "--install",
+        type=Path,
+        help=(
+            "the hooks' read-only installation the plan's review runs under, built there if it "
+            "does not exist; required when the parameters review the plan"
+        ),
+    )
+    d.add_argument(
+        "--review-root",
+        type=Path,
+        help=(
+            "where the plan's review is prepared, as for run; required when the parameters "
+            "review the plan"
+        ),
+    )
+    d.set_defaults(func=functools.partial(_decompose, registrations=registrations))
 
     q = subparsers.add_parser("queue", help="the approval queue")
     actions = q.add_subparsers(dest="action", required=True)
@@ -249,9 +287,11 @@ def add_parsers(
         "resolve",
         help="record a decision on one item",
         description=(
-            "Record a decision on one item. --approve or --reject binds it to the item line whose "
-            "digest `queue list` printed (--sha256), and a run that acts on decisions acts on it; "
-            "--decision records free text, which binds to nothing and never acts."
+            "Record a decision on one item. --approve, --reject or --choose binds it to the item "
+            "line whose digest `queue list` printed (--sha256), and a run that acts on decisions "
+            "takes it and does what the item says. --choose domain binds only where every "
+            "transcript the listing showed held its seal; --decision records free text, which "
+            "binds to nothing and never acts."
         ),
     )
     resolve.add_argument("item")
@@ -260,12 +300,34 @@ def add_parsers(
     form.add_argument("--decision", help="free text, recorded only")
     form.add_argument("--approve", action="store_true", help="approve the item as shown")
     form.add_argument("--reject", action="store_true", help="reject the item as shown")
+    form.add_argument(
+        "--choose",
+        choices=[p for kind in POSITIONS.values() for p in kind],
+        help="choose a position an arbitration or a failed contract's item offers",
+    )
     resolve.add_argument("--note", help="why; required to reject")
     resolve.add_argument(
         "--sha256", help="the item line's digest as `queue list` printed it; required with a verb"
     )
     resolve.add_argument("--by", required=True)
     resolve.set_defaults(func=_queue_resolve)
+
+    incident = subparsers.add_parser("incident", help="an incident that halted a run")
+    incident_actions = incident.add_subparsers(dest="action", required=True)
+    settle = incident_actions.add_parser(
+        "resolve",
+        help="resolve a managed-settings incident at a terminal, so the run can resume",
+        description=(
+            "Resolve the halt of a run whose session received other policy limits than the "
+            "run's. Shows the change by key and value, asks you to type yes, and records who "
+            "resolved it, why, and both digests; the run's resume then accepts it, and every "
+            "later session is held to the new limits. Refused unless run at a terminal."
+        ),
+    )
+    settle.add_argument("--run-dir", required=True, type=Path)
+    settle.add_argument("--by", required=True, help="who resolves it")
+    settle.add_argument("--reason", required=True, help="why the new limits are accepted")
+    settle.set_defaults(func=_incident_resolve)
 
     g = subparsers.add_parser(
         "gate-events",
@@ -467,6 +529,28 @@ def _say_listeners(network: Network, found: tuple[int, ...] | None) -> None:
         )
 
 
+def _stop_left_review(run_dir: Path) -> int | None:
+    """Stop the design review session a killed ``decompose`` left on ``run_dir``, and say so.
+
+    First, whatever the command goes on to do with the directory: a ``decompose`` still refuses
+    it, and a ``run`` of a directory with no opening still finds no run in it. A review whose
+    streams showed held-out material refuses the command here, this time and every later one:
+    the exit status to return, or ``None`` to go on.
+    """
+    # Every credential this command could hold: a run with no opening names no mode yet.
+    held = (os.environ.get(name, "") for name in SECRET_VARIABLE.values())
+    left = stop_left_review(run_dir, secrets=tuple(secret for secret in held if secret))
+    if left.said is not None:
+        print(f"physgate: {left.said}", file=sys.stderr)
+    if left.exposed:
+        return _fail(
+            "a design review a killed decompose left in this run directory showed held-out "
+            "material; nothing runs in it",
+            run_dir=str(run_dir),
+        )
+    return None
+
+
 def _fail(message: str, **context: str) -> int:
     print(json.dumps({"error": message, **context}, sort_keys=True), file=sys.stderr)
     return 2
@@ -548,7 +632,92 @@ def _library_root() -> Path | None:
     return harness_root()
 
 
-def _decompose(args: argparse.Namespace) -> int:
+def _install_bin(
+    install: Path, run_dir: Path | None = None
+) -> tuple[Path, Literal["checked", "built"], float]:
+    """The installation's binary: checked against its build, and the run's record, or built.
+
+    Returns the binary, which of the two was done, and how many seconds it took.
+    """
+    started = time.monotonic()
+    if not install.exists():
+        return prepare_install(install, _project_root()), "built", time.monotonic() - started
+    require_current(install, _project_root())
+    if run_dir is not None:
+        require_recorded_manifest(install, _recorded_manifest(run_dir, install))
+    return install / "bin" / "physgate", "checked", time.monotonic() - started
+
+
+def _reviewer_setup(
+    args: argparse.Namespace,
+    config: RunConfig,
+    credential: Credential,
+    review_root: Path,
+    install_bin: Path,
+) -> ReviewerSetup:
+    """What a run's reviewers are built from, their rubrics read from the source checkout.
+
+    Raises:
+        ReviewerNotRegisteredError: there is no checkout to read the rubrics from.
+    """
+    library = _library_root()
+    if library is None:
+        msg = "the reviewers' rubrics are read from a source checkout, and there is none"
+        raise ReviewerNotRegisteredError(msg)
+    return ReviewerSetup.of_run(
+        config,
+        review_root=review_root,
+        repo=args.target.resolve(),
+        install_bin=install_bin,
+        binary=claude_binary(),
+        base_url=os.environ.get("ANTHROPIC_BASE_URL"),
+        credential=credential,
+        library=library,
+    )
+
+
+def _plan_reviewer(
+    args: argparse.Namespace,
+    config: RunConfig,
+    credential: Credential,
+    registrations: Registrations | None,
+) -> tuple[PlanReviewer, ReviewInstall] | None:
+    """The design reviewer of a run that reviews its plan, and its installation; ``None`` if not.
+
+    Built before the call is spent: a review that could not run would leave the call's tokens
+    spent on a run that never starts. The installation is checked against its build, or built,
+    as a run's is.
+
+    Raises:
+        RunConfigError: the run reviews its plan and names no installation or review root.
+        ReviewerNotRegisteredError: no design reviewer is registered, or there is no checkout
+            to read its rubric from.
+        ReviewRootError: the review root is not one a reviewer may read beneath.
+    """
+    if config.design_review == "off":
+        return None
+    if args.install is None or args.review_root is None:
+        msg = (
+            "a run that reviews its plan names the installation and the place its review "
+            "runs under: --install and --review-root"
+        )
+        raise RunConfigError(msg, design_review=config.design_review)
+    review_root = require_review_root(args.review_root)
+    install = args.install.resolve()
+    install_bin, action, seconds = _install_bin(install)
+    setup = _reviewer_setup(args, config, credential, review_root, install_bin)
+    factory = design_reviewer if registrations is None else registrations.plan_reviewer_factory
+    reviewer = factory(setup, config) if factory is not None else None
+    if reviewer is None:
+        msg = "a run that reviews its plan needs its design reviewer, and none is registered"
+        raise ReviewerNotRegisteredError(msg)
+    checked = ReviewInstall(
+        path=str(install), action=action, seconds=seconds, entries=manifest_entries(install)
+    )
+    return reviewer, checked
+
+
+def _decompose(args: argparse.Namespace, *, registrations: Registrations | None = None) -> int:
     try:
         # The credential first, from the mode the parameters name: a run whose mode
         # has no secret in the environment is refused before anything else happens.
@@ -569,7 +738,9 @@ def _decompose(args: argparse.Namespace) -> int:
     _say_os_layer(config.os_layer, config.network, allowed=why is None)
     if why is not None:
         return _fail(why)
-    refused = refusals(RunFacts(config=config, os_layer=config.os_layer, shell_sessions=True))
+    refused = refusals(
+        RunFacts(config=config, os_layer=config.os_layer, shell_sessions=True, new_run=True)
+    )
     if refused:
         return _fail("the run may not start", requirements="; ".join(refused))
     if config.reportable:
@@ -581,6 +752,8 @@ def _decompose(args: argparse.Namespace) -> int:
         except OrchestratorError as exc:
             return _fail(str(exc), **exc.context)
     run_dir = args.run_dir.resolve()
+    if (left_exposed := _stop_left_review(run_dir)) is not None:
+        return left_exposed
     try:
         # Every role the run can plan must be in the role register and have its curated
         # content, before the one model call is spent: without either it could never be
@@ -591,34 +764,62 @@ def _decompose(args: argparse.Namespace) -> int:
         return _fail(str(exc), **exc.context)
     try:
         require_fresh(run_dir)
-        outcome = call(
-            args.brief.read_text(),
-            config=config,
-            workdir=run_dir / "decomposition",
-            base_url=os.environ.get("ANTHROPIC_BASE_URL"),
-            credential=credential,
+        # The parameters name the held-out canaries: recorded first, so every session of the run
+        # is installed with the file withheld, wherever it lies.
+        record_params(run_dir, args.params)
+        reviewing = _plan_reviewer(args, config, credential, registrations)
+        # The root the reviewer runs under, as every reader takes it: recorded before the review
+        # runs, so a later command looks for this run's reviews where they are.
+        review_root = (
+            review_root_path(args.review_root)
+            if reviewing is not None and args.review_root is not None
+            else None
         )
-        record = start_run(
-            outcome,
+        if review_root is not None:
+            record_review_root(run_dir, review_root)
+        # Decoded once, from the bytes the run's digest names: the call and the review read alike.
+        brief = args.brief.read_bytes().decode("utf-8")
+        made = decompose_in_rounds(
+            brief,
             config=config,
             run_dir=run_dir,
             target_repo=args.target.resolve(),
             library=_library_root(),
+            reviewing=reviewing,
+            check=material_check(config),
+            make_call=functools.partial(
+                call,
+                config=config,
+                base_url=os.environ.get("ANTHROPIC_BASE_URL"),
+                credential=credential,
+            ),
+            # The reviewer's own root, as it takes it: a review's record names its session there.
+            review_root=review_root,
         )
-    except OrchestratorError as exc:
+    except (OrchestratorError, ReviewError) as exc:
         return _fail(str(exc), **exc.context)
+    record, reviewed = made.record, made.reviewed
     subtasks = [line.id for line in record.ledger.read_all()]
     record.close()
-    _print(
-        {
-            "run_id": config.run_id,
-            "decomposed": outcome.ok,
-            "cause": outcome.cause,
-            "detail": outcome.detail,
-            "subtasks": subtasks,
-        }
-    )
-    return 0 if outcome.ok else 1
+    printed: dict[str, object] = {
+        "run_id": config.run_id,
+        "decomposed": made.ok,
+        "cause": made.cause,
+        "detail": made.detail,
+        "subtasks": subtasks,
+    }
+    if reviewed is not None:
+        # Said only for a run that reviews its plan, so what any other run prints is unchanged.
+        printed["plan_review"] = (
+            reviewed.result.verdict
+            if reviewed.result is not None
+            else reviewed.unavailable.cause
+            if reviewed.unavailable is not None
+            else "held_out_exposed"
+        )
+    _print(printed)
+    # A review whose stream showed held-out material halted the run: nothing will be dispatched.
+    return 0 if made.ok and not (reviewed is not None and reviewed.exposed) else 1
 
 
 def _project_root() -> Path:
@@ -683,6 +884,14 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
             return _fail(str(exc), **exc.context)
     run_dir = args.run_dir.resolve()
     try:
+        # The root the run recorded, before anything is stopped or spawned: beneath another, none
+        # of its reviews would be found.
+        require_recorded_review_root(run_dir, args.review_root)
+    except OrchestratorError as exc:
+        return _fail(str(exc), **exc.context)
+    if (left_exposed := _stop_left_review(run_dir)) is not None:
+        return left_exposed
+    try:
         config = load_run_config(run_dir / "run.json")
         # The recorded mode decides which secret the run needs; a resume cannot change it.
         credential = credential_for(config.auth, os.environ)
@@ -694,22 +903,10 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         install = args.install.resolve()
         reviewers = registrations.reviewers
         if not reviewers and registrations.reviewer_factory is not None:
-            library = _library_root()
-            if library is None:
-                msg = "the reviewers' rubrics are read from a source checkout, and there is none"
-                raise ReviewerNotRegisteredError(msg)
-            reviewers = registrations.reviewer_factory(
-                ReviewerSetup.of_run(
-                    config,
-                    review_root=review_root,
-                    repo=args.target.resolve(),
-                    install_bin=install / "bin" / "physgate",
-                    binary=claude_binary(),
-                    base_url=os.environ.get("ANTHROPIC_BASE_URL"),
-                    credential=credential,
-                    library=library,
-                )
+            setup = _reviewer_setup(
+                args, config, credential, review_root, install / "bin" / "physgate"
             )
+            reviewers = registrations.reviewer_factory(setup)
         refuse_unregistered(config, registrations.gate, reviewers)
         # The binding the run recorded, through the register, before anything is built.
         escalation = escalation_for(config)
@@ -729,15 +926,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         if not (run_dir / "events.jsonl").exists():
             msg = "the run was never started; decompose it first"
             raise RunStateError(msg, run_dir=str(run_dir))
-        started = time.monotonic()
-        action: Literal["checked", "built"] = "checked" if install.exists() else "built"
-        if action == "checked":
-            require_current(install, _project_root())
-            require_recorded_manifest(install, _recorded_manifest(run_dir, install))
-            install_bin = install / "bin" / "physgate"
-        else:
-            install_bin = prepare_install(install, _project_root())
-        checked_in = time.monotonic() - started
+        install_bin, action, checked_in = _install_bin(install, run_dir)
         run = RunGit(repo=args.target.resolve(), run_dir=run_dir, run_id=config.run_id)
         store_root = run_dir / "store"
         plan = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, SubtaskPlanned)]
@@ -777,6 +966,9 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         keeper.close()
         return _fail("the run may not continue", requirements="; ".join(refused))
     try:
+        # Recorded before anything runs under it: a run opened before the record existed is
+        # driven as it always was, and every later command is held to the root it names now.
+        record_review_root(run_dir, review_root)
         # The check ran before the log was open; it is recorded now, before any spawn.
         loop.record.emit(
             InstallChecked(
@@ -792,7 +984,9 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         step = loop.resume(confirm=confirm, confirmed_by=confirmed_by) if resume else loop.run()
         account = TokenAccount.from_events(loop.log.events)
         account.assert_no_routing()
-    except OrchestratorError as exc:
+    except (OrchestratorError, RecordMovedError) as exc:
+        # A record no longer the file its writer holds is written no more: the run stops here,
+        # and its next command finds it as it was left.
         return _fail(str(exc), **exc.context)
     finally:
         loop.close()
@@ -810,6 +1004,15 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         }
     )
     return 0 if step.kind == "done" else 1
+
+
+def _incident_resolve(args: argparse.Namespace) -> int:
+    try:
+        resolved = resolve(args.run_dir, by=args.by, reason=args.reason)
+    except OrchestratorError as exc:
+        return _fail(str(exc), **exc.context)
+    _print({"resolved": resolved.model_dump(mode="json")})
+    return 0
 
 
 def _queue_list(args: argparse.Namespace) -> int:
@@ -837,7 +1040,9 @@ def _queue_resolve(args: argparse.Namespace) -> int:
                 raise QueueError(msg, item=args.item)
             try:
                 person = PersonDecision(
-                    verb="approve" if args.approve else "reject", note=args.note
+                    verb="choose" if args.choose else "approve" if args.approve else "reject",
+                    note=args.note,
+                    position=args.choose,
                 )
                 shown = ShownItem(
                     item_sha256=args.sha256, trajectories=statuses_now(run_dir, args.item)

@@ -61,9 +61,12 @@ class Installation(BaseModel):
 #: because the orchestrator appends legitimately while sessions run; ``halt``
 #: refuses every later call, because the code the hooks run from changed and
 #: nothing it decides can be trusted; ``log`` records a change that another
-#: process may make legitimately; ``none`` leaves the root to the layers that
-#: refuse writes before they happen, because the hooks or Claude Code write it.
-Watch = Literal["revert", "journal", "halt", "log", "none"]
+#: process may make legitimately; ``record`` compares an append-only record the
+#: orchestrator holds open and never writes it: a change is reported and the call
+#: refused, and the orchestrator, which knows what it wrote, refuses on it; ``none``
+#: leaves the root to the layers that refuse writes before they happen, because the
+#: hooks or Claude Code write it.
+Watch = Literal["revert", "journal", "halt", "log", "record", "none"]
 
 #: Who may read a protected root, as far as the OS layer is concerned (``ProtectedRoot.reads``).
 Reads = Literal["open", "shell_denied", "denied"]
@@ -88,10 +91,15 @@ class ProtectedRoot(BaseModel):
     exceptions: tuple[AbsolutePath, ...] = ()
     #: Who may read it, as far as the OS layer is concerned. ``open``: anyone.
     #: ``shell_denied``: no shell command, because it holds what the session's runtime
-    #: keeps (a credential, the hooks' own records, another session's files); the
-    #: runtime itself reads it outside the sandbox. ``denied``: no shell command and no
-    #: file tool, because no session reads it at all.
+    #: keeps (a credential, another session's files); the runtime itself reads it outside
+    #: the sandbox. ``denied``: no shell command and no file tool, because no session reads
+    #: it at all (the hooks' own records among them, which the hooks read in their own
+    #: processes, outside every tool call and the sandbox).
     reads: Reads = "open"
+    #: Files beneath a root no tool reads that the session is given to read after all, inside the
+    #: run's session directories (integration's issued state). Held exactly: a link there, or a
+    #: file with a second name, is not one of them. Empty by default.
+    read_exceptions: tuple[AbsolutePath, ...] = ()
     #: Whether the OS layer leaves shell writes to it alone: ``allowed`` only for a root
     #: that a script legitimately writes and whose contents something else judges (the
     #: series outbox, whose records the collector checks). The hooks still refuse every

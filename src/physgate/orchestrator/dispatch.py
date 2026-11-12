@@ -23,10 +23,10 @@ ends and redacted from the captured stream before anything reads it.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
-import secrets
 import shlex
 import shutil
 import stat
@@ -35,12 +35,12 @@ import sys
 import sysconfig
 import time
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Annotated, Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from physgate.hooks import withheld
 from physgate.hooks.config import SessionConfig
@@ -59,6 +59,7 @@ from physgate.orchestrator.budget import (
     classify_session_end,
 )
 from physgate.orchestrator.canaries import canary_seen, redact_text
+from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
@@ -68,6 +69,7 @@ from physgate.orchestrator.credentials import (
     write_key_helper,
     write_login,
 )
+from physgate.orchestrator.declaration import DECLARATION_PATH
 from physgate.orchestrator.decompose import (
     DEBUG_LOG,
     binary_version,
@@ -75,15 +77,31 @@ from physgate.orchestrator.decompose import (
     read_debug_log,
     read_stream,
 )
-from physgate.orchestrator.events import Decomposed, SessionSpawned, read_events
+from physgate.orchestrator.events import (
+    Decomposed,
+    Event,
+    FindingsRecorded,
+    Incident,
+    LeftoverRead,
+    OsLayerChecked,
+    ReviewRan,
+    ReviewUnavailable,
+    SessionEnded,
+    SessionSpawned,
+    TokensUsed,
+    read_events,
+)
 from physgate.orchestrator.exceptions import (
     AccountingError,
     InvocationError,
     OrchestratorError,
+    RunStateError,
     WorktreeMisplacedError,
 )
 from physgate.orchestrator.git import common_dir, named_from, object_format, verified_git_dir
+from physgate.orchestrator.held_records import second_names
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
+from physgate.orchestrator.integration_state import STATE_NAME
 from physgate.orchestrator.invocation import (
     TRAFFIC_ALLOWED_VERSIONS,
     isolated_env,
@@ -94,11 +112,16 @@ from physgate.orchestrator.managed import (
     ObservedTraffic,
     drift,
     flag_cache,
+    model_answered,
     policy_limits_digest,
 )
-from physgate.orchestrator.merge import RunGit, commit_attempt
+from physgate.orchestrator.merge import RunGit, attempt_head, attempt_message, commit_attempt
+from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
+from physgate.orchestrator.params_record import recorded_params
 from physgate.orchestrator.ports import (
+    HOOK_LOG_UNREAD,
     Leftover,
+    RecordAtStart,
     SessionKind,
     SessionReport,
     SessionRequest,
@@ -128,11 +151,13 @@ from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
+from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
-from physgate.reviewers.places import SESSION_DIRNAME
+from physgate.reviewers.places import SESSION_DIRNAME, review_root_path
 from physgate.series.collect import collect, empty_outbox, temporary_roots
 from physgate.series.seal import SetAside
+from physgate.state.write_account import ACCOUNT_NAME, Settled, account_of, read_account
 
 REDACTED = REDACTED_TEXT.encode()
 
@@ -247,18 +272,78 @@ def read_session_file(path: Path) -> bytes:
         os.close(fd)
 
 
+#: The run's recorded configuration, withheld from every role session's reads.
+RUN_CONFIG_NAME = "run.json"
+#: The decomposition call's and its plan review's directory in the run.
+DECOMPOSITION_DIR = "decomposition"
+
+#: The run's records that hold the held-out tier's canaries, each withheld from every role
+#: session's reads: the configuration, and the decomposition's directory, where the record of a
+#: running plan review names them so that a later command can scan its streams.
+WITHHELD_RECORDS = (RUN_CONFIG_NAME, DECOMPOSITION_DIR)
+
+
+def withheld_paths(run_dir: Path) -> tuple[Path, ...]:
+    """Everything a role session of the run in ``run_dir`` is installed with withheld.
+
+    The run's records that hold the canaries, and the parameters file the run was started with,
+    wherever it lies, as the run recorded it.
+
+    Raises:
+        RunStateError: the run's record of its parameters file cannot be read.
+    """
+    params = recorded_params(run_dir)
+    named = tuple(run_dir / name for name in WITHHELD_RECORDS)
+    return (*named, params) if params is not None else named
+
+
 #: The run's own records, in the run directory. The session's working directory is
 #: one level below it, so none of these contains the worktree.
-#: The run's records a role session may not write. ``series`` holds the simulation records
-#: sealed at each session's end, which the orchestrator writes only between sessions.
+#: The run's records a role session may not write and the sentinel puts back. ``series`` holds
+#: the simulation records sealed at each session's end, which the orchestrator writes only
+#: between sessions.
 RUN_RECORDS = (
-    "events.jsonl",
-    "ledger.jsonl",
-    "run.json",
-    "queue.jsonl",
-    "decomposition",
+    RUN_CONFIG_NAME,
+    DECOMPOSITION_DIR,
+    PARAMS_RECORD,
     "series",
 )
+#: The run's append-only records, which the orchestrator holds and appends to: its event log,
+#: its task ledger, its approval queue's items, and the write account that names every append to
+#: the others before it is made. No role session may write them either, but they are never put
+#: back (:func:`run_record_roots`).
+HELD_RECORDS = (
+    "events.jsonl",
+    "ledger.jsonl",
+    "queue.jsonl",
+    ACCOUNT_NAME,
+)
+
+
+def withheld_before_commit(config_path: Path) -> str | None:
+    """What the tripwire finds wrong with the files no session reads, before a commit.
+
+    The held-out tier, the answer-key corpora and the run's withheld records, as the session's
+    own configuration names them: one problem per file with a second name or that cannot be
+    checked, joined; ``None`` when there is none.
+    """
+    session_config = SessionConfig.model_validate_json(config_path.read_bytes())
+    _, problems = withheld.survey(withheld.roots_of(session_config))
+    return "; ".join(problems) if problems else None
+
+
+def run_record_roots(run: RunGit) -> tuple[Path, ...]:
+    """The run's records a role session's sentinel compares and never writes.
+
+    The orchestrator holds each of them and appends to it, so a put-back by replacing would
+    leave it writing to a file no path names. And a session found running at a resume ends after
+    the new orchestrator has written its first lines: a put-back to that session's start would
+    undo them. So each is compared with the session's start, a change is reported and refused
+    there, and the orchestrator holds the file to what it wrote: at a session's end through the
+    record it takes before the spawn (:func:`record_roots`), and at a resume through what the
+    session's sentinel recorded at its start (:func:`records_at_start`), against its own writers.
+    """
+    return tuple(run.run_dir / name for name in HELD_RECORDS)
 
 
 def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
@@ -267,12 +352,13 @@ def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]
     Returns the roots the sentinel puts back if they change, and the roots it only
     refuses writes to, because the runtime writes them while the session runs.
 
-    - Put back: the run's records (the event log, the task ledger, the run
-      configuration, the approval queue, the decomposition call's files), the
-      orchestrator's integration worktree, the target repository's whole common git
-      directory, and the ``.git`` pointer file of every worktree it has. The
-      orchestrator writes none of them while a session runs: dispatch is serial, and
-      its own git commands start no maintenance that outlives them.
+    - Put back: the run's records that are not held open (the run configuration, the
+      decomposition call's files, the sealed series), the orchestrator's integration
+      worktree, the target repository's whole common git directory, and the ``.git``
+      pointer file of every worktree it has. The orchestrator writes none of them while
+      a session runs: dispatch is serial, and its own git commands start no maintenance
+      that outlives them. The held records are compared, never put back
+      (:func:`run_record_roots`).
     - Refused only: every session's directory, which holds each session's
       captured stream (the trajectory the reviewer and the token account read)
       and its process record, written by the runtime and the spawner during the
@@ -501,8 +587,28 @@ def review_material_seen(stream: Path, live: frozenset[str]) -> str | None:
     return canary_seen(read_stream_file(stream), live)
 
 
-def role_prompt(request: SessionRequest) -> str:
-    """What a role session is told: a template, with the repair instruction if any."""
+def issued_state_path(sdir: Path) -> Path:
+    """Where a session's issued state is written: its own directory, outside its worktree.
+
+    So no attempt's commit can hold it and nothing of it reaches the run branch; and every
+    session's directory is a root sessions may not write.
+    """
+    return sdir / "issued" / STATE_NAME
+
+
+def write_issued_state(path: Path, data: bytes) -> None:
+    """Write a session's issued state, new, where it will read it."""
+    path.parent.mkdir(parents=True)
+    with path.open("xb") as handle:
+        handle.write(data)
+
+
+def role_prompt(request: SessionRequest, state: Path | None = None) -> str:
+    """What a role session is told: a template, with the repair instruction if any.
+
+    A session handed an issued state (integration's) is told where it is, and where and how it
+    declares modules complete; every other session's prompt is what it always was.
+    """
     text = (
         f"You implement subtask {request.subtask_id} in the {request.assigned_role} role.\n\n"
         f"Your specification is {request.spec_path}; read it in full first. Change files only "
@@ -513,6 +619,40 @@ def role_prompt(request: SessionRequest) -> str:
         "each run through the series writer, .physgate/lib/series_writer.py, into "
         ".physgate/series/, which nothing else may write. Stop when the specification is met.\n"
     )
+    if request.disputes:
+        text += (
+            "\nA node of the cross domain is sizing's alone to write. If a value one holds is "
+            "wrong for your work, do not write the node: dispute it by writing "
+            ".physgate/disputes/<node id>.<quantity>.json whole with the Write tool, as "
+            '{"value": <number>, "unit": "<unit>", "reason": "<why, at most 500 characters>"}. '
+            "The harness rules on it by a fixed precedence and shows it to no other session; a "
+            "file left in place disputes again on your next attempt, and deleting it withdraws "
+            "it.\n"
+        )
+    if request.interfaces:
+        # The edge a contract clause reads, which values alone never form.
+        from physgate.orchestrator.repair import interfaces_named
+
+        many = len(request.interfaces) > 1
+        text += (
+            f"\nYour module shares the design graph's {interfaces_named(request.interfaces)} "
+            "with other modules, and a contract test holds it to "
+            f"{'each' if many else 'it'} once both modules have merged. Join your module to "
+            f"{'each' if many else 'it'}: in a node of your own (never the interface node, which "
+            "no session writes), list the interface's id in the node's \"constrains\" array, and "
+            "carry there every one of the interface's quantities under the same name, as the "
+            'interface holds it. A node whose "constrains" names an interface is held to all of '
+            "that interface's quantities.\n"
+        )
+    if state is not None:
+        text += (
+            f"\nYour issued state is {state}; read it in full first too. The harness built it "
+            "from the run's record: the system-scope result, each module pair's contract results "
+            "and the system requirements. The node ids in it were chosen by sessions and are held "
+            f"to the store's id pattern. To declare modules complete, write {DECLARATION_PATH} "
+            'whole with the Write tool as {"complete": [...]}, naming each module complete by the '
+            "subtask id that planned it; a module it leaves out is not declared complete.\n"
+        )
     if request.kind == "fix":
         # The one fix a person ordered: told so, then its instruction. Nothing else differs.
         text += (
@@ -569,8 +709,9 @@ def session_end_command(settings: Path) -> EndCheck:
 
 
 #: What a sentinel check records when it could not do its work: the code the hooks run from
-#: changed, a protected path could not be put back, or the hook reached no decision.
-_FAILED_CHECKS = ("halt", "unrestorable", "error")
+#: changed, a protected path could not be put back, the store's journal was rewritten (which
+#: is never put back), or the hook reached no decision.
+_FAILED_CHECKS = ("halt", "unrestorable", "journal changed", "error")
 
 
 def sentinel_refusal(exit_code: int | None, records: list[dict[str, Any]]) -> str | None:
@@ -787,6 +928,203 @@ def end_check_at_resume(sdir: Path, session_id: str, install_bin: Path) -> EndCh
     return EndCheck(argv, 30.0)
 
 
+def records_at_start(sdir: Path, session_id: str) -> tuple[RecordAtStart, ...] | None:
+    """The run's held records as the role session's sentinel recorded them at its start.
+
+    Read from the sentinel's own record, as the check after the stop reads it. A record that
+    names no held records gives ``None``: the session's user can write that record, and one with
+    them taken out is never read as a session's installed before they were compared. Every role
+    session this dispatcher installs has its held records protected, so none names none of them.
+
+    Raises:
+        InvocationError: the sentinel's record cannot be read, or what it says of a record is not
+            of the form the sentinel writes.
+    """
+    path = sdir / "state" / "sessions" / session_id / "sentinel" / "baseline.json"
+    try:
+        base = json.loads(read_session_file(path))
+        if isinstance(base, dict) and not base.get("records", None):
+            return None
+        held = base.get("records") if isinstance(base, dict) else None
+        if not isinstance(held, dict):
+            raise TypeError(type(held).__name__)
+        found: list[RecordAtStart] = []
+        for name, was in sorted(held.items()):
+            if was is None:
+                empty = hashlib.sha256(b"").hexdigest()
+                found.append(RecordAtStart(path=name, identity=None, size=0, sha256=empty))
+                continue
+            identity, signature = was["identity"], was.get("signature")
+            found.append(
+                RecordAtStart(
+                    path=name,
+                    identity=(int(identity[0]), int(identity[1])) if identity is not None else None,
+                    size=int(was["size"]),
+                    sha256=str(was["sha256"]),
+                    mode=int(signature[1]) if signature is not None else None,
+                )
+            )
+    except (InvocationError, OSError, ValueError, TypeError, KeyError, IndexError) as exc:
+        msg = "the sentinel's record of the run's held records at the session's start is unread"
+        raise InvocationError(msg, session_id=session_id, error=repr(exc)) from exc
+    return tuple(found)
+
+
+def _unended(session_id: str, events: Sequence[Event], *, review: bool = False) -> bool:
+    """Whether the session ``session_id`` was spawned, and nothing on the log came after.
+
+    Neither its end line nor a leftover's read names it, and no finding follows its first spawn.
+    A review has no end line of its own: what the loop writes once the review is back names it
+    (its tokens, its verdict or why there is none), and an exposure's incident comes first. A
+    review's repair resume is spawned again under the same id, so one ended on disk and resumed
+    is unended still.
+    """
+    spawn = next(
+        (e.seq for e in events if isinstance(e, SessionSpawned) and e.session_id == session_id),
+        None,
+    )
+    return spawn is not None and not any(
+        (isinstance(e, SessionEnded | LeftoverRead) and e.session_id == session_id)
+        or (isinstance(e, Incident | FindingsRecorded) and e.seq > spawn)
+        or (review and _names_review_end(e, session_id))
+        for e in events
+    )
+
+
+def _names_review_end(event: Event, session_id: str) -> bool:
+    """Whether ``event`` is one the loop writes once the review ``session_id`` is back."""
+    return (
+        (isinstance(event, TokensUsed) and event.attribution == f"reviewer:{session_id}")
+        or (isinstance(event, ReviewRan) and event.result.session_id == session_id)
+        or (isinstance(event, ReviewUnavailable) and event.session_id == session_id)
+    )
+
+
+def _spawns(session_id: str, events: Sequence[Event]) -> list[tuple[int, str]]:
+    """The pid and start time of every spawn of ``session_id`` the log records, in order."""
+    return [
+        (e.pid, e.started)
+        for e in events
+        if isinstance(e, SessionSpawned) and e.session_id == session_id
+    ]
+
+
+def review_streams(spawns: int) -> tuple[str, ...]:
+    """The streams a review spawned ``spawns`` times wrote: its first, then each repair's."""
+    return ("stdout.jsonl", *(f"stdout-repair-{n}.jsonl" for n in range(1, spawns)))
+
+
+#: What only a resume's end of a leftover holds: a session's own run never writes these.
+_RESUME_ENDS = ("stopped_at_resume", "not_running_at_resume")
+#: Where the placeholder sweep at a session's end records what it removed and refused.
+PLACEHOLDERS_NAME = "sandbox_placeholders.json"
+
+
+def _taken_up(sdir: Path) -> bool:
+    """Whether the end on disk of a session read again is its own run's, not a resume's.
+
+    Only that end ran the session's end in full: its stream's abort scan, the hook log's read, the
+    placeholder sweep and the policy limits' digest. An end no one can read is taken as its own
+    run's, so what the directory shows is read rather than passed over.
+    """
+    try:
+        record = json.loads(read_session_file(sdir / "ended.json"))
+    except (InvocationError, ValueError):
+        return True
+    return not (isinstance(record, dict) and any(key in record for key in _RESUME_ENDS))
+
+
+def _spawned_under_the_layer(session_id: str, events: Sequence[Event]) -> bool:
+    """Whether the record shows the session spawned under the OS layer.
+
+    The last layer line before its spawn: the process that spawned it wrote it before driving,
+    from the one judgement its sessions were made under. Never the machine at the resume, which
+    can be another, and never a line after the spawn.
+    """
+    layer: Present | Absent | None = None
+    for event in events:
+        if isinstance(event, OsLayerChecked):
+            layer = event.state
+        elif isinstance(event, SessionSpawned) and event.session_id == session_id:
+            return isinstance(layer, Present)
+    return False
+
+
+def _recorded_findings(sdir: Path) -> EndFindings | None:
+    """What the session's end record says its end found, if it says it; ``None`` otherwise."""
+    try:
+        record = json.loads(read_session_file(sdir / "ended.json"))
+        return EndFindings.model_validate_json(json.dumps(record["findings"]))
+    except (InvocationError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _refused_placeholders(sdir: Path) -> str | None:
+    """What the placeholder sweep at a session's end recorded it refused, as that end said it.
+
+    Under the OS layer the sweep always records what it did, so a record that is missing or cannot
+    be read is a finding, never "none refused".
+    """
+    try:
+        data = read_session_file(sdir / PLACEHOLDERS_NAME)
+        if not data:
+            return "the placeholder record cannot be read: it is missing or empty"
+        refused = json.loads(data)["refused"]
+        return "; ".join(f"{path}: {why}" for path, why in refused) or None
+    except (InvocationError, ValueError, KeyError, TypeError) as exc:
+        return f"the placeholder record cannot be read: {type(exc).__name__}"
+
+
+def _hook_records(state: Path) -> tuple[list[dict[str, Any]], str | None]:
+    """Every record in the hook layer's log, and why the log cannot be read whole, if it cannot.
+
+    Every hook writes one object per line, its decision a string and its session, where it names
+    one, a string. A line that is anything else (cut short, not an object, a field of another type),
+    or a log that is a link, is not read past as if it said nothing. No log is no record.
+    """
+    log = state / LOG_NAME
+    if not log.exists():
+        return [], None
+    try:
+        text = read_session_file(log).decode(errors="replace")
+    except InvocationError as exc:
+        return [], f"{HOOK_LOG_UNREAD}: {exc}"
+    records: list[dict[str, Any]] = []
+    unread: str | None = None
+    # One record per "\n": a record's string may hold a character ``splitlines`` also breaks at.
+    for n, line in enumerate(split_lines(text), start=1):
+        try:
+            record = json.loads(line)
+        except ValueError:
+            record = None
+        if (
+            isinstance(record, dict)
+            and isinstance(record.get("decision"), str)
+            and isinstance(record.get("session", ""), str)
+        ):
+            records.append(record)
+        elif unread is None:
+            unread = f"{HOOK_LOG_UNREAD}: its line {n} is not a hook's record"
+    return records, unread
+
+
+class EndFindings(BaseModel):
+    """What a session's end found beside its stream, on the end record its dispatcher writes.
+
+    Written after the stop is confirmed, when nothing of the session runs, and read by a process
+    that takes the session up after a kill before the loop's first line about it: every field is
+    required, so a record that does not say what the end found is never read as one that found
+    nothing.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    os_layer_aborted: tuple[NonEmptyStr, ...]
+    reaper_unverified: tuple[NonEmptyStr, ...]
+    placeholders_refused: NonEmptyStr | None
+    policy_limits_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None
+
+
 def write_record(parent: Path, name: str, record: dict[str, Any], file: str) -> None:
     """Write ``parent/name/file`` as a new file, never through a link a session could plant.
 
@@ -823,16 +1161,28 @@ class RootsRecord:
     exclude: tuple[str, ...]
     #: Path to its signature, its content digest if a file, its target if a link.
     entries: dict[str, tuple[Signature, str | None, str | None]]
+    #: The run's held records among the roots: held to their identity as well, since a copy of
+    #: one put in its place holds the same bytes and is another file.
+    held: tuple[str, ...] = ()
+
+    def held_identities(self) -> list[tuple[int, int]]:
+        """The device and inode of each held record that was a file before the spawn."""
+        return [
+            (int(sig[2]), int(sig[3]))
+            for path in self.held
+            if (entry := self.entries.get(path)) is not None and (sig := entry[0])[0] == "file"
+        ]
 
 
 def record_roots(config_path: Path) -> RootsRecord:
-    """Record every root the session's sentinel puts back, as its configuration names them.
+    """Record every root the session's sentinel puts back or compares, as its configuration says.
 
     Raises:
         OSError: a path under a root could not be read; no session may start on such a record.
     """
     config = SessionConfig.model_validate_json(config_path.read_bytes())
-    reverted = [r for r in config.protected_roots if r.watch == "revert"]
+    reverted = [r for r in config.protected_roots if r.watch in ("revert", "record")]
+    held = tuple(sorted(r.path for r in config.protected_roots if r.watch == "record"))
     frozen = _frozen_experiment_paths(config)
     roots = tuple(sorted({r.path for r in reverted} | set(frozen)))
     exclude = tuple(sorted({e for r in reverted for e in r.exceptions}))
@@ -844,7 +1194,7 @@ def record_roots(config_path: Path) -> RootsRecord:
         )
         for path, sig in strict_signatures(roots, exclude).items()
     }
-    return RootsRecord(roots, exclude, entries)
+    return RootsRecord(roots, exclude, entries, held)
 
 
 def strict_signatures(roots: tuple[str, ...], exclude: tuple[str, ...]) -> dict[str, Signature]:
@@ -878,22 +1228,36 @@ def strict_signatures(roots: tuple[str, ...], exclude: tuple[str, ...]) -> dict[
     return found
 
 
+def _links(path: str) -> int | None:
+    """How many names the file at ``path`` has, unfollowed; ``None`` if nothing is there."""
+    try:
+        return os.lstat(path).st_nlink
+    except FileNotFoundError:
+        return None
+
+
 def changed_since(record: RootsRecord) -> list[str]:
     """Every put-back root path that is not now what the record holds, read afresh.
 
     A file put back holds its bytes and mode again (on a new inode); a directory's own times
     move when the sentinel moves something out of it, so a directory is held to its mode and
-    its entries, not its times.
+    its entries, not its times. A held record is never put back, and nothing of the run writes
+    one while a session runs: any change of its signature is a change (its identity, its mode, its
+    times, its number of names), whatever its bytes are now.
     """
     now = strict_signatures(record.roots, record.exclude)
     changed = set(now) ^ set(record.entries)
     for path, sig in now.items():
         if path not in record.entries or sig == record.entries[path][0]:
             continue
+        if path in record.held:
+            changed.add(path)
+            continue
         was, digest, link = record.entries[path]
         kind = sig[0]
         if (
             sig[:2] != was[:2]
+            or (path in record.held and sig[2:4] != was[2:4])
             or kind == "other"
             or (kind == "file" and file_digest(path) != digest)
             or (kind == "link" and os.readlink(path) != link)
@@ -1167,9 +1531,12 @@ class ClaudeDispatcher:
         self._binary = binary
         self._base_url = base_url
         self._credential = credential
-        self._review_root = Path(review_root)
+        # As every reader of the root takes it, so this run's reviews are found where they ran.
+        self._review_root = review_root_path(review_root)
         self._facts: InstallFacts | None = None
         self._os_layer: Present | Absent | None = None
+        #: The last stop's leftovers, each with the end it writes once the loop has their findings.
+        self._ending: list[tuple[Path, dict[str, Any], bool]] = []
         harness = harness_root()
         #: Every canary the harness's rubric promotions recorded, read once.
         self._canaries = (
@@ -1244,8 +1611,19 @@ class ClaudeDispatcher:
         return ()
 
     def _install(
-        self, request: SessionRequest, worktree: Path, sdir: Path, temp: Path | None
+        self,
+        request: SessionRequest,
+        worktree: Path,
+        sdir: Path,
+        temp: Path | None,
+        *,
+        own_temp: Path | None,
     ) -> Installed:
+        """Install the session's hooks; ``temp`` is the OS layer's directory, ``None`` without it.
+
+        ``own_temp`` is the session's own temporary directory, the layer's where it runs; a
+        session given none is refused by the installer.
+        """
         state = sdir / "state"
         state.mkdir(parents=True)
         helper: list[str] = []
@@ -1256,13 +1634,31 @@ class ClaudeDispatcher:
             self._run, self._store_root, worktree, self._install_bin.parent.parent
         )
         protect = [arg for root in reverted for arg in ("--protect", str(root))]
+        protect += [
+            arg for root in run_record_roots(self._run) for arg in ("--protect-record", str(root))
+        ]
         protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
+        # Every session's own directory: its login, stream and records. No role session's hooks
+        # read another's, nor its own, its home included, but for what it is given to read
+        # there; the OS layer opens its home to its commands, and its binary reads its
+        # configuration itself.
+        protect += ["--sessions-root", str(self._run.run_dir / "sessions")]
         # A session in the target's worktree has nothing of its own in the harness
         # checkout, and the live gate reads from it.
         protect += harness_protection()
         # Where reviews are prepared, each packet with its copy of a rubric: withheld
         # from the role session like the library's reviewer tree.
         protect += ["--review-material", str(self._review_root)]
+        # The run's records that name the held-out tier's canaries, and its parameters file:
+        # no read of them, by any route, though they lie within reach of the worktree.
+        try:
+            withheld_now = withheld_paths(self._run.run_dir)
+        except RunStateError as exc:
+            msg = (
+                "the run's records name no parameters file to withhold, so no session is installed"
+            )
+            raise InvocationError(msg, why=str(exc)) from exc
+        protect += [arg for path in withheld_now for arg in ("--withheld", str(path))]
         # The always-loaded set (cross's standards, the role's own standards and
         # skill) is a subset of required reading, which adds the module spec and every
         # interface contract the specification commit issued (a superset of the ones
@@ -1280,6 +1676,10 @@ class ClaudeDispatcher:
         reading_args = [
             arg for path in reading_paths for arg in ("--reading", str(worktree / path))
         ]
+        # Integration's issued state, read through the same check as its specification.
+        issued = self._issue_state(request, sdir)
+        if issued is not None:
+            reading_args += ["--reading", str(issued)]
         always_loaded_args = [
             arg for path in always_loaded_paths for arg in ("--always-loaded", str(worktree / path))
         ]
@@ -1294,7 +1694,7 @@ class ClaudeDispatcher:
             "--worktree",
             str(worktree),
             "--own-branch",
-            self._run.subtask_branch(request.subtask_id),
+            self._run.subtask_branch(request.subtask_id, request.reopened),
             "--store-root",
             str(self._store_root),
             "--state-dir",
@@ -1314,6 +1714,9 @@ class ClaudeDispatcher:
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # Without the layer the session still keeps its temporary files in a directory of
+            # its own, never in the one every session of the user shares.
+            *(["--temp", str(own_temp)] if temp is None and own_temp is not None else []),
             # Without the layer the installer writes the settings only for a run whose recorded
             # configuration allows that, and reads it there.
             *(["--run-config", str(self._run.run_dir / "run.json")] if temp is None else []),
@@ -1341,6 +1744,29 @@ class ClaudeDispatcher:
             write_login(sdir / "config", self._credential.secret)
         return Installed.model_validate_json(done.stdout)
 
+    @staticmethod
+    def _issue_state(request: SessionRequest, sdir: Path) -> Path | None:
+        """Write the request's issued state where its session reads it, held to its line.
+
+        Read back and held to the digest and length the run recorded before anything of the
+        session is installed; a file that does not hold those bytes installs no session. This is
+        the hold on the file the session reads: it catches a write cut short and a file changed
+        on disk between the write and the read-back, a changed byte as much as a missing one.
+
+        Raises:
+            InvocationError: the file does not hold the bytes the run recorded.
+        """
+        state = request.issued_state
+        if state is None:
+            return None
+        path = issued_state_path(sdir)
+        write_issued_state(path, state.text.encode("utf-8"))
+        held = path.read_bytes()
+        if (hashlib.sha256(held).hexdigest(), len(held)) != (state.sha256, state.length):
+            msg = "the issued state written for the session is not the one the run recorded"
+            raise InvocationError(msg, subtask_id=request.subtask_id, path=str(path))
+        return path
+
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         """Run one attempt in a fresh session and report what it left.
 
@@ -1352,9 +1778,8 @@ class ClaudeDispatcher:
                 configuration does not allow that; nothing of the session exists yet.
         """
         # The check a run is held to at its configuration, run and resume, held again where a
-        # role session is made, whatever led here: without the layer the session gets no
-        # temporary directory of its own, its settings no sandbox, and its shell is bounded by
-        # the text hooks alone.
+        # role session is made, whatever led here: without the layer the session's settings
+        # carry no sandbox, and its shell is bounded by the text hooks alone.
         why = os_layer_refusal(self._config, self.os_layer())
         if why is not None:
             raise InvocationError(why, subtask_id=request.subtask_id)
@@ -1362,7 +1787,7 @@ class ClaudeDispatcher:
         if reported != self._config.claude_version:
             msg = "the binary is not the version this run recorded"
             raise InvocationError(msg, reported=reported, recorded=self._config.claude_version)
-        worktree = self._run.open_subtask(request.subtask_id)
+        worktree = self._run.open_subtask(request.subtask_id, request.reopened)
         if self._layer_on():
             # Before anything of the session exists: in a place the sandbox makes writable,
             # its commands and any other sandboxed session's there can abort each other's.
@@ -1380,11 +1805,16 @@ class ClaudeDispatcher:
         # collected) is moved aside first, so every record this session leaves is its own.
         left_over = empty_outbox(worktree, self._run.run_dir, session_id)
         sdir = self._run.run_dir / "sessions" / session_id
-        # Where the OS layer runs, the session gets a temporary directory of its own,
-        # short enough that Claude Code does not replace it with the shared default.
-        temp = Path("/tmp") / f"pg-{secrets.token_hex(6)}" if self._layer_on() else None
-        if temp is not None:
-            temp.mkdir(mode=0o700)
+        # Every session gets a temporary directory of its own, beneath the one parent no other
+        # session reads or writes, and short enough that Claude Code does not replace it with the
+        # one every session of the user shares (the session's own directory is far longer);
+        # where the OS layer runs, it is the layer's too.
+        try:
+            own_temp = make_session_temp()
+        except OSError as exc:
+            msg = "no temporary directory of the session's own could be made, so none is started"
+            raise InvocationError(msg, subtask_id=request.subtask_id, error=str(exc)) from exc
+        temp = own_temp if self._layer_on() else None
         try:
             return self._run_session(
                 request,
@@ -1395,10 +1825,10 @@ class ClaudeDispatcher:
                 temp,
                 on_spawn=on_spawn,
                 left_over=left_over,
+                own_temp=own_temp,
             )
         finally:
-            if temp is not None:
-                shutil.rmtree(temp, ignore_errors=True)
+            shutil.rmtree(own_temp, ignore_errors=True)
 
     def _layer_on(self) -> bool:
         return isinstance(self.os_layer(), Present)
@@ -1414,13 +1844,14 @@ class ClaudeDispatcher:
         *,
         on_spawn: SpawnHook | None,
         left_over: tuple[SetAside, ...],
+        own_temp: Path,
     ) -> SessionReport:
         system_before = self.environment().system_managed
         # Made before the installation, so the OS layer's rules name them as they will stand.
         (sdir / "home").mkdir(parents=True, exist_ok=True)
         runtime_paths(worktree, sdir / "home")
         runtime_git_paths(common_dir(self._run.repo), self._config.claude_version)
-        installed = self._install(request, worktree, sdir, temp)
+        installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
         # Read before the session starts, while nothing of it can have touched the file.
         end_check = session_end_command(Path(installed.settings))
         env = isolated_env(
@@ -1455,7 +1886,9 @@ class ClaudeDispatcher:
         )
         argv = role_argv(
             self._binary,
-            prompt=role_prompt(request),
+            prompt=role_prompt(
+                request, issued_state_path(sdir) if request.issued_state is not None else None
+            ),
             spawn_args=installed.spawn_args,
             model=request.model,
             session_id=session_id,
@@ -1566,11 +1999,28 @@ class ClaudeDispatcher:
             moved, unread = changed_since(roots), None
         except OSError as exc:
             moved, unread = [], f"a put-back root could not be read: {exc!r}"
+        # A second name for a held record, where the session could write: its worktree, and its
+        # directory, which holds what the sentinel moved aside. An attempt commit never holds one.
+        linked = second_names(
+            roots.held_identities(), (worktree, sdir)
+        ) if unread is None else []  # fmt: skip
+        # And each held record has exactly one name, wherever another was made, before the spawn
+        # or since: the others the run directory holds are named, any further one is counted.
+        for path in roots.held:
+            links = _links(path)
+            if links not in (None, 1):
+                elsewhere = [
+                    f"{p} (a name of {path})"
+                    for p in second_names(roots.held_identities(), (self._run.run_dir,))
+                    if p not in roots.held and p not in linked
+                ]
+                linked += elsewhere or [f"{path} ({links} names)"]
         if (
             ended is None
             or unconfirmed is not None
             or after_stop["refused"] is not None
             or moved
+            or linked
             or unread is not None
         ):
             settled = {
@@ -1578,6 +2028,7 @@ class ClaudeDispatcher:
                 "stop_unconfirmed": unconfirmed,
                 "sentinel_after_stop": after_stop,
                 "protected_changed": moved,
+                "held_record_names": linked,
                 "protected_unread": unread,
             }
             # Beside the end record, not in it: a resume still finds the session unended,
@@ -1593,8 +2044,15 @@ class ClaudeDispatcher:
                 stop=unconfirmed or "",
                 check=str(after_stop["refused"] or ""),
                 changed=", ".join(moved),
+                names=", ".join(linked),
                 unread=unread or "",
             )
+        # Settled: stopped, checked after the stop, nothing protected moved. Named so before any
+        # write of the run's on this attempt (the sweep, the series, the commit), so a resume
+        # never runs this session's end check again over them.
+        account = account_of(self._run.run_dir)
+        if account is not None:
+            account.settle(session_id, request.subtask_id, request.attempt)
         exit_code: int | None = ended.exit_code
         timed_out = ended.timed_out
         # A session killed mid-command can leave the sandbox's placeholders in the
@@ -1630,6 +2088,13 @@ class ClaudeDispatcher:
                 raise InvocationError(msg, asked=request.model, answered=",".join(echoed))
         halted, appends = self._hook_log(sdir / "state", session_id)
         unverified = self._reaper_unverified(sdir / "state", session_id)
+        limits = policy_limits_digest(sdir / "config")
+        found = EndFindings(
+            os_layer_aborted=aborted,
+            reaper_unverified=unverified,
+            placeholders_refused=placeholders_refused,
+            policy_limits_sha256=limits,
+        )
         # The session has ended: its series records leave the worktree before anything is
         # committed, sealed if they hold, so no record is ever in git or in a review's diff.
         series = collect(
@@ -1645,14 +2110,17 @@ class ClaudeDispatcher:
             # directories these are the places it can write besides its worktree.
             writable_roots=(sdir, *temporary_roots()),
         )
-        # The held-out and answer-key tripwire, once more before the attempt is committed:
+        # The tripwire on the files no session reads, once more before the attempt is committed:
         # a second name, a changed file or one that cannot be checked refuses the attempt.
-        session_config = SessionConfig.model_validate_json(Path(installed.config).read_bytes())
-        _, problems = withheld.survey((*session_config.held_out, *session_config.answer_keys))
-        withheld_problems = "; ".join(problems) if problems else None
+        withheld_problems = withheld_before_commit(Path(installed.config))
         commit = (
             commit_attempt(
-                worktree, request.subtask_id, request.attempt, session_id, repo=self._run.repo
+                worktree,
+                request.subtask_id,
+                request.attempt,
+                session_id,
+                repo=self._run.repo,
+                replaces=self._superseded(worktree, request),
             )
             if end.outcome == "completed"
             else None
@@ -1665,6 +2133,8 @@ class ClaudeDispatcher:
                 "timed_out": timed_out,
                 "left_running": list(ended.left_running),
                 "sentinel_after_stop": after_stop,
+                # What a process taking the session up after a kill records in the loop's place.
+                "findings": found.model_dump(mode="json"),
             },
             "ended.json",
         )
@@ -1681,7 +2151,8 @@ class ClaudeDispatcher:
             hook_journal_appends=appends,
             usage=usage,
             managed_drift=drift(sdir / "config", system_before),
-            policy_limits_sha256=policy_limits_digest(sdir / "config"),
+            policy_limits_sha256=limits,
+            model_answered=model_answered(answered),
             observed_traffic=observed,
             # Read on a pin whose sessions fetch the flags, where the binary keeps them; the
             # earlier pins fetch none, and their record is what it was.
@@ -1709,9 +2180,9 @@ class ClaudeDispatcher:
             swept = placeholders.sweep(str(worktree), before)
         except OSError as exc:
             swept = placeholders.Swept(refused=[(".", f"the sweep failed: {exc}")])
-        if swept.removed or swept.refused:
-            kept = {"removed": swept.removed, "refused": swept.refused}
-            (sdir / "sandbox_placeholders.json").write_text(json.dumps(kept))
+        # Recorded whatever it found: a record a session taken up later lacks is a finding.
+        kept = {"removed": swept.removed, "refused": swept.refused}
+        (sdir / PLACEHOLDERS_NAME).write_text(json.dumps(kept))
         if not swept.refused:
             return None
         return "; ".join(f"{path}: {why}" for path, why in swept.refused)
@@ -1724,13 +2195,30 @@ class ClaudeDispatcher:
         session left without an end is returned, stopped or not, with what its
         captured stream shows it spent: its orchestrator died before recording
         that, and nothing else will. Every session's credential files are then
-        removed and its stream redacted, before the stream is read.
+        removed and its stream redacted, before the stream is read. None is ended here: the loop
+        ends them (:meth:`end_leftovers`) once their findings are on the record, so a process
+        killed in between finds them again.
+
+        A role session this dispatcher ended whose end the event log does not hold is a leftover
+        too: its orchestrator died after the end and before its first line, so what its stream
+        shows is on no record. Unless a finding follows its spawn: then the record holds what
+        its end showed, and it is not read twice. So is a review whose end the loop has not
+        written (:func:`_unended`): its reviewer writes its end before the loop reads its stream,
+        and a review in its repair resume keeps its first invocation's end while it runs again.
+        Every stream a review's spawns wrote is read.
         """
+        reviews = set(self._review_dirs())
         session_dirs = self._session_dirs()
+        events = self._logged()
+        settled = self._settled()
         records: list[tuple[Path, dict[str, Any]]] = []
         for sdir in session_dirs:
             record_path, ended = sdir / "process.json", sdir / "ended.json"
-            if ended.exists() or not record_path.exists():
+            review = sdir in reviews
+            own = sdir.parent.name if review else sdir.name
+            if not record_path.exists() or (
+                ended.exists() and not _unended(own, events, review=review)
+            ):
                 continue
             try:
                 record = json.loads(read_session_file(record_path))
@@ -1740,13 +2228,18 @@ class ClaudeDispatcher:
                 record = {"unreadable": repr(exc)}
             records.append((sdir, record))
         # Every session's record is held to the event log before anything is signalled.
-        self._honoured(records)
+        self._honoured(records, events)
         # Phase 1: stop every session. Nothing is ended yet.
         found: list[tuple[Path, str, int, int, bool, SessionKind, dict[str, Any]]] = []
         for sdir, record in records:
             pid, started = int(record["pid"]), record.get("started")
             kind: SessionKind = "reviewer" if record.get("kind") == "reviewer" else "session"
             session_id = str(record["session_id"])
+            if kind == "reviewer":
+                # The review's latest spawn, as the log holds it: a repair resume is spawned again
+                # under its id, and its record may still be an earlier spawn's when it is honoured.
+                # Held to the same start-time guard below, so a pid now another's is not signalled.
+                pid, started = _spawns(session_id, events)[-1]
             if is_session(pid, started, session_id):
                 # The group the harness created for it: the proven session leads it.
                 leads = process_group_of(pid) == pid
@@ -1758,20 +2251,48 @@ class ClaudeDispatcher:
             if kind == "session":
                 # Before any git call on the attempt, as at a session's end under its
                 # orchestrator; a refusal leaves the session unended for the next resume.
-                written |= self._settle_at_resume(sdir, session_id, pid, started, stopped, leads)
+                written |= self._settle_at_resume(
+                    sdir, session_id, pid, started, stopped, leads, by_run=session_id in settled
+                )
             found.append((sdir, session_id, pid, killed, stopped, kind, written))
         # Phase 2: nothing of this run is running now, so no session still needs its
         # credential. A killed orchestrator never removed it; its stream was never redacted.
         for sdir in session_dirs:
             remove_secrets(sdir / "state", sdir / "config")
-            redact(sdir / "stdout.jsonl", self._credential.secret)
+            for name in self._streams_of(sdir, reviews, events):
+                redact(sdir / name, self._credential.secret)
         # Phase 3: read and scan every stream, from one read each. Every failure is collected,
         # none stops at the first: a stream that is gone is no stream that showed nothing.
         leftovers: list[Leftover] = []
         failures: list[tuple[str, str]] = []
         for sdir, session_id, pid, killed, stopped, kind, _written in found:
+            # Read again for what its own end showed beside the stream: only a role session its
+            # own run ended, never one left running.
+            # A session the write account names settled is one too, whether or not its end
+            # record was written before the kill.
+            again = kind == "session" and (
+                session_id in settled or ((sdir / "ended.json").exists() and _taken_up(sdir))
+            )
+            layered = _spawned_under_the_layer(session_id, events)
+            streams = self._streams_of(sdir, reviews, events)
             try:
-                leftovers.append(self._read_leftover(sdir, session_id, pid, killed, stopped, kind))
+                leftover = self._read_leftover(
+                    sdir,
+                    session_id,
+                    pid,
+                    killed,
+                    stopped,
+                    kind,
+                    again=again,
+                    layered=layered,
+                    streams=streams,
+                )
+                if kind == "session":
+                    # What the run's held records were when it started: the loop holds them to
+                    # it, and to its own writers, before anything of the run is acted on.
+                    at_start = records_at_start(sdir, session_id)
+                    leftover = leftover.model_copy(update={"records_at_start": at_start})
+                leftovers.append(leftover)
             except InvocationError as exc:
                 failures.append((session_id, str(exc)))
         if failures:
@@ -1794,67 +2315,166 @@ class ClaudeDispatcher:
                     "a stream that is there is read, never set aside"
                 )
                 raise InvocationError(msg, session_id=target)
-        # Phase 4: only now, with every stream read, is any session ended.
-        for sdir, _sid, _pid, _killed, _stopped, _kind, written in found:
-            write_record(sdir.parent, sdir.name, written, "ended.json")
+        # A review stopped running here ends here: an end on disk is its earlier invocation's.
+        self._ending = [
+            (sdir, written, kind == "reviewer" and stopped)
+            for sdir, _, _, _, stopped, kind, written in found
+        ]
         return leftovers
 
-    def _read_leftover(
-        self, sdir: Path, session_id: str, pid: int, killed: int, stopped: bool, kind: SessionKind
+    def end_leftovers(self) -> None:
+        """End the leftovers the last stop read, now that the loop has recorded their findings.
+
+        A session this dispatcher had ended already keeps the end its own run wrote, but a review
+        found running: the end on disk is its first invocation's, before its repair resume.
+        """
+        for sdir, written, running in self._ending:
+            if running or not (sdir / "ended.json").exists():
+                write_record(sdir.parent, sdir.name, written, "ended.json")
+        self._ending = []
+
+    def _streams_of(
+        self, sdir: Path, reviews: set[Path], events: Sequence[Event]
+    ) -> tuple[str, ...]:
+        """The streams a session's directory holds: a review's, one for each spawn on the log."""
+        if sdir not in reviews:
+            return ("stdout.jsonl",)
+        return review_streams(max(1, len(_spawns(sdir.parent.name, events))))
+
+    def _read_leftover(  # noqa: PLR0913 - one leftover's facts, as the stop found them
+        self,
+        sdir: Path,
+        session_id: str,
+        pid: int,
+        killed: int,
+        stopped: bool,
+        kind: SessionKind,
+        *,
+        again: bool = False,
+        layered: bool = False,
+        streams: tuple[str, ...] = ("stdout.jsonl",),
     ) -> Leftover:
-        """One leftover's stream, read once: sealed, scanned, or set aside by a person's marker.
+        """A leftover's streams, each read once: sealed, scanned, or set aside by a person's marker.
+
+        With ``again``, a session its own run ended: what that end showed beside the stream is
+        read again as the end read it (:meth:`_end_again`); ``layered`` is whether the record
+        shows it spawned under the OS layer. ``streams`` are the files its spawns wrote, the first
+        the one sealed: a review resumed to repair its verdict wrote one for each invocation.
 
         Raises:
-            InvocationError: the stream is gone with no valid quarantine marker, or is a link
+            InvocationError: a stream is gone with no valid quarantine marker, or is a link
                 or not a regular file.
         """
-        stream = sdir / "stdout.jsonl"
-        try:
-            data = read_stream_file(stream)
-        except InvocationError:
-            if os.path.lexists(stream):
-                raise
-            quarantine = self._quarantine_of(session_id)
-            if quarantine is None:
-                raise
-            return Leftover(
-                session_id=session_id,
-                pid=pid,
-                killed=killed,
-                stopped=stopped,
-                kind=kind,
-                quarantine=quarantine,
-                scan="unscanned (stream gone)",
-            )
+        held_out = frozenset(self._config.held_out_canaries)
+        read: list[bytes] = []
+        for name in streams:
+            stream = sdir / name
+            try:
+                read.append(read_stream_file(stream))
+            except InvocationError:
+                if os.path.lexists(stream):
+                    raise
+                quarantine = self._quarantine_of(session_id)
+                if quarantine is None:
+                    raise
+                # The streams that are there are scanned all the same: a gone one hides nothing
+                # another showed.
+                shown = next(filter(None, (canary_seen(d, held_out) for d in read)), None)
+                return Leftover(
+                    session_id=session_id,
+                    pid=pid,
+                    killed=killed,
+                    stopped=stopped,
+                    kind=kind,
+                    quarantine=quarantine,
+                    scan="unscanned (stream gone)",
+                    held_out_seen=shown if held_out else None,
+                    **(self._end_again(sdir, session_id, b"", layered=layered) if again else {}),
+                )
+        data = read[0]
         # The same read as a session that ended under its orchestrator: sealed as read, a
         # tail after the runtime's result not taken, and a stream with a result held to the
-        # runtime's own totals.
+        # runtime's own totals. A repair resume's totals are the whole session's, so each
+        # stream's result is held to the usage of every stream up to it.
         # No one measured its records' volume when it ended, so nothing bears out a word
         # after its result: a tail is a forged one here on every pin.
-        captured = captured_from(data)
-        tampered = captured.tampered
-        if tampered is None:
-            try:
-                require_matching_totals(captured.result, captured.usage)
-            except AccountingError as exc:
-                tampered = f"{exc}: {exc.context}"
-        held_out = frozenset(self._config.held_out_canaries)
+        usage: tuple[MessageUsage, ...] = ()
+        tampered: str | None = None
+        complete = True
+        for each in read:
+            captured = captured_from(each)
+            usage = (*usage, *captured.usage)
+            complete = complete and captured.result is not None
+            why = captured.tampered
+            if why is None:
+                try:
+                    require_matching_totals(captured.result, usage)
+                except AccountingError as exc:
+                    why = f"{exc}: {exc.context}"
+            tampered = tampered or why
+        first = captured_from(data)
         return Leftover(
             session_id=session_id,
             pid=pid,
             killed=killed,
             stopped=stopped,
-            usage=captured.usage,
-            complete=captured.result is not None,
-            seal=captured.seal,
+            usage=usage,
+            complete=complete,
+            seal=first.seal,
             tampered=tampered,
             kind=kind,
-            # Scanned as a session that ended under its orchestrator is.
-            held_out_seen=canary_seen(data, held_out) if held_out else None,
+            # Scanned as a session that ended under its orchestrator is: every stream it wrote.
+            held_out_seen=(
+                next(filter(None, (canary_seen(d, held_out) for d in read)), None)
+                if held_out
+                else None
+            ),
             review_material_seen=(
                 canary_seen(data, self._canaries) if kind == "session" and self._canaries else None
             ),
+            **(self._end_again(sdir, session_id, data, layered=layered) if again else {}),
         )
+
+    def _end_again(
+        self, sdir: Path, session_id: str, data: bytes, *, layered: bool
+    ) -> dict[str, Any]:
+        """What a session's own end showed beside its stream, derived again, with what it recorded.
+
+        Derived as :meth:`_run_session` derived it, from what the session's directory keeps: the
+        possible abort from the stream and the refused placeholders from the sweep's record, both
+        only where the record shows the session spawned under the OS layer (without it a ``bwrap:``
+        line is the session's own output, and no sweep ran); the unverified reaping from the hook
+        layer's log; the policy limits' digest from the configuration directory. Each fails closed
+        where its input is missing or cannot be read. The end record the dispatcher wrote sits in
+        the session's directory too, so it only ever adds: what it names beside the derivations is
+        a finding, and nothing it leaves out takes one away. The withheld files' check and the
+        managed tier's are taken live at the end, against what only that process held.
+        """
+        recorded = _recorded_findings(sdir)
+        aborted = aborted_tool_uses(data.decode(errors="replace")) if layered else ()
+        unverified = self._reaper_unverified(sdir / "state", session_id)
+        refused = _refused_placeholders(sdir) if layered else None
+        digest = policy_limits_digest(sdir / "config")
+        unsure: str | None = None
+        if recorded is not None:
+            if layered:
+                aborted = tuple(dict.fromkeys((*aborted, *recorded.os_layer_aborted)))
+                if recorded.placeholders_refused not in (None, refused):
+                    refused = "; ".join(r for r in (refused, recorded.placeholders_refused) if r)
+            unverified = tuple(dict.fromkeys((*unverified, *recorded.reaper_unverified)))
+            if recorded.policy_limits_sha256 != digest:
+                unsure = (
+                    f"its end record names the policy limits {recorded.policy_limits_sha256} "
+                    f"where its configuration directory holds {digest}"
+                )
+        return {
+            "taken_up": True,
+            "os_layer_aborted": aborted,
+            "reaper_unverified": unverified,
+            "placeholders_refused": refused,
+            "policy_limits_sha256": digest,
+            "policy_limits_unsure": unsure,
+        }
 
     def _quarantine_of(self, session_id: str) -> str | None:
         """Who set this session's gone stream aside and why, if the operator asked; else None."""
@@ -1863,7 +2483,57 @@ class ClaudeDispatcher:
         _target, by, why = self._quarantine
         return f"{by}: {why}" if by.strip() and why.strip() else None
 
-    def _honoured(self, records: list[tuple[Path, dict[str, Any]]]) -> None:
+    def _settled(self) -> frozenset[str]:
+        """The role sessions the write account names settled by their run.
+
+        A resume reads it before it stops anything; an account that cannot be read names none,
+        and the resume's held-record judgement refuses it.
+        """
+        entries, _problem = read_account(self._run.run_dir / ACCOUNT_NAME)
+        return frozenset(e.session_id for e in entries if isinstance(e, Settled))
+
+    def _superseded(self, worktree: Path, request: SessionRequest) -> str | None:
+        """The attempt's commit a session whose end was never recorded left at the worktree's head.
+
+        Its run settled it and committed for this very attempt, then died before the session's
+        end line: the resume restarts the attempt, and the restarted session's commit replaces
+        that one rather than following it, so the attempt has one commit.
+        """
+        head = attempt_head(worktree, repo=self._run.repo)
+        if head is None:
+            return None
+        commit, message = head
+        events = self._logged()
+        ended = {e.session_id for e in events if isinstance(e, SessionEnded)}
+        entries, problem = read_account(self._run.run_dir / ACCOUNT_NAME)
+        if problem is not None:
+            return None
+        for entry in entries:
+            if (
+                isinstance(entry, Settled)
+                and entry.subtask_id == request.subtask_id
+                and entry.attempt == request.attempt
+                and entry.session_id not in ended
+                and message
+                == attempt_message(request.subtask_id, request.attempt, entry.session_id)
+            ):
+                return commit
+        return None
+
+    def _logged(self) -> list[Event]:
+        """The run's event log, as the stop holds every session to it.
+
+        Raises:
+            InvocationError: the log cannot be read; nothing has been signalled.
+        """
+        log = self._run.run_dir / "events.jsonl"
+        try:
+            return read_events(log) if log.exists() else []
+        except (OSError, ValueError, OrchestratorError) as exc:
+            msg = "the event log could not be read, so no process record can be held to it"
+            raise InvocationError(msg, error=repr(exc)) from exc
+
+    def _honoured(self, records: list[tuple[Path, dict[str, Any]]], events: list[Event]) -> None:
         """Refuse the resume unless every session's process record is the one spawned.
 
         A role session's record and a review's alike. A record is honoured only if it names its
@@ -1877,19 +2547,11 @@ class ClaudeDispatcher:
             InvocationError: a record is unreadable, names another session, or disagrees with
                 the event log; the resume goes no further, and nothing has been signalled.
         """
-        if not records:
-            return
-        log = self._run.run_dir / "events.jsonl"
-        try:
-            spawned = {
-                e.session_id: (e.pid, e.started)
-                for e in (read_events(log) if log.exists() else [])
-                if isinstance(e, SessionSpawned)
-            }
-        except (OSError, ValueError, OrchestratorError) as exc:
-            msg = "the event log could not be read, so no process record can be held to it"
-            raise InvocationError(msg, error=repr(exc)) from exc
+        spawned = {
+            e.session_id: (e.pid, e.started) for e in events if isinstance(e, SessionSpawned)
+        }
         for sdir, record in records:
+            ours = (record.get("pid"), record.get("started"))
             # A role session's directory is named by its session id; a review's session
             # directory sits in its review's, which is.
             own = sdir.parent.name if record.get("kind") == "reviewer" else sdir.name
@@ -1900,7 +2562,11 @@ class ClaudeDispatcher:
                 why = "the process record names another session than its directory's"
             elif own not in spawned:
                 why = "the event log records no spawn of this session"
-            elif spawned[own] != (record.get("pid"), record.get("started")):
+            elif spawned[own] != ours and not (
+                # A review's repair resume is spawned again under its id: until its record is
+                # written, the record on disk is an earlier spawn's, which is the review's too.
+                record.get("kind") == "reviewer" and ours in _spawns(own, events)
+            ):
                 why = "the process record's pid or start time is not the one the event log records"
             if why is not None:
                 write_record(sdir.parent, sdir.name, {"record_refused": why}, "after_stop.json")
@@ -1918,8 +2584,15 @@ class ClaudeDispatcher:
         started: str | None,
         stopped: bool,
         leads: bool,
+        *,
+        by_run: bool = False,
     ) -> dict[str, Any]:
         """Stop what a role session found at a resume left in its group; check once more.
+
+        Unless the write account names it settled (``by_run``): its run stopped it and its
+        sentinel's check after the stop passed, before any git call on its attempt, so the check
+        is not run again. Run from the session's start, it would put back what the run wrote
+        after that check (the attempt's commit, its series records) as the session's own change.
 
         The record is honoured (:meth:`_honoured`): its pid is the session's, and the group the
         harness created for it has that id. So the group is swept when the session was found
@@ -1951,12 +2624,18 @@ class ClaudeDispatcher:
                 unconfirmed = f"the sweep could not be completed: {exc!r}"
             else:
                 unconfirmed = still_running(pid, started, swept, time.time())
-        check = end_check_at_resume(sdir, session_id, self._install_bin)
-        after_stop = (
-            check_after_stop(check, session_id, sdir, {"PATH": "/usr/bin:/bin"}, sdir / "state")
-            if check is not None
-            else {"refused": "the sentinel's record of the session is missing", "no_record": True}
-        )
+        check = None if by_run else end_check_at_resume(sdir, session_id, self._install_bin)
+        if by_run:
+            after_stop: dict[str, Any] = {"refused": None, "settled_by_run": True}
+        elif check is not None:
+            after_stop = check_after_stop(
+                check, session_id, sdir, {"PATH": "/usr/bin:/bin"}, sdir / "state"
+            )
+        else:
+            after_stop = {
+                "refused": "the sentinel's record of the session is missing",
+                "no_record": True,
+            }
         settled = {
             "left_running": list(swept),
             "stop_unconfirmed": unconfirmed,
@@ -1983,6 +2662,11 @@ class ClaudeDispatcher:
         reach, and is this run's if its owner record names this run.
         """
         dirs = sorted(p for p in (self._run.run_dir / "sessions").glob("*") if p.is_dir())
+        return [*dirs, *self._review_dirs()]
+
+    def _review_dirs(self) -> list[Path]:
+        """Every review session directory of this run, beneath the review root."""
+        dirs: list[Path] = []
         for owner in sorted(self._review_root.glob(f"*/{SESSION_DIRNAME}/{OWNER_NAME}")):
             try:
                 run_id = json.loads(owner.read_text()).get("run_id")
@@ -1998,28 +2682,28 @@ class ClaudeDispatcher:
 
     @staticmethod
     def _reaper_unverified(state: Path, session_id: str) -> tuple[str, ...]:
-        """The shell commands whose reaper's word the hook layer logged as cut off."""
-        log = state / "hooks.log.jsonl"
-        if not log.exists():
-            return ()
-        found = []
-        for line in split_lines(read_session_file(log).decode(errors="replace")):
-            record = json.loads(line)
-            if record.get("session") == session_id and record.get("decision") == (
-                "reaper_unverified"
-            ):
-                found.append(json.dumps(record.get("tool_input"))[:200])
-        return tuple(found)
+        """The shell commands whose reaper's word the hook layer logged as cut off.
+
+        A log that cannot be read whole says nothing of the session's reaping, which is never taken
+        as none heard from: why it cannot be read is one of them (:data:`HOOK_LOG_UNREAD`).
+        """
+        records, unread = _hook_records(state)
+        found = [
+            json.dumps(record.get("tool_input"))[:200]
+            for record in records
+            if record.get("session") == session_id and record.get("decision") == "reaper_unverified"
+        ]
+        return (*found, *((unread,) if unread is not None else ()))
 
     @staticmethod
     def _hook_log(state: Path, session_id: str) -> tuple[bool, tuple[str, ...]]:
-        """Whether the sentinel halted on node files, and every journal append it recorded."""
-        log = state / "hooks.log.jsonl"
-        if not log.exists():
-            return False, ()
+        """Whether the sentinel halted on node files, and every journal append it recorded.
+
+        From the lines that are records: a line that is not one is the unverified reaping's finding
+        (:meth:`_reaper_unverified`), which halts the run.
+        """
         halted, appends = False, []
-        for line in split_lines(read_session_file(log).decode(errors="replace")):
-            record = json.loads(line)
+        for record in _hook_records(state)[0]:
             if record.get("session") != session_id:
                 continue
             if record.get("decision") == "node mismatch":

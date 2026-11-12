@@ -8,7 +8,17 @@
  */
 import { requireQuantity } from "../design/quantity";
 import type { Quantity } from "../design/quantity";
-import { count, flag, list, object, oneOf, optionalCount, optionalText, text } from "./check";
+import {
+  count,
+  flag,
+  list,
+  object,
+  oneOf,
+  optionalCount,
+  optionalText,
+  seconds,
+  text,
+} from "./check";
 import { ShapeError } from "./client";
 
 export const SOURCES = [
@@ -18,11 +28,14 @@ export const SOURCES = [
   "review_blocked",
   "arbitration",
   "escalation_decision",
+  "contract",
+  "plan_review",
 ] as const;
 export type QueueSource = (typeof SOURCES)[number];
 
-export const ON_APPROVE = ["merge_attempt", "record_only"] as const;
-export const ON_REJECT = ["retry", "fix", "end_subtask", "record_only"] as const;
+/** ``release`` and ``end_run``: the plan's item, which lets a held run dispatch or ends it. */
+export const ON_APPROVE = ["merge_attempt", "release", "record_only"] as const;
+export const ON_REJECT = ["retry", "fix", "end_subtask", "end_run", "record_only"] as const;
 export const WHY_RECORD_ONLY = [
   "gate",
   "change_check",
@@ -32,6 +45,25 @@ export const WHY_RECORD_ONLY = [
   "source",
   "legacy",
 ] as const;
+/** The positions an arbitration item offers, in the order it states them. */
+export const POSITIONS = ["sizing", "domain"] as const;
+/** The positions a failed contract's item offers, in the order it states them: whose merged work stands. */
+export const CONTRACT_POSITIONS = ["producer", "consumer"] as const;
+/**
+ * What choosing a position does: order the next attempt to the graph's value, order the one fix to
+ * it, end the subtask, resize (the subtask waits for sizing's closing pass to write the domain's
+ * value), or record the decision only.
+ */
+export const ON_CHOOSE = [
+  "retry",
+  "fix",
+  "end_subtask",
+  "resize",
+  "reopen",
+  "record_only",
+] as const;
+export type Position = (typeof POSITIONS)[number] | (typeof CONTRACT_POSITIONS)[number];
+export type OnChoose = (typeof ON_CHOOSE)[number];
 export type OnApprove = (typeof ON_APPROVE)[number];
 export type OnReject = (typeof ON_REJECT)[number];
 export type WhyRecordOnly = (typeof WHY_RECORD_ONLY)[number];
@@ -51,9 +83,48 @@ export interface Consequence {
   readonly confirmedIndicators: readonly { readonly attempt: number; readonly kind: string }[];
   /** How many hits the scan before review found, for an item whose review never judged them. */
   readonly scanHits: number;
+  /** What choosing each position does, on an item that offers positions; ``null`` otherwise. */
+  readonly onChoose: Readonly<Partial<Record<Position, OnChoose>>> | null;
 }
 
-function consequence(value: unknown): Consequence | null {
+/** The positions each kind of item offers; no other kind offers any. */
+const OFFERED: Readonly<Partial<Record<QueueSource, readonly Position[]>>> = {
+  arbitration: POSITIONS,
+  contract: CONTRACT_POSITIONS,
+};
+
+/** The positions an item of ``source`` offers, in its order; none for any other kind. */
+export function offeredPositions(source: QueueSource): readonly Position[] {
+  return OFFERED[source] ?? [];
+}
+
+/**
+ * The positions an item states, held to its kind's set: any other shape is refused. As the queue's
+ * own model holds it: only an arbitration or a failed contract's item states them, and one that
+ * says what its verbs do must say what choosing each position does. The order is the kind's, as
+ * read here: the server's routes write every object's keys sorted, so the order the queue's line
+ * holds them in does not reach the page, and the set is what is held.
+ */
+function onChoose(
+  value: unknown,
+  source: QueueSource,
+): Readonly<Partial<Record<Position, OnChoose>>> | null {
+  const offered = OFFERED[source];
+  if (value === undefined || value === null) {
+    if (offered !== undefined) throw new ShapeError(`a ${source} item's positions`);
+    return null;
+  }
+  if (offered === undefined) throw new ShapeError("positions on an item of another kind");
+  const stated = object(value, "what choosing each position does");
+  const keys = Object.keys(stated);
+  if (keys.length !== offered.length || !offered.every((p) => keys.includes(p)))
+    throw new ShapeError("an item's positions");
+  return Object.fromEntries(
+    offered.map((p) => [p, oneOf(stated[p], ON_CHOOSE, `what choosing ${p} does`)]),
+  );
+}
+
+function consequence(value: unknown, source: QueueSource): Consequence | null {
   if (value === undefined || value === null) return null;
   const c = object(value, "an item's consequence");
   const commit = optionalText(c.attempt_commit, "an attempt's commit");
@@ -76,6 +147,7 @@ function consequence(value: unknown): Consequence | null {
       };
     }),
     scanHits: list(c.scan_hits, "the scan's hits").length,
+    onChoose: onChoose(c.on_choose, source),
   };
 }
 
@@ -102,12 +174,13 @@ export interface QueueItem {
 
 export function queueItem(value: unknown): QueueItem {
   const item = object(value, "a queue item");
+  const source = oneOf(item.source, SOURCES, "a queue source");
   return {
     itemId: text(item.item_id, "an item id"),
     ts: text(item.ts, "a time"),
     runId: text(item.run_id, "a run id"),
     subtaskId: text(item.subtask_id, "a subtask id"),
-    source: oneOf(item.source, SOURCES, "a queue source"),
+    source,
     decisionRequired: text(item.decision_required, "the decision required"),
     artefactDiff: text(item.artefact_diff, "an artefact diff"),
     triggeringFinding: text(item.triggering_finding, "a triggering finding"),
@@ -122,11 +195,21 @@ export function queueItem(value: unknown): QueueItem {
     trajectories: list(item.trajectories, "the trajectories").map((raw) =>
       text(raw, "a trajectory link"),
     ),
-    consequence: consequence(item.consequence),
+    consequence: consequence(item.consequence, source),
   };
 }
 
-export const EFFECTS = ["merge", "retry", "fix", "end_subtask", "none"] as const;
+export const EFFECTS = [
+  "merge",
+  "retry",
+  "fix",
+  "end_subtask",
+  "resize",
+  "reopen",
+  "release",
+  "end_run",
+  "none",
+] as const;
 export type Effect = (typeof EFFECTS)[number];
 
 /** What the run did with a decision, from its own record; absent until it takes it. */
@@ -150,6 +233,10 @@ export interface Decided {
   /** The queue's own mark for a decision written while a session ran, word for word. */
   readonly flag: string | null;
   readonly taken: Taken | null;
+  /** From when the server showed the view to the decision; ``null`` with no view on record. */
+  readonly reviewTime: Quantity | null;
+  /** Written over a minute after its view was shown: the record logs a decomposition defect. */
+  readonly decompositionDefect: boolean;
 }
 
 function taken(value: unknown): Taken | null {
@@ -164,6 +251,12 @@ function taken(value: unknown): Taken | null {
   };
 }
 
+function reviewTime(value: unknown): Quantity | null {
+  if (value === null || value === undefined) return null;
+  const q = object(value, "a review time");
+  return { value: seconds(q.value, "a review time"), unit: oneOf(q.unit, ["s"], "seconds") };
+}
+
 function decided(value: unknown): Decided {
   const d = object(value, "a decision");
   return {
@@ -173,6 +266,8 @@ function decided(value: unknown): Decided {
     resolvedBy: text(d.resolved_by, "who decided"),
     flag: optionalText(d.flag, "a decision's mark"),
     taken: taken(d.taken),
+    reviewTime: reviewTime(d.review_time),
+    decompositionDefect: d.decomposition_defect === true,
   };
 }
 
@@ -187,6 +282,21 @@ export function queueListing(value: unknown): QueueListing {
     open: list(listing.open, "the open items").map(queueItem),
     decided: list(listing.decided, "the decisions").map(decided),
   };
+}
+
+/** The key an item's link to the decomposition's stream reads as, in place of a session's id. */
+export const DECOMPOSITION_STREAM = "decomposition/stdout.jsonl";
+
+/** The key a link to a later round's stream reads as: round 2 to 9 of the decomposition. */
+const ROUND_STREAM = /^decomposition\/round-([2-9])\/stdout\.jsonl$/;
+
+/** Where the server serves a trajectory an item links: a session's, the decomposition's, or a round's. */
+export function trajectoryPath(base: string, sessionId: string): string {
+  if (sessionId === DECOMPOSITION_STREAM) return `${base}/trajectories/decomposition`;
+  const round = ROUND_STREAM.exec(sessionId)?.[1];
+  return round !== undefined
+    ? `${base}/trajectories/decomposition/${round}`
+    : `${base}/trajectories/${encodeURIComponent(sessionId)}`;
 }
 
 export const STATUSES = [
@@ -211,6 +321,8 @@ export interface ItemView {
   readonly itemSha256: string;
   readonly open: boolean;
   readonly trajectories: readonly TrajectoryView[];
+  /** The id the server stamped this view under, which a decision on it sends back; never a time. */
+  readonly viewId: string | null;
 }
 
 const DIGEST = /^[0-9a-f]{64}$/;
@@ -232,10 +344,11 @@ export function itemView(value: unknown): ItemView {
         status: oneOf(t.status, STATUSES, "a seal status"),
       };
     }),
+    viewId: optionalText(view.view_id, "a view id"),
   };
 }
 
-export type Verb = "approve" | "reject";
+export type Verb = "approve" | "reject" | "choose";
 
 /**
  * The characters Python's ``str.strip()`` removes (those for which ``str.isspace()`` is true),
@@ -259,13 +372,15 @@ export function isBlank(note: string): boolean {
 }
 
 /**
- * The decision as recorded, exactly as the queue's own ``decision_text`` makes it: the verb, and
- * the note after a colon when there is one. ``null`` for a rejection without a note, which the
- * server refuses too.
+ * The decision as recorded, exactly as the queue's own ``decision_text`` makes it: the verb, the
+ * position a choice names, and the note after a colon when there is one. ``null`` for a rejection
+ * without a note or a choice without a position, which the server refuses too.
  */
-export function decisionText(verb: Verb, note: string): string | null {
-  if (isBlank(note)) return verb === "reject" ? null : verb;
-  return `${verb}: ${note}`;
+export function decisionText(verb: Verb, note: string, position?: Position): string | null {
+  if ((verb === "choose") !== (position !== undefined)) return null;
+  const said = position === undefined ? verb : `${verb} ${position}`;
+  if (isBlank(note)) return verb === "reject" ? null : said;
+  return `${said}: ${note}`;
 }
 
 export interface Resolved {
@@ -285,15 +400,25 @@ export function resolved(value: unknown): Resolved {
   };
 }
 
-/** The body of a decision request: the item, the verb and note, and what the page showed. */
-export function decisionRequest(view: ItemView, verb: Verb, note: string): string {
+/**
+ * The body of a decision request: the item, the verb, its position and note, what was shown, and
+ * the id the server stamped the view under. No time: when it was shown is the server's own record.
+ */
+export function decisionRequest(
+  view: ItemView,
+  verb: Verb,
+  note: string,
+  position?: Position,
+): string {
   return JSON.stringify({
     item_id: view.item.itemId,
     verb,
+    ...(position === undefined ? {} : { position }),
     note,
     shown: {
       item_sha256: view.itemSha256,
       trajectories: view.trajectories.map((t) => t.status),
     },
+    ...(view.viewId === null ? {} : { view_id: view.viewId }),
   });
 }

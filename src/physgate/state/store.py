@@ -35,8 +35,9 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 from collections import deque
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import IO, Annotated, Any, Literal
 
@@ -66,6 +67,7 @@ from physgate.state.protocol import (
     canonical_json,
 )
 from physgate.state.schema import quantities_are_valid, validate_node, validate_node_id
+from physgate.unit_spelling import as_product, canonical_unit
 
 # A node payload is a plain JSON object on the way in and on the way out. The
 # frozen interface types it that way and the schema is what gives it structure;
@@ -74,6 +76,76 @@ Payload = dict[str, Any]
 
 #: What to do about a complete journal line that is not a valid record.
 OnCorrupt = Literal["raise", "truncate"]
+
+#: The one reason :meth:`Store.follow_interface` refuses for. Not one of the frozen workload's
+#: reasons (``protocol``): the method is not on the frozen interface, and ``write_node``, which
+#: is, never gives it.
+REJECT_INTERFACE_NOT_FOLLOWED = "interface_not_followed"
+#: The source a followed interface quantity carries: the node and attempt it was taken from.
+FOLLOWED_SOURCE = "followed from {node} at attempt {attempt}"
+_FOLLOWED = re.compile(r"^followed from (?P<node>\S+) at attempt (?P<attempt>[1-9][0-9]{0,8})$")
+
+
+def written_quantity(quantity: Mapping[str, Any]) -> str:
+    """A quantity's value as written and its unit in its canonical form.
+
+    2 and 2.0 are two writings, while ``1/(rad*s)`` and ``s**-1/rad`` are one unit
+    (:func:`physgate.unit_spelling.canonical_unit`).
+    """
+    unit = quantity.get("unit")
+    return json.dumps(
+        [quantity.get("value"), canonical_unit(unit) if isinstance(unit, str) else unit]
+    )
+
+
+def _followed_unit(stored: str, written: str) -> str:
+    """The unit a followed quantity takes: the stored one where only its spelling would change."""
+    return stored if canonical_unit(stored) == canonical_unit(written) else as_product(written)
+
+
+def followed_payload(
+    interface: Payload, joined: Sequence[Payload], role: str, attempt: int
+) -> Payload:
+    """The interface's next revision, each quantity copied from the first node of ``joined``.
+
+    The value is the first joined node's as written; the unit is the interface's own where the two
+    are one unit spelt differently, and otherwise the joined node's as the product the unit grammar
+    reads it as (:func:`physgate.unit_spelling.as_product`); the source names that node and
+    ``attempt``, the writer is ``role``, and no series reference is carried; every other field of
+    the interface is kept. A copy and no judgement: whether the joined nodes agree and the units
+    are the interface's is the change check's (``orchestrator.follow``), which calls this.
+
+    Raises:
+        KeyError: the first joined node lacks one of the interface's quantities.
+        IndexError: ``joined`` is empty.
+    """
+    first = joined[0]
+    source = FOLLOWED_SOURCE.format(node=first["id"], attempt=attempt)
+    held = first["quantities"]
+    quantities = {
+        name: {
+            "value": held[name]["value"],
+            # The stored spelling where the unit is one; a bracketed denominator written as the
+            # product the unit grammar reads it as.
+            "unit": _followed_unit(interface["quantities"][name]["unit"], held[name]["unit"]),
+            "source": source,
+            "written_by": role,
+        }
+        for name in interface["quantities"]
+    }
+    return {**interface, "quantities": quantities}
+
+
+def _followed_attempt(payload: Payload) -> int | None:
+    """The one attempt a followed revision names; the copy it is held to names the node."""
+    found: set[int] = set()
+    for quantity in payload.get("quantities", {}).values():
+        matched = _FOLLOWED.fullmatch(str(quantity.get("source", "")))
+        if matched is None:
+            return None
+        found.add(int(matched["attempt"]))
+    return found.pop() if len(found) == 1 else None
+
 
 JOURNAL_NAME = "journal.jsonl"
 NODES_DIRNAME = "nodes"
@@ -572,6 +644,10 @@ class Store:
         # from it, so it is re-seeked rather than trusted.
         self._journal.seek(0, os.SEEK_END)
         self._durable_size = self.journal_path.stat().st_size
+        held = os.fstat(self._journal.fileno())
+        #: The file this handle appends to: a journal replaced beneath it is another file, even
+        #: at the same size, and this handle's appends would land where no path names them.
+        self._identity = (held.st_dev, held.st_ino)
 
     # ----- open and recovery ------------------------------------------------
 
@@ -773,23 +849,28 @@ class Store:
     # ----- the staleness guard ----------------------------------------------
 
     def _assert_current(self) -> None:
-        """Refuse to answer if the journal has grown or shrunk since the last sync.
+        """Refuse to answer if the journal has grown or shrunk since the last sync, or was replaced.
 
         The journal is strictly append-only, so its size is monotonic and moves on
         exactly the event this cares about. Modification time would not do: it is
-        coarse on some filesystems and can move backwards.
+        coarse on some filesystems and can move backwards. A journal replaced by a copy of
+        itself has the same size and is another file: this handle would append where no path
+        names it, so its identity is held too, read from the path itself: a link in the journal's
+        place, even to the very file, is another file.
 
         Raises:
             StoreStaleError: another writer has touched the journal.
         """
-        size = os.stat(self.journal_path).st_size
-        if size != self._durable_size:
+        now = os.lstat(self.journal_path)
+        size = now.st_size
+        if size != self._durable_size or (now.st_dev, now.st_ino) != self._identity:
             msg = "the journal moved underneath this handle"
             raise StoreStaleError(
                 msg,
                 journal=str(self.journal_path),
                 size_at_last_sync=str(self._durable_size),
                 size_now=str(size),
+                replaced=str((now.st_dev, now.st_ino) != self._identity),
             )
 
     # ----- writes ------------------------------------------------------------
@@ -830,6 +911,73 @@ class Store:
 
         version = 1 if known is None else known[1] + 1
         rev = self._append("create" if known is None else "write", node_id, version, node)
+        self._materialise(node_id, rev, version, node)
+        return WriteResult(True, rev, None)
+
+    def follow_interface(
+        self, node: Payload, actor_role: str, joined: Sequence[str]
+    ) -> WriteResult:
+        """Write an interface's followed revision: only its owner's derivation from ``joined``.
+
+        Not on the frozen interface, and ``write_node`` is unchanged: it refuses every interface
+        write as before. This accepts exactly one kind of revision: ``node`` must be
+        the interface as the store holds it with each quantity copied from the first of the
+        ``joined`` nodes (:func:`followed_payload`), written by the interface's owner role, where
+        ``joined`` is every node of that role the store's heads hold that is not an interface and
+        is joined to it by a ``constrains`` edge either way, in id order, each holding every one
+        of its names, and where something differs. A revision copied from some of the joined
+        nodes is refused even where the rest agree: whether they agree is the change check's
+        judgement, which this copy cannot repeat without the units, so the copy is held to the
+        whole set that judgement was made over. Anything else is refused with
+        ``interface_not_followed`` and writes nothing.
+        The line it appends is an ordinary ``write`` one version on, which recovery replays as
+        it replays every write.
+
+        Raises:
+            StoreStaleError: the journal moved underneath this handle.
+            MalformedNodeIdError: the node id is not a legal identifier.
+        """
+        self._assert_current()
+        node_id = validate_node_id(node.get("id"))
+        refused = WriteResult(False, None, REJECT_INTERFACE_NOT_FOLLOWED)
+        known = self._head.get(node_id)
+        if known is None:
+            return refused
+        current = self._read_node(node_id)
+        if current["kind"] != "interface" or current["owner_role"] != actor_role:
+            return refused
+        names = current.get("quantities", {})
+        # Every joined node the heads hold, never only the ones named: a revision copied from
+        # some of them would stand beside a joined node that disagrees with it.
+        every: list[str] = []
+        sources: list[Payload] = []
+        for other_id in sorted(self._head):
+            other = self._read_node(other_id)
+            edged = node_id in other.get("constrains", ()) or other_id in current.get(
+                "constrains", ()
+            )
+            if other["owner_role"] == actor_role and other["kind"] != "interface" and edged:
+                every.append(other_id)
+                sources.append(other)
+        if not every or list(joined) != every:
+            return refused
+        if any(name not in other.get("quantities", {}) for other in sources for name in names):
+            return refused
+        attempt = _followed_attempt(node)
+        if attempt is None or node != followed_payload(current, sources, actor_role, attempt):
+            return refused
+        # By name, as written: a value of 2 and one of 2.0 are two writings, while two spellings
+        # of one unit (``1/(rad*s)``, ``1/rad/s``) are one.
+        if all(
+            written_quantity(q) == written_quantity(node["quantities"][name])
+            for name, q in names.items()
+        ):
+            return refused
+        if not quantities_are_valid(node):
+            return refused
+        validate_node(node)
+        version = known[1] + 1
+        rev = self._append("write", node_id, version, node)
         self._materialise(node_id, rev, version, node)
         return WriteResult(True, rev, None)
 

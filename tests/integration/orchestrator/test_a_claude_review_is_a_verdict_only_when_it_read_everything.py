@@ -232,6 +232,7 @@ def _config(version: str) -> RunConfig:
         escalation_backend="rules",
         queue_decisions="record",
         os_layer_absent="allow",
+        design_review="off",
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),

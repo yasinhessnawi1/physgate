@@ -238,6 +238,13 @@ def through_the_command(registrations: Registrations | None = None) -> Driver:
                         str(plan.target),
                         "--run-dir",
                         str(plan.run_dir),
+                        # A run that reviews its plan reviews it at decompose, under the
+                        # installation and in the place the run itself is driven with.
+                        *(
+                            ["--install", str(plan.install), "--review-root", str(plan.review_root)]
+                            if plan.params().get("design_review", "off") != "off"
+                            else []
+                        ),
                     ],
                 ),
                 (

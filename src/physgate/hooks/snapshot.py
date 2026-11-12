@@ -26,6 +26,12 @@ it that this walk does not enter and does not record — the same carve-out
 ``knowledge/``). An excluded path is skipped whole, directory or file: nothing
 beneath it is walked, signed, recorded, or restored, so a legitimate write
 there is invisible to this module, not merely untouched by it.
+
+**No byte is kept of a file the session may not read.** The kept bytes lie in the
+session's hook state directory, and a copy is one more place to read a file from. So
+a file the caller names as sealed (the held-out tier, a run record withheld from the
+session) has its digest taken and nothing else: a change to it is found, and it is
+never put back from here.
 """
 
 from __future__ import annotations
@@ -37,7 +43,7 @@ import stat
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Callable, Iterator, Sequence
     from typing import Any
 
 Signature = tuple[str, int, int, int, int, int, int, int]
@@ -271,15 +277,27 @@ class BlobStore:
         os.replace(tmp, path)
 
 
-def record(roots: list[str], blobs: BlobStore, exclude: Sequence[str] = ()) -> dict[str, Entry]:
-    """Everything under ``roots`` except ``exclude``, every file's bytes kept in one pack."""
+def record(
+    roots: list[str],
+    blobs: BlobStore,
+    exclude: Sequence[str] = (),
+    sealed: Callable[[str], bool] | None = None,
+) -> dict[str, Entry]:
+    """Everything under ``roots`` except ``exclude``, every file's bytes kept in one pack.
+
+    A file ``sealed`` names has its digest taken and no byte kept: it can be told to have
+    changed, and never put back from here.
+    """
     found: dict[str, tuple[Signature, str | None]] = {}
     excluded = _exclusions(exclude)
     for root in roots:
         for path, st in walk(root, excluded):
             sig = signature(st)
             found[path] = (sig, os.readlink(path) if sig[0] == "link" else None)
-    digests = blobs.keep_all([p for p, (sig, _) in found.items() if sig[0] == "file"])
+    files = [p for p, (sig, _) in found.items() if sig[0] == "file"]
+    shut = {p for p in files if sealed is not None and sealed(p)}
+    digests = blobs.keep_all([p for p in files if p not in shut])
+    digests |= {p: file_digest(p) for p in shut}
     return {path: Entry(sig, digests.get(path), link) for path, (sig, link) in found.items()}
 
 

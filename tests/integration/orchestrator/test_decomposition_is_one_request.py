@@ -9,7 +9,9 @@ than one request inside it.
 
 from __future__ import annotations
 
+import functools
 import hashlib
+import json
 import os
 import shutil
 from pathlib import Path
@@ -28,9 +30,18 @@ from scripted_endpoint import (  # noqa: E402
 )
 
 from physgate.orchestrator.accounting import TokenAccount  # noqa: E402
+from physgate.orchestrator.canaries import CanaryCheck  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
 from physgate.orchestrator.decompose import call, start_run  # noqa: E402
-from physgate.orchestrator.events import Decomposed, Halted, read_events  # noqa: E402
+from physgate.orchestrator.design_rounds import decompose_in_rounds  # noqa: E402
+from physgate.orchestrator.events import (  # noqa: E402
+    Decomposed,
+    DecompositionRetried,
+    Halted,
+    TokensUsed,
+    read_events,
+)
+from physgate.orchestrator.exceptions import PlanRefusedError  # noqa: E402
 from physgate.orchestrator.git import head_of  # noqa: E402
 from physgate.state.store import Store  # noqa: E402
 from physgate.state.task_ledger import TaskLedger  # noqa: E402
@@ -255,6 +266,9 @@ def test_the_decompose_command_in_subscription_mode_records_the_mode_and_not_the
 
     params = json.loads((EXAMPLES / "params.subscription.json").read_text())
     params["bounds"] = config().bounds.model_dump(mode="json")  # the scripted endpoint's
+    # The row is about the subscription credential, not the plan's review: the examples name
+    # design_review: on, whose review needs an installation this command is not given.
+    params["design_review"] = "off"
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     repo = target_repo(tmp_path)
@@ -323,6 +337,20 @@ def test_a_wrapped_answer_is_refused_by_the_schema_and_recorded_as_such(tmp_path
     assert len(api.requests) == 1  # still one request: the refusal ends the one turn
     halted = [e for e in read_events(run_dir / "events.jsonl") if e.kind == "halted"]
     assert len(halted) == 1 and halted[0].detail.startswith("schema_refused")
+
+
+def test_an_interface_id_not_of_the_store_s_form_is_refused_by_the_schema(tmp_path: Path) -> None:
+    # The schema carries the store's pattern on a node's id, and the binary holds the answer to
+    # it: a hyphenated id is the binary's refusal, not one the run's opening finds after the call.
+    hyphenated = {**PLAN, "interface_nodes": [{**NODE, "id": "power-bus"}]}
+    try:
+        api, outcome, _ = decompose_once(tmp_path, 7, [tool("StructuredOutput", **hyphenated)])
+    except PlanRefusedError as exc:
+        pytest.fail(f"the binary passed the id, and the run's opening refused it: {exc}")
+    assert not outcome.ok and outcome.cause == "schema_refused", outcome.detail
+    assert "does not match required schema" in outcome.detail
+    assert "pattern" in outcome.detail, outcome.detail
+    assert len(api.requests) == 1
 
 
 def test_the_one_call_s_account_must_match_the_binary_s_totals(
@@ -446,3 +474,117 @@ def test_a_catalog_or_flags_not_reported_off_fail_the_call(
     (halted,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Halted)]
     assert halted.reason == "decomposition_failed"
     assert not (run_dir / "decomposition" / "debug.log").exists()
+
+
+def _with_unit(unit: str) -> dict[str, Any]:
+    node = {**NODE, "quantities": {"gain": {**NODE["quantities"]["voltage"], "unit": unit}}}
+    return {**PLAN, "interface_nodes": [node]}
+
+
+def test_the_call_s_own_settings_deny_the_web_tools(tmp_path: Path) -> None:
+    # The call offers no tool but its answer; the deny is the second layer, as in every session.
+    _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert outcome.ok, outcome.detail
+    settings = json.loads((run_dir / "decomposition" / "settings.json").read_text())
+    assert {"WebFetch", "WebSearch"} <= set(settings.get("permissions", {}).get("deny", ()))
+
+
+def test_an_interface_unit_the_grammar_refuses_is_a_schema_refusal_and_nothing_is_stored(
+    tmp_path: Path,
+) -> None:
+    api, outcome, run_dir = decompose_once(
+        tmp_path, 7, [tool("StructuredOutput", **_with_unit("1/(V*(s))"))]
+    )
+    assert not outcome.ok and outcome.cause == "schema_refused", outcome.detail
+    assert "write it as 1/V/s" in outcome.detail
+    assert len(api.requests) == 1
+    assert not (run_dir / "store").exists()
+
+
+def test_an_interface_unit_in_a_bracketed_denominator_is_stored_as_its_product(
+    tmp_path: Path,
+) -> None:
+    _, outcome, run_dir = decompose_once(
+        tmp_path, 7, [tool("StructuredOutput", **_with_unit("1/(V*s)"))]
+    )
+    assert outcome.ok, outcome.detail
+    store = Store(run_dir / "store")
+    try:
+        assert store.read_node("power.bus")["quantities"]["gain"]["unit"] == "1/V/s"
+    finally:
+        store.close()
+
+
+# ── a unit refusal through the rounds: the one retry, told why ───────────────
+
+
+def _through_the_rounds(root: Path, units: list[str]) -> tuple[Any, Any, Path]:
+    """Decompose as the command does, the k-th call answered with a plan in ``units[k]``."""
+    repo = target_repo(root)
+    cfg = config().model_copy(update={"seed": 7, "target_head": head_of(repo, "master")})
+    answers = iter(units)
+    with serving(Script(main=[])) as (api, url):
+        # One request a call: each is answered with the next plan, whatever was sent.
+        api.on_request = lambda *_: tool("StructuredOutput", **_with_unit(next(answers)))
+        made = decompose_in_rounds(
+            "Build a self-balancing robot.",
+            config=cfg,
+            run_dir=root / "run",
+            target_repo=repo,
+            library=build_fixture_library(root / "library"),
+            reviewing=None,
+            check=CanaryCheck(held_out=frozenset(), review_material=frozenset()),
+            make_call=functools.partial(
+                call, config=cfg, base_url=url, credential=Credential("api_key", DUMMY_KEY)
+            ),
+        )
+    made.record.close()
+    return api, made, root / "run"
+
+
+def test_a_refused_unit_is_told_to_the_one_retry_and_its_corrected_plan_is_stored(
+    tmp_path: Path,
+) -> None:
+    api, made, run_dir = _through_the_rounds(tmp_path, ["V/(rad/s)", "V*s/rad", "V"])
+    assert made.ok, made.detail
+    first, second = api.requests  # two calls, one request each, and never a third
+    events = read_events(run_dir / "events.jsonl")
+    (retried,) = [e for e in events if isinstance(e, DecompositionRetried)]
+    refusal = retried.detail
+    assert "'power.bus'" in refusal and "gain" in refusal and "'V/(rad/s)'" in refusal
+    assert refusal.endswith("; write it as V*s/rad")
+    # The retry is sent the prompt as the first call was, then the refusal's own text.
+    assert refusal not in first.last_user
+    assert second.last_user.count(refusal) == 1
+    assert first.last_user.rstrip("\n") in second.last_user
+    assert second.offered_tools == ("StructuredOutput",)
+    # Both calls are on the record, each with its own tokens, and the second's plan is stored.
+    account = TokenAccount.from_events(events)
+    assert account.decomposition_invocations() == 2
+    account.assert_no_routing()
+    spent = [e.attribution for e in events if isinstance(e, TokensUsed)]
+    assert len(set(spent)) == 2 and spent[0] == f"decomposition:{retried.session_id}"
+    store = Store(run_dir / "store")
+    try:
+        assert store.read_node("power.bus")["quantities"]["gain"]["unit"] == "V*s/rad"
+    finally:
+        store.close()
+
+
+def test_a_unit_refused_again_by_the_retry_fails_the_run_with_nothing_stored(
+    tmp_path: Path,
+) -> None:
+    # Units the grammar takes and the gate's registry cannot read; the retry writes another.
+    api, made, run_dir = _through_the_rounds(tmp_path, ["counts/rev", "Nm", "V"])
+    assert not made.ok and made.cause == "schema_refused", made.detail
+    assert "'Nm'" in made.detail and "'power.bus'" in made.detail
+    first, second = api.requests  # the retry is made once
+    events = read_events(run_dir / "events.jsonl")
+    (retried,) = [e for e in events if isinstance(e, DecompositionRetried)]
+    assert "'counts/rev'" in retried.detail
+    assert second.last_user.count(retried.detail) == 1 and retried.detail not in first.last_user
+    (halt,) = [e for e in events if isinstance(e, Halted)]
+    assert halt.reason == "decomposition_failed" and halt.detail.startswith("schema_refused")
+    assert TokenAccount.from_events(events).decomposition_invocations() == 2
+    assert TaskLedger(run_dir / "ledger.jsonl").read_all() == []
+    assert not (run_dir / "store").exists()

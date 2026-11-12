@@ -2,25 +2,20 @@
 
 A request that outgrew the window ends ``prompt_too_long``; a structured answer refused
 at the binary's own cap ends ``structured_output_retry_exhausted``. A review has always
-named both. A role session and the decomposition call read them as the cause every end
-without a name of its own gets, and on the earlier pins they still do, so nothing those
-pins' runs record changes. From 2.1.322 on each is recorded under the binary's own name.
+named both, and the decomposition call names both from a table of its own on every pin. A
+role session reads them as the cause every end without a name of its own gets, and on the
+earlier pins it still does, so nothing those pins' runs record of a role session changes.
+From 2.1.322 on each is recorded under the binary's own name.
 
 The result objects are the ones measured through the real binaries, alike on both pins.
 """
 
 from __future__ import annotations
 
-import json
-import stat
-import sys
-from pathlib import Path
 from typing import Any
 
 import pytest
-from orch_helpers import make_config
 
-import physgate.orchestrator.decompose as decompose
 from physgate.orchestrator.budget import (
     NAMED_END_VERSIONS,
     PROMPT_TOO_LONG,
@@ -28,7 +23,6 @@ from physgate.orchestrator.budget import (
     SessionEnd,
     classify_session_end,
 )
-from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.decompose import judge
 
 MODEL = "claude-sonnet-5"
@@ -110,7 +104,7 @@ def test_the_other_ends_read_alike_on_every_pin() -> None:
             assert end.cause == cause, (version, cause)
 
 
-def _decomposition(result: dict[str, Any], version: str | None, refused: str | None) -> str | None:
+def _decomposition(result: dict[str, Any], refused: str | None) -> str | None:
     return judge(
         result,
         exit_code=1,
@@ -118,54 +112,18 @@ def _decomposition(result: dict[str, Any], version: str | None, refused: str | N
         model=MODEL,
         roles=["electrical"],
         answered=frozenset({MODEL}),
+        brief="brief",
         refused=refused,
-        claude_version=version,
     )[0]
 
 
-@pytest.mark.parametrize("name", sorted(ENDS))
-def test_the_decomposition_call_names_them_on_the_new_pin_only(name: str) -> None:
-    refused = (
-        "the answer does not match the schema" if name == STRUCTURED_OUTPUT_EXHAUSTED else None
-    )
-    assert _decomposition(ENDS[name], "2.1.322", refused) == name
-    for version in (*EARLIER, None):
-        assert _decomposition(ENDS[name], version, refused) == "unexpected_exit"
+def test_the_decomposition_call_names_both_by_its_own_table_whatever_the_pin() -> None:
+    # The plan call reads the binary's reason from a table of its own, which knows no pin:
+    # a context the plan outgrew, and a schema the binary refused until it stopped asking.
+    assert _decomposition(TOO_LONG, None) == "context_exceeded"
+    assert _decomposition(EXHAUSTED, "the answer does not match the schema") == "schema_refused"
 
 
-def test_a_decomposition_out_of_turns_after_a_refusal_is_a_schema_refusal_on_every_pin() -> None:
+def test_a_decomposition_out_of_turns_after_a_refusal_is_a_schema_refusal() -> None:
     turns = {"is_error": True, "terminal_reason": "max_turns", "num_turns": 3}
-    for version in (*EARLIER, "2.1.322", None):
-        assert _decomposition(turns, version, "refused") == "schema_refused"
-
-
-STANDIN = r"""
-import sys
-if sys.argv[1:] == ["--version"]:
-    print(VERSION + " (Claude Code)")
-    sys.exit(0)
-sys.stdout.write(STREAM)
-sys.exit(1)
-"""
-
-
-def test_the_decomposition_call_reads_its_own_binary_s_pin(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    version, cause = "2.1.322", PROMPT_TOO_LONG
-    answer = {"type": "assistant", "message": {"id": "m1", "model": MODEL, "content": []}}
-    text = json.dumps(answer) + "\n" + json.dumps(TOO_LONG) + "\n"
-    binary = tmp_path / "bin" / "claude"
-    binary.parent.mkdir(parents=True)
-    binary.write_text(f"#!{sys.executable}\nVERSION = {version!r}\nSTREAM = {text!r}\n{STANDIN}")
-    binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
-    monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(binary))
-    outcome = decompose.call(
-        "brief",
-        config=make_config(claude_version=version),
-        workdir=tmp_path / "w",
-        base_url=None,
-        credential=Credential("api_key", "not-a-key"),
-    )
-    assert not outcome.ok and outcome.plan is None
-    assert outcome.cause == cause, outcome.detail
+    assert _decomposition(turns, "refused") == "schema_refused"

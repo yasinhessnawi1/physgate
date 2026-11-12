@@ -17,8 +17,8 @@ run on an API key is priced at the sheet's list prices, which is what the tokens
 were billed at unless the account has terms the sheet does not know.
 
 A token is priced at the model that spent it: the decomposition model, the model of
-the role a session worked for, or the model a reviewer reported. A model the sheet
-does not price is refused, never priced at zero.
+the role a session worked for, or the model a reviewer reported, the plan's reviewer
+among them. A model the sheet does not price is refused, never priced at zero.
 
 **A cache write is priced at the rate of the cache it went to.** The five-minute and
 the one-hour cache are billed at different write rates, and the run's account does
@@ -70,6 +70,7 @@ from physgate.orchestrator.common import (
     first_problem,
 )
 from physgate.orchestrator.events import (
+    DesignReviewRan,
     Event,
     LeftoverRead,
     ReviewRan,
@@ -309,8 +310,9 @@ class CostLine(_Frozen):
     #: be short of what was spent.
     partial: bool
     #: What reviewing spent, by subtask: every review of its attempts, verdict or not.
-    #: A review left over from a killed orchestrator names no subtask, and is under
-    #: ``(left over)``. Absent from lines written before reviews were real.
+    #: The plan's review, before any subtask, is under ``(plan review, round <n>)``, a
+    #: line per round. A review left over from a killed orchestrator names no subtask,
+    #: and is under ``(left over)``. Absent from lines written before reviews were real.
     review_tokens: dict[NonEmptyStr, Usage] = Field(default_factory=dict)
     #: Every call priced, with the binary's own figure beside it. Empty on a line priced
     #: without the calls' records, as every line before the per-call sheet was.
@@ -348,6 +350,21 @@ def _role_model(config: RunConfig, session_id: str) -> str:
     return models.pop()
 
 
+def _one_reviewer_model(config: RunConfig, attribution: str, msg: str) -> str:
+    """The run's one pinned reviewer model; ``msg`` refuses a run that pinned several."""
+    models = set(config.models.reviewers.values())
+    if len(models) == 1:
+        return models.pop()
+    raise ManifestError(msg, attribution=attribution)
+
+
+def _plan_review_session(review: DesignReviewRan) -> str | None:
+    """The session a plan's review spent under, as its verdict or its unavailable part names."""
+    if review.result is not None:
+        return review.result.session_id
+    return review.unavailable.session_id if review.unavailable is not None else None
+
+
 def _model_of(attribution: str, config: RunConfig, events: list[Event]) -> str:
     kind, who = attribution.split(":", 1)
     if kind == "decomposition":
@@ -358,15 +375,20 @@ def _model_of(attribution: str, config: RunConfig, events: list[Event]) -> str:
                 return e.result.reviewer_model
             if isinstance(e, ReviewUnavailable) and e.session_id == who and e.reviewer_model:
                 return e.reviewer_model
+            if isinstance(e, DesignReviewRan) and _plan_review_session(e) == who:
+                if e.result is not None:
+                    return e.result.reviewer_model
+                if e.unavailable is not None and e.unavailable.reviewer_model:
+                    return e.unavailable.reviewer_model
+                # No verdict and no model named: the run's one reviewer model, if it pinned one.
+                msg = "the log does not say which model the plan's review ran on; reviewers differ"
+                return _one_reviewer_model(config, attribution, msg)
         # A review whose orchestrator died before it recorded anything: found at the
         # resume, it names no role, so it is priced at the one reviewer model if the
         # run pinned only one.
         if any(isinstance(e, LeftoverRead) and e.session_id == who for e in events):
-            models = set(config.models.reviewers.values())
-            if len(models) == 1:
-                return models.pop()
             msg = "the log does not say which role a left-over review was for, and they differ"
-            raise ManifestError(msg, attribution=attribution)
+            return _one_reviewer_model(config, attribution, msg)
         msg = "a reviewer spent tokens the log records no review for"
         raise ManifestError(msg, attribution=attribution)
     if kind == "session":
@@ -383,13 +405,27 @@ def _model_of(attribution: str, config: RunConfig, events: list[Event]) -> str:
 LEFT_OVER = "(left over)"
 
 
+def plan_review_label(round_: int) -> str:
+    """Where a round's plan review's tokens go: a line of its own, before any subtask."""
+    return f"(plan review, round {round_})"
+
+
 def _reviewed_subtask(session_id: str, events: list[Event]) -> str:
-    """The subtask a review session judged, as its review line or its unavailable line says."""
+    """The subtask a review session judged, as its review line or its unavailable line says.
+
+    A plan's review judged no subtask: its line is its round's, by the round its line records,
+    or, on a line written before rounds were recorded, by its place among the plan's reviews.
+    """
+    rounds = 0
     for e in events:
         if isinstance(e, ReviewRan) and e.result.session_id == session_id:
             return e.subtask_id
         if isinstance(e, ReviewUnavailable) and e.session_id == session_id:
             return e.subtask_id
+        if isinstance(e, DesignReviewRan):
+            rounds += 1
+            if _plan_review_session(e) == session_id:
+                return plan_review_label(e.round if e.round is not None else rounds)
     return LEFT_OVER
 
 

@@ -1,0 +1,370 @@
+{
+ "constrains": [
+  "balance.controller",
+  "firmware.loop_timing"
+ ],
+ "domain": "cross",
+ "geometry_hash": "none",
+ "id": "sizing.drivetrain_result",
+ "kind": "component",
+ "model": null,
+ "no_change_justified": {},
+ "owner_role": "sizing",
+ "quantities": {
+  "back_emf_constant": {
+   "source": "Model at the gearbox output shaft: Ke = (6 V - 0.15 A x 4 ohm) / 68.068 rad/s, no-load current taken as friction constant with speed (sizing standards \u00a75)",
+   "unit": "V*s/rad",
+   "value": 0.079333,
+   "written_by": "sizing"
+  },
+  "back_emf_constant_armature": {
+   "source": "Calculation: back_emf_constant / gear_ratio = 0.079333 / 51.4462, at the motor's own (armature) shaft",
+   "unit": "V*s/rad",
+   "value": 0.0015421,
+   "written_by": "sizing"
+  },
+  "back_emf_constant_wheel": {
+   "source": "Calculation: back_emf_constant x external_gear_ratio = 0.079333 x 2.142857, per motor, at the wheel axle",
+   "unit": "V*s/rad",
+   "value": 0.17,
+   "written_by": "sizing"
+  },
+  "brake_wheel_torque_headroom": {
+   "source": "Model: per wheel, from +0.0016 N*m at cruise to -0.2022 N*m at -1.8 A (current_limit), reached with -2.46 V average, within the duty limit; stage efficiency 0.9 applied (understates braking)",
+   "unit": "N*m",
+   "value": 0.20378,
+   "written_by": "sizing"
+  },
+  "cell_mass": {
+   "source": "Assumption, TBR: one AA NiMH cell, typical of the 1900-2000 mAh class (about 26-31 g); no cell maker or datasheet chosen. Resolve by weighing the cells used or naming the cell; owner sizing",
+   "unit": "kg",
+   "value": 0.027,
+   "written_by": "sizing"
+  },
+  "cruise_current": {
+   "source": "Model: (5.4 V - 0.079333 x 59.718 rad/s) / 4 ohm, per motor at the max_ground_speed cruise, 7.2 V",
+   "unit": "A",
+   "value": 0.1656,
+   "written_by": "sizing"
+  },
+  "cruise_current_headroom": {
+   "source": "Calculation: current_limit - cruise_current = 1.8 - 0.1656 A per motor; usable only for braking, since forward torque is voltage-limited at the duty limit",
+   "unit": "A",
+   "value": 1.6344,
+   "written_by": "sizing"
+  },
+  "cruise_wheel_torque": {
+   "source": "Model: per wheel at the max_ground_speed cruise, equal to the load torque (rolling + drag) x wheel_radius / 2",
+   "unit": "N*m",
+   "value": 0.0016177,
+   "written_by": "sizing"
+  },
+  "current_limit": {
+   "source": "TI DRV8838 SLVSBA4F \u00a76.3, peak motor current 1.8 A per driver (normative peak rating; no continuous rating found, stated missing), brief criterion 6",
+   "unit": "A",
+   "value": 1.8,
+   "written_by": "sizing"
+  },
+  "drag_area": {
+   "source": "Assumption, TBR: drag coefficient 1.0 (bluff body) x frontal area 0.118 m x 0.112 m (#3575 bounding box, an upper bound); air density 1.204 kg/m**3 at 20 \u00b0C",
+   "unit": "m**2",
+   "value": 0.013216,
+   "written_by": "sizing"
+  },
+  "external_gear_ratio": {
+   "source": "Calculation: kit plastic stage 45/21, brief criterion 1; confirms drivetrain.motor",
+   "unit": "1",
+   "value": 2.142857,
+   "written_by": "sizing"
+  },
+  "external_stage_efficiency": {
+   "source": "Assumption, TBR: one plastic spur stage 45:21, no maker figure; resolve by a measured wheel torque at stall; owner sizing",
+   "unit": "1",
+   "value": 0.9,
+   "written_by": "sizing"
+  },
+  "forward_wheel_torque_headroom": {
+   "source": "Model: at max_ground_speed the command is at the 300-count limit, so the forward torque available equals the load torque; headroom 0 for a push that needs the wheels to accelerate (brief criterion 18 at cruise at risk, RECORD.md C3)",
+   "unit": "N*m",
+   "value": 0.0,
+   "written_by": "sizing"
+  },
+  "gear_ratio": {
+   "source": "Calculation: Pololu item #3073 gearbox tooth counts (32x33x35x38)/(15x14x13x10) = 1404480/27300 = 51.4462 (maker states 51.45:1); confirms drivetrain.motor; modules/sizing/sizing.py",
+   "unit": "1",
+   "value": 51.446,
+   "written_by": "sizing"
+  },
+  "gearbox_efficiency_implied": {
+   "source": "Calculation: torque_constant / back_emf_constant = 0.053755 / 0.079333, under the ideal-armature assumption above",
+   "unit": "1",
+   "value": 0.6776,
+   "written_by": "sizing"
+  },
+  "ground_speed_shortfall": {
+   "source": "Calculation: 1.2 m/s (brief criterion 17) - max_ground_speed 1.11473 m/s; no-load bound alone falls short by 0.0706 m/s. Reaching 1.2 m/s with no load needs duty 0.792 at 7.2 V, or 7.60 V at duty 0.75; neither is applied (brief criteria 4 and 5 kept)",
+   "unit": "m/s",
+   "value": 0.08527,
+   "written_by": "sizing"
+  },
+  "mass": {
+   "source": "Calculation: running mass = mass_without_cells + 6 x cell_mass = 0.200 + 6 x 0.027 kg; TBR through cell_mass",
+   "unit": "kg",
+   "value": 0.362,
+   "written_by": "sizing"
+  },
+  "mass_without_cells": {
+   "source": "Pololu item #3575 specifications retrieved 03.11.2026: 200 g with motors, 80x10 mm wheels and bumper cage, 'does not include batteries'; brief criterion 7 (0.200 \u00b1 0.010 kg)",
+   "unit": "kg",
+   "value": 0.2,
+   "written_by": "sizing"
+  },
+  "max_average_motor_voltage": {
+   "source": "Calculation: supply_voltage x max_duty = 7.2 V x 0.75 (DRV8838 brakes in PWM off time, SLVSBA4F Table 7-2; PWM on EN is an inference, sizing standards \u00a76)",
+   "unit": "V",
+   "value": 5.4,
+   "written_by": "sizing"
+  },
+  "max_average_motor_voltage_max": {
+   "source": "Calculation: supply_voltage_max x max_duty = 8.4 V x 0.75",
+   "unit": "V",
+   "value": 6.3,
+   "written_by": "sizing"
+  },
+  "max_average_motor_voltage_min": {
+   "source": "Calculation: supply_voltage_min x max_duty = 5.4 V x 0.75",
+   "unit": "V",
+   "value": 4.05,
+   "written_by": "sizing"
+  },
+  "max_duty": {
+   "source": "Calculation: 300 counts (Balboa32U4Motors.cpp 1.1.2 maxSpeed, turbo off; balance.controller command_limit) / 400 counts (ICR1; firmware.loop_timing pwm_full_scale), brief criterion 5",
+   "unit": "1",
+   "value": 0.75,
+   "written_by": "sizing"
+  },
+  "max_ground_speed": {
+   "series": {
+    "extract": "final",
+    "record": "sizing_speed_loaded_nominal",
+    "trace": "ground_speed"
+   },
+   "source": "Simulation (modules/sizing/sizing.py, rigid cart on two wheels, balancing ignored): steady speed at duty 0.75 and 7.2 V with rolling (0.0710 N), drag (0.0099 N) and stage loss (0.9); brief criterion 17 asks 1.2 m/s: NOT reachable, shortfall 0.0853 m/s (7.1 %), RECORD.md conflict C1",
+   "unit": "m/s",
+   "value": 1.11473,
+   "written_by": "sizing"
+  },
+  "max_ground_speed_max": {
+   "series": {
+    "extract": "final",
+    "record": "sizing_speed_loaded_charged",
+    "trace": "ground_speed"
+   },
+   "source": "Simulation as max_ground_speed at the 8.4 V charged top (6.3 V average); information only, the criterion is pinned at 7.2 V",
+   "unit": "m/s",
+   "value": 1.32576,
+   "written_by": "sizing"
+  },
+  "max_ground_speed_min": {
+   "series": {
+    "extract": "final",
+    "record": "sizing_speed_loaded_cutoff",
+    "trace": "ground_speed"
+   },
+   "source": "Simulation as max_ground_speed at the 5.4 V cut-off (4.05 V average); information only",
+   "unit": "m/s",
+   "value": 0.79796,
+   "written_by": "sizing"
+  },
+  "motor_resistance": {
+   "source": "Model (sizing standards \u00a75): R = rated_voltage / rated_stall_current = 6 V / 1.5 A; terminal resistance, brushes and winding",
+   "unit": "V/A",
+   "value": 4.0,
+   "written_by": "sizing"
+  },
+  "no_load_ground_speed": {
+   "series": {
+    "extract": "final",
+    "record": "sizing_speed_no_load_nominal",
+    "trace": "ground_speed"
+   },
+   "source": "Calculation: no_load_speed / external_gear_ratio x wheel_radius = 60.505 / 2.142857 x 0.040, at 5.4 V; equals the final of record sizing_speed_no_load_nominal. Plan's linear scaling gives 1.1435",
+   "unit": "m/s",
+   "value": 1.12942,
+   "written_by": "sizing"
+  },
+  "no_load_speed": {
+   "source": "Model: (5.4 V - 0.15 A x 4 ohm) / 0.079333 V*s/rad, gearbox output, at the duty limit and 7.2 V. Linear scaling 650 rpm x 5.4/6 (plan, drivetrain.motor) gives 61.261; the model keeps the friction current's drop",
+   "unit": "rad/s",
+   "value": 60.505,
+   "written_by": "sizing"
+  },
+  "no_load_speed_max": {
+   "source": "Model: (6.3 V - 0.6 V) / 0.079333, duty limit at the 8.4 V top; information",
+   "unit": "rad/s",
+   "value": 71.849,
+   "written_by": "sizing"
+  },
+  "no_load_speed_min": {
+   "source": "Model: (4.05 V - 0.6 V) / 0.079333, duty limit at the 5.4 V cut-off; information",
+   "unit": "rad/s",
+   "value": 43.488,
+   "written_by": "sizing"
+  },
+  "overall_gear_ratio": {
+   "source": "Calculation: gear_ratio x external_gear_ratio = 51.4462 x 2.142857 = 110.2418; deviation from 110.25 is -0.0075 %, within the \u00b10.5 % of brief criterion 1",
+   "unit": "1",
+   "value": 110.2418,
+   "written_by": "sizing"
+  },
+  "overcurrent_trip_min": {
+   "source": "TI DRV8838 SLVSBA4F \u00a76.5, overcurrent protection trip 1.9 A minimum, 3.5 A maximum",
+   "unit": "A",
+   "value": 1.9,
+   "written_by": "sizing"
+  },
+  "push_wheel_torque_indicative": {
+   "source": "Estimate, TBR: per wheel, mass x l x 1.5 rad/s / 0.140 s x wheel_radius / 2, point-mass pendulum of length l = g x 0.140**2 = 0.192 m reversing the brief criterion 18 tilt rate within one falling time constant; about 0.294 A per motor. The control simulation decides",
+   "unit": "N*m",
+   "value": 0.01491,
+   "written_by": "sizing"
+  },
+  "rated_no_load_current": {
+   "source": "Pololu item #3073 product page retrieved 03.11.2026: 150 mA no-load at 6 V",
+   "unit": "A",
+   "value": 0.15,
+   "written_by": "sizing"
+  },
+  "rated_no_load_speed": {
+   "source": "650 rpm x 2 pi / 60 at 6 V, gearbox output shaft; brief criterion 17 and Pololu item #3073 product page retrieved 03.11.2026 (650 RPM, 150 mA)",
+   "unit": "rad/s",
+   "value": 68.068,
+   "written_by": "sizing"
+  },
+  "rated_stall_current": {
+   "source": "Pololu item #3073 product page retrieved 03.11.2026: 1.5 A stall at 6 V, 'theoretical values; stalls could damage the motor or gearbox'. Refines the plan value 1.6 A in drivetrain.motor (see modules/sizing/RECORD.md, discrepancy D1)",
+   "unit": "A",
+   "value": 1.5,
+   "written_by": "sizing"
+  },
+  "rated_stall_torque": {
+   "source": "Pololu item #3073 product page retrieved 03.11.2026: 0.74 kg*cm (10 oz*in) at 6 V, gearbox output, theoretical; 0.74 x 9.80665 / 100. Refines the plan value 15 oz*in = 0.1059 N*m in drivetrain.motor (RECORD.md, D1)",
+   "unit": "N*m",
+   "value": 0.072569,
+   "written_by": "sizing"
+  },
+  "rated_voltage": {
+   "source": "Pololu item #3073 product page, retrieved 03.11.2026: performance stated at 6 V",
+   "unit": "V",
+   "value": 6,
+   "written_by": "sizing"
+  },
+  "reversal_current": {
+   "series": {
+    "extract": "max_abs",
+    "record": "sizing_reversal_at_cruise",
+    "trace": "motor_current"
+   },
+   "source": "Simulation: command stepped from +5.4 V to -5.4 V average at the max_ground_speed cruise, 7.2 V, inductance neglected; (5.4 + Ke x w) / R. Exceeds current_limit by 0.734 A and the 1.9 A overcurrent trip minimum (RECORD.md C2)",
+   "unit": "A",
+   "value": 2.5337,
+   "written_by": "sizing"
+  },
+  "rolling_coefficient": {
+   "source": "Assumption, TBR: small rubber-tyred wheels on a hard floor; resolve by a coast-down test; owner sizing",
+   "unit": "1",
+   "value": 0.02,
+   "written_by": "sizing"
+  },
+  "stall_current": {
+   "source": "Model: max_average_motor_voltage / motor_resistance = 5.4 V / 4 ohm, at the duty limit and 7.2 V nominal (brief criterion 6); theoretical, as the maker's stall figures. Plan value in drivetrain.motor 1.44 A (linear from 1.6 A)",
+   "unit": "A",
+   "value": 1.35,
+   "written_by": "sizing"
+  },
+  "stall_current_full_duty": {
+   "source": "Model: 7.2 V / 4 ohm at duty 1 (turbo); equals current_limit with zero margin, which is why the 0.75 duty limit is kept",
+   "unit": "A",
+   "value": 1.8,
+   "written_by": "sizing"
+  },
+  "stall_current_max": {
+   "source": "Model: 6.3 V / 4 ohm, duty limit at the 8.4 V charged top of the supply (sizing standards \u00a74 and \u00a77, demand at the top); margin to current_limit 0.225 A, ratio 1.143",
+   "unit": "A",
+   "value": 1.575,
+   "written_by": "sizing"
+  },
+  "stall_current_turbo_charged": {
+   "source": "Model: 8.4 V / 4 ohm at duty 1; exceeds current_limit by 0.3 A and the DRV8838 overcurrent trip minimum 1.9 A (SLVSBA4F \u00a76.5); information only, turbo stays off",
+   "unit": "A",
+   "value": 2.1,
+   "written_by": "sizing"
+  },
+  "stall_torque": {
+   "source": "Model: torque_constant x (5.4 V / 4 ohm - 0.15 A) = 0.053755 x 1.2, gearbox output, at 5.4 V; theoretical. Plan value in drivetrain.motor 0.0953 N*m is 48 % higher (RECORD.md, D1)",
+   "unit": "N*m",
+   "value": 0.064506,
+   "written_by": "sizing"
+  },
+  "stall_torque_full_duty": {
+   "source": "Model: torque_constant x (7.2 V / 4 ohm - 0.15 A), gearbox output, at 7.2 V duty 1; information",
+   "unit": "N*m",
+   "value": 0.088696,
+   "written_by": "sizing"
+  },
+  "supply_voltage": {
+   "source": "Brief criteria 3 and 4: 6 AA NiMH x 1.2 V nominal; every sizing figure below is at this voltage unless its name carries _max or _min",
+   "unit": "V",
+   "value": 7.2,
+   "written_by": "sizing"
+  },
+  "supply_voltage_max": {
+   "source": "6 x 1.4 V charged open-circuit per cell, Energizer NiMH Handbook NiMH02.01 p. 6 (typical value); information beside the nominal (sizing standards \u00a74)",
+   "unit": "V",
+   "value": 8.4,
+   "written_by": "sizing"
+  },
+  "supply_voltage_min": {
+   "source": "6 x 0.9 V cut-off per cell, Energizer NiMH Handbook NiMH02.01 p. 10 (typical value, optimistic above 1C; load drop not known); information beside the nominal",
+   "unit": "V",
+   "value": 5.4,
+   "written_by": "sizing"
+  },
+  "torque_constant": {
+   "source": "Model at the gearbox output shaft: Kt = 0.072569 N*m / (1.5 A - 0.15 A), the friction-current fit, chosen to match the Ke fit; carries the gearbox losses, so Kt < Ke (the plain fit T_stall/I_stall gives 0.048379)",
+   "unit": "N*m/A",
+   "value": 0.053755,
+   "written_by": "sizing"
+  },
+  "torque_constant_armature": {
+   "source": "Model: ideal motor Kt = Ke in SI units at the armature shaft (sizing standards \u00a75); TBR, no maker figure; resolve by a measured stall torque before the gearbox",
+   "unit": "N*m/A",
+   "value": 0.0015421,
+   "written_by": "sizing"
+  },
+  "torque_constant_wheel": {
+   "source": "Calculation: torque_constant x external_gear_ratio x external_stage_efficiency = 0.053755 x 2.142857 x 0.9 (0.11519 with the stage lossless), per motor, at the wheel axle; motor-side current is (I - 0.15 A)",
+   "unit": "N*m/A",
+   "value": 0.10367,
+   "written_by": "sizing"
+  },
+  "wheel_radius": {
+   "source": "Pololu 80 x 10 mm wheel, 0.080 m / 2, brief criterion 2 (0.040 m \u00b1 0.001 m); confirms drivetrain.motor",
+   "unit": "m",
+   "value": 0.04,
+   "written_by": "sizing"
+  }
+ },
+ "requirements": [
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "17",
+  "18"
+ ],
+ "updated": "2026-11-03"
+}
