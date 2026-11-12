@@ -56,6 +56,7 @@ ADDED_FIELDS: dict[str, dict[str, Any]] = {
         # the layer's absence, as every run the golden file recorded went on without it.
         "os_layer_absent": "allow",
         "design_review": "off",
+        "parts_on_hand": "off",
     },
     "run_started": {"escalation_backend": "rules"},
     # The series records a session left: none, in every session the golden file recorded.

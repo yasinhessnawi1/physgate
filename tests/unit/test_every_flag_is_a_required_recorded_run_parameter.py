@@ -21,6 +21,7 @@ def test_the_register_is_not_empty_and_names_the_gate_mode() -> None:
         "queue_decisions",
         "os_layer_absent",
         "design_review",
+        "parts_on_hand",
     ]
     assert GATE_MODE.architecture == "ARCH-140"
     assert QUEUE_DECISIONS.architecture == "ARCH-133"

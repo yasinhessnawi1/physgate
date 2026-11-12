@@ -70,6 +70,7 @@ def make_config(**overrides: Any) -> RunConfig:
         "queue_decisions": "record",
         "os_layer_absent": "refuse",
         "design_review": "off",
+        "parts_on_hand": "off",
         "held_out": (),
         "held_out_canaries": (),
         "held_out_sha256": (),

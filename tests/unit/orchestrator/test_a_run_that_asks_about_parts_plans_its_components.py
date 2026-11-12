@@ -85,7 +85,7 @@ def _interface(node_id: str = "iface.drive", owner: str = "control") -> dict[str
     }
 
 
-def component(node: str = "control.motor_left", **changes: Any) -> dict[str, Any]:  # noqa: ANN401
+def component(node: str | None = "control.motor_left", **changes: Any) -> dict[str, Any]:  # noqa: ANN401
     entry: dict[str, Any] = {
         "node": node,
         "domain": "control",
@@ -163,7 +163,7 @@ def problems(structured: dict[str, Any], run_roles: tuple[str, ...] = ROLES) -> 
         plan = _form(run_roles, parts=True).model_validate_json(json.dumps(structured))
     except ValidationError as exc:
         if any(
-            error["loc"][:1] == ("components",) and error["type"] == "extra_forbidden"
+            error["loc"] == ("components",) and error["type"] == "extra_forbidden"
             for error in exc.errors()
         ):
             return [NOT_BUILT]
@@ -390,7 +390,7 @@ def test_a_name_in_both_lists_or_twice_in_one_is_refused() -> None:
 
 @pytest.mark.parametrize("where", ["own", "shared"])
 def test_a_name_that_shadows_a_relation_s_quantity_is_refused(where: str) -> None:
-    lists = {"own": ["mass"], "shared": ["torque_constant"]}
+    lists: dict[str, Any] = {"own": ["mass"], "shared": ["torque_constant"]}
     lists[where] = [*lists[where], "stall_currnt"]
     _refused(
         answer(components=[component(**lists)]),
@@ -571,6 +571,54 @@ def test_a_re_plan_asks_again_only_when_the_run_asks() -> None:
     # The plan quoted back is the plan with its components, as its digest takes it.
     assert '\\"components\\"' in asked or '"components"' in asked
     assert sentence(ROLES) not in replan_prompt(BRIEF, ROLES, plan, findings)
+
+
+def _sent_by_the_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **switch: Any) -> str:  # noqa: ANN401
+    """Everything one call hands the binary under ``switch``: its arguments and its input."""
+    import subprocess
+
+    from physgate.orchestrator.credentials import Credential
+
+    handed: list[str] = []
+
+    def ran(argv: list[str], **given: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
+        handed.extend(str(word) for word in argv)
+        handed.append(str(given.get("input") or ""))
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="")
+
+    config = outcome_of(lambda: make_config(**switch))
+    assert not isinstance(config, Exception), config
+    monkeypatch.setattr(decompose, "claude_binary", lambda: "/nonexistent/claude")
+    monkeypatch.setattr(decompose, "binary_version", lambda binary=None: "2.1.272")
+    monkeypatch.setattr(subprocess, "run", ran)
+    decompose.call(
+        BRIEF,
+        config=config,
+        workdir=tmp_path / "decomposition",
+        base_url=None,
+        credential=Credential(mode="api_key", secret="sk-ant-test-dummy-not-a-credential"),
+    )
+    return "\n".join(handed)
+
+
+def test_the_call_asks_exactly_when_the_run_s_configuration_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sentence = getattr(decompose, "parts_sentence", None)
+    assert sentence is not None, NOT_BUILT
+    run_roles = ("electrical",)  # the helper configuration's one role
+    asking = {
+        "parts_on_hand": "on",
+        "queue_decisions": "act",
+        "os_layer": Present(mechanism="seatbelt", claude_version="2.1.301"),
+    }
+    on = _sent_by_the_call(tmp_path / "on", monkeypatch, **asking)
+    assert sentence(run_roles) in on
+    assert plan_schema(run_roles, BRIEF, parts=True) in on
+    off = _sent_by_the_call(tmp_path / "off", monkeypatch)
+    assert sentence(run_roles) not in off and '"components"' not in off
+    # What a run that does not ask hands the binary is the prompt and the schema as before.
+    assert prompt_for(BRIEF, run_roles) in off and plan_schema(run_roles, BRIEF) in off
 
 
 # --- the plan's form is the run's ------------------------------------------------------------

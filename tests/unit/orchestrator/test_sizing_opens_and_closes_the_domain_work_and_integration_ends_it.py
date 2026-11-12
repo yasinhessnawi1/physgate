@@ -123,6 +123,7 @@ def config(repo: Path, run_roles: tuple[str, ...], gate_mode: GateMode = "on") -
         queue_decisions="record",
         os_layer_absent="allow",
         design_review="off",
+        parts_on_hand="off",
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),

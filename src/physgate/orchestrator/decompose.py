@@ -77,10 +77,13 @@ from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR as INTEGRATION_MODULE_DIR
 from physgate.orchestrator.plan import REQUIREMENT_MAX_CHARS as REQUIREMENT_MAX_CHARS
 from physgate.orchestrator.plan import SPEC_MAX_CHARS as SPEC_MAX_CHARS
+from physgate.orchestrator.plan import Component as Component
 from physgate.orchestrator.plan import Contribution as Contribution
 from physgate.orchestrator.plan import CriterionWords, plan_bytes
+from physgate.orchestrator.plan import IntegratedPartsPlan as IntegratedPartsPlan
 from physgate.orchestrator.plan import IntegratedPlan as IntegratedPlan
 from physgate.orchestrator.plan import InterfaceConsumers as InterfaceConsumers
+from physgate.orchestrator.plan import PartsPlan as PartsPlan
 from physgate.orchestrator.plan import Plan as Plan
 from physgate.orchestrator.plan import PlannedModule as PlannedModule
 from physgate.orchestrator.plan import SystemRequirement as SystemRequirement
@@ -104,7 +107,7 @@ from physgate.reviewers.contract import criterion_words, issued_criteria
 from physgate.roles import CrossCuttingDuty, owners_of
 from physgate.series.collect import series_library
 from physgate.state.exceptions import MalformedNodeIdError
-from physgate.state.schema import Node, validate_node_id
+from physgate.state.schema import NODE_ID_MAX_LENGTH, Node, validate_node_id
 from physgate.state.store import Store, payload_digest
 from physgate.unit_spelling import (
     MAX_LENGTH,
@@ -224,9 +227,16 @@ def _in_run(duty: CrossCuttingDuty, roles: Sequence[str]) -> tuple[str, ...]:
     return tuple(role for role in sorted(set(roles)) if role in owners)
 
 
-def plan_model(roles: Sequence[str]) -> type[Plan]:
-    """The plan's form for a run of ``roles``: integration's, where the run has that role."""
-    return IntegratedPlan if _in_run("completion", roles) else Plan
+def plan_model(roles: Sequence[str], *, parts: bool = False) -> type[Plan]:
+    """The plan's form for a run of ``roles``: integration's, where the run has that role.
+
+    With ``parts``, the run asks which parts a person has or can make, and the form is the
+    same one with the component list added; without, it is the form as before, untouched.
+    """
+    integrated = bool(_in_run("completion", roles))
+    if parts:
+        return IntegratedPartsPlan if integrated else PartsPlan
+    return IntegratedPlan if integrated else Plan
 
 
 #: Root-level keys that name the schema rather than shape the answer. Left in, they
@@ -235,7 +245,7 @@ def plan_model(roles: Sequence[str]) -> type[Plan]:
 _ROOT_NAMING = ("title", "description", "$id", "$comment")
 
 
-def plan_schema(roles: Sequence[str], brief: str | None = None) -> str:
+def plan_schema(roles: Sequence[str], brief: str | None = None, *, parts: bool = False) -> str:
     """The JSON schema the structured answer is held to by the binary, unnamed at its root.
 
     The schema of the plan's form for a run of ``roles`` (:func:`plan_model`). A run
@@ -243,8 +253,9 @@ def plan_schema(roles: Sequence[str], brief: str | None = None) -> str:
     role was planned for. Where the run has that role and ``brief`` numbers its acceptance
     criteria, a system requirement carries the pattern of those numbers
     (:func:`requirement_pattern`); with any other brief, or none, the schema is as before.
+    With ``parts`` it holds the component list as well, and without it not a byte of one.
     """
-    model = plan_model(roles)
+    model = plan_model(roles, parts=parts)
     schema = {k: v for k, v in model.model_json_schema().items() if k not in _ROOT_NAMING}
     pattern = requirement_pattern(brief) if issubclass(model, IntegratedPlan) else None
     if pattern is not None:
@@ -336,7 +347,105 @@ def plan_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[str]:
                 f"interface node {node.id!r} names {name!r}, which shadows {relation!r}, a "
                 "quantity a relation reads; it is written under the catalogue's name"
             )
-    return found + _cross_cutting_problems(plan, roles) + _integration_problems(plan, roles, brief)
+    return (
+        found
+        + _declared_problems(plan)
+        + _cross_cutting_problems(plan, roles)
+        + _integration_problems(plan, roles, brief)
+        + _component_problems(plan, roles)
+    )
+
+
+def _declared_problems(plan: Plan) -> list[str]:
+    """A plan declares nothing for a person, whatever the run asks.
+
+    A declared quantity is written by code from a person's recorded decision. The plan is
+    written straight into the store, so one it carried would stand in the graph as a
+    person's own, fixed against every role, with no decision behind it.
+    """
+    return [
+        f"interface node {node.id!r} holds {name!r} as declared by a person; a plan declares "
+        "nothing, since only a person's recorded decision does"
+        for node in plan.interface_nodes
+        for name, quantity in node.quantities.items()
+        if quantity.declared is not None
+    ]
+
+
+def shared_node_id(owner: str, component: str) -> str:
+    """The node the role that writes the cross nodes holds a component's shared values on.
+
+    Named from the component's own id with its dots as underscores, under the role's name,
+    so the plan fixes where each value goes and no session chooses.
+    """
+    return f"{owner}.{component.replace('.', '_')}"
+
+
+def _component_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
+    """What is wrong with the component list of a plan that has one."""
+    if not isinstance(plan, PartsPlan):
+        return []
+    found: list[str] = []
+    ids = [entry.node for entry in plan.components]
+    if len(set(ids)) != len(ids):
+        found.append("two components share a node id")
+    interfaces = {node.id for node in plan.interface_nodes}
+    module_roles = {module.role for module in plan.modules}
+    owners = _in_run("cross_nodes", roles)
+    # The one role that writes the quantities more than one domain depends on, if the run
+    # has exactly one: with none, or two, no node could hold a shared value.
+    owner = owners[0] if len(owners) == 1 else None
+    held: dict[str, str] = {}
+    for entry in plan.components:
+        said = f"component {entry.node!r}"
+        if entry.node in interfaces:
+            found.append(f"{said} has the id of an interface node")
+        if entry.role in owners:
+            found.append(f"{said} is given the {entry.role} role, which writes no node of a domain")
+        elif entry.role not in module_roles:
+            found.append(f"{said} is given a role no module has")
+        for name, count in Counter((*entry.own, *entry.shared)).items():
+            if name in entry.own and name in entry.shared:
+                found.append(f"{said} names {name!r} as its own and as shared")
+            elif count > 1:
+                found.append(f"{said} names {name!r} more than once")
+        # The rule an interface node's names are held to: a name that shadows a relation's
+        # quantity would put a person's value where no relation reads it.
+        for name, relation in shadowing_names(dict.fromkeys((*entry.own, *entry.shared))):
+            found.append(
+                f"{said} names {name!r}, which shadows {relation!r}, a quantity a relation "
+                "reads; it is named by the catalogue's name"
+            )
+        if not entry.shared:
+            continue
+        if owner is None:
+            found.append(
+                f"{said} names shared quantities, and the run has no role that writes the "
+                "quantities more than one domain depends on"
+            )
+            continue
+        if owner not in module_roles:
+            found.append(
+                f"{said} names shared quantities, and the plan has no {owner} module to hold them"
+            )
+            continue
+        shared = shared_node_id(owner, entry.node)
+        if len(shared) > NODE_ID_MAX_LENGTH:
+            found.append(f"the {owner} node of {said} would have an id longer than a node's may be")
+        elif shared in held and held[shared] != entry.node:
+            found.append(
+                f"components {held[shared]!r} and {entry.node!r} would share the {owner} "
+                f"node {shared!r}"
+            )
+        elif shared in interfaces:
+            found.append(f"the {owner} node {shared!r} of {said} has the id of an interface node")
+        held.setdefault(shared, entry.node)
+    for entry in plan.components:
+        if entry.node in held:
+            found.append(
+                f"component {entry.node!r} has the id of the {owner} node of {held[entry.node]!r}"
+            )
+    return found
 
 
 def _overlap(one: PurePosixPath, other: PurePosixPath) -> bool:
@@ -645,7 +754,47 @@ def _one_module_sentence(role: str) -> str:
     )
 
 
-def prompt_for(brief: str, roles: Sequence[str]) -> str:
+#: Quantity names the parts sentence gives as examples, kept only while the gate's catalogue
+#: holds them: the sentence never names a quantity the gate does not check.
+PARTS_EXAMPLE_NAMES: tuple[str, ...] = tuple(
+    name for name in ("mass", "stall_current", "energy_capacity") if name in QUANTITIES
+)
+
+
+def parts_sentence(roles: Sequence[str]) -> str:
+    """The one sentence the prompt gains in a run that asks which parts a person has.
+
+    It asks for the component list and says what each entry holds. Shared quantities are asked
+    for only where a role of the run writes the quantities more than one domain depends on:
+    with none, there is no node that could hold them.
+    """
+    owners = _in_run("cross_nodes", roles)
+    examples = ", ".join(f"`{name}`" for name in PARTS_EXAMPLE_NAMES)
+    named = f"each a catalogue name such as {examples}" if examples else "each a catalogue name"
+    owner = owners[0] if len(owners) == 1 else None
+    if owner is not None:
+        role = f"the role of the module it belongs to, never the {owner} role"
+        lists = (
+            "in `own` those only its own domain reads, and in `shared` those more than one "
+            f"domain depends on, which the {owner} module holds on a node of its own for the part"
+        )
+    else:
+        role = "the role of the module it belongs to"
+        lists = (
+            "in `own` those its domain reads; leave `shared` empty, since no role of this run "
+            "writes the quantities more than one domain depends on"
+        )
+    return (
+        "List the design's components, the physical parts a person may already have or can "
+        "make themselves, such as a motor, a battery, a sensor or a bracket; a design with "
+        "none lists none. For each give a node id of its own, which no interface node has; "
+        f"its domain, one of mechanical, electrical, control or firmware; {role}; a label a "
+        "person would know the part by; and the names of the quantities a part on hand must "
+        f"state, {named}: {lists}. Give names only, never values: the person states them."
+    )
+
+
+def prompt_for(brief: str, roles: Sequence[str], *, parts: bool = False) -> str:
     """The decomposition prompt: a fixed template around the brief.
 
     Every prompt says how an interface's unit is spelt (:data:`UNIT_SPELLING_SENTENCE`), and
@@ -656,7 +805,9 @@ def prompt_for(brief: str, roles: Sequence[str]) -> str:
     requirements, by the brief's number where it numbers its criteria, and for module criteria
     numbered as they are read. Integration is
     not offered as a module's role, since the harness writes its specification. A run with
-    neither is sent the template as it was before either was planned for.
+    neither is sent the template as it was before either was planned for. With ``parts`` the
+    run asks which parts a person has or can make, and the prompt gains the one sentence that
+    asks for the components (:func:`parts_sentence`); without, it gains nothing.
     """
     completion = _in_run("completion", roles)
     offered = sorted(role for role in roles if role not in completion)
@@ -669,6 +820,8 @@ def prompt_for(brief: str, roles: Sequence[str]) -> str:
         form = requirement_form_sentence(brief)
         asked = REQUIREMENTS_SENTENCE if form is None else f"{REQUIREMENTS_SENTENCE} {form}"
         added += f"{asked}\n\n{NUMBERING_SENTENCE}\n\n"
+    if parts:
+        added += f"{parts_sentence(roles)}\n\n"
     return (
         "Decompose the design brief below into modules, one per role that has work to do, "
         "and the interface nodes between them.\n\n"
@@ -750,17 +903,25 @@ def replan_findings(result: ReviewResult) -> ReplanFindings:
     return ReplanFindings(text="\n".join(lines), lacks_input=bool(lacking))
 
 
-def replan_prompt(brief: str, roles: Sequence[str], plan: Plan, findings: ReplanFindings) -> str:
+def replan_prompt(
+    brief: str,
+    roles: Sequence[str],
+    plan: Plan,
+    findings: ReplanFindings,
+    *,
+    parts: bool = False,
+) -> str:
     """A re-plan's prompt: the decomposition prompt, the plan the review did not pass, its findings.
 
-    A fixed template, a function of these four alone. The plan is quoted as the canonical bytes
-    its digest is taken over, and the findings as the review gave them, each between fences the
-    text cannot close (the repair instructions' quotation), so both are data.
+    A fixed template, a function of these alone; ``parts`` as the first call's prompt took it.
+    The plan is quoted as the canonical bytes its digest is taken over, and the findings as
+    the review gave them, each between fences the text cannot close (the repair
+    instructions' quotation), so both are data.
     """
     canonical = plan_bytes(plan).decode()
     lacking = f"{NO_INPUT_SUPPLIED_LINE}\n\n" if findings.lacks_input else ""
     return (
-        f"{prompt_for(brief, sorted(roles))}\n{REPLAN_SENTENCE}\n\n"
+        f"{prompt_for(brief, sorted(roles), parts=parts)}\n{REPLAN_SENTENCE}\n\n"
         "The plan the reviewer did not pass:\n"
         + "\n".join(quoted(canonical))
         + "\n\nWhat the review found:\n"
@@ -921,14 +1082,16 @@ def judge(
     brief: str,
     refused: str | None = None,
     declined: bool = False,
+    parts: bool = False,
 ) -> tuple[FailureCause | None, str, Plan | None, str | None, int]:
     """Decide from the result object whether the call produced a usable plan.
 
     The answer is read as the plan's form for a run of ``roles`` and held to the
-    ``brief`` it was planned from. ``refused`` is the binary's schema refusal from the
-    stream, if any: a call that ran out of turns after one is ``schema_refused``, not
-    ``turn_limit``. ``declined`` is a model refusal the stream showed: the plan's refusal
-    (``refused``), as a result whose stop reason is a refusal is.
+    ``brief`` it was planned from; with ``parts``, as the form that lists the components.
+    ``refused`` is the binary's schema refusal from the stream, if any: a call that ran out
+    of turns after one is ``schema_refused``, not ``turn_limit``. ``declined`` is a model
+    refusal the stream showed: the plan's refusal (``refused``), as a result whose stop
+    reason is a refusal is.
     """
     end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
     turns = int((result or {}).get("num_turns") or 0)
@@ -958,7 +1121,7 @@ def judge(
     if answer is None:
         return "no_structured_output", "the call succeeded with no plan", None, seen_model, turns
     try:
-        plan = plan_model(roles).model_validate_json(json.dumps(answer))
+        plan = plan_model(roles, parts=parts).model_validate_json(json.dumps(answer))
     except ValidationError as exc:
         return "invalid_plan", first_problem(exc), None, seen_model, turns
     try:
@@ -1107,10 +1270,11 @@ def call(
     settings.write_text(json.dumps({"permissions": {"deny": list(WEB_TOOLS)}}) + "\n")
     session_id = session_id or str(uuid.uuid4())
     roles = sorted(config.models.roles)
-    sent = prompt_for(brief, roles) if prompt is None else prompt
+    parts = config.parts_on_hand == "on"
+    sent = prompt_for(brief, roles, parts=parts) if prompt is None else prompt
     argv = decomposition_argv(
         binary,
-        schema=plan_schema(roles, brief),
+        schema=plan_schema(roles, brief, parts=parts),
         model=config.models.decomposition,
         session_id=session_id,
         settings=settings,
@@ -1169,6 +1333,7 @@ def call(
         brief=brief,
         refused=schema_refusal(stdout),
         declined=model_declined(stdout),
+        parts=parts,
     )
     changed = drift(workdir / "config", system_before)
     if not observed.all_off():
@@ -1536,6 +1701,13 @@ def _planned_subtasks(plan: Plan, config: RunConfig) -> list[_Issued]:
         msg = "the plan is not of the form the run's roles call for"
         raise DecompositionError(
             msg, integrated=str(isinstance(plan, IntegratedPlan)), completion=", ".join(completion)
+        )
+    if isinstance(plan, PartsPlan) != (config.parts_on_hand == "on"):
+        # A run that asks is started only from a plan that answers, and a run that does not
+        # ask from a plan with no list: a list nobody decides would be a part nobody chose.
+        msg = "the plan is not of the form the run's switch for a parts list calls for"
+        raise DecompositionError(
+            msg, listed=str(isinstance(plan, PartsPlan)), parts_on_hand=config.parts_on_hand
         )
     if isinstance(plan, IntegratedPlan):
         # The plan check holds them first; held again here, before anything is written,

@@ -167,5 +167,37 @@ def replans(value: DesignReview) -> int:
     return int(value.removeprefix("repair:")) if value.startswith("repair:") else 0
 
 
+#: Whether a run asks which parts a person has or can make. Spelled out for the type checker, as
+#: the others are; a test holds it equal to the register's entry.
+PartsOnHand = Literal["on", "off"]
+
+PARTS_ON_HAND = Flag(
+    name="parts_on_hand",
+    values=("on", "off"),
+    meanings={
+        "on": (
+            "the decomposition's one answer also lists the design's components, and before "
+            "anything is dispatched a person decides for each whether they have it, will make "
+            "it, or it is to be found; what they state of a part is written as declared "
+            "quantities that no role changes and the physics gate still checks. The run holds "
+            "until every part is decided, so it acts on decisions: refused without "
+            "queue_decisions: act, and with it wherever the OS layer is absent"
+        ),
+        "off": (
+            "nothing is asked and every part is found as before: the prompt, the schema and "
+            "everything the run records are those of a run before the switch existed, and "
+            "every run recorded before the switch existed reads as this; every evaluation run "
+            "uses it, since a reportable run acts on no decision"
+        ),
+    },
+    architecture="ARCH-122",
+)
+
 #: Every ablation flag, in the order the architecture lists the switches.
-REGISTER: tuple[Flag, ...] = (GATE_MODE, QUEUE_DECISIONS, OS_LAYER_ABSENT, DESIGN_REVIEW)
+REGISTER: tuple[Flag, ...] = (
+    GATE_MODE,
+    QUEUE_DECISIONS,
+    OS_LAYER_ABSENT,
+    DESIGN_REVIEW,
+    PARTS_ON_HAND,
+)

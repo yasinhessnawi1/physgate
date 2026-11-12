@@ -206,11 +206,15 @@ class RunStarted(_Event):
     #: hold every dispatch to the review's line, and but under ``observe`` to the person's decision
     #: on a plan it did not pass; left out of a run that does not, so its line keeps its bytes.
     design_review: Literal["observe", "on", "repair:1", "repair:2", "repair:3"] | None = None
+    #: ``on`` in a run that asks which parts a person has or can make, which replay reads to
+    #: hold every dispatch until each part is decided; left out of a run that does not ask, so
+    #: its line keeps its bytes.
+    parts_on_hand: Literal["on"] | None = None
 
     @model_serializer(mode="wrap")
     def _omit_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for absent in ("queue_decisions", "design_review"):
+        for absent in ("queue_decisions", "design_review", "parts_on_hand"):
             if getattr(self, absent) is None:
                 data.pop(absent, None)
         return data

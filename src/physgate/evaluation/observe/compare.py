@@ -51,6 +51,7 @@ REPORTED = (
     "escalation_backend",
     "queue_decisions",
     "design_review",
+    "parts_on_hand",
 )
 
 

@@ -754,7 +754,13 @@ def decompose_in_rounds(
         ):
             spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
             earlier.append(EarlierRound(call=spent, reviewed=ran.reviewed, plan_sha256=digest))
-            prompt = replan_prompt(brief, sorted(config.models.roles), plan, ran.findings)
+            prompt = replan_prompt(
+                brief,
+                sorted(config.models.roles),
+                plan,
+                ran.findings,
+                parts=config.parts_on_hand == "on",
+            )
             continue
         if follows in ("void", "replan"):
             loop.end(k, "void", cls, cause, ran.detail)

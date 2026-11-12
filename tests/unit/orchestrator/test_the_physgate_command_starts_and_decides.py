@@ -37,6 +37,7 @@ PARAMS = {
     # The stand-in binary predates the OS layer's pin, so the layer is absent here.
     "os_layer_absent": "allow",
     "design_review": "off",
+    "parts_on_hand": "off",
     "held_out": [],
     "held_out_canaries": [],
     "held_out_sha256": [],

@@ -378,6 +378,7 @@ def config(run_id: str = "run-1") -> RunConfig:
         # The rig also runs where the layer is absent (the hook suite's job has no sandbox).
         os_layer_absent="allow",
         design_review="off",
+        parts_on_hand="off",
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),

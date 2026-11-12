@@ -106,6 +106,7 @@ def test_a_configuration_that_names_none_records_what_it_did_before() -> None:
         "queue_decisions": "record",
         "os_layer_absent": "refuse",
         "design_review": "off",
+        "parts_on_hand": "off",
     }
     assert RunConfig.model_validate_json(json.dumps(recorded)).role_python == named.role_python
     assert isinstance(named.role_python, RolePython)
@@ -134,6 +135,7 @@ def _params(tmp_path: Path, role_python: object) -> object:
         # The machine's layer is not this test's subject: allowed absent, for development.
         "os_layer_absent": "allow",
         "design_review": "off",
+        "parts_on_hand": "off",
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],

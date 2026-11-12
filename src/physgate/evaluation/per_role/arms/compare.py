@@ -95,6 +95,8 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "queue_decisions": "harness",
     # Whether the plan is reviewed before anything is dispatched; the raw arm has no plan.
     "design_review": "harness",
+    # Whether a person is asked which parts they have; the raw arm has no plan to ask about.
+    "parts_on_hand": "harness",
     # The binary's retries and the infrastructure retry delays must be equal: retries in
     # the binary hide requests from the raw arm's cap. The turn and wall-clock bounds are
     # compared at the harness's times its repair budget, so neither binds before the cap.

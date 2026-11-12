@@ -166,6 +166,7 @@ def params() -> dict[str, Any]:
         # A real run: inside the OS layer, or not at all.
         "os_layer_absent": "refuse",
         "design_review": "off",
+        "parts_on_hand": "off",
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],

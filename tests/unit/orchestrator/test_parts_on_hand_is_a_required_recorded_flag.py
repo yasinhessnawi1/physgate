@@ -192,13 +192,16 @@ def test_the_first_line_says_on_or_nothing(tmp_path: Path) -> None:
 def test_a_run_s_record_writes_the_flag_on_its_first_line(tmp_path: Path) -> None:
     from loop_fakes import Rig, plan
 
+    def opened(run_dir: Path, overrides: dict[str, Any]) -> Any:  # noqa: ANN401 - or why not
+        return outcome_of(lambda: Rig(run_dir, config_overrides=overrides).open())
+
     for name, overrides, said in (
         ("on", {"parts_on_hand": "on", **ACTING}, "on"),
         ("off", {"parts_on_hand": "off", **ACTING}, None),
     ):
         run_dir = tmp_path / name
         run_dir.mkdir()
-        loop = outcome_of(lambda o=overrides, d=run_dir: Rig(d, config_overrides=o).open())
+        loop = opened(run_dir, overrides)
         assert not isinstance(loop, Exception), loop
         loop.record.start(plan("s1"))
         loop.close()

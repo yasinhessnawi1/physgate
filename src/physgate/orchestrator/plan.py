@@ -13,12 +13,12 @@ import hashlib
 import json
 from collections import Counter
 from collections.abc import Sequence
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from physgate.orchestrator.common import NonEmptyStr
-from physgate.state.schema import NODE_ID_MAX_LENGTH, Node
+from physgate.state.schema import NODE_ID_MAX_LENGTH, Node, NodeIdKey
 
 
 class _Frozen(BaseModel):
@@ -120,6 +120,54 @@ class IntegratedPlan(Plan):
 
     interface_consumers: tuple[InterfaceConsumers, ...]
     system_requirements: SystemRequirements
+
+
+#: The most components a plan may list: a person decides each one before anything is
+#: dispatched, and each decision is its own item.
+MAX_COMPONENTS = 20
+#: The most quantity names a component may list in either of its two lists.
+MAX_COMPONENT_NAMES = 12
+#: The longest label a component is shown to a person under, in characters.
+LABEL_MAX_CHARS = 80
+
+#: A quantity's name, as the gate's catalogue spells its own: what a part on hand states.
+QuantityName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
+#: The domains a component may be of. The cross domain holds quantities, never parts.
+ComponentDomain = Literal["mechanical", "electrical", "control", "firmware"]
+ComponentNames = Annotated[tuple[QuantityName, ...], Field(max_length=MAX_COMPONENT_NAMES)]
+
+
+class Component(_Frozen):
+    """One physical part of the design that a person could already own or could make.
+
+    The node by an id of its own, which no interface node has; the domain the part is of;
+    the role of the module it belongs to; a label a person would know the part by; and the
+    quantities a part on hand must state, each by its catalogue name: in ``own`` those only
+    its own domain reads, in ``shared`` those more than one domain depends on. Names only:
+    the values are the person's to state, never the plan's.
+    """
+
+    node: NodeIdKey
+    domain: ComponentDomain
+    role: NonEmptyStr
+    label: Annotated[str, StringConstraints(min_length=1, max_length=LABEL_MAX_CHARS)]
+    own: ComponentNames
+    shared: ComponentNames
+
+
+class PartsPlan(Plan):
+    """The plan of a run that asks which parts a person has or can make (ARCH-122).
+
+    It lists the design's components, none where the design has no such part. The list is
+    fixed here, before anything is dispatched: a person decides each entry, and what they
+    state of a part they have is written onto its node before any role reads it.
+    """
+
+    components: Annotated[tuple[Component, ...], Field(max_length=MAX_COMPONENTS)]
+
+
+class IntegratedPartsPlan(IntegratedPlan, PartsPlan):
+    """The plan of a run with the integration role that also asks about parts: both forms."""
 
 
 class CriterionWords(_Frozen):

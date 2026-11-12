@@ -27,7 +27,7 @@ from pydantic import (
 )
 
 import physgate
-from physgate.flags import DesignReview, OsLayerAbsent, QueueDecisions, replans
+from physgate.flags import DesignReview, OsLayerAbsent, PartsOnHand, QueueDecisions, replans
 from physgate.orchestrator.common import (
     AuthMode,
     GateMode,
@@ -342,6 +342,11 @@ class RunConfig(_Frozen):
     #: recorded before the field existed reviewed none, and reads as ``off``.
     design_review: DesignReview
 
+    #: Whether the run asks which parts a person has or can make before anything is dispatched
+    #: (ARCH-122), a flag of the register. Required, never taken from the environment. A run
+    #: recorded before the field existed asked nothing, and reads as ``off``.
+    parts_on_hand: PartsOnHand
+
     #: The OS layer's state where the run was configured: present, with its mechanism,
     #: or absent, with the reason. Measured, never taken from the parameters; every run
     #: and resume measures it again and records whether it still holds. ``None`` only on
@@ -407,6 +412,20 @@ class RunConfig(_Frozen):
         return self
 
     @model_validator(mode="after")
+    def _asking_about_parts_needs_decisions_that_act(self) -> RunConfig:
+        # A run that asks holds every dispatch until a person has decided each part, and what
+        # they state is written into the graph from their decisions. A run that only records
+        # decisions takes none, so it would hold for ever, or go on without what was asked.
+        if self.parts_on_hand == "on" and self.queue_decisions != "act":
+            msg = (
+                "parts_on_hand: on holds the run until a person decides each part, so the run "
+                "acts on decisions: it needs queue_decisions: act, here "
+                f"{self.queue_decisions}"
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
     def _acting_on_decisions_needs_the_os_layer(self) -> RunConfig:
         # Only the OS layer keeps a role session's own shell from the decisions file; the hook
         # layer judges words. A run whose decisions act would otherwise act on a line a session
@@ -451,8 +470,8 @@ class RunConfig(_Frozen):
         ``escalation_backend`` and ``os_layer`` when they are ``None``, ``held_out``,
         ``held_out_canaries`` and ``held_out_sha256`` when empty, ``network`` when ``open``,
         ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``,
-        ``os_layer_absent`` when ``refuse`` and ``design_review`` when ``off``, so their
-        recorded digests still name them. A
+        ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off`` and
+        ``parts_on_hand`` when ``off``, so their recorded digests still name them. A
         run that names a binding always records it, so the binding is part of its manifest id.
         """
         exclude = set()
@@ -482,6 +501,8 @@ class RunConfig(_Frozen):
             exclude.add("os_layer_absent")
         if self.design_review == "off":
             exclude.add("design_review")
+        if self.parts_on_hand == "off":
+            exclude.add("parts_on_hand")
         return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
 
     def sha256(self) -> str:
@@ -586,6 +607,8 @@ def load_run_config(path: Path) -> RunConfig:
         ("os_layer_absent", "refuse"),
         # Recorded before the field existed: no plan was reviewed.
         ("design_review", "off"),
+        # Recorded before the field existed: nothing was asked about parts.
+        ("parts_on_hand", "off"),
     ):
         if isinstance(recorded, dict) and name not in recorded:
             # Recorded before the field existed: nothing was held out, the network was open
