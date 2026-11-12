@@ -1028,10 +1028,10 @@ class RunState:
     def parts_hold(self) -> str | None:
         """The first part's item every dispatch is held on, until each one is decided.
 
-        None while the plan's own hold is open, and once a person rejected the plan: no part of
-        a plan that is not run is decided.
+        None once a person rejected the plan: no part of a plan that is not run is decided. The
+        plan's own hold, while open, is checked before this one wherever both are.
         """
-        if self.plan_hold() is not None or self.plan_ends():
+        if self.plan_ends():
             return None
         return next((one for one in self.parts_ids if one not in self.taken), None)
 

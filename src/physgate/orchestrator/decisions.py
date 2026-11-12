@@ -668,11 +668,8 @@ def _parts_effect(item: QueueItem, resolution: QueueResolution, *, line_sha256: 
             item's line changed since it was decided.
     """
     position = resolution.position
-    if (
-        resolution.verb != "choose"
-        or position not in PARTS_EFFECTS
-        or resolution.shown_sha256 is None
-    ):
+    if position not in PARTS_EFFECTS:
+        # A choice alone has a position, and a choice alone is bound to a view.
         msg = "a part's item is decided by choosing have, make or find, on the view it was shown"
         raise QueueItemMismatchError(msg, item=item.item_id)
     if resolution.shown_sha256 != line_sha256:
