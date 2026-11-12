@@ -151,6 +151,10 @@ DEVICES = [
     ("cat /d?v/ttyUSB0", "/d?v/ttyUSB0"),
     ("cat /dev/$NAME", "/dev/$NAME"),
     ("cat /dev/[ct]u.x", "/dev/[ct]u.x"),
+    ("cat /dev/{null,ttyACM0}", "/dev/ttyACM0"),
+    ("cat /{dev,tmp}/ttyUSB0", "/dev/ttyUSB0"),
+    ("echo x > /{tmp,dev}/ttyUSB0", "/dev/ttyUSB0"),
+    ("cat /$ROOT/ttyUSB0", "/$ROOT/ttyUSB0"),
 ]
 
 NOT_DEVICES = [
@@ -176,6 +180,7 @@ ENTERS = [
     "cd /dev && cat cu.usbmodem1",
     "cd /dev/ && ls",
     "pushd /dev",
+    "chdir /dev",
     "cd /tmp/../dev",
     "cd ../../../dev",
     "cd /DEV",
@@ -433,6 +438,8 @@ def test_the_os_layer_denies_the_platform_s_serial_devices_both_ways(
     policy = sandbox_policy(config, home=str(home), temp_dir=str(temp), platform=platform)
     filesystem = policy.settings["sandbox"]["filesystem"]
     assert list(serial_devices(platform)) == expected
+    assert serial_devices("linux2") == serial_devices("linux")
+    assert serial_devices("win32") == ()
     for kind in ("denyRead", "denyWrite"):
         assert [p for p in filesystem[kind] if p.startswith("/dev/")] == expected
     assert not [p for p in filesystem["allowRead"] + filesystem["allowWrite"] if "/dev/" in p]

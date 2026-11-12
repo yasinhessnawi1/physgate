@@ -25,7 +25,8 @@ that names an upload is text and passes. A word of such a command that only runn
 **A serial device is matched wherever it is named**, in any word, assignment, redirection or
 text a command is fed: a device is opened by whatever program is handed its name, so there is
 no list of commands that may name one. A path is folded in case and normalised first, a
-pattern that could expand to a device is refused as the device, and so is moving into the
+pattern that could expand to a device (a glob, a variable) is refused as the device, a brace
+pattern is read as every word it becomes, and so is moving into the
 devices' directory, after which a bare name would reach one.
 
 **What this layer cannot see** is what only running decides: a path a program builds as it
@@ -92,9 +93,10 @@ MONITOR = ("device", "monitor")
 #: Programs that do nothing but write to a board.
 FLASHERS = frozenset({"avrdude"})
 #: Programs that write to a board when given one of these words.
+_FLASH_WRITES = frozenset({"write_flash", "erase_flash", "write-flash", "erase-flash"})
 FLASH_WORDS: Mapping[str, frozenset[str]] = {
-    "esptool": frozenset({"write_flash", "erase_flash", "write-flash", "erase-flash"}),
-    "esptool.py": frozenset({"write_flash", "erase_flash", "write-flash", "erase-flash"}),
+    "esptool": _FLASH_WRITES,
+    "esptool.py": _FLASH_WRITES,
 }
 #: Interpreters that run one of the programs above as a module (``python -m platformio``).
 _MODULE_RUNNERS = re.compile(r"python[0-9.]*|pypy[0-9.]*")
@@ -219,14 +221,19 @@ def _enters_devices(argv: Sequence[str]) -> bool:
 
 
 def _words_of(cmd: SimpleCommand) -> Iterator[str]:
-    """Every piece of text a command carries: its words, and what it is assigned and fed."""
-    yield from cmd.assignments
-    yield from cmd.argv
+    """Every piece of text a command carries: its words, and what it is assigned and fed.
+
+    Every word a brace pattern becomes comes first, so a device is named as the shell would
+    open it; the pattern itself follows, for one with too many words to list.
+    """
     for alternatives in cmd.alternatives.values():
         yield from alternatives or ()
     for redirect in cmd.redirects:
-        yield redirect.target
         yield from redirect.alternatives or ()
+    yield from cmd.assignments
+    yield from cmd.argv
+    for redirect in cmd.redirects:
+        yield redirect.target
         if redirect.body is not None:
             yield redirect.body
 
@@ -268,7 +275,7 @@ def upload_in(program: str, words: Sequence[str]) -> bool:
     return refused is not None and any(word.casefold() in refused for word in words)
 
 
-def _program_at(argv: Sequence[str], position: str) -> tuple[int, str] | None:
+def _program_at(argv: Sequence[str]) -> tuple[int, str] | None:
     """Where in ``argv`` a program this rule judges starts, and which one, or ``None``.
 
     In command position always. Among the words of a program that runs its arguments, and of
@@ -288,14 +295,14 @@ def _program_at(argv: Sequence[str], position: str) -> tuple[int, str] | None:
                 return n, command_key(word[2:])
         return None
     # The git rule's own list of programs that run their arguments: one list for both rules.
-    if head in git_ops._RUNNERS or position == "runner":
+    if head in git_ops._RUNNERS:
         for n, word in enumerate(argv[1:], 1):
             if command_key(word) in _PROGRAMS:
                 return n, command_key(word)
     return None
 
 
-def _check_command(cmd: SimpleCommand, position: str) -> str | None:
+def _check_command(cmd: SimpleCommand) -> str | None:
     """The reason ``cmd`` is refused, or ``None``."""
     for text in _words_of(cmd):
         device = serial_device_in(text)
@@ -306,7 +313,7 @@ def _check_command(cmd: SimpleCommand, position: str) -> str | None:
         return SERIAL.format(device="the devices' directory, as the place to work from")
     unread = cmd.dynamic | cmd.expanding
     stepped = len(cmd.argv) - len(argv)
-    found = _program_at(argv, position)
+    found = _program_at(argv)
     if found is None:
         # A program named only when the command runs, given an upload target all the same.
         named_late = bool(argv) and stepped in unread
@@ -331,7 +338,7 @@ def command_refusal(command: str) -> str | None:
     pending: list[tuple[SimpleCommand, str]] = [(c, "command") for c in commands]
     while pending:
         cmd, position = pending.pop(0)
-        reason = _check_command(cmd, position)
+        reason = _check_command(cmd)
         if reason is not None:
             return reason
         try:
@@ -362,17 +369,15 @@ def _strings(value: object, depth: int = 0) -> Iterator[tuple[str, str]]:
             yield from _strings(inner, depth + 1)
 
 
-def _lists(value: object, depth: int = 0) -> Iterator[list[str]]:
-    """Every list in a tool's arguments, as the strings it holds."""
-    if depth > MAX_DEPTH:
-        return
+def _lists(value: object) -> Iterator[list[str]]:
+    """Every list in a tool's arguments, as the strings it holds; its depth is checked before."""
     if isinstance(value, dict):
         for inner in value.values():
-            yield from _lists(inner, depth + 1)
+            yield from _lists(inner)
     elif isinstance(value, (list, tuple)):
         yield [item for item in value if isinstance(item, str)]
         for inner in value:
-            yield from _lists(inner, depth + 1)
+            yield from _lists(inner)
 
 
 def _upload_among(words: Sequence[str]) -> bool:
