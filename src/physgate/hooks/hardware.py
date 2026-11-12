@@ -75,9 +75,13 @@ file from where the call starts.
 
 For the first three the OS layer holds wherever the board is one of the devices in the table:
 its sandbox denies them to every command of the session, read and write, so an upload that
-got that far finds no board. On Linux the table holds the USB nodes too. On macOS a USB
-device is not a file, the table cannot name it, and what the sandbox allows there has not
-been measured: that is the residual of both layers.
+got that far finds no board. On Linux the table holds the USB nodes too, and it is a second
+hold there: the sandbox gives each command a device directory of its own that holds no board
+at all, and a build's script opening a device was measured to be refused with the table's
+patterns taken out of the settings. On macOS a USB device is not a file and the table cannot
+name it. The sandbox's profile, as the pinned binaries write it, denies by default and lets a
+command open only three named kernel clients, none of them USB's or HID's; that has been read
+in the profile, not measured with a device opened, and it is the residual of both layers.
 """
 
 from __future__ import annotations
