@@ -53,7 +53,11 @@ def _config(base: Path, profile: str = "role", home: Path | None = None) -> Sess
         token_ceiling=40960,
         read_roots=(str(base / "run"),) if profile == "reviewer" else (),
     )
-    return build_config(request, current_installation())
+    # Built as the spawner builds it, whose own home is another place; the hooks then run
+    # with the scratch home as theirs (the fixture below), as a session's hooks do.
+    with pytest.MonkeyPatch.context() as spawner:
+        spawner.setenv("HOME", str(base / "the-spawner-s-home"))
+        return build_config(request, current_installation())
 
 
 @pytest.fixture
@@ -144,7 +148,10 @@ def test_no_command_that_names_it_runs_whether_it_writes_or_only_reads(
         command
         for path in forms.values()
         for template in (*READERS, *WRITERS)
-        if _shell(config, command := template.format(p=path))
+        # A tilde is the shell's to expand: inside a Python string it names a directory
+        # called "~" beneath the worktree, which is the session's own.
+        if not (path.startswith("~") and template.startswith("python3"))
+        and _shell(config, command := template.format(p=path))
     ]
     assert allowed == []
 
@@ -210,7 +217,22 @@ def test_the_installing_user_s_own_home_is_left_as_it_was(
     root = Path(os.path.realpath(tmp_path))
     own = root / "own-home"
     monkeypatch.setenv("HOME", str(own))
-    config = _config(root, home=own)
+    own.mkdir()
+    wt = root / "run" / "wt"
+    wt.mkdir(parents=True)
+    request = InstallRequest(
+        profile="role",
+        role="control",
+        worktree=str(wt),
+        own_branch=None,
+        store_root=str(root / "run" / "store"),
+        state_dir=str(root / "outside" / "state"),
+        target_dir=str(root / "outside" / "session"),
+        claude_config_dir=str(root / "outside" / "config"),
+        user_home=str(own),
+        token_ceiling=40960,
+    )
+    config = build_config(request, current_installation())
     held = {r.path: r.watch for r in config.protected_roots if r.path.startswith(str(own))}
     assert held == {
         str(own / ".claude" / "settings.json"): "log",
