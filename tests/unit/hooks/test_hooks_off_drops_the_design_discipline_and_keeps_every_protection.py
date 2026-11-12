@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "orchestrator"))
 from design_review_rig import outcome_of  # noqa: E402
 from orch_helpers import CLEAN_HARNESS, make_config  # noqa: E402
 
+from physgate.flags import Hooks
 from physgate.hooks import graph, shell_startup
 from physgate.hooks.config import ProtectedRoot, SessionConfig
 from physgate.hooks.registry import REGISTRY
@@ -229,7 +230,7 @@ def test_only_a_role_session_is_installed_with_hooks_off(tmp_path: Path, profile
     assert isinstance(_config(tmp_path, hooks="on", **fields), SessionConfig)
 
 
-def _install_request(tmp: Path, hooks: str) -> Any:  # noqa: ANN401 - a request, or why not
+def _install_request(tmp: Path, hooks: Hooks) -> Any:  # noqa: ANN401 - a request, or why not
     worktree = tmp / "worktree"
     worktree.mkdir(parents=True, exist_ok=True)
     return outcome_of(

@@ -230,9 +230,11 @@ HOOKS = Flag(
             "run recorded before the switch existed reads as this"
         ),
         "off": (
-            "an ablation run's arm: a role session runs without the design discipline, and "
-            "keeps every protection of what the run is measured by and of its own records; "
-            "refused at the run's configuration until the arm is built"
+            "an ablation run's arm: a role session runs without the design discipline (no "
+            "required reading, no always-loaded ceiling, no check of a proposal before it is "
+            "written, its worktree's own gate, hook and knowledge sources writable), and keeps "
+            "every protection of what the run is measured by and of its own records; only an "
+            "ablation run takes it"
         ),
     },
     architecture="ARCH-140",

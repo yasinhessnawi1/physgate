@@ -31,9 +31,10 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 import physgate
+from physgate.flags import Hooks
 from physgate.hooks import shell_startup
 from physgate.hooks.config import (
     AbsolutePath,
@@ -202,6 +203,35 @@ class InstallRequest(BaseModel):
     #: spawn does. A session that gets the reaper is refused without it: its reaper could
     #: never prove its fence, and every command would be refused.
     spawns_with_canary: bool = False
+    #: Whether the session is held to the harness's design discipline: ``off`` is an ablation
+    #: run's arm (see :data:`DISCIPLINE_HOOKS` and :func:`build_config`), for a role session only.
+    #: The installer command takes it only for a run whose recorded configuration says so.
+    hooks: Hooks = "on"
+
+    @model_validator(mode="after")
+    def _only_a_role_session_drops_the_discipline(self) -> InstallRequest:
+        if self.hooks == "off" and self.profile != "role":
+            msg = (
+                "only a role session is installed with hooks: off; the discipline it drops is "
+                f"the harness's over design work, and a {self.profile} session does none"
+            )
+            raise ValueError(msg)
+        return self
+
+
+#: The hooks that hold a role session to the harness's design discipline: required reading
+#: (ARCH-024), the always-loaded ceiling (ARCH-023) and the checks on a proposal, a completion
+#: declaration and a dispute before each is written. ``hooks: off`` wires none of them. Each is
+#: checked again where it counts, so dropping the first check measures it without opening a
+#: route: a proposal by the change check and the store at apply, the declaration and a dispute
+#: by the change check and the loop, and every shell route to those files by the OS layer.
+DISCIPLINE_HOOKS = ("graph", "reading", "token_ceiling")
+
+
+def wired_hooks(request: InstallRequest, registry: Mapping[str, HookSpec]) -> dict[str, HookSpec]:
+    """The hooks ``request``'s session runs: all of ``registry``, or all but the discipline's."""
+    dropped = DISCIPLINE_HOOKS if request.hooks == "off" else ()
+    return {name: spec for name, spec in registry.items() if name not in dropped}
 
 
 #: The longest temporary directory Claude Code takes for a sandboxed session. A longer
@@ -347,12 +377,23 @@ def _startup_watch(site_packages: Path) -> tuple[str, ...]:
     )
 
 
-def _design_discipline(worktree: Path) -> tuple[str, ...]:
-    """The roots that are the harness's discipline over a design worktree, not integrity."""
+def _worktree_sources(worktree: Path) -> tuple[str, ...]:
+    """The worktree's own copies of the gate source, the hook source and the knowledge tree.
+
+    Protecting them is discipline, not integrity: the live gate and hooks run from the harness
+    checkout and the installation, and the library a run trusts is the harness checkout's.
+    """
     return (
         str(worktree / "src" / "physgate" / "gate"),
         str(worktree / "src" / "physgate" / "hooks"),
         _knowledge_root(worktree),
+    )
+
+
+def _design_discipline(worktree: Path) -> tuple[str, ...]:
+    """The roots that are the harness's discipline over a design worktree, not integrity."""
+    return (
+        *_worktree_sources(worktree),
         str(worktree / ".physgate" / "lib"),
         str(worktree / ".physgate" / "series"),
     )
@@ -439,6 +480,12 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         # (its gate and hook sources, the curated knowledge, the series writer and outbox)
         # is what it is measured without.
         for path in _design_discipline(worktree):
+            protected.pop(path, None)
+    if request.hooks == "off":
+        # An ablation run's arm without the design discipline: the worktree's own sources are
+        # writable, and nothing else is. The series writer and its outbox are kept, unlike the
+        # raw agent's: the gate and the reviewers read the records sealed through them.
+        for path in _worktree_sources(worktree):
             protected.pop(path, None)
     # The one root the OS layer leaves to scripts: a record arrives by a script's own write,
     # which no OS rule can tell from any other command's, and the collector judges it.
@@ -612,8 +659,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
                 )
             )
         ),
-        required_reading=tuple(sorted(request.required_reading)),
-        always_loaded=tuple(sorted(request.always_loaded)),
+        # Under hooks: off nothing is required to be read and no ceiling is measured; what the
+        # session is given to read stays readable (its read exceptions above are the request's).
+        required_reading=() if request.hooks == "off" else tuple(sorted(request.required_reading)),
+        always_loaded=() if request.hooks == "off" else tuple(sorted(request.always_loaded)),
         token_ceiling=request.token_ceiling,
         tools_allowed=tuple(sorted(PROFILE_TOOLS[request.profile])),
         installation=installation,
@@ -963,7 +1012,11 @@ def install(
         raise ValueError(msg)
     config_path.write_bytes(config_bytes)
     settings = render_settings(
-        config, str(config_path), digest(config_bytes), registry, request.api_key_helper
+        config,
+        str(config_path),
+        digest(config_bytes),
+        wired_hooks(request, registry),
+        request.api_key_helper,
     )
     spawn_env = {"CLAUDE_CONFIG_DIR": request.claude_config_dir}
     if request.profile in OWN_TEMP_PROFILES:

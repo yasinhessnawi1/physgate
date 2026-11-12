@@ -302,7 +302,15 @@ BEFORE_THE_SWITCH: dict[str, str | bool] = {
 #: The values of each switch that something implements, by the flag's name: the rest of what
 #: the register names is refused at a run's configuration. Each reads as the first for a run
 #: recorded before the switch existed.
-BUILT: dict[str, tuple[str, ...]] = {"reviewers": ("paired",), "skills": ("on",), "hooks": ("on",)}
+BUILT: dict[str, tuple[str, ...]] = {
+    "reviewers": ("paired",),
+    "skills": ("on",),
+    "hooks": ("on", "off"),
+}
+
+#: The values a run takes only as an ablation run, by the flag's name: each removes a component
+#: of the harness, so the product never sets one and no reportable number is measured under one.
+ABLATION_ONLY: dict[str, tuple[str, ...]] = {"hooks": ("off",)}
 
 
 class RunConfig(_Frozen):
@@ -491,6 +499,18 @@ class RunConfig(_Frozen):
             value = getattr(self, name)
             if value not in built:
                 msg = f"{name}: {value} is not built; this run takes {name}: {' or '.join(built)}"
+                raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _an_ablation_arm_is_taken_only_by_an_ablation_run(self) -> RunConfig:
+        for name, arms in ABLATION_ONLY.items():
+            value = getattr(self, name)
+            if value in arms and not self.ablation:
+                msg = (
+                    f"{name}: {value} is an ablation arm: only an ablation run takes it, and this "
+                    "run is not one (ablation: false)"
+                )
                 raise ValueError(msg)
         return self
 
