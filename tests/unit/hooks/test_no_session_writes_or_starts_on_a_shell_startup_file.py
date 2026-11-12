@@ -112,6 +112,16 @@ def test_a_startup_file_in_the_home_is_refused_on_every_route(
             tool_name="Bash",
             tool_input={"command": f"mv {config.worktree}/x {target}"},
         ),
+        # What would take a held directory away, so that a file could take its place.
+        **{
+            f"`{verb}`": _refused(
+                shell_paths,
+                config,
+                tool_name="Bash",
+                tool_input={"command": verb.format(target=target, wt=config.worktree)},
+            )
+            for verb in ("rmdir {target}", "rm -rf {target}", "mv {target} {wt}/aside")
+        },
         "the OS layer's write denial": target in filesystem["denyWrite"],
         "the sentinel puts it back": watched == ["revert"],
     }

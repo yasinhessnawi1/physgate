@@ -61,10 +61,17 @@ def test_a_session_whose_environment_holds_nothing_of_the_kind_is_spawned(tmp_pa
     assert marker.read_text() == "ran\n"
 
 
-def _refused(tmp_path: Path, env: dict[str, str], marker: Path, why: str) -> None:
+def _refused(
+    tmp_path: Path, env: dict[str, str], marker: Path, why: str, *, untouched: Path | None = None
+) -> None:
+    """The spawn is refused for ``why``; a home named ``untouched`` holds what it held before."""
+    before = sorted(os.listdir(untouched)) if untouched is not None else None
     with pytest.raises(InvocationError, match=why):
         _spawn(tmp_path, env, marker)
     assert not marker.exists(), "the refused session ran"
+    if untouched is not None:
+        # The environment is judged before anything is made in the home it names.
+        assert sorted(os.listdir(untouched)) == before, "a refused spawn made something in the home"
 
 
 @pytest.mark.parametrize("name", ["BASH_ENV", "ENV"])
@@ -72,14 +79,15 @@ def test_an_environment_that_names_a_file_a_shell_reads_is_refused(
     tmp_path: Path, name: str
 ) -> None:
     home, zdotdir, marker = _places(tmp_path)
-    _refused(tmp_path, {**_env(home, zdotdir), name: str(tmp_path / "rc")}, marker, name)
+    env = {**_env(home, zdotdir), name: str(tmp_path / "rc")}
+    _refused(tmp_path, env, marker, name, untouched=home)
 
 
 def test_an_environment_without_a_zdotdir_is_refused(tmp_path: Path) -> None:
     home, zdotdir, marker = _places(tmp_path)
     env = _env(home, zdotdir)
     del env["ZDOTDIR"]
-    _refused(tmp_path, env, marker, "ZDOTDIR")
+    _refused(tmp_path, env, marker, "ZDOTDIR", untouched=home)
 
 
 def test_an_environment_without_a_home_is_refused(tmp_path: Path) -> None:
@@ -115,7 +123,19 @@ def test_a_zdotdir_a_session_could_have_filled_is_refused(
         env["ZDOTDIR"] = str(home / "z")
     else:
         env["ZDOTDIR"] = "session/zdotdir"
-    _refused(tmp_path, env, marker, "ZDOTDIR")
+    _refused(tmp_path, env, marker, "ZDOTDIR", untouched=home)
+
+
+def test_the_home_of_whoever_runs_the_harness_is_refused_and_nothing_is_made_in_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A spawn built some other way than through the install: the places are held in a
+    # session's own home, never in the operator's.
+    _, zdotdir, marker = _places(tmp_path)
+    operator = tmp_path / "operator"
+    operator.mkdir()
+    monkeypatch.setenv("HOME", str(operator))
+    _refused(tmp_path, _env(operator, zdotdir), marker, "home of the user", untouched=operator)
 
 
 @pytest.mark.parametrize("name", NAMES)

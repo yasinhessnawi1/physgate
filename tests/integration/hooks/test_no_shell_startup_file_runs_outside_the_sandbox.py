@@ -166,6 +166,146 @@ def test_inside_the_os_layer_alone_a_command_cannot_write_a_startup_file(tmp_pat
     assert _reached(tmp_path, run) == NOTHING
 
 
+def test_inside_the_os_layer_alone_no_command_takes_a_held_directory_away(tmp_path: Path) -> None:
+    # The directories are only worth what keeps them there. Each is tried four ways and then
+    # written as a file: removed, removed with what it holds, moved aside, and replaced by a
+    # directory moved onto it. The sandbox's write denial covers the name itself.
+    _needs_the_layer()
+    _stand_ins(tmp_path)
+    home = _home(tmp_path)
+    attempts = [
+        tool(
+            "Bash",
+            command=(
+                f"rmdir {home}/{name}; rm -rf {home}/{name}; mv {home}/{name} {home}/aside-{n}; "
+                f"mkdir {home}/other-{n}; mv -f {home}/other-{n} {home}/{name}; "
+                f"python3 -c 'import os,sys; os.rename(sys.argv[1], sys.argv[2])' "
+                f"{home}/{name} {home}/renamed-{n}; "
+                f"cat > {home}/{name} <<'PLANTED'\n{_startup(tmp_path, name)}PLANTED\n"
+                "true"
+            ),
+            description="x",
+        )
+        for n, name in enumerate(HELD)
+    ]
+    steps = [*attempts, *_later()]
+    run = run_session(
+        tmp_path,
+        Script(main=[*steps, text("end")]),
+        os_layer=True,
+        registry=LAYER_ALONE,
+        held_out=(str(_held(tmp_path)),),
+    )
+    _reached_the_end(run, len(steps))
+    assert (home / "other-0").is_dir(), "the session's commands never ran in the home"
+    moved = sorted(p.name for p in home.iterdir() if p.name.startswith(("aside-", "renamed-")))
+    assert moved == [], "a held directory was moved aside"
+    assert _unheld(tmp_path) == [], "a sandboxed command took a held directory away"
+    assert _planted(tmp_path) == []
+    assert _reached(tmp_path, run) == NOTHING
+
+
+def test_what_a_command_exports_reaches_no_shell_the_binary_starts_outside(tmp_path: Path) -> None:
+    # The shell hook reads a command's words, and a name built as the command runs is not in
+    # them: this form passes it. What stops it is that a command's environment ends with the
+    # command. The file it names runs, inside the sandbox, in the shells the command itself
+    # starts; no later shell of the binary's has the variable, and nothing is reached outside.
+    _needs_the_layer()
+    _stand_ins(tmp_path)
+    home = _home(tmp_path)
+    rc = home / "rc.sh"
+    indirect = (
+        f"X=BASH_ENV; export $X={rc}; Y=ENV; export $Y={rc}; Z=ZDOTDIR; export $Z={home}; "
+        "bash -c true; sh -c true; true"
+    )
+
+    def place(_installed: Installed, _settings: dict[str, Any]) -> None:
+        # The file is put there for the session: its text names the stand-ins, which the
+        # hooks would refuse in a command's words, and this row is about the variable.
+        home.mkdir(parents=True, exist_ok=True)
+        rc.write_text(_startup(tmp_path, "rc.sh"))
+
+    steps = [tool("Bash", command=indirect, description="x"), *_later()]
+    run = run_session(
+        tmp_path,
+        Script(main=[*steps, text("end")]),
+        os_layer=True,
+        check_installed=place,
+        held_out=(str(_held(tmp_path)),),
+    )
+    _reached_the_end(run, len(steps))
+    assert "names a file a shell runs" not in run.told_after(1), "the hook refused the form"
+    ran = (home / "ran.txt").read_text().split() if (home / "ran.txt").exists() else []
+    # Once, by the bash the command itself started: so the file was live, and was never run
+    # again by any shell of a later command.
+    assert ran == ["rc.sh"], f"never ran, or ran again later: {run.told_after(1)[:300]}"
+    assert _reached(tmp_path, run) == NOTHING
+
+
+def test_git_s_configuration_in_the_raw_agent_s_home_runs_nothing_outside(tmp_path: Path) -> None:
+    # The raw agent's home keeps git's user configuration writable: it is measured without the
+    # harness's discipline over git, and a role's is a protected root. Whether that leaves a
+    # way out is measured here, not assumed: a configuration that names a program for every
+    # hook git offers (the file-system monitor, the pager, an alias, an external diff), put in
+    # the home by a command and, apart from that, before the binary starts. The program runs,
+    # inside the sandbox, when the session's own commands run git; nothing runs it outside.
+    _needs_the_layer()
+    for when in ("written by a command", "there at the start"):
+        root = tmp_path / when.replace(" ", "-")
+        _stand_ins(root)
+        home, worktree = _home(root), root / "worktree"
+        program = home / "program.sh"
+        script = _startup(root, "git") + "exit 0\n"
+        configuration = (
+            f"[core]\n\tfsmonitor = {program}\n\tpager = {program}\n"
+            f"[alias]\n\tst = !{program}\n[diff]\n\texternal = {program}\n"
+        )
+
+        def place(
+            _installed: Installed,
+            _settings: dict[str, Any],
+            when: str = when,
+            home: Path = home,
+            program: Path = program,
+            script: str = script,
+            configuration: str = configuration,
+        ) -> None:
+            home.mkdir(parents=True, exist_ok=True)
+            program.write_text("#!/bin/sh\n" + script)
+            program.chmod(0o755)
+            if when == "there at the start":
+                (home / ".gitconfig").write_text(configuration)
+
+        write = (
+            f"printf '%b' '{configuration.encode('unicode_escape').decode()}' > {home}/.gitconfig"
+        )
+        steps = [
+            tool(
+                "Bash", command=write if when == "written by a command" else "true", description="x"
+            ),
+            tool("Bash", command="git status; git diff; git st; true", description="x"),
+            tool("Write", file_path=str(worktree / "made.txt"), content="x\n"),
+            tool("Read", file_path=str(worktree / "made.txt")),
+            tool("Bash", command="git status; true", description="x"),
+        ]
+        run = run_session(
+            root,
+            Script(main=[*steps, text("end")]),
+            os_layer=True,
+            registry=ENVIRONMENT_ALONE,
+            check_installed=place,
+            held_out=(str(_held(root)),),
+            profile="baseline",
+            role=None,
+        )
+        _reached_the_end(run, len(steps))
+        assert (home / ".gitconfig").read_text() == configuration, when
+        assert (home / "ran.txt").exists(), (
+            f"git never ran the program, so nothing was tried ({when})"
+        )
+        assert _reached(root, run) == NOTHING, when
+
+
 def test_with_the_held_places_alone_the_write_tool_plants_no_startup_file(tmp_path: Path) -> None:
     # The Write tool is wrapped by no sandbox, and the hooks that would refuse it and the
     # sentinel that would undo it are out: only the directories stand in its way. Before
