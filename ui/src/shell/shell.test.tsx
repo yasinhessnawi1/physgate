@@ -105,6 +105,18 @@ describe("the view registry", () => {
   });
 });
 
+describe("the Simulation screen's registry line", () => {
+  it("lists it under Analyse, at the simulation address, with the chart icon and no what-if icon", () => {
+    const simulation = VIEWS.find((v) => v.slug === "series");
+    expect(simulation?.group).toBe("analyse");
+    expect(simulation?.area).toBe("simulation");
+    expect(simulation?.title).toBe("Simulation");
+    expect(simulation?.icon).toBe("chart-line");
+    expect(simulation?.inspector).toBeUndefined();
+    expect(VIEWS.filter((v) => v.group === "analyse").map((v) => v.slug)).toEqual(["series"]);
+  });
+});
+
 describe("the shell", () => {
   it("groups the navigation as the design's shell does, in order", () => {
     expect(GROUPS.map((g) => g.name)).toEqual([
@@ -127,7 +139,8 @@ describe("the shell", () => {
     expect(shown).toEqual(
       GROUPS.filter((g) => VIEWS.some((v) => v.group === g.id)).map((g) => g.name),
     );
-    expect(shown).not.toContain("Analyse");
+    // Analyse lists the Simulation screen now; a group with no view is still left out above.
+    expect(shown).toContain("Analyse");
   });
 
   it("a skip link is the first tab stop; it focuses the content and leaves the route alone", () => {

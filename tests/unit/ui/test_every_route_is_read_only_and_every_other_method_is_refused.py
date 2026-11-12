@@ -34,11 +34,12 @@ from ui_rig import (
     snapshot,
 )
 
+from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.state.store import journal_records_after
 from physgate.ui import actions, engines
 from physgate.ui.exceptions import UnregisteredKindError
 from physgate.ui.routes import PARAMETERS, Context, Response, Route, json_response
-from physgate.ui.table import ROUTES
+from physgate.ui.table import ROUTES, RUN
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -71,10 +72,24 @@ def _valid(world: dict[str, Path], run: str) -> dict[str, str]:
         "revision": "1",
         "round": "2",
         "node": journal_records_after(world["root"] / run / "store", 0)[-1].node_id,
+        # The simulation routes: the run's first subtask, at its first attempt. These runs record
+        # no simulation, so the routes refuse each request; the series runs' own tests read them.
+        "subtask": _first_subtask(world["root"] / run),
+        "attempt": "1",
+        "record": "step_nominal",
         "library_file": "standards",
         "role": "control",
         "candidate": STANDARDS_CANDIDATE,
     }
+
+
+def _first_subtask(run_dir: Path) -> str:
+    """The first subtask a session of the run ended for."""
+    for event in read_events(run_dir / "events.jsonl"):
+        if isinstance(event, SessionEnded):
+            return event.subtask_id
+    msg = "the run has no session"
+    raise AssertionError(msg)
 
 
 def _targets(route: Route, world: dict[str, Path]) -> list[str]:
@@ -233,6 +248,8 @@ def test_a_method_the_table_does_not_name_is_405_with_allow_never_501(
 def test_every_read_route_answers_get_and_head_alike(world: dict[str, Path]) -> None:
     with serving(_context(world)) as live:
         for route in (r for r in ROUTES if r.kind == "read"):
+            if route.pattern.startswith(f"{RUN}/series/"):
+                continue  # read over runs that record simulations, in their own tests
             target = _targets(route, world)[0]
             if any(kind == "round" for _, kind in route.segments):
                 # Only a re-planned run has a later round's stream to serve.

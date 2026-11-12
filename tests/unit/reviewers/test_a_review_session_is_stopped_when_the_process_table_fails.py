@@ -22,6 +22,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from startup_stand_in import stand_in_spawn_env
 from test_a_review_session_leaves_nothing_running_however_it_ends import _reviewer
 
 from physgate.orchestrator import dispatch, processes
@@ -87,7 +88,7 @@ def test_a_review_session_is_stopped_when_the_process_table_cannot_be_read(
     monkeypatch.setattr(dispatch, "subprocess", spawned)
     fails = (lambda: True) if when == "at_the_spawn" else flag.exists
     monkeypatch.setattr(processes, "subprocess", FailingPs(fails))
-    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env={})
+    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env=stand_in_spawn_env())
     packet = cast(Packet, SimpleNamespace(read_root=str(read)))
     try:
         with pytest.raises(processes.ProcessTableError):
@@ -129,7 +130,7 @@ def test_a_review_s_end_record_is_never_written_through_a_link_its_session_plant
     read = tmp_path / "rs" / "review" / "read"
     (read / WORKTREE_NAME).mkdir(parents=True)
     reviewer = _reviewer(tmp_path, binary, wall_clock_s=30.0)
-    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env={})
+    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env=stand_in_spawn_env())
     packet = cast(Packet, SimpleNamespace(read_root=str(read)))
     reviewer._spawn(packet, sdir, installed, "sid", prompt="p", schema={})
     assert victim.read_text() == "not the review's\n"
@@ -181,7 +182,7 @@ def test_a_failed_stop_kills_the_review_session_s_whole_group(
     spawned = Spawned()
     monkeypatch.setattr(dispatch, "subprocess", spawned)
     monkeypatch.setattr(processes, "subprocess", FailingPs(lambda: bool(_text(flag))))
-    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env={})
+    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env=stand_in_spawn_env())
     packet = cast(Packet, SimpleNamespace(read_root=str(read)))
     child = 0
     try:
@@ -237,7 +238,7 @@ def test_a_failed_stop_after_the_session_was_reaped_signals_nothing_by_its_old_p
     monkeypatch.setattr(processes, "subprocess", FailingPs(reaped))
     sent: list[tuple[int, bool]] = []
     monkeypatch.setattr(os, "killpg", lambda pgid, sig: sent.append((pgid, reaped())))
-    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env={})
+    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env=stand_in_spawn_env())
     packet = cast(Packet, SimpleNamespace(read_root=str(read)))
     try:
         with pytest.raises(processes.ProcessTableError):

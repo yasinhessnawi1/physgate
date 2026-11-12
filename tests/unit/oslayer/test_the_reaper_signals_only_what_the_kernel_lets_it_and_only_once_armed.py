@@ -258,7 +258,7 @@ def test_unsandboxed_it_only_runs_the_command_and_signals_nothing(
         environ={CANARY_ENV: str(CANARY)},
         execv=lambda path, argv: ran.append((path, argv)),
     )
-    assert ran == [(SHELL, [SHELL, "-c", "echo 'a b'; exit 3"])]
+    assert ran == [(SHELL, reaper_module.shell_argv("echo 'a b'; exit 3"))]
     assert kernel.sent == []
 
 

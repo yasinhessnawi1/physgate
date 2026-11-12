@@ -183,7 +183,8 @@ def parse(value: float | int, unit: str) -> Any:
     """Rule 1: ``value`` in ``unit`` as a pint quantity.
 
     The unit is a role's writing, so before the registry reads it, it is held to the shared
-    spelling guard (:mod:`physgate.unit_spelling`): named units with small integer powers.
+    spelling guard (:mod:`physgate.unit_spelling`): named units with small integer powers, a
+    bracketed denominator read as the product it means. The registry reads that product.
     The registry evaluates any arithmetic in a unit exactly, and a length bound does not
     bound that work: ``10**10**10*m`` is twelve characters, and parsing it ran until a CPU
     limit killed it. The gate runs in the orchestrator's own process with no time bound, so
@@ -199,15 +200,17 @@ def parse(value: float | int, unit: str) -> Any:
             several unrelated types for a malformed spelling, so every one of them is
             caught and reported with the unit.
     """
-    if len(unit) > MAX_UNIT_LENGTH:
-        msg = f"the unit {unit[:32]!r}... is longer than {MAX_UNIT_LENGTH} characters"
-        raise UnitRefusedError(msg, unit=unit[:64])
     try:
-        require_bounded_spelling(unit)
+        # The registry is handed the product the grammar reads the unit as: no bracket.
+        product = require_bounded_spelling(unit)
     except UnitSpellingError as exc:
+        if len(unit) > MAX_UNIT_LENGTH:
+            hint = "" if exc.spelling is None else f"; write it as {exc.spelling}"
+            msg = f"the unit {unit[:32]!r}... is longer than {MAX_UNIT_LENGTH} characters{hint}"
+            raise UnitRefusedError(msg, unit=unit[:64]) from None
         raise UnitRefusedError(str(exc), unit=unit) from None
     try:
-        quantity = UREG.Quantity(exact(value), unit)
+        quantity = UREG.Quantity(exact(value), product)
     except Exception as exc:  # noqa: BLE001 - pint raises many types for one fault
         msg = f"the unit {unit!r} is not one pint can read ({type(exc).__name__}: {exc})"
         raise UnitRefusedError(msg, unit=unit) from None

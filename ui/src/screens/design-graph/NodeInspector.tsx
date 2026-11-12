@@ -5,7 +5,7 @@
  * wrote it and a link to what changed.
  */
 import type { Result } from "../../api/client";
-import type { NodeHistory, NodeRecord, Writer } from "../../api/graph";
+import type { NodeHistory, NodeRecord, SeriesRef, Writer } from "../../api/graph";
 import type { RunConfig } from "../../api/records";
 import type { GateCheck } from "../../api/run";
 import { DomainChip } from "../../design/components/data/DomainChip";
@@ -23,6 +23,17 @@ import { ActorTag } from "../common/ActorTag";
 import { CheckName, checkId } from "../common/checks";
 import { type EdgeEnd, edgesOf } from "./edges";
 import { latestChecksOf, nodeVerdicts } from "./verdicts";
+
+/** The attempt that wrote the node's current revision, or ``null`` (decomposition, unread). */
+export function currentAttempt(
+  history: Result<NodeHistory> | null,
+  node: NodeRecord,
+): { readonly subtask: string; readonly attempt: number } | null {
+  if (history === null || !history.ok) return null;
+  const entry = history.value.history.find((e) => e.revision === node.revision);
+  const writer = entry?.writtenBy ?? null;
+  return writer === null || writer === "decomposition" ? null : writer;
+}
 
 /** Who wrote a revision of a node, from the journal's writer and the run's roles. */
 function historyActor(writer: Writer, node: NodeRecord, config: RunConfig): Actor | null {
@@ -74,6 +85,7 @@ export function NodeInspector({
   runLabel,
   diffHref,
   nodeHref,
+  recordHref,
 }: {
   readonly node: NodeRecord;
   readonly nodes: readonly NodeRecord[];
@@ -86,12 +98,18 @@ export function NodeInspector({
   readonly runLabel: string;
   readonly diffHref: (from: number, to: number) => string;
   readonly nodeHref: (id: string) => string;
+  /** Where the record a quantity was read off is shown, for the attempt that wrote the node. */
+  readonly recordHref?: (
+    writer: { readonly subtask: string; readonly attempt: number },
+    series: SeriesRef,
+  ) => string;
 }) {
   const edges = edgesOf(node.id, nodes);
   const found = config.gateMode === "off" ? undefined : nodeVerdicts(checks).get(node.id);
   const latest = latestChecksOf(node.id, checks);
   const judged = latest.filter((c) => c.outcome !== "unchecked");
   const unchecked = latest.filter((c) => c.outcome === "unchecked");
+  const writer = currentAttempt(history, node);
   return (
     <Inspector
       label="Node inspector"
@@ -140,6 +158,17 @@ export function NodeInspector({
                       )}
                     </span>
                     <SourceChip {...source} compact />
+                    {recorded?.series !== null &&
+                      recorded?.series !== undefined &&
+                      writer !== null &&
+                      recordHref !== undefined && (
+                        <a
+                          className="pg-hit pg-record-link"
+                          href={recordHref(writer, recorded.series)}
+                        >
+                          Show the record it was read off
+                        </a>
+                      )}
                   </li>
                 );
               })}

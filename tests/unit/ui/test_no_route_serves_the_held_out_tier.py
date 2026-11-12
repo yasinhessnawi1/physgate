@@ -26,6 +26,7 @@ import pytest
 from ui_library_rig import STANDARDS_CANDIDATE, build_library
 from ui_rig import context_over, evaluation_rig, fake_ui, sealed_session, serving
 
+from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.protocols import QuantityRef
 from physgate.orchestrator.run_config import load_run_config
 from physgate.state.store import journal_records_after
@@ -41,8 +42,14 @@ PRICES = "2026-09-27"
 TIER_FIELDS = ("held_out", "held_out_canaries", "held_out_sha256")
 #: One canary per held-out task: 32 hexadecimal characters, as the record's type requires.
 CANARIES = ("5e1d7a0c9b3f42e8a6c1d0f7b2e94a37", "c0ffee5a7d2b4e19a8f63c0d1e2b7a95")
-#: Routes this run has no record for: it made no later decomposition round.
-NOT_RECORDED = {"/api/runs/{root:index}/{name:name}/trajectories/decomposition/{round:round}"}
+#: Routes this run has no record for: it made no later decomposition round, and its sessions
+#: sealed no simulation record, so an attempt's records and one record are both refused.
+_RUN = "/api/runs/{root:index}/{name:name}"
+NOT_RECORDED = {
+    f"{_RUN}/trajectories/decomposition/{{round:round}}",
+    f"{_RUN}/series/{{subtask:subtask}}/{{attempt:attempt}}",
+    f"{_RUN}/series/{{subtask:subtask}}/{{attempt:attempt}}/{{record:record}}",
+}
 
 
 def _digest(name: str) -> str:
@@ -164,6 +171,15 @@ def _valid(world: World) -> dict[str, str]:
         "library_file": "standards",
         "role": "control",
         "candidate": STANDARDS_CANDIDATE,
+        # The simulation routes: a subtask and an attempt the run's log names, and a record id a
+        # control session records.
+        "subtask": next(
+            e.subtask_id
+            for e in read_events(run_dir / "events.jsonl")
+            if isinstance(e, SessionEnded)
+        ),
+        "attempt": "1",
+        "record": "step_nominal",
     }
 
 
