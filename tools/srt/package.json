@@ -1,0 +1,8 @@
+{
+  "name": "physgate-evaluation-sandbox-runtime",
+  "private": true,
+  "description": "The sandbox runtime the evaluation runs the firmware emulator under: the version Claude Code 2.1.301 bundles, pinned exactly.",
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.79"
+  }
+}

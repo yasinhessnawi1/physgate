@@ -14,8 +14,8 @@ const html = renderToStaticMarkup(
 );
 
 describe("the glossary", () => {
-  it("lists every term in the one table, in five groups", () => {
-    expect(GLOSSARY_GROUPS).toHaveLength(5);
+  it("lists every term in the one table, in six groups", () => {
+    expect(GLOSSARY_GROUPS).toHaveLength(6);
     for (const group of GLOSSARY_GROUPS) expect(html).toContain(`aria-label="${group}"`);
     for (const entry of Object.values(GLOSSARY)) expect(html).toContain(entry.term);
   });
@@ -69,6 +69,32 @@ describe("the glossary", () => {
     expect(GLOSSARY["simulation-record"].means).toMatch(/does not re-run/);
     expect(GLOSSARY.agreement.means).not.toMatch(/\d/);
     expect(html).toContain("Simulation record");
+  });
+
+  it("explains every library term the library screen uses", () => {
+    const library = Object.values(GLOSSARY).filter((e) => e.group === "The library");
+    expect(library.map((e) => e.term)).toEqual([
+      "Library",
+      "Promotion",
+      "Proposed change",
+      "Standards file",
+      "Skill file",
+      "Antipattern",
+      "Reviewer rubric",
+      "Bounds table",
+      "Data-sheet rating",
+    ]);
+    for (const entry of library) expect(entry.means.length).toBeGreaterThan(10);
+    expect(html).toContain('aria-label="The library"');
+  });
+
+  it("says promotion is a person's act and that bounds tables are not promoted", () => {
+    const means = (term: string) =>
+      Object.values(GLOSSARY).find((e) => e.term === term)?.means ?? "";
+    expect(means("Promotion")).toMatch(/person/);
+    expect(means("Promotion")).toMatch(/terminal/);
+    expect(means("Bounds table")).toMatch(/not promoted/);
+    expect(means("Reviewer rubric")).toMatch(/only reviewers read/i);
   });
 
   it("says warn is a failed check whose failure does not block the attempt, as the gate records it", () => {

@@ -13,6 +13,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from hook_helpers import SESSION, bash, make_store, node
@@ -221,7 +222,7 @@ def test_a_settings_file_planted_in_the_worktree_is_moved_aside(root: Path) -> N
     assert not claude.exists()
 
 
-def test_an_append_to_the_journal_is_left_to_the_store_and_a_rewrite_is_put_back(
+def test_an_append_to_the_journal_is_left_to_the_store_and_a_rewrite_halts(
     root: Path,
 ) -> None:
     _started(root)
@@ -229,13 +230,147 @@ def test_an_append_to_the_journal_is_left_to_the_store_and_a_rewrite_is_put_back
     original = journal.read_bytes()
     journal.write_bytes(original + b'{"not": "a record"}\n')
     assert _check(root) == "allow", "an append is the orchestrator's, or the store's guard's"
-    appended = journal.read_bytes()
-    journal.write_bytes(b"x" + appended[1:])
-    assert "journal.jsonl" in _check(root)
-    assert journal.read_bytes() == appended
     journal.write_bytes(b"")
     assert "journal.jsonl" in _check(root)
-    assert journal.read_bytes() == appended
+    assert journal.read_bytes() == b"", "a journal the store holds is never put back"
+    assert "journal.jsonl" in _check(root)
+
+
+def test_a_rewritten_journal_is_never_replaced_beneath_the_store_and_halts(root: Path) -> None:
+    # The store holds its journal open and appends to it: a put-back by replacing would leave
+    # the store writing to a file no path names. The change is reported, the file is left for
+    # the orchestrator to refuse, and every later call is refused.
+    _started(root)
+    journal = root / "store" / "journal.jsonl"
+    inode = journal.stat().st_ino
+    rewritten = b"x" + journal.read_bytes()[1:]
+    with journal.open("r+b") as out:
+        out.write(rewritten)
+    assert "journal.jsonl" in _check(root)
+    assert journal.stat().st_ino == inode, "the journal was replaced beneath the store"
+    assert journal.read_bytes() == rewritten
+    assert _check(root, name="PreToolUse") != "allow"
+    assert any(e["decision"] == "journal changed" for e in _log(root))
+
+
+def test_a_rewritten_journal_halts_even_once_its_bytes_are_back(root: Path) -> None:
+    # The store held it while it was rewritten: what it read or wrote then is in doubt, so the
+    # session stays halted whatever the journal holds afterwards.
+    _started(root)
+    journal = root / "store" / "journal.jsonl"
+    original = journal.read_bytes()
+    with journal.open("r+b") as out:
+        out.write(b"x")
+    assert "journal.jsonl" in _check(root)
+    with journal.open("r+b") as out:
+        out.write(original[:1])
+    assert journal.read_bytes() == original
+    assert _check(root, name="PreToolUse") != "allow"
+
+
+def test_a_journal_replaced_by_a_copy_of_itself_halts(root: Path) -> None:
+    _started(root)
+    journal = root / "store" / "journal.jsonl"
+    copy = journal.with_name("journal.copy")
+    copy.write_bytes(journal.read_bytes())
+    os.replace(copy, journal)
+    assert "journal.jsonl" in _check(root)
+    assert _check(root, name="PreToolUse") != "allow"
+
+
+def _record_config(root: Path, record: Path) -> SessionConfig:
+    return build_config(
+        InstallRequest(
+            profile="role",
+            role="electrical",
+            worktree=str(root / "worktree"),
+            own_branch=None,
+            store_root=str(root / "store"),
+            state_dir=str(root / "outside" / "state"),
+            target_dir=str(root / "outside" / "session"),
+            claude_config_dir=str(root / "outside" / "cfg"),
+            user_home=str(root / "outside" / "home"),
+            token_ceiling=1000,
+            extra_protected_record=(str(record),),
+        ),
+        installation(),
+    )
+
+
+def test_a_run_record_is_compared_reported_and_never_written(root: Path) -> None:
+    record = root / "run" / "events.jsonl"
+    record.parent.mkdir()
+    record.write_bytes(b'{"seq": 0}\n')
+    config = _record_config(root, record)
+    assert _check(root, config, name="SessionStart") == "allow"
+    inode = record.stat().st_ino
+    with record.open("ab") as out:
+        out.write(b'{"seq": 1}\n')
+    told = _check(root, config)
+    assert "run's own records" in told and str(record) in told
+    assert record.read_bytes() == b'{"seq": 0}\n{"seq": 1}\n', "a held record is never written"
+    assert record.stat().st_ino == inode
+    (seen,) = [e for e in _log(root) if e["decision"] == "record changed"]
+    facts: Any = seen["records"]
+    (fact,) = facts
+    assert fact["prefix"] is True and fact["was"][2] == len(b'{"seq": 0}\n')
+    assert fact["now"][2] == record.stat().st_size
+    with record.open("r+b") as out:
+        out.write(b"X")
+    assert "run's own records" in _check(root, config)
+    last: Any = [e for e in _log(root) if e["decision"] == "record changed"][-1]
+    assert last["records"][0]["prefix"] is False
+    assert record.read_bytes().startswith(b"X"), "a held record is never put back"
+
+
+def test_a_run_record_changed_and_put_back_is_reported_never_passed_as_a_touch(root: Path) -> None:
+    """The same bytes in the same file again: what was there in between is not known."""
+    record = root / "run" / "events.jsonl"
+    record.parent.mkdir()
+    record.write_bytes(b'{"seq": 0}\n')
+    config = _record_config(root, record)
+    assert _check(root, config, name="SessionStart") == "allow"
+    with record.open("r+b") as out:
+        out.write(b"X")
+    with record.open("r+b") as out:
+        out.write(b"{")
+    assert record.read_bytes() == b'{"seq": 0}\n'
+    assert "run's own records" in _check(root, config)
+    assert any(e["decision"] == "record changed" for e in _log(root))
+
+
+def test_a_second_name_for_a_run_record_is_reported(root: Path) -> None:
+    record = root / "run" / "events.jsonl"
+    record.parent.mkdir()
+    record.write_bytes(b'{"seq": 0}\n')
+    config = _record_config(root, record)
+    assert _check(root, config, name="SessionStart") == "allow"
+    os.link(record, root / "worktree" / "kept.jsonl")
+    assert "run's own records" in _check(root, config)
+    (seen,) = [e for e in _log(root) if e["decision"] == "record changed"]
+    facts: Any = seen["records"]
+    assert facts[0]["links"] == 2
+
+
+def test_a_second_name_for_the_journal_halts(root: Path) -> None:
+    _started(root)
+    journal = root / "store" / "journal.jsonl"
+    os.link(journal, root / "worktree" / "journal_kept.jsonl")
+    assert "journal.jsonl" in _check(root)
+    assert _check(root, name="PreToolUse") != "allow"
+    assert any(e["decision"] == "journal changed" for e in _log(root))
+
+
+def test_a_journal_moved_and_named_again_by_a_link_halts(root: Path) -> None:
+    """Its bytes and its file are the same; the path that names it is a link, never followed."""
+    _started(root)
+    journal = root / "store" / "journal.jsonl"
+    moved = root / "store" / "journal.moved"
+    os.rename(journal, moved)
+    os.symlink(moved, journal)
+    assert os.stat(journal).st_nlink == 1
+    assert "journal.jsonl" in _check(root)
+    assert _check(root, name="PreToolUse") != "allow"
 
 
 def test_user_settings_are_logged_not_reverted(root: Path) -> None:

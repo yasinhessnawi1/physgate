@@ -79,6 +79,7 @@ def run_config(run_id: str) -> RunConfig:
         queue_decisions="record",
         # A development rig: its loops run with no OS-layer line recorded.
         os_layer_absent="allow",
+        design_review="off",
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),
@@ -225,10 +226,19 @@ def serving(context: Context, routes: tuple[Route, ...] = ROUTES) -> Iterator[Li
         thread.join(timeout=10)
 
 
-def context_over(*roots: Path, ui_root: Path, held_out: tuple[str, ...] = ()) -> Context:
-    """A context over ``roots`` with the fixture build loaded."""
+def context_over(
+    *roots: Path,
+    ui_root: Path,
+    held_out: tuple[str, ...] = (),
+    library: Path | None = None,
+) -> Context:
+    """A context over ``roots`` with the fixture build loaded, and a library if one is named."""
     allowlist = Allowlist.build(
-        [str(r) for r in roots], held_out=held_out, answer_keys=(), harness=None
+        [str(r) for r in roots],
+        held_out=held_out,
+        answer_keys=(),
+        harness=None,
+        library=None if library is None else str(library),
     )
     return Context(allowlist=allowlist, assets=assets.load(ui_root))
 
@@ -296,6 +306,63 @@ def escalated_run(root: Path, name: str = "run-esc", *, acts: bool = False) -> P
     return fake_run(
         root / "runs", name, repo, gate=Gate(fail_on={1, 2, 3}, cited=cited), overrides=overrides
     )
+
+
+#: The loop's own tests, whose rigs raise a failed contract's item and an unavailable review's.
+ORCHESTRATOR_TESTS = Path(__file__).resolve().parent / "unit" / "orchestrator"
+
+
+def _orchestrator_rig() -> None:
+    if str(ORCHESTRATOR_TESTS) not in sys.path:
+        sys.path.insert(0, str(ORCHESTRATOR_TESTS))
+
+
+def contract_run(root: Path, name: str = "run-contract") -> Path:
+    """A run the real loop drove to a failed contract's item, which acts on decisions.
+
+    The loop's contract rig: two modules, one deviating from the interface it reads. Built in a
+    place of its own and moved to ``root/runs/name``; its item names its trajectories by the path
+    each had, which the queue reads by their last components only.
+    """
+    import shutil
+
+    import pytest
+
+    _orchestrator_rig()
+    built = root / f".{name}-built"
+    built.mkdir(parents=True)
+    with pytest.MonkeyPatch.context() as patch:
+        from physgate import roles
+
+        patch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
+        from test_a_choice_on_a_failed_contract_reopens_the_other_module import opened
+
+        rig = opened(built, patch)
+    target = root / "runs" / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(rig.run_dir), target)
+    shutil.rmtree(built)
+    return target
+
+
+def unavailable_run(root: Path, name: str = "run-unavailable") -> Path:
+    """A run whose first attempt's review outgrew the reviewer's context, so a person decides."""
+    _orchestrator_rig()
+    from loop_fakes import FakeReviewer, Rig, plan
+    from test_a_review_with_no_verdict_goes_to_a_person_without_spending_an_attempt import (
+        _unavailable,
+    )
+
+    target = root / "runs" / name
+    target.mkdir(parents=True)
+    rig = Rig(target, reviewer=FakeReviewer(unavailable={1: _unavailable("context_exceeded")}))
+    loop = rig.open()
+    try:
+        loop.start(plan("s1"))
+        loop.run()
+    finally:
+        loop.close()
+    return target
 
 
 def sealed_session(run_dir: Path) -> str:

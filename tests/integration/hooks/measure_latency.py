@@ -124,6 +124,8 @@ def _fixture() -> tuple[Path, Path, list[str], dict[str, list[str]]]:
             required_reading=tuple(reading),
             always_loaded=tuple(reading),
             held_out=(str(root / "outside" / "heldout"),),
+            sessions_root=str(root / "outside" / "sessions"),
+            temp_dir="/var/tmp/pgs/0123456789",
         ),
         REGISTRY,
     )

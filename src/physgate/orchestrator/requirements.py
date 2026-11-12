@@ -29,6 +29,10 @@ class RunFacts:
     #: Whether the run's sessions run shell commands: every orchestrated run's role
     #: sessions do; a run of reviewers alone does not.
     shell_sessions: bool
+    #: Whether the run is being started, at decomposition, rather than driven or resumed: a
+    #: requirement on how a run is configured is asked of a new run, and a run recorded before
+    #: the requirement existed is not refused on resume for not meeting it.
+    new_run: bool = False
 
 
 #: A requirement: ``None`` if the run may start, else why it may not.

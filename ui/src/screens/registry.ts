@@ -77,6 +77,15 @@ export const VIEWS: readonly ViewDef[] = [
   {
     group: "reference",
     area: "reference",
+    slug: "library",
+    title: "Library",
+    icon: "library",
+    component: lazy(() => import("./library/Library")),
+    inspector: true,
+  },
+  {
+    group: "reference",
+    area: "reference",
     slug: "glossary",
     title: "Glossary",
     icon: "book-open",
@@ -89,5 +98,14 @@ export const VIEWS: readonly ViewDef[] = [
     title: "Simulation",
     icon: "chart-line",
     component: lazy(() => import("./simulation/Simulation")),
+  },
+  // How this app is set up, at the navigation's foot.
+  {
+    group: "settings",
+    area: "home",
+    slug: "settings",
+    title: "Settings",
+    icon: "settings",
+    component: lazy(() => import("./settings/Settings")),
   },
 ];

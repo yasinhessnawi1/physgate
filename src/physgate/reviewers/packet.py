@@ -15,6 +15,10 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
   note naming its target, never as a link, so nothing in the export reaches outside.
 - ``diff-NN-of-MM.patch``: the attempt's change against where it left the run branch,
   in numbered parts.
+
+The export and the diff leave out the attempt's disputes (``orchestrator.dispute``): a
+dispute is a role's position for a person to arbitrate, recorded on the run's log, and the
+reviewer judges the work without another session's free text in it.
 - ``series-NN-of-MM.md``: for an attempt that sealed simulation records or named one
   from a graph quantity, the harness's listing of them (``series.summary``): each
   record summarised from its own samples, read back held to its seal, and each
@@ -28,6 +32,12 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
 - ``person_order.md``: for an attempt a person ordered (the one fix after a review that
   blocked, or a retry after a person's reject), what it is and the exact instruction its
   session was given, quoted under a fixed label. Absent for every other attempt.
+- ``integration_state.md``: for an attempt of integration's subtask, the issued state its session
+  read, byte for byte (``orchestrator.integration_state``), held to the digest its line records.
+  Absent for every other attempt.
+- ``interface-followed.md``: for an attempt whose nodes revise an interface, one line
+  per changed quantity, old -> new, built by code from the change check's derivation, with the
+  node and attempt it followed; no session's text. Absent for every other attempt.
 - ``knowledge/``: the role's curated library files, copied from the harness; for a
   generalist review, only the standards every role reads.
 - ``files-NN-of-MM.md``: the listing of every other file above, by full path and size,
@@ -47,8 +57,8 @@ refused when the packet is built.
 What a review must read in full before it may answer is listed in
 :attr:`Packet.required_reading`, and the hook layer refuses the verdict until it
 has: every part of the file listing, of the transcript, of the diff and of the series
-listing, the rubric, the issued specification, the person's order when there is one, and the
-library files.
+listing, the rubric, the issued specification, integration's issued state and the person's
+order when there is one, and the library files.
 
 The packet's own record (``packet.json``) sits beside ``read/``, outside it: it
 holds every digest above and the observable indicators the trajectory shows
@@ -69,7 +79,7 @@ import subprocess
 import tempfile
 import unicodedata
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 from pydantic import (
     BaseModel,
@@ -82,7 +92,9 @@ from pydantic import (
 
 from physgate.knowledge import loader
 from physgate.knowledge.library import LibraryError, read_library
+from physgate.orchestrator.dispute import DISPUTES_DIR
 from physgate.orchestrator.exceptions import GitError, TrajectoryTamperedError
+from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.git import (
     EMPTY_TREES,
     FORCED_ENV,
@@ -101,7 +113,7 @@ from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.places import READ_DIRNAME
 from physgate.reviewers.rubric import Rubric
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError, scan
-from physgate.reviewers.transcript import render
+from physgate.reviewers.transcript import cut_line, render
 from physgate.series.exceptions import SeriesError
 from physgate.series.summary import SERIES_PART, listing
 
@@ -126,9 +138,89 @@ def fits_one_read(data: bytes) -> bool:
     return len(data) <= PART_MAX_BYTES and data.count(b"\n") <= PART_MAX_LINES
 
 
+#: The longest line a committed file may hold for the diff to show it in one part: the diff
+#: puts a mark before the line and a line break after it.
+LINE_MAX_BYTES = PART_MAX_BYTES - 2
+#: Where a line sits before the diff names its file.
+_UNNAMED = "(a file the diff does not name)"
+
+
+class LongLine(NamedTuple):
+    """A line of an attempt's diff that no part can hold, where the attempt's files have it."""
+
+    #: The file, as the diff names it.
+    path: str
+    #: The line's number in the file, on the side the diff shows it from; ``None`` for a line
+    #: of the diff's own header.
+    line: int | None
+    #: Whether the line is the file's as it stood before the attempt: one the attempt removed.
+    before: bool
+    #: The line's length in the file, its line break left out.
+    bytes: int
+
+
+_HUNK = re.compile(rb"^@@ -([0-9]+)(?:,[0-9]+)? \+([0-9]+)(?:,[0-9]+)? @@")
+
+
+def _named(header: bytes, side: bytes) -> str | None:
+    """The path a ``---``/``+++`` header line names, or ``None`` for ``/dev/null``."""
+    name = header[4:]
+    if name == b"/dev/null":
+        return None
+    return name.removeprefix(side).decode("utf-8", errors="replace")
+
+
+def _both_sides(names: bytes) -> str:
+    """The path a ``diff --git a/<path> b/<path>`` line names, when both sides name one path."""
+    half = (len(names) - 5) // 2
+    path = names[2 : 2 + half]
+    if names != b"a/" + path + b" b/" + path:
+        return _UNNAMED
+    return path.decode("utf-8", errors="replace")
+
+
+def first_long_line(diff: bytes) -> LongLine | None:
+    """The first line of ``diff`` that :func:`split_parts` cannot issue, by file and line.
+
+    A line is refused as :func:`split_parts` refuses one: longer than a part, where a line ends
+    as ``bytes.splitlines`` ends it. Each line is then placed in its file by the diff's own
+    headers, so the finding names what the attempt wrote, not a line of the diff.
+    """
+    path, header, old, new = _UNNAMED, True, 0, 0
+    for raw in diff.split(b"\n"):
+        if raw.startswith(b"diff --git "):
+            path, header = _both_sides(raw.removeprefix(b"diff --git ")), True
+        elif header and raw.startswith((b"--- ", b"+++ ")):
+            path = _named(raw, b"a/" if raw.startswith(b"-") else b"b/") or path
+        elif (hunk := _HUNK.match(raw)) is not None:
+            header, old, new = False, int(hunk.group(1)), int(hunk.group(2))
+        if any(len(piece) > PART_MAX_BYTES for piece in (raw + b"\n").splitlines(keepends=True)):
+            if header:
+                return LongLine(path=path, line=None, before=False, bytes=len(raw))
+            before = raw.startswith(b"-")
+            number = old if before else new
+            return LongLine(path=path, line=number, before=before, bytes=len(raw) - 1)
+        if not header and raw.startswith((b"-", b" ")):
+            old += 1
+        if not header and raw.startswith((b"+", b" ")):
+            new += 1
+    return None
+
+
+def long_line(repo: Path | GitDir, base: str, commit: str) -> LongLine | None:
+    """The first line of the diff a review of ``commit`` is issued that one part cannot hold.
+
+    The diff is the one the packet issues (:func:`build_packet`), byte for byte, so an attempt
+    this finds nothing in is never refused by the packet for a line of its diff.
+    """
+    return first_long_line(_diff(repo, base, commit))
+
+
 SPEC_AS_ISSUED_NAME = "spec_as_issued.md"
 RUBRIC_NAME = "rubric.md"
 PERSON_ORDER_NAME = "person_order.md"
+INTEGRATION_STATE_NAME = "integration_state.md"
+FOLLOWED_NAME = "interface-followed.md"
 KNOWLEDGE_NAME = "knowledge"
 RECORD_NAME = "packet.json"
 
@@ -170,7 +262,7 @@ class Packet(BaseModel):
     spec_as_issued_sha256: Sha256 | None
     rubric_sha256: Sha256
     knowledge_sha256: dict[str, Sha256]
-    #: How many files the attempt's commit holds, as exported.
+    #: How many files the attempt's commit holds, as exported: its disputes left out.
     worktree_files: Annotated[int, Field(ge=0)]
     indicators: tuple[ScanHit, ...]
     required_reading: Annotated[tuple[str, ...], Field(min_length=2)]
@@ -194,6 +286,12 @@ class Packet(BaseModel):
     #: The digest of ``person_order.md``, for an attempt a person ordered. Left out of the
     #: record when absent, so every other packet reads and hashes as before.
     person_order_sha256: Sha256 | None = None
+    #: The digest of ``integration_state.md``, for an attempt of integration's subtask. Left out
+    #: of the record when absent, so every other packet reads and hashes as before.
+    integration_state_sha256: Sha256 | None = None
+    #: The digest of ``interface-followed.md``, for an attempt whose nodes revise an interface.
+    #: Left out of the record when absent, so every other packet reads and hashes as before.
+    followed_sha256: Sha256 | None = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -204,6 +302,10 @@ class Packet(BaseModel):
             data.pop("series_parts", None)
         if self.person_order_sha256 is None:
             data.pop("person_order_sha256", None)
+        if self.integration_state_sha256 is None:
+            data.pop("integration_state_sha256", None)
+        if self.followed_sha256 is None:
+            data.pop("followed_sha256", None)
         return data
 
     def sha256(self) -> str:
@@ -531,7 +633,7 @@ def _write_parts(read: Path, parts: list[tuple[str, bytes]]) -> tuple[Part, ...]
 
 
 def _export(repo: Path | GitDir, commit: str, into: Path) -> int:
-    """Write ``commit``'s files under ``into``, from git's objects, no attribute applied.
+    """Write ``commit``'s files, its disputes left out, under ``into``: no attribute applied.
 
     Not ``git archive``, which honours an attribute file committed in the tree: one
     can leave a file out of the archive or rewrite it on the way, so the reviewer
@@ -549,7 +651,10 @@ def _export(repo: Path | GitDir, commit: str, into: Path) -> int:
         if entry:
             meta, _, raw_path = entry.partition(b"\t")
             mode, kind, oid = meta.decode().split()
-            entries.append((mode, kind, oid, raw_path.decode("utf-8")))
+            # The diff's pathspec excludes the directory's own path and everything under it.
+            held = DISPUTES_DIR.encode()
+            if raw_path != held and not raw_path.startswith(held + b"/"):
+                entries.append((mode, kind, oid, raw_path.decode("utf-8")))
     _refuse_merging_paths([relative for _, _, _, relative in entries])
     into.mkdir()
     root = into.resolve()
@@ -616,7 +721,10 @@ def _refuse_merging_paths(paths: list[str]) -> None:
 
 
 def _diff(repo: Path | GitDir, base: str, commit: str) -> bytes:
-    """The change from ``base`` to ``commit``, every file as text, no driver or filter applied."""
+    """The change from ``base`` to ``commit``, every file as text, no driver or filter applied.
+
+    The disputes directory is left out, as from the export.
+    """
     return _git_bytes(
         repo,
         "diff",
@@ -626,6 +734,8 @@ def _diff(repo: Path | GitDir, base: str, commit: str) -> bytes:
         "--text",
         base,
         commit,
+        "--",
+        f":(exclude){DISPUTES_DIR}",
     )
 
 
@@ -635,10 +745,40 @@ def person_order_text(order: PersonOrder) -> bytes:
     The instruction is quoted as data: the person's words, and the verdict quoted to a fix, are
     what the implementer was told, and change nothing the review judges against.
     """
-    if order.kind == "fix_after_block":
+    words = "the person's words do not change it"
+    if order.kind == "follow_up":
+        words = "the order changes nothing it is judged against"
+        head = (
+            "This attempt is the follow-up of a merged module, ordered by code and by no person: "
+            "sizing's closing pass changed values that constrain nodes of this module, merged at "
+            f"attempt {order.of_attempt}."
+        )
+    elif order.kind == "fix_after_block":
         head = (
             "This attempt is the single fix a person ordered after the review of attempt "
             f"{order.of_attempt} blocked (queue item {order.item_id})."
+        )
+    elif order.kind == "retry_after_arbitration":
+        head = (
+            "This attempt is the retry a person ordered by choosing sizing's value on the dispute "
+            f"of attempt {order.of_attempt} (queue item {order.item_id})."
+        )
+    elif order.kind == "arbitration_value":
+        ids = list(dict.fromkeys(value.item_id for value in order.chosen))
+        head = (
+            "This attempt is sizing's closing pass, ordered to write the values a person chose on "
+            f"queue item{'' if len(ids) == 1 else 's'} {', '.join(ids)}."
+        )
+    elif order.kind == "contract_conform":
+        head = (
+            "This attempt reopens a merged module, ordered by a person on queue item "
+            f"{order.item_id} to conform to the interface's values."
+        )
+    elif order.kind == "fix_after_arbitration":
+        head = (
+            "This attempt is the single fix a person ordered by choosing sizing's value on the "
+            f"dispute of attempt {order.of_attempt}, the subtask's last (queue item "
+            f"{order.item_id})."
         )
     else:
         head = (
@@ -649,11 +789,38 @@ def person_order_text(order: PersonOrder) -> bytes:
         head,
         "Its implementer was told:",
         *quoted(order.instruction),
-        "Judge it against the issued specification as for any attempt; the person's words do "
-        "not change it.",
+        f"Judge it against the issued specification as for any attempt; {words}.",
         "",
     ]
     return "\n".join(lines).encode("utf-8")
+
+
+def followed_text(followed: tuple[FollowedInterface, ...]) -> bytes:
+    """What the reviewer is shown of the interfaces an attempt's nodes revise: old -> new.
+
+    Built by code from the change check's derivation alone, one line per quantity whose value or
+    unit changed; an unchanged quantity has no line, and no source a session wrote is quoted.
+    """
+    lines = [
+        "# Interface revisions this attempt makes",
+        "",
+        "The harness derived each revision below from this attempt's own nodes joined to the "
+        "interface; no session writes an interface. The domains read the revised values once "
+        "this attempt merges. Each line is one quantity whose value or unit changes, as "
+        "interface.quantity: old -> new.",
+    ]
+    for entry in followed:
+        lines += [
+            "",
+            f"## {entry.interface}, followed from {entry.joined[0]} at attempt {entry.attempt}",
+            "",
+        ]
+        lines += [
+            f"- {entry.interface}.{name}: {old['value']} {old['unit']} -> "
+            f"{new['value']} {new['unit']}"
+            for name, old, new in entry.changed()
+        ]
+    return ("\n".join(lines) + "\n").encode("utf-8")
 
 
 def build_packet(
@@ -711,9 +878,27 @@ def build_packet(
         if _digest(issued) != spec.sha256:
             msg = "the issued specification is not the one recorded before dispatch"
             raise PacketError(msg, path=spec.path, recorded=spec.sha256, found=_digest(issued))
-        (read / SPEC_AS_ISSUED_NAME).write_bytes(issued)
+        # Every line cut to what one read shows, as the plan's brief is: the Read tool would
+        # truncate a longer one, and one longer than a part could not be issued at all.
+        (read / SPEC_AS_ISSUED_NAME).write_bytes(cut_lines(issued))
         issued_digest = spec.sha256
         reading.append(read / SPEC_AS_ISSUED_NAME)
+    state_digest = None
+    if artefact.integration_state is not None:
+        # What integration's session read, byte for byte, as its line recorded it.
+        state = artefact.integration_state
+        (read / INTEGRATION_STATE_NAME).write_bytes(state.text.encode("utf-8"))
+        state_digest = state.sha256
+        reading.append(read / INTEGRATION_STATE_NAME)
+    followed_digest = None
+    if artefact.followed:
+        revised = followed_text(artefact.followed)
+        if not fits_one_read(revised):
+            msg = "the interface revisions are longer than one read shows whole"
+            raise PacketError(msg, bytes=str(len(revised)))
+        (read / FOLLOWED_NAME).write_bytes(revised)
+        followed_digest = _digest(revised)
+        reading.append(read / FOLLOWED_NAME)
     order_digest = None
     if artefact.ordered_by_person is not None:
         order = person_order_text(artefact.ordered_by_person)
@@ -765,6 +950,8 @@ def build_packet(
         series_parts=series_parts,
         files_parts=files_parts,
         person_order_sha256=order_digest,
+        integration_state_sha256=state_digest,
+        followed_sha256=followed_digest,
     )
     (Path(review) / RECORD_NAME).write_text(packet.model_dump_json(indent=1) + "\n")
     return packet
@@ -783,6 +970,20 @@ def _series_listing(artefact: Artefact) -> bytes | None:
         return listing(series)
     except SeriesError as exc:
         raise PacketError(str(exc), **exc.context) from None
+
+
+def cut_lines(data: bytes) -> bytes:
+    """``data`` with every line cut to what one read shows (``transcript.cut_line``).
+
+    Raises:
+        PacketError: ``data`` is not UTF-8 text, so no line of it can be cut.
+    """
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        msg = "the issued specification is not UTF-8 text, so its lines cannot be cut"
+        raise PacketError(msg, bytes=str(len(data))) from None
+    return "\n".join(piece for line in text.split("\n") for piece in cut_line(line)).encode()
 
 
 def joined_parts(read: Path, parts: tuple[Part, ...]) -> bytes:
@@ -837,10 +1038,33 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
         raise PacketError(msg, read=str(read))
     _check_series_parts(packet, artefact, read)
     _check_person_order(packet, artefact, read)
+    _check_integration_state(packet, artefact, read)
+    _check_followed(packet, artefact, read)
+    _check_copies(packet, artefact, read, Path(repo))
     # The listing names every file under ``read/`` as it stands now, and nothing else.
     if joined["listing"] != file_listing(read, {part.name for part in packet.files_parts}):
         msg = "the listing's parts joined are not the files under the read directory"
         raise PacketError(msg, read=str(read))
+
+
+def _check_copies(packet: Packet, artefact: Artefact, read: Path, repo: Path) -> None:
+    """Hold the rubric and every library copy to their digests, and the specification to its cut.
+
+    The listing records sizes only, so a same-size edit after the build is caught here.
+    """
+    held = {read / RUBRIC_NAME: packet.rubric_sha256} | {
+        read / KNOWLEDGE_NAME / Path(name).relative_to(loader.DEFAULT_ROOT): digest
+        for name, digest in packet.knowledge_sha256.items()
+    }
+    spec = artefact.issued_spec
+    if spec is not None:
+        blob = _git_bytes(_git_dir(repo), "cat-file", "blob", f"{spec.commit}:{spec.path}")
+        held[read / SPEC_AS_ISSUED_NAME] = _digest(cut_lines(blob))
+    for path, digest in held.items():
+        body = path.read_bytes() if path.is_file() else None
+        if body is None or _digest(body) != digest:
+            msg = "a copy is missing or is not what was issued"
+            raise PacketError(msg, copy=str(path.relative_to(read)))
 
 
 def _check_series_parts(packet: Packet, artefact: Artefact, read: Path) -> None:
@@ -864,6 +1088,36 @@ def _check_series_parts(packet: Packet, artefact: Artefact, read: Path) -> None:
         bodies.append(body)
     if b"".join(bodies) != series or _digest(series) != packet.series_sha256:
         msg = "the series parts joined are not the listing of the attempt's sealed records"
+        raise PacketError(msg, read=str(read))
+
+
+def _check_integration_state(packet: Packet, artefact: Artefact, read: Path) -> None:
+    """Hold ``integration_state.md`` to the attempt's issued state: there exactly when it is."""
+    path = read / INTEGRATION_STATE_NAME
+    state = artefact.integration_state
+    if state is None:
+        if packet.integration_state_sha256 is not None or path.exists():
+            msg = "the packet issued an issued state for an attempt that carries none"
+            raise PacketError(msg, read=str(read))
+        return
+    found = _digest(path.read_bytes()) if path.is_file() else None
+    if packet.integration_state_sha256 != state.sha256 or found != state.sha256:
+        msg = "integration's issued state is missing or is not the one its session read"
+        raise PacketError(msg, read=str(read))
+
+
+def _check_followed(packet: Packet, artefact: Artefact, read: Path) -> None:
+    """Hold ``interface-followed.md`` to the attempt's followed revisions: there exactly when so."""
+    path = read / FOLLOWED_NAME
+    if not artefact.followed:
+        if packet.followed_sha256 is not None or path.exists():
+            msg = "the packet issued interface revisions for an attempt that follows none"
+            raise PacketError(msg, read=str(read))
+        return
+    expected = _digest(followed_text(artefact.followed))
+    found = _digest(path.read_bytes()) if path.is_file() else None
+    if packet.followed_sha256 != expected or found != expected:
+        msg = "the interface revisions are missing or are not the ones the attempt carries"
         raise PacketError(msg, read=str(read))
 
 

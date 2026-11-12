@@ -10,7 +10,13 @@ node, the ones the decomposition wrote included:
    and pint's own refusal, naming the expression and both sides, is the finding;
 3. every known quantity not already refused must meet its kind (the rules in
    :mod:`physgate.gate.units`), its sign included: a negative mass or power is
-   refused here.
+   refused here. A name the catalogue lacks but reads, by a suffix or by a quantity's
+   name or suffix and its qualifier words (:func:`physgate.gate.catalogue.inferred_by`),
+   is held to its reading's kind the same way, and a mismatch is recorded as unchecked,
+   naming the reading, and refuses nothing: the reading is the gate's, not the
+   catalogue's. A ``_frequency`` reading is f or omega, so it takes either power of the
+   radian, and a ``torque_constant`` is Kt or Ke, so it takes the radian to the power 0 or -1
+   (``EITHER_ANGLE``); their dimension and sign are still read.
 
 Whether a relation holds is the business of the check its ``judged_by`` names.
 
@@ -21,7 +27,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from physgate.gate.catalogue import inferred_by, kind_of
+from physgate.gate.catalogue import Reading, angles_of, inferred_by, kind_of
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
 from physgate.gate.relations import Factor, Instance, Product, Scaled, instances, touching
@@ -35,6 +41,7 @@ from physgate.gate.units import (
     measure,
     parse,
     pint_message,
+    unit_text,
 )
 from physgate.orchestrator.protocols import (
     NumericOutput,
@@ -81,7 +88,7 @@ def _sum(view: GraphView, factors: tuple[Factor, ...]) -> Any:
         try:
             total = total + value
         except PINT_ERRORS as exc:
-            raise _MismatchError(str(total.units), str(value.units), exc) from None
+            raise _MismatchError(unit_text(total.units), unit_text(value.units), exc) from None
     return total if total is not None else UREG.Quantity(0)
 
 
@@ -101,7 +108,7 @@ def _relation_finding(view: GraphView, instance: Instance) -> Observation | None
         try:
             left - right  # noqa: B018 - pint's refusal is the finding
         except PINT_ERRORS as exc:
-            raise _MismatchError(str(left.units), str(right.units), exc) from None
+            raise _MismatchError(unit_text(left.units), unit_text(right.units), exc) from None
     except UnitRefusedError as exc:
         return Observation(
             outcome="fail",
@@ -148,12 +155,14 @@ def run(ctx: CheckContext) -> CheckRun:
     for node_id in own:
         unknown: list[str] = []
         inferred: list[str] = []
+        qualified: list[str] = []
         for name, q in view.nodes[node_id].quantities.items():
             evaluated += 1
+            reading = inferred_by(name)
             if kind_of(name) is None:
                 unknown.append(name)
-            elif inferred_by(name) is not None:
-                inferred.append(name)
+            elif reading is not None:
+                (qualified if reading.qualifiers else inferred).append(name)
             try:
                 parse(q.value, q.unit)
             except UnitRefusedError as exc:
@@ -179,9 +188,9 @@ def run(ctx: CheckContext) -> CheckRun:
             )
         if inferred:
             rules = ", ".join(
-                f"{name} by {suffix.suffix}"
+                f"{name} by {reading.rule}"
                 for name in sorted(inferred)
-                if (suffix := inferred_by(name)) is not None
+                if (reading := inferred_by(name)) is not None
             )
             observations.append(
                 Observation(
@@ -198,6 +207,30 @@ def run(ctx: CheckContext) -> CheckRun:
                         "and no range applies to them by name"
                     ),
                     details=UncheckedDetails(quantities=tuple(sorted(inferred))),
+                )
+            )
+        if qualified:
+            rules = ", ".join(
+                f"{name} by {reading.rule}"
+                for name in sorted(qualified)
+                if (reading := inferred_by(name)) is not None
+            )
+            observations.append(
+                Observation(
+                    outcome="unchecked",
+                    node=node_id,
+                    module=view.module_of(node_id),
+                    value=None,
+                    expected=None,
+                    message=(
+                        f"{node_id} carries quantities the gate's catalogue does not know, each "
+                        "a quantity's name or suffix followed by words that say which value of it "
+                        f"they are ({rules}): their unit's dimension and their sign were read "
+                        "against that quantity's kind, and a mismatch is recorded as unchecked, "
+                        "never refused; no relation forms from them and no range applies to "
+                        "them by name"
+                    ),
+                    details=UncheckedDetails(quantities=tuple(sorted(qualified))),
                 )
             )
     for instance in touching(instances(view), own):
@@ -234,9 +267,9 @@ def run(ctx: CheckContext) -> CheckRun:
             kind = kind_of(name)
             if kind is None or (node_id, name) in refused:
                 continue
-            suffix = inferred_by(name)
+            reading = inferred_by(name)
             try:
-                measure(kind, q.value, q.unit)
+                measure(kind, q.value, q.unit, angles=angles_of(name))
             except PINT_ERRORS as exc:
                 reason, wanted = pint_message(exc), None
             except SignRefusedError as exc:
@@ -245,10 +278,10 @@ def run(ctx: CheckContext) -> CheckRun:
                 reason, wanted = str(exc), None
             else:
                 continue
-            if suffix is not None:
-                # The kind is the suffix's reading of the name, not the catalogue's: a
-                # mismatch is recorded, naming the suffix, and refuses nothing.
-                observations.append(_inferred_mismatch(view, node_id, name, suffix.suffix, reason))
+            if reading is not None:
+                # The kind is the gate's reading of the name, not the catalogue's: a
+                # mismatch is recorded, naming the reading, and refuses nothing.
+                observations.append(_inferred_mismatch(view, node_id, name, reading, reason))
             else:
                 observations.append(
                     _quantity_finding(view, node_id, name, reason, kind.canonical, wanted)
@@ -257,10 +290,18 @@ def run(ctx: CheckContext) -> CheckRun:
 
 
 def _inferred_mismatch(
-    view: GraphView, node_id: str, name: str, suffix: str, reason: str
+    view: GraphView, node_id: str, name: str, reading: Reading, reason: str
 ) -> Observation:
-    """The unchecked record for an uncatalogued name whose unit or sign is not its suffix's."""
+    """The unchecked record for an uncatalogued name whose unit or sign is not its reading's."""
     q = view.nodes[node_id].quantities[name]
+    said = (
+        f"which is not what its name suggests once the words that say which value it is are "
+        f"taken off ({reading.rule}): {reason}; the reading is of a name the catalogue does "
+        "not know"
+        if reading.qualifiers
+        else f"which is not what its suffix {reading.base} suggests: {reason}; the suffix is a "
+        "reading of a name the catalogue does not know"
+    )
     return Observation(
         outcome="unchecked",
         node=node_id,
@@ -268,9 +309,8 @@ def _inferred_mismatch(
         value=None,
         expected=None,
         message=(
-            f"{name} of {node_id} is {q.value} {q.unit}, which is not what its suffix {suffix} "
-            f"suggests: {reason}; the suffix is a reading of a name the catalogue does not "
-            "know, so this is recorded as unchecked and refuses nothing"
+            f"{name} of {node_id} is {q.value} {q.unit}, {said}, so this is recorded as "
+            "unchecked and refuses nothing"
         ),
         details=UncheckedDetails(quantities=(name,)),
     )

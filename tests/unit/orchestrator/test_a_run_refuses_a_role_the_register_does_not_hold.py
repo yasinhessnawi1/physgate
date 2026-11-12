@@ -9,7 +9,8 @@ anything is dispatched. Reviewing is not dispatching: the injected-error instrum
 dispatches no role session, so its reviewers are not held to the register.
 
 The suite plans ``electrical`` and ``mechanical`` stand-ins throughout, so ``conftest``
-registers both for every test; the tests here take them out again.
+registers both for every test; the tests here put the shipped rows back, which register both
+roles for planning only, and refuse a role no row names.
 """
 
 from __future__ import annotations
@@ -30,21 +31,27 @@ EXAMPLES = Path(__file__).resolve().parents[3] / "src" / "physgate" / "orchestra
 
 @pytest.fixture
 def shipped(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The register as it ships: the suite's stand-in roles taken out."""
+    """The register as it ships: the suite's stand-in roles taken out, the shipped rows back."""
     for name in ("electrical", "mechanical"):
         monkeypatch.delitem(roles.ROLES, name, raising=False)
+    for row in roles.SHIPPED:
+        monkeypatch.setitem(roles.ROLES, row.name, row)
 
 
-def test_the_register_ships_the_control_and_firmware_roles_only(shipped: None) -> None:
+def test_the_register_ships_four_built_roles_and_two_for_planning_only(
+    shipped: None,
+) -> None:
     # Read from what the module ships, not from the register this suite has added to.
-    assert [role.name for role in roles.SHIPPED] == ["control", "firmware"]
-    assert set(roles.ROLES) == {"control", "firmware"}
+    names = ["control", "firmware", "sizing", "integration", "mechanical", "electrical"]
+    assert [role.name for role in roles.SHIPPED] == names
+    assert set(roles.ROLES) == set(names)
+    assert [n for n in names if not roles.dispatchable(n)] == ["mechanical", "electrical"]
 
 
 def test_an_unregistered_role_is_refused_by_name(shipped: None) -> None:
     with pytest.raises(RoleNotRegisteredError) as refused:
-        roles.require_registered(["control", "mechanical", "electrical"])
-    assert refused.value.context["roles"] == "electrical,mechanical"
+        roles.require_registered(["control", "pneumatic", "hydraulic"])
+    assert refused.value.context["roles"] == "hydraulic,pneumatic"
 
 
 def test_registered_roles_pass(shipped: None) -> None:
@@ -53,7 +60,7 @@ def test_registered_roles_pass(shipped: None) -> None:
 
 def test_the_run_s_start_check_refuses_before_any_reviewer_is_looked_at(shipped: None) -> None:
     base = make_config(gate_mode="off")
-    roles_with = {**base.models.roles, "mechanical": "m-implementer"}
+    roles_with = {**base.models.roles, "hydraulic": "m-implementer"}
     config = base.model_copy(
         update={"models": base.models.model_copy(update={"roles": roles_with})}
     )
@@ -69,7 +76,7 @@ def test_decomposition_refuses_before_its_model_call(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     params = json.loads((EXAMPLES / "params.api_key.json").read_text())
-    assert "mechanical" in params["models"]["roles"]
+    params["models"]["roles"]["hydraulic"] = params["models"]["roles"]["mechanical"]
     # The stand-in binary below predates the OS layer's pin: allowed absent, for development.
     params["os_layer_absent"] = "allow"
     (tmp_path / "params.json").write_text(json.dumps(params))

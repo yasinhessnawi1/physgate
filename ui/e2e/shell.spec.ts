@@ -21,7 +21,9 @@ const VIEWS = [
   "Gate checks",
   "Run records",
   "Simulation",
+  "Library",
   "Glossary",
+  "Settings",
 ];
 
 function operatorHash(): string {

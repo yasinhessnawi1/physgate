@@ -27,13 +27,14 @@ from pydantic import (
 )
 
 import physgate
-from physgate.flags import OsLayerAbsent, QueueDecisions
+from physgate.flags import DesignReview, OsLayerAbsent, QueueDecisions, replans
 from physgate.orchestrator.common import (
     AuthMode,
     GateMode,
     ModelString,
     NonEmptyStr,
     first_problem,
+    model_named,
 )
 from physgate.orchestrator.escalation import REGISTER, BackendName
 from physgate.orchestrator.exceptions import EscalationBackendError, GitError, RunConfigError
@@ -46,12 +47,34 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
+#: The key of the design reviewer among the reviewer pins: it reviews the plan, not a role's work,
+#: and no role may take its name.
+DESIGN_REVIEWER = "design"
+
+
 class ModelStrings(_Frozen):
     """Every model a run may call, by what calls it."""
 
     decomposition: ModelString
     roles: dict[NonEmptyStr, ModelString]
     reviewers: dict[NonEmptyStr, ModelString]
+
+    @property
+    def design_reviewer(self) -> str | None:
+        """The model the design reviewer is pinned to, or ``None`` for a run that pins none."""
+        return self.reviewers.get(DESIGN_REVIEWER)
+
+    @model_validator(mode="after")
+    def _the_design_reviewer_is_not_the_decomposition_s_model(self) -> ModelStrings:
+        # The design reviewer judges the plan, so the decomposition is its implementer:
+        # a judge on the model it judges is the self-preference reviewers are paired on
+        # another model to avoid (ARCH-060). Refused here, before any call is made.
+        if self.design_reviewer is not None and model_named(self.design_reviewer) == model_named(
+            self.decomposition
+        ):
+            msg = "the design reviewer may not run on the decomposition's model"
+            raise ValueError(msg)
+        return self
 
 
 class RunBounds(_Frozen):
@@ -314,6 +337,11 @@ class RunConfig(_Frozen):
     #: and reads as ``refuse``: resumed where the layer is absent, it is refused.
     os_layer_absent: OsLayerAbsent
 
+    #: Whether the plan is reviewed after the one call and before anything is dispatched
+    #: (ARCH-060), a flag of the register. Required, never taken from the environment. A run
+    #: recorded before the field existed reviewed none, and reads as ``off``.
+    design_review: DesignReview
+
     #: The OS layer's state where the run was configured: present, with its mechanism,
     #: or absent, with the reason. Measured, never taken from the parameters; every run
     #: and resume measures it again and records whether it still holds. ``None`` only on
@@ -390,6 +418,25 @@ class RunConfig(_Frozen):
         return self
 
     @model_validator(mode="after")
+    def _a_reviewed_plan_names_its_reviewer(self) -> RunConfig:
+        if self.design_review != "off" and self.models.design_reviewer is None:
+            msg = "a run that reviews its plan pins a design reviewer: models.reviewers.design"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _repair_is_an_experiment_arm(self) -> RunConfig:
+        # A re-plan is a second decomposition call, which the one-call rule allows in no run but
+        # an experiment's arm, and an experiment's runs are reportable.
+        if replans(self.design_review) and not self.reportable:
+            msg = (
+                f"design_review: {self.design_review} re-plans a rejected plan, an experiment arm "
+                "that only a reportable run names"
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
     def _reportable_needs_a_clean_commit(self) -> RunConfig:
         if self.reportable and (self.harness.commit is None or not self.harness.clean):
             msg = "a reportable run starts only from a clean checkout with a commit"
@@ -403,8 +450,8 @@ class RunConfig(_Frozen):
         the field existed ran with, and ``role_python``, ``git_binary``,
         ``escalation_backend`` and ``os_layer`` when they are ``None``, ``held_out``,
         ``held_out_canaries`` and ``held_out_sha256`` when empty, ``network`` when ``open``,
-        ``network_enforced`` when ``None``, ``queue_decisions`` when ``record`` and
-        ``os_layer_absent`` when ``refuse``, so their
+        ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``,
+        ``os_layer_absent`` when ``refuse`` and ``design_review`` when ``off``, so their
         recorded digests still name them. A
         run that names a binding always records it, so the binding is part of its manifest id.
         """
@@ -433,6 +480,8 @@ class RunConfig(_Frozen):
             exclude.add("queue_decisions")
         if self.os_layer_absent == "refuse":
             exclude.add("os_layer_absent")
+        if self.design_review == "off":
+            exclude.add("design_review")
         return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
 
     def sha256(self) -> str:
@@ -535,6 +584,8 @@ def load_run_config(path: Path) -> RunConfig:
         ("queue_decisions", "record"),
         # Recorded before the field existed: no allowance was named.
         ("os_layer_absent", "refuse"),
+        # Recorded before the field existed: no plan was reviewed.
+        ("design_review", "off"),
     ):
         if isinstance(recorded, dict) and name not in recorded:
             # Recorded before the field existed: nothing was held out, the network was open

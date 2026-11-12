@@ -138,6 +138,18 @@ elif MODE == "setsid":
         time.sleep(0.8)
         os._exit(0)
     os.waitpid(pid, 0)
+elif MODE == "held":
+    # A child running when the session ends, which writes nothing: the stop's own failure is what
+    # refuses the attempt, never a write racing the check after it. The session ends once the
+    # child says it runs, not after a time.
+    pid = os.fork()
+    if pid == 0:
+        open(os.path.join(FLAGS, "ready"), "w").close()
+        time.sleep(120)
+        os._exit(0)
+    note(pid)
+    while not os.path.exists(os.path.join(FLAGS, "ready")):
+        time.sleep(0.02)
 elif MODE == "between":
     pid = os.fork()
     if pid == 0:
@@ -207,6 +219,17 @@ elif MODE == "tamper":
     note(pid)
 time.sleep(PAUSE)
 hook("SessionEnd")
+if MODE.startswith("log-"):
+    # A line no hook writes, in the hook layer's log: cut short, not an object, or a field of the
+    # wrong type. What the log says of the session's reaping can then not be read.
+    sdir = os.path.dirname(os.path.dirname(argv[argv.index("--settings") + 1]))
+    bad = {
+        "log-truncated": '{"session": "%s", "decision": "reaper_unver' % session_id,
+        "log-not-object": '["reaper_unverified"]',
+        "log-wrong-type": json.dumps({"session": session_id, "decision": ["reaper_unverified"]}),
+    }[MODE]
+    with open(os.path.join(sdir, "state", "hooks.log.jsonl"), "a") as out:
+        out.write(bad + "\n")
 open(os.path.join(FLAGS, "session-end-ran"), "w").close()
 if MODE in ("between", "tamper", "halted", "forget", "erase", "corrupt", "link"):
     while not os.path.exists(os.path.join(FLAGS, "written")):
@@ -323,6 +346,8 @@ class Session:
             worktree: Path,
             sdir: Path,
             _temp: Path | None,
+            *,
+            own_temp: Path,
         ) -> Installed:
             (sdir / "state").mkdir(parents=True)
             done = install(
@@ -338,6 +363,8 @@ class Session:
                     user_home=str(sdir / "home"),
                     token_ceiling=100_000,
                     extra_protected=(str(root),),
+                    sessions_root=str(sdir.parent),
+                    temp_dir=str(own_temp),
                 ),
                 REGISTRY,
             )
@@ -438,8 +465,8 @@ def test_a_session_s_record_names_the_shell_its_commands_run_in(
     dispatcher = session.dispatcher(monkeypatch)
     installed = ClaudeDispatcher._install
 
-    def install(*args: Any) -> Installed:  # noqa: ANN401
-        done: Installed = installed(*args)
+    def install(*args: Any, **kwargs: Any) -> Installed:  # noqa: ANN401
+        done: Installed = installed(*args, **kwargs)
         env = {**done.spawn_env, "CLAUDE_CODE_SHELL": SHELL} if pinned else done.spawn_env
         return done.model_copy(update={"spawn_env": env})
 
@@ -547,7 +574,7 @@ def test_a_stop_that_leaves_a_survivor_refuses_the_attempt_before_any_git_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
 ) -> None:
     """The stop exhausted (here it stops nothing): the table, read again, still shows the child."""
-    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    session = Session(tmp_path, "held", pause=0.0, wall_clock_s=60.0)
     dispatcher = session.dispatcher(monkeypatch)
     monkeypatch.setattr(ending, "stop_all", lambda procs: ())
     try:
@@ -561,7 +588,7 @@ def test_a_stop_that_leaves_a_survivor_refuses_the_attempt_before_any_git_call(
 def test_a_process_table_that_cannot_be_read_refuses_the_attempt_before_any_git_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
 ) -> None:
-    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    session = Session(tmp_path, "held", pause=0.0, wall_clock_s=60.0)
     dispatcher = session.dispatcher(monkeypatch)
     monkeypatch.setattr(dispatch, "process_rows", lambda: None, raising=False)
     try:
@@ -574,7 +601,7 @@ def test_a_process_table_that_cannot_be_read_refuses_the_attempt_before_any_git_
 def test_a_stop_denied_its_signal_refuses_the_attempt_before_any_git_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
 ) -> None:
-    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    session = Session(tmp_path, "held", pause=0.0, wall_clock_s=60.0)
     dispatcher = session.dispatcher(monkeypatch)
 
     def denied(pid: int, sig: int) -> None:
@@ -627,7 +654,9 @@ def test_a_resume_stops_what_a_running_role_session_left_in_its_own_group(
     try:
         assert _settle(lambda: bool(session.pids()), 20.0)
         (grandchild,) = session.pids()
-        (left,) = _resumed(session, dispatcher).stop_leftovers()
+        resumed = _resumed(session, dispatcher)
+        (left,) = resumed.stop_leftovers()
+        resumed.end_leftovers()
     finally:
         leftovers += session.pids()
     assert left.stopped
@@ -666,7 +695,9 @@ def test_a_resume_stops_what_an_exited_session_left_in_its_group_and_puts_its_wr
 ) -> None:
     """Its record agrees with the spawn the event log holds: its group is the session's."""
     session, dispatcher, child = _left_exited(tmp_path, monkeypatch, leftovers)
-    (left,) = _resumed(session, dispatcher).stop_leftovers()
+    resumed = _resumed(session, dispatcher)
+    (left,) = resumed.stop_leftovers()
+    resumed.end_leftovers()
     assert not left.stopped  # the session itself had exited
     assert started_at(child) is None
     ended = json.loads(_process_record(session).with_name("ended.json").read_text())
@@ -1067,3 +1098,24 @@ def test_a_stop_that_fails_kills_the_session_s_whole_group_not_only_the_session(
     assert _settle(lambda: started_at(child) is None, 2.0), "the session's group outlived it"
     time.sleep(2.0)
     assert sorted(p.name for p in session.root.iterdir()) == ["kept.txt"]
+
+
+@pytest.mark.parametrize("mode", ["log-truncated", "log-not-object", "log-wrong-type"])
+def test_a_hook_log_that_cannot_be_read_is_an_unverified_reaping_on_the_end_s_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int], mode: str
+) -> None:
+    """Fails closed: nothing the log says of the session's reaping can be taken as none."""
+    session = Session(tmp_path, mode, pause=0.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    try:
+        report: Any = dispatcher.run(session.request(), session.spawned)
+    except Exception as exc:  # noqa: BLE001 - an escape is the finding
+        report = exc
+    finally:
+        leftovers += session.pids()
+    assert not isinstance(report, Exception), f"the session's end raised {report!r}"
+    assert report.end.outcome == "completed", report
+    assert [why for why in report.reaper_unverified if "the hook log cannot be read" in why]
+    (ended,) = session.run.run_dir.glob("sessions/*/ended.json")
+    recorded = json.loads(ended.read_text()).get("findings") or {}
+    assert recorded.get("reaper_unverified") == list(report.reaper_unverified)

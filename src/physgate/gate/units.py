@@ -30,7 +30,9 @@ in this order, stopping at the first failure:
    as ``delta_degC`` never appears on one (this gate's rule: pint converts
    40 delta_degC to 40 K, so an ambient of 40 degrees read as a difference would
    be 273.15 K colder than written);
-4. the power of the radian in its root units is the kind's (this gate's rule);
+4. the power of the radian in its root units is the kind's, or one of those a
+   reading of the name allows (a ``_frequency`` is f or omega, a ``torque_constant`` Kt
+   or Ke) (this gate's rule);
 5. its unit has the kind's factor shape, where the kind has one: a torque is a
    force times a length, an energy an energy unit or a power times a time (this
    gate's rule);
@@ -87,18 +89,60 @@ def _dimensions(container: Any) -> str:
     return " * ".join(k if v == 1 else f"{k}**{v}" for k, v in container.items()) or "none"
 
 
+def unit_text(units: Any, *, symbols: bool = False) -> str:
+    """A pint unit, or the container of its factors, spelt as pint's plain format spells it.
+
+    pint 0.26.1 cannot print a unit with a power other than one when it computes in
+    fractions: its formatter asks the fraction for the format ``n``, which a fraction does
+    not support (measured: ``str()`` of ``m**2`` raises ``ValueError``). So the gate never
+    prints a pint unit. It reads the factors and their powers and joins them as pint's
+    default format does: the factors with a positive power by `` * ``, then each with a
+    negative power after `` / ``, a power other than one as `` ** `` and its size, ``1`` for
+    an empty numerator and ``dimensionless`` for no factor at all (``kilogram * meter ** 2``,
+    ``radian / second ** 2``). The factors stand in pint's order: a unit (``pint.Unit``)
+    sorted by name, ``meter * newton`` for ``N*m``, and the container of a unit's factors,
+    which pint's errors carry, as they were written, ``newton * meter``. Where pint can print
+    a unit, every power one or minus one, the text is pint's own, byte for byte. A unit pint
+    names by a string is that string.
+
+    With ``symbols``, each factor is its symbol and no factor at all is nothing, as pint's
+    short format (``~``) spells a unit, in the same order: ``kg * m ** 2``, ``m * N / A``
+    (the inject command's source check shows its numbers so).
+    """
+    if isinstance(units, str):
+        return units
+    # The powers are pint's fractions; typed Any, as pint's own types do not narrow to them.
+    factors: list[tuple[str, Any]] = (
+        sorted(units._units.items())  # noqa: SLF001 - no public view of the factors
+        if isinstance(units, pint.Unit)
+        else list(units.items())
+    )
+    if not factors:
+        return "" if symbols else "dimensionless"
+
+    def term(name: str, power: Any) -> str:
+        said = UREG.get_symbol(name) if symbols else name
+        return said if power == 1 else f"{said} ** {power}"
+
+    above = [term(name, power) for name, power in factors if power > 0]
+    below = [term(name, -power) for name, power in factors if power < 0]
+    return " / ".join([" * ".join(above) or "1", *below])
+
+
 def pint_message(exc: Exception) -> str:
     """Pint's refusal, as text.
 
     pint 0.26.1 cannot print its own dimensionality error when it computes in
     fractions: the exponents are fractions, and its formatter asks them for a
-    format they do not support (measured). The refusal is still pint's; only the
-    text is put together here, from the fields pint gives.
+    format they do not support (measured), on the dimensions and on any unit with a
+    power other than one. The refusal is still pint's; only the text is put together
+    here, from the fields pint gives: the units by :func:`unit_text`, the dimensions
+    by their factors.
     """
     if isinstance(exc, pint.DimensionalityError):
         return (
-            f"pint cannot convert '{exc.units1}' ({_dimensions(exc.dim1)}) to "
-            f"'{exc.units2}' ({_dimensions(exc.dim2)})"
+            f"pint cannot convert '{unit_text(exc.units1)}' ({_dimensions(exc.dim1)}) to "
+            f"'{unit_text(exc.units2)}' ({_dimensions(exc.dim2)})"
         )
     return f"pint: {exc}"
 
@@ -239,8 +283,15 @@ def _shape_holds(shape: str, quantity: Any) -> bool:
     return made_of("J") or made_of("W", "s")
 
 
-def measure(kind: Kind, value: float | int, unit: str) -> Measured:
+def measure(
+    kind: Kind, value: float | int, unit: str, *, angles: tuple[int, ...] | None = None
+) -> Measured:
     """Measure one quantity against its kind: rules 1 to 6, in order.
+
+    ``angles`` are the powers of the radian rule 4 accepts, the kind's own unless the
+    catalogue says otherwise for the name (``catalogue.angles_of``): a name ending in
+    ``_frequency`` is f or omega, so it is read at either power, and a ``torque_constant`` is
+    Kt in N*m/A or Ke in V*s/rad; its dimension and its sign are still the kind's.
 
     Raises:
         UnitRefusedError: the unit does not parse, or one of this gate's own rules
@@ -250,6 +301,12 @@ def measure(kind: Kind, value: float | int, unit: str) -> Measured:
             absolute temperature.
     """
     quantity = parse(value, unit)
+    # pint takes the radian as one, so a value read at another power of the radian than its
+    # kind's is converted without that factor: 13.885 rad/s read as a frequency becomes
+    # 13.885 Hz, not 13.885 / (2 pi) = 2.21 Hz (a torque constant's V*s/rad converts exactly).
+    # Nothing reads that magnitude: the unit check reads the dimension and the sign only, and
+    # no relation and no range takes a name read at another power (a guard row holds that).
+    # A frequency envelope or range for such a name would first need omega converted.
     converted = quantity.to(kind.canonical)
     if not kind.absolute:
         # pint refuses arithmetic on an offset unit; provoking it is the test.
@@ -261,11 +318,12 @@ def measure(kind: Kind, value: float | int, unit: str) -> Measured:
             f"as a temperature of {value} degrees ({OWN_RULE})"
         )
         raise UnitRefusedError(msg, unit=unit, kind=kind.name)
-    if _root_angle(quantity) != kind.angle:
+    wanted = (kind.angle,) if angles is None else angles
+    if _root_angle(quantity) not in wanted:
         msg = (
             f"{_said(kind.name)} is written with the radian to the power "
-            f"{kind.angle}, and {unit!r} has it to the power {_root_angle(quantity)} "
-            f"({OWN_RULE})"
+            f"{' or '.join(str(a) for a in wanted)}, and {unit!r} has it to the power "
+            f"{_root_angle(quantity)} ({OWN_RULE})"
         )
         raise UnitRefusedError(msg, unit=unit, kind=kind.name)
     if kind.shape is not None and not _shape_holds(kind.shape, quantity):

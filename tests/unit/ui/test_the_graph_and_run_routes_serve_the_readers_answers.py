@@ -171,6 +171,10 @@ def test_the_status_is_the_loop_s_own_next_step(
         "point": step.point,
     }
     assert served["halted"] is None and step.kind == "done"
+    # None of these runs plans a subtask that declares completion: no module is complete.
+    completion = served.get("completion") or {}
+    assert completion.get("owner") is False and served.get("owed_halt", "") is None
+    assert {m["state"] for m in completion.get("modules", [])} == {"not_declared"}
 
 
 @pytest.mark.parametrize("run", RUNS)

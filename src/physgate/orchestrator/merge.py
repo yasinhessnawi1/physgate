@@ -18,7 +18,12 @@ the check and the merge.
 branch name that could have moved. It is idempotent, so a merge already made is
 found and returned rather than made twice. Dispatch is serial and every attempt
 stays in its module, so a conflict means an invariant broke; the merge is
-aborted and the run halts, and the agent is not charged.
+aborted and the run halts, and the agent is not charged. The merge leaves an
+attempt's disputes out: the change check read them from the attempt's commit and
+the run's log records them, so the run branch, and every worktree opened from it,
+never holds one, and two subtasks that dispute one quantity add no file to collide.
+That merge takes three git calls; a process killed between them leaves the merge of
+exactly the checked commit in progress, and the next process finishes it.
 
 **Every git call here holds to the commit's rule.** A repository or worktree a
 session could have touched has its ``.git`` pointer verified once per operation,
@@ -33,9 +38,12 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from physgate.orchestrator.declaration import DECLARATION_PATH
+from physgate.orchestrator.dispute import DISPUTES_DIR
 from physgate.orchestrator.exceptions import GitError, MergeConflictError, MergeRefusedError
 from physgate.orchestrator.git import (
     GitDir,
@@ -50,16 +58,22 @@ from physgate.orchestrator.git import (
     head_of,
     merge_base,
     merges_of,
+    utf8_name,
     verified_git_dir,
 )
 from physgate.orchestrator.ports import WorktreeRemoval
 
 #: Where an agent proposes graph nodes, one whole node per file (the hook layer's route).
 PROPOSALS = PurePosixPath(".physgate/proposals")
+DISPUTES = PurePosixPath(DISPUTES_DIR)
 _PROPOSAL = re.compile(r"^\.physgate/proposals/[a-z][a-z0-9_]*(\.[a-z0-9_]+)+\.json$")
 _REGULAR = "100644"
 _ABSENT = "000000"
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+#: Where a run's interface contract files are: ``decompose.INTERFACES_DIR``, spelled here as well
+#: because ``decompose`` imports this module.
+CONTRACTS_DIR = ".physgate/interfaces"
 
 
 def _safe(name: str, what: str) -> str:
@@ -67,6 +81,11 @@ def _safe(name: str, what: str) -> str:
         msg = f"{what} is not a plain identifier"
         raise GitError(msg, value=name)
     return name
+
+
+def _reopened(subtask_id: str, reopen: int) -> str:
+    name = _safe(subtask_id, "subtask id")
+    return f"{name}.reopen-{reopen}" if reopen else name
 
 
 @dataclass(frozen=True)
@@ -87,49 +106,89 @@ class RunGit:
         """The orchestrator's own worktree on the run branch."""
         return self.run_dir / "worktrees" / "_integration"
 
-    def subtask_branch(self, subtask_id: str) -> str:
-        """The branch a subtask's attempts are committed on."""
-        return f"physgate/{_safe(self.run_id, 'run id')}/{_safe(subtask_id, 'subtask id')}"
+    def subtask_branch(self, subtask_id: str, reopen: int = 0) -> str:
+        """The branch a subtask's attempts are committed on.
 
-    def subtask_worktree(self, subtask_id: str) -> Path:
-        """The worktree a subtask's sessions run in."""
-        return self.run_dir / "worktrees" / _safe(subtask_id, "subtask id")
+        After its ``reopen``-th reopen, a sibling of its own: ``.`` is outside a plain identifier,
+        so no subtask's own branch is named so.
+        """
+        return f"physgate/{_safe(self.run_id, 'run id')}/{_reopened(subtask_id, reopen)}"
+
+    def subtask_worktree(self, subtask_id: str, reopen: int = 0) -> Path:
+        """The worktree a subtask's sessions run in; a fresh one after each reopen."""
+        return self.run_dir / "worktrees" / _reopened(subtask_id, reopen)
 
     def open_run_branch(self, start: str) -> None:
         """Create the run branch at ``start`` and its integration worktree, once."""
         add_worktree(self.repo, self.integration, self.run_branch, start)
 
-    def open_subtask(self, subtask_id: str) -> Path:
+    def open_subtask(self, subtask_id: str, reopen: int = 0) -> Path:
         """The subtask's worktree, created from the run branch's head if new."""
-        path = self.subtask_worktree(subtask_id)
-        add_worktree(self.repo, path, self.subtask_branch(subtask_id), self.run_branch)
+        path = self.subtask_worktree(subtask_id, reopen)
+        add_worktree(self.repo, path, self.subtask_branch(subtask_id, reopen), self.run_branch)
         return path
 
 
+def attempt_message(subtask_id: str, attempt: int, session_id: str) -> str:
+    """The template every attempt commit's message is: no text an agent wrote is one."""
+    return (
+        f"Attempt {attempt} of subtask {subtask_id}\n\n"
+        f"Committed by the orchestrator at the end of session {session_id}.\n"
+    )
+
+
+def attempt_head(worktree: Path, *, repo: Path) -> tuple[str, str] | None:
+    """The commit at the worktree's head and its message, or ``None`` if it has no commit."""
+    admin = verified_git_dir(worktree, linked=True, common=common_dir(repo))
+    try:
+        shown = git(worktree, "log", "-1", "--format=%H%x00%B", git_dir=admin)
+    except GitError:
+        return None
+    commit, _, message = shown.partition("\0")
+    return commit.strip(), message.rstrip("\n") + "\n"
+
+
 def commit_attempt(
-    worktree: Path, subtask_id: str, attempt: int, session_id: str, *, repo: Path
+    worktree: Path,
+    subtask_id: str,
+    attempt: int,
+    session_id: str,
+    *,
+    repo: Path,
+    replaces: str | None = None,
 ) -> str:
     """The orchestrator's commit of whatever a session left in its worktree.
 
     The message is a template. No text an agent wrote becomes a commit message. ``repo`` is the
     repository the worktree was made in: the worktree's admin directory must belong to it.
+    ``replaces`` is this attempt's commit at the worktree's head from a session whose end was
+    never recorded: the new commit takes its place, on its parent, so the attempt has one commit.
     """
-    message = (
-        f"Attempt {attempt} of subtask {subtask_id}\n\n"
-        f"Committed by the orchestrator at the end of session {session_id}.\n"
-    )
-    return commit_all(worktree, message, linked=True, common=common_dir(repo))
+    message = attempt_message(subtask_id, attempt, session_id)
+    return commit_all(worktree, message, linked=True, common=common_dir(repo), replaces=replaces)
 
 
 def write_scope_violations(
-    repo: Path, base: str, commit: str, module_dir: str, *, git_dir: GitDir | None = None
+    repo: Path,
+    base: str,
+    commit: str,
+    module_dir: str,
+    *,
+    declares: bool = False,
+    disputes: bool = False,
+    git_dir: GitDir | None = None,
 ) -> list[str]:
     """Every change from ``base`` to ``commit`` outside the attempt's own scope.
 
-    In scope: regular files and executables under ``module_dir``, and regular
-    files that are node proposals. Out of scope: any other path, and a symbolic
-    link or a submodule anywhere, since either can point outside the module.
-    ``git_dir`` is the repository's verified git directory, if the caller has one.
+    In scope: regular files and executables under ``module_dir``, regular files that
+    are node proposals, for an attempt of the role that owns completion
+    (``declares``) the completion declaration as a regular file, and for an attempt of
+    a role that may dispute (``disputes``) a regular file in the disputes directory,
+    which the change check reads as a dispute, directly in it. Out of scope: a name that is not
+    UTF-8, any
+    other path, and a symbolic link or a submodule anywhere, since either can point
+    outside the module. ``git_dir`` is the repository's verified git directory, if the
+    caller has one.
     """
     module = PurePosixPath(module_dir)
     if module.is_absolute() or ".." in module.parts or not module.parts:
@@ -137,6 +196,11 @@ def write_scope_violations(
         raise GitError(msg, module_dir=module_dir)
     found: list[str] = []
     for change in changes_between(repo, base, commit, git_dir=git_dir):
+        escaped = utf8_name(change.path)
+        if escaped is not None:
+            # First, so no later rule and no line ever holds a name no reader can decode.
+            found.append(f"{escaped} (not a UTF-8 name)")
+            continue
         mode = change.new_mode if change.new_mode != _ABSENT else change.old_mode
         if mode not in (_REGULAR, "100755"):
             found.append(f"{change.path} (not a regular file)")
@@ -145,6 +209,10 @@ def write_scope_violations(
         if path.is_relative_to(module):
             continue
         if _PROPOSAL.fullmatch(change.path) and change.new_mode in (_REGULAR, _ABSENT):
+            continue
+        if declares and change.path == DECLARATION_PATH and change.new_mode == _REGULAR:
+            continue
+        if disputes and path.parent == DISPUTES and change.new_mode in (_REGULAR, _ABSENT):
             continue
         found.append(f"{change.path} (outside {module_dir})")
     return found
@@ -187,8 +255,21 @@ class GitMerger:
         self._run = run
         self._removal_timeout_s = removal_timeout_s
 
-    def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
+    def merge(
+        self,
+        subtask_id: str,
+        attempt: int,
+        attempt_commit: str,
+        message: str,
+        reopen: int = 0,
+        contracts: Mapping[str, str] | None = None,
+    ) -> str:
         """Merge exactly ``attempt_commit`` into the run branch and return the merge.
+
+        The merge commit's parents are the run branch and ``attempt_commit``; its tree is the
+        merged tree without the disputes directory, with each of ``contracts`` (an interface's
+        contract file, by path under the interfaces directory) holding the bytes given: the
+        revisions the attempt followed, so later sessions read them.
 
         Raises:
             MergeRefusedError: the subtask's branch no longer points at the checked
@@ -196,7 +277,7 @@ class GitMerger:
             MergeConflictError: the merge did not apply cleanly; it was aborted.
         """
         run = self._run
-        branch = run.subtask_branch(subtask_id)
+        branch = run.subtask_branch(subtask_id, reopen)
         pinned = verified_git_dir(run.repo, linked=False)
         if (
             not branch_exists(run.repo, branch, git_dir=pinned)
@@ -209,11 +290,41 @@ class GitMerger:
         if already is not None:
             return already
         admin = verified_git_dir(run.integration, linked=True, common=common_dir(run.repo))
+        disputed = git(
+            run.repo, "ls-tree", "--name-only", attempt_commit, "--", DISPUTES_DIR,
+            objects_only=True, git_dir=pinned,
+        )  # fmt: skip
+        rewritten = dict(contracts or {})
+        for path in rewritten:
+            if PurePosixPath(path).parent != PurePosixPath(CONTRACTS_DIR) or not path.endswith(
+                ".json"
+            ):
+                msg = "a merge rewrites interface contract files only"
+                raise MergeRefusedError(msg, subtask=subtask_id, path=path)
         try:
-            git(
-                run.integration, "merge", "--no-ff", "--no-edit", "-m", message, attempt_commit,
-                git_dir=admin,
-            )  # fmt: skip
+            if (disputed or rewritten) and self._mid_merge_of(attempt_commit, admin):
+                # A process killed between the calls left this very merge in progress: it is
+                # finished, never aborted, so the run does not halt on a conflict no one had.
+                if disputed:
+                    git(run.integration, "rm", "-r", "-q", "-f", "--ignore-unmatch", "--",
+                        DISPUTES_DIR, git_dir=admin)  # fmt: skip
+                self._write_contracts(rewritten, admin)
+                git(run.integration, "commit", "--no-edit", git_dir=admin)
+            elif disputed or rewritten:
+                git(
+                    run.integration, "merge", "--no-ff", "--no-commit", "-m", message,
+                    attempt_commit, git_dir=admin,
+                )  # fmt: skip
+                if disputed:
+                    git(run.integration, "rm", "-r", "-q", "-f", "--", DISPUTES_DIR,
+                        git_dir=admin)  # fmt: skip
+                self._write_contracts(rewritten, admin)
+                git(run.integration, "commit", "--no-edit", git_dir=admin)
+            else:
+                git(
+                    run.integration, "merge", "--no-ff", "--no-edit", "-m", message,
+                    attempt_commit, git_dir=admin,
+                )  # fmt: skip
         except GitError as exc:
             git(run.integration, "merge", "--abort", check=False, git_dir=admin)
             msg = "an accepted attempt did not merge cleanly"
@@ -222,6 +333,32 @@ class GitMerger:
             ) from None
         # Through the admin directory the merge ran in: the pointer is not read again.
         return head_of(run.integration, "HEAD", git_dir=admin)
+
+    def _write_contracts(self, contracts: Mapping[str, str], admin: GitDir) -> None:
+        """Write each contract file into the merge in progress and stage it."""
+        if not contracts:
+            return
+        for path, text in sorted(contracts.items()):
+            target = self._run.integration / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(text.encode("utf-8"))
+        git(self._run.integration, "add", "--", *sorted(contracts), git_dir=admin)
+
+    def _mid_merge_of(self, attempt_commit: str, admin: GitDir) -> bool:
+        """Whether the integration worktree is mid-merge of exactly ``attempt_commit``.
+
+        Only from the run branch's head: the loop holds the branch to where the run left it just
+        before every merge, so a merge in progress from anywhere else, or of any other commit, is
+        no merge of this run's and is aborted as before.
+        """
+        run = self._run
+        found = git(run.integration, "rev-parse", "-q", "--verify", "MERGE_HEAD",
+                    check=False, git_dir=admin).strip()  # fmt: skip
+        if found != attempt_commit:
+            return False
+        pinned = verified_git_dir(run.repo, linked=False)
+        here = head_of(run.integration, "HEAD", git_dir=admin)
+        return here == head_of(run.repo, run.run_branch, git_dir=pinned)
 
     def run_branch_moved(self, expected: str, pending: str | None) -> str | None:
         """Why the run branch is not at ``expected``, or ``None``.
@@ -249,14 +386,14 @@ class GitMerger:
             "where this run last left it"
         )
 
-    def remove_worktree(self, subtask_id: str) -> WorktreeRemoval:
+    def remove_worktree(self, subtask_id: str, reopen: int = 0) -> WorktreeRemoval:
         """Remove a subtask's worktree with ``git worktree remove``, never forced.
 
         The branch stays, and so does everything under the run directory but the
         worktree. A removal git refuses (a modified or untracked file, a lock) is
         reported and left as it is. Never raises.
         """
-        path = self._run.subtask_worktree(subtask_id)
+        path = self._run.subtask_worktree(subtask_id, reopen)
         if not path.exists():
             return WorktreeRemoval(path=str(path), outcome="absent", seconds=0.0, detail=None)
         try:
@@ -286,8 +423,12 @@ class GitMerger:
         return merge_base(run.repo, run.run_branch, attempt_commit, git_dir=pinned)
 
     def artefact_diff(self, attempt_commit: str) -> str:
-        """The attempt's patch against where it left the run branch."""
+        """The attempt's patch against where it left the run branch, without its disputes.
+
+        A dispute's reason is its session's text: a person reads it on the record, not here.
+        """
         run = self._run
         pinned = verified_git_dir(run.repo, linked=False)
         base = merge_base(run.repo, run.run_branch, attempt_commit, git_dir=pinned)
-        return diff_text(run.repo, base, attempt_commit, git_dir=pinned)
+        excluded = f":(exclude){DISPUTES_DIR}"
+        return diff_text(run.repo, base, attempt_commit, excluded, git_dir=pinned)

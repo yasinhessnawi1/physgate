@@ -42,12 +42,22 @@ rules — this is the same rule the gate's own catalogue already carries.
 
 ## 3. A magnitude claim is checked against a sourced range, or is recorded as unchecked — never assumed passed
 
-Every quantity name the catalogue knows is checked against a range that itself carries a source, a
-retrieval date, and a note on what it does and does not cover
-(`knowledge/<domain>/bounds.toml`). A quantity under a name the catalogue does not know gets a unit
-check and nothing else, and is recorded `unchecked` — visibly, not silently.
+A value is checked for its size only where a bounds table gives it a span: a range for its name in
+the domain of the node that holds it, or an envelope for its kind, which holds in every domain and
+under any name of that kind (`knowledge/<domain>/bounds.toml`). Each span carries a source, a
+retrieval date, the date its figures were confirmed, and a note on what it does and does not cover.
+The tables hold few spans, on purpose: a span drawn from one class of product would refuse a
+correct design outside it, so only spans that hold by definition or across makers are loaded (at
+this writing, an inertial sensor's output data rate by name, and an efficiency and a duty cycle,
+each a fraction from 0 to 1, by kind); the decomposition prompt lists them as the gate loads them.
+Every other catalogued quantity is checked for its unit and in the relations (§4) alone, and its
+size is recorded `unchecked`. A quantity under a name the catalogue does not know, and whose last
+word gives it no kind, gets a unit check and nothing else, and is recorded `unchecked`. Each check
+records how many values it evaluated: a pass that evaluated none judged nothing, and is read so —
+visibly, not silently.
 
-**Enforced:** gate check 2 (`check_magnitude.py`).
+**Enforced:** gate check 2 (`check_magnitude.py`), which records each value it had no span for as
+unchecked. Which spans the tables hold is a curation decision, taken through promotion.
 
 ## 4. A supply is held to no more than what it can prove it supplies
 

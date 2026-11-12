@@ -70,7 +70,6 @@ def require_pinned(version_output: str) -> str:
 def decomposition_argv(
     binary: str,
     *,
-    prompt: str,
     schema: str,
     model: str,
     session_id: str,
@@ -85,12 +84,14 @@ def decomposition_argv(
     again on its own (both measured). The effort level is the run's, never the
     binary's default, which comes from a catalog its version does not pin. The call
     writes the binary's debug log, from which the state of that catalog and of the
-    remote feature flags is read (measured not to change the request body).
+    remote feature flags is read (measured not to change the request body). The prompt
+    is not among the arguments: it goes on the binary's stdin, since Linux caps one
+    argument at 128 KiB and a re-plan's prompt quotes a whole plan (measured on
+    2.1.301 against the scripted endpoint: the request body is the same either way).
     """
     return [
         binary,
         "-p",
-        prompt,
         "--setting-sources",
         "",
         "--settings",

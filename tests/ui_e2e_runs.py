@@ -8,10 +8,15 @@ own records, unchecked ones and a pass over nothing among them, reach the browse
 package could have written, so the server refuses its ledger and the browser tests see the error
 state render. Five more are copies of one run whose first subtask the loop escalated, for the
 Queue view's tests (see ``QUEUE_RUNS``), and one more run that acts on decisions,
-``run-esc-act``, whose item says what each verb will do. The runs whose control sessions record
-simulations come last (see ``ui_series_rig``), for the Simulation screen. The browser tests start
-``physgate ui`` over the root this prints, so what they check is the real server reading real
-records.
+``run-esc-act``, whose item says what each verb will do. Two more record the OS layer and a
+network with none requested, for the Settings view's tests (see ``SETTINGS_RUNS``): the layer
+present, so the request is enforced, and the layer absent, so it is not. The runs whose control
+sessions record simulations come after them (see ``ui_series_rig``), for the Simulation screen.
+Beside the runs, never inside them, ``knowledge`` is a curated library holding every state a
+library file can be in (see ``ui_library_rig``), with two files a reader refuses: a skill file
+that is a link inside the library, and a staged file not named as staging names a candidate. The
+browser tests start ``physgate ui`` over the root this prints, with that library, so what they
+check is the real server reading real records.
 
 Usage: ``uv run python tests/ui_e2e_runs.py <directory>``. The directory is emptied first.
 """
@@ -24,7 +29,8 @@ import sys
 from pathlib import Path
 
 from stand_in_roles import register
-from ui_rig import escalated_run, real_runs
+from ui_library_rig import build_library
+from ui_rig import contract_run, escalated_run, evaluation_rig, real_runs, unavailable_run
 from ui_series_rig import series_runs
 from ui_three_mode_rig import cut_after_first_gate_stage, three_mode_runs, two_domain_run
 
@@ -59,6 +65,53 @@ def escalated(out: Path, runs: Path) -> None:
     window.write_bytes(b"".join(lines[: spawned + 1]))
     # One run that acts on decisions, so its item says what approve and reject will do.
     escalated_run(out, "run-esc-act", acts=True)
+    # The two kinds of item a person met in a recorded run: a failed contract's, with its two
+    # positions, and a review that reached no verdict.
+    contract_run(out, "run-contract")
+    unavailable_run(out, "run-unavailable")
+
+
+#: The runs the Settings view's browser tests read, beside the ones made above: the OS layer
+#: present with no network requested, which the layer enforces, and absent, where nothing does.
+SETTINGS_RUNS = ("set-present-none", "set-absent-none")
+
+
+def settings_runs(out: Path, runs: Path) -> None:
+    """Two real-loop runs that record the OS layer and a network with none requested."""
+    from physgate.oslayer.probe import Absent, Present  # noqa: PLC0415 - as the rig imports it
+
+    rig = evaluation_rig()
+    present, absent = SETTINGS_RUNS
+    rig.fake_run(
+        runs,
+        present,
+        rig.target_repo(out / present),
+        overrides={
+            "os_layer": Present(mechanism="seatbelt", claude_version="2.1.301"),
+            "network": "none",
+            "network_enforced": True,
+        },
+    )
+    rig.fake_run(
+        runs,
+        absent,
+        rig.target_repo(out / absent),
+        overrides={
+            "os_layer": Absent(reason="macOS: sandbox-exec is missing"),
+            "network": "none",
+            "network_enforced": False,
+        },
+    )
+
+
+def library(out: Path) -> Path:
+    """The fixture library beside the runs, with a row each listing must keep as an error."""
+    root = build_library(out).root
+    # A skill file that links to another file of the library: refused, never followed.
+    (root / "electrical" / "skill.md").symlink_to(Path("..") / "control" / "skill.md")
+    # A staged file whose name is not a candidate's: its own row, never the whole list.
+    (root / "staging" / "standards" / "bad name.json").write_text("{}\n")
+    return root
 
 
 def main(argv: list[str]) -> int:
@@ -77,7 +130,9 @@ def main(argv: list[str]) -> int:
     with (refused / "ledger.jsonl").open("ab") as ledger:
         ledger.write(b'{"not": "a ledger line"}\n')
     escalated(out, runs)
+    settings_runs(out, runs)
     series_runs(out, runs)
+    library(out)
     print(runs, flush=True)
     return 0
 
