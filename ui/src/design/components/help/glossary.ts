@@ -169,6 +169,42 @@ export const GLOSSARY = {
       "The digest of a run's whole configuration: models, gate mode, limits. Runs with the same manifest were set up the same way.",
     group: "Drafts and records",
   },
+  "simulation-record": {
+    term: "Simulation record",
+    means:
+      "A file of columns a role's script wrote each time it ran a simulation, sealed when the session that wrote it ended. It shows what the committed code recorded; the harness does not re-run the code.",
+    group: "Drafts and records",
+  },
+  "read-off": {
+    term: "Read off a record",
+    means:
+      "A design-graph value a role took from one of its simulation records by a named rule, such as a trace's final value or a loop's phase margin. It is checked against that record before the gate.",
+    group: "Drafts and records",
+  },
+  agreement: {
+    term: "Agreement",
+    means:
+      "Whether a value read off a record is the value the record gives, within the harness's fixed relative tolerance. A value that differs, or cannot be read off, refuses the attempt before the gate.",
+    group: "Drafts and records",
+  },
+  "set-aside": {
+    term: "Set aside",
+    means:
+      "A file a session left beside its records that its end did not seal: not a record, or written by code from outside its module. It is listed with the reason and never shown as a record.",
+    group: "Drafts and records",
+  },
+  superseded: {
+    term: "Superseded",
+    means:
+      "A record an earlier session of an attempt sealed and a later session of the same attempt recorded again. The later one is the attempt's record.",
+    group: "Drafts and records",
+  },
+  "tool-view": {
+    term: "Tool view",
+    means:
+      "A view of the design in another tool, such as a CAD viewer or a circuit-board viewer, shown inside the app. None is added yet.",
+    group: "Drafts and records",
+  },
   "list-price": {
     term: "List-price estimate",
     means:

@@ -129,6 +129,15 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     # Whether the run may go on where the OS layer is absent; the layer each arm ran
     # with is compared (``os_layer``), and a reportable run allows no absence.
     "os_layer_absent": "not_compared",
+    # The bytes the harness run executed, by digest and platform build. The raw arm records
+    # its binary's version, which is compared, and not the digest of its bytes.
+    "binary": "not_compared",
+    "binary.sha256": "not_compared",
+    "binary.platform": "not_compared",
+    # The account the harness run's calls drew on; the raw arm records none.
+    "account": "not_compared",
+    "account.name": "not_compared",
+    "account.token_sha256_prefix": "not_compared",
 }
 
 #: Every pin the raw arm's record carries. Each is compared below; one the record lacks,

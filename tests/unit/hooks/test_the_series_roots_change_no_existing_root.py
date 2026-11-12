@@ -27,6 +27,26 @@ HERE = Path(__file__).parent
 NEW = ("/.physgate/lib", "/.physgate/series")
 
 
+STARTUP_FILES = (
+    ".zshenv",
+    ".zprofile",
+    ".zshrc",
+    ".zlogin",
+    ".zlogout",
+    ".zshenv.zwc",
+    ".zprofile.zwc",
+    ".zshrc.zwc",
+    ".zlogin.zwc",
+    ".zlogout.zwc",
+    ".bashrc",
+    ".bash_profile",
+    ".bash_login",
+    ".profile",
+    ".bash_logout",
+    ".inputrc",
+)
+
+
 def _without_new(cfg: SessionConfig) -> SessionConfig:
     kept = tuple(r for r in cfg.protected_roots if not r.path.endswith(NEW))
     return cfg.model_copy(update={"protected_roots": kept})
@@ -45,7 +65,11 @@ def test_every_root_that_existed_is_unchanged_and_only_two_are_added(base: Path)
     before = json.loads((HERE / "protected_roots_at_the_branch_point.json").read_text())
     now = table(base)
     added = [r for r in now if r not in before]
-    assert sorted(str(r["path"]) for r in added) == [
+    # Since then the home's shell startup files were added too, each a root of its own.
+    names = {f"<base>/home/{name}" for name in STARTUP_FILES}
+    startup = sorted(str(r["path"]) for r in added if str(r["path"]) in names)
+    assert startup == sorted(names)
+    assert sorted(str(r["path"]) for r in added if str(r["path"]) not in startup) == [
         # Added since, by its own rule: Claude Code's directory in the session's scratch home.
         "<base>/home/.claude",
         "<base>/run/worktrees/control-1/.physgate/lib",

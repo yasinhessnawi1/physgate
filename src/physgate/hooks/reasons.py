@@ -116,3 +116,7 @@ HOME_CLAUDE_REASON = (
     "it is Claude Code's own directory in this session's home, where the skills, mods, "
     "commands and settings a user keeps are read from; nothing of a session writes or reads it"
 )
+SHELL_STARTUP_REASON = (
+    "it is a shell startup file in this session's home, which a shell started outside the "
+    "session's sandbox would run; no session writes one"
+)

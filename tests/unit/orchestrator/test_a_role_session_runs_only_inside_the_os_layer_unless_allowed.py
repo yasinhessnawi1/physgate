@@ -462,7 +462,9 @@ def _role_install(tmp_path: Path, *extra: str) -> list[str]:
         *("hooks", "install", "--profile", "role", "--role", "electrical"),
         *("--worktree", str(worktree), "--state-dir", str(tmp_path / "state")),
         *("--target", str(tmp_path / "session"), "--claude-config-dir", str(tmp_path / "cfg")),
-        *("--ceiling", "1000", "--sessions-root", str(tmp_path / "sessions"), *extra),
+        *("--ceiling", "1000", "--sessions-root", str(tmp_path / "sessions")),
+        # A home of the session's own, unless the call names one (the last one given holds).
+        *("--user-home", str(tmp_path / "home"), *extra),
     ]
 
 

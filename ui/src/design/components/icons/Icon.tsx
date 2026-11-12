@@ -25,6 +25,7 @@ export const ICON_NAMES = [
   "book-open",
   "bot",
   "box",
+  "chart-line",
   "check",
   "chevrons-up-down",
   "circle-dot",

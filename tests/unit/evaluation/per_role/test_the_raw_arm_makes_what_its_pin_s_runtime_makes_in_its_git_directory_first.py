@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from startup_stand_in import stand_in_spawn_env
 from task_fixtures import own_task
 from test_the_raw_arm_s_credential_is_handled_as_a_role_session_s import LEAKY, _script, _setup
 
@@ -76,7 +77,12 @@ def test_they_are_made_before_anything_of_the_session_is_installed(tmp_path: Pat
     settings = tmp_path / "settings.json"
     hooks = {"hooks": {"SessionEnd": [{"hooks": [{"command": "true", "timeout": 5}]}]}}
     settings.write_text(json.dumps(hooks))
-    out = {"settings": str(settings), "config": "c", "spawn_args": [], "spawn_env": {}}
+    out = {
+        "settings": str(settings),
+        "config": "c",
+        "spawn_args": [],
+        "spawn_env": stand_in_spawn_env(),
+    }
     there = tmp_path / "work" / "worktree" / ".git" / "remotes"
     install = _script(
         tmp_path / "install-looking",

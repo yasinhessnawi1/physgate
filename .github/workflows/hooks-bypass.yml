@@ -182,6 +182,7 @@ jobs:
           tests/integration/hooks/test_what_changed_around_a_shell_command_after_2_1_301_is_measured_on_each_pin.py
           tests/integration/hooks/test_two_more_ways_past_a_write_deny_are_measured_inside_the_os_layer_on_each_pin.py
           tests/integration/hooks/test_each_pin_s_sessions_run_under_that_pin_s_own_environment.py
+          tests/integration/hooks/test_no_shell_startup_file_runs_outside_the_sandbox.py
 
       - name: A small volume of its own for the row that fills one
         # The row that puts a session's transcripts on a full volume needs a volume small

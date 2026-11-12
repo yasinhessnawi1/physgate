@@ -16,6 +16,7 @@ import pytest
 from ui_library_rig import STANDARDS_CANDIDATE, build_library
 from ui_rig import METHODS, context_over, escalated_run, fake_ui, real_runs, sealed_session, serving
 
+from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.state.store import journal_records_after
 from physgate.ui.routes import Context
 from physgate.ui.table import ROUTES
@@ -46,6 +47,13 @@ def _targets(world: dict[str, Path]) -> list[str]:
         "revision": "1",
         "round": "2",
         "node": journal_records_after(run / "store", 0)[-1].node_id,
+        # The simulation routes: a subtask and an attempt the run's log names.
+        "subtask": next(
+            e.subtask_id for e in read_events(run / "events.jsonl") if isinstance(e, SessionEnded)
+        ),
+        "attempt": "1",
+        # A record id a control session records; this run recorded none, so it is refused.
+        "record": "step_nominal",
         "library_file": "standards",
         "role": "control",
         "candidate": STANDARDS_CANDIDATE,

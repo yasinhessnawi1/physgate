@@ -25,6 +25,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from startup_stand_in import stand_in_spawn_env
 from test_the_reviewer_judges_an_unissued_revision_by_the_one_line_contract import (
     MODEL,
     REPO,
@@ -118,7 +119,12 @@ def _reviewer(tmp_path: Path, version: str) -> tuple[ClaudeReviewer, Path, Path]
 
 
 def _spawn(reviewer: ClaudeReviewer, sdir: Path, read: Path, mode: str = "") -> list[str]:
-    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env={"STANDIN_MODE": mode})
+    installed = Installed(
+        settings="s",
+        config="c",
+        spawn_args=(),
+        spawn_env={"STANDIN_MODE": mode, **stand_in_spawn_env()},
+    )
     packet = cast(Packet, SimpleNamespace(read_root=str(read)))
     reviewer._spawn(packet, sdir, installed, "sid", prompt="p", schema={})
     return cast(list[str], json.loads((sdir / "argv.json").read_text()))
@@ -276,7 +282,9 @@ def _review(
     monkeypatch.setattr(
         ClaudeReviewer,
         "_install",
-        lambda self, p, sdir: Installed(settings="s", config="c", spawn_args=(), spawn_env={}),
+        lambda self, p, sdir, temp: Installed(
+            settings="s", config="c", spawn_args=(), spawn_env=stand_in_spawn_env()
+        ),
     )
     monkeypatch.setattr(ClaudeReviewer, "_spawn", spawn)
     monkeypatch.setattr(claude, "review_prompt", lambda *a, **k: "p")

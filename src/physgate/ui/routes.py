@@ -36,6 +36,8 @@ from urllib.parse import unquote
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.queue import LAST_ROUND
 from physgate.orchestrator.run_config import load_run_config
+from physgate.series.reader import SUBTASK_PATTERN
+from physgate.series.seal import NAME_PATTERN
 from physgate.state.schema import NODE_ID_PATTERN
 from physgate.ui.assets import Assets
 from physgate.ui.engines import ABSENT, EngineCatalogue
@@ -59,6 +61,12 @@ PARAMETERS: Mapping[str, re.Pattern[str]] = {
     # The node identifier rule itself: lowercase dotted parts, so no separator, no
     # leading dot and no parent reference can pass.
     "node": NODE_ID_PATTERN,
+    # A subtask id as the series reader spells it (its own pattern, not a copy), and one of a
+    # subtask's attempts, so a simulation route never names what the reader would refuse.
+    "subtask": SUBTASK_PATTERN,
+    "attempt": re.compile(r"^[1-9]$"),
+    # A record's id as the record format names it, from the format's own rule.
+    "record": re.compile(NAME_PATTERN),
     # The curated library's files: which kind, which role (the knowledge layer's own role rule,
     # with a length cap) and which staged candidate (the id staging writes).
     "library_file": re.compile(r"^(standards|skill|bounds)$"),
