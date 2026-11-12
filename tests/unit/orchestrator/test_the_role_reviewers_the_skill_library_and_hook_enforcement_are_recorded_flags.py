@@ -29,7 +29,12 @@ import physgate.flags as flags
 from physgate.orchestrator import escalation
 from physgate.orchestrator.events import RunStarted
 from physgate.orchestrator.record import RunRecord
-from physgate.orchestrator.run_config import RunConfig, load_run_config, write_run_config
+from physgate.orchestrator.run_config import (
+    BUILT,
+    RunConfig,
+    load_run_config,
+    write_run_config,
+)
 
 #: Each new flag: its register entry, its type, its values, and what a run before it reads as.
 NEW: dict[str, tuple[str, str, tuple[str, ...], str]] = {
@@ -38,7 +43,10 @@ NEW: dict[str, tuple[str, str, tuple[str, ...], str]] = {
     "hooks": ("HOOKS", "Hooks", ("on", "off"), "on"),
 }
 BEFORE: dict[str, Any] = {name: row[3] for name, row in NEW.items()} | {"ablation": False}
-NOT_BUILT = [(name, value) for name, row in NEW.items() for value in row[2] if value != row[3]]
+#: Every value other than what an earlier run ran with, built or not.
+DIFFERS = [(name, value) for name, row in NEW.items() for value in row[2] if value != row[3]]
+#: The values no run takes yet, because nothing implements them.
+NOT_BUILT = [(name, value) for name, value in DIFFERS if value not in BUILT[name]]
 
 #: The digest of the helper's configuration on a clean checkout, taken before the flags existed.
 DIGEST_BEFORE_THE_FLAGS = "c1f3ab6192f60f8c1a81549b0386a23895b0e3984fe596557e3d7583befdb6d3"
@@ -137,7 +145,7 @@ def _line(**said: Any) -> Any:  # noqa: ANN401 - the line, or why there is none
     )
 
 
-@pytest.mark.parametrize(("name", "value"), NOT_BUILT)
+@pytest.mark.parametrize(("name", "value"), DIFFERS)
 def test_the_run_s_first_line_names_a_flag_only_where_it_differs(name: str, value: str) -> None:
     plain = _line()
     assert isinstance(plain, RunStarted), plain
@@ -163,8 +171,8 @@ def test_a_run_s_first_line_is_written_from_its_configuration(tmp_path: Path) ->
     config = _config()
     assert isinstance(config, RunConfig), config
     assert not set(NEW) & set(_first_line(tmp_path / "plain", config))
-    for name, value in NOT_BUILT:
-        # No configuration admits the value yet; the line is held to whatever one says.
+    for name, value in DIFFERS:
+        # Built or not, the line is held to whatever the configuration says.
         differs = config.model_copy(update={name: value})
         first = _first_line(tmp_path / f"{name}-{value}", differs)
         assert {key: first.get(key) for key in NEW} == {
