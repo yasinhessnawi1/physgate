@@ -40,9 +40,13 @@ export function unitLabel(unit: string): string {
   return unit === "1" || unit === "dimensionless" ? "dimensionless" : unit;
 }
 
-/** The value as recorded, never rounded here: precision belongs to the record, not the view. */
+/**
+ * The value as recorded, never rounded here: precision belongs to the record, not the view. A
+ * negative zero keeps its sign, which ``String`` drops.
+ */
 export function valueLabel(value: number | string): string {
-  return typeof value === "number" ? String(value) : value;
+  if (typeof value === "string") return value;
+  return Object.is(value, -0) ? "-0" : String(value);
 }
 
 /**

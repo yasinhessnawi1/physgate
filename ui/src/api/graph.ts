@@ -23,10 +23,32 @@ export interface NodeRecord {
   readonly provenance: Readonly<Record<string, Provenance>>;
 }
 
+/** The simulation record a quantity was read off, and how, as the node names it. */
+export interface SeriesRef {
+  readonly record: string;
+  readonly extract: string;
+  /** The trace a time extractor reads; ``null`` for a frequency extractor. */
+  readonly trace: string | null;
+}
+
 /** Where a quantity's value came from, and who wrote it, as the node records them. */
 export interface Provenance {
   readonly source: string | null;
   readonly writtenBy: string | null;
+  /** The record it was read off, or ``null`` when it names none or names one malformed. */
+  readonly series: SeriesRef | null;
+}
+
+/**
+ * The record a quantity names, or ``null``. A reference that is not the shape a link needs is
+ * no link: it never refuses the node, whose value and unit are what the graph shows.
+ */
+function seriesOf(value: unknown): SeriesRef | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const { record, extract, trace } = value as Record<string, unknown>;
+  if (typeof record !== "string" || record === "" || typeof extract !== "string") return null;
+  if (trace !== undefined && trace !== null && typeof trace !== "string") return null;
+  return { record, extract, trace: typeof trace === "string" ? trace : null };
 }
 
 function provenanceOf(quantities: Record<string, unknown>): Readonly<Record<string, Provenance>> {
@@ -38,6 +60,7 @@ function provenanceOf(quantities: Record<string, unknown>): Readonly<Record<stri
         {
           source: optionalText(q.source, "a quantity's source"),
           writtenBy: optionalText(q.written_by, "a quantity's writer"),
+          series: seriesOf(q.series),
         },
       ];
     }),
