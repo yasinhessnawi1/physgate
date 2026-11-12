@@ -69,6 +69,23 @@ DISPUTES = PurePosixPath(DISPUTES_DIR)
 _PROPOSAL = re.compile(r"^\.physgate/proposals/[a-z][a-z0-9_]*(\.[a-z0-9_]+)+\.json$")
 _REGULAR = "100644"
 _ABSENT = "000000"
+
+#: Directories a build tool makes for its own output, by name, wherever they lie in a module.
+BUILD_DIRECTORIES = frozenset({".pio"})
+#: What a built file's name ends in: an executable image, its hex and EEPROM forms, an object
+#: file, an archive of them.
+BUILD_SUFFIXES = (".elf", ".hex", ".eep", ".o", ".a")
+#: What an attempt is told about each. A build writes into the session's temporary
+#: directory; what it left in the module is removed, not committed.
+BUILD_ARTEFACT = (
+    "a built file inside the module: build into the session's temporary directory, and remove this"
+)
+BUILD_DIRECTORY = (
+    "a build directory inside the module: build into the session's temporary directory, and "
+    "remove this"
+)
+#: The most built files named one by one; past it the rest are counted.
+MAX_ARTEFACTS_NAMED = 20
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 #: Where a run's interface contract files are: ``decompose.INTERFACES_DIR``, spelled here as well
@@ -189,12 +206,22 @@ def write_scope_violations(
     other path, and a symbolic link or a submodule anywhere, since either can point
     outside the module. ``git_dir`` is the repository's verified git directory, if the
     caller has one.
+
+    Out of scope inside the module too: what a build left there. The commit holds everything
+    a session left in its worktree, so a build that wrote into the module would put its tree
+    into the attempt, the review's diff and the run branch. A file the commit adds or changes
+    beneath a build directory (:data:`BUILD_DIRECTORIES`) is named by that directory, once,
+    with the number of files; a built file elsewhere (:data:`BUILD_SUFFIXES`) is named by its
+    path, the first :data:`MAX_ARTEFACTS_NAMED` of them. Names are matched in any case.
+    Removing one is in scope: that is the repair.
     """
     module = PurePosixPath(module_dir)
     if module.is_absolute() or ".." in module.parts or not module.parts:
         msg = "a module directory is a relative path inside the repository"
         raise GitError(msg, module_dir=module_dir)
     found: list[str] = []
+    trees: dict[str, int] = {}
+    built: list[str] = []
     for change in changes_between(repo, base, commit, git_dir=git_dir):
         escaped = utf8_name(change.path)
         if escaped is not None:
@@ -207,6 +234,12 @@ def write_scope_violations(
             continue
         path = PurePosixPath(change.path)
         if path.is_relative_to(module):
+            if change.new_mode != _ABSENT:
+                tree = _build_directory(path, len(module.parts))
+                if tree is not None:
+                    trees[tree] = trees.get(tree, 0) + 1
+                elif path.name.casefold().endswith(BUILD_SUFFIXES):
+                    built.append(change.path)
             continue
         if _PROPOSAL.fullmatch(change.path) and change.new_mode in (_REGULAR, _ABSENT):
             continue
@@ -215,7 +248,24 @@ def write_scope_violations(
         if disputes and path.parent == DISPUTES and change.new_mode in (_REGULAR, _ABSENT):
             continue
         found.append(f"{change.path} (outside {module_dir})")
+    found += [
+        f"{tree}/ ({BUILD_DIRECTORY}, {count} files)" for tree, count in sorted(trees.items())
+    ]
+    built.sort()
+    found += [f"{path} ({BUILD_ARTEFACT})" for path in built[:MAX_ARTEFACTS_NAMED]]
+    if len(built) > MAX_ARTEFACTS_NAMED:
+        rest = len(built) - MAX_ARTEFACTS_NAMED
+        found.append(f"{module_dir} ({rest} more built files, not named)")
     return found
+
+
+def _build_directory(path: PurePosixPath, module_depth: int) -> str | None:
+    """The outermost build directory inside the module that ``path`` lies beneath, if any."""
+    parts = path.parts
+    for depth in range(module_depth, len(parts) - 1):
+        if parts[depth].casefold() in BUILD_DIRECTORIES:
+            return "/".join(parts[: depth + 1])
+    return None
 
 
 def merge_message(

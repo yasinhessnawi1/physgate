@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
-from git_rig import run_layout
+from git_rig import ScopeChecker, run_layout
 
 from physgate.orchestrator import merge
 from physgate.orchestrator.git import head_of
@@ -162,3 +162,28 @@ def test_no_more_built_files_are_named_than_the_bound_and_the_rest_are_counted(
     found = found_in(tmp_path / "past", past_it)
     assert found[:MOST] == [f"{path} ({BUILT})" for path in sorted(past_it)[:MOST]]
     assert found[MOST:] == [f"{MODULE} (3 more built files, not named)"]
+
+
+def test_the_change_check_refuses_such_an_attempt_and_its_reason_names_the_paths(
+    tmp_path: Path,
+) -> None:
+    # As the loop asks it: a refusal by the scope check, before any gate run or review, whose
+    # reason is what the repair instruction then carries to the next attempt.
+    run = run_layout(tmp_path)
+    _, commit = attempt(
+        run,
+        {
+            f"{MODULE}/.pio/build/balboa/firmware.elf": "x\n",
+            f"{MODULE}/firmware.hex": "x\n",
+            f"{MODULE}/src/main.cpp": "int main() {}\n",
+        },
+    )
+    checked = ScopeChecker(run, {"s1": MODULE}).check("s1", commit, "firmware")
+    assert checked.refused_by == "write_scope"
+    assert checked.reason is not None
+    assert f"{MODULE}/.pio/ ({TREE}, 1 files)" in checked.reason
+    assert f"{MODULE}/firmware.hex ({BUILT})" in checked.reason
+    assert "main.cpp" not in checked.reason
+    clean = run_layout(tmp_path / "clean")
+    _, commit = attempt(clean, {f"{MODULE}/src/main.cpp": "int main() {}\n"})
+    assert ScopeChecker(clean, {"s1": MODULE}).check("s1", commit, "firmware").refused_by is None
