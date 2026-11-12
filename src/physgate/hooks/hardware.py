@@ -277,8 +277,8 @@ def serial_device_in(text: str, places: Sequence[str] = ()) -> str | None:
 
     Every path-like token is read as the absolute path it could name (:func:`_rooted`), and
     a relative one from each of ``places`` as well: the directories the command could be in.
-    A token that starts with a variable or a home directory is not a relative name: where it
-    leads only running decides.
+    A token that starts with a variable is not a relative name: where it leads only running
+    decides.
     """
     for token in _TOKEN_END.split(text):
         if not token:
@@ -286,7 +286,7 @@ def serial_device_in(text: str, places: Sequence[str] = ()) -> str | None:
         rooted = _rooted(token)
         if rooted is not None and _is_device(rooted):
             return token
-        if not token.startswith(("/", "-", "$", "~")) and any(
+        if not token.startswith(("/", "$")) and any(
             _is_device(_normal(place + "/" + token)) for place in places
         ):
             return token
@@ -326,11 +326,11 @@ def _moves_to(cmd: SimpleCommand) -> str | None | bool:
 def places_of(commands: Sequence[SimpleCommand], cwd: str) -> tuple[list[str], list[str]]:
     """Every directory the commands of a call could be in, and those a move of theirs names.
 
-    The first holds the call's own directory, as given and as it resolves, each directory a
+    The first holds the call's own directory, as it resolves, each directory a
     move names read from every directory before it, and the two of :data:`_ANYWHERE` once a
     move is one only running decides or there are more than :data:`MAX_PLACES`.
     """
-    places = [_normal(cwd), _normal(os.path.realpath(cwd))]
+    places = [_normal(os.path.realpath(cwd))]
     moved: list[str] = []
     anywhere = False
     for cmd in commands:
@@ -532,7 +532,7 @@ def command_refusal(command: str, cwd: str) -> str | None:
     except ShellSyntaxError:
         return None
     places, moved = places_of(commands, cwd)
-    if any(place == "/" + _DEVICES or _is_device(place) for place in moved):
+    if "/" + _DEVICES in moved:
         return ENTERING
     for cmd in commands:
         reason = _check_command(cmd, places)

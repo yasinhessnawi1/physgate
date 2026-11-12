@@ -93,6 +93,15 @@ NOT_UPLOADS = [
     "pio --version",
     "pio -h",
     "pio run -t buildprog",
+    "pio run -t cleanall",
+    "pio run -t checkprogsize",
+    "pio run -t buildfs",
+    "pio settings get",
+    "pio pkg show",
+    "pio pkg outdated",
+    "pio pkg search balboa",
+    "esptool.py image-info firmware.bin",
+    "esptool merge-bin -o all.bin 0x0 a.bin",
     "pio run -t compiledb",
     "pio run -t envdump",
     "pio check --skip-packages",
@@ -187,6 +196,12 @@ NOT_BUILD_ONLY = [
     ("arduino-cli compile --upload .", "arduino-cli"),
     ("arduino-cli compile --port COM3 .", "arduino-cli"),
     ("arduino-cli monitor", "arduino-cli"),
+    ("arduino-cli compile -p COM3 .", "arduino-cli"),
+    ("arduino-cli compile -P avrisp .", "arduino-cli"),
+    ("arduino-cli compile --programmer avrisp .", "arduino-cli"),
+    ("esptool.py --port COM3 version", "esptool.py"),
+    ("esptool -p COM3 image_info firmware.bin", "esptool"),
+    ("pio pkg -c exec list", "pio"),
     ("arduino-cli burn-bootloader", "arduino-cli"),
     ("arduino-cli debug", "arduino-cli"),
     ("arduino-cli board list", "arduino-cli"),
@@ -216,6 +231,7 @@ RELATIVE = [
     (None, 'cd "$(pwd)/.." && cat dev/ttyACM0', "dev/ttyACM0"),
     (None, "cd - && cat ttyUSB0", "ttyUSB0"),
     (None, "cd && cat cu.usbmodem1", "cu.usbmodem1"),
+    (None, "cd ~ && cat ttyACM0", "ttyACM0"),
 ]
 ENTERS_BY_STEPS = [
     (None, "cd / && cd dev && cat x"),
@@ -232,6 +248,9 @@ NOT_RELATIVE = [
     (None, "cd / && ls dev/null"),
     ("/usr", "cat dev/ttyACM0"),
     ("/", "ls dev"),
+    ("/dev", "cat /tty.c"),
+    (None, "cd dev && cat ttyACM0"),
+    (None, "cd $WHERE && echo $NAME"),
 ]
 
 UNREAD = [
@@ -382,6 +401,24 @@ def test_a_relative_name_that_lands_elsewhere_passes(
     tmp_path: Path, cwd: str | None, command: str
 ) -> None:
     assert _shell(tmp_path, command, cwd=cwd) == "allow"
+
+
+def test_the_call_s_directory_is_read_as_it_resolves(tmp_path: Path) -> None:
+    link = tmp_path / "top"
+    os.symlink("/", link)
+    reason = _shell(tmp_path, "cat dev/ttyACM0", cwd=str(link))
+    assert reason == H.DEVICE.format(device="dev/ttyACM0")
+
+
+def test_past_the_bound_on_followed_moves_a_command_could_be_anywhere(tmp_path: Path) -> None:
+    def moves(count: int) -> str:
+        return "; ".join(f"cd d{n}" for n in range(count)) + "; cat ttyACM0"
+
+    # Each move may or may not have happened, so each doubles the places: the bound is
+    # passed after this many, and the move after that is no longer followed.
+    doublings = H.MAX_PLACES.bit_length()
+    assert _shell(tmp_path, moves(doublings - 1)) == "allow"
+    assert _shell(tmp_path, moves(doublings + 1)) == H.DEVICE.format(device="ttyACM0")
 
 
 @pytest.mark.parametrize("command", UNREAD, ids=UNREAD)
