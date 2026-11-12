@@ -52,8 +52,6 @@ def test_every_root_that_existed_is_unchanged_and_only_two_are_added(base: Path)
         "<base>/run/worktrees/control-1/.physgate/series",
     ]
     kept = [r for r in now if r in before]
-    # Replaced since by that directory's root, which holds it: the settings file in it.
-    before = [r for r in before if r["path"] != "<base>/home/.claude/settings.json"]
     # Every root that existed is still there, unchanged. The table is ordered by real path, so
     # where the installation's own roots fall among the rest depends on the machine (its prefix
     # is /usr on one, /Library/… on another); every other root keeps its order exactly.

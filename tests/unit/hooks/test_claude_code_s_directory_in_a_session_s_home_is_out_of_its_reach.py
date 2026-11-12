@@ -4,9 +4,11 @@ A session's home is a scratch directory made for it, and its commands may write 
 place in it the binary treats as its own is ``.claude``: skills, mods, settings and commands a
 user keeps are read from a directory of that name, and a later version may read more of it than
 the measured ones do. So nothing of a session writes it or reads it: not a file tool, not a
-command that names it, not a sandboxed command that builds its name at run time, and what a
-script leaves there anyway is moved aside at the next hook. The rest of the home stays the
-session's own.
+command that names it, and not a sandboxed command that builds its name at run time (the OS
+layer is told to deny it both ways). It is not put back after a call: inside the OS layer the
+runtime itself makes directories there before a shell command, on both pinned versions, as it
+writes its configuration directory; the user settings file in it keeps its own root, whose
+changes are logged as before. The rest of the home stays the session's own.
 
 The home the installing user really has is not a scratch one: other sessions write its
 ``.claude`` all day, and it is left as it was (two named files, changes logged).
@@ -82,7 +84,7 @@ def _shell(config: SessionConfig, command: str) -> bool:
 
 
 @pytest.mark.parametrize("profile", PROFILES)
-def test_the_directory_is_one_protected_root_put_back_and_read_by_nothing(
+def test_the_directory_is_one_protected_root_refused_before_a_write_and_read_by_nothing(
     base: Path, profile: str
 ) -> None:
     config = _config(base, profile)
@@ -91,7 +93,7 @@ def test_the_directory_is_one_protected_root_put_back_and_read_by_nothing(
         for r in config.protected_roots
         if r.path == str(_home(base) / ".claude")
     ]
-    assert held == [("revert", "denied", "denied", ())]
+    assert held == [("none", "denied", "denied", ())]
 
 
 def _spellings(base: Path, config: SessionConfig) -> dict[str, str]:
@@ -174,33 +176,48 @@ def _check(config: SessionConfig, name: str) -> str:
     return "allow" if decision.allow else decision.reason
 
 
-def test_what_a_script_left_there_is_moved_aside_at_the_next_hook(base: Path) -> None:
+#: What the runtime itself makes in a session's home before a shell command inside the OS
+#: layer, with the modes it gives them (measured on macOS through the real binaries,
+#: 12.11.2026); outside the layer neither version makes anything there.
+RUNTIME_MADE = {
+    "2.1.301": {".claude": 0o755, ".claude/bridge-spawn": 0o700},
+    "2.1.322": {".claude": 0o700, ".claude/bridge-spawn": 0o700, ".claude/ssh": 0o700},
+}
+
+
+@pytest.mark.parametrize("version", sorted(RUNTIME_MADE))
+def test_what_the_runtime_makes_there_inside_the_os_layer_refuses_no_call(
+    base: Path, version: str
+) -> None:
     config = _config(base)
     assert _check(config, "SessionStart") == "allow"
-    planted = _home(base) / ".claude" / "skills" / "s" / "SKILL.md"
-    planted.parent.mkdir(parents=True)
-    planted.write_text("---\nname: s\n---\n")
-    ordinary = _home(base) / "notes.txt"
-    ordinary.write_text("the session's own\n")
-    reason = _check(config, "PostToolUse")
-    assert str(_home(base) / ".claude") in reason
-    assert not planted.exists()
-    assert ordinary.read_text() == "the session's own\n"
+    for relative, mode in RUNTIME_MADE[version].items():
+        made = _home(base) / relative
+        made.mkdir(mode=mode)
+        made.chmod(mode)
+    assert _check(config, "PostToolUse") == "allow"
+    assert _check(config, "PreToolUse") == "allow"
+    assert all((_home(base) / relative).is_dir() for relative in RUNTIME_MADE[version])
     log = base / "outside" / "state" / LOG_NAME
-    events = [json.loads(line) for line in log.read_text().split("\n") if line]
-    assert [e["decision"] for e in events if e.get("session") == SESSION] == ["put back"]
+    assert not log.exists() or "put back" not in log.read_text()
 
 
-def test_a_settings_file_there_from_the_start_is_put_back_when_it_changes(base: Path) -> None:
+def test_the_user_settings_file_in_it_is_still_a_root_of_its_own_and_a_change_is_logged(
+    base: Path,
+) -> None:
     settings = _home(base) / ".claude" / "settings.json"
     settings.parent.mkdir(parents=True)
     settings.write_text("{}\n")
     config = _config(base)
-    assert [r.path for r in config.protected_roots if r.path == str(settings)] == []
+    assert [r.watch for r in config.protected_roots if r.path == str(settings)] == ["log"]
     assert _check(config, "SessionStart") == "allow"
     settings.write_text('{"disableAllHooks": true}\n')
-    assert str(settings) in _check(config, "PostToolUse")
-    assert settings.read_text() == "{}\n"
+    assert _check(config, "PostToolUse") == "allow"
+    log = base / "outside" / "state" / LOG_NAME
+    events = [json.loads(line) for line in log.read_text().split("\n") if line]
+    assert [(e["decision"], e["paths"]) for e in events if e.get("session") == SESSION] == [
+        ("changed", [str(settings)])
+    ]
 
 
 @pytest.mark.parametrize("profile", PROFILES)
