@@ -10,9 +10,9 @@ commands write, ran with none of the sandbox's bounds. Held here, rule by rule:
 - the install gives every session under test a ``ZDOTDIR``: an empty directory among the
   session's own files, outside its home, so zsh looks there; and it never sets ``BASH_ENV``
   or ``ENV``;
-- the install holds the place of the one file zsh is told to read from the home by name
-  (``.zshrc``, which the snapshot step sources whatever ``ZDOTDIR`` says) with an empty
-  directory, where a file tool cannot write a file;
+- the install holds the place of every file a shell runs from the home (zsh's, their
+  compiled forms, bash's) with an empty directory, where a file tool cannot write a file
+  whatever the hooks do; bash says so on its standard error and runs the command as before;
 - the install refuses a home that already holds a startup file, and a ``ZDOTDIR`` that holds
   anything, before it writes anything.
 
@@ -22,6 +22,7 @@ The names are written out here by hand, so a name dropped from the code is seen.
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -36,8 +37,12 @@ from physgate.oslayer.policy import sandbox_policy
 from physgate.oslayer.session_temp import make_session_temp
 
 ZSH = (".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout")
-BASH = (".bashrc", ".bash_profile", ".bash_login", ".profile", ".bash_logout", ".inputrc")
-NAMES = (*ZSH, *BASH)
+#: What zsh reads in place of each when it lies beside it and is the newer.
+ZSH_COMPILED = tuple(f"{name}.zwc" for name in ZSH)
+BASH = (".bashrc", ".bash_profile", ".bash_login", ".profile", ".bash_logout")
+NAMES = (*ZSH, *ZSH_COMPILED, *BASH, ".inputrc")
+#: The names whose place the install holds with an empty directory: every file a shell runs.
+HELD = (*ZSH, *ZSH_COMPILED, *BASH)
 SHELL_PROFILES = ("role", "baseline")
 UNDER_TEST = ("role", "baseline", "reviewer")
 
@@ -161,23 +166,57 @@ def test_the_install_points_zsh_at_an_empty_directory_no_session_writes(
 
 
 @pytest.mark.parametrize("profile", UNDER_TEST)
-def test_the_install_holds_the_place_of_the_file_zsh_reads_by_name_with_a_directory(
+def test_the_install_holds_the_place_of_every_file_a_shell_runs_with_a_directory(
     tmp_path: Path, profile: str, own_temp: str
 ) -> None:
     base = tmp_path.resolve()
     request = _request(base, profile, temp_dir=own_temp)
     install(request, REGISTRY)
-    held = Path(request.user_home) / ".zshrc"
-    assert held.is_dir() and not held.is_symlink(), "nothing holds the place of ~/.zshrc"
-    assert list(held.iterdir()) == []
-    assert [n for n in NAMES if os.path.lexists(Path(request.user_home) / n)] == [".zshrc"]
-    # A second install on the same home (a reviewer's repair) finds its own directory.
+    home = Path(request.user_home)
+    unheld = [
+        name
+        for name in HELD
+        if not (home / name).is_dir() or (home / name).is_symlink() or list((home / name).iterdir())
+    ]
+    assert unheld == [], "nothing holds the place of these startup files"
+    assert sorted(n for n in NAMES if os.path.lexists(home / n)) == sorted(HELD)
+    # A second install on the same home (a reviewer's repair) finds its own directories.
     again = install(request, REGISTRY)
     assert again.spawn_env["ZDOTDIR"] == str(Path(request.target_dir) / "zdotdir")
 
 
+@pytest.mark.parametrize(
+    ("command", "noise"),
+    [
+        (["/bin/bash", "-lc", "echo ok; exit 3"], True),
+        (["/bin/sh", "-lc", "echo ok; exit 3"], True),
+        (["/bin/bash", "-c", "echo ok; exit 3"], False),
+        (["/bin/zsh", "-lc", "echo ok; exit 3"], False),
+        (["/bin/zsh", "-ic", "echo ok; exit 3"], False),
+    ],
+)
+def test_a_shell_in_a_held_home_runs_its_command_as_before(
+    tmp_path: Path, own_temp: str, command: list[str], noise: bool
+) -> None:
+    # What the directories cost: a login bash or sh says "is a directory" on its standard
+    # error and goes on. The command's output and exit status are untouched; zsh says nothing.
+    if not os.access(command[0], os.X_OK):
+        pytest.skip(f"no {command[0]} here")
+    base = tmp_path.resolve()
+    request = _request(base, "role", temp_dir=own_temp)
+    install(request, REGISTRY)
+    env = {"HOME": request.user_home, "PATH": "/usr/bin:/bin"}
+    done = subprocess.run(command, env=env, capture_output=True, text=True, check=False)  # noqa: S603
+    assert (done.returncode, done.stdout) == (3, "ok\n")
+    complaints = [line for line in done.stderr.splitlines() if line]
+    if noise:
+        assert all("s a directory" in line for line in complaints), complaints
+    else:
+        assert complaints == []
+
+
 @pytest.mark.parametrize("profile", SHELL_PROFILES)
-def test_the_held_directory_is_write_denied_as_it_stands(
+def test_each_held_directory_is_write_denied_as_it_stands(
     tmp_path: Path, profile: str, own_temp: str
 ) -> None:
     base = tmp_path.resolve()
@@ -188,15 +227,16 @@ def test_the_held_directory_is_write_denied_as_it_stands(
     filesystem = sandbox_policy(config, home=str(home), temp_dir="/tmp/pg-1").settings["sandbox"][
         "filesystem"
     ]
-    assert (home / ".zshrc").is_dir()
-    assert str(home / ".zshrc") in filesystem["denyWrite"]
-    inside = str(home / ".zshrc" / "made-here")
-    assert _refused(
-        shell_paths, config, tool_name="Bash", tool_input={"command": f"echo x > {inside}"}
-    )
-    assert _refused(
-        paths, config, tool_name="Write", tool_input={"file_path": inside, "content": "x"}
-    )
+    for name in HELD:
+        assert (home / name).is_dir(), name
+        assert str(home / name) in filesystem["denyWrite"], name
+        inside = str(home / name / "made-here")
+        assert _refused(
+            shell_paths, config, tool_name="Bash", tool_input={"command": f"echo x > {inside}"}
+        ), name
+        assert _refused(
+            paths, config, tool_name="Write", tool_input={"file_path": inside, "content": "x"}
+        ), name
 
 
 @pytest.mark.parametrize("profile", UNDER_TEST)

@@ -22,19 +22,11 @@ from physgate.orchestrator.dispatch import spawn_held
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.reviewers import claude as reviewers
 
-NAMES = (
-    ".zshenv",
-    ".zprofile",
-    ".zshrc",
-    ".zlogin",
-    ".zlogout",
-    ".bashrc",
-    ".bash_profile",
-    ".bash_login",
-    ".profile",
-    ".bash_logout",
-    ".inputrc",
-)
+ZSH = (".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout")
+ZSH_COMPILED = tuple(f"{name}.zwc" for name in ZSH)
+BASH = (".bashrc", ".bash_profile", ".bash_login", ".profile", ".bash_logout")
+NAMES = (*ZSH, *ZSH_COMPILED, *BASH, ".inputrc")
+HELD = (*ZSH, *ZSH_COMPILED, *BASH)
 
 
 def _places(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -138,17 +130,20 @@ def test_a_home_that_holds_a_startup_file_at_the_spawn_is_refused(
     assert os.path.lexists(home / name), "the refusal changed the home"
 
 
+@pytest.mark.parametrize("name", HELD)
 @pytest.mark.parametrize("case", ["holds something", "a file"])
-def test_a_home_where_something_else_has_the_place_of_the_zshrc_is_refused(
-    tmp_path: Path, case: str
+def test_a_home_where_something_else_has_a_held_place_is_refused(
+    tmp_path: Path, case: str, name: str
 ) -> None:
     home, zdotdir, marker = _places(tmp_path)
+    if (home / name).exists():
+        (home / name).rmdir()
     if case == "holds something":
-        (home / ".zshrc" / "inside").write_text("")
+        (home / name).mkdir()
+        (home / name / "inside").write_text("")
     else:
-        (home / ".zshrc").rmdir()
-        (home / ".zshrc").write_text("echo planted\n")
-    _refused(tmp_path, _env(home, zdotdir), marker, r"\.zshrc")
+        (home / name).write_text("echo planted\n")
+    _refused(tmp_path, _env(home, zdotdir), marker, "already holds a shell startup file")
 
 
 def test_the_spawn_holds_the_place_of_the_zshrc_where_nothing_does_yet(tmp_path: Path) -> None:
@@ -156,7 +151,8 @@ def test_the_spawn_holds_the_place_of_the_zshrc_where_nothing_does_yet(tmp_path:
     home, zdotdir, marker = _places(tmp_path)
     (home / ".zshrc").rmdir()
     assert _spawn(tmp_path, _env(home, zdotdir), marker) == 0
-    assert (home / ".zshrc").is_dir() and list((home / ".zshrc").iterdir()) == []
+    unheld = [n for n in HELD if not (home / n).is_dir() or list((home / n).iterdir())]
+    assert unheld == []
 
 
 def test_every_session_of_the_harness_is_spawned_by_that_one_function() -> None:
