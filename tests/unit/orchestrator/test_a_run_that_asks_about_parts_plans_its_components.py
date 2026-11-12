@@ -621,6 +621,59 @@ def test_the_call_asks_exactly_when_the_run_s_configuration_does(
     assert prompt_for(BRIEF, run_roles) in off and plan_schema(run_roles, BRIEF) in off
 
 
+# --- the one retry, and a unit respelt ------------------------------------------------------
+
+
+def _unit_refusal(run_roles: tuple[str, ...], *, parts: bool) -> Any:  # noqa: ANN401 - the outcome
+    """The outcome of a call whose plan spelt an interface unit as the grammar refuses."""
+    from physgate.orchestrator.decompose import Outcome
+
+    misspelt = answer() if parts else answer(components=None)
+    misspelt["interface_nodes"][0]["quantities"]["v"]["unit"] = "V/(rad/s)"
+    cause, detail, plan, model, turns = judged(misspelt, run_roles, parts=parts)
+    assert (cause, plan) == ("schema_refused", None), (cause, detail)
+    return Outcome(
+        session_id="decomposition-1",
+        ok=False,
+        cause=cause,
+        detail=detail,
+        plan=None,
+        usage=(),
+        model=model,
+        num_turns=turns,
+    )
+
+
+def test_the_retry_after_a_refused_unit_asks_again_only_when_the_run_asks() -> None:
+    from physgate.orchestrator.decompose import retry_prompt
+
+    sentence = getattr(decompose, "parts_sentence", None)
+    assert sentence is not None, NOT_BUILT
+    refused = _unit_refusal(ROLES, parts=True)
+    asked = outcome_of(lambda: retry_prompt(BRIEF, ROLES, None, refused, parts=True))  # type: ignore[call-arg, unused-ignore]
+    assert isinstance(asked, str), asked
+    assert asked.startswith(_prompt(ROLES, parts=True)) and sentence(ROLES) in asked
+    plain = retry_prompt(BRIEF, ROLES, None, _unit_refusal(ROLES, parts=False))
+    assert plain is not None and plain.startswith(_prompt(ROLES, parts=False))
+    assert sentence(ROLES) not in plain
+
+
+def test_a_unit_respelt_as_its_product_leaves_the_components_in_the_plan() -> None:
+    # A unit the grammar takes in another spelling is rewritten as its product, and the plan
+    # read again: as the form it was read in, with its list.
+    respelt = answer()
+    respelt["interface_nodes"][0]["quantities"]["v"]["unit"] = "V/(A*s)"
+    read = outcome_of(lambda: judged(respelt, ROLES, parts=True))
+    assert not isinstance(read, Exception), read
+    cause, detail, plan, _, _ = read
+    assert (cause, detail) == (None, "a plan")
+    assert plan.interface_nodes[0].quantities["v"].unit == "V/A/s"
+    assert [entry.node for entry in getattr(plan, "components", ())] == [
+        "control.motor_left",
+        "firmware.imu",
+    ]
+
+
 # --- the plan's form is the run's ------------------------------------------------------------
 
 

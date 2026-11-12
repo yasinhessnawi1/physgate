@@ -3,8 +3,10 @@
 The reference is a seeded run with no model in it (``off_identity_rig``): the decomposition's
 prompt and schema for three sets of roles, the files a loop over stand-in sessions leaves once
 it has carried two subtasks to their merges, and the store's journal and node files after three
-fixed writes. Its digests were recorded from the code at df68ef09, the commit this work
-branched from, before any of the switch existed, and are kept beside this test. Recorded runs,
+fixed writes. Its digests were recorded from the code at 9c7e19ef, the commit this work
+is based on, which holds nothing of the switch, and are kept beside this test. (First recorded
+at df68ef09, an earlier base: the base has since gained a sentence on how a unit is spelt in
+every prompt, which changed the three prompt digests and no other.) Recorded runs,
 and the experiments that pin the decomposition's prompt and schema, stay comparable with every
 run made with the switch off.
 
