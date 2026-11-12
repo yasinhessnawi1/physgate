@@ -46,6 +46,8 @@ def test_every_root_that_existed_is_unchanged_and_only_two_are_added(base: Path)
     now = table(base)
     added = [r for r in now if r not in before]
     assert sorted(str(r["path"]) for r in added) == [
+        # Added since, by its own rule: Claude Code's directory in the session's scratch home.
+        "<base>/home/.claude",
         "<base>/run/worktrees/control-1/.physgate/lib",
         "<base>/run/worktrees/control-1/.physgate/series",
     ]

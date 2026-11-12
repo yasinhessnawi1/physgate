@@ -7,7 +7,8 @@ in the worktree when the session starts (as an earlier attempt could have left i
 session writes there itself, by the file tool and by the shell; a skill it writes outside the
 worktree, in its configuration directory or under its home; and a skill already under its home
 when it starts. None may reach anything the session is given, which is read from every request
-the binary sends.
+the binary sends. Nor may the session read what is under its home's ``.claude`` back: not by
+the file tool and not by a command.
 """
 
 from __future__ import annotations
@@ -62,14 +63,15 @@ def test_a_skill_the_session_writes_is_refused_and_never_reaches_it(tmp_path: Pa
     assert refusals, "no layer refused or put back the skill"
 
 
-#: Measured per pin, without the OS layer (macOS and CI, 12.11.2026): which writes of a skill
-#: outside the worktree land, by place and by tool. The configuration directory is refused by
-#: the hooks; the session's home is a scratch directory its commands may write, and a skill
-#: there lands. The binary reads its user's skills from the configuration directory, so one
-#: under the home never loads (the row below).
+#: Per pin, without the OS layer: which writes of a skill outside the worktree land, by place
+#: and by tool. None does. The configuration directory is refused by the hooks. The session's
+#: home is a scratch directory its commands may write, but Claude Code's directory in it is
+#: not: measured on 12.11.2026 (macOS and CI) a skill written there landed on both pins, by
+#: either tool, and was never loaded, since the binary reads its user's skills from the
+#: configuration directory (the row below); the hooks now refuse the write whichever pin runs.
 _LANDED = {
     "configuration directory": {"Write": False, "Bash": False},
-    "home": {"Write": True, "Bash": True},
+    "home": {"Write": False, "Bash": False},
 }
 LANDED: dict[str, dict[str, dict[str, bool]]] = {"2.1.301": _LANDED, "2.1.322": _LANDED}
 
@@ -122,3 +124,31 @@ def test_a_skill_under_the_session_s_home_at_its_start_never_reaches_it(tmp_path
     assert not any(MARKER in r.body_text for r in run.api.requests)
     (init,) = [e for e in run.stream if e.get("type") == "system" and e.get("subtype") == "init"]
     assert MARKER not in str(init) and "probe-skill" not in str(init)
+
+
+def test_what_is_under_the_home_s_claude_code_directory_is_read_by_no_tool(tmp_path: Path) -> None:
+    target = _places(tmp_path)["home"] / "SKILL.md"
+
+    def place(worktree: Path) -> None:
+        target.parent.mkdir(parents=True)
+        target.write_text(SKILL)
+
+    run = run_session(
+        tmp_path,
+        Script(
+            main=[
+                tool("Read", file_path=str(target)),
+                tool("Bash", command=f"cat {target}", description="x"),
+                tool("Bash", command="cat ~/.claude/skills/probe-skill/SKILL.md", description="x"),
+                text("end"),
+            ]
+        ),
+        prepare=place,
+    )
+    later = [r for r in run.api.requests if r.tool_results >= 1]
+    assert len(later) >= 3, "the session never went on after its calls, so nothing was shown"
+    # The whole of every later request, each call's result with it: the file's text is in none.
+    assert not any(MARKER in r.body_text for r in later)
+    refused = sorted(str(e.get("hook")) for e in run.hook_log if e.get("decision") == "refuse")
+    assert refused == ["paths", "shell_paths", "shell_paths"], json.dumps(run.hook_log)[-2000:]
+    assert target.read_text() == SKILL
