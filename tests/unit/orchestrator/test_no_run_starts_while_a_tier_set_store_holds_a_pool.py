@@ -631,6 +631,10 @@ def test_a_work_root_that_is_a_link_refuses(tmp_path: Path) -> None:
         "control/Withheld/copy.json",
         "control/Work",
         f"control/{VERSION}/copy.json",
+        f"control/{VERSION}/visible/copy.json",
+        f"control/{VERSION}/visible/control.t00/references/good/copy.json",
+        f"control/{VERSION}/tierset.json/copy.json",
+        f"control/{VERSION}/provenance.json",
         f"control/{'B' * 64}/held_out/task.json",
         "control/" + "c" * 64,
         "control/author.working",
@@ -641,6 +645,10 @@ def test_a_work_root_that_is_a_link_refuses(tmp_path: Path) -> None:
         "the withheld root's name in another case",
         "the work root's name in another case",
         "a file in a version beside its tiers",
+        "a file in a version's visible tier that no manifest names",
+        "a file deep in a visible task that no manifest names",
+        "a file in a folder named as the manifest",
+        "a provenance record with no manifest to name it",
         "a version's name in another case",
         "a file named as a version",
         "a record of work",
@@ -665,9 +673,9 @@ def test_anything_out_of_place_in_a_role_s_root_is_work_left_and_refuses_the_run
 def test_the_known_places_of_a_role_s_root_are_not_work_left(tmp_path: Path) -> None:
     leftovers = _api("physgate.evaluation.tiers.store.leftovers")
     store = _store(tmp_path)
-    version = store / "control" / VERSION
-    (version / "tierset.json").write_text("{}")
-    (version / "provenance.json").write_text("{}")
+    # A version's tiers, empty here; one that holds anything a run does not withhold is held to
+    # its manifest (the rows on a written version are with the version's own).
+    (store / "control" / VERSION / "visible" / "control.t00" / "references").mkdir(parents=True)
     (store / "control" / "withheld" / "author" / "s-1").mkdir(parents=True)
     (store / "control" / "work").mkdir()
     (store / "firmware" / "withheld").mkdir(parents=True)

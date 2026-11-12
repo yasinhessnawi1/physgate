@@ -285,3 +285,67 @@ def test_a_split_that_fails_leaves_no_version_and_the_pool_whole(
         _write(store, pool)
     assert sorted(p.name for p in (store / "control").iterdir()) == ["withheld", "work"]
     assert len([p for p in pool.iterdir() if p.is_dir()]) == 24
+
+
+def test_a_version_as_it_was_written_is_not_work_left(tmp_path: Path) -> None:
+    leftovers = _api("physgate.evaluation.tiers.store.leftovers")
+    version, _ = _version(tmp_path)
+    assert leftovers(version.parents[1]) == {
+        "pool_left": 0,
+        "temporary_version_left": 0,
+        "work_left": 0,
+    }
+
+
+def _first_visible_task(version: Path) -> Path:
+    return sorted(p for p in (version / "visible").iterdir() if p.is_dir())[0]
+
+
+@pytest.mark.parametrize(
+    "left",
+    [
+        "a file in the visible tier",
+        "a file in a visible task",
+        "a file deep in a visible task",
+        "a visible file rewritten",
+        "a link in a visible task",
+        "a manifest that is none",
+        "a provenance record rewritten",
+    ],
+)
+def test_a_version_holding_what_its_manifest_does_not_name_at_any_depth_is_work_left(
+    tmp_path: Path, left: str
+) -> None:
+    """The visible tier is the one tier a run does not withhold, so it is held at every depth.
+
+    A copy of a task dropped anywhere in it, or in place of the version's records, is read by
+    a run's sessions: the version is what its manifest names, by digest and count, or nothing
+    starts on the store.
+    """
+    store_module = _api("physgate.evaluation.tiers.store.leftovers").__module__
+    leftovers = _api(f"{store_module}.leftovers")
+    leftover_refusal = _api(f"{store_module}.leftover_refusal")
+    version, _ = _version(tmp_path)
+    task = _first_visible_task(version)
+    copy = '{"id": "control.t00", "brief": "a held-out brief"}'
+    if left == "a file in the visible tier":
+        (version / "visible" / "copy.json").write_text(copy)
+    elif left == "a file in a visible task":
+        (task / "copy.json").write_text(copy)
+    elif left == "a file deep in a visible task":
+        (task / "references" / "good" / "more" / "deeper").mkdir(parents=True)
+        (task / "references" / "good" / "more" / "deeper" / "copy.json").write_text(copy)
+    elif left == "a visible file rewritten":
+        (task / "task.json").write_text(copy)
+    elif left == "a link in a visible task":
+        (task / "copy.json").symlink_to(version / "held_out")
+    elif left == "a manifest that is none":
+        (version / "tierset.json").write_text(copy)
+    else:
+        (version / "provenance.json").write_text(copy)
+    store = version.parents[1]
+    assert leftovers(store)["work_left"] == 1, f"{left} is not counted"
+    refusal = leftover_refusal(store)
+    assert refusal is not None and refusal[0] == "work_left"
+    # An authoring or check session withholds the whole store, so it is not refused for it.
+    assert leftovers(store, out_of_place=False)["work_left"] == 0

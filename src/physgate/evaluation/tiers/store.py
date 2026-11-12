@@ -77,6 +77,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, get_args
 
+from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.authoring import (
     TIERS,
     AuthoringError,
@@ -93,6 +94,7 @@ from physgate.evaluation.tiers.manifest import (
     brief_digest,
     make_tierset,
     manifest_bytes,
+    read_version,
     requirements_digest,
     tier_record,
 )
@@ -472,7 +474,8 @@ def leftovers(
     with no canary) is there until it is secured. Unless ``out_of_place`` is false, it also
     counts every entry in a role's root outside a known place (:func:`_out_of_place`), which
     no run withholds; an authoring or blind-check session withholds the whole store but its
-    own work, so it is not refused for one. Only names are looked at.
+    own work, so it is not refused for one. Only names are looked at, but in a version that
+    holds anything a run does not withhold, which is read and held to its manifest.
 
     Raises:
         OSError: the store or a role's root cannot be listed, or a role's root or withheld
@@ -515,21 +518,48 @@ def leftovers(
     return counts
 
 
+def _holds_anything(path: Path) -> bool:
+    """Whether ``path`` is, or holds at any depth, anything but a directory.
+
+    Raises:
+        OSError: a directory in it cannot be listed.
+    """
+    if not os.path.lexists(path):
+        return False
+    if path.is_symlink() or not path.is_dir():
+        return True
+    return any(_holds_anything(path / name) for name in os.listdir(path))
+
+
 def _out_of_place(path: Path) -> int:
     """How many entries at ``path``, directly in a role's root, lie outside a known place.
 
     A version (a directory named as one, exactly) holds only its manifest, its provenance
-    record and its three tiers; each other entry in it counts. Anything else directly in the
-    role's root counts whole: a copy of a task a session dropped there is withheld by no run,
-    which withholds the tiers, the withheld root and the work root. Names are compared as
-    the harness writes them, so another case is out of place too.
+    record and its three tiers; each other entry in it counts. Its protected tiers a run
+    withholds; its records and its visible tier a run does not, so where it holds anything
+    there, at any depth, the version is read whole and held to its manifest
+    (:func:`.manifest.read_version`), and one that is not what its manifest names counts once:
+    a file beside a visible task, inside one or in place of a record is named by no digest.
+    Anything else directly in the role's root counts whole: a copy of a task a session dropped
+    there is withheld by no run, which withholds the tiers, the withheld root and the work
+    root. Names are compared as the harness writes them, so another case is out of place too.
 
     Raises:
         OSError: a version cannot be listed.
     """
     if VERSION_NAME.fullmatch(path.name) is None or path.is_symlink() or not path.is_dir():
         return 1
-    return sum(1 for name in os.listdir(path) if name not in VERSION_HOLDS)
+    count = sum(1 for name in os.listdir(path) if name not in VERSION_HOLDS)
+    # An entry beside the tiers is already counted, and is all the reader would refuse it for.
+    if count or not any(
+        _holds_anything(path / name) for name in (MANIFEST_NAME, PROVENANCE_NAME, TIERS[0])
+    ):
+        return count
+    try:
+        read_version(path)
+    except (PerRoleError, OSError):
+        return 1
+    return 0
 
 
 def leftover_refusal(
