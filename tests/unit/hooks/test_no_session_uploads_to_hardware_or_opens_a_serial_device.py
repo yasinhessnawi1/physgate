@@ -49,11 +49,6 @@ UPLOADS = [
     "pio remote device monitor",
     "avrdude -p atmega32u4 -c avr109 -U flash:w:firmware.hex",
     "avrdude -v",
-    "esptool write_flash 0x1000 firmware.bin",
-    "esptool.py --chip esp32 write_flash 0x1000 firmware.bin",
-    "esptool.py erase_flash",
-    "esptool write-flash 0x1000 firmware.bin",
-    "esptool erase-flash",
     # Through each door a shell offers a command.
     "cd modules/firmware && pio run -t upload",
     "pio run && pio run -t upload",
@@ -73,9 +68,7 @@ UPLOADS = [
     "{ pio run -t upload; }",
     "if pio run -t upload; then echo done; fi",
     "sh <<EOF\npio run -t upload\nEOF",
-    "bash <<'EOF'\nesptool.py erase_flash\nEOF",
     "python3 -m platformio run -t upload",
-    "python -m esptool write_flash 0 firmware.bin",
     "python3 -mplatformio run -t upload",
     "trap 'pio run -t upload' EXIT",
     # The program named only when the command runs, given an upload target all the same.
@@ -92,8 +85,26 @@ NOT_UPLOADS = [
     "pio check",
     "pio device list",
     "pio pkg list",
-    "esptool.py chip_id",
     "esptool version",
+    "esptool.py image_info firmware.bin",
+    "esptool.py elf2image firmware.elf",
+    "esptool merge_bin -o all.bin 0x0 a.bin",
+    "pio",
+    "pio --version",
+    "pio -h",
+    "pio run -t buildprog",
+    "pio run -t compiledb",
+    "pio run -t envdump",
+    "pio check --skip-packages",
+    "pio system info",
+    "pio project config",
+    "pio boards atmelavr",
+    "pio test --without-uploading --without-testing",
+    "pio -c vscode run",
+    "arduino-cli compile --fqbn pololu:avr:a-star32U4 .",
+    "arduino-cli version",
+    "which openocd",
+    "echo dfu-util",
     "python3 -m platformio run",
     "python3 analysis.py",
     # Text that names an upload is text.
@@ -109,6 +120,119 @@ NOT_UPLOADS = [
     "printf '%s\\n' 'esptool.py write_flash'",
 ]
 
+#: Programs that only ever reach a board, each as it is usually run.
+FLASHERS = [
+    "avrdude -c avr109",
+    "dfu-util -l",
+    "dfu-programmer atmega32u4 erase",
+    "bossac -i",
+    "openocd -f board.cfg",
+    "st-flash write firmware.bin 0x8000000",
+    "st-info --probe",
+    "pyocd flash firmware.elf",
+    "teensy_loader_cli --mcu=TEENSY40 firmware.hex",
+    "picotool load firmware.uf2",
+    "stm32flash -w firmware.bin",
+    "JLinkExe -device ATSAMD21",
+    "nrfjprog --program firmware.hex",
+    "micronucleus firmware.hex",
+    "timeout 30 openocd -f board.cfg",
+    "sh -c 'dfu-util -D firmware.bin'",
+]
+
+#: A use of a guarded program that is not one of its build-only uses, with the program.
+NOT_BUILD_ONLY = [
+    ("pio test", "pio"),
+    ("pio test -e balboa", "pio"),
+    ("pio test --without-uploading", "pio"),
+    ("pio test --without-testing", "pio"),
+    ("pio debug", "pio"),
+    ("pio debug --interface=gdb", "pio"),
+    ("pio remote run", "pio"),
+    ("pio remote test", "pio"),
+    ("pio pkg exec -- avrdude -v", "pio"),
+    ("pio pkg exec -p tool-openocd -- openocd", "pio"),
+    ("pio pkg install -g -t tool-avrdude", "pio"),
+    ("pio home", "pio"),
+    ("pio upgrade", "pio"),
+    ("pio ci src/main.cpp", "pio"),
+    ("pio device", "pio"),
+    ("pio settings set enable_telemetry yes", "pio"),
+    ("pio account login", "pio"),
+    ("pio run -t monitor", "pio"),
+    ("pio run -t custom_flash", "pio"),
+    ("pio run -t size -t monitor", "pio"),
+    ("pio run --upload-port COM3", "pio"),
+    ("pio run --monitor-port=COM3", "pio"),
+    ("pio -c vscode debug", "pio"),
+    ("pio --caller vscode test", "pio"),
+    ("platformio debug", "platformio"),
+    ("python3 -m platformio debug", "platformio"),
+    ("timeout 60 pio test", "pio"),
+    ("sh -c 'pio debug'", "pio"),
+    ("esptool write_flash 0x1000 firmware.bin", "esptool"),
+    ("esptool.py --chip esp32 write_flash 0x1000 firmware.bin", "esptool.py"),
+    ("esptool.py erase_flash", "esptool.py"),
+    ("esptool write-flash 0x1000 firmware.bin", "esptool"),
+    ("esptool erase-flash", "esptool"),
+    ("esptool.py chip_id", "esptool.py"),
+    ("esptool.py read_flash 0 0x1000 dump.bin", "esptool.py"),
+    ("esptool.py write_mem 0x400 1", "esptool.py"),
+    ("esptool.py", "esptool.py"),
+    ("bash <<'EOF'\nesptool.py erase_flash\nEOF", "esptool.py"),
+    ("python -m esptool write_flash 0 firmware.bin", "esptool"),
+    ("arduino-cli upload -p COM3", "arduino-cli"),
+    ("arduino-cli compile -u --fqbn x:y:z .", "arduino-cli"),
+    ("arduino-cli compile --upload .", "arduino-cli"),
+    ("arduino-cli compile --port COM3 .", "arduino-cli"),
+    ("arduino-cli monitor", "arduino-cli"),
+    ("arduino-cli burn-bootloader", "arduino-cli"),
+    ("arduino-cli debug", "arduino-cli"),
+    ("arduino-cli board list", "arduino-cli"),
+]
+
+#: A device named from where the command runs: the call's own directory, and each one a
+#: command of the call moves to. Each row: the call's directory, the command, the name read.
+RELATIVE = [
+    ("/", "cat dev/ttyACM0", "dev/ttyACM0"),
+    ("/", "cat ./dev/cu.usbmodem1", "./dev/cu.usbmodem1"),
+    ("/dev", "cat ttyACM0", "ttyACM0"),
+    ("/dev", "cat ./cu.usbmodem1", "./cu.usbmodem1"),
+    ("/dev", "echo AT > ttyUSB0", "ttyUSB0"),
+    ("/usr", "cat ../dev/ttyACM0", "../dev/ttyACM0"),
+    (None, "cd / && cat dev/ttyACM0", "dev/ttyACM0"),
+    (None, "cd /; cat dev/cu.usbmodem1", "dev/cu.usbmodem1"),
+    (None, "(cd / && cat dev/ttyUSB0)", "dev/ttyUSB0"),
+    (None, "pushd / && cat dev/ttyUSB0", "dev/ttyUSB0"),
+    (None, "cd /usr && cd .. && cat dev/ttyUSB0", "dev/ttyUSB0"),
+    (None, "cd /usr/.. && cat dev/ttyUSB0", "dev/ttyUSB0"),
+    (None, "sh -c 'cd / && cat dev/ttyACM0'", "dev/ttyACM0"),
+    (None, "cd /usr && cat ../dev/hidraw0", "../dev/hidraw0"),
+    # Where a command moves is known only when it runs: anywhere, the devices' directory
+    # and the one above it among them.
+    (None, "cd $WHERE && cat dev/ttyACM0", "dev/ttyACM0"),
+    (None, "cd $WHERE && cat ttyACM0", "ttyACM0"),
+    (None, 'cd "$(pwd)/.." && cat dev/ttyACM0', "dev/ttyACM0"),
+    (None, "cd - && cat ttyUSB0", "ttyUSB0"),
+    (None, "cd && cat cu.usbmodem1", "cu.usbmodem1"),
+]
+ENTERS_BY_STEPS = [
+    (None, "cd / && cd dev && cat x"),
+    (None, "cd / && pushd dev"),
+    ("/", "cd dev"),
+    ("/usr", "cd ../dev"),
+]
+NOT_RELATIVE = [
+    (None, "cat dev/ttyACM0"),
+    (None, "cat ttyACM0"),
+    (None, "cd modules && cat dev/tty.c"),
+    (None, "cd /tmp && cat dev/ttyACM0"),
+    (None, "cd / && cat tmp/ttyACM0"),
+    (None, "cd / && ls dev/null"),
+    ("/usr", "cat dev/ttyACM0"),
+    ("/", "ls dev"),
+]
+
 UNREAD = [
     "pio run -t $TARGET",
     "pio run $FLAGS",
@@ -122,6 +246,10 @@ DEVICES = [
     ("cat /dev/tty.usbserial-A1", "/dev/tty.usbserial-A1"),
     ("cat /dev/ttyACM0", "/dev/ttyACM0"),
     ("cat /dev/ttyUSB0", "/dev/ttyUSB0"),
+    ("cat /dev/hidraw0", "/dev/hidraw0"),
+    ("ls /dev/bus/usb", "/dev/bus/usb"),
+    ("cat /dev/bus/usb/001/004", "/dev/bus/usb/001/004"),
+    ("ls /dev/bus/*", "/dev/bus/*"),
     ("echo AT > /dev/ttyUSB0", "/dev/ttyUSB0"),
     ("exec 3<> /dev/cu.usbmodem1", "/dev/cu.usbmodem1"),
     ("stty -f /dev/cu.usbmodem1 115200", "/dev/cu.usbmodem1"),
@@ -165,6 +293,8 @@ NOT_DEVICES = [
     "ls /dev/fd",
     "cat /dev/stdin",
     "ls /dev/n*",
+    "ls /dev/bus",
+    "ls /dev/bus/pci",
     "gcc -c src/dev/tty.c",
     "cat ./dev/cu.h",
     "cat ~/dev/tty.notes",
@@ -191,9 +321,9 @@ def _config(tmp: Path, profile: str = "role") -> Any:  # noqa: ANN401 - the sess
     return write_config(tmp, profile=profile)[2]
 
 
-def _shell(tmp: Path, command: str, profile: str = "role") -> str:
+def _shell(tmp: Path, command: str, profile: str = "role", cwd: str | None = None) -> str:
     config = _config(tmp, profile)
-    hook_input = HookInput.model_validate(bash(command, cwd=config.worktree))
+    hook_input = HookInput.model_validate(bash(command, cwd=cwd or config.worktree))
     decision = H.pre_tool_use(hook_input, config)
     return "allow" if decision.allow else decision.reason
 
@@ -218,6 +348,39 @@ def test_a_command_that_uploads_or_flashes_is_refused(tmp_path: Path, command: s
 @pytest.mark.parametrize("command", NOT_UPLOADS, ids=NOT_UPLOADS)
 def test_a_build_and_text_that_names_an_upload_pass(tmp_path: Path, command: str) -> None:
     assert _shell(tmp_path, command) == "allow"
+
+
+@pytest.mark.parametrize("command", FLASHERS, ids=FLASHERS)
+def test_a_program_that_only_ever_reaches_a_board_is_refused(tmp_path: Path, command: str) -> None:
+    assert _shell(tmp_path, command) == H.UPLOAD
+
+
+@pytest.mark.parametrize(("command", "program"), NOT_BUILD_ONLY, ids=[c for c, _ in NOT_BUILD_ONLY])
+def test_a_use_of_a_guarded_program_that_is_not_build_only_is_refused(
+    tmp_path: Path, command: str, program: str
+) -> None:
+    assert _shell(tmp_path, command) == H.NOT_BUILD.format(program=program)
+
+
+@pytest.mark.parametrize(("cwd", "command", "device"), RELATIVE, ids=[c for _, c, _ in RELATIVE])
+def test_a_device_named_from_where_the_command_runs_is_refused(
+    tmp_path: Path, cwd: str | None, command: str, device: str
+) -> None:
+    assert _shell(tmp_path, command, cwd=cwd) == H.DEVICE.format(device=device)
+
+
+@pytest.mark.parametrize(("cwd", "command"), ENTERS_BY_STEPS, ids=[c for _, c in ENTERS_BY_STEPS])
+def test_reaching_the_devices_directory_in_steps_is_refused(
+    tmp_path: Path, cwd: str | None, command: str
+) -> None:
+    assert "the devices' directory" in _shell(tmp_path, command, cwd=cwd)
+
+
+@pytest.mark.parametrize(("cwd", "command"), NOT_RELATIVE, ids=[c for _, c in NOT_RELATIVE])
+def test_a_relative_name_that_lands_elsewhere_passes(
+    tmp_path: Path, cwd: str | None, command: str
+) -> None:
+    assert _shell(tmp_path, command, cwd=cwd) == "allow"
 
 
 @pytest.mark.parametrize("command", UNREAD, ids=UNREAD)
@@ -347,8 +510,15 @@ REFUSED_ARGUMENTS: list[tuple[dict[str, Any], str]] = [
     ({"command": "pio run -t upload"}, H.UPLOAD),
     ({"flags": "--environment balboa --target upload"}, H.UPLOAD),
     ({"command": "avrdude -p m32u4"}, H.UPLOAD),
-    ({"argv": ["esptool.py", "write_flash", "0", "x.bin"]}, H.UPLOAD),
+    (
+        {"argv": ["esptool.py", "write_flash", "0", "x.bin"]},
+        H.NOT_BUILD.format(program="esptool.py"),
+    ),
     ({"command": "pio device monitor"}, H.UPLOAD),
+    ({"command": "pio debug"}, H.NOT_BUILD.format(program="pio")),
+    ({"argv": ["pio", "test"]}, H.NOT_BUILD.format(program="pio")),
+    ({"command": "openocd -f board.cfg"}, H.UPLOAD),
+    ({"device": "/dev/hidraw2"}, H.DEVICE.format(device="/dev/hidraw2")),
     ({"port": "/dev/ttyACM0"}, H.DEVICE.format(device="/dev/ttyACM0")),
     ({"upload_port": "/dev/cu.usbmodem1"}, H.DEVICE.format(device="/dev/cu.usbmodem1")),
     ({"a": {"b": [{"c": "see /dev/tty.usbserial"}]}}, H.DEVICE.format(device="/dev/tty.usbserial")),
@@ -425,7 +595,7 @@ def test_the_rule_runs_with_every_other_hook_and_its_refusal_is_recorded(tmp_pat
     ("platform", "expected"),
     [
         ("darwin", ["/dev/cu.*", "/dev/tty.*"]),
-        ("linux", ["/dev/ttyACM*", "/dev/ttyUSB*"]),
+        ("linux", ["/dev/bus/usb", "/dev/hidraw*", "/dev/ttyACM*", "/dev/ttyUSB*"]),
     ],
 )
 def test_the_os_layer_denies_the_platform_s_board_devices_both_ways(
@@ -447,7 +617,7 @@ def test_the_os_layer_denies_the_platform_s_board_devices_both_ways(
 
 def test_every_device_the_os_layer_denies_is_one_the_hooks_refuse_by_name(tmp_path: Path) -> None:
     patterns = [p for platform in ("darwin", "linux") for p in board_devices(platform)]
-    assert len(patterns) == 4
+    assert len(patterns) == 6
     for pattern in patterns:
         device = pattern.replace("*", "board1")
         assert H.serial_device_in(f"cat {device}") == device
