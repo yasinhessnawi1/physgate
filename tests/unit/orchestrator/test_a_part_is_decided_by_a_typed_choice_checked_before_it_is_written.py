@@ -168,7 +168,7 @@ def test_make_records_values_or_texts_and_a_note_stays_the_note(tmp_path: Path) 
     )
     assert isinstance(both, QueueResolution), both
     assert both.decision == "choose make: my own board"
-    assert both.parts.texts == ("milled",)  # type: ignore[attr-defined, unused-ignore]
+    assert both.parts.texts == ("milled",)  # type: ignore[attr-defined, union-attr, unused-ignore]
 
 
 def test_find_states_nothing(tmp_path: Path) -> None:
@@ -431,7 +431,7 @@ def test_a_line_as_the_writer_writes_it_is_read(tmp_path: Path) -> None:
     assert "parts" in QueueResolution.model_fields, "a decision's line carries no parts body"
     run_dir = _line(tmp_path)
     ((_, read),) = read_queue(run_dir).decisions
-    assert read.parts.declared["mass"].unit == "kg"  # type: ignore[attr-defined, unused-ignore]
+    assert read.parts.declared["mass"].unit == "kg"  # type: ignore[attr-defined, union-attr, unused-ignore]
 
 
 @pytest.mark.parametrize(
