@@ -106,6 +106,27 @@ status = "warn"
 approved = { candidate_id = "2d86d44200e74427bafbb9fa89a198d9", date = 2026-11-06 }
 
 [[law]]
+id = "stall_current_within_peak_stall"
+statement = "a DC motor's stall current at the duty limit is no greater than its stall current at full duty, both at the supply's highest voltage"
+expression = "I <= P"
+pattern = "node"
+anchor = "P"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "both stalls are of one motor, at the same top supply voltage and the same winding resistance and temperature: peak_stall_current at full duty (that voltage over the winding resistance) and stall_current at the duty limit (the duty times that voltage, over the same resistance); a stalled winding has no back-EMF, so its current rises with the average voltage across it, and a duty is at most 1. Two different resistances for the two figures (the data sheet's ratio for one, a terminal resistance for the other) can put a correct pair the wrong way round where no duty limit is fixed"
+literals = []
+requires = []
+unless = []
+symbols = { I = { name = "stall_current", place = "self" }, P = { name = "peak_stall_current", place = "self" } }
+source = { kind = "textbook", title = "College Physics 2e (P. P. Urone, R. Hinrichs; OpenStax)", edition = "OpenStax, 2022, web edition", section = "23.6 Back Emf, Figure 23.24 and the worked current I = V/R = (48.0 V)/(0.400 ohm) = 120 A", read = 2026-11-07, reading = "in full" }
+example = [
+  { outcome = "pass", source = "Pololu #3073 (50:1 Micro Metal Gearmotor HPCB 6V with Extended Motor Shaft), stall extrapolation at 6 V: 1.5 A, so a winding resistance of 6 V / 1.5 A = 4 ohm; six Energizer NH15 cells in series (nominal 1.2 V each), taken at 7.2 V as the example's top: peak_stall_current = 7.2 V / 4 ohm = 1.8 A; a duty limit of 0.75 (300 of 400 counts, the Balboa library limit sizing standards section 6 cites): stall_current = 0.75 x 1.8 A = 1.35 A", values = { I = { value = 1.35, unit = "A" }, P = { value = 1.8, unit = "A" } } },
+  { outcome = "fail", source = "the same motor, pack and duty limit, with the two figures written one for the other: stall_current 1.8 A (the full-duty stall) and peak_stall_current 1.35 A (the duty-limited one)", values = { I = { value = 1.8, unit = "A" }, P = { value = 1.35, unit = "A" } } },
+]
+status = "warn"
+approved = { candidate_id = "2656f8e3afac48ee8e70ad30bacc6ee7", date = 2026-11-12 }
+
+[[law]]
 id = "within_rating_current"
 statement = "a node's steady operating output current is within its own maximum rated output current"
 expression = "I <= L"
