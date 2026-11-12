@@ -21,7 +21,7 @@ import pytest
 
 import physgate.reviewers.claude as claude
 from physgate.evaluation.observe import calls, sequence
-from physgate.orchestrator.decompose import read_stream, schema_refusal
+from physgate.orchestrator.decompose import model_declined, read_stream, schema_refusal
 from physgate.orchestrator.dispatch import ClaudeDispatcher
 from physgate.orchestrator.trajectory import forged_tail, result_lines, through_first_result
 from physgate.oslayer.abort import aborted_tool_uses, is_abort
@@ -207,3 +207,18 @@ def test_a_run_record_whose_line_holds_the_character_is_read_whole(
     lines = _try(sequence._lines, path)
     assert not isinstance(lines, Exception), f"a record line was cut: {lines}"
     assert lines == [{"item_id": "q1", "detail": _split(brk)}]
+
+
+@pytest.mark.parametrize("brk", BREAKS, ids=IDS)
+def test_a_model_s_refusal_is_read_when_its_event_holds_the_character(brk: str) -> None:
+    # The plan call reads a model's refusal from an event of its own; an event cut in two at
+    # the character is no event, and the refusal would go unseen.
+    refusal = {
+        "type": "system",
+        "subtype": "model_refusal_notice",
+        "message": f"{LEFT}{brk}{RIGHT}",
+    }
+    assert model_declined(_line(refusal) + _line(_result("ok"))) is True
+    # The same words inside another event's string are one string of that event.
+    quoted = _line(_write(f"{LEFT}{brk}{json.dumps(refusal, ensure_ascii=False)}{brk}{RIGHT}"))
+    assert model_declined(quoted + _line(_result("ok"))) is False
