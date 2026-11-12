@@ -213,6 +213,8 @@ NOT_BUILD_ONLY = [
     ("pio run extra", "pio"),
     ("pio run -- extra", "pio"),
     ("pio run -t", "pio"),
+    ("pio run -t=size", "pio"),
+    ("pio run --silent=1", "pio"),
     ("pio --no-such-global run", "pio"),
     ("pio check --upload-port=COM3", "pio"),
     ("pio test --without-uploading --without-testing --upload-port COM3", "pio"),
@@ -263,6 +265,8 @@ RELATIVE = [
     (None, "cd - && cat ttyUSB0", "ttyUSB0"),
     (None, "cd && cat cu.usbmodem1", "cu.usbmodem1"),
     (None, "cd ~ && cat ttyACM0", "ttyACM0"),
+    (None, "cd ./$WHERE && cat ttyACM0", "./$WHERE"),
+    (None, "cd ./d* && cat ttyACM0", "ttyACM0"),
     # A directory on the way to a device is one of the places a command could be anywhere.
     (None, "cd $WHERE && cat usb/001/004", "usb/001/004"),
     (None, "cd $WHERE && ls bus/usb", "bus/usb"),

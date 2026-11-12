@@ -387,9 +387,9 @@ def _moves_to(cmd: SimpleCommand) -> str | None | bool:
     for n, word in enumerate(argv[1:], 1):
         if word.startswith(("-", "+")) and word not in ("-", "+"):
             continue
-        if stepped + n in unread or word in ("-", "+") or word.startswith("~"):
-            return None
-        return word
+        # A target such as ``-`` or ``~`` is returned as written: it is not written from a
+        # known place, so it is not followed.
+        return None if stepped + n in unread else word
     # No target: the home, which the command's own text may have set.
     return None
 
@@ -422,8 +422,9 @@ def places_of(commands: Sequence[SimpleCommand], cwd: str) -> tuple[list[str], b
             reached = [_normal(target)]
             places += reached
         elif from_here:
+            # Nothing is added to the places: a directory beneath this one from which a
+            # short name is a device is a directory of devices, and entering it is refused.
             reached = [_normal(here + "/" + target)]
-            places += reached
         else:
             # Not followed: the command could be anywhere after it, which already holds
             # every name that would be a device from a directory of devices.
