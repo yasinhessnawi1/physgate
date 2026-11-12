@@ -35,6 +35,21 @@ describe("a quantity is always shown with its unit", () => {
     expect(renderToStaticMarkup(<Quantity value="14.790000" unit="USD" />)).toContain("14.790000");
   });
 
+  it("shows a negative zero with its sign, as the record holds it, and a positive zero without", () => {
+    expect(valueLabel(-0)).toBe("-0");
+    expect(valueLabel(JSON.parse("-0.0") as number)).toBe("-0");
+    expect(valueLabel(0)).toBe("0");
+    expect(renderToStaticMarkup(<Quantity value={-0} unit="m" />)).toContain(
+      '<span class="pg-quantity-value">-0</span>',
+    );
+  });
+
+  it("shows an integer larger than a number holds exactly as the numeral the record wrote", () => {
+    const seed = "9223372036854775807";
+    expect(requireQuantity({ value: seed, unit: "dimensionless" }).value).toBe(seed);
+    expect(valueLabel(seed)).toBe(seed);
+  });
+
   it("does not type a bare number", () => {
     // @ts-expect-error a bare number is not a quantity: if this line ever type-checks, the
     // directive is unused and the type check fails.

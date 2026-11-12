@@ -76,6 +76,12 @@ def claude_binary() -> str:
     return binary
 
 
+def pinned_version() -> str:
+    """The pinned version the binary under test reports."""
+    claude_binary()
+    return PINNED_VERSION
+
+
 @dataclass
 class SessionRun:
     """Everything one session left behind."""

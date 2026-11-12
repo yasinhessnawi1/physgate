@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from startup_stand_in import stand_in_spawn_env
 from task_fixtures import own_task
 
 from physgate.evaluation.per_role.arms import raw
@@ -139,7 +140,7 @@ def _install_argv(
 
     def fake_run(argv: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
         seen.append(argv)
-        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": {}}
+        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": stand_in_spawn_env()}
         return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
 
     monkeypatch.setattr(subprocess, "run", fake_run)

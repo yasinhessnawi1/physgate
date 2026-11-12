@@ -185,6 +185,8 @@ def test_the_hook_layer_is_still_reachable_through_the_one_command(
             str(tmp_path / "run.json"),
             "--sessions-root",
             str(tmp_path / "sessions"),
+            "--user-home",
+            str(tmp_path / "home"),
             "--temp",
             "/var/tmp/pgs/0123456789",
         ]

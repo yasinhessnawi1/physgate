@@ -10,12 +10,13 @@ state render. Five more are copies of one run whose first subtask the loop escal
 Queue view's tests (see ``QUEUE_RUNS``), and one more run that acts on decisions,
 ``run-esc-act``, whose item says what each verb will do. Two more record the OS layer and a
 network with none requested, for the Settings view's tests (see ``SETTINGS_RUNS``): the layer
-present, so the request is enforced, and the layer absent, so it is not. Beside the runs, never
-inside them, ``knowledge`` is a curated library holding every state a library file can be in
-(see ``ui_library_rig``), with two files a reader refuses: a skill file that is a link inside the
-library, and a staged file not named as staging names a candidate. The browser tests start
-``physgate ui`` over the root this prints, with that library, so what they check is the real
-server reading real records.
+present, so the request is enforced, and the layer absent, so it is not. The runs whose control
+sessions record simulations come after them (see ``ui_series_rig``), for the Simulation screen.
+Beside the runs, never inside them, ``knowledge`` is a curated library holding every state a
+library file can be in (see ``ui_library_rig``), with two files a reader refuses: a skill file
+that is a link inside the library, and a staged file not named as staging names a candidate. The
+browser tests start ``physgate ui`` over the root this prints, with that library, so what they
+check is the real server reading real records.
 
 Usage: ``uv run python tests/ui_e2e_runs.py <directory>``. The directory is emptied first.
 """
@@ -30,6 +31,7 @@ from pathlib import Path
 from stand_in_roles import register
 from ui_library_rig import build_library
 from ui_rig import contract_run, escalated_run, evaluation_rig, real_runs, unavailable_run
+from ui_series_rig import series_runs
 from ui_three_mode_rig import cut_after_first_gate_stage, three_mode_runs, two_domain_run
 
 #: The escalated runs the Queue view's browser tests use, one per test that decides, so no test
@@ -129,6 +131,7 @@ def main(argv: list[str]) -> int:
         ledger.write(b'{"not": "a ledger line"}\n')
     escalated(out, runs)
     settings_runs(out, runs)
+    series_runs(out, runs)
     library(out)
     print(runs, flush=True)
     return 0

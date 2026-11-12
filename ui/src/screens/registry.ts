@@ -91,6 +91,14 @@ export const VIEWS: readonly ViewDef[] = [
     icon: "book-open",
     component: lazy(() => import("./glossary/Glossary")),
   },
+  {
+    group: "analyse",
+    area: "simulation",
+    slug: "series",
+    title: "Simulation",
+    icon: "chart-line",
+    component: lazy(() => import("./simulation/Simulation")),
+  },
   // How this app is set up, at the navigation's foot.
   {
     group: "settings",
