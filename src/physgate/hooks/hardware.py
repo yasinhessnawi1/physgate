@@ -3,7 +3,9 @@
 A session builds firmware and shows its behaviour in simulation. Nothing it runs reaches a
 board: an upload would write a device no check has seen, and a serial port or a USB node is a
 channel in and out of the machine that no other layer watches. So both are refused, for every
-profile, through each door a session has:
+profile, the orchestrator's own session among them (work on a target, when it comes, is a
+mechanism of its own with a person's sign-off, never an exception here), through each door a
+session has:
 
 - **a shell command** that runs a program which only ever reaches a board, or a guarded
   program in any but its build-only uses, and any command at all that names a board's device;
@@ -62,8 +64,11 @@ file from where the call starts.
   file, and a project file can name a script the build runs, a command of its own for a
   target, or an upload as the default target; a board definition can do the same for the
   sketch tool. A plain build of such a project is a build-only use by its words, and no
-  reading of words can tell otherwise. That is also why the options that point a build at a
-  project directory or a project file are allowed: the default one is the session's too;
+  reading of words can tell otherwise. **This hook does not stop a flash such a build
+  starts; the OS layer's denial of the device does**, and a real session holds that (a plain
+  build whose project file runs a script that opens a device node finds it denied). That is
+  also why the options that point a build at a project directory or a project file are
+  allowed: the default one is the session's too;
 - a flasher this file does not name, run under its own name;
 - a programmer that talks to USB without a device node (on macOS, through the system's
   device framework).
@@ -122,11 +127,21 @@ UNREADABLE = (
 )
 
 #: The devices of each platform a board appears as, as the patterns the OS layer denies: its
-#: serial ports, and on Linux the USB and HID nodes a programmer opens directly. The
-#: machine's own terminals (``/dev/tty``, the pseudo-terminals) are not among them.
+#: serial ports (USB, built-in, ARM and Bluetooth ones on Linux), and on Linux the USB and HID
+#: nodes a programmer opens directly. The machine's own terminal (``/dev/tty``) is not among
+#: them. The text rule folds case, so it also refuses a name that differs from one of these
+#: in case only (a pseudo-terminal of macOS among them), which the OS layer leaves alone.
 BOARD_DEVICES: Mapping[str, tuple[str, ...]] = {
     "darwin": ("/dev/cu.*", "/dev/tty.*"),
-    "linux": ("/dev/bus/usb", "/dev/hidraw*", "/dev/ttyACM*", "/dev/ttyUSB*"),
+    "linux": (
+        "/dev/bus/usb",
+        "/dev/hidraw*",
+        "/dev/rfcomm*",
+        "/dev/ttyACM*",
+        "/dev/ttyAMA*",
+        "/dev/ttyS*",
+        "/dev/ttyUSB*",
+    ),
 }
 #: The directory every one of them lies in.
 _DEVICES = "dev"
