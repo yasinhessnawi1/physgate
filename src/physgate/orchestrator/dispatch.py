@@ -95,6 +95,7 @@ from physgate.orchestrator.managed import drift, model_answered, policy_limits_d
 from physgate.orchestrator.merge import RunGit, attempt_head, attempt_message, commit_attempt
 from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
 from physgate.orchestrator.params_record import recorded_params
+from physgate.orchestrator.parts_reading import parts_files
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
     Leftover,
@@ -515,6 +516,14 @@ def issued_state_path(sdir: Path) -> Path:
     session's directory is a root sessions may not write.
     """
     return sdir / "issued" / STATE_NAME
+
+
+def parts_record_dir(sdir: Path) -> Path:
+    """Where a session's parts record files are written.
+
+    Beside its issued state: outside its worktree, in a directory of the session's own.
+    """
+    return sdir / "parts"
 
 
 def write_issued_state(path: Path, data: bytes) -> None:
@@ -1527,6 +1536,10 @@ class ClaudeDispatcher:
         issued = self._issue_state(request, sdir)
         if issued is not None:
             reading_args += ["--reading", str(issued)]
+        # The parts record, where the run's decisions named parts: every file of it is required
+        # reading, so no session writes before it has read what a person said of the parts.
+        for record_file in self._issue_parts_record(request, sdir):
+            reading_args += ["--reading", str(record_file)]
         always_loaded_args = [
             arg for path in always_loaded_paths for arg in ("--always-loaded", str(worktree / path))
         ]
@@ -1613,6 +1626,44 @@ class ClaudeDispatcher:
             msg = "the issued state written for the session is not the one the run recorded"
             raise InvocationError(msg, subtask_id=request.subtask_id, path=str(path))
         return path
+
+    @staticmethod
+    def _issue_parts_record(request: SessionRequest, sdir: Path) -> list[Path]:
+        """Write the request's parts record where its session reads it, held to the release's line.
+
+        The record's bytes are held to the digest and length the release line named before any
+        file is written; the files are rendered from them (:func:`parts_files`: a person's words
+        cleaned, capped and fenced as data) and read back whole. A request with no record writes
+        nothing.
+
+        Raises:
+            InvocationError: the record is not the one the run recorded, or a file written is
+                not what was rendered.
+        """
+        held = request.parts_record
+        if held is None:
+            return []
+        data = held.text.encode("utf-8")
+        if (hashlib.sha256(data).hexdigest(), len(data)) != (held.sha256, held.length):
+            msg = "the parts record handed to the session is not the one the run recorded"
+            raise InvocationError(msg, subtask_id=request.subtask_id)
+        try:
+            files = parts_files(data)
+        except ValueError as exc:
+            msg = "the parts record the run recorded is not one the session can be shown"
+            raise InvocationError(msg, subtask_id=request.subtask_id, why=str(exc)) from exc
+        written = []
+        directory = parts_record_dir(sdir)
+        directory.mkdir(parents=True)
+        for name, content in files:
+            path = directory / name
+            with path.open("xb") as handle:
+                handle.write(content)
+            if path.read_bytes() != content:
+                msg = "the parts record file written for the session is not the one rendered"
+                raise InvocationError(msg, subtask_id=request.subtask_id, path=str(path))
+            written.append(path)
+        return written
 
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         """Run one attempt in a fresh session and report what it left.

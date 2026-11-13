@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 from parts_rig import COMPONENTS, body, decide, log_of, started
-from plan_hold_rig import again, kinds
+from plan_hold_rig import again
 
 from physgate.orchestrator import loop as loop_module
 
@@ -77,10 +77,10 @@ def test_a_record_that_is_not_the_release_s_is_an_incident_and_no_session_is_spa
     real = loop_module.parts_record
     monkeypatch.setattr(loop_module, "parts_record", lambda *a, **k: real(*a, **k) + b" ")
     again(the_rig)
-    order = kinds(run_dir)
     incidents = [one for one in log_of(run_dir) if one["kind"] == "incident"]
     assert [one["cause"] for one in incidents] == ["parts_record_mismatch"]
-    assert "stage_entered" not in order
+    spawned = [one for one in log_of(run_dir) if one.get("stage") == "spawn"]
+    assert spawned == []
     assert the_rig.dispatcher.requests == []
 
 

@@ -191,6 +191,7 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.queue import (
     INTEGRATION,
     ItemConsequence,
+    PartsBody,
     QueueItem,
     QueueResolution,
     QueueSource,
@@ -1641,6 +1642,9 @@ class Loop:
         for screened in dict.fromkeys(o for o in (order, inner) if o is not None):
             if not self._material_clean(subtask_id, self._screened(subtask_id, screened)):
                 return False
+        whole, record = self._parts_record_holds(subtask_id)
+        if not whole:
+            return False
         held: IssuedState | None = None
         if subtask_id == self.state.completion_subtask:
             # Integration's session reads the record's state: built from the log and recorded by
@@ -1706,6 +1710,7 @@ class Loop:
             )
             else "attempt",
             issued_state=held,
+            parts_record=record,
             disputes=disputer_problem(sub.plan.assigned_role) is None
             and any(
                 s.plan.assigned_role in owners_of("cross_nodes")
@@ -1899,6 +1904,49 @@ class Loop:
         owed = self.state.owed_halt()
         if owed is not None:
             self._halt_for(owed.subtask_id, owed.cause)
+
+    def _parts_record_holds(self, subtask_id: str) -> tuple[bool, IssuedState | None]:
+        """The parts record a session reads, built again and held to the line that released it.
+
+        ``(True, None)`` for a run that issues none: it did not ask, or its plan names no part.
+        ``(True, record)`` where the record the plan and the released decisions give now is the
+        one the release line named, by its digest and length. ``(False, None)`` after an incident
+        where it is not: a line the record was built from, or the code that builds it, has
+        changed since the run was released, and nothing is handed to a session or a reviewer.
+        """
+        released = self.state.parts_released
+        components = self.state.components or ()
+        if released is None or not components:
+            return True, None
+        taken = []
+        for named in released.components:
+            decided = self.state.taken[named.item_id]
+            body = (
+                None if named.parts is None else PartsBody.model_validate(named.parts.model_dump())
+            )
+            taken.append(
+                TakenPart(
+                    item_id=named.item_id,
+                    choice=named.choice,
+                    body=body,
+                    operator=decided.resolved_by,
+                    decided_ts=decided.decided_ts,
+                )
+            )
+        data = parts_record(components, taken)
+        if (hashlib.sha256(data).hexdigest(), len(data)) != (
+            released.record_sha256,
+            released.record_length,
+        ):
+            detail = (
+                f"the parts record the release at line {released.seq} named is not what the "
+                "run's record gives now"
+            )
+            self._incident(subtask_id, "parts_record_mismatch", detail)
+            return False, None
+        return True, IssuedState(
+            text=data.decode("utf-8"), sha256=released.record_sha256, length=released.record_length
+        )
 
     def _state_holds(self, subtask_id: str) -> IssuedState | None:
         """Integration's issued state, built again from the record and held to its window's line.
@@ -2434,6 +2482,11 @@ class Loop:
             if held is None:
                 return False
             artefact = artefact.model_copy(update={"integration_state": held})
+        whole, record = self._parts_record_holds(subtask_id)
+        if not whole:
+            return False
+        if record is not None:
+            artefact = artefact.model_copy(update={"parts_record": record})
         self._environment_before_a_spawn()
         self._stage(subtask_id, attempt, "review")
         reviewer = self._reviewers[role]

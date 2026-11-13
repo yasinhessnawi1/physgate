@@ -38,6 +38,10 @@ reviewer judges the work without another session's free text in it.
 - ``interface-followed.md``: for an attempt whose nodes revise an interface, one line
   per changed quantity, old -> new, built by code from the change check's derivation, with the
   node and attempt it followed; no session's text. Absent for every other attempt.
+- ``parts-NN-of-MM.md``: for an attempt of a run whose decisions named parts, the parts record its
+  session read, rendered from the record its release line named (``orchestrator.parts_reading``:
+  a person's words cleaned, capped and fenced as data), each file held to its digest. Absent for
+  every other attempt.
 - ``knowledge/``: the role's curated library files, copied from the harness; for a
   generalist review, only the standards every role reads.
 - ``files-NN-of-MM.md``: the listing of every other file above, by full path and size,
@@ -106,7 +110,7 @@ from physgate.orchestrator.git import (
     object_format,
     verified_git_dir,
 )
-from physgate.orchestrator.protocols import Artefact, IssuedSpec, PersonOrder
+from physgate.orchestrator.protocols import Artefact, IssuedSpec, IssuedState, PersonOrder
 from physgate.orchestrator.repair import quoted
 from physgate.orchestrator.trajectory import Seal, read_sealed
 from physgate.reviewers.exceptions import ReviewError
@@ -292,6 +296,10 @@ class Packet(BaseModel):
     #: The digest of ``interface-followed.md``, for an attempt whose nodes revise an interface.
     #: Left out of the record when absent, so every other packet reads and hashes as before.
     followed_sha256: Sha256 | None = None
+    #: Each file the parts record is rendered to, by name and digest, for an attempt of a run
+    #: whose decisions named parts. Left out of the record when empty, so every other packet
+    #: reads and hashes as before.
+    parts_record_sha256: dict[str, Sha256] = Field(default_factory=dict)
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -306,6 +314,8 @@ class Packet(BaseModel):
             data.pop("integration_state_sha256", None)
         if self.followed_sha256 is None:
             data.pop("followed_sha256", None)
+        if not self.parts_record_sha256:
+            data.pop("parts_record_sha256", None)
         return data
 
     def sha256(self) -> str:
@@ -908,6 +918,13 @@ def build_packet(
         (read / PERSON_ORDER_NAME).write_bytes(order)
         order_digest = _digest(order)
         reading.append(read / PERSON_ORDER_NAME)
+    parts_digests: dict[str, str] = {}
+    if artefact.parts_record is not None:
+        # What the session read, rendered again from the record its release line named.
+        for name, content in _parts_files(artefact.parts_record):
+            (read / name).write_bytes(content)
+            parts_digests[name] = _digest(content)
+            reading.append(read / name)
     text = rubric.text.encode("utf-8")
     if _digest(text) != rubric.sha256:
         msg = "the rubric is not the one that was loaded"
@@ -952,6 +969,7 @@ def build_packet(
         person_order_sha256=order_digest,
         integration_state_sha256=state_digest,
         followed_sha256=followed_digest,
+        parts_record_sha256=parts_digests,
     )
     (Path(review) / RECORD_NAME).write_text(packet.model_dump_json(indent=1) + "\n")
     return packet
@@ -1040,6 +1058,7 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
     _check_person_order(packet, artefact, read)
     _check_integration_state(packet, artefact, read)
     _check_followed(packet, artefact, read)
+    _check_parts_record(packet, artefact, read)
     _check_copies(packet, artefact, read, Path(repo))
     # The listing names every file under ``read/`` as it stands now, and nothing else.
     if joined["listing"] != file_listing(read, {part.name for part in packet.files_parts}):
@@ -1103,6 +1122,35 @@ def _check_integration_state(packet: Packet, artefact: Artefact, read: Path) -> 
     found = _digest(path.read_bytes()) if path.is_file() else None
     if packet.integration_state_sha256 != state.sha256 or found != state.sha256:
         msg = "integration's issued state is missing or is not the one its session read"
+        raise PacketError(msg, read=str(read))
+
+
+def _parts_files(record: IssuedState) -> tuple[tuple[str, bytes], ...]:
+    """The files ``record`` is rendered to, or why the packet cannot hold them."""
+    from physgate.orchestrator.parts_reading import parts_files
+
+    try:
+        return parts_files(record.text.encode("utf-8"))
+    except ValueError as exc:
+        msg = "the parts record the attempt carries is not one a reviewer can be shown"
+        raise PacketError(msg, why=str(exc)) from exc
+
+
+def _check_parts_record(packet: Packet, artefact: Artefact, read: Path) -> None:
+    """Hold the parts record's files to the attempt's record: there exactly when it carries one."""
+    held = artefact.parts_record
+    on_disk = sorted(path.name for path in read.glob("parts-*"))
+    if held is None:
+        if packet.parts_record_sha256 or on_disk:
+            msg = "the packet issued a parts record for an attempt that carries none"
+            raise PacketError(msg, read=str(read))
+        return
+    expected = {name: _digest(content) for name, content in _parts_files(held)}
+    found = {
+        name: _digest((read / name).read_bytes()) for name in expected if (read / name).is_file()
+    }
+    if packet.parts_record_sha256 != expected or found != expected or on_disk != sorted(expected):
+        msg = "the parts record's files are missing or are not the record its session read"
         raise PacketError(msg, read=str(read))
 
 

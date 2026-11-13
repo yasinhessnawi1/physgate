@@ -115,6 +115,8 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 #: issued state that the run's record, read again, no longer gives: a line it was built from was
 #: rewritten after the state was issued. ``declaration_mismatch`` is integration's declaration line
 #: that its merged commit, read again with the change check's parser, no longer gives.
+#: ``parts_record_mismatch`` is the parts record that the release line named, built again from
+#: the plan and the released decisions at a dispatch or a review, and no longer the one it named.
 #: ``decisions_unreadable`` is a line of the decisions file the queue's reader refuses: the run
 #: halts on it, named by file and line, until a person mends the file.
 IncidentCause = Literal[
@@ -141,6 +143,7 @@ IncidentCause = Literal[
     "interface_mismatch",
     "issued_state_mismatch",
     "declaration_mismatch",
+    "parts_record_mismatch",
     "decisions_unreadable",
     "run_records_changed",
 ]
