@@ -123,8 +123,11 @@ def test_the_macos_profile_denies_the_network_every_write_but_its_own_and_every_
     lines = [line.strip() for line in profile.splitlines() if line.strip()]
     assert lines[:1] == ["(version 1)"], profile
     assert "(deny network*)" in lines
+    assert "(deny file-write*)" in lines, profile
     deny_write = lines.index("(deny file-write*)")
-    own_write = next(i for i, line in enumerate(lines) if line.startswith("(allow file-write*"))
+    own_writes = [i for i, line in enumerate(lines) if line.startswith("(allow file-write*")]
+    assert len(own_writes) == 1, profile
+    own_write = own_writes[0]
     assert deny_write < own_write
     assert f'(subpath "{server_dir}")' in lines[own_write]
     assert '(literal "/dev/null")' in lines[own_write]
@@ -132,7 +135,9 @@ def test_the_macos_profile_denies_the_network_every_write_but_its_own_and_every_
         assert any(
             line.startswith("(deny file-read*") and f'(subpath "{path}")' in line for line in lines
         ), path
-    own_read = next(i for i, line in enumerate(lines) if line.startswith("(allow file-read*"))
+    own_reads = [i for i, line in enumerate(lines) if line.startswith("(allow file-read*")]
+    assert len(own_reads) == 1, profile
+    own_read = own_reads[0]
     last_read_deny = max(i for i, line in enumerate(lines) if line.startswith("(deny file-read*"))
     # The last rule that matches decides: the server's own directory is opened after the denies.
     assert own_read > last_read_deny
