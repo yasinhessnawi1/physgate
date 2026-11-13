@@ -15,7 +15,6 @@ from physgate.evaluation.observe.cost import CostLine, load_price_sheet
 from physgate.evaluation.per_role.assemble import (
     ExcludedTrial,
     TrialExcludedError,
-    decomposition_streams,
     harness_ended_by_infrastructure,
     harness_trial,
     raw_ended_by_infrastructure,
@@ -23,6 +22,7 @@ from physgate.evaluation.per_role.assemble import (
 )
 from physgate.evaluation.per_role.report import ReportError, TrialRecord
 from physgate.evaluation.tiers.task import parse_task
+from physgate.orchestrator.design_rounds import decomposition_streams
 from physgate.orchestrator.events import (
     Decomposed,
     DecompositionRetried,

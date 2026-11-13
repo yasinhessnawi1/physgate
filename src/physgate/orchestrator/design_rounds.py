@@ -23,6 +23,7 @@ import hashlib
 import os
 import time
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
@@ -54,7 +55,15 @@ from physgate.orchestrator.endings import (
     round_ending,
     what_follows,
 )
-from physgate.orchestrator.events import RETRIED_CAUSE, DesignUnavailable, Sha256
+from physgate.orchestrator.events import (
+    RETRIED_CAUSE,
+    Decomposed,
+    DecompositionRetried,
+    DesignUnavailable,
+    Event,
+    PlanProposed,
+    Sha256,
+)
 from physgate.orchestrator.exceptions import (
     AccountingError,
     DecompositionError,
@@ -785,3 +794,25 @@ def decompose_in_rounds(
         return RoundsOutcome(
             found, ok, cause if refused else outcome.cause, ran.detail, ran.reviewed
         )
+
+
+def decomposition_streams(events: Sequence[Event]) -> list[str]:
+    """Every decomposition stream the log says a call wrote, by its place beneath the run.
+
+    Each call writes its stream where the loop puts it before its line is written: the
+    decomposition line names the first round's call; a round's proposal line names its round's
+    call, or that round's second call; a retried decomposition names the first round's second
+    call. The loop scans none of them for held-out canaries; the evaluation's trial layer
+    does, and holds one that is gone as a stream never scanned. Named here, beside the
+    rounds' writer, as the one place that reads the rounds' lines.
+    """
+    named: set[tuple[str, ...]] = set()
+    for event in events:
+        if isinstance(event, Decomposed):
+            named.add(round_parts(1))
+        elif isinstance(event, PlanProposed):
+            parts = round_parts(event.round)
+            named.add((*parts, RETRY_NAME) if event.call == 2 else parts)
+        elif isinstance(event, DecompositionRetried):
+            named.add((*round_parts(1), RETRY_NAME))
+    return sorted("/".join((*parts, STREAM_NAME)) for parts in named)

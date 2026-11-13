@@ -77,22 +77,18 @@ from physgate.evaluation.per_role.trials import (
 from physgate.evaluation.tiers.task import Task
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.catches import parse_time
-from physgate.orchestrator.design_rounds import RETRY_NAME
+from physgate.orchestrator.design_rounds import decomposition_streams
 from physgate.orchestrator.dispatch import read_captured, review_material_seen
 from physgate.orchestrator.events import (
-    Decomposed,
-    DecompositionRetried,
     Event,
     Halted,
     Incident,
     LeftoverRead,
-    PlanProposed,
     SessionEnded,
     SessionSpawned,
     parse_events,
 )
 from physgate.orchestrator.gate_events import gate_events
-from physgate.orchestrator.queue import round_parts
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 
 #: The run halts that are the machine's, not the design's.
@@ -165,27 +161,6 @@ def _streams(run_dir: Path) -> list[Path]:
             if STREAM_NAME in files:
                 found.append(Path(here) / STREAM_NAME)
     return sorted(found)
-
-
-def decomposition_streams(events: Sequence[Event]) -> list[str]:
-    """Every decomposition stream the log says a call wrote, by its place beneath the run.
-
-    Each call writes its stream where the loop puts it before its line is written: the
-    decomposition line names the first round's call; a round's proposal line names its round's
-    call, or that round's second call; a retried decomposition names the first round's second
-    call. The decomposition streams are scanned by nothing in the loop, so this layer's scan
-    is their only one, and one that is gone is no stream scanned.
-    """
-    named: set[tuple[str, ...]] = set()
-    for event in events:
-        if isinstance(event, Decomposed):
-            named.add(round_parts(1))
-        elif isinstance(event, PlanProposed):
-            parts = round_parts(event.round)
-            named.add((*parts, RETRY_NAME) if event.call == 2 else parts)
-        elif isinstance(event, DecompositionRetried):
-            named.add((*round_parts(1), RETRY_NAME))
-    return sorted("/".join((*parts, STREAM_NAME)) for parts in named)
 
 
 def harness_exclusion(
