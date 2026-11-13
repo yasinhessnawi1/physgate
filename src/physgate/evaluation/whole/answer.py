@@ -23,19 +23,25 @@ failure of the answer, never an error of the scorer.
 
 **The closed list of structures.** Each runs once per ``period``:
 
-- ``incremental_rising_offset``, the form of the reference kit's own balancing example: the
-  command is changed, never set, by
-  ``u[k] = sat(u[k-1] + angle_gain·(θ[k] + rate_ratio·θ̇[k]) + distance_gain·x[k]
-  + speed_gain·v[k])``. ``θ + rate_ratio·θ̇`` is zero on the trajectory that rises to
-  vertical with no speed left. Gains in 1/rad, s, 1/m and s/m;
+- ``incremental_rising_offset``, the form of the reference kit's own balancing example in SI:
+  the command is changed, never set, by
+  ``u[k] = sat(u[k-1] + angle_gain·(θ̂[k] + rate_ratio·θ̇[k]) + distance_gain·x[k]
+  + speed_gain·v[k])``, where ``θ̂`` is the controller's own integrated angle (see
+  :class:`IncrementalRisingOffset`, with its optional leak). ``θ̂ + rate_ratio·θ̇`` is zero on
+  the trajectory that rises to vertical with no speed left. Gains in 1/rad, s, 1/m and s/m;
 - ``state_feedback``, a discrete state feedback that sets the command,
   ``u[k] = sat(angle_gain·θ[k] + rate_gain·θ̇[k] + distance_gain·x[k] + speed_gain·v[k])``.
-  Gains in 1/rad, s/rad, 1/m and s/m.
+  Gains in 1/rad, s/rad, 1/m and s/m;
+- ``native_incremental_rising_offset``, the same incremental form as the kit's code writes
+  it: its integers in the code's own scalings (:class:`NativeRisingOffset`). The scorer
+  converts it to SI only where a predicate needs SI, every scale factor named with its
+  source; a brief's "relative difference of 0" compares the integers themselves.
 
-In both, the measurements used at update ``k`` were taken ``sensor_delay`` updates earlier,
-and the command computed at ``k`` reaches the motors ``compute_delay`` updates later; both
-are whole numbers of updates. A structure off the list is refused rather than approximated:
-a scorer that guessed what an unknown structure meant would be judging its own guess.
+In each, the measurements used at update ``k`` were taken ``sensor_delay`` earlier, and the
+command computed at ``k`` reaches the motors ``compute_delay`` later. Both are times in s,
+not whole updates: the kit's own sensor and computation delay is a few milliseconds, less
+than one 10 ms update. A structure off the list is refused rather than approximated: a scorer
+that guessed what an unknown structure meant would be judging its own guess.
 
 **Units are exact spellings**, as for the per-role controller: each field is given in the one
 unit below, and any other spelling, however equivalent, is refused, so no answer is judged
@@ -72,9 +78,9 @@ from physgate.evaluation.tiers.base import Measure
 
 #: The largest answer file read: a controller, six settings and a list of paths.
 MAX_ANSWER_BYTES = 64 * 1024
-#: The longest delay accepted, in updates. Half a second at the reference brief's 100 Hz:
-#: far past any delay a balancing loop survives, and it keeps the scorer's delay line small.
-MAX_DELAY_SAMPLES = 50
+#: The longest delay accepted, in s: far past any delay a balancing loop survives, and it
+#: keeps the scorer's delay line small.
+MAX_DELAY_SECONDS = 0.5
 #: The largest magnitude any value may have. Far above any setting here (the largest the
 #: reference brief names is a 20 kHz PWM frequency), and small enough that the products and
 #: powers a scorer forms of them stay finite floats. A larger value is refused, as is an
@@ -118,13 +124,43 @@ def _whole(value: float) -> bool:
     return value.is_integer()
 
 
-class _Loop(_Frozen):
-    """What every structure has: its period, its command limit and its two delays."""
+def _integer(measure: Measure, unit: str, what: str, *, least: int | None = None) -> int:
+    """``measure`` as the whole number it must be, in ``unit``, at least ``least`` if given."""
+    value = _unit(measure, unit, what)
+    if not _whole(value):
+        msg = f"{what} is {value}; the code holds it as a whole number"
+        raise ValueError(msg)
+    if least is not None and value < least:
+        kind = "positive" if least == 1 else f"at least {least}"
+        msg = f"{what} is {value:g} {unit}; it is {kind}"
+        raise ValueError(msg)
+    return int(value)
+
+
+class _Delays(_Frozen):
+    """The two delays every structure states, each a time in s."""
+
+    sensor_delay: Measure
+    compute_delay: Measure
+
+    @model_validator(mode="after")
+    def _delays_are_times(self) -> _Delays:
+        for what, delay in (
+            ("the sensor delay", self.sensor_delay),
+            ("the compute delay", self.compute_delay),
+        ):
+            seconds = _unit(delay, "s", what)
+            if not 0 <= seconds <= MAX_DELAY_SECONDS:
+                msg = f"{what} is {seconds} s; it is a time from 0 to {MAX_DELAY_SECONDS} s"
+                raise ValueError(msg)
+        return self
+
+
+class _Loop(_Delays):
+    """What every SI structure has: its period, its command limit and its two delays."""
 
     period: Measure
     command_limit: Measure
-    sensor_delay: Measure
-    compute_delay: Measure
 
     @model_validator(mode="after")
     def _timing_is_physical(self) -> _Loop:
@@ -133,28 +169,29 @@ class _Loop(_Frozen):
         if not 0 < limit <= 1:
             msg = f"the command limit is {limit}; it is a duty above 0 and at most 1"
             raise ValueError(msg)
-        for what, delay in (
-            ("the sensor delay", self.sensor_delay),
-            ("the compute delay", self.compute_delay),
-        ):
-            samples = _unit(delay, "1", what)
-            if not (_whole(samples) and 0 <= samples <= MAX_DELAY_SAMPLES):
-                msg = (
-                    f"{what} is {samples}; it is a whole number of samples from 0 to "
-                    f"{MAX_DELAY_SAMPLES}"
-                )
-                raise ValueError(msg)
         return self
 
 
 class IncrementalRisingOffset(_Loop):
-    """The command changed each update by the rising offset, the travel and the speed."""
+    """The command changed each update by the rising offset, the travel and the speed.
+
+    The angle in the offset is the controller's own, ``θ̂``: the measured tilt rate
+    integrated once per update, with an optional leak ``d`` (``angle_decay_per_update``):
+    ``θ̂[k] = d·(θ̂[k-1] + period·θ̇[k])``. The leak acts on that integrated angle, never on
+    a measured one. Absent, ``d`` is 1 and ``θ̂`` is the integral of the rate, the tilt
+    itself. Below 1, in continuous time ``dθ̂/dt = θ̇ - θ̂/τ_L`` with
+    ``τ_L = -period/ln(d)`` (about ``period/(1 - d)``): ``θ̂`` is the tilt through a
+    first-order high-pass with corner ``1/τ_L`` rad/s, so a constant gyro bias settles to a
+    bounded angle instead of growing without end. The kit's code leaks by 999/1000 each 10 ms
+    update, ``τ_L`` = 10.0 s.
+    """
 
     structure: Literal["incremental_rising_offset"]
     rate_ratio: Measure
     angle_gain: Measure
     distance_gain: Measure
     speed_gain: Measure
+    angle_decay_per_update: Measure | None = None
 
     @model_validator(mode="after")
     def _gains_in_their_units(self) -> IncrementalRisingOffset:
@@ -162,6 +199,11 @@ class IncrementalRisingOffset(_Loop):
         _unit(self.angle_gain, "1/rad", "the angle gain")
         _unit(self.distance_gain, "1/m", "the distance gain")
         _unit(self.speed_gain, "s/m", "the speed gain")
+        if self.angle_decay_per_update is not None:
+            decay = _unit(self.angle_decay_per_update, "1", "the angle decay per update")
+            if not 0 < decay <= 1:
+                msg = f"the angle decay per update is {decay}; it is above 0 and at most 1"
+                raise ValueError(msg)
         return self
 
 
@@ -183,12 +225,80 @@ class StateFeedback(_Loop):
         return self
 
 
+class NativeRisingOffset(_Delays):
+    """The kit's balancing example as its code writes it: integers in the code's own scalings.
+
+    Each update the code reads the gyro once and forms, in its own units,
+
+    - the rate ``R = raw / gyro_divisor`` in deg/s (``raw`` the gyro's counts), and the angle
+      ``A = d·(A + R·update_time)`` in millidegrees, ``d`` being
+      ``angle_decay_numerator / angle_decay_denominator`` (the leak on that integrated angle);
+    - ``D``, the two wheels' encoder counts summed, and ``S``, their counts this update summed,
+      each less the reference's;
+    - the command, in PWM counts, changed by
+      ``(angle_response·(R·angle_rate_ratio + A) + distance_response·D + speed_response·S)
+      / response_divisor / gear_ratio_coefficient`` and held to ``±motor_speed_limit``.
+
+    The turn term, which drives the two wheels apart, is left out: the pitch loop is judged
+    symmetric, and nothing here claims to compare it. The code's integer truncations and its
+    integer signals are outside the analysed loop.
+
+    The map to SI is linear but not one-to-one: the three responses enter only as a ratio to
+    ``response_divisor·gear_ratio_coefficient``, so two different sets of integers can give
+    the same SI gains. Two controllers are the same only when their integers are.
+    """
+
+    structure: Literal["native_incremental_rising_offset"]
+    update_time: Measure
+    motor_speed_limit: Measure
+    angle_rate_ratio: Measure
+    angle_response: Measure
+    distance_response: Measure
+    speed_response: Measure
+    response_divisor: Measure
+    gear_ratio_coefficient: Measure
+    gyro_divisor: Measure
+    angle_decay_numerator: Measure
+    angle_decay_denominator: Measure
+
+    @model_validator(mode="after")
+    def _integers_in_their_units(self) -> NativeRisingOffset:
+        _integer(self.update_time, "ms", "the update time", least=1)
+        _integer(self.motor_speed_limit, "count", "the motor speed limit", least=1)
+        _integer(self.angle_rate_ratio, "ms", "the angle rate ratio", least=0)
+        _integer(self.angle_response, "1", "the angle response")
+        _integer(self.distance_response, "1", "the distance response")
+        _integer(self.speed_response, "1", "the speed response")
+        _integer(self.response_divisor, "1", "the response divisor", least=1)
+        _integer(self.gear_ratio_coefficient, "1", "the gear ratio coefficient", least=1)
+        _integer(self.gyro_divisor, "count*s/deg", "the gyro divisor", least=1)
+        numerator = _integer(self.angle_decay_numerator, "1", "the decay numerator", least=1)
+        denominator = _integer(self.angle_decay_denominator, "1", "the decay denominator", least=1)
+        if numerator > denominator:
+            msg = (
+                f"the angle decay is {numerator}/{denominator}; it never grows the angle, so "
+                "the numerator is at most the denominator"
+            )
+            raise ValueError(msg)
+        return self
+
+
 #: A controller, one structure of the closed list, told apart by its ``structure``.
-Controller = Annotated[IncrementalRisingOffset | StateFeedback, Field(discriminator="structure")]
+Controller = Annotated[
+    IncrementalRisingOffset | StateFeedback | NativeRisingOffset,
+    Field(discriminator="structure"),
+]
 
 
 class Parameters(_Frozen):
-    """The settings a brief constrains that the design chooses, each in its own unit."""
+    """The settings a brief constrains that the design chooses, each in its own unit.
+
+    ``gyro_sensitivity`` is the gyro's true scale at its full scale, in raw counts per deg/s,
+    as the answer states it (the sensor's datasheet figure). It is required when a controller
+    is written natively: the code's ``gyro_divisor`` is what the firmware believes, and no
+    source fixes it to the sensor, so the scorer takes the true scale from the answer rather
+    than assume the two agree.
+    """
 
     update_rate: Measure
     gyro_output_data_rate: Measure
@@ -196,6 +306,7 @@ class Parameters(_Frozen):
     pwm_frequency: Measure
     pwm_full_scale: Measure
     encoder_counts_per_wheel_revolution: Measure
+    gyro_sensitivity: Measure | None = None
 
     @model_validator(mode="after")
     def _each_positive_in_its_unit(self) -> Parameters:
@@ -214,6 +325,8 @@ class Parameters(_Frozen):
             "1",
             "the encoder counts per wheel revolution",
         )
+        if self.gyro_sensitivity is not None:
+            _positive(self.gyro_sensitivity, "count*s/deg", "the gyro's sensitivity")
         return self
 
 
@@ -228,10 +341,14 @@ ModulePath = Annotated[str, AfterValidator(_module_path)]
 
 
 class WholeRun(_Frozen):
-    """One whole-run answer: the controller, the chosen settings and the files it names."""
+    """One whole-run answer: the controller, the chosen settings and the files it names.
+
+    Version 2 (13.11.2026) gives the delays as times, adds the native structure and the
+    angle's leak. Version 1, with delays in whole updates, was never released.
+    """
 
     form: Literal["whole_run"]
-    version: Literal[1]
+    version: Literal[2]
     controller: Controller
     analysed_controller: Controller | None = None
     parameters: Parameters
@@ -256,6 +373,26 @@ class WholeRun(_Frozen):
                 msg = f"the answer names the file {path!r} twice"
                 raise ValueError(msg)
             seen.add(path.lower())
+        return self
+
+    @model_validator(mode="after")
+    def _native_needs_its_scales(self) -> WholeRun:
+        full_scale = float(self.parameters.pwm_full_scale.value)
+        for controller in (self.controller, self.analysed_controller):
+            if not isinstance(controller, NativeRisingOffset):
+                continue
+            if self.parameters.gyro_sensitivity is None:
+                msg = (
+                    "a controller written natively needs the gyro's sensitivity stated in "
+                    "the parameters: its divisor is what the code believes, not the sensor"
+                )
+                raise ValueError(msg)
+            if controller.motor_speed_limit.value > full_scale:
+                msg = (
+                    f"the motor speed limit is {controller.motor_speed_limit.value} counts, "
+                    f"past the PWM full scale of {full_scale:g}"
+                )
+                raise ValueError(msg)
         return self
 
 
