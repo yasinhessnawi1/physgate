@@ -119,6 +119,58 @@ def test_the_hand_case_s_phase_margin_is_its_closed_form_one() -> None:
     assert margin == pytest.approx(want, abs=1e-6)
 
 
+def _resonant() -> tuple[Any, Any, Any, float]:
+    """A lightly damped resonance under a gain of 0.5: |L| rises above 1 near 20 rad/s only.
+
+    Its gain crosses 1 twice, going up (phase near 0, a margin near 170°) and coming down
+    (phase near -180°, a margin of a few degrees).
+    """
+    wn, zeta, gain = 20.0, 0.05, 0.5
+    a = np.array([[0.0, 1.0], [-(wn**2), -2.0 * zeta * wn]])
+    b = np.array([[0.0], [wn**2]])
+    block = np.zeros((3, 3))
+    block[:2, :2], block[:2, 2:] = a, b
+    held = expm(block * T)
+    return held[:2, :2], held[:2, 2:], np.array([[1.0, 0.0]]), gain
+
+
+def test_with_two_gain_crossovers_the_phase_margin_is_the_smaller() -> None:
+    ap, bp, cp, gain = _resonant()
+    system = _loop().System(
+        ap=ap,
+        bp=bp,
+        cp=cp,
+        ac=np.zeros((0, 0)),
+        bc=np.zeros((0, 1)),
+        cc=np.zeros((1, 0)),
+        dc=np.array([[-gain]]),
+        period=T,
+    )
+    # This test's own reading of the loop L(z) = gain * C (zI - A)^-1 B on a fine grid.
+    w = np.linspace(1.0, math.pi / T, 400_001)
+    z = np.exp(1j * w * T)
+    det = (z - ap[0, 0]) * (z - ap[1, 1]) - ap[0, 1] * ap[1, 0]
+    loop_gain = gain * ((z - ap[1, 1]) * bp[0, 0] + ap[0, 1] * bp[1, 0]) / det
+    above = np.abs(loop_gain) > 1.0
+    at = np.nonzero(above[:-1] != above[1:])[0]
+    assert at.size == 2
+    # The margin at each crossover: the phase above -180°, wrapped into [-180°, 180°).
+    found = [(math.degrees(float(np.angle(loop_gain[i]))) + 360.0) % 360.0 - 180.0 for i in at]
+    assert max(found) - min(found) > 100.0, found
+    margin, crossed = _loop().phase_margin(system)
+    assert crossed
+    assert margin == pytest.approx(min(found), abs=0.05)
+
+
+def test_a_leaky_integrated_angle_has_no_held_offset_to_set_aside() -> None:
+    # Only a leak-free angle's offset is a mode at exactly 1; a leak below 1 decays it, so the
+    # loop is judged on every one of its modes.
+    loop = _loop()
+    for decay in (0.999, 0.9):
+        assert loop.system(_light_rotor(), _kit_in_si(decay)).neutral is None, decay
+    assert loop.system(_light_rotor(), _kit_in_si(1.0)).neutral is not None
+
+
 def test_a_loop_unstable_as_designed_has_no_margins() -> None:
     loop = _loop()
     weak = _scalar()

@@ -469,6 +469,39 @@ def test_a_native_controller_s_margins_use_each_corner_s_wheel_radius(tmp_path: 
     assert row["corners"]["low"]["value"] < row["corners"]["high"]["value"]
 
 
+def test_each_corner_converts_a_native_controller_at_that_corner_s_wheel_radius(
+    tmp_path: Path,
+) -> None:
+    # Native gains act on encoder counts; their SI distance and speed gains scale with the
+    # wheel's radius. At each corner of the radius's range the conversion takes that corner's
+    # radius, never the nominal one: the margins at the two ends are this test's own reading
+    # of the plant at that radius under the gains converted at that radius.
+    from physgate.evaluation.whole import loop as loop_module
+    from physgate.evaluation.whole.answer import parse_whole_run
+    from physgate.evaluation.whole.convert import ScaleFactor, to_si
+    from physgate.evaluation.whole.plant import nominal, parse_plant
+
+    plant = _plant(rotor_inertia=(1e-8, 1e-8), wheel_radius=(0.039, 0.041))
+    doc = _answer(_native())
+    read = parse_whole_run(json.dumps(doc).encode())
+    values = nominal(parse_plant(plant))
+    want = []
+    for radius in (0.039, 0.041):
+        at = {**values, "wheel_radius": radius}
+        si = to_si(
+            read.controller,
+            read.parameters,
+            wheel_radius=ScaleFactor("wheel_radius", radius, "m", "this test"),
+        )
+        margins = loop_module.margins(at, si)
+        assert margins.downward is not None
+        want.append(margins.downward)
+    row = _rows(_judge(tmp_path, doc, COMPUTED_SPECS[3:], plant))["down"]
+    assert row["corners"]["count"] == 2
+    assert row["corners"]["low"]["value"] == pytest.approx(min(want), rel=1e-9)
+    assert row["corners"]["high"]["value"] == pytest.approx(max(want), rel=1e-9)
+
+
 def test_a_design_written_with_no_leak_is_judged_on_its_balance(tmp_path: Path) -> None:
     # The kit's gains in SI with no angle_decay_per_update: the integrated angle's offset is
     # not a mode that fails the margins.

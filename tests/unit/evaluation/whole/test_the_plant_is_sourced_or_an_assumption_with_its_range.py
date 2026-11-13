@@ -143,10 +143,19 @@ def _frozen_assumption_at_a_point(doc: dict[str, Any]) -> None:
 
 
 def test_a_draft_may_hold_an_assumption_at_a_point_for_a_fixture() -> None:
+    plant = _plant()
     doc = copy.deepcopy(_draft())
     p = doc["parameters"]["com_height"]
     p.update(low=p["value"], high=p["value"])
-    assert _parse(doc).parameters["com_height"].low == p["value"]
+    try:
+        taken = plant.parse_plant(json.dumps(doc).encode())
+    except plant.PlantError as exc:
+        pytest.fail(f"a draft holding an assumption at a point was refused: {exc}")
+    assert taken.status == "draft"
+    assert taken.parameters["com_height"].low == p["value"]
+    # The same file, frozen, is refused, and for that reason.
+    doc.update(status="frozen")
+    _refused(doc, "an assumption held at a point in a frozen plant")
 
 
 def test_a_frozen_plant_with_every_assumption_ranged_is_taken() -> None:
@@ -229,6 +238,15 @@ def test_the_bodies_derive_as_the_parameter_check_recomputed_them() -> None:
     assert bodies.wheels_inertia / 2 == pytest.approx(1.5876e-5, rel=1e-4)  # D11
 
 
+def test_the_wheels_inertia_is_the_factor_the_plant_states_times_m_w_r_squared() -> None:
+    # The draft's factor is 0.5 (a disc); at 1.0 (a ring) the wheels' inertia is m_w·r².
+    for factor in (1.0, 0.75):
+        values = _values(wheel_inertia_factor=factor)
+        bodies = _plant().bodies(values)
+        want = factor * 2 * values["wheel_mass"] * values["wheel_radius"] ** 2
+        assert bodies.wheels_inertia == pytest.approx(want, rel=1e-12), factor
+
+
 def test_the_exact_gear_ratio_is_within_the_brief_s_half_percent() -> None:
     ratio = _values()["gear_ratio"]
     assert ratio == pytest.approx(110.242, abs=5e-4)
@@ -307,6 +325,71 @@ def test_with_no_ranged_parameter_the_one_corner_is_the_nominal_set() -> None:
     assert list(plant_module.corners(plant, plant_module.STALL_INPUTS)) == [
         plant_module.nominal(plant)
     ]
+
+
+#: This test's own statement of the draft's ranged parameters the powered loop reads.
+LOOP_RANGED = (
+    "wheel_radius",
+    "kit_mass",
+    "wheel_mass",
+    "cell_mass",
+    "com_height",
+    "body_inertia",
+    "wheel_inertia_factor",
+    "rotor_inertia",
+    "motor_no_load_speed",
+    "motor_no_load_current",
+)
+
+
+def test_the_draft_s_corners_number_two_to_the_ranged_parameters_read() -> None:
+    plant_module = _plant()
+    plant = _parse(_draft())
+    # Which parameters range is stated here, so a count can never agree with a wrong list.
+    assert plant_module.ranged(plant, plant_module.LOOP_INPUTS) == LOOP_RANGED
+    assert plant_module.ranged(plant, plant_module.STALL_INPUTS) == ()
+    assert sum(1 for _ in plant_module.corners(plant, plant_module.STALL_INPUTS)) == 1
+    assert sum(1 for _ in plant_module.corners(plant, plant_module.LOOP_INPUTS)) == 2**10
+    every = tuple(plant_module.PLANT_UNITS)
+    assert sum(1 for _ in plant_module.corners(plant, every)) == 2**11
+
+
+#: This test's own statement of the most parameters a plant may range.
+MOST_RANGED = 12
+
+
+def _ranging(extra: tuple[str, ...]) -> dict[str, Any]:
+    """The draft with ``extra`` (each a point in the draft) given a range about its value."""
+    doc = copy.deepcopy(_draft())
+    for name in extra:
+        p = doc["parameters"][name]
+        assert p["low"] == p["high"], name
+        p.update(low=p["value"] * 0.99, high=p["value"] * 1.01)
+    return doc
+
+
+def test_the_cap_on_ranged_parameters_is_stated_as_data() -> None:
+    assert getattr(_plant(), "MAX_RANGED", None) == MOST_RANGED
+
+
+def test_a_plant_ranging_as_many_parameters_as_the_cap_is_taken() -> None:
+    plant_module = _plant()
+    plant = _parse(_ranging(("pack_voltage",)))
+    assert len(plant_module.ranged(plant, tuple(plant_module.PLANT_UNITS))) == MOST_RANGED
+
+
+def test_a_plant_ranging_more_parameters_than_the_cap_is_refused() -> None:
+    _refused(_ranging(("pack_voltage", "motor_rated_voltage")), f"at most {MOST_RANGED}")
+
+
+def test_corners_refuse_more_ranged_parameters_than_the_cap_before_any_corner() -> None:
+    # A plant built without parse_plant: corners() holds the cap itself, and refuses before
+    # it yields, so no caller can enumerate 2**13 corners.
+    plant_module = _plant()
+    raw = json.dumps(_ranging(("pack_voltage", "motor_rated_voltage")))
+    unchecked = plant_module.PlantFile.model_validate_json(raw)
+    with pytest.raises(plant_module.PlantError, match=f"at most {MOST_RANGED}"):
+        next(plant_module.corners(unchecked, tuple(plant_module.PLANT_UNITS)))
 
 
 @pytest.mark.parametrize(
