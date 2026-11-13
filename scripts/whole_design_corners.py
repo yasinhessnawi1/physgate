@@ -23,6 +23,19 @@ each grid point judged with every other parameter at its value and at every corn
 other ranges. That is evidence for a question the owner rules on (whether a controller known
 to balance the real kit may bound those parameters); the script applies nothing.
 
+With ``--bound`` it prints the bound the owner's ruling of 13.11.2026 admits (:func:`bound`):
+"the real kit balances with the published controller" bounds the plant as stability evidence
+only, never as evidence of a margin. Over a grid of the parameters no source gives, each grid
+point is judged with the answer's loop at the other ranged parameters' values and at every
+corner of their ranges as sourced, with the answer's own delays and with none. A point is
+admitted when the loop is stable at any of those: the real robot is one point, so the evidence
+rules a value out only where no combination the ranges allow is stable. A parameter's bound is
+the span of its admitted grid values, widened to the next grid value outward on each side (the
+true edge lies between the two; the bound never claims more than the grid shows), and the
+wider of the two delays' bounds is the one used. The stronger reading (a point stable at every
+corner) is reported beside it and not used. The plant file's ``bounded`` ranges are copied from
+this report, which they name by its SHA-256.
+
 The bounds are the reference brief's for the criteria the scorer judges, written here as the
 fixture rows write them; this is a measuring instrument, not a tier's task. The default answer
 is the kit's published balancing controller as its code writes it (``KIT_ANSWER``), with the
@@ -30,7 +43,8 @@ gyro's datasheet sensitivity and the encoder counts per wheel revolution from th
 counts stated, as a native answer must state them.
 
 Run with the evaluation group: ``uv run --group evaluation python
-scripts/whole_design_corners.py [--plant PATH] [--answer PATH] [--region]``.
+scripts/whole_design_corners.py [--plant PATH] [--answer PATH] [--region | --bound
+[--workers N]]``. The bound report is printed on one line, as recorded.
 """
 
 from __future__ import annotations
@@ -43,6 +57,8 @@ import math
 import os
 import sys
 import tempfile
+from collections.abc import Iterable, Sequence
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +72,7 @@ from physgate.evaluation.whole.plant import (
     nominal,
     parse_plant,
     ranged,
+    span,
 )
 from physgate.evaluation.whole.scenario import WholeDesignScenario, WholeDesignTask
 
@@ -286,6 +303,223 @@ def region(plant: bytes, answer: dict[str, Any], axes: dict[str, list[float]]) -
     }
 
 
+#: The bound's grid: the loop's parameters no source gives, with the number of grid points
+#: across each one's stated range (the rotor's spaced geometrically). The centre of mass's
+#: height is the finest, about 2 mm a step, since the stability evidence bounds it most.
+BOUND_AXES: dict[str, int] = {"com_height": 37, "body_inertia": 7, "rotor_inertia": 9}
+#: What the bound report says it is, in plain words.
+BOUND_RULE = (
+    "Stability evidence only (owner, 13.11.2026): the real kit balances with the published "
+    "controller, so a grid value is ruled out only where the loop is unstable at every "
+    "combination the stated ranges allow (the other unsourced grid values, and the sourced "
+    "parameters at their values and at every corner of their ranges). Each bound is the span "
+    "of the admitted grid values widened to the next grid value outward; the wider of the "
+    "bounds with the answer's own delays and with none is used. Never evidence of a margin."
+)
+
+
+def answer_digest(answer: dict[str, Any]) -> str:
+    """The SHA-256 of ``answer`` as the reports write it."""
+    return hashlib.sha256(json.dumps(answer).encode()).hexdigest()
+
+
+def sourced_digest(plant: bytes) -> str:
+    """The SHA-256 of every parameter's value and range as sourced or assumed, bounds aside."""
+    parsed = parse_plant(plant)
+    doc = {n: [p.value, p.low, p.high] for n, p in parsed.parameters.items()}
+    return hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).hexdigest()
+
+
+def delay_variants(answer: dict[str, Any]) -> dict[str, tuple[float, float]]:
+    """The delays the bound is computed with: the answer's own (assumed), and none.
+
+    Raises:
+        ValueError: a delay not stated in seconds.
+    """
+    c = answer["controller"]
+    own = []
+    for key in ("sensor_delay", "compute_delay"):
+        if c[key]["unit"] != "s":
+            msg = f"the answer's {key} is in {c[key]['unit']!r}; the bound reads seconds"
+            raise ValueError(msg)
+        own.append(float(c[key]["value"]))
+    return {"assumed": (own[0], own[1]), "zero": (0.0, 0.0)}
+
+
+def with_delays(answer: dict[str, Any], sensor: float, compute: float) -> dict[str, Any]:
+    """A copy of ``answer`` with its two delays set, in seconds; nothing else changed."""
+    out: dict[str, Any] = json.loads(json.dumps(answer))
+    out["controller"]["sensor_delay"] = _m(sensor, "s")
+    out["controller"]["compute_delay"] = _m(compute, "s")
+    return out
+
+
+def admitted(stable: Sequence[bool]) -> tuple[bool, bool]:
+    """A point's two readings: stable at any judged set (admitted), and at every one."""
+    return (any(stable), all(stable))
+
+
+def interval(axis: Sequence[float], admits: Sequence[bool]) -> tuple[float, float]:
+    """The admitted span of ``axis``, widened to the next grid value outward on each side.
+
+    Raises:
+        ValueError: no value admitted (the evidence and the ranges contradict).
+    """
+    found = [i for i, a in enumerate(admits) if a]
+    if not found:
+        msg = "no grid value is admitted: the evidence and the stated ranges contradict"
+        raise ValueError(msg)
+    return (axis[max(found[0] - 1, 0)], axis[min(found[-1] + 1, len(axis) - 1)])
+
+
+def wider(bounds: Iterable[tuple[float, float] | None]) -> tuple[float, float]:
+    """The least restrictive of ``bounds``: the lowest low and the highest high.
+
+    A ``None`` (a reading under which the evidence and the ranges contradict) bounds nothing.
+
+    Raises:
+        ValueError: every reading contradicts.
+    """
+    found = [b for b in bounds if b is not None]
+    if not found:
+        msg = "every reading contradicts the stated ranges: nothing to bound"
+        raise ValueError(msg)
+    return (min(b[0] for b in found), max(b[1] for b in found))
+
+
+def _interval_or_none(axis: Sequence[float], admits: Sequence[bool]) -> list[float] | None:
+    try:
+        return list(interval(axis, admits))
+    except ValueError:
+        return None
+
+
+def bounds_from_points(
+    axes: dict[str, list[float]], points: dict[str, list[list[Any]]]
+) -> dict[str, Any]:
+    """Each axis's bound, read off the judged points of every delay variant.
+
+    A point row is its axis values in order, then its two readings (:func:`admitted`). A grid
+    value is admitted when any point at it is; the stronger reading likewise from the second.
+    """
+    names = list(axes)
+    k = len(names)
+    out: dict[str, Any] = {}
+    for i, name in enumerate(names):
+        axis = axes[name]
+        per: dict[str, list[float] | None] = {}
+        every: dict[str, list[float] | None] = {}
+        for variant, rows in points.items():
+            per[variant] = _interval_or_none(
+                axis, [any(r[i] == v and r[k] for r in rows) for v in axis]
+            )
+            every[variant] = _interval_or_none(
+                axis, [any(r[i] == v and r[k + 1] for r in rows) for v in axis]
+            )
+        used = wider(None if b is None else (b[0], b[1]) for b in per.values())
+        out[name] = {
+            "sourced": [axis[0], axis[-1]],
+            **per,
+            "used": list(used),
+            "every_corner": every,
+        }
+    return out
+
+
+def bound_axes(plant: bytes) -> dict[str, list[float]]:
+    """:data:`BOUND_AXES` across the plant's stated ranges, each grid's ends its range's own."""
+    parsed = parse_plant(plant)
+    out = {}
+    for name, n in BOUND_AXES.items():
+        p = parsed.parameters[name]
+        grid = _grid(p.low, p.high, n, geometric=name == "rotor_inertia")
+        grid[0], grid[-1] = p.low, p.high
+        out[name] = grid
+    return out
+
+
+def _point(
+    job: tuple[dict[str, float], list[float], list[tuple[str, float, float]], Any],
+) -> list[Any]:
+    here, at, others, answer = job
+    stable: list[bool] = []
+    seen = {True: False, False: False}
+    sets = itertools.chain(
+        [here],
+        (
+            {
+                **here,
+                **{
+                    n: (high if end else low)
+                    for (n, low, high), end in zip(others, ends, strict=True)
+                },
+            }
+            for ends in itertools.product((0, 1), repeat=len(others))
+        ),
+    )
+    for values in sets:
+        ok = bool(_margins_at(values, answer)["stable"])
+        stable.append(ok)
+        seen[ok] = True
+        if seen[True] and seen[False]:
+            break
+    return [*at, *admitted(stable)]
+
+
+def bound(
+    plant: bytes, answer: dict[str, Any], axes: dict[str, list[float]], workers: int = 1
+) -> dict[str, Any]:
+    """The bound the kit's stability evidence admits on ``axes``, as the module says.
+
+    Each grid point is judged at the other ranged parameters' values and at every corner of
+    their ranges **as sourced** (never as bounded), with the answer's delays and with none.
+
+    Raises:
+        ValueError: an axis the balance loop does not read.
+    """
+    for name in axes:
+        if name not in LOOP_INPUTS:
+            msg = f"{name} is not a parameter the balance loop reads"
+            raise ValueError(msg)
+    parsed = parse_plant(plant)
+    others = [
+        n
+        for n in LOOP_INPUTS
+        if n not in axes and parsed.parameters[n].low < parsed.parameters[n].high
+    ]
+    ranges = [(n, parsed.parameters[n].low, parsed.parameters[n].high) for n in others]
+    base = nominal(parsed)
+    names = list(axes)
+    variants = delay_variants(answer)
+    points: dict[str, list[list[Any]]] = {}
+    for variant, (sensor, compute) in variants.items():
+        judged = with_delays(answer, sensor, compute)
+        jobs = [
+            ({**base, **dict(zip(names, at, strict=True))}, list(at), ranges, judged)
+            for at in itertools.product(*(axes[n] for n in names))
+        ]
+        if workers > 1:
+            with ProcessPoolExecutor(max_workers=workers) as pool:
+                points[variant] = list(pool.map(_point, jobs, chunksize=8))
+        else:
+            points[variant] = [_point(job) for job in jobs]
+    bounds = bounds_from_points(axes, points)
+    return {
+        "form": "stability_bound",
+        "rule": BOUND_RULE,
+        "answer": {
+            "sha256": answer_digest(answer),
+            "delays": {v: list(d) for v, d in variants.items()},
+        },
+        "plant_sourced": {"sha256": sourced_digest(plant)},
+        "axes": axes,
+        "others": others,
+        "points": points,
+        "bounds": bounds,
+        "applies": [n for n, b in bounds.items() if b["used"] != b["sourced"]],
+    }
+
+
 def judge(plant: bytes, answer: dict[str, Any]) -> dict[str, Any]:
     """The report on ``answer`` judged on the plant file ``plant``, as the module says."""
     task = WholeDesignTask.model_validate_json(
@@ -325,7 +559,7 @@ def judge(plant: bytes, answer: dict[str, Any]) -> dict[str, Any]:
     for name in ranged(parsed, LOOP_INPUTS):
         p = parsed.parameters[name]
         ends: dict[str, Any] = {"parameter": name, "unit": p.unit}
-        for end, value in (("low", p.low), ("high", p.high)):
+        for end, value in zip(("low", "high"), span(p), strict=True):
             values = dict(base)
             values[name] = value
             ends[end] = {"value": value, **_margins_at(values, answer)}
@@ -348,10 +582,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("--plant", type=Path, default=DRAFT)
     parser.add_argument("--answer", type=Path, default=None)
-    parser.add_argument("--region", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--region", action="store_true")
+    mode.add_argument("--bound", action="store_true")
+    parser.add_argument("--workers", type=int, default=1)
     args = parser.parse_args(argv)
     answer = KIT_ANSWER if args.answer is None else json.loads(args.answer.read_text())
     plant = args.plant.read_bytes()
+    if args.bound:
+        report = bound(plant, answer, bound_axes(plant), workers=args.workers)
+        print(json.dumps(report, separators=(",", ":")))
+        return 0
     report = region(plant, answer, default_axes(plant)) if args.region else judge(plant, answer)
     print(json.dumps(report, indent=1))
     return 0

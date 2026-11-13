@@ -8,7 +8,8 @@ published tolerance (a point when none is published), an assumption's plausible 
 measurement that would replace it. No parameter is fitted to make a criterion pass.
 
 A verdict rests only on what the sources fix. A predicate that reads the plant is evaluated at
-the nominal values and at every corner of the ranges of the parameters it reads; where its
+the nominal values and at every corner of the ranges of the parameters it reads (a range
+narrowed by the kit's stability evidence is judged as narrowed, :class:`Bound`); where its
 outcome changes inside those ranges the scorer reports it ``unscored``, with the reason, and
 never pass or fail (:mod:`physgate.evaluation.whole.scenario`).
 
@@ -96,10 +97,27 @@ LOOP_INPUTS = MECHANICAL_INPUTS + ELECTRICAL_INPUTS
 FALL_INPUTS = (*MECHANICAL_INPUTS, "gearbox_friction")
 
 _Text = Annotated[str, StringConstraints(min_length=1, max_length=600)]
+_Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
+
+
+class Bound(_Frozen):
+    """A range narrowed by stability evidence, kept beside the range as sourced or assumed.
+
+    The owner ruled (13.11.2026) that "the real kit balances with the published controller"
+    may bound the plant, as stability evidence only, never as evidence of a margin. The
+    bound is computed by ``scripts/whole_design_corners.py --bound``, never typed in:
+    ``report`` is the SHA-256 of the report it was read from, and ``evidence`` says in plain
+    words what bounded the range and names that report.
+    """
+
+    low: float
+    high: float
+    evidence: _Text
+    report: _Sha256
 
 
 class Parameter(_Frozen):
@@ -108,7 +126,9 @@ class Parameter(_Frozen):
     ``source`` cites a criterion, a parts-sheet row or a vendor document, or is
     ``assumption``. A cited value says in ``locator`` where in its source the number is read
     (a page, a table, a row, a URL); an assumption says in ``reason`` what bounds its range
-    and in ``measure_by`` what measurement would replace it.
+    and in ``measure_by`` what measurement would replace it. ``bounded``, where present, is
+    the range the stability evidence leaves (:class:`Bound`); ``low`` and ``high`` stay as
+    sourced or assumed, so a reader sees what the evidence did.
     """
 
     value: float
@@ -119,6 +139,14 @@ class Parameter(_Frozen):
     reason: _Text
     locator: _Text | None = None
     measure_by: _Text | None = None
+    bounded: Bound | None = None
+
+
+def span(p: Parameter) -> tuple[float, float]:
+    """The range the scorer judges over: the bounded one where there is one, else the stated."""
+    if p.bounded is not None:
+        return (p.bounded.low, p.bounded.high)
+    return (p.low, p.high)
 
 
 class PlantFile(_Frozen):
@@ -142,7 +170,9 @@ def parse_plant(raw: bytes) -> PlantFile:
         PlantError: not the schema; a parameter missing or unknown, in another unit, outside
             its own range, or a value not positive; a parameter with no source, a cited one
             with no locator, an assumption with no measurement named, or, in a frozen plant,
-            an assumption held at a point (its outcome would be scored as if it were known).
+            an assumption held at a point (its outcome would be scored as if it were known);
+            a bounded range with no evidence, or an evidence line that names no report, or a
+            bound outside the stated range or without the value.
     """
     try:
         plant = PlantFile.model_validate_json(raw)
@@ -166,6 +196,7 @@ def parse_plant(raw: bytes) -> PlantFile:
         if not p.source.strip():
             msg = f"{name} names no source; it cites one or is an {ASSUMPTION}"
             raise PlantError(msg)
+        _check_bound(name, p)
         if p.source.strip().lower() != ASSUMPTION:
             if p.locator is None or not p.locator.strip():
                 msg = f"{name} cites {p.source!r} and names no locator in it"
@@ -174,10 +205,29 @@ def parse_plant(raw: bytes) -> PlantFile:
         if p.measure_by is None:
             msg = f"{name} is an assumption and names no measurement that would replace it"
             raise PlantError(msg)
-        if plant.status == "frozen" and p.low == p.high:
+        low, high = span(p)
+        if plant.status == "frozen" and low == high:
             msg = f"{name} is an assumption held at a point in a frozen plant; it ranges"
             raise PlantError(msg)
     return plant
+
+
+def _check_bound(name: str, p: Parameter) -> None:
+    b = p.bounded
+    if b is None:
+        return
+    if not b.evidence.strip():
+        msg = f"{name} is bounded and names no evidence for it"
+        raise PlantError(msg)
+    if b.report not in b.evidence:
+        msg = f"{name} is bounded and its evidence names no report it was computed in"
+        raise PlantError(msg)
+    if not p.low <= b.low <= p.value <= b.high <= p.high:
+        msg = (
+            f"{name} is bounded to [{b.low}, {b.high}]; a bound lies inside its stated range "
+            f"[{p.low}, {p.high}] and holds its value {p.value}"
+        )
+        raise PlantError(msg)
 
 
 def nominal(plant: PlantFile) -> dict[str, float]:
@@ -186,12 +236,12 @@ def nominal(plant: PlantFile) -> dict[str, float]:
 
 
 def ranged(plant: PlantFile, names: tuple[str, ...]) -> tuple[str, ...]:
-    """Those of ``names`` whose stated range is more than a point, in the order given."""
-    return tuple(n for n in names if plant.parameters[n].low < plant.parameters[n].high)
+    """Those of ``names`` whose judged range (:func:`span`) is more than a point, in order."""
+    return tuple(n for n in names if (s := span(plant.parameters[n]))[0] < s[1])
 
 
 def corners(plant: PlantFile, names: tuple[str, ...]) -> Iterator[dict[str, float]]:
-    """Every corner of the ranges of ``names``, the other parameters at their values.
+    """Every corner of the judged ranges (:func:`span`) of ``names``, the others at their values.
 
     Each corner is a full parameter set; a parameter whose range is a point stays at it. With
     no ranged parameter among ``names`` there is one corner, the nominal set.
@@ -201,8 +251,8 @@ def corners(plant: PlantFile, names: tuple[str, ...]) -> Iterator[dict[str, floa
     for ends in itertools.product((0, 1), repeat=len(varied)):
         corner = dict(base)
         for name, end in zip(varied, ends, strict=True):
-            p = plant.parameters[name]
-            corner[name] = p.high if end else p.low
+            low, high = span(plant.parameters[name])
+            corner[name] = high if end else low
         yield corner
 
 
