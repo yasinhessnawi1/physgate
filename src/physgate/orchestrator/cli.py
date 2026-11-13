@@ -43,7 +43,7 @@ from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.catches import catches, parse_time
-from physgate.orchestrator.common import first_problem, render_jsonl
+from physgate.orchestrator.common import first_problem, render_jsonl, utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE, Credential, credential_for
 from physgate.orchestrator.decompose import (
     binary_version,
@@ -65,6 +65,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import (
     InvocationError,
+    LimitNotResetError,
     OrchestratorError,
     QueueError,
     ReviewerNotRegisteredError,
@@ -114,6 +115,12 @@ from physgate.orchestrator.run_config import (
     require_endpoint,
     require_harness,
     require_reportable,
+)
+from physgate.orchestrator.waiting import (
+    EXIT_WAITING_FOR_LIMIT,
+    WAITING_FOR_LIMIT,
+    limit_wait,
+    printed_step,
 )
 from physgate.oslayer.listeners import loopback_listeners
 from physgate.oslayer.policy import NETWORK_UNENFORCED
@@ -232,6 +239,15 @@ def add_parsers(
                     "confirm a queue decision held because it was written while a session ran "
                     "without the OS layer; recorded with your OS user, and refused for an item "
                     "whose decision is not held"
+                ),
+            )
+            command.add_argument(
+                "--limit-reset",
+                action="store_true",
+                help=(
+                    "say that the account's usage limit has reset, for a run waiting on a limit "
+                    "whose reset time could not be read; recorded with your OS user, and no "
+                    "use before a reset time that was read"
                 ),
             )
         command.set_defaults(
@@ -844,7 +860,19 @@ def _confirm_request(args: argparse.Namespace) -> tuple[tuple[str, ...], str | N
     return confirm, getpass.getuser() if confirm else None
 
 
+def _waiting(said: dict[str, str]) -> int:
+    print(json.dumps(said, sort_keys=True), file=sys.stderr)
+    return EXIT_WAITING_FOR_LIMIT
+
+
 def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registrations | None) -> int:
+    limit_reset = bool(getattr(args, "limit_reset", False))
+    if resume:
+        # A run waiting for the account's usage limit, resumed before it may go on: refused before
+        # anything is built, stopped, written or started, with the instant to try again after.
+        waiting = limit_wait(args.run_dir.resolve(), utc_now(), limit_reset=limit_reset)
+        if waiting is not None:
+            return _waiting(waiting)
     if registrations is None:
         try:
             registrations = default_registrations()
@@ -944,9 +972,16 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         )
         loop.record.emit(_os_layer_checked(loop.record.envelope(), config, layer))
         confirm, confirmed_by = _confirm_request(args)
-        step = loop.resume(confirm=confirm, confirmed_by=confirmed_by) if resume else loop.run()
+        word = getpass.getuser() if limit_reset else None
+        step = (
+            loop.resume(confirm=confirm, confirmed_by=confirmed_by, limit_reset_by=word)
+            if resume
+            else loop.run()
+        )
         account = TokenAccount.from_events(loop.log.events)
         account.assert_no_routing()
+    except LimitNotResetError as exc:
+        return _waiting({"error": str(exc), "step": WAITING_FOR_LIMIT, **exc.context})
     except (OrchestratorError, RecordMovedError) as exc:
         # A record no longer the file its writer holds is written no more: the run stops here,
         # and its next command finds it as it was left.
@@ -954,19 +989,22 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     finally:
         loop.close()
         keeper.close()
+    printed, status = printed_step(step.kind, loop.state)
     _print(
         {
             "run_id": config.run_id,
             # Every number printed here names the record it came from: the run
             # configuration's digest, which the run's first line also carries.
             "manifest_id": config.sha256(),
-            "step": step.kind,
+            # A run halted on the account's usage limit prints ``waiting_for_limit``, its reset and
+            # the instant to resume after; every other step prints as it always has.
+            **printed,
             "subtasks": {k: v.status for k, v in loop.state.subtasks.items()},
             "open_queue_items": [item.item_id for item in loop.queue.open_items()],
             "tokens": {k: v.total() for k, v in account.by_kind().items()},
         }
     )
-    return 0 if step.kind == "done" else 1
+    return status
 
 
 def _incident_resolve(args: argparse.Namespace) -> int:

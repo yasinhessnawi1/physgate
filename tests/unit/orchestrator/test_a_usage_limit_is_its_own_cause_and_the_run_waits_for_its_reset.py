@@ -34,7 +34,7 @@ from loop_fakes import FakeDispatcher, FakeReviewer, Rig, plan, usage
 from orch_helpers import ticking_clock
 from pydantic import ValidationError
 
-from physgate.orchestrator import cli
+import physgate.orchestrator.cli as cli
 from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.events import (
     AttemptRejected,
@@ -541,7 +541,7 @@ def test_a_resume_command_before_the_reset_exits_waiting_before_it_touches_anyth
     _halted_on_the_limit(tmp_path, rig)
     written = (tmp_path / "events.jsonl").read_bytes()
     now: Callable[[], datetime] = lambda: NOON + timedelta(hours=1)  # noqa: E731
-    monkeypatch.setattr(cli, "utc_now", now, raising=False)
+    monkeypatch.setattr(cli, "utc_now", now)
     args = argparse.Namespace(
         run_dir=tmp_path,
         target=tmp_path / "target",
@@ -616,12 +616,17 @@ def _refused(build: Callable[[], object]) -> bool:
 
 def test_a_limit_is_on_a_line_exactly_when_its_cause_or_reason_is_the_limit() -> None:
     env = {"seq": 1, "ts": "2026-09-26T10:00:00.000000Z", "run_id": "run-1", "gate_mode": "on"}
-    limit = UsageLimit(resets=RESETS, resets_at=INSTANT)
-    assert _refused(lambda: Halted(**env, reason="usage_limit", detail="d"))  # type: ignore[arg-type]
+    limit = {"resets": RESETS, "resets_at": INSTANT}
+    halt = {**env, "kind": "halted", "detail": "d"}
+    assert _refused(lambda: Halted.model_validate({**halt, "reason": "usage_limit"}))
     assert _refused(
-        lambda: Halted(**env, reason="infrastructure_exhausted", detail="d", usage_limit=limit)  # type: ignore[arg-type]
+        lambda: Halted.model_validate(
+            {**halt, "reason": "infrastructure_exhausted", "usage_limit": limit}
+        )
     )
     ended = {
+        **env,
+        "kind": "session_ended",
         "subtask_id": "s1",
         "attempt": 1,
         "session_id": "sess-1",
@@ -631,10 +636,10 @@ def test_a_limit_is_on_a_line_exactly_when_its_cause_or_reason_is_the_limit() ->
         "worktree": None,
         "reading_verified": False,
     }
-    assert _refused(lambda: SessionEnded(**env, **ended, cause="usage_limit"))  # type: ignore[arg-type]
+    assert _refused(lambda: SessionEnded.model_validate({**ended, "cause": "usage_limit"}))
     assert _refused(
-        lambda: SessionEnded(**env, **ended, cause="api_error", usage_limit=limit)  # type: ignore[arg-type]
+        lambda: SessionEnded.model_validate({**ended, "cause": "api_error", "usage_limit": limit})
     )
     assert not _refused(
-        lambda: SessionEnded(**env, **ended, cause="usage_limit", usage_limit=limit)  # type: ignore[arg-type]
+        lambda: SessionEnded.model_validate({**ended, "cause": "usage_limit", "usage_limit": limit})
     )

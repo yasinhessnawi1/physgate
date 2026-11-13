@@ -52,7 +52,6 @@ from physgate.hooks.state import LOG_NAME
 from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.credentials import (
@@ -117,6 +116,7 @@ from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root, os_layer_refusal
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
+from physgate.orchestrator.usage_limit import session_end
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.placement import machine_writable, placement_refusal
@@ -1889,7 +1889,10 @@ class ClaudeDispatcher:
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
         require_matching_totals(result, usage)
-        end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
+        # An API error the stream names as the account's usage limit is that limit, its own cause.
+        end, usage_limit = session_end(
+            read_stream_file(stdout), result, exit_code=exit_code, stopped_at_wall_clock=timed_out
+        )
         if end.outcome == "completed":
             echoed = sorted(answered)
             if echoed != [request.model]:
@@ -1972,6 +1975,7 @@ class ClaudeDispatcher:
             withheld_problems=withheld_problems,
             os_layer_aborted=aborted,
             reaper_unverified=unverified,
+            usage_limit=usage_limit,
         )
 
     @staticmethod
