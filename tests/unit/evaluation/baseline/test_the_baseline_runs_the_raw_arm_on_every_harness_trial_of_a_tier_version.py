@@ -681,6 +681,19 @@ def test_a_store_whose_other_role_s_list_cannot_be_taken_whole_is_refused_before
     assert arm.calls == []
 
 
+def test_protected_trials_each_in_a_place_of_its_own_run_under_one_pin_set(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """Each protected trial's directory is its own; the round's pin set holds no trial's place."""
+    tasks = store.tasks["validation"][:1] + store.tasks["held_out"][:1]
+    runs = run_set(*((harness_run(tmp_path / "runs", t, store), 0) for t in tasks))
+    arm = StandInArm()
+    outcome = _try(lambda: _round(store, runs, tmp_path / "round", arm))
+    assert isinstance(outcome, BaselineRecord), outcome
+    assert "held_out_carved" not in outcome.pins
+    assert len({work for _, _, work in arm.calls}) == 2
+
+
 def test_a_store_whose_root_cannot_be_looked_at_for_canaries_is_refused_as_the_runner_s_own(
     tmp_path: Path, store: StandInStore
 ) -> None:

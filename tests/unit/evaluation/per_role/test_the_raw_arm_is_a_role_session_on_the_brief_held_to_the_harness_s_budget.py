@@ -423,8 +423,24 @@ def test_a_session_working_elsewhere_than_its_carved_directory_is_refused(
         held_out=(str(tmp_path / "store"),),
         held_out_carved=str(places["trial"]),
     )
-    with pytest.raises(raw.RawArmError, match="works elsewhere than the directory taken out"):
+    installed: list[list[str]] = []
+
+    def fake_run(argv: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
+        installed.append(argv)
+        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": stand_in_spawn_env()}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    try:
         raw._install(setup, places["other work"] / "worktree", places["other work"] / "s", None)
+    except raw.RawArmError as exc:
+        outcome: object = exc
+    else:
+        outcome = None
+    monkeypatch.undo()
+    assert isinstance(outcome, raw.RawArmError), "a session elsewhere was installed"
+    assert "works elsewhere than the directory taken out" in str(outcome)
+    assert installed == []
 
 
 def test_a_held_out_root_inside_the_session_s_own_directory_is_refused(tmp_path: Path) -> None:
