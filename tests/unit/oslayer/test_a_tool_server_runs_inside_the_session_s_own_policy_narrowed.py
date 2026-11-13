@@ -501,3 +501,47 @@ def test_the_macos_profile_reads_only_the_listed_places(root: Path) -> None:
     stray = [p for p in places if not any(p == a or p.startswith(a + "/") for a in allowed)]
     assert stray == [], stray
     assert worktree in places and env in places
+
+
+def test_a_root_inside_a_denied_place_is_refused_the_same_on_both_platforms(root: Path) -> None:
+    denied = root / "held-out"
+    inside = denied / "env"
+    (inside / "bin").mkdir(parents=True)
+    own = str(root / "own")
+    for roots in ((str(inside),), (str(denied),)):
+        with pytest.raises(ContainmentError):
+            bwrap_args(read_denied=(str(denied),), server_dir=own, read_roots=roots)
+        with pytest.raises(ContainmentError):
+            seatbelt_profile(
+                read_denied=(str(denied),),
+                server_dir=own,
+                devices=(),
+                command="/usr/bin/python3",
+                read_roots=roots,
+            )
+    # A program under a denied place, as the server's command or its exec root, likewise.
+    with pytest.raises(ContainmentError):
+        seatbelt_profile(
+            read_denied=(str(denied),),
+            server_dir=own,
+            devices=(),
+            command=str(inside / "bin" / "python3"),
+        )
+    with pytest.raises(ContainmentError):
+        seatbelt_profile(
+            read_denied=(str(denied),),
+            server_dir=own,
+            devices=(),
+            command="/usr/bin/python3",
+            exec_roots=(str(inside),),
+        )
+
+
+def test_a_denial_under_a_system_place_is_masked_after_its_bind(root: Path) -> None:
+    own = root / "own"
+    own.mkdir()
+    under = "/usr/share" if os.path.isdir("/usr/share") else "/usr/lib"
+    args = bwrap_args(read_denied=(under,), server_dir=str(own), read_roots=())
+    text = shlex.join(args)
+    assert f"--tmpfs {os.path.realpath(under)}" in text, text
+    assert text.index(f"--tmpfs {os.path.realpath(under)}") > text.index("--ro-bind /usr /usr")

@@ -303,3 +303,35 @@ def test_a_server_reaches_no_socket_and_runs_no_program_outside_its_roots(tmp_pa
     # Every service socket of the machine: not there inside. Says how many there were.
     assert all(found[path] == "FileNotFoundError" for path in host), (len(host), found)
     print(f"host sockets tried: {len(host)}")
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the bubblewrap row runs on Linux")
+def test_a_denial_inside_a_root_or_a_system_place_is_not_readable_inside(tmp_path: Path) -> None:
+    bwrap = shutil.which("bwrap")
+    assert bwrap is not None, "bubblewrap is not installed here"
+    base = tmp_path.resolve()
+    own = base / "own"
+    own.mkdir()
+    worktree = base / "worktree"
+    (worktree / "answers").mkdir(parents=True)
+    (worktree / "answers" / "key.txt").write_text("the key\n")
+    (worktree / "model.xml").write_text("<mujoco/>\n")
+    system_file = "/etc/passwd"
+    args = bwrap_args(
+        read_denied=(str(worktree / "answers"), system_file),
+        server_dir=str(own),
+        read_roots=(str(worktree), INSTALLATION),
+    )
+    done = subprocess.run(
+        [bwrap, *args, "--", PYTHON, "-I", "-c", READ, str(worktree / "answers" / "key.txt"),
+         system_file, str(worktree / "model.xml")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )  # fmt: skip
+    assert done.returncode == 0, done.stderr[-2000:]
+    found = json.loads(done.stdout)
+    assert found[str(worktree / "answers" / "key.txt")] == "FileNotFoundError", found
+    assert found[system_file] == "", found  # the file lies under /dev/null
+    assert found[str(worktree / "model.xml")] == "<mujoco/>\n", found
