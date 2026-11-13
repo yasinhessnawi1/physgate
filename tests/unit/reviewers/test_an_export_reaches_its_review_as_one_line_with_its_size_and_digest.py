@@ -255,6 +255,39 @@ def test_what_the_commit_rule_would_not_admit_as_an_export_is_shown_as_git_shows
     assert not any(line.startswith(b"exported file") for line in _lines(diff))
 
 
+def test_a_name_that_is_not_utf8_is_shown_as_git_shows_it(tmp_path: Path) -> None:
+    repo, base, commit = _change(tmp_path, {}, {f"{MODULE}/chassis.py": b"length = 120\n"})
+    # Written into git's index by bytes: a file system may refuse such a name.
+    done = subprocess.run(
+        ["git", "hash-object", "-w", "--stdin"],
+        cwd=repo,
+        env=_ENV,
+        input=STEP,
+        capture_output=True,
+        check=True,
+    )
+    blob = done.stdout.decode().strip()
+    name = MODULE.encode() + b"/exports/plate\xff.step"
+    subprocess.run(
+        [
+            b"git",
+            b"update-index",
+            b"--add",
+            b"--cacheinfo",
+            b"100644," + blob.encode() + b"," + name,
+        ],
+        cwd=repo,
+        env=_ENV,
+        capture_output=True,
+        check=True,
+    )
+    _git(repo, "commit", "-q", "-m", "a name git holds by bytes")
+    named = _git(repo, "rev-parse", "HEAD")
+    diff = packet._diff(repo, commit, named)
+    assert MARK in diff
+    assert HEADER not in diff
+
+
 def test_a_link_named_like_an_export_is_shown_as_git_shows_it(tmp_path: Path) -> None:
     repo, base, commit = _change(tmp_path, {}, {f"{MODULE}/chassis.py": b"length = 120\n"})
     link = repo / MODULE / "exports" / "plate.step"

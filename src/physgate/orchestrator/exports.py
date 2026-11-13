@@ -30,11 +30,9 @@ def is_export(path: str) -> bool:
     of :data:`EXPORT_SUFFIXES`, and every character of the path printable. Whether the file is
     regular, and whether its folder is a module's own, are its readers' to check.
     """
-    if not path.isprintable() or path.endswith("/"):
-        return False
     pure = PurePosixPath(path)
     return (
-        len(pure.parts) >= 2
+        path.isprintable()
         and pure.parent.name == EXPORTS_DIR
         and pure.name.casefold().endswith(EXPORT_SUFFIXES)
     )
