@@ -248,9 +248,16 @@ def test_the_recorded_report_s_bounds_derive_from_its_own_points() -> None:
 def test_the_sourced_digest_ignores_the_bound_and_reads_every_value_and_range() -> None:
     script = _script()
     doc = json.loads(_DRAFT.read_text())
-    base = script.sourced_digest(json.dumps(doc).encode())
     for p in doc["parameters"].values():
         p.pop("bounded", None)
+    base = script.sourced_digest(json.dumps(doc).encode())
+    digest = "ef" * 32
+    doc["parameters"]["com_height"]["bounded"] = {
+        "low": 0.005,
+        "high": 0.030,
+        "evidence": f"bounded by stability evidence; report sha256 {digest}",
+        "report": digest,
+    }
     assert script.sourced_digest(json.dumps(doc).encode()) == base
     doc["parameters"]["body_inertia"]["high"] *= 1.01
     assert script.sourced_digest(json.dumps(doc).encode()) != base
@@ -292,3 +299,20 @@ def test_the_bound_used_is_the_wider_delay_reading_and_the_stronger_one_is_besid
     assert com["every_corner"] == {"assumed": [0.01, 0.02], "zero": [0.01, 0.03]}
     swapped = script.bounds_from_points(axes, {"assumed": zero, "zero": assumed})
     assert swapped["com_height"]["used"] == [0.01, 0.04]
+
+
+def test_the_bound_judges_the_other_parameters_over_their_ranges_as_sourced_not_as_bounded() -> (
+    None
+):
+    script = _script()
+    doc = json.loads(_plant({"motor_no_load_speed": (54.454272662223076, 81.68140899333461)}))
+    speed = doc["parameters"]["motor_no_load_speed"]
+    digest = "ef" * 32
+    speed["bounded"] = {
+        "low": speed["value"],
+        "high": speed["value"],
+        "evidence": f"bounded by stability evidence; report sha256 {digest}",
+        "report": digest,
+    }
+    report = script.bound(json.dumps(doc).encode(), script.KIT_ANSWER, {"com_height": [0.019]})
+    assert report["others"] == ["motor_no_load_speed"]
