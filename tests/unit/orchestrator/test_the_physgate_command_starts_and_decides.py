@@ -33,7 +33,6 @@ PARAMS = {
     "thinking_display": "summarized",
     "role_python": None,
     "tool_environment": None,
-    "tool_servers": None,
     "escalation_backend": "rules",
     "queue_decisions": "record",
     # The stand-in binary predates the OS layer's pin, so the layer is absent here.
@@ -279,6 +278,8 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
                     "git_binary": {"path": "/usr/local/bin/git", "version": "2.54.0"},
                     "os_layer": None,
                     "network_enforced": None,
+                    # Taken from the register, and null for a run naming no tool environment.
+                    "tool_servers": None,
                 }
             )
         )
