@@ -457,3 +457,24 @@ def test_a_native_controller_s_margins_use_each_corner_s_wheel_radius(tmp_path: 
     assert row["corners"]["count"] == 2
     assert row["corners"]["unstable"] == 0
     assert row["corners"]["low"]["value"] < row["corners"]["high"]["value"]
+
+
+def test_a_design_written_with_no_leak_is_judged_on_its_balance(tmp_path: Path) -> None:
+    # The kit's gains in SI with no angle_decay_per_update: the integrated angle's offset is
+    # not a mode that fails the margins.
+    controller = {
+        "structure": "incremental_rising_offset",
+        "period": _m(0.01, "s"),
+        "command_limit": _m(0.75, "1"),
+        "sensor_delay": _m(0.0048, "s"),
+        "compute_delay": _m(0.002, "s"),
+        "rate_ratio": _m(0.14, "s"),
+        "angle_gain": _m(0.14195, "1/rad"),
+        "distance_gain": _m(0.17308, "1/m"),
+        "speed_gain": _m(0.07824, "s/m"),
+    }
+    plant = _plant(rotor_inertia=(1e-9, 1e-9))
+    rows = _rows(_judge(tmp_path, _answer(controller), COMPUTED_SPECS[1:], plant))
+    for name in ("pm", "up", "down"):
+        assert rows[name]["corners"]["unstable"] == 0, rows[name]
+        assert rows[name]["measured"] is not None, rows[name]

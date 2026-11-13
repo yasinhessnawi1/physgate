@@ -280,3 +280,55 @@ def test_a_stable_design_s_margins_are_all_given() -> None:
     assert margins.downward is not None and 0 < margins.downward < 1
     assert margins.upward is not None and margins.upward > 1
     assert json.dumps(margins.phase_margin) != "null"
+
+
+def _kit_in_si(decay: float, distance: float = 0.17308, angle: float = 0.14195) -> Any:
+    """The kit's published gains in SI (the converter's figures), its delays a few ms."""
+    return _si(
+        incremental=True,
+        angle=angle,
+        rate=angle * 0.140,
+        distance=distance,
+        speed=0.07824,
+        decay=decay,
+        sensor_delay=0.0048,
+        compute_delay=0.002,
+    )
+
+
+def _light_rotor() -> dict[str, float]:
+    """The draft at a rotor light enough that the kit's leaky controller holds."""
+    values = _values()
+    values["rotor_inertia"] = 1e-9
+    return values
+
+
+def test_a_leak_free_integrated_angle_is_judged_on_the_balance_not_on_its_offset() -> None:
+    # With no leak, the integrated angle's offset from the tilt is held by an offset of the
+    # travel: a mode at exactly 1 at every gain, neither growing nor decaying. The balance is
+    # judged on the other modes, and comes out as the 0.999 leak's within a whisker.
+    loop = _loop()
+    leaky = loop.margins(_light_rotor(), _kit_in_si(0.999))
+    leak_free = loop.margins(_light_rotor(), _kit_in_si(1.0))
+    assert leaky.stable is True
+    assert leak_free.stable is True
+    assert leak_free.phase_margin is not None and leaky.phase_margin is not None
+    assert abs(leak_free.phase_margin - leaky.phase_margin) < 1.0
+    assert leak_free.upward is not None and leaky.upward is not None
+    assert abs(leak_free.upward / leaky.upward - 1.0) < 0.05
+    assert leak_free.downward is not None and leaky.downward is not None
+    assert abs(leak_free.downward / leaky.downward - 1.0) < 0.05
+
+
+def test_setting_the_offset_aside_never_hides_a_growing_mode() -> None:
+    # The draft's own rotor: the kit's controller is unstable, leak or none.
+    loop = _loop()
+    assert loop.margins(_values(), _kit_in_si(0.999)).stable is False
+    assert loop.margins(_values(), _kit_in_si(1.0)).stable is False
+
+
+def test_a_loop_that_holds_no_travel_is_not_stable() -> None:
+    # No distance gain: nothing holds the travel, and its mode at 1 is the loop's, not set aside.
+    loop = _loop()
+    assert loop.margins(_light_rotor(), _kit_in_si(1.0, distance=0.0)).stable is False
+
