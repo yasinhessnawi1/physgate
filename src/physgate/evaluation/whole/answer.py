@@ -50,7 +50,9 @@ nothing outside that directory.
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -65,6 +67,7 @@ from pydantic import (
 )
 
 from physgate.evaluation.per_role.exceptions import TaskFormatError
+from physgate.evaluation.tiers.authoring import AuthoringError, _open_chain
 from physgate.evaluation.tiers.base import Measure
 
 #: The largest answer file read: a controller, six settings and a list of paths.
@@ -72,7 +75,11 @@ MAX_ANSWER_BYTES = 64 * 1024
 #: The longest delay accepted, in updates. Half a second at the reference brief's 100 Hz:
 #: far past any delay a balancing loop survives, and it keeps the scorer's delay line small.
 MAX_DELAY_SAMPLES = 50
-#: The largest magnitude any value may have (not yet enforced).
+#: The largest magnitude any value may have. Far above any setting here (the largest the
+#: reference brief names is a 20 kHz PWM frequency), and small enough that the products and
+#: powers a scorer forms of them stay finite floats. A larger value is refused, as is an
+#: integer too large to be a float at all, which would otherwise end in an overflow inside the
+#: scorer rather than in a refusal of the answer.
 MAX_MAGNITUDE = 1e12
 #: The most module files an answer names.
 MAX_FILES = 64
@@ -90,6 +97,11 @@ class _Frozen(BaseModel):
 def _unit(measure: Measure, unit: str, what: str) -> float:
     if measure.unit != unit:
         msg = f"{what} is in {measure.unit!r}; it is given in {unit!r}"
+        raise ValueError(msg)
+    # Compared before any conversion: an int and a float compare exactly in Python, while
+    # float() of a 400-digit integer raises OverflowError, which is not a refusal.
+    if not abs(measure.value) <= MAX_MAGNITUDE:
+        msg = f"{what} is beyond {MAX_MAGNITUDE:g} in magnitude"
         raise ValueError(msg)
     return float(measure.value)
 
@@ -264,18 +276,92 @@ def parse_whole_run(raw: bytes, *, where: str = "answer") -> WholeRun:
     try:
         return WholeRun.model_validate_json(text)
     except ValidationError as exc:
-        msg = f"the answer is not a whole-run answer: {exc.errors()[0]['msg']}"
+        first = exc.errors()[0]
+        reason = (
+            "a value is nan or inf, and every value is a finite number"
+            if first["type"] == "finite_number"
+            else first["msg"]
+        )
+        msg = f"the answer is not a whole-run answer: {reason}"
         raise TaskFormatError(msg, where=where) from exc
 
 
+#: How the answer file is opened: never through a link, never waiting on a FIFO's writer.
+_FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+
+
 def read_whole_run(path: Path, *, root: Path) -> WholeRun:
-    """The whole-run answer at ``path``, or refused with the reason.
+    """The whole-run answer at ``path``, which lies inside ``root``, or refused with the reason.
+
+    The file is opened once and read from that one descriptor; nothing is looked up by path
+    again, so nothing put in place between a check and the read is read. Its directory is
+    reached from ``/`` one component at a time without following a link (the tier store's own
+    walk), so a link anywhere on the way refuses, and the path as spelt is where the file is.
+    The file itself is opened without following a link, and must be a regular file with one
+    name: a hard link is a second name it could be changed or read through from outside
+    ``root``. Its size is taken from the descriptor and held to the bound before a byte is
+    read, and the read stops one byte past the bound, so a file that grows after its size was
+    taken is refused too.
 
     Raises:
-        TaskFormatError: it is missing, a link, not a regular file, or not an answer.
+        TaskFormatError: it is missing, outside ``root``, not spelt plainly, reached through a
+            link, not a regular file with one name, too large, or not an answer.
     """
-    del root  # not yet held to it
-    if path.is_symlink() or not path.is_file():
-        msg = "no answer file"
-        raise TaskFormatError(msg, path=str(path))
-    return parse_whole_run(path.read_bytes(), where=str(path))
+    spelt, top = str(path), str(root)
+    if not (
+        path.is_absolute()
+        and root.is_absolute()
+        and os.path.normpath(spelt) == spelt
+        and os.path.normpath(top) == top
+        and path.parent.is_relative_to(root)
+    ):
+        msg = "no answer file: the answer is named by a plain absolute path inside its root"
+        raise TaskFormatError(msg, path=spelt, root=top)
+    try:
+        directory = _open_chain(path.parent, make=False)
+    except AuthoringError as exc:
+        msg = "no answer file: its directory is missing or reached through a link"
+        raise TaskFormatError(msg, path=spelt) from exc
+    try:
+        try:
+            fd = os.open(path.name, _FILE_FLAGS, dir_fd=directory)
+        except OSError as exc:
+            msg = f"no answer file: it cannot be opened without following a link ({exc.strerror})"
+            raise TaskFormatError(msg, path=spelt) from exc
+        try:
+            raw = _read_bounded(fd, spelt)
+        finally:
+            os.close(fd)
+    finally:
+        os.close(directory)
+    return parse_whole_run(raw, where=spelt)
+
+
+def _read_bounded(fd: int, where: str) -> bytes:
+    """The descriptor's bytes, held to a regular file, one name and the size bound."""
+    found = os.fstat(fd)
+    if not stat.S_ISREG(found.st_mode):
+        msg = "no answer file: it is not a regular file"
+        raise TaskFormatError(msg, path=where)
+    if found.st_nlink != 1:
+        msg = "the answer file has a second name, through which it could be changed"
+        raise TaskFormatError(msg, path=where, links=str(found.st_nlink))
+    if found.st_size > MAX_ANSWER_BYTES:
+        msg = f"the answer is larger than any whole-run answer ({found.st_size} bytes)"
+        raise TaskFormatError(msg, path=where)
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        while total <= MAX_ANSWER_BYTES:
+            chunk = os.read(fd, MAX_ANSWER_BYTES + 1 - total)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+    except OSError as exc:
+        msg = f"no answer file: it cannot be read ({exc.strerror})"
+        raise TaskFormatError(msg, path=where) from exc
+    if total > MAX_ANSWER_BYTES:
+        msg = "the answer is larger than any whole-run answer (it grew while it was read)"
+        raise TaskFormatError(msg, path=where)
+    return b"".join(chunks)
