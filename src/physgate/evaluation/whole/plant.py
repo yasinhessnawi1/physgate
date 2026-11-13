@@ -66,6 +66,11 @@ PLANT_UNITS: dict[str, str] = {
     "gearbox_friction": "N*m",
 }
 
+#: The most parameters a plant may range. A predicate is judged at every corner of the ranges
+#: it reads, 2**k of them for k ranged parameters, each a closed-loop analysis; twelve keeps
+#: that at 4,096 per predicate. A plant ranging more is refused, and so is a corner set over more.
+MAX_RANGED = 12
+
 #: The parameters the stall current reads (brief criterion 6).
 STALL_INPUTS = ("pack_voltage", "motor_rated_voltage", "motor_stall_current")
 #: The parameters the rigid bodies read: geometry, masses and inertias.
@@ -172,7 +177,8 @@ def parse_plant(raw: bytes) -> PlantFile:
             with no locator, an assumption with no measurement named, or, in a frozen plant,
             an assumption held at a point (its outcome would be scored as if it were known);
             a bounded range with no evidence, or an evidence line that names no report, or a
-            bound outside the stated range or without the value.
+            bound outside the stated range or without the value; more than
+            :data:`MAX_RANGED` parameters ranged.
     """
     try:
         plant = PlantFile.model_validate_json(raw)
@@ -209,7 +215,17 @@ def parse_plant(raw: bytes) -> PlantFile:
         if plant.status == "frozen" and low == high:
             msg = f"{name} is an assumption held at a point in a frozen plant; it ranges"
             raise PlantError(msg)
+    _check_cap(ranged(plant, tuple(PLANT_UNITS)))
     return plant
+
+
+def _check_cap(varied: tuple[str, ...]) -> None:
+    if len(varied) > MAX_RANGED:
+        msg = (
+            f"the plant ranges {len(varied)} parameters ({', '.join(varied)}); "
+            f"it may range at most {MAX_RANGED}"
+        )
+        raise PlantError(msg)
 
 
 def _check_bound(name: str, p: Parameter) -> None:
@@ -245,9 +261,13 @@ def corners(plant: PlantFile, names: tuple[str, ...]) -> Iterator[dict[str, floa
 
     Each corner is a full parameter set; a parameter whose range is a point stays at it. With
     no ranged parameter among ``names`` there is one corner, the nominal set.
+
+    Raises:
+        PlantError: more than :data:`MAX_RANGED` of ``names`` range, before any corner.
     """
     base = nominal(plant)
     varied = ranged(plant, names)
+    _check_cap(varied)
     for ends in itertools.product((0, 1), repeat=len(varied)):
         corner = dict(base)
         for name, end in zip(varied, ends, strict=True):
