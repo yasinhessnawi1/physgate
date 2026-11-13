@@ -55,6 +55,7 @@ def _config(**changes: Any) -> RunConfig:
         git_binary=None,
         os_layer=None,
         network_enforced=None,
+        tool_servers=None,
     )
     params.update(changes)
     return RunConfig.model_validate_json(json.dumps(params))

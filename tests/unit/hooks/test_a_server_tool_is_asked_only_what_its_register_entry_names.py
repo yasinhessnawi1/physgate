@@ -183,6 +183,18 @@ def test_a_path_through_a_link_out_of_the_worktree_is_refused(config: SessionCon
     assert "outside the session's worktree" in reason, reason
 
 
+def test_a_path_written_outside_the_worktree_is_refused_though_a_link_leads_it_back_in(
+    config: SessionConfig,
+) -> None:
+    # The server opens the path as written: it must lie inside the worktree as written too.
+    worktree = Path(config.worktree)
+    back = worktree.parent / "outside" / "back"
+    back.symlink_to(worktree / "firmware")
+    for tool, argument in ((BUILD, "projectDir"), (LOAD, "path")):
+        reason = _call(config, tool, {argument: str(back)})
+        assert "outside the session's worktree" in reason, (tool, reason)
+
+
 def test_a_case_variant_of_the_worktree_s_spelling_is_outside_it(config: SessionConfig) -> None:
     worktree = Path(config.worktree)
     variant = str(worktree.parent / "WORKTREE" / "firmware")
@@ -212,9 +224,10 @@ def test_a_relative_path_is_refused_where_the_server_decides_what_it_names(
         assert "relative" in reason, (spelling, reason)
 
 
-@pytest.mark.parametrize("spelling", ["", "firmware\x00", "\n"])
+@pytest.mark.parametrize("spelling", ["", "{fw}\x00", "{fw}\n", "{fw}/\x1b", "\n", "{fw}\x7f"])
 def test_a_path_that_names_nothing_usable_is_refused(config: SessionConfig, spelling: str) -> None:
-    assert _call(config, BUILD, {"projectDir": spelling}) != "allow"
+    given = spelling.replace("{fw}", _firmware(config))
+    assert "names no path" in _call(config, BUILD, {"projectDir": given})
 
 
 def test_a_path_is_judged_as_a_file_tool_s_read_or_write_of_it(config: SessionConfig) -> None:
@@ -274,6 +287,39 @@ def test_an_admitted_name_given_to_the_session_without_a_register_entry_is_refus
     reason = _call(config, "mcp__other__run", {})
     assert reason != "allow"
     assert "register" in reason, reason
+
+
+def test_a_denied_tool_put_on_a_session_s_list_is_still_refused_by_the_register(
+    tmp_path: Path,
+) -> None:
+    # PlatformIO's upload, device, monitor and debug tools are never admitted: a closed list that
+    # named them (a configuration written by hand) still admits none of them.
+    from physgate.toolenv.register import load_register
+
+    denied = load_register().servers["platformio"].denied
+    names = [f"mcp__platformio__{name}" for name in denied]
+    config = write_config(tmp_path.resolve(), tools_allowed=[*BASE, *names])[2]
+    worktree = Path(config.worktree)
+    for name in names:
+        reason = _call(config, name, {"projectDir": str(worktree)})
+        assert reason != "allow", name
+        assert "register" in reason, (name, reason)
+
+
+def test_an_argument_nested_past_the_hooks_bound_is_refused_through_the_session_s_hooks(
+    config: SessionConfig,
+) -> None:
+    # An object argument is of its kind however deep it goes; the hardware rule reads every
+    # string in it and refuses one nested past its bound, so the call is refused, not run.
+    deep: Any = {"value": [1.0]}
+    for _ in range(64):
+        deep = {"inner": deep}
+    hook_input = HookInput.model_validate(
+        event(tool_name=MARGINS, cwd=config.worktree, tool_input={"system": deep})
+    )
+    decision = dispatch([REGISTRY["tools"], REGISTRY["hardware"]], hook_input, config)
+    assert not decision.allow
+    assert "nested more than" in decision.reason, decision.reason
 
 
 def test_the_rule_holds_on_the_hooks_own_path(config: SessionConfig) -> None:

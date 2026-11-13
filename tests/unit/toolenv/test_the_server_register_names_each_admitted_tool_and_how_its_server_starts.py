@@ -96,6 +96,30 @@ def test_the_denied_set_names_every_upload_serial_debug_package_and_dashboard_to
     assert not denied & PLATFORMIO
 
 
+#: Words of a PlatformIO tool's name (its parts between underscores, without a plural ``s``)
+#: that say it reaches a board, a port or a probe.
+HARDWARE_WORDS = frozenset({
+    "upload", "flash", "monitor", "serial", "device", "debug", "port", "ota", "target",
+    "coredump", "test", "power", "memory", "board",
+})  # fmt: skip
+
+
+def _words(name: str) -> set[str]:
+    return {part.removesuffix("s") for part in name.split("_")}
+
+
+def test_no_platformio_tool_that_reaches_a_board_is_admitted() -> None:
+    entry = load_register().servers["platformio"]
+    # Every tool of the server, admitted or denied, is named in one of the two sets.
+    every = set(entry.tools) | set(entry.denied)
+    reaching = {name for name in every if _words(name) & HARDWARE_WORDS}
+    assert reaching, "no tool of the server is named as reaching a board"
+    assert not reaching & set(entry.tools), reaching & set(entry.tools)
+    assert reaching <= set(entry.denied)
+    # And the eight admitted ones build, check, read sizes and configuration only.
+    assert set(entry.tools) == PLATFORMIO
+
+
 def test_only_our_own_mujoco_server_reads_a_relative_path_from_the_worktree() -> None:
     register = load_register()
     assert register.servers["mujoco"].relative_paths == "worktree"
@@ -149,8 +173,10 @@ def _entry(**changes: Any) -> dict[str, Any]:  # noqa: ANN401
     ],
 )
 def test_an_entry_that_could_reach_past_its_server_is_refused(changes: dict[str, Any]) -> None:
+    # Read as the register file is, from JSON: the entry without the change is one.
+    ServerEntry.model_validate_json(json.dumps(_entry()))
     with pytest.raises(ValueError):  # noqa: PT011 - pydantic's, whichever rule refuses
-        ServerEntry.model_validate(_entry(**changes))
+        ServerEntry.model_validate_json(json.dumps(_entry(**changes)))
 
 
 def test_a_register_that_is_not_one_is_refused(tmp_path: Path) -> None:

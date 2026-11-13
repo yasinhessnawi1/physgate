@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import subprocess
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -80,6 +81,13 @@ def _environment(tmp_path: Path) -> dict[str, Any]:
     _program(root / "bin" / "python3", json.dumps(answer))
     _program(root / "bin" / "avr-gcc", "avr-gcc (GCC) 7.3.0")
     (root / "lib" / "control" / "margins.py").write_text("def margin(): return 1\n")
+    # Provisioned an hour before the run, as a real environment is. Linux stamps a write from a
+    # clock that moves once a tick (milliseconds), so an edit of the same size made within the
+    # tick the file was written in keeps every time the scan reads; a test that writes and edits
+    # within milliseconds would otherwise test the clock, not the hold.
+    an_hour_ago = time.time() - 3600
+    for path in (root, *root.rglob("*")):
+        os.utime(path, (an_hour_ago, an_hour_ago), follow_symlinks=False)
     return {
         "interpreter": str(root / "bin" / "python3"),
         "roots": [str(root)],

@@ -81,6 +81,7 @@ def _config(**changes: Any) -> RunConfig:
         os_layer=LAYER.model_dump(),
         network="none",
         network_enforced=True,
+        tool_servers=None,
     )
     params.update(changes)
     return RunConfig.model_validate_json(json.dumps(params))
