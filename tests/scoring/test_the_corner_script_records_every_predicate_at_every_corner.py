@@ -29,9 +29,10 @@ def _script() -> ModuleType:
 
 
 def _plant(ranged: dict[str, tuple[float, float]]) -> bytes:
-    """The draft with every range a point, but those given."""
+    """The draft with no bound and every range a point, but those given."""
     doc = json.loads(_DRAFT.read_text())
     for name, p in doc["parameters"].items():
+        p.pop("bounded", None)
         p["low"] = p["high"] = p["value"]
         if name in ranged:
             p["low"], p["high"] = ranged[name]

@@ -280,7 +280,10 @@ def test_the_lock_holds_below_the_angle_the_check_found(friction: float, degrees
 
 def test_corners_vary_only_the_ranged_parameters_named() -> None:
     plant_module = _plant()
-    plant = _parse(_draft())
+    doc = copy.deepcopy(_draft())
+    for p in doc["parameters"].values():
+        p.pop("bounded", None)
+    plant = _parse(doc)
     names = ("pack_voltage", "wheel_radius", "com_height")
     found = list(plant_module.corners(plant, names))
     assert len(found) == 4

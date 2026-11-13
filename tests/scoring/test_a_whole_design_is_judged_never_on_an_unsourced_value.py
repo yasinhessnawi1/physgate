@@ -35,9 +35,10 @@ def _m(value: object, unit: str) -> dict[str, object]:
 
 
 def _plant(**ranges: tuple[float, float]) -> bytes:
-    """The draft with every range a point, but those given."""
+    """The draft with no bound and every range a point, but those given."""
     doc = json.loads(_DRAFT.read_text())
     for name, p in doc["parameters"].items():
+        p.pop("bounded", None)
         p["low"] = p["high"] = p["value"]
         if name in ranges:
             p["low"], p["high"] = ranges[name]
