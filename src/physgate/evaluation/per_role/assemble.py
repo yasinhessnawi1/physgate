@@ -160,6 +160,11 @@ def _streams(run_dir: Path) -> list[Path]:
     return sorted(found)
 
 
+def decomposition_streams(events: Sequence[Event]) -> list[str]:
+    """The decomposition streams the log names, by their place beneath the run directory."""
+    return []
+
+
 def harness_exclusion(
     config: RunConfig, events: Sequence[Event], run_dir: Path, task: Task
 ) -> str | None:

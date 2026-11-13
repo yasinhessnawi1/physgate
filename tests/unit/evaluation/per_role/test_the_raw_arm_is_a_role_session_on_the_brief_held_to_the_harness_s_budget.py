@@ -19,6 +19,7 @@ from physgate.evaluation.tiers.task import parse_task
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.run_config import RunBounds
 from physgate.oslayer.probe import Absent, Present
+from physgate.oslayer.session_temp import session_temps_root
 
 BOUNDS = RunBounds(
     binary_max_retries=0,
@@ -133,8 +134,17 @@ def _setup(tmp_path: Path, **changes: Any) -> RawSetup:
     return RawSetup(**fields)
 
 
+#: A session's own temporary directory as the raw arm names one: beneath the parent of them all.
+#: Named only; the installer is not run on it here, so nothing is made there.
+OWN_TEMP = Path(session_temps_root()) / "0123456789"
+
+
 def _install_argv(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, setup: RawSetup, temp: Path | None
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    setup: RawSetup,
+    temp: Path | None,
+    own_temp: Path | None = None,
 ) -> list[str]:
     seen: list[list[str]] = []
 
@@ -145,7 +155,11 @@ def _install_argv(
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     raw._install(
-        setup, tmp_path / "worktree", tmp_path / f"s{len(list(tmp_path.glob('s*')))}", temp
+        setup,
+        tmp_path / "worktree",
+        tmp_path / f"s{len(list(tmp_path.glob('s*')))}",
+        temp,
+        own_temp=own_temp,
     )
     return seen[0]
 
@@ -153,11 +167,13 @@ def _install_argv(
 def test_the_raw_session_is_installed_as_the_raw_agent_with_the_tier_withheld(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    argv = _install_argv(tmp_path, monkeypatch, _setup(tmp_path), Path("/tmp/pg-0123456789ab"))
+    argv = _install_argv(tmp_path, monkeypatch, _setup(tmp_path), OWN_TEMP, OWN_TEMP)
     assert argv[argv.index("--profile") + 1] == "baseline"
     assert argv[argv.index("--held-out") + 1] == "/elsewhere/heldout"
     assert argv[argv.index("--os-layer-network") + 1] == "none"
-    absent = _install_argv(tmp_path, monkeypatch, _setup(tmp_path), None)
+    # Where the layer runs, its temporary directory is the session's own, and no other.
+    assert argv[argv.index("--os-layer-temp") + 1] == str(OWN_TEMP) and "--temp" not in argv
+    absent = _install_argv(tmp_path, monkeypatch, _setup(tmp_path), None, OWN_TEMP)
     assert "--os-layer-network" not in absent and "--os-layer-temp" not in absent
     # The raw arm withholds nothing beyond the harness's own pins.
     assert "--review-material" not in argv
@@ -169,7 +185,7 @@ def test_a_session_given_further_places_to_withhold_has_each_withheld_from_its_r
     import dataclasses
 
     setup = dataclasses.replace(_setup(tmp_path), withheld_reads=("/home/u", "/tmp/kb"))
-    argv = _install_argv(tmp_path, monkeypatch, setup, Path("/tmp/pg-0123456789ab"))
+    argv = _install_argv(tmp_path, monkeypatch, setup, OWN_TEMP, OWN_TEMP)
     given = [argv[i + 1] for i, a in enumerate(argv) if a == "--review-material"]
     assert given == ["/home/u", "/tmp/kb"]
     assert argv[argv.index("--held-out") + 1] == "/elsewhere/heldout"
@@ -241,3 +257,85 @@ def test_the_raw_arm_records_its_bounds_as_it_ran_them(tmp_path: Path) -> None:
         "session_max_turns": 450,
         "session_wall_clock_s": 5400.0,
     }
+
+
+def test_the_raw_session_is_held_to_its_own_session_directory_and_its_own_temp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The two places the installer withholds from a raw agent are named exactly.
+
+    A narrower one (a directory inside the session's, another temp) installs as well, and
+    leaves the session's stream, login and settings, or the temporary files of every other
+    session, open to its tools.
+    """
+    for temp in (OWN_TEMP, None):
+        argv = _install_argv(tmp_path, monkeypatch, _setup(tmp_path), temp, OWN_TEMP)
+        sdir = Path(argv[argv.index("--state-dir") + 1]).parent
+        assert argv[argv.index("--sessions-root") + 1] == str(sdir)
+        assert argv[argv.index("--target") + 1] == str(sdir / "session")
+        if temp is None:
+            assert argv[argv.index("--temp") + 1] == str(OWN_TEMP)
+
+
+def test_a_new_bound_is_recorded_as_the_session_ran_it(tmp_path: Path) -> None:
+    """The bounds are recorded field by field from the bounds' own model, none written by hand."""
+
+    class _MoreBounds(RunBounds):
+        session_max_tools: int = 9
+
+    task = parse_task(json.dumps(own_task()).encode())
+    bounds = _MoreBounds(**BOUNDS.model_dump())
+    recorded = raw.pins(task, _setup(tmp_path, bounds=bounds)).get("bounds")
+    assert recorded == {
+        "binary_max_retries": 0,
+        "infra_retry_delays_s": [],
+        "session_max_turns": 450,
+        "session_wall_clock_s": 5400.0,
+        "session_max_tools": 9,
+    }
+
+
+def test_without_the_os_layer_the_installed_session_withholds_its_own_and_every_other_s_files(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The raw arm's own argv, with no OS layer, through the real installer.
+
+    The session's directory, the parent of every session's temporary directory and the
+    temporary directory every session of the user shares are each refused to its reads; the
+    only way back in is its own temporary directory, beneath the parent.
+    """
+    import argparse
+    import os
+
+    from physgate.hooks.cli import add_parser
+    from physgate.hooks.config import SessionConfig
+
+    worktree, sdir = outside_tmp / "worktree", outside_tmp / "session"
+    worktree.mkdir()
+    sdir.mkdir()
+    argv = _install_argv(outside_tmp, monkeypatch, _setup(outside_tmp), None, OWN_TEMP)
+    # The argv names the directories the capture made up; the real run names this test's.
+    named = Path(argv[argv.index("--state-dir") + 1]).parent
+    argv = [a.replace(str(named), str(sdir)) for a in argv]
+    argv = [a.replace(str(outside_tmp / "worktree"), str(worktree)) for a in argv]
+    monkeypatch.undo()
+    parser = argparse.ArgumentParser()
+    add_parser(parser.add_subparsers(dest="command"))
+    args = parser.parse_args(argv[1:])
+    assert args.func(args) == 0
+    printed = json.loads(capsys.readouterr().out)
+    config = SessionConfig.model_validate_json(Path(printed["config"]).read_text())
+    roots = {Path(os.path.realpath(r.path)): r for r in config.protected_roots}
+
+    def root(path: Path | str) -> Any:  # noqa: ANN401 - the installed root, by its place
+        found = roots.get(Path(os.path.realpath(path)))
+        assert found is not None, f"{path} is not withheld from the session"
+        return found
+
+    session = root(sdir)
+    assert session.reads == "denied" and session.read_exceptions == ()
+    family = root(session_temps_root())
+    assert family.reads == "denied"
+    assert [os.path.realpath(p) for p in family.read_exceptions] == [os.path.realpath(OWN_TEMP)]
+    shared = root(f"/tmp/claude-{os.getuid()}")
+    assert shared.reads == "denied" and shared.read_exceptions == ()

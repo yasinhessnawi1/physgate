@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from harness_rig import loop_run
 from task_fixtures import own_task
 
 from physgate.evaluation.observe.cost import CostLine, load_price_sheet
 from physgate.evaluation.per_role.assemble import (
     ExcludedTrial,
     TrialExcludedError,
+    decomposition_streams,
     harness_ended_by_infrastructure,
     harness_trial,
     raw_ended_by_infrastructure,
@@ -22,10 +24,13 @@ from physgate.evaluation.per_role.assemble import (
 from physgate.evaluation.per_role.report import ReportError, TrialRecord
 from physgate.evaluation.tiers.task import parse_task
 from physgate.orchestrator.events import (
+    Decomposed,
+    DecompositionRetried,
     Event,
     Halted,
     Incident,
     LeftoverRead,
+    PlanProposed,
     ReviewRan,
     RunStarted,
     SessionEnded,
@@ -742,3 +747,123 @@ def test_a_raw_record_whose_end_is_not_a_string_is_excluded_as_holding_no_end(
     trial = _raw_trial(_stream(tmp_path / "stdout.jsonl", DONE), _raw(end=end))
     assert isinstance(trial, ExcludedTrial)
     assert trial.reason == "end: the record holds no end"
+
+
+def _loop_run(tmp_path: Path, **how: Any) -> Path:
+    """A run on ``HELD_OUT``'s canary, made by the loop: see :func:`harness_rig.loop_run`."""
+    return loop_run(tmp_path / "run", held_out_canaries=(CANARY,), **how)
+
+
+def test_a_held_out_harness_trial_of_a_run_that_ended_is_taken(tmp_path: Path) -> None:
+    """The counterpart of the rows below: the same run, let end, is scored."""
+    run = _loop_run(tmp_path)
+    trial = _harness_trial(run)
+    assert isinstance(trial, TrialRecord) and trial.outcome == "pass", trial
+    assert harness_ended_by_infrastructure(run, HELD_OUT, answer_found=True) is False
+
+
+@pytest.mark.parametrize("kill", ["review", "session"])
+def test_a_held_out_harness_trial_of_a_run_that_never_ended_is_excluded(
+    tmp_path: Path, kill: str
+) -> None:
+    """A run killed and never resumed may have a stream nothing scanned.
+
+    A reviewer's stream lies outside the run directory and is scanned only as its review
+    ends, or by a resume; a run killed during the review has neither, and spawned no session
+    whose missing end would show it. So a held-out trial is taken only from a run that ended.
+    """
+    run = _loop_run(tmp_path, kill=kill)
+    trial = _harness_trial(run)
+    assert isinstance(trial, ExcludedTrial), trial
+    assert trial.reason.startswith("run: the run has not ended"), trial.reason
+    with pytest.raises(TrialExcludedError, match="^run: the run has not ended"):
+        harness_ended_by_infrastructure(run, HELD_OUT, answer_found=False)
+
+
+def _decomposed(seq: int) -> Decomposed:
+    return Decomposed(
+        seq=seq,
+        ts=T0,
+        session_id="d1",
+        model="claude-sonnet-5",
+        num_turns=1,
+        subtasks=1,
+        interface_nodes=("iface.bus",),
+        spec_commit="a" * 40,
+        head_revision=1,
+        **ENV,  # type: ignore[arg-type]
+    )
+
+
+def _proposed(seq: int, round_: int, call: int = 1) -> PlanProposed:
+    return PlanProposed(
+        seq=seq,
+        ts=T0,
+        round=round_,
+        session_id=f"p{round_}-{call}",
+        model="claude-sonnet-5",
+        num_turns=1,
+        plan_sha256="f" * 64,
+        started=T0,
+        ended=T0,
+        call=call,  # type: ignore[arg-type]
+        **ENV,  # type: ignore[arg-type]
+    )
+
+
+def _retried(seq: int) -> DecompositionRetried:
+    return DecompositionRetried(
+        seq=seq,
+        ts=T0,
+        session_id="d0",
+        cause="schema_refused",
+        detail="x",
+        **ENV,  # type: ignore[arg-type]
+    )
+
+
+def test_a_decomposed_run_with_its_decomposition_stream_is_taken(tmp_path: Path) -> None:
+    run = _loop_run(tmp_path, decomposed=True)
+    (run / "decomposition").mkdir()
+    (run / "decomposition" / "stdout.jsonl").write_text('{"type": "result"}\n')
+    trial = _harness_trial(run)
+    assert isinstance(trial, TrialRecord) and trial.outcome == "pass", trial
+
+
+def test_a_decomposed_held_out_run_whose_decomposition_stream_is_gone_is_excluded(
+    tmp_path: Path,
+) -> None:
+    """The loop never scans the decomposition's stream; this layer's scan is its only one.
+
+    A stream that is missing is no stream scanned, never a clean one.
+    """
+    trial = _harness_trial(_loop_run(tmp_path, decomposed=True))
+    assert isinstance(trial, ExcludedTrial), trial
+    assert trial.reason == "stream: decomposition/stdout.jsonl, which the log names, is gone"
+
+
+@pytest.mark.parametrize(
+    ("events", "named"),
+    [
+        ([_decomposed(5)], ["decomposition/stdout.jsonl"]),
+        ([_proposed(5, 1)], ["decomposition/stdout.jsonl"]),
+        ([_proposed(5, 2)], ["decomposition/round-2/stdout.jsonl"]),
+        ([_proposed(5, 2, call=2)], ["decomposition/round-2/retry/stdout.jsonl"]),
+        (
+            [_retried(5), _decomposed(6)],
+            ["decomposition/retry/stdout.jsonl", "decomposition/stdout.jsonl"],
+        ),
+        ([], []),
+    ],
+    ids=["decomposed", "round 1", "round 2", "round 2's second call", "retried", "none"],
+)
+def test_each_decomposition_stream_the_log_names_must_be_present(
+    tmp_path: Path, events: list[Event], named: list[str]
+) -> None:
+    """Every call the log records left its stream where the loop puts it; one gone excludes."""
+    run = _held_out_run(tmp_path, *events)
+    assert decomposition_streams(events) == named
+    if named:
+        trial = _harness_trial(run)
+        assert isinstance(trial, ExcludedTrial), trial
+        assert trial.reason == f"stream: {named[0]}, which the log names, is gone"
