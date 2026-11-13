@@ -31,6 +31,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import sysconfig
 import time
 import uuid
@@ -46,6 +47,7 @@ from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import outstanding
 from physgate.hooks.sentinel import _frozen_experiment_paths
 from physgate.hooks.settings import CONFIG_NAME, SETTINGS_NAME
+from physgate.hooks.shell_startup import held_or_refused
 from physgate.hooks.snapshot import Signature, file_digest, signature
 from physgate.hooks.state import LOG_NAME
 from physgate.knowledge import loader
@@ -89,7 +91,12 @@ from physgate.orchestrator.git import common_dir, named_from, object_format, ver
 from physgate.orchestrator.held_records import second_names
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.integration_state import STATE_NAME
-from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
+from physgate.orchestrator.invocation import (
+    NO_TOOL_SERVERS,
+    isolated_env,
+    role_argv,
+    session_search_path,
+)
 from physgate.orchestrator.managed import drift, model_answered, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, attempt_head, attempt_message, commit_attempt
 from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
@@ -115,10 +122,22 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root, os_layer_refusal
-from physgate.orchestrator.tool_environment import forbidden_places, hold_before_session
+from physgate.orchestrator.tool_environment import (
+    changed_while_running,
+    forbidden_places,
+    hold_before_session,
+    session_environment,
+    wire_session,
+)
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
+from physgate.oslayer.containment import (
+    ContainmentError,
+    ServerLaunch,
+    contained_servers,
+    wrappers,
+)
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
@@ -170,10 +189,18 @@ def spawn_held(
     precede the session). Any failure there stops the held process, which has run nothing,
     and raises. Returns the process and its start time.
 
+    Nothing is spawned with an environment through which a shell startup file could reach a
+    shell the binary starts outside the sandbox (``shell_startup.held_or_refused``): held here,
+    where every session of the harness is spawned, on the environment as it stands.
+
     Raises:
-        InvocationError: the process's start time could not be read.
+        InvocationError: the environment is refused, or the process's start time could not
+            be read.
         ProcessTableError: the process table could not be read.
     """
+    refused = held_or_refused(env)
+    if refused is not None:
+        raise InvocationError(refused, session_id=session_id)
     hold, release = os.pipe()
     try:
         process = subprocess.Popen(
@@ -1356,6 +1383,7 @@ class ClaudeDispatcher:
         credential: Credential,
         review_root: Path,
         quarantine: tuple[str, str, str] | None = None,
+        tool_servers: tuple[ServerLaunch, ...] = (),
     ) -> None:
         """Dispatch attempts of ``run`` with the hooks from ``install_bin``'s installation.
 
@@ -1365,6 +1393,9 @@ class ClaudeDispatcher:
         #: (session id, who, why): the operator's command-line request to set one leftover's
         #: gone stream aside at this resume. Never read from a file a session can write.
         self._quarantine = quarantine
+        #: The tool servers each role session is offered, each in its wrapper; none without the
+        #: OS layer, which is what contains them.
+        self._tool_servers = tool_servers
         self._config = config
         self._run = run
         self._store_root = store_root
@@ -1576,11 +1607,16 @@ class ClaudeDispatcher:
                 if temp is not None and self._config.network != "open"
                 else []
             ),
-            # The run's named interpreter is linked in the session's own directory, which
-            # the OS layer keeps from shell commands; its directory is opened again.
+            # The run's named interpreter, and the programs of its tool environment, are
+            # linked in the session's own directory, which the OS layer keeps from shell
+            # commands; that directory is opened again.
             *(
                 ["--os-layer-readable", str(sdir / "bin")]
-                if temp is not None and self._config.role_python is not None
+                if temp is not None
+                and (
+                    self._config.role_python is not None
+                    or self._config.tool_environment is not None
+                )
                 else []
             ),
         ]
@@ -1695,6 +1731,37 @@ class ClaudeDispatcher:
     def _layer_on(self) -> bool:
         return isinstance(self.os_layer(), Present)
 
+    def _contained_servers(
+        self, installed: Installed, sdir: Path, own_temp: Path, env: dict[str, str]
+    ) -> tuple[str, tuple[str, ...]]:
+        """The session's tool-server configuration, and the wrappers its servers may name.
+
+        None without the OS layer: a server the binary starts runs outside the sandbox around
+        the session's commands, and only the layer's own programs contain it. Each server's
+        rules come from the session's own configuration, as installed.
+
+        Raises:
+            InvocationError: a server cannot be contained here, so the session is not started.
+        """
+        if not self._tool_servers or not self._layer_on():
+            return NO_TOOL_SERVERS, ()
+        platform = sys.platform
+        bwrap = shutil.which("bwrap", path=env["PATH"]) if platform.startswith("linux") else None
+        config = SessionConfig.model_validate_json(Path(installed.config).read_bytes())
+        try:
+            servers = contained_servers(
+                config,
+                self._tool_servers,
+                platform=platform,
+                temp_dir=own_temp,
+                profiles_dir=sdir / "servers",
+                bwrap=bwrap,
+            )
+        except ContainmentError as exc:
+            msg = "a tool server cannot be contained here, so the session is not started"
+            raise InvocationError(msg, error=str(exc)) from exc
+        return servers, wrappers(platform, bwrap)
+
     def _run_session(
         self,
         request: SessionRequest,
@@ -1712,9 +1779,6 @@ class ClaudeDispatcher:
         # Made before the installation, so the OS layer's rules name them as they will stand.
         (sdir / "home").mkdir(parents=True, exist_ok=True)
         runtime_paths(worktree, sdir / "home")
-        installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
-        # Read before the session starts, while nothing of it can have touched the file.
-        end_check = session_end_command(Path(installed.settings))
         env = isolated_env(
             home=sdir / "home",
             config_dir=sdir / "config",
@@ -1725,9 +1789,26 @@ class ClaudeDispatcher:
             base_url=self._base_url,
             api_key=None,
         )
+        recorded_tools = self._config.tool_environment
+        wired: dict[str, str] = {}
+        if recorded_tools is not None:
+            # Before the installation, so the OS layer's rules name the directory of the
+            # session's programs as it will stand: the interpreter and each program of the
+            # environment by name, and in the session's temporary directory what its tools
+            # need there, all as the environment's own file says.
+            wired = wire_session(
+                recorded_tools, bin_dir=sdir / "bin", temp=own_temp, taken=tuple(env)
+            )
+        installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
+        # Read before the session starts, while nothing of it can have touched the file.
+        end_check = session_end_command(Path(installed.settings))
         env.update(installed.spawn_env)
         recorded_python = self._config.role_python
-        if recorded_python is not None:
+        if recorded_tools is not None:
+            # The environment's interpreter is the session's ``python3``; a run that also
+            # names it as its interpreter names the same one.
+            env = session_environment(env, wired, sdir / "bin")
+        elif recorded_python is not None:
             # The run's named interpreter, measured again, first on the session's PATH as
             # ``python3``: a directory holding nothing else, so nothing beside it comes too.
             require_same(
@@ -1737,6 +1818,7 @@ class ClaudeDispatcher:
                 install=self._install_bin.parent.parent,
             )
             env["PATH"] = f"{session_bin(sdir, recorded_python)}:{env['PATH']}"
+        tool_servers, contained_by = self._contained_servers(installed, sdir, own_temp, env)
         argv = role_argv(
             self._binary,
             prompt=role_prompt(
@@ -1748,6 +1830,8 @@ class ClaudeDispatcher:
             max_turns=request.bounds.session_max_turns,
             effort=self._config.effort,
             thinking_display=self._config.thinking_display,
+            tool_servers=tool_servers,
+            wrappers=contained_by,
         )
         stdout = sdir / "stdout.jsonl"
         before = placeholders.snapshot(str(worktree), absent=named_in(installed, worktree))
@@ -1848,6 +1932,13 @@ class ClaudeDispatcher:
                     if p not in roots.held and p not in linked
                 ]
                 linked += elsewhere or [f"{path} ({links} names)"]
+        # The tool environment, scanned once more: a change now was made while this session
+        # ran, by a write no layer refused. Nothing it left is then collected or committed.
+        tools_changed = (
+            changed_while_running(self._config.tool_environment, self._tool_environment_scan)
+            if self._config.tool_environment is not None and self._tool_environment_scan is not None
+            else None
+        )
         if (
             ended is None
             or unconfirmed is not None
@@ -1855,6 +1946,7 @@ class ClaudeDispatcher:
             or moved
             or linked
             or unread is not None
+            or tools_changed is not None
         ):
             settled = {
                 "left_running": list(ended.left_running) if ended is not None else [],
@@ -1863,6 +1955,7 @@ class ClaudeDispatcher:
                 "protected_changed": moved,
                 "held_record_names": linked,
                 "protected_unread": unread,
+                "tool_environment_changed": tools_changed,
             }
             # Beside the end record, not in it: a resume still finds the session unended,
             # stops and checks it again, and reads what it spent.
@@ -1870,6 +1963,8 @@ class ClaudeDispatcher:
             msg = (
                 "the session's stop is not confirmed, or the sentinel's check after it "
                 "failed; no git call follows on this attempt"
+                if tools_changed is None
+                else f"{tools_changed}; no git call follows on this attempt"
             )
             raise InvocationError(
                 msg,

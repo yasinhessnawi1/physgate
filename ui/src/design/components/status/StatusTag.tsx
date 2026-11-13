@@ -1,4 +1,5 @@
 import { LIBRARY_COPY, STATE_WORDS } from "../../../words/library";
+import { ENGINE_STATUS_WORDS, PAIR_WORDS } from "../../../words/settings";
 import { Icon, type IconName } from "../icons/Icon";
 
 /**
@@ -28,9 +29,21 @@ export const STATUS_KINDS = {
   "never-promoted": ["minus", STATE_WORDS["never-promoted"]],
   "no-digest": ["minus", STATE_WORDS["no-digest"]],
   "wrote-this-file": ["file-text", LIBRARY_COPY.wroteThisFile],
+  // How physgate is set up: an engine's status in the catalogue, and a reviewer's model string
+  // beside its builder's. A comparison of two strings is not a review's verdict.
+  "engine-available": ["circle-dot", ENGINE_STATUS_WORDS.available],
+  "pair-different-strings": ["git-compare", PAIR_WORDS.different],
+  "pair-same-string": ["ban", PAIR_WORDS.same],
+  "engine-not-yet": ["clock", ENGINE_STATUS_WORDS["not-yet"]],
 } as const satisfies Record<string, readonly [IconName, string]>;
 
 export type StatusKind = keyof typeof STATUS_KINDS;
+
+/**
+ * The states drawn dashed: none is a state recorded as reached, such as an engine the catalogue
+ * lists but does not offer yet. Dashed in neutral ink, never in the unchecked verdict's colours.
+ */
+const DASHED: ReadonlySet<StatusKind> = new Set(["engine-not-yet"]);
 
 export function StatusTag({
   status,
@@ -41,7 +54,16 @@ export function StatusTag({
 }) {
   const [icon, word] = STATUS_KINDS[status];
   return (
-    <span className={strong ? "pg-status pg-status-strong" : "pg-status"} data-status-kind={status}>
+    <span
+      className={[
+        "pg-status",
+        strong ? "pg-status-strong" : null,
+        DASHED.has(status) ? "pg-status-dashed" : null,
+      ]
+        .filter((c) => c !== null)
+        .join(" ")}
+      data-status-kind={status}
+    >
       <Icon name={icon} size={12} />
       {word}
     </span>

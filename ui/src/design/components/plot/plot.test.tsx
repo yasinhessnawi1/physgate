@@ -33,6 +33,15 @@ describe("a plot has a unit on every axis and converts nothing", () => {
     expect(() => checkPlot({ ...STEP, y: { ...STEP.y, unit: " " } })).toThrow(/no unit/);
   });
 
+  it("refuses a log y axis holding zero or a negative value, as it does a log x axis", () => {
+    const log = { ...STEP.y, scale: "log" as const };
+    expect(() => checkPlot({ ...STEP, y: log })).toThrow(/log axis/);
+    const negative = { ...STEP, y: log, series: [{ label: "p", unit: "m", y: [1, -0.5, 2, 3] }] };
+    expect(() => checkPlot(negative)).toThrow(/log axis/);
+    const above = { ...STEP, y: log, series: [{ label: "p", unit: "m", y: [1, 0.5, 2, 3] }] };
+    expect(checkPlot(above)).toBe(above);
+  });
+
   it("refuses a log axis holding zero, and a series of the wrong length", () => {
     expect(() => checkPlot({ ...STEP, x: { ...STEP.x, scale: "log" } })).toThrow(/log axis/);
     expect(() => checkPlot({ ...STEP, series: [{ label: "short", unit: "m", y: [0] }] })).toThrow(

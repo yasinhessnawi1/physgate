@@ -52,6 +52,25 @@ describe("the glossary", () => {
       expect(GLOSSARY[key].means.length).toBeGreaterThan(10);
   });
 
+  it("explains every term the Simulation screen uses, and says a record is not re-run", () => {
+    for (const key of [
+      "simulation-record",
+      "read-off",
+      "agreement",
+      "set-aside",
+      "superseded",
+      "tool-view",
+      "sealed",
+      "attempt",
+      "unchecked",
+      "observe",
+    ] as const)
+      expect(GLOSSARY[key].means.length).toBeGreaterThan(10);
+    expect(GLOSSARY["simulation-record"].means).toMatch(/does not re-run/);
+    expect(GLOSSARY.agreement.means).not.toMatch(/\d/);
+    expect(html).toContain("Simulation record");
+  });
+
   it("explains every library term the library screen uses", () => {
     const library = Object.values(GLOSSARY).filter((e) => e.group === "The library");
     expect(library.map((e) => e.term)).toEqual([

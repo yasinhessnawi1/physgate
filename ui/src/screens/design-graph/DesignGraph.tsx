@@ -21,9 +21,10 @@ import type { ViewProps } from "../../shell/header";
 import { InspectorPortal } from "../../shell/inspector";
 import { hrefFor } from "../../shell/route";
 import { nodeLabel, quantityLabel } from "../../words/humanise";
+import { recordAddress } from "../common/addresses";
 import { useJson, useLines } from "../common/read";
 import { RunSwitcher } from "../common/RunSwitcher";
-import { inProgress, runSource, useChosenRun } from "../common/runs";
+import { inProgress, runKey, runSource, useChosenRun } from "../common/runs";
 import { DiffView } from "./DiffView";
 import { missingTargets } from "./edges";
 import { NodeInspector } from "./NodeInspector";
@@ -134,6 +135,7 @@ function Explorer({
   query,
   source,
   runLabel,
+  runKey: run,
 }: {
   readonly base: string;
   readonly graph: GraphAt;
@@ -142,6 +144,8 @@ function Explorer({
   readonly query: URLSearchParams;
   readonly source: Source;
   readonly runLabel: string;
+  /** The run's ``root/name``, for a link to another screen over the same run. */
+  readonly runKey: string;
 }) {
   const mode: Mode =
     query.get("view") === "table" ? "table" : query.get("view") === "diff" ? "diff" : "graph";
@@ -343,6 +347,9 @@ function Explorer({
             runLabel={runLabel}
             diffHref={diffHref}
             nodeHref={(id) => withQuery(query, { node: id })}
+            recordHref={(writer, series) =>
+              recordAddress(run, writer.subtask, writer.attempt, series.record)
+            }
           />
         </InspectorPortal>
       )}
@@ -433,6 +440,7 @@ export default function DesignGraph({ setHeader, query }: ViewProps) {
         query={query}
         source={runSource(config.value)}
         runLabel={label?.label ?? `Run ${chosen.chosen.name}`}
+        runKey={runKey(chosen.chosen)}
       />
     );
   return (

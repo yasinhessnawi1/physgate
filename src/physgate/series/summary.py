@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from physgate.series.reader import SealedEntry, read_record
@@ -62,11 +63,40 @@ def _cell(text: str) -> str:
     return text if _PLAIN.fullmatch(text) else _quoted(text)
 
 
-def _column(label: str, column: Column) -> str:
+@dataclass(frozen=True)
+class ColumnSummary:
+    """One column summarised from its own samples, as the listing and the operator UI show it."""
+
+    unit: str
+    samples: int
+    first: float
+    last: float
+    smallest: float
+    largest: float
+
+
+def column_summary(column: Column) -> ColumnSummary:
+    """``column``'s unit, its number of samples, and its first, last, smallest and largest value.
+
+    ``min`` and ``max`` keep the first of equal values, so a negative zero and a zero are
+    reported in the order the record holds them.
+    """
     values = column.values
+    return ColumnSummary(
+        unit=column.unit,
+        samples=len(values),
+        first=values[0],
+        last=values[-1],
+        smallest=min(values),
+        largest=max(values),
+    )
+
+
+def _column(label: str, column: Column) -> str:
+    shown = column_summary(column)
     return (
-        f"| {label} | {column.unit} | {len(values)} | {_number(values[0])} | "
-        f"{_number(values[-1])} | {_number(min(values))} | {_number(max(values))} |\n"
+        f"| {label} | {shown.unit} | {shown.samples} | {_number(shown.first)} | "
+        f"{_number(shown.last)} | {_number(shown.smallest)} | {_number(shown.largest)} |\n"
     )
 
 

@@ -1,0 +1,274 @@
+name: tool-environment
+
+# The tool environment on Linux: built once from its own locks, then used by real role
+# sessions inside bubblewrap with the machine's network taken away. The job has two halves
+# that never mix. The first half fetches, and everything it fetches is held to a digest
+# written in this repository. The second half tests, in a network namespace that holds a
+# loopback and nothing else, so a test that passes there needed no outside host.
+
+on:
+  push:
+  pull_request:
+
+# Reads the repository and writes nothing. No secret and no API key: the sessions run
+# against the scripted local stand-in for the model API.
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    # A named image and not the floating latest: the three packages below are pinned to
+    # this release's builds.
+    runs-on: ubuntu-24.04
+    # Building the environment takes minutes when the cache misses; the tests are a few
+    # sessions. The ceiling stops a hung session from holding a runner.
+    timeout-minutes: 45
+    env:
+      # Outside the checkout, the temporary directories and the tests' own trees: a run
+      # refuses a tool environment that lies in any of them.
+      PG_ENVIRONMENT: /home/runner/pg-env/env
+      PG_MEASURED: /home/runner/pg-env/measured.json
+    steps:
+      # ---- the half that fetches -----------------------------------------------------
+      # Each action is named by the commit its tag pointed at on the day it was read, so
+      # a tag moved later changes nothing here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install uv, held to its release digest
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          # sha256 of uv-x86_64-unknown-linux-gnu.tar.gz at that version.
+          checksum: "fa82fd8dde8e8eefdecada6aa0889666556cfceb690d06e0c3bca49eb3070a63"
+          enable-cache: true
+
+      - name: Create the harness environment from its lockfile
+        # Every wheel is held to the hash the lockfile records for it.
+        run: uv sync --frozen
+
+      - name: Restore the tool environment built from these locks, if one was kept
+        id: kept
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /home/runner/pg-env
+          # Everything the environment is built from lies under toolenv/: the two
+          # lockfiles, the pins, the script and the servers copied in. Any change to one
+          # of them is a new key, so a kept environment is never one built from other
+          # locks. It is restored to the path it was built at, which its interpreter's
+          # own files name.
+          key: tool-environment-${{ runner.os }}-${{ runner.arch }}-uv-0.12.17-${{ hashFiles('toolenv/**') }}
+
+      - name: Build the tool environment, where none was kept
+        # The only step in which the environment meets the network. The script holds each
+        # download to a digest recorded before it was fetched (the interpreter, each
+        # wheel, Node, each npm package, each PlatformIO package), copies every file,
+        # checks the result offline and leaves it read-only.
+        if: steps.kept.outputs.cache-hit != 'true'
+        run: |
+          uv run --frozen python toolenv/provision.py \
+            --dest "$PG_ENVIRONMENT" --cache "$RUNNER_TEMP/provision-downloads"
+
+      - name: Measure what was built, before anything uses it
+        # The harness's own manifest: every file by mode, size and sha256. Written beside
+        # the environment and kept with it, so a restored environment can be held to it.
+        if: steps.kept.outputs.cache-hit != 'true'
+        run: |
+          uv run --frozen python - "$PG_ENVIRONMENT" > "$PG_MEASURED" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          from physgate.toolenv.manifest import manifest
+
+          found = manifest([Path(sys.argv[1])])
+          print(json.dumps({"digest": found.digest, "entries": found.entries,
+                            "total_bytes": found.total_bytes}))
+          PY
+          cat "$PG_MEASURED"
+
+      - name: Keep the environment for the next run on the same locks
+        # Saved here and not when the job ends, so what is kept is what was built and
+        # measured, before any test has run beside it.
+        if: steps.kept.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /home/runner/pg-env
+          key: ${{ steps.kept.outputs.cache-primary-key }}
+
+      - name: Install the pinned Claude Code binary from its lockfile
+        # The lockfile holds the package and every platform binary by version and sha512,
+        # and no install script runs. npm is the tool environment's own Node, which was
+        # held to the sha256 in the pins when the environment was built, so this job
+        # fetches no other Node.
+        working-directory: tests/integration/hooks/claude-code
+        run: PATH="$PG_ENVIRONMENT/node/bin:$PATH" npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install the sandbox's two programs, each held to its digest
+        # bubblewrap and socat are what the sandbox runs on Linux; libwrap0 is the one
+        # library socat needs that the image may lack. Each is the build the distribution
+        # published for this release, fetched by its file name and refused unless its
+        # sha256 is the one written here (the same digests the distribution's own package
+        # index gives). A newer build is taken by changing these lines, never by itself.
+        run: |
+          mkdir "$RUNNER_TEMP/debs"
+          cd "$RUNNER_TEMP/debs"
+          while read -r digest file; do
+            curl -fsSL --proto '=https' -o "$file" \
+              "https://launchpad.net/ubuntu/+archive/primary/+files/$file"
+            echo "$digest  $file" | sha256sum --check --strict
+          done <<'PINS'
+          36118b862539868408ee056411d6e470068d14c46e5296b29bfb744770f5d2ce libwrap0_7.6.q-33_amd64.deb
+          2461f1beee9cb04c8942739fe1a2b37e7b7c2a3d518f0779dc75f9245baa3094 bubblewrap_0.9.0-1ubuntu0.3_amd64.deb
+          46e854289b6b1c97e28be5d9293bea61e8633d00d6a65d9513f019c7232696fe socat_1.8.0.0-4ubuntu0.1_amd64.deb
+          PINS
+          sudo dpkg --install ./libwrap0_*.deb ./bubblewrap_*.deb ./socat_*.deb
+
+      - name: Let bubblewrap make its namespaces
+        # The AppArmor profile the documentation gives for Ubuntu 24.04, which otherwise
+        # keeps bubblewrap from creating user namespaces. Nothing is fetched.
+        run: |
+          printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' \
+            'profile bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '}' \
+            | sudo tee /etc/apparmor.d/bwrap > /dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          bwrap --unshare-user --unshare-pid --unshare-net --ro-bind / / --dev /dev \
+            --proc /proc /bin/true && echo "bubblewrap starts here"
+
+      - name: A stand-in for a board's serial device
+        # A runner has no board, and its own serial ports are not this user's to open. So
+        # the null device is given a second node under a serial device's name, which every
+        # user can open: outside the OS layer a session's program opens it, and inside the
+        # layer nothing does. Nothing is fetched.
+        run: |
+          sudo mknod --mode=666 /dev/ttyUSB7 c 1 3
+          : < /dev/ttyUSB7 && echo "the stand-in opens here"
+
+      # ---- the half that tests: nothing below this line reaches the network ------------
+      - name: How a step below runs with no network
+        # A command given to this script runs as the same user in a new network namespace
+        # that has a loopback and no other interface: the scripted stand-in for the model
+        # API listens on the loopback, and there is no route to anywhere else. One outside
+        # address is given to that loopback with a listener behind it: the address the
+        # tests' own network probe names. A session with the OS layer off must still be
+        # seen reaching it, or the probe's "refused" inside the layer would prove nothing;
+        # the sandbox's own namespace does not have that loopback. The listener stands in
+        # for the outside host and is not one: it lives on the namespace's own loopback,
+        # answers nothing, and ends with the command, so the control reaches something
+        # while no packet leaves the namespace.
+        run: |
+          cat > "$RUNNER_TEMP/offline" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export PG_UID="$(id -u)" PG_GID="$(id -g)" PG_PATH="$PATH" PG_HOME="$HOME" PG_USER="$(id -un)"
+          exec sudo --preserve-env unshare --net -- bash -c '
+            set -eu
+            ip link set lo up
+            ip addr add 1.1.1.1/32 dev lo
+            socat TCP-LISTEN:443,bind=1.1.1.1,fork,reuseaddr /dev/null &
+            listener=$!
+            sleep 1
+            status=0
+            setpriv --reuid="$PG_UID" --regid="$PG_GID" --init-groups \
+              env -u SUDO_USER -u SUDO_UID -u SUDO_GID -u SUDO_COMMAND \
+              PATH="$PG_PATH" HOME="$PG_HOME" USER="$PG_USER" LOGNAME="$PG_USER" "$@" || status=$?
+            kill "$listener"
+            exit "$status"
+          ' offline "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/offline"
+
+      - name: The network is there outside that namespace, and gone inside it
+        # First the control: the same two probes reach from an ordinary step, so their
+        # failing below is the namespace's doing. Then by name and by address from inside,
+        # as the user the tests run as.
+        run: |
+          curl -fsS --max-time 20 -o /dev/null https://github.com
+          python3 -c 'import socket; socket.create_connection(("140.82.121.4", 443), 10)'
+          echo "outside the namespace both probes reach"
+          # shellcheck disable=SC2016
+          "$RUNNER_TEMP/offline" bash -c '
+            test "$(id -u)" != 0
+            if curl -sS --max-time 10 -o /dev/null https://github.com; then
+              echo "a host was reached by name"; exit 1
+            fi
+            if python3 -c "import socket; socket.create_connection((\"140.82.121.4\", 443), 10)"; then
+              echo "a host was reached by address"; exit 1
+            fi
+            echo "inside the namespace neither probe reaches"
+          '
+
+      - name: The environment is the one built from these locks, byte for byte
+        # Whether it was built in this run or restored: the lock files it records are the
+        # checkout's, and its manifest is the one measured when it was built.
+        run: |
+          "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync python - \
+            "$PG_ENVIRONMENT" "$PG_MEASURED" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          from physgate.toolenv.manifest import manifest
+
+          env, measured = Path(sys.argv[1]), Path(sys.argv[2])
+          recorded = json.loads((env / "provisioned.json").read_text())["locks_sha256"]
+          assert recorded, "the environment records no lock"
+          for name, digest in recorded.items():
+              found = hashlib.sha256((Path("toolenv") / name).read_bytes()).hexdigest()
+              assert found == digest, f"{name}: built from {digest}, the checkout has {found}"
+          kept = json.loads(measured.read_text())
+          now = manifest([env])
+          assert now.entries > 1000, f"only {now.entries} entries"
+          assert (now.digest, now.entries, now.total_bytes) == (
+              kept["digest"], kept["entries"], kept["total_bytes"]
+          ), f"measured {now}, kept {kept}"
+          print(f"environment {now.digest}: {now.entries} entries, {now.total_bytes} bytes")
+          PY
+
+      - name: Real sessions use the tool environment inside the OS layer, offline
+        # A role session computes and builds with the environment inside bubblewrap; no
+        # session writes a tool environment through the real tool path, or opens a serial
+        # device, or is let to start an upload; the environment's
+        # own servers answer with the pinned libraries, to the pinned binary too. Then
+        # every row is counted: a file that skipped here ran nowhere on Linux, so a skip
+        # is a failure, as is a run that collected nothing.
+        env:
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_TOOL_ENVIRONMENT: /home/runner/pg-env/env
+        run: |
+          status=0
+          "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync pytest -q -rs -m integration \
+            --junitxml="$RUNNER_TEMP/rows.xml" \
+            tests/integration/hooks/test_the_tool_environment_works_offline_inside_the_os_layer.py \
+            tests/integration/hooks/test_no_session_writes_the_tool_environment_through_the_real_tool_path.py \
+            tests/integration/hooks/test_no_session_reaches_a_serial_device_through_the_real_tool_path.py \
+            tests/integration/toolenv/test_the_own_tool_servers_compute_with_the_pinned_libraries.py \
+            || status=$?
+          python3 - "$RUNNER_TEMP/rows.xml" "$status" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suite = next(ET.parse(sys.argv[1]).getroot().iter("testsuite"))
+          rows = {name: int(suite.get(name, "0")) for name in ("tests", "failures", "errors", "skipped")}
+          print(f"rows: {rows}, pytest exit {sys.argv[2]}")
+          passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
+          ok = sys.argv[2] == "0" and rows["tests"] > 0 and passed == rows["tests"]
+          sys.exit(0 if ok else 1)
+          PY
+
+      - name: The environment is unchanged by the sessions that used it
+        if: success() || failure()
+        run: |
+          "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync python - \
+            "$PG_ENVIRONMENT" "$PG_MEASURED" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          from physgate.toolenv.manifest import manifest
+
+          kept = json.loads(Path(sys.argv[2]).read_text())
+          now = manifest([Path(sys.argv[1])])
+          assert now.digest == kept["digest"], f"measured {now.digest}, built {kept['digest']}"
+          print(f"environment {now.digest}, as built")
+          PY

@@ -355,3 +355,39 @@ def test_platformio_is_quiet_and_its_offline_check_refuses_every_download(tmp_pa
     assert not {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"} & set(online)
     for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
         assert offline.get(name) == "http://127.0.0.1:9"
+
+
+# ---- the session file ------------------------------------------------------------------------
+
+
+def test_the_session_file_is_one_the_harness_holds_and_names_what_provisioning_makes() -> None:
+    from physgate.toolenv.session import SessionWiring
+
+    wiring = SessionWiring.model_validate_json((TOOLENV / "session.json").read_text("utf-8"))
+    # The programs are the environment's own scripts, and the links lead into the store
+    # provisioning fills, each by its directory there.
+    assert set(wiring.programs.values()) == {"venv/bin/pio", "venv/bin/platformio"}
+    assert set(wiring.links.values()) == {
+        f"platformio/{n}" for n in ("platforms", "packages", "lib")
+    }
+    for link in wiring.links:
+        assert link.split("/")[0] in wiring.directories, link
+    # Nothing a build or a plot writes goes anywhere but the session's temporary directory,
+    # and nothing phones home or opens a window.
+    variables = wiring.variables
+    for name in ("CORE_DIR", "BUILD_DIR", "WORKSPACE_DIR", "CACHE_DIR"):
+        assert variables[f"PLATFORMIO_{name}"].startswith("{temp}/"), name
+    assert variables["MPLCONFIGDIR"].startswith("{temp}/")
+    assert variables["MPLBACKEND"] == "Agg"
+    assert variables["PLATFORMIO_SETTING_ENABLE_TELEMETRY"] == "no"
+    assert int(variables["PLATFORMIO_SETTING_CHECK_PLATFORMIO_INTERVAL"]) >= 36500
+
+
+def test_provisioning_puts_the_session_file_at_the_environment_s_root(tmp_path: Path) -> None:
+    provision = _provision()
+    dest = tmp_path / "env"
+    dest.mkdir()
+    provision.session_file(dest)
+    assert (dest / "session.json").read_bytes() == (TOOLENV / "session.json").read_bytes()
+    assert not (dest / "session.json").is_symlink()
+    assert (dest / "session.json").stat().st_nlink == 1
