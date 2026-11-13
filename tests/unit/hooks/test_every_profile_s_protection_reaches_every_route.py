@@ -47,6 +47,7 @@ FILES = {
     "config_dir": "outside/config/credentials.json",
     "store": "run/store/journal.jsonl",
     "git_user_config": "outside/home/.gitconfig",
+    "home_claude_code": "outside/home/.claude/skills/s/SKILL.md",
     "harness_checkout": "harness/src/physgate/gate/check.py",
     "ordinary": "run/wt/modules/control/loop.py",
 }
@@ -79,6 +80,10 @@ ROLE = {
     "config_dir": "A R R A R T T none",
     "store": "A R R A R F T journal",
     "git_user_config": "A R R A R F T revert",
+    # The scratch home is the session's own to write, but not Claude Code's directory in it:
+    # nothing of the session writes or reads there, by a tool or by a command. Put back
+    # where the OS layer does not run, as this request's session; left to the layer where it does.
+    "home_claude_code": "R R R R R T T revert",
     "harness_checkout": "A R R A R T T revert",
     "ordinary": "A A A A A F F -",
 }
@@ -114,6 +119,7 @@ REVIEWER = {
     "config_dir": "R R R - - - - none",
     "store": "A R R - - - - journal",
     "git_user_config": "R R R - - - - -",
+    "home_claude_code": "R R R - - - - revert",
     "harness_checkout": "R R R - - - - revert",
     "ordinary": "A R R - - - - -",
 }

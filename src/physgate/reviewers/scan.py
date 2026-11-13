@@ -44,6 +44,7 @@ from pydantic import (
     model_serializer,
 )
 
+from physgate.lines import split_lines
 from physgate.orchestrator.protocols import IndicatorKind, IndicatorReport
 from physgate.reviewers.transcript import parse_event
 
@@ -193,7 +194,7 @@ def scan(stream: str) -> tuple[ScanHit, ...]:
     hits: list[ScanHit] = []
     #: Each call's tool, by its id, as the stream showed the call before its result.
     calls: dict[str, str] = {}
-    for number, line in enumerate(stream.splitlines(), start=1):
+    for number, line in enumerate(split_lines(stream), start=1):
         if not line.strip():
             continue
         event = parse_event(line)
