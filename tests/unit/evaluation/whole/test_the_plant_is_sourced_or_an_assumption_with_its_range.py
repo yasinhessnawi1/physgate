@@ -84,12 +84,75 @@ def test_every_sourced_parameter_cites_its_source() -> None:
     for name, p in _parse(_draft()).parameters.items():
         if name in ASSUMED:
             continue
-        assert any(s in p.source for s in ("brief criterion", "parts sheet", "Pololu item")), name
+        assert any(
+            s in p.source for s in ("brief criterion", "parts sheet", "Pololu", "Panasonic")
+        ), name
+
+
+def test_every_sourced_parameter_says_where_in_its_source_the_number_is_read() -> None:
+    for name, p in _parse(_draft()).parameters.items():
+        if name in ASSUMED:
+            continue
+        assert getattr(p, "locator", None), f"{name} names no locator"
+
+
+#: The sourced or bounded values, as the sourcing of 13.11.2026 gives them: (value, low, high).
+SOURCED = {
+    "rotor_inertia": (1e-8, 3e-9, 2e-8),
+    "gearbox_friction": (0.0173, 0.009, 0.036),
+    "cell_mass": (0.027, 0.027, 0.027640785046875),
+    "kit_mass": (0.2, 0.19, 0.21),
+    "motor_no_load_current": (0.15, 0.075, 0.225),
+}
+
+
+@pytest.mark.parametrize("name", sorted(SOURCED))
+def test_the_draft_holds_the_sourced_value_and_range(name: str) -> None:
+    p = _parse(_draft()).parameters[name]
+    value, low, high = SOURCED[name]
+    assert (p.value, p.low, p.high) == pytest.approx((value, low, high), rel=1e-9)
+
+
+def test_the_cell_s_figure_is_marked_as_read_from_a_third_party_copy() -> None:
+    p = _parse(_draft()).parameters["cell_mass"]
+    assert "Panasonic" in p.source
+    assert "third-party copy" in p.source
+
+
+def test_the_robot_as_built_weighs_what_the_sourcing_sums() -> None:
+    bodies = _plant().bodies(_values())
+    assert bodies.body_mass == pytest.approx(0.3223, abs=5e-5)
+    assert bodies.body_mass + bodies.wheels_mass == pytest.approx(0.362, abs=5e-4)
+
+
+def test_the_body_s_assumed_inertia_is_the_envelope_box_at_the_sourced_mass() -> None:
+    p = _parse(_draft()).parameters["body_inertia"]
+    box = _plant().bodies(_values()).body_mass * (0.118**2 + 0.080**2) / 12
+    assert (p.value, p.low, p.high) == pytest.approx((box, box / 2, 1.5 * box), rel=1e-9)
 
 
 def _cased_unmeasured(doc: dict[str, Any]) -> None:
     doc["parameters"]["com_height"].update(source="Assumption")
     doc["parameters"]["com_height"].pop("measure_by")
+
+
+def _frozen_assumption_at_a_point(doc: dict[str, Any]) -> None:
+    doc.update(status="frozen")
+    p = doc["parameters"]["com_height"]
+    p.update(low=p["value"], high=p["value"])
+
+
+def test_a_draft_may_hold_an_assumption_at_a_point_for_a_fixture() -> None:
+    doc = copy.deepcopy(_draft())
+    p = doc["parameters"]["com_height"]
+    p.update(low=p["value"], high=p["value"])
+    assert _parse(doc).parameters["com_height"].low == p["value"]
+
+
+def test_a_frozen_plant_with_every_assumption_ranged_is_taken() -> None:
+    doc = copy.deepcopy(_draft())
+    doc.update(status="frozen")
+    assert _parse(doc).status == "frozen"
 
 
 @pytest.mark.parametrize(
@@ -105,6 +168,9 @@ def _cased_unmeasured(doc: dict[str, Any]) -> None:
         (_cased_unmeasured, "measurement"),
         (lambda d: d.update(status="final"), "plant parameter file"),
         (lambda d: d["parameters"]["kit_mass"].update(value="0.2"), "plant parameter file"),
+        (lambda d: d["parameters"]["kit_mass"].update(source="   "), "names no source"),
+        (lambda d: d["parameters"]["kit_mass"].pop("locator", None), "names no locator"),
+        (_frozen_assumption_at_a_point, "a point"),
     ],
     ids=[
         "missing",
@@ -117,6 +183,9 @@ def _cased_unmeasured(doc: dict[str, Any]) -> None:
         "assumption_cased_unmeasured",
         "status",
         "string",
+        "source_blank",
+        "cited_without_locator",
+        "frozen_assumption_point",
     ],
 )
 def test_a_plant_file_off_its_schema_is_refused(change: Any, says: str) -> None:
@@ -147,8 +216,12 @@ def test_the_motor_derives_as_the_parameter_check_recomputed_it() -> None:
     assert at_limit == pytest.approx(28.24, rel=2e-4)  # D9
 
 
+#: The parts sheet's cell (R5.07, 0.97 oz), which the parameter check and the fall check used.
+PARTS_SHEET_CELL = 0.02749903743125
+
+
 def test_the_bodies_derive_as_the_parameter_check_recomputed_them() -> None:
-    bodies = _plant().bodies(_values())
+    bodies = _plant().bodies(_values(cell_mass=PARTS_SHEET_CELL))
     assert bodies.body_mass == pytest.approx(0.32530, rel=2e-5)  # D10
     assert bodies.body_mass + bodies.wheels_mass == pytest.approx(0.36499, rel=2e-5)
     assert bodies.wheels_inertia / 2 == pytest.approx(1.5876e-5, rel=1e-4)  # D11
@@ -167,7 +240,7 @@ def test_the_stall_current_at_the_kit_s_limit_is_the_brief_s_reading() -> None:
 
 def _checked_body(**over: float) -> dict[str, float]:
     """The body the fall check used: 0.057 m above the axle, k = 0.0412 m, its own masses."""
-    values = _values()
+    values = _values(cell_mass=PARTS_SHEET_CELL)
     mass = _plant().bodies(values).body_mass
     values.update(com_height=0.057, body_inertia=mass * 0.0412**2, **over)
     return values
