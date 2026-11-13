@@ -167,10 +167,9 @@ def _step(body: bytes) -> str | None:
             return None
     if opened:
         return None
-    return (
-        f"STEP, {entities} entities; schema {_field(_first_string(header['FILE_SCHEMA']))}; "
-        f"file name {_field(_first_string(header['FILE_NAME']))}"
-    )
+    schema = _first_string(header.get("FILE_SCHEMA", ""))
+    name = _first_string(header.get("FILE_NAME", ""))
+    return f"STEP, {entities} entities; schema {_field(schema)}; file name {_field(name)}"
 
 
 # ---- STL --------------------------------------------------------------------------------------
@@ -190,10 +189,11 @@ def _stl_binary(body: bytes) -> str | None:
     if len(body) < _STL_HEADER + 4:
         return None
     count = int.from_bytes(body[_STL_HEADER : _STL_HEADER + 4], "little")
-    if len(body) != _STL_HEADER + 4 + count * _STL_TRIANGLE.size:
+    end = _STL_HEADER + 4 + count * _STL_TRIANGLE.size
+    if len(body) != end:
         return None
     corners: list[float] = []
-    for triangle in _STL_TRIANGLE.iter_unpack(body[_STL_HEADER + 4 :]):
+    for triangle in _STL_TRIANGLE.iter_unpack(body[_STL_HEADER + 4 : end]):
         values = triangle[:12]
         if not all(math.isfinite(value) for value in values):
             return None
@@ -204,7 +204,8 @@ def _stl_binary(body: bytes) -> str | None:
 def _stl_ascii(body: bytes) -> str | None:
     if not body.startswith(b"solid") or not _TEXT_BYTES.fullmatch(body):
         return None
-    lines = body.decode("ascii").splitlines()
+    # Seven-bit already, so this reads each byte as itself and cannot fail.
+    lines = body.decode("latin-1").splitlines()
     # The name after ``solid`` and ``endsolid`` is free text, and is not shown.
     if len(lines) < 2 or lines[-1].split()[:1] != ["endsolid"]:
         return None
@@ -219,8 +220,9 @@ def _stl_ascii(body: bytes) -> str | None:
                     return None
                 at += 1
                 continue
+            # A facet cut short ends in a word it lacks, so a short read is refused there.
             read = _numbers(words[at : at + expected])
-            if read is None or len(read) != expected:
+            if read is None:
                 return None
             numbers += read
             at += expected

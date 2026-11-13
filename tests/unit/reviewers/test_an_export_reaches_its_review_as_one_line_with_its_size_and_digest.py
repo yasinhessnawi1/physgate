@@ -279,6 +279,11 @@ def test_a_step_file_s_strings_and_comments_may_hold_its_separators() -> None:
         ("a header with no schema", _step(header="FILE_DESCRIPTION((''),'2;1');\n")),
         ("a byte outside ASCII", _step(data="#1=PRODUCT('é','','',());\n")),
         ("a control character", _step(data="#1=PRODUCT('\x07','','',());\n")),
+        ("another first statement", STEP.replace(b"ISO-10303-21;", b"ISO-10303-99;", 1)),
+        ("another end marker", _step(end="END-ISO-10303-99;\n")),
+        ("words after the end", _step(end="END-ISO-10303-21;\ntrailing words\n")),
+        ("a data section never closed", STEP.replace(b"ENDSEC;\nEND-ISO", b"END-ISO")),
+        ("a comment never closed in an entity", _step(data="#1=X();\n#2=Y() /* open;\n")),
         ("nothing at all", b""),
     ],
 )
@@ -328,6 +333,9 @@ def test_an_ascii_stl_file_is_summarised_and_its_name_is_not_shown() -> None:
         ("a facet not ended", ASCII_STL.replace(b"endfacet\n", b"", 1)),
         ("text after endsolid's line", ASCII_STL + b"solid again\n"),
         ("not ASCII", ASCII_STL.replace(b"vertex 0 0 0", b"vertex 0 0 \xff")),
+        ("not ASCII in the name", ASCII_STL.replace(b"solid IGNORE", b"solid \xffIGNORE", 1)),
+        ("endsolid misspelt", ASCII_STL.replace(b"endsolid IGNORE", b"endsolids IGNORE")),
+        ("a facet's words changed", ASCII_STL.replace(b"outer loop", b"inner hoop", 1)),
     ],
 )
 def test_an_stl_file_that_is_not_one_has_no_summary(label: str, body: bytes) -> None:
