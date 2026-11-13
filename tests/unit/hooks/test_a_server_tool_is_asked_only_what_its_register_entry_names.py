@@ -153,6 +153,9 @@ def _outside_spellings(config: SessionConfig) -> list[str]:
         f"{worktree}/firmware/../../outside",
         f"{worktree}/..",
         "/",
+        # A sibling whose name begins with the worktree's.
+        f"{worktree}-other",
+        f"{worktree}2/firmware",
     ]
 
 
