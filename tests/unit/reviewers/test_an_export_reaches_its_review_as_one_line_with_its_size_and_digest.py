@@ -55,7 +55,7 @@ STEP = (
 #: A binary STL file has no line break to cut at: one line longer than any part may hold.
 STL = bytes(b for b in range(256) if b not in b"\r\n") * 200
 MARK = b"CARTESIAN_POINT"
-HEADER = b"The exports this change adds, changes or removes, by size and sha256 in place of bytes:"
+HEADER = packet.EXPORTS_HEADER.encode()
 
 
 def _git(cwd: Path, *args: str) -> str:

@@ -94,6 +94,7 @@ from physgate.knowledge import loader
 from physgate.knowledge.library import LibraryError, read_library
 from physgate.orchestrator.dispute import DISPUTES_DIR
 from physgate.orchestrator.exceptions import GitError, TrajectoryTamperedError
+from physgate.orchestrator.exports import is_export
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.git import (
     EMPTY_TREES,
@@ -720,13 +721,89 @@ def _refuse_merging_paths(paths: list[str]) -> None:
         raise PacketError(msg, first=spelling[clash], second=f"{spelling[clash]}/")
 
 
+#: Introduces the lines that name each export of a change in place of its bytes.
+EXPORTS_HEADER = (
+    "The exports this change adds, changes or removes, by size and sha256 in place of bytes:"
+)
+_ABSENT_MODE = b"000000"
+#: The modes of a regular file. A link or a submodule named like an export stays in git's diff.
+_REGULAR_MODES = frozenset({b"100644", b"100755"})
+
+
+class _ExportChange(NamedTuple):
+    """An export the change adds, changes or removes: its path and its blob on each side."""
+
+    path: str
+    old: str | None
+    new: str | None
+
+
+def _export_changes(repo: GitDir, base: str, commit: str) -> list[_ExportChange]:
+    """The exports between ``base`` and ``commit``, in git's order, which is by path.
+
+    Each path is one side's own: a rename is a removal and an addition. A path that is not
+    UTF-8, or that is not a regular file on each side it exists on, is no export here.
+    """
+    raw = _git_bytes(
+        repo,
+        "diff",
+        "--raw",
+        "-z",
+        "--no-renames",
+        "--no-abbrev",
+        base,
+        commit,
+        "--",
+        f":(exclude){DISPUTES_DIR}",
+    )
+    fields = raw.split(b"\0")
+    found = []
+    for meta, name in zip(fields[0::2], fields[1::2], strict=False):
+        old_mode, new_mode, old_id, new_id, _ = meta.removeprefix(b":").split(b" ")
+        try:
+            path = name.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        if not is_export(path) or not {old_mode, new_mode} - {_ABSENT_MODE} <= _REGULAR_MODES:
+            continue
+        old = None if old_mode == _ABSENT_MODE else old_id.decode()
+        new = None if new_mode == _ABSENT_MODE else new_id.decode()
+        found.append(_ExportChange(path, old, new))
+    return found
+
+
+def _export_line(repo: GitDir, change: _ExportChange) -> bytes:
+    """One line naming an export's change by its sizes and sha256s, read from git's objects."""
+
+    def described(blob: str) -> str:
+        body = _git_bytes(repo, "cat-file", "blob", blob)
+        return f"{len(body)} bytes, sha256 {_digest(body)}"
+
+    if change.old is None and change.new is not None:
+        what = f"added, {described(change.new)}"
+    elif change.new is None and change.old is not None:
+        what = f"removed, was {described(change.old)}"
+    elif change.old is not None and change.new is not None:
+        what = f"changed from {described(change.old)} to {described(change.new)}"
+    else:
+        msg = "an export's change names no blob on either side"
+        raise PacketError(msg, path=change.path)
+    return f"exported file {change.path}: {what}".encode()
+
+
 def _diff(repo: Path | GitDir, base: str, commit: str) -> bytes:
     """The change from ``base`` to ``commit``, every file as text, no driver or filter applied.
 
-    The disputes directory is left out, as from the export.
+    The disputes directory is left out, as from the export. Each export
+    (``orchestrator.exports``) is left out of git's diff as well, and named after it instead,
+    one line each under :data:`EXPORTS_HEADER`, by its size and sha256 (:func:`_export_line`):
+    its bytes are for tools, and a binary one would be a line no part can hold. A change with
+    no export is git's diff, byte for byte.
     """
-    return _git_bytes(
-        repo,
+    where = _place(repo)
+    changed = _export_changes(where, base, commit)
+    shown = _git_bytes(
+        where,
         "diff",
         "--no-color",
         "--no-ext-diff",
@@ -736,7 +813,12 @@ def _diff(repo: Path | GitDir, base: str, commit: str) -> bytes:
         commit,
         "--",
         f":(exclude){DISPUTES_DIR}",
+        *(f":(exclude,literal){change.path}" for change in changed),
     )
+    if not changed:
+        return shown
+    lines = [EXPORTS_HEADER.encode(), *(_export_line(where, change) for change in changed)]
+    return shown + b"\n".join(lines) + b"\n"
 
 
 def person_order_text(order: PersonOrder) -> bytes:
