@@ -15,6 +15,7 @@ these versions and on no other.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -201,6 +202,25 @@ def traffic_settings() -> TrafficSettings:
     )
 
 
+def _require_contained(tool_servers: str, wrappers: tuple[str, ...]) -> None:
+    """Refuse a tool-server configuration that names a server outside its wrapper."""
+    try:
+        loaded = json.loads(tool_servers)
+    except ValueError as exc:
+        msg = "the tool-server configuration is not JSON"
+        raise InvocationError(msg) from exc
+    servers = loaded.get("mcpServers") if isinstance(loaded, dict) else None
+    if not isinstance(servers, dict) or set(loaded) != {"mcpServers"}:
+        msg = "the tool-server configuration names anything but its servers"
+        raise InvocationError(msg)
+    for name, entry in servers.items():
+        command = entry.get("command") if isinstance(entry, dict) else None
+        kind = entry.get("type", "stdio") if isinstance(entry, dict) else None
+        if kind != "stdio" or command not in wrappers:
+            msg = f"the tool server {name!r} is not started in a wrapper that contains it"
+            raise InvocationError(msg, server=str(name), command=str(command))
+
+
 def role_argv(
     binary: str,
     *,
@@ -218,13 +238,24 @@ def role_argv(
 
     Never ``--resume``: a resumed session replays turns from a file the session's
     own user can write, including turns the model never produced (measured).
+
+    ``tool_servers`` is the session's tool-server configuration, none unless given. Every
+    server it names is started by the binary outside the sandbox around the session's
+    commands, so each must name one of ``wrappers`` (the programs that contain a server here)
+    as its command, and a local one: a server named by anything else is refused here.
+
+    Raises:
+        InvocationError: the configuration names a server that is not in its wrapper.
     """
+    _require_contained(tool_servers, wrappers)
     return [
         binary,
         "-p",
         prompt,
         *spawn_args,
-        *NO_TOOL_SERVER_ARGS,
+        "--strict-mcp-config",
+        "--mcp-config",
+        tool_servers,
         "--output-format",
         "stream-json",
         "--verbose",

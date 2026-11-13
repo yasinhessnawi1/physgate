@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -63,15 +64,20 @@ def _plant(run: RunGit) -> None:
     secret.write_text("another session's login\n")
 
 
-def _launch(worktree: Path, secret: Path) -> ServerLaunch:
+def _launch(root: Path, write: Path, secret: Path) -> ServerLaunch:
+    # Copied out of the harness's checkout, which no session reads and so no server either: a
+    # real server comes from the run's tool environment, which every session reads.
+    probe = root / "server" / PROBE.name
+    probe.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(PROBE, probe)
     return ServerLaunch(
         name="probe",
         command=os.path.realpath(sys.executable),
         args=(
             "-I",
-            str(PROBE),
+            str(probe),
             "--write",
-            str(worktree / "server-wrote.txt"),
+            str(write),
             "--read",
             str(secret),
             "--device",
@@ -98,7 +104,7 @@ def test_unwrapped_the_server_reaches_what_it_tries(tmp_path: Path) -> None:
     secret = tmp_path / "secret.txt"
     secret.write_text("x\n")
     done = subprocess.run(
-        [*_launch_argv(tmp_path / "wrote.txt", secret), "--once"],
+        [*_launch_argv(tmp_path, tmp_path / "wrote.txt", secret), "--once"],
         env={**os.environ, "TMPDIR": str(own)},
         capture_output=True,
         text=True,
@@ -113,11 +119,9 @@ def test_unwrapped_the_server_reaches_what_it_tries(tmp_path: Path) -> None:
     assert (tmp_path / "wrote.txt").exists()
 
 
-def _launch_argv(write: Path, secret: Path) -> list[str]:
-    launch = _launch(write.parent, secret)
-    args = list(launch.args)
-    args[args.index("--write") + 1] = str(write)
-    return [launch.command, *args]
+def _launch_argv(root: Path, write: Path, secret: Path) -> list[str]:
+    launch = _launch(root, write, secret)
+    return [launch.command, *launch.args]
 
 
 def test_inside_the_os_layer_a_server_reaches_its_own_directory_and_nothing_else(
@@ -132,7 +136,7 @@ def test_inside_the_os_layer_a_server_reaches_its_own_directory_and_nothing_else
         install_bin,
         steps,
         before=_plant,
-        tool_servers=(_launch(worktree, _secret(tmp_path / "run")),),
+        tool_servers=(_launch(tmp_path, worktree / "server-wrote.txt", _secret(tmp_path / "run")),),
     )
     assert report.end.outcome == "completed", report
     found = _told(api)
@@ -162,7 +166,7 @@ def test_without_the_os_layer_no_server_is_offered(
         install_bin,
         steps,
         before=_plant,
-        tool_servers=(_launch(worktree, _secret(tmp_path / "run")),),
+        tool_servers=(_launch(tmp_path, worktree / "server-wrote.txt", _secret(tmp_path / "run")),),
     )
     assert report.end.outcome == "completed", report
     assert _told(api) == {}

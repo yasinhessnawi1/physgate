@@ -31,6 +31,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import sysconfig
 import time
 import uuid
@@ -90,7 +91,12 @@ from physgate.orchestrator.git import common_dir, named_from, object_format, ver
 from physgate.orchestrator.held_records import second_names
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.integration_state import STATE_NAME
-from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
+from physgate.orchestrator.invocation import (
+    NO_TOOL_SERVERS,
+    isolated_env,
+    role_argv,
+    session_search_path,
+)
 from physgate.orchestrator.managed import drift, model_answered, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, attempt_head, attempt_message, commit_attempt
 from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
@@ -126,7 +132,12 @@ from physgate.orchestrator.tool_environment import (
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
-from physgate.oslayer.containment import ServerLaunch
+from physgate.oslayer.containment import (
+    ContainmentError,
+    ServerLaunch,
+    contained_servers,
+    wrappers,
+)
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
@@ -1382,6 +1393,9 @@ class ClaudeDispatcher:
         #: (session id, who, why): the operator's command-line request to set one leftover's
         #: gone stream aside at this resume. Never read from a file a session can write.
         self._quarantine = quarantine
+        #: The tool servers each role session is offered, each in its wrapper; none without the
+        #: OS layer, which is what contains them.
+        self._tool_servers = tool_servers
         self._config = config
         self._run = run
         self._store_root = store_root
@@ -1717,6 +1731,37 @@ class ClaudeDispatcher:
     def _layer_on(self) -> bool:
         return isinstance(self.os_layer(), Present)
 
+    def _contained_servers(
+        self, installed: Installed, sdir: Path, own_temp: Path, env: dict[str, str]
+    ) -> tuple[str, tuple[str, ...]]:
+        """The session's tool-server configuration, and the wrappers its servers may name.
+
+        None without the OS layer: a server the binary starts runs outside the sandbox around
+        the session's commands, and only the layer's own programs contain it. Each server's
+        rules come from the session's own configuration, as installed.
+
+        Raises:
+            InvocationError: a server cannot be contained here, so the session is not started.
+        """
+        if not self._tool_servers or not self._layer_on():
+            return NO_TOOL_SERVERS, ()
+        platform = sys.platform
+        bwrap = shutil.which("bwrap", path=env["PATH"]) if platform.startswith("linux") else None
+        config = SessionConfig.model_validate_json(Path(installed.config).read_bytes())
+        try:
+            servers = contained_servers(
+                config,
+                self._tool_servers,
+                platform=platform,
+                temp_dir=own_temp,
+                profiles_dir=sdir / "servers",
+                bwrap=bwrap,
+            )
+        except ContainmentError as exc:
+            msg = "a tool server cannot be contained here, so the session is not started"
+            raise InvocationError(msg, error=str(exc)) from exc
+        return servers, wrappers(platform, bwrap)
+
     def _run_session(
         self,
         request: SessionRequest,
@@ -1773,6 +1818,7 @@ class ClaudeDispatcher:
                 install=self._install_bin.parent.parent,
             )
             env["PATH"] = f"{session_bin(sdir, recorded_python)}:{env['PATH']}"
+        tool_servers, contained_by = self._contained_servers(installed, sdir, own_temp, env)
         argv = role_argv(
             self._binary,
             prompt=role_prompt(
@@ -1784,6 +1830,8 @@ class ClaudeDispatcher:
             max_turns=request.bounds.session_max_turns,
             effort=self._config.effort,
             thinking_display=self._config.thinking_display,
+            tool_servers=tool_servers,
+            wrappers=contained_by,
         )
         stdout = sdir / "stdout.jsonl"
         before = placeholders.snapshot(str(worktree), absent=named_in(installed, worktree))

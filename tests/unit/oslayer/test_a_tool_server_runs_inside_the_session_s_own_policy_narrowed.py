@@ -23,7 +23,8 @@ from physgate.hooks import settings
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.settings import InstallRequest, build_config
 from physgate.hooks.settings import current_installation as installation
-from physgate.orchestrator.invocation import NO_TOOL_SERVERS, InvocationError, role_argv
+from physgate.orchestrator.exceptions import InvocationError
+from physgate.orchestrator.invocation import NO_TOOL_SERVERS, role_argv
 from physgate.oslayer.containment import (
     SANDBOX_EXEC,
     ContainmentError,
