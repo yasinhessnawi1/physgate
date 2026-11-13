@@ -256,7 +256,7 @@ def test_a_round_on_the_real_binary_tells_each_session_its_brief_alone_and_keeps
     strict=True,
     raises=AssertionError,
     reason=(
-        "open with the orchestrator (E2 Task A): the hook sentinel's snapshot of the withheld "
+        "open, for a ruling: the hook sentinel's snapshot of the withheld "
         "roots names each entry by path, so a visible trial's session leaves protected task ids "
         "in the round's visible directory"
     ),
