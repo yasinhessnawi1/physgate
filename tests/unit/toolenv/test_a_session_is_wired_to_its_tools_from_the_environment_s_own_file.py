@@ -102,6 +102,22 @@ def test_the_file_s_programs_directories_links_and_variables_are_applied(tmp_pat
     assert (temp / "core" / "packages" / "gcc.txt").read_text() == "7.3.0\n"
 
 
+def test_the_temporary_directory_is_spelt_where_it_really_is(tmp_path: Path) -> None:
+    # The hooks open the session's own temporary directory by the spelling where it really
+    # is (on macOS ``/var`` is a link to ``/private/var``), so a variable naming it by the
+    # spelling through a link would lead every command that names it into a refusal.
+    root = _environment(tmp_path, WIRING)
+    real = tmp_path / "private" / "temp"
+    real.mkdir(parents=True)
+    linked = tmp_path / "linked"
+    linked.symlink_to(tmp_path / "private")
+    variables = wire(
+        _recorded(root), bin_dir=tmp_path / "bin", temp=linked / "temp", taken=("PATH",)
+    )
+    assert variables["BUILD_CORE_DIR"] == f"{os.path.realpath(real)}/core", variables
+    assert (real / "core" / "packages").readlink() == root / "store" / "packages"
+
+
 def test_wiring_a_session_writes_nothing_into_the_environment(tmp_path: Path) -> None:
     root = _environment(tmp_path, WIRING)
     before = scan([root])
