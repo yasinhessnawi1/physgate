@@ -213,7 +213,7 @@ jobs:
         # installs, so the step above skips this file. Here it must run: a skip fails the step.
         if: success() || failure()
         env:
-          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
           PHYSGATE_OSLAYER_REPORT: ${{ github.workspace }}/oslayer-report
           UV_PROJECT_ENVIRONMENT: .venv-evaluation
         # Both rows must pass: pytest's own exit code fails the step (pipefail), and its summary
