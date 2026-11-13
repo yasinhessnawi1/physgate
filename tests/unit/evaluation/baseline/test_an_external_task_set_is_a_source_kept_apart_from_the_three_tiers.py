@@ -192,6 +192,20 @@ def test_an_external_set_of_two_benchmarks_is_refused(tmp_path: Path, store: Sta
     assert "one benchmark" in str(refused) and arm.calls == []
 
 
+def test_an_external_set_two_of_whose_tasks_share_a_brief_is_refused(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """A run's task is found by its brief: two tasks with one brief leave it untold."""
+    directory = tmp_path / "controleval"
+    first = _external(0)
+    tasks = _set(directory, first, _external(1, brief=first["brief"]))
+    runs = run_set((harness_run(tmp_path / "runs", tasks[0], store), 0))
+    arm = StandInArm()
+    refused = _round(store, runs, tmp_path / "round", arm, external=directory)
+    assert type(refused).__name__ == "BaselineError", refused
+    assert "share a brief" in str(refused) and arm.calls == []
+
+
 def test_an_external_set_inside_the_store_is_refused(tmp_path: Path, store: StandInStore) -> None:
     """Kept apart: a set beneath the store would be read by the store's own scans and splits."""
     directory = store.store / "control" / "controleval"
