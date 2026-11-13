@@ -31,6 +31,8 @@ def test_the_prompt_names_the_earlier_parts_and_each_earlier_marker_with_its_att
     assert f"- {named}: the trajectories of earlier attempts of this subtask" in prompt
     assert f"- disabled_checks, evidence {EARLIER_HIT}, attempt 1: a lint rule suppressed" in prompt
     assert "no review judged" in prompt
+    # Each answer names the attempt as well as the evidence, and decides: noted is no answer.
+    assert "names the same evidence and the same attempt, confirmed or dismissed" in prompt
     assert evaluation_words(prompt) == []
 
 
