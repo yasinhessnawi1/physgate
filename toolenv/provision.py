@@ -316,6 +316,23 @@ def place_beside_kernel(
     return placed
 
 
+def _fetch_package(package: Mapping[str, str], into: Path, work: Path) -> Path:
+    """Fetch one pinned package by its file name, or say which file and which digest are missing.
+
+    The archive is asked by file name alone, and an older build can be dropped from it. Whoever
+    reads the refusal then needs the exact file and the bytes it must have, to find the same
+    package elsewhere and place it in the cache, where its digest is checked as any fetch's.
+    """
+    try:
+        return fetch(f"{PACKAGE_FILES}/{package['file']}", into, work)
+    except (ProvisionError, subprocess.TimeoutExpired) as exc:
+        raise ProvisionError(
+            f"the package file {package['file']} (sha256 {package['sha256']}) could not be"
+            f" fetched from {PACKAGE_FILES}; placing that file in the cache's system-libraries"
+            f" folder lets provisioning go on:\n{exc}"
+        ) from None
+
+
 def _system_libraries(
     dest: Path, pins: Mapping[str, object], cache: Path, work: Path
 ) -> list[dict[str, str]]:
@@ -330,7 +347,7 @@ def _system_libraries(
         if not kept.exists():
             # As for Node: checked before it is kept, so the cache only holds what matched.
             downloads = Path(tempfile.mkdtemp(prefix="package-", dir=work))
-            fetched = fetch(f"{PACKAGE_FILES}/{package['file']}", downloads / "archive", work)
+            fetched = _fetch_package(package, downloads / "archive", work)
             require_digest(fetched, package["sha256"])
             kept.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(fetched, kept)
