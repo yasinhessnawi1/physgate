@@ -289,13 +289,35 @@ def test_each_server_is_named_by_its_wrapper_with_a_directory_of_its_own_made_em
         ), profile
         # Every server reads the session's worktree, less what the session may not read there.
         assert f'(subpath "{config.worktree}")' in profile, profile
+        # The session's denials and the board devices reach the server's own profile.
+        assert f'(deny file-read* (subpath "{_outbox(config)}"))' in profile, profile
+        assert re.search(r'\(deny file-read\* file-write\* \(regex #"\^/dev/cu', profile), profile
     else:
         assert entry["command"] == BWRAP
         assert "--unshare-net" in entry["args"]
         at = entry["args"].index(config.worktree)
         assert entry["args"][at - 1 : at + 2] == ["--ro-bind", config.worktree, config.worktree]
+        # The session's denials reach the server's own arguments: the outbox in its worktree.
+        assert f"--tmpfs {_outbox(config)}" in shlex.join(entry["args"]), entry["args"]
     assert entry["args"][-3:] == ["/usr/bin/python3", "-I", "probe.py"]
     assert entry["command"] in wrappers(platform, BWRAP)
+
+
+def test_a_command_given_through_a_link_is_run_by_both_spellings(root: Path) -> None:
+    real = root / "env" / "bin" / "python3.12"
+    real.parent.mkdir(parents=True)
+    real.write_text("")
+    real.chmod(0o755)
+    link = root / "python3"
+    link.symlink_to(real)
+    profile = seatbelt_profile(
+        read_denied=(),
+        server_dir=str(root / "temps" / OWN / "servers" / "probe"),
+        devices=(),
+        command=str(link),
+    )
+    (runs,) = [line for line in profile.splitlines() if line.startswith("(allow process-exec")]
+    assert f'(literal "{link}")' in runs and f'(literal "{real}")' in runs, runs
 
 
 def test_a_server_directory_already_there_is_refused(root: Path) -> None:
