@@ -470,6 +470,8 @@ def wrappers(platform: str, bwrap: str | None) -> tuple[str, ...]:
 #: The variables the wrapper sets for every server: its own directory, as its temporary one and
 #: matplotlib's (which warns, and writes beneath the home, without one).
 WRAPPER_VARIABLES = ("TMPDIR", "MPLCONFIGDIR")
+#: The system's own directories, after a server's own search path.
+SYSTEM_PATH = ("/usr/bin", "/bin")
 #: A directory or link a server is given, as a path beneath its own directory.
 _OWN_PATH = re.compile(r"^[A-Za-z0-9._+@-]+(/[A-Za-z0-9._+@-]+)*$")
 
@@ -509,6 +511,15 @@ def _judged(
             msg = f"a server's variable {name} is one its start is built on"
             raise ContainmentError(msg)
         env[name] = _placed(value, server_dir=str(server_dir), worktree=worktree, what="variable")
+    if server.search_path:
+        for place in server.search_path:
+            if not os.path.isabs(place) or not any(
+                _within(os.path.realpath(place), os.path.realpath(root))
+                for root in server.exec_roots
+            ):
+                msg = f"a server's search path names {place!r}, outside every root it runs"
+                raise ContainmentError(msg)
+        env["PATH"] = ":".join((*server.search_path, *SYSTEM_PATH))
     directories = [server_dir.joinpath(*_own_parts(d)) for d in server.directories]
     links: dict[Path, str] = {}
     roots = (*server.read_roots, *server.exec_roots)

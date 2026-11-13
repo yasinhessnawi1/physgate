@@ -232,6 +232,7 @@ def launches(
                 environment={name: placed(value) for name, value in entry.environment.items()},
                 directories=entry.directories,
                 links={link: placed(target) for link, target in entry.links.items()},
+                search_path=tuple(placed(place) for place in entry.search_path),
             )
         )
     return tuple(found)
