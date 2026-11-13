@@ -344,7 +344,10 @@ LOOP_RANGED = (
 
 def test_the_draft_s_corners_number_two_to_the_ranged_parameters_read() -> None:
     plant_module = _plant()
-    plant = _parse(_draft())
+    try:
+        plant = _parse(_draft())
+    except plant_module.PlantError as exc:
+        pytest.fail(f"the draft was refused: {exc}")
     # Which parameters range is stated here, so a count can never agree with a wrong list.
     assert plant_module.ranged(plant, plant_module.LOOP_INPUTS) == LOOP_RANGED
     assert plant_module.ranged(plant, plant_module.STALL_INPUTS) == ()
