@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -131,6 +132,15 @@ def _without(doc: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
         node = node[key]
     del node[path[-1]]
     return out
+
+
+def _raised(call: Callable[[Any], object], argument: Any) -> BaseException | None:
+    """What ``call(argument)`` raised, of any type, so a wrong type is a failed assertion."""
+    try:
+        call(argument)
+    except Exception as exc:  # caught whole, so the row can assert which type it was
+        return exc
+    return None
 
 
 def _wrong_unit(unit: str) -> str:
@@ -413,10 +423,12 @@ def test_reading_refuses_a_missing_file_a_link_a_directory_and_an_oversized_file
     large = tmp_path / "large.json"
     large.write_text(json.dumps(answer()) + " " * MAX_ANSWER_BYTES)
     for path in (tmp_path / "missing.json", link, tmp_path):
-        with pytest.raises(TaskFormatError, match="no answer file"):
-            read_whole_run(path)
-    with pytest.raises(TaskFormatError, match="larger"):
-        read_whole_run(large)
+        caught = _raised(read_whole_run, path)
+        assert isinstance(caught, TaskFormatError), repr(caught)
+        assert "no answer file" in str(caught)
+    caught = _raised(read_whole_run, large)
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "larger" in str(caught)
 
 
 @pytest.mark.parametrize(
@@ -427,5 +439,5 @@ def test_reading_refuses_a_missing_file_a_link_a_directory_and_an_oversized_file
 def test_bytes_that_are_not_an_answer_are_a_refused_answer_never_another_error(
     raw: bytes,
 ) -> None:
-    with pytest.raises(TaskFormatError):
-        parse_whole_run(raw)
+    caught = _raised(parse_whole_run, raw)
+    assert isinstance(caught, TaskFormatError), repr(caught)
