@@ -180,16 +180,27 @@ def test_a_protected_trial_whose_session_failed_leaves_its_record_and_the_store_
         )
     assert len(list(role_root(store.store, "control").glob("*.working"))) == 1
     arm = StandInArm()
-    with pytest.raises(BaselineError, match="nothing starts on it"):
+    with pytest.raises(BaselineError, match="nothing starts on it") as refused:
         _round(store, runs, tmp_path / "again", arm)
+    assert refused.value.context.get("refused_because") == "work_left"
     assert arm.calls == []
 
 
-def _refused(store: StandInStore, runs: RunSet, out: Path, says: str, **how: Any) -> None:
+def _refused(
+    store: StandInStore,
+    runs: RunSet,
+    out: Path,
+    says: str,
+    because: dict[str, str] | None = None,
+    **how: Any,  # noqa: ANN401
+) -> None:
+    """The round refused before any session, saying ``says`` with ``because`` in its context."""
     arm = StandInArm()
     with pytest.raises(BaselineError, match=says) as raised:
         _round(store, runs, out, arm, **how)
     assert arm.calls == [], "a session started before the round was refused"
+    for key, value in (because or {}).items():
+        assert raised.value.context.get(key) == value, raised.value.context
     protected = [t.id for t in store.tasks["validation"] + store.tasks["held_out"]]
     told = f"{raised.value} {raised.value.context}"
     assert not any(task_id in told for task_id in protected)
@@ -246,7 +257,7 @@ def test_a_round_into_a_directory_that_exists_is_refused(
     arm = StandInArm()
     outcome = _try(lambda: _round(store, run_set((run, 0)), out, arm))
     assert isinstance(outcome, BaselineError), outcome
-    assert "directory of its own" in str(outcome) and arm.calls == []
+    assert "the round's directory exists" in str(outcome) and arm.calls == []
     assert list(out.iterdir()) == [], "the directory that was there was written into"
 
 
@@ -385,7 +396,8 @@ def test_a_version_two_of_whose_tasks_share_a_brief_is_refused_before_any_sessio
         patch.setattr(runner, "read_version", lambda _d: None)
         patch.setattr(runner, "leftover_refusal", lambda _s: None)
         outcome = _try(lambda: _round(store, run_set((run, 0)), tmp_path / "round", arm))
-    assert isinstance(outcome, BaselineError) and "share a brief" in str(outcome), outcome
+    assert isinstance(outcome, BaselineError), outcome
+    assert "two tasks of the version share a brief" in str(outcome), outcome
     assert arm.calls == []
 
 
@@ -521,7 +533,25 @@ def test_a_run_that_does_not_withhold_the_store_s_protected_places_is_refused(
         held_out=kept,
         held_out_sha256=[_digest_of(root) for root in kept],
     )
-    _refused(store, run_set((run, 0)), tmp_path / "round", "withhold")
+    reason = {
+        "withheld": "withheld_root_not_named",
+        "work": "work_root_not_named",
+        "validation": "protected_tier_not_named",
+        "held_out": "protected_tier_not_named",
+    }[omit]
+    (dropped,) = set(store.held_out) - set(kept)
+    # The one place the run left open, named alone: a refusal of another place says another.
+    named = f"({Path(dropped).resolve()})"
+    _refused(
+        store,
+        run_set((run, 0)),
+        tmp_path / "round",
+        "does not withhold the store as every run on it must",
+        because={"refused_because": reason},
+    )
+    with pytest.raises(BaselineError) as raised:
+        _round(store, run_set((run, 0)), tmp_path / "again", StandInArm())
+    assert named in str(raised.value), str(raised.value)
 
 
 @pytest.mark.parametrize("tier", ["validation", "held_out"])
@@ -533,7 +563,13 @@ def test_a_run_that_did_not_look_for_a_protected_canary_of_the_version_is_refuse
     run = harness_run(
         tmp_path / "runs", store.tasks["visible"][0], store, held_out_canaries=canaries
     )
-    _refused(store, run_set((run, 0)), tmp_path / "round", "canar")
+    _refused(
+        store,
+        run_set((run, 0)),
+        tmp_path / "round",
+        "did not look for every canary of the version's protected tasks",
+        because={"missing": "1"},
+    )
 
 
 def _another_role_s_places(made: StandInStore) -> list[str]:
@@ -642,6 +678,29 @@ def test_a_store_whose_other_role_s_list_cannot_be_taken_whole_is_refused_before
     outcome = _try(lambda: _round(store, run_set((run, 0)), tmp_path / "round", arm))
     assert isinstance(outcome, BaselineError), outcome
     assert outcome.context.get("refused_because") == "canary_list_unparsed", outcome.context
+    assert arm.calls == []
+
+
+def test_a_store_whose_root_cannot_be_looked_at_for_canaries_is_refused_as_the_runner_s_own(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """A root whose own ``stat`` is refused stops the round with the runner's refusal.
+
+    Fail-closed either way; said as the runner's own, it names no more than the store's place.
+    """
+    from physgate.evaluation.baseline import runner
+
+    run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
+
+    def unreadable(where: Path) -> list[str]:
+        raise PermissionError(13, "Permission denied", str(where))
+
+    arm = StandInArm()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(runner, "store_canaries", unreadable)
+        outcome = _try(lambda: _round(store, run_set((run, 0)), tmp_path / "round", arm))
+    assert isinstance(outcome, BaselineError), outcome
+    assert "the store's canaries cannot all be read" in str(outcome), outcome
     assert arm.calls == []
 
 

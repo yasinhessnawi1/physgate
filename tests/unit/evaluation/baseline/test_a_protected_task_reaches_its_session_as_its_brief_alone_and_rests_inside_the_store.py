@@ -4,8 +4,9 @@ The runner opens the validation and held-out tiers' ``task.json`` to give the ra
 protected task's brief. Every field of a stand-in task but its brief carries a marker, so a
 plain search finds what of a protected task reached a place: the session's prompt, anything the
 round wrote outside the store's withheld places, its output, and every error a protected trial
-raises. A protected trial that fails at any step leaves its work inside the store's protected
-area, or the store refuses the next round as holding leftovers.
+raises. A protected trial is made inside the store's protected places and moved only within
+them, so one that fails at any step leaves nothing of itself in a visible place; its work
+record names where it lies, and the store refuses the next round until a person has looked.
 """
 
 from __future__ import annotations
@@ -44,12 +45,17 @@ from physgate.evaluation.observe.cost import load_price_sheet
 from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.per_role.arms.raw import RawSetup, held_out_seen
 from physgate.evaluation.per_role.exceptions import TaskFormatError
-from physgate.evaluation.tiers.store import WORKING, version_dir, withheld_root
+from physgate.evaluation.tiers.store import (
+    WORKING,
+    role_root,
+    version_dir,
+    withheld_root,
+    work_root,
+)
 from physgate.evaluation.tiers.task import Task
 from physgate.hooks.settings import CONFIG_NAME, PROFILE_TOOLS
 
 API_ERROR = {"is_error": True, "terminal_reason": "api_error", "api_error_status": 529}
-LEFTOVERS = "nothing starts on it"
 
 
 @pytest.fixture(scope="module")
@@ -315,32 +321,113 @@ def _fail_at(
     return arm, _score
 
 
-@pytest.mark.parametrize("step", FAILURES)
-def test_a_protected_trial_that_fails_at_any_step_rests_in_the_store_or_the_store_refuses(
+#: Steps past which the trial is whole beneath the withheld root and its record is cleared.
+SECURED = {"trial line"}
+#: Steps at which no raw session has run, so the trial has written nothing yet.
+NOT_RUN = {"session"}
+
+
+def _paths(root: Path) -> set[Path]:
+    return set(root.rglob("*"))
+
+
+def _protected_places(made: StandInStore) -> list[Path]:
+    """The store's places every run withholds: the withheld and work roots, the tiers."""
+    return [*_withheld(made), work_root(made.store, "control")]
+
+
+@pytest.mark.parametrize("step", [*FAILURES, "place taken", "interrupt"])
+def test_a_protected_trial_that_fails_at_any_step_never_rests_in_a_visible_place(
     tmp_path: Path, store: StandInStore, monkeypatch: pytest.MonkeyPatch, step: str
 ) -> None:
-    """Nothing of the trial outside the withheld root, or the next round refused as leftovers.
+    """Whatever step fails, nothing of a held-out trial is outside the store's protected places.
 
-    Refused before any session starts, by the work record the trial left in the role's root.
+    The round's directory is listed and held to what it must hold (nothing, the round being
+    one held-out trial), and so is everything new outside the protected places (the work
+    record alone, in the role's root, until the trial is secured). The trial's own files are
+    found inside the protected places, so the listings are not empty for want of a trial; and
+    the work record names a place inside them, which the next round refuses as leftovers.
     """
     task = store.tasks["held_out"][0]
     runs = run_set((harness_run(tmp_path / "runs", task, store), 0))
     out = tmp_path / "round"
     reached: list[str] = []
-    arm, score = _fail_at(step, monkeypatch, reached)
-    with pytest.raises(Exception):  # noqa: B017, PT011 - any failure; where the work is, is asserted
+    if step == "place taken":
+        monkeypatch.setattr(runner.secrets, "token_hex", lambda _n: "f" * 16)
+        place = withheld_root(store.store, "control") / BASELINE_DIR / ("f" * 16) / "0000-1"
+        place.mkdir(parents=True)
+        arm, score = StandInArm(), _score
+        reached.append(step)
+    elif step == "interrupt":
+
+        def interrupted(_task: Task, _answer: Path) -> dict[str, Any]:
+            reached.append(step)
+            raise KeyboardInterrupt
+
+        arm, score = StandInArm(), interrupted
+    else:
+        arm, score = _fail_at(step, monkeypatch, reached)
+    before = _paths(tmp_path)
+    with pytest.raises(BaseException):  # noqa: B017, PT011 - any failure; where the work is, is asserted
         _round(store, runs, out, arm, score)
     monkeypatch.undo()
     assert reached, "the failure was never injected"
-    outside = [p for p in (out / "work").rglob("*") if p.is_file()] if out.exists() else []
+    places = _protected_places(store)
+    records = set(role_root(store.store, "control").glob(f"*{WORKING}"))
+    new_outside = {
+        p for p in _paths(tmp_path) - before if not any(p.is_relative_to(w) for w in places)
+    }
+    assert {p.relative_to(out) for p in _paths(out)} == set(), "the round's directory holds a trial"
+    # The round's directory, made empty before any trial, and the record: nothing else.
+    assert new_outside == {out} | records, sorted(map(str, new_outside - records - {out}))
+    kept = [p for w in places for p in w.rglob("raw.json")]
+    assert step in NOT_RUN or kept, "the trial's files are nowhere: the listings prove nothing"
     again = StandInArm()
-    try:
+    if step in SECURED:
+        assert records == set()
         _round(store, runs, tmp_path / "again", again)
-    except BaselineError as exc:
-        refused = LEFTOVERS in str(exc)
-    else:
-        refused = False
-    assert refused or not outside, f"{len(outside)} files of a held-out trial rest outside"
-    assert refused or again.calls, "the next round neither ran nor was refused as leftovers"
-    if refused:
-        assert again.calls == []
+        assert again.calls
+        return
+    (record,) = records
+    work = Path(json.loads(record.read_text())["work"])
+    assert any(work.is_relative_to(w) for w in places), f"the record names {work}"
+    with pytest.raises(BaselineError) as refused:
+        _round(store, runs, tmp_path / "again", again)
+    assert refused.value.context.get("refused_because") == "work_left"
+    assert again.calls == []
+
+
+def test_a_protected_trial_refused_before_its_session_leaves_no_record_of_work(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """A setup that cannot be made (no credential, another binary) leaves the store open.
+
+    The refusal comes before any session and any work, so no record of work out of the role's
+    root is left to refuse the next round until a person removes it.
+    """
+    task = store.tasks["held_out"][0]
+    runs = run_set((harness_run(tmp_path / "runs", task, store), 0))
+
+    def no_credential(_config: Any, _role: str) -> RawSetup:  # noqa: ANN401
+        msg = "the credential variable is not set"
+        raise BaselineError(msg)
+
+    arm = StandInArm()
+    with pytest.raises(BaselineError, match="the credential variable is not set"):
+        run_baseline(
+            store=store.store,
+            role="control",
+            version=store.version,
+            runs=runs,
+            out=tmp_path / "round",
+            setup_for=no_credential,
+            score=_score,
+            prices=load_price_sheet(PRICES),
+            arm=arm,
+            sleep=lambda _s: None,
+        )
+    assert arm.calls == []
+    assert list(role_root(store.store, "control").glob(f"*{WORKING}")) == []
+    again = StandInArm()
+    _round(store, runs, tmp_path / "again", again)
+    assert len(again.calls) == 1

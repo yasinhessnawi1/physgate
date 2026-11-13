@@ -151,7 +151,7 @@ def test_a_tier_s_task_in_an_external_set_refuses_the_round_before_any_session(
     arm = StandInArm()
     refused = _round(store, runs, tmp_path / "round", arm, external=directory)
     assert type(refused).__name__ == "BaselineError", refused
-    assert "external" in str(refused) and arm.calls == []
+    assert "is not an external one of the control role" in str(refused) and arm.calls == []
 
 
 @pytest.mark.parametrize("both", [True, False], ids=["a version and a set", "neither"])
@@ -203,7 +203,7 @@ def test_an_external_set_two_of_whose_tasks_share_a_brief_is_refused(
     arm = StandInArm()
     refused = _round(store, runs, tmp_path / "round", arm, external=directory)
     assert type(refused).__name__ == "BaselineError", refused
-    assert "share a brief" in str(refused) and arm.calls == []
+    assert "two tasks of the external set share a brief" in str(refused) and arm.calls == []
 
 
 def test_an_external_set_inside_the_store_is_refused(tmp_path: Path, store: StandInStore) -> None:
@@ -214,7 +214,7 @@ def test_an_external_set_inside_the_store_is_refused(tmp_path: Path, store: Stan
     arm = StandInArm()
     refused = _round(store, runs, tmp_path / "round", arm, external=directory)
     assert type(refused).__name__ == "BaselineError", refused
-    assert "apart" in str(refused) and arm.calls == []
+    assert "kept apart from the store's tiers" in str(refused) and arm.calls == []
 
 
 def test_an_empty_external_set_is_refused(tmp_path: Path, store: StandInStore) -> None:
@@ -225,7 +225,7 @@ def test_an_empty_external_set_is_refused(tmp_path: Path, store: StandInStore) -
     arm = StandInArm()
     refused = _round(store, runs, tmp_path / "round", arm, external=directory)
     assert type(refused).__name__ == "BaselineError", refused
-    assert "no task" in str(refused) and arm.calls == []
+    assert "the external set holds no task" in str(refused) and arm.calls == []
 
 
 def test_a_record_holds_one_source_and_counts_only_its_tiers(
