@@ -2,7 +2,9 @@
 
 Modes, with the run directory first: ``open`` writes the run's opening and kills itself before
 it lists a thing; ``drive`` runs the run to the step it ends at and prints what it found;
-``drive-kill`` does the same but kills itself after the first decision it takes into the log.
+``drive-kill`` does the same but kills itself after the first decision it takes into the log;
+``drive-kill-intent`` and ``drive-kill-done`` after the first parts write intended, or landed.
+Nodes a process declares are kept in a ledger beside the run, as a journal would hold them.
 Every kill is the signal no handler sees.
 """
 
@@ -32,6 +34,9 @@ def _report(run_dir: Path, step: str) -> None:
     taken = [one["item_id"] for one in log if one["kind"] == "decision_taken"]
     found = {
         "step": step,
+        "intended": [one["node_id"] for one in log if one["kind"] == "parts_write_intended"],
+        "done": [one["revision"] for one in log if one["kind"] == "parts_write_done"],
+        "released": kinds.count("parts_released"),
         "items": [one.item_id for one in parts_items(run_dir)],
         "taken": taken,
         "dispatched": "stage_entered" in kinds,
@@ -39,15 +44,16 @@ def _report(run_dir: Path, step: str) -> None:
     print(json.dumps(found), flush=True)
 
 
-def _drive_and_die(run_dir: Path) -> None:
+def _drive_and_die(run_dir: Path, after: str = "decision_taken") -> None:
     the_rig = rig(run_dir)
+    the_rig.diff.ledger = run_dir / "graph_ledger.jsonl"
     loop: Loop = the_rig.open()
     plan_hold_rig.layer(loop)
     real = loop.record.emit
 
     def emit(event: Event) -> None:
         real(event)
-        if event.kind == "decision_taken":
+        if event.kind == after:
             os.kill(os.getpid(), signal.SIGKILL)
 
     loop.record.emit = emit  # type: ignore[method-assign]
@@ -60,9 +66,13 @@ def main() -> None:
         started(run_dir)
         os.kill(os.getpid(), signal.SIGKILL)
     elif mode == "drive":
-        _report(run_dir, again(rig(run_dir)))
+        the_rig = rig(run_dir)
+        the_rig.diff.ledger = run_dir / "graph_ledger.jsonl"
+        _report(run_dir, again(the_rig))
     elif mode == "drive-kill":
         _drive_and_die(run_dir)
+    elif mode in ("drive-kill-intent", "drive-kill-done"):
+        _drive_and_die(run_dir, "parts_write_" + mode.rsplit("-", 1)[1] + "")
     else:
         raise SystemExit(f"no mode {mode}")
 

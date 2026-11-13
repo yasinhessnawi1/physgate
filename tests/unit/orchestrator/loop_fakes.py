@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from orch_helpers import gate_records, make_config, ticking_clock
@@ -387,7 +389,17 @@ class FakeGraph:
     root: Path = Path("store")
 
     def records_after(self, revision: int) -> list[Any]:
-        return []
+        return [one for one in self._ledgered() if one.rev > revision]
+
+    def _ledgered(self) -> list[Any]:
+        """The nodes declared by earlier processes, as a journal would hold them."""
+        if self.ledger is None or not self.ledger.exists():
+            return []
+        found = [json.loads(raw) for raw in self.ledger.read_text().splitlines()]
+        return [
+            SimpleNamespace(rev=one["rev"], op="create", node_id=one["id"], payload=one["payload"])
+            for one in found
+        ]
 
     def hold(self) -> None:
         return None
@@ -408,9 +420,18 @@ class FakeGraph:
     head: int = 1
     declared: list[dict[str, Any]] = field(default_factory=list)
 
+    #: Where a rig that spans processes keeps what it declared, in place of the journal.
+    ledger: Path | None = None
+
     def declare(self, payload: dict[str, Any], item_ids: tuple[str, ...]) -> int:
         self.declared.append(payload)
-        return self.head + len(self.declared)
+        if self.ledger is None:
+            return self.head + len(self.declared)
+        revision = self.head + len(self._ledgered()) + 1
+        with self.ledger.open("a") as handle:
+            line = {"rev": revision, "id": payload["id"], "payload": payload}
+            handle.write(json.dumps(line) + "\n")
+        return revision
 
     def divergences(
         self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()

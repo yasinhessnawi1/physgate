@@ -95,3 +95,46 @@ def test_a_killed_run_resumes_on_the_same_items_and_asks_nothing_twice(tmp_path:
     assert code == 0 and found is not None, found
     assert (found["step"], found["taken"]) == ("done", IDS)
     assert found["dispatched"] is True
+
+
+def _decided_run(run_dir: Path) -> None:
+    code, _ = _child(run_dir, "open")
+    assert code == -signal.SIGKILL
+    body = getattr(queue_module, "PartsBody")  # noqa: B009
+    stated = body.model_validate(
+        {
+            "declared": {
+                "mass": {"value": 0.4, "unit": "kg"},
+                "stall_current": {"value": 2.4, "unit": "A"},
+            },
+            "texts": (),
+        }
+    )
+    _child(run_dir, "drive")
+    _decide(run_dir, IDS[0], "have", stated)
+    for one in IDS[1:]:
+        _decide(run_dir, one, "find")
+
+
+@pytest.mark.parametrize("mode", ["drive-kill-intent", "drive-kill-done"])
+def test_a_run_killed_while_it_writes_what_was_decided_writes_each_node_once(
+    tmp_path: Path, mode: str
+) -> None:
+    run_dir = tmp_path / "run"
+    _decided_run(run_dir)
+
+    # Killed by the signal no handler sees, after the first intent or the first landed write.
+    code, _ = _child(run_dir, mode)
+    assert code == -signal.SIGKILL, "the process did not die in the writing"
+    ledger = run_dir / "graph_ledger.jsonl"
+    written = len(ledger.read_text().splitlines()) if ledger.exists() else 0
+    assert written == (0 if mode == "drive-kill-intent" else 1)
+
+    # The next process accounts for what landed, writes what did not, and releases once.
+    code, found = _child(run_dir, "drive")
+    assert code == 0 and found is not None, found
+    assert found["step"] == "done" and found["dispatched"] is True
+    assert found["released"] == 1
+    assert sorted(set(found["intended"])) == ["control.motor_left", "sizing.control_motor_left"]
+    assert found["done"] == [2, 3]
+    assert len(ledger.read_text().splitlines()) == 2
