@@ -121,6 +121,7 @@ class RecordingSession:
 
     def __init__(self) -> None:
         self.given: list[tuple[str, RawSetup]] = []
+        self.works: list[Path] = []
 
     def __call__(
         self,
@@ -133,6 +134,7 @@ class RecordingSession:
         check: Any = None,  # noqa: ANN401
     ) -> dict[str, Any]:
         self.given.append((prompt, setup))
+        self.works.append(work)
         assert files is None and check is None
         (work / "worktree").mkdir(parents=True)
         (work / "worktree" / "answer.json").write_text(json.dumps(controller()))
@@ -191,7 +193,16 @@ def test_a_protected_task_s_other_fields_reach_neither_its_session_nor_a_visible
     forbidden = _forbidden(store)
     briefs = {t.brief for t in tasks}
     assert len(session.given) == len(tasks) == 24
-    for prompt, setup in session.given:
+    protected_briefs = {t.brief for t in _protected(store)}
+    for (prompt, setup), work in zip(session.given, session.works, strict=True):
+        # A protected trial's session works in the store's work root, given that directory
+        # alone out of the run's held-out roots; a visible one in the round's directory.
+        if prompt in protected_briefs:
+            assert work.parent == work_root(store.store, "control")
+            assert setup.held_out_carved == str(work)
+        else:
+            assert work.is_relative_to(out) and setup.held_out_carved is None
+        assert setup.held_out == tuple(store.held_out)
         assert prompt in briefs
         assert not [m for m in forbidden if m in prompt]
         markers = [m for m in forbidden if m.startswith("zqmark")]
