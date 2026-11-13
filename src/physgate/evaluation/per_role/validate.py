@@ -22,7 +22,7 @@ from typing import Any, NamedTuple
 from physgate.evaluation.per_role.answer import read_lti_tf
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.scorers.control import check_references, score
-from physgate.evaluation.tiers.authoring import sha256sums
+from physgate.evaluation.tiers.authoring import entry_refusal, sha256sums
 from physgate.evaluation.tiers.task import LoadedTask, load_task
 
 _NUMBER = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
@@ -53,6 +53,20 @@ class _Seen(NamedTuple):
     held: bool
     leaks: bool
     visible: bool
+    #: Why the split would not take the task (:func:`.authoring.entry_refusal`), or ``None``.
+    refused: str | None = None
+
+
+def _leaks(loaded: LoadedTask) -> bool | None:
+    """Whether the brief gives the answer away; ``None`` when that cannot be checked.
+
+    A check that fails (the good reference's answer cannot be read, say) never ends the
+    count and never passes the task: it is a task whose brief is unchecked, refused.
+    """
+    try:
+        return brief_leaks(loaded)
+    except Exception:  # noqa: BLE001 - a check that cannot run refuses, never passes
+        return None
 
 
 def _examine(tier: Path) -> list[_Seen]:
@@ -74,8 +88,9 @@ def _examine(tier: Path) -> list[_Seen]:
                 entry.name,
                 loaded.task.id,
                 held,
-                brief_leaks(loaded),
+                _leaks(loaded) is not False,
                 loaded.task.tier == "visible",
+                entry_refusal(loaded.task),
             )
         )
     return seen
@@ -84,10 +99,15 @@ def _examine(tier: Path) -> list[_Seen]:
 def sound(tier: Path) -> list[str]:
     """The tasks of ``tier`` a split may take, by directory; for the runner, never printed.
 
-    A task qualifies when it loads, its scorer holds its references, its brief gives
-    nothing away, and its directory is named by its own id.
+    A task qualifies when it loads, the split's own entry check admits it, its scorer holds
+    its references, its brief can be checked and gives nothing away, and its directory is
+    named by its own id.
     """
-    return [s.directory for s in _examine(tier) if s.task == s.directory and s.held and not s.leaks]
+    return [
+        s.directory
+        for s in _examine(tier)
+        if s.task == s.directory and s.held and not s.leaks and s.refused is None
+    ]
 
 
 def validate(tier: Path, *, show_ids: bool = False) -> dict[str, Any]:
@@ -117,8 +137,10 @@ def refusal_reasons(tier: Path) -> dict[str, int]:
 
     Each reason is a category with, where it applies, a metric's name (a fixed vocabulary
     that says nothing of the task): ``not_a_task``, ``scorer_refuses_task``,
-    ``good_fails:<metric>``, ``bad_passes:<metric>``, ``brief_leak`` and
-    ``id_not_directory``. A task counts once under each reason it has.
+    ``good_fails:<metric>``, ``bad_passes:<metric>``, ``brief_leak``, ``brief_unchecked``
+    (the leak check itself failed), ``id_not_directory``, and the split's entry check's own
+    reasons (``tier_not_visible``, ``carries_canary``). A task counts once under each reason
+    it has.
     """
     reasons: Counter[str] = Counter()
     for entry in sorted(p for p in tier.iterdir() if p.is_dir()):
@@ -146,8 +168,14 @@ def refusal_reasons(tier: Path) -> dict[str, int]:
                     found.add(f"bad_passes:{metric[ref.fails]}")
         except PerRoleError:
             found.add("scorer_refuses_task")
-        if brief_leaks(loaded):
+        leaks = _leaks(loaded)
+        if leaks is None:
+            found.add("brief_unchecked")
+        elif leaks:
             found.add("brief_leak")
+        refused = entry_refusal(task)
+        if refused is not None:
+            found.add(refused)
         if task.id != entry.name:
             found.add("id_not_directory")
         reasons.update(found)
