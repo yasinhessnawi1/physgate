@@ -18,6 +18,16 @@ harness generates from the same policy the session's commands run under (``oslay
 The wrapper is ``sandbox-exec`` with a generated profile on macOS and bubblewrap on Linux, the
 programs the OS layer already depends on. A server's entry names its wrapper as its command and
 nothing else, and the spawn refuses any other (:func:`physgate.orchestrator.invocation.role_argv`).
+
+Both wrappers are allowlists. What each still lets through, accepted as stated, each bounded by
+a test that runs the wrapper for real:
+
+- **Linux:** bubblewrap cannot refuse running a program, so a server may run the system's own
+  programs under ``/usr``. They run inside the same wrapper: no network, no home, none of the
+  denied places, writes only into the server's own directory.
+- **macOS:** any place's metadata (its name, size and times) and the root's own listing stay
+  readable, which looking a path up needs. The content of a denied or unlisted file it can
+  stat is not, nor the listing of any directory outside the list.
 """
 
 from __future__ import annotations
@@ -247,8 +257,8 @@ def seatbelt_profile(
     of its own sandbox; it looks up only the runtime's Mach services; no network, no POSIX IPC,
     no Apple events, no registering a service. It reads the contents only of the system's
     libraries and programs (:data:`MACOS_SYSTEM`), its read and exec roots and its own
-    directory, less what the session's commands may not read; any place's metadata (name,
-    size, times) stays readable, which looking a path up needs. It writes only its own
+    directory, less what the session's commands may not read; any place's metadata stays
+    readable (stated in this module's docstring). It writes only its own
     directory and ``/dev/null``. The last rule
     that matches an access decides, so each denial comes before the one place it opens again.
     Every path is named as given and where it really is.
@@ -380,11 +390,8 @@ def bwrap_args(
     ``/dev`` (no serial device in it) and a ``/proc`` of a process namespace of its own; no
     network but its own loopback; its own directory bound writable; every filesystem made
     here, the root's among them, made read-only last. No new session: it stays in the
-    session's process group, and it dies with the binary.
-
-    What Linux does not hold that macOS does: bubblewrap cannot refuse running a program, so a
-    server may run the system's own programs under ``/usr``. They run inside the same
-    wrapper: no network, nothing outside the list, writes only into its own directory.
+    session's process group, and it dies with the binary. What it still lets through is stated
+    once, in this module's docstring.
     """
     _refuse_roots_inside_denials(read_denied, read_roots)
     roots = sorted({os.path.realpath(r) for r in read_roots if os.path.lexists(r)}, key=_depth)
