@@ -11,9 +11,10 @@ credential is read: a store a split or a session's work has not left clean; a ve
 is not what its manifest says, or two of whose tasks share a brief; an entry whose run no
 task of the version was given, that is listed twice, whose run recorded another endpoint
 than the operator's (the record's endpoint is compared, never a destination for the
-credential), whose run does not withhold the store's protected places or did not look for
-the version's protected canaries and those listed under every role's root in the store (the
-raw session withholds exactly what its run did, and looks for what it looked for), or
+credential), whose run does not withhold the protected places of every role's root in the
+store or did not look for the version's protected canaries and those listed under every
+role's root in the store (the raw session withholds exactly what its run did, and looks
+for what it looked for), or
 whose run's token account cannot give a cap (:func:`.arms.compare.harness_total`); and,
 unless the round is a development one, a harness run that is not reportable or not from a
 clean checkout.
@@ -63,7 +64,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import Field, StringConstraints
 
@@ -400,14 +401,17 @@ def _require_withheld(
     The raw session withholds exactly what the harness run withheld and looks for exactly its
     canaries, since the two are held equal; so a run that left a protected place of the store
     open, or did not look for a protected task's canary, would leave it open to the raw
-    session too. Every run on the store withholds the role's withheld root and work root and
-    the validation and held-out tiers of every version, each spelt as on disk, and looks for
-    every canary of the version's protected tasks and of every role's root (:func:`_listed`).
+    session too. Every run on the store withholds, for its own role and every other role whose
+    root is in the store, the withheld root and work root and the validation and held-out
+    tiers of every version, each spelt as on disk, and looks for every canary of the version's
+    protected tasks and of every role's root (:func:`_listed`): what it withholds is the scope
+    it looks in. A role with no root in the store has nothing to withhold or to look for.
 
     Raises:
         BaselineError: a place or a canary is missing; places by path, canaries by count.
     """
-    also = [(store, role)]
+    others = [r for r in get_args(Role) if r != role and os.path.lexists(role_root(store, r))]
+    also = [(store, role), *((store, other) for other in others)]
     for refusal in (
         spelling_refusal(config.held_out, also=also),
         withheld_refusal(config.held_out, also=also),
