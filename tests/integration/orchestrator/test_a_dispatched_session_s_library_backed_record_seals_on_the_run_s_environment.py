@@ -20,6 +20,7 @@ from git_rig import config
 from scripted_endpoint import text, tool
 from test_a_session_is_dispatched_under_the_hooks import SPEC, dispatch, knowledge_reads
 
+from physgate.orchestrator.dispatch import ClaudeDispatcher
 from physgate.orchestrator.git import commit_all
 from physgate.orchestrator.install import prepare_install
 from physgate.orchestrator.invocation import claude_binary
@@ -27,7 +28,7 @@ from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.tool_environment import measure_named
 from physgate.orchestrator.trajectory import Seal
-from physgate.oslayer.probe import Present, judge_here
+from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.series.collect import REFUSED_DIR, series_library
 from physgate.series.reader import read_record, record_path
 from physgate.toolenv.manifest import scan
@@ -196,3 +197,39 @@ def test_a_library_backed_record_seals_and_a_session_s_own_copy_of_the_library_d
         seal = Seal(sha256=sealed.sha256, length=sealed.length)
         assert read_record(held, seal).producer.environment is not None
     assert scan([root]) == before
+
+
+def test_without_the_os_layer_a_library_backed_record_is_kept_unsealed_with_the_reason(
+    tmp_path: Path,
+    install_bin: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing kept the environment's roots from the session's writes: the record is not sealed."""
+    if not PROVISIONED:
+        pytest.skip("no provisioned tool environment named")
+    absent = Absent(reason="stand-in: the session runs without the sandbox")
+    monkeypatch.setattr(ClaudeDispatcher, "os_layer", lambda _self: absent)
+    root = Path(PROVISIONED)
+    interpreter = root / "venv" / "bin" / "python3"
+    measured = measure_named({"interpreter": str(interpreter), "roots": [str(root)]}, forbidden={})
+    cfg = config().model_copy(update={"tool_environment": measured})
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    module = worktree / "modules" / "power"
+    steps = [
+        *knowledge_reads(worktree),
+        tool("Read", file_path=str(worktree / SPEC)),
+        tool("Write", file_path=str(module / "step.py"), content=STEP),
+        tool("Bash", command=f"cd {module} && python3 step.py plant 2>&1 | tail -3"),
+        text("done"),
+    ]
+    api, (report, _), _run = dispatch(
+        tmp_path, install_bin, steps, cfg=cfg, before=_with_the_writer
+    )
+    assert report.end.outcome == "completed", report
+    told = [r.last_user for r in api.requests if r.thread == "main"]
+    assert any("RECORDED plant" in said for said in told), told[-2:]
+    assert report.series.records == ()
+    refused = {e.name: e.reason for e in report.series.refused}
+    assert sorted(refused) == ["plant_loop.json", "plant_step.json"], report.series
+    for reason in refused.values():
+        assert "kept unsealed" in reason and "OS layer" in reason, reason
