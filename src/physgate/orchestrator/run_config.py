@@ -397,7 +397,7 @@ class RunConfig(_Frozen):
     #: The tool servers its sessions are offered, recorded when the run names a tool
     #: environment and taken from the register, never from the parameters. ``None`` for a run
     #: that names none, which is what a run recorded before the field existed did.
-    tool_servers: ToolServers | None = None
+    tool_servers: ToolServers | None
 
     @model_validator(mode="after")
     def _the_binding_is_a_backend_that_ships(self) -> RunConfig:

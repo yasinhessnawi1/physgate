@@ -473,7 +473,7 @@ WRAPPER_VARIABLES = ("TMPDIR", "MPLCONFIGDIR")
 #: The system's own directories, after a server's own search path.
 SYSTEM_PATH = ("/usr/bin", "/bin")
 #: A directory or link a server is given, as a path beneath its own directory.
-_OWN_PATH = re.compile(r"^[A-Za-z0-9._+@-]+(/[A-Za-z0-9._+@-]+)*$")
+_OWN_PATH = re.compile(r"[A-Za-z0-9._+@-]+(/[A-Za-z0-9._+@-]+)*")
 
 
 def _placed(value: str, *, server_dir: str, worktree: str, what: str) -> str:
@@ -486,7 +486,7 @@ def _placed(value: str, *, server_dir: str, worktree: str, what: str) -> str:
 
 def _own_parts(path: str) -> list[str]:
     parts = path.split("/")
-    if not _OWN_PATH.match(path) or any(part in (".", "..") for part in parts):
+    if not _OWN_PATH.fullmatch(path) or any(part in (".", "..") for part in parts):
         msg = f"a server's directory or link {path!r} is not a plain path beneath its own"
         raise ContainmentError(msg)
     return parts

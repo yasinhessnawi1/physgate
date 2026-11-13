@@ -752,6 +752,7 @@ def test_a_server_s_directories_and_links_are_made_in_its_own_directory(
         {"links": {"other/platforms": "/usr/bin"}},
         {"directories": ("../up",), "links": {}},
         {"directories": ("/abs",), "links": {}},
+        {"directories": ("core\n",), "links": {}},
         # A variable the wrapper sets, or one a start is built on.
         {"environment": {"TMPDIR": "/tmp"}},
         {"environment": {"MPLCONFIGDIR": "/tmp"}},

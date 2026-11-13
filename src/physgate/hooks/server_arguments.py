@@ -25,7 +25,6 @@ import json
 import os
 from collections.abc import Mapping
 from functools import cache
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from physgate.hooks.paths import protection
@@ -34,7 +33,9 @@ if TYPE_CHECKING:
     from physgate.hooks.views import ConfigView
 
 #: The register, as the harness validates it.
-REGISTER_FILE = Path(__file__).resolve().parents[1] / "toolenv" / "register.json"
+REGISTER_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "toolenv", "register.json"
+)
 #: How a tool server's tool is named.
 SERVER_TOOL = "mcp__"
 
@@ -77,7 +78,8 @@ _KINDS = {
 @cache
 def _servers() -> dict[str, Any]:
     """The register's servers. A file that cannot be read refuses every call it would judge."""
-    loaded = json.loads(REGISTER_FILE.read_text(encoding="utf-8"))
+    with open(REGISTER_FILE, encoding="utf-8") as handle:
+        loaded = json.load(handle)
     servers = loaded["servers"]
     if not isinstance(servers, dict):
         msg = "the tool-server register holds no servers"
