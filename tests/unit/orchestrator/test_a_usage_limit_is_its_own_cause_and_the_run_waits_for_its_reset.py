@@ -26,11 +26,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+import zoneinfo
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import loop_fakes
 import pytest
@@ -322,24 +325,19 @@ def test_a_stream_with_no_rate_limit_state_gives_no_windows() -> None:
 
 
 @pytest.mark.parametrize(
-    "signal",
-    ["event", "message", "text"],
-    ids=["the-rejected-event", "the-message-error", "the-result-text"],
+    "signal", ["message", "text"], ids=["the-message-error", "the-result-text"]
 )
-def test_each_of_the_stream_s_signs_alone_names_the_limit(signal: str) -> None:
+def test_each_of_the_session_s_last_words_alone_names_the_limit(signal: str) -> None:
     text = SESSION_LIMIT if signal == "text" else "API Error: 429"
     result = _result(text, status=429)
     lines = [INIT]
-    if signal == "event":
-        lines.append(_rate_limit("rejected"))
     if signal == "message":
         lines.append(_said(text, "rate_limit"))
     lines.append(json.dumps(result))
     limit = usage_limit_of(_stream(*lines), result)
     assert limit is not None
     assert limit.resets == (RESETS if signal == "text" else None)
-    from_event = (RESET_STAMP, "five_hour", WINDOWS) if signal == "event" else (None, None, ())
-    assert (limit.resets_at, limit.limit_type, limit.windows) == from_event
+    assert (limit.resets_at, limit.limit_type, limit.windows) == (None, None, ())
 
 
 def test_a_503_is_an_api_error_as_today_and_never_the_limit() -> None:
@@ -347,6 +345,91 @@ def test_a_503_is_an_api_error_as_today_and_never_the_limit() -> None:
     assert usage_limit_of(stream, result) is None
     end, limit = session_end(stream, result, exit_code=1, stopped_at_wall_clock=False)
     assert (end, limit) == (SessionEnd(outcome="infrastructure", cause="api_error"), None)
+
+
+# -- the limit is what ended the session, not what happened on the way --------------------------
+
+API_ERROR = (SessionEnd(outcome="infrastructure", cause="api_error"), None)
+#: An overload, in the shape a recorded stream gave it.
+OVERLOADED = "API Error: 529 Overloaded. This is a server-side issue; please try again."
+
+
+def _ended(*lines: str, result: dict[str, Any]) -> tuple[SessionEnd, UsageLimit | None]:
+    """How a session whose stream holds ``lines`` and then ``result`` ended."""
+    stream = _stream(INIT, *lines, json.dumps(result))
+    return session_end(stream, result, exit_code=1, stopped_at_wall_clock=False)
+
+
+def test_a_refusal_event_alone_names_no_limit_and_the_session_keeps_its_retries() -> None:
+    assert _ended(_rate_limit("rejected"), result=_result("API Error: 429", status=429)) == (
+        API_ERROR
+    )
+
+
+@pytest.mark.parametrize(
+    ("lines", "result"),
+    [
+        (
+            (_rate_limit("rejected"), _rate_limit("allowed"), _said(OUTAGE, "server_error")),
+            _result(OUTAGE, status=503),
+        ),
+        ((_rate_limit("rejected"),), _result(OUTAGE, status=503)),
+        (
+            (_rate_limit("rejected"), _said(OVERLOADED, "overloaded_error")),
+            _result(OVERLOADED, status=529),
+        ),
+        (
+            # A binary that gives no status: the last error it said is the end's.
+            (
+                _said(SESSION_LIMIT, "rate_limit"),
+                _rate_limit("rejected"),
+                _rate_limit("allowed"),
+                _said(OUTAGE, "server_error"),
+            ),
+            _result(OUTAGE),
+        ),
+        (
+            # The limit's message, and then the session ended on a 503 all the same.
+            (_rate_limit("rejected"), _said("API Error: 429", "rate_limit")),
+            _result(OUTAGE, status=503),
+        ),
+    ],
+    ids=[
+        "refused-then-allowed-then-a-503",
+        "refused-then-a-503",
+        "refused-then-an-overload",
+        "the-limit-s-message-then-a-503-with-no-status",
+        "the-limit-s-message-then-a-503-end",
+    ],
+)
+def test_a_limit_met_on_the_way_to_another_error_is_that_error_with_its_retries(
+    lines: tuple[str, ...], result: dict[str, Any]
+) -> None:
+    assert _ended(*lines, result=result) == API_ERROR
+
+
+def test_a_503_on_the_way_and_the_limit_at_the_end_is_the_limit_with_its_event_s_instant() -> None:
+    end, limit = _ended(
+        _said(OUTAGE, "server_error"),
+        _rate_limit("rejected"),
+        _said(SESSION_LIMIT, "rate_limit"),
+        result=_result(SESSION_LIMIT, status=429),
+    )
+    assert end == SessionEnd(outcome="infrastructure", cause="usage_limit")
+    assert limit == UsageLimit(
+        resets=RESETS, resets_at=RESET_STAMP, limit_type="five_hour", windows=WINDOWS
+    )
+
+
+def test_a_refusal_the_account_s_state_moved_on_from_gives_no_instant_kind_or_windows() -> None:
+    end, limit = _ended(
+        _rate_limit("rejected"),
+        _rate_limit("allowed"),
+        _said(SESSION_LIMIT, "rate_limit"),
+        result=_result(SESSION_LIMIT, status=429),
+    )
+    assert end.cause == "usage_limit"
+    assert limit == UsageLimit(resets=RESETS)
 
 
 def test_an_allowed_rate_limit_state_in_a_completed_session_is_no_limit() -> None:
@@ -516,7 +599,9 @@ def test_a_resume_after_the_reset_continues_the_same_attempt(
     tmp_path: Path, clock: list[datetime]
 ) -> None:
     rig = _limited_rig(tmp_path)
-    _halted_on_the_limit(tmp_path, rig)
+    halt = _halted_on_the_limit(tmp_path, rig)
+    # A builder the limit cut may have written files: they stay where it left them.
+    assert "the attempt count does not move; its worktree is kept as it was" in halt.detail
     clock[0] = NOON + timedelta(hours=1, minutes=21)
     assert _resume(rig.open()) == "done"
     assert [r.attempt for r in rig.dispatcher.requests] == [1, 1]
@@ -643,6 +728,93 @@ def test_the_operator_s_word_does_not_override_a_reset_that_was_read(
     clock[0] = NOON + timedelta(minutes=30)
     assert isinstance(_resume(rig.open(), limit_reset_by="operator"), LimitNotResetError)
     assert len(rig.dispatcher.requests) == 1
+
+
+# -- a machine with no time-zone database --------------------------------------------------------
+
+
+@pytest.fixture
+def no_zone_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """This machine as one with no time-zone database: no zone files and no tzdata package.
+
+    On a machine that has none, this changes nothing.
+    """
+    monkeypatch.setitem(sys.modules, "tzdata", None)
+    zoneinfo.reset_tzpath(to=[])
+    ZoneInfo.clear_cache()
+    try:
+        yield
+    finally:
+        zoneinfo.reset_tzpath()
+        ZoneInfo.clear_cache()
+
+
+def _or_failure(read: Callable[[], object]) -> object:
+    """What ``read`` gives, or the exception it raised: a failure here is the finding."""
+    try:
+        return read()
+    except Exception as exc:  # noqa: BLE001 - asserted on, never swallowed
+        return exc
+
+
+def test_without_a_zone_database_the_text_gives_no_instant_and_nothing_fails(
+    no_zone_database: None,
+) -> None:
+    with pytest.raises(ZoneInfoNotFoundError):
+        ZoneInfo("Europe/Oslo")
+    after = _at("2026-11-13T11:30:00")
+    assert _or_failure(lambda: reset_instant(RESETS, after=after)) is None
+    limit = UsageLimit(resets=RESETS)
+    assert _or_failure(lambda: with_instant(limit, after=after)) == limit
+
+
+def test_without_a_zone_database_the_event_s_epoch_is_still_the_exact_instant(
+    no_zone_database: None,
+) -> None:
+    stream, result = _limited()
+    end, limit = session_end(stream, result, exit_code=1, stopped_at_wall_clock=False)
+    assert end.cause == "usage_limit"
+    assert limit == UsageLimit(
+        resets=RESETS, resets_at=RESET_STAMP, limit_type="five_hour", windows=WINDOWS
+    )
+
+
+@pytest.mark.parametrize(
+    "word", [None, "operator"], ids=["the-default-wait", "the-operator-s-word"]
+)
+def test_without_a_zone_database_the_run_waits_with_the_text_and_goes_on_by_the_wait_or_the_word(
+    tmp_path: Path, clock: list[datetime], no_zone_database: None, word: str | None
+) -> None:
+    rig = _limited_rig(tmp_path)
+    loop = rig.open()
+    loop.start(plan("s1"))
+    step = _or_failure(lambda: loop.run().kind)
+    loop.close()
+    assert step == "halted"
+    (halt,) = [e for e in _events(tmp_path) if isinstance(e, Halted)]
+    assert (halt.reason, halt.usage_limit) == ("usage_limit", UsageLimit(resets=RESETS))
+    assert RESETS in halt.detail
+    printed, status = printed_step("halted", _state(rig))
+    assert (printed["step"], printed["resets"], printed["resets_at"]) == (
+        "waiting_for_limit",
+        RESETS,
+        None,
+    )
+    assert status == EXIT_WAITING_FOR_LIMIT
+    # The text's 1:20pm has passed; with no instant read, the default wait stands.
+    clock[0] = NOON + timedelta(hours=2)
+    refused = _resume(rig.open())
+    assert isinstance(refused, LimitNotResetError)
+    after = datetime.strptime(halt.ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
+    assert refused.context["resume_after"] == (after + UNREAD_RESET_WAIT).strftime(
+        "%Y-%m-%dT%H:%M:%S.%fZ"
+    )
+    if word is None:
+        clock[0] = NOON + UNREAD_RESET_WAIT + timedelta(minutes=1)
+    assert _resume(rig.open(), limit_reset_by=word) == "done"
+    (resumed,) = [e for e in _events(tmp_path) if isinstance(e, Resumed)]
+    assert resumed.limit_reset_by == word
+    assert [r.attempt for r in rig.dispatcher.requests] == [1, 1]
 
 
 #: A weekly limit met at the rig's noon, as a recorded stream gave its text, and its reset: 7am in
