@@ -88,11 +88,13 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.gate_events import gate_events
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 
-#: The run halts that are the machine's, not the design's.
+#: The run halts that are the machine's, not the design's: the account's usage limit among them.
 INFRASTRUCTURE_HALTS = frozenset(
-    {"infrastructure_exhausted", "credential_refused", "os_layer_unavailable"}
+    {"infrastructure_exhausted", "credential_refused", "os_layer_unavailable", "usage_limit"}
 )
-#: The causes, of a session or of the decomposition call, that are the machine's.
+#: The causes, of a session or of the decomposition call, that are the machine's. The account's
+#: usage limit is not among them: the decomposition call and a raw session are classified without
+#: it, so a limit that ended either is an ``api_error`` here.
 INFRASTRUCTURE_CAUSES = frozenset({"api_error", "credential_refused", "sandbox_unavailable"})
 #: A raw session's ends that are the arm's own spending, never the machine's.
 OWN_ENDS = frozenset({"budget_exhausted", "wall_clock"})

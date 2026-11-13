@@ -4,15 +4,22 @@ When the account a run's sessions spend from reaches its usage limit, every sess
 once with an API error. The stream names the cause: a ``rate_limit_event`` whose state is
 ``rejected``, an assistant message whose error is ``rate_limit``, and a result whose text names
 the limit and when it resets ("You've hit your session limit · resets 1:20pm (Europe/Oslo)").
-Any one of those signs on a session that ended in an API error is read as the limit.
+
+The limit is a session's cause only where it is what ended the session, so it is read from the
+session's last words: a session that ended in an API error ended on the limit where its result's
+text names the limit, or where the last error an assistant message gave is ``rate_limit``; and
+never where the result gives an HTTP status other than the limit's 429. A refusal met on the way
+to another end, a 503 among them, is that other end's, with its retries.
 
 The refusal event says when the limit resets, as an exact instant (``resetsAt``, epoch
 seconds), and what kind of limit it is (``rateLimitType``: ``five_hour`` for the session window,
 ``seven_day`` for the weekly one, which resets days later). That instant is the reset; a kind
-not known here is recorded as given and waited for all the same. The event also says how full
-each of the account's windows was (``unifiedWindows``), recorded with the limit, and every
-session's end records the same figures from its stream's last rate-limit event, of any state,
-so a run's analysis can say how near the limit each session ended.
+not known here is recorded as given and waited for all the same. The event is taken only where it
+agrees with the end: where it is the account's last rate-limit state the stream gave. A refusal
+the account's state moved on from says nothing of the limit the session ended on. The event also
+says how full each of the account's windows was (``unifiedWindows``), recorded with the limit,
+and every session's end records the same figures from its stream's last rate-limit event, of any
+state, so a run's analysis can say how near the limit each session ended.
 
 That is neither a fault of the attempt nor a transient error: a retry inside the limit's window
 cannot succeed, and a review that could not run is no reason to send its attempt to a person.
@@ -23,7 +30,8 @@ retries.
 Where the stream gave no instant, the result's text is the fallback. It has no date and names a
 zone: the reset is the next time that wall time comes in that zone after the session ended. A
 text that does not parse is recorded as it is, with no instant, and a resume then waits for the
-operator's word or :data:`UNREAD_RESET_WAIT`.
+operator's word or :data:`UNREAD_RESET_WAIT`. So is a zone this machine cannot look up, as on one
+with no time-zone database; the event's epoch needs no zone and is exact all the same.
 """
 
 from __future__ import annotations
@@ -49,6 +57,9 @@ UNREAD_RESET_WAIT = timedelta(hours=5)
 REJECTED = "rejected"
 #: The error an assistant message carries when the binary was refused for the account's limit.
 RATE_LIMIT = "rate_limit"
+#: The HTTP status of a request the account's limit refused; a result that gives another status
+#: did not end on the limit.
+LIMIT_STATUS = 429
 #: The result text that names the limit ("You've hit your session limit"), in any of its kinds.
 _NAMES_THE_LIMIT = re.compile(r"\bhit your (?:[\w-]+ )*limit\b|\busage limit reached\b", re.I)
 #: The reset, as the result's text gives it: everything after "resets" to the end of the text.
@@ -151,24 +162,24 @@ def account_windows(data: bytes | str) -> tuple[AccountWindow, ...]:
     return ()
 
 
-def _signs_the_limit(event: Mapping[str, object]) -> bool:
-    """Whether one stream event says the account's limit refused the session."""
-    if event.get("type") == "rate_limit_event":
-        info = _limit_state(event)
-        return info is not None and info.get("status") == REJECTED
-    return event.get("type") == "assistant" and event.get("error") == RATE_LIMIT
+def _last_error(events: list[dict[str, object]]) -> object:
+    """The error the session's last assistant message that gave one gave; ``None`` if none did."""
+    for event in reversed(events):
+        if event.get("type") == "assistant" and event.get("error") is not None:
+            return event.get("error")
+    return None
 
 
 def _from_refusal(limit: UsageLimit, events: list[dict[str, object]]) -> UsageLimit:
-    """``limit`` with what the stream's last refusal event says of it: instant, kind, windows."""
-    refusals = [
-        state
-        for event in events
-        if (state := _limit_state(event)) is not None and state.get("status") == REJECTED
-    ]
-    if not refusals:
+    """``limit`` with what the account's last rate-limit state says of it, where a refusal.
+
+    Its instant, kind and windows. A last state that is not a refusal, or none, adds nothing:
+    the limit is then as the session's last words gave it.
+    """
+    states = [state for event in events if (state := _limit_state(event)) is not None]
+    if not states or states[-1].get("status") != REJECTED:
         return limit
-    refusal = refusals[-1]
+    refusal = states[-1]
     kind = refusal.get("rateLimitType")
     return limit.model_copy(
         update={
@@ -183,20 +194,23 @@ def usage_limit_of(data: bytes | str, result: Mapping[str, object] | None) -> Us
     """The usage limit a session's stream says it ended on, or ``None``.
 
     Only a session that ended in an API error ended on the limit: one that completed, ran out
-    of turns, or left no result did not, whatever its stream holds. Of those, one whose stream
-    shows the limit's refusal, or whose result's text names the limit, did. The reset's text is
-    the result's; its instant, the limit's kind and the windows are the refusal event's, where
-    the stream gave one.
+    of turns, or left no result did not, whatever its stream holds. Of those, one whose result
+    gives no status or the limit's, and whose result's text names the limit or whose last
+    assistant error is ``rate_limit``, did. The reset's text is the result's; its instant, the
+    limit's kind and the windows are the refusal event's, where the account's last rate-limit
+    state is that refusal.
     """
     if result is None or result.get("is_error") is not True:
         return None
     if result.get("terminal_reason") != "api_error":
         return None
+    status = result.get("api_error_status")
+    if status is not None and status != LIMIT_STATUS:
+        return None
     events = _events(data)
     said = result.get("result")
     said = said if isinstance(said, str) else ""
-    signed = any(_signs_the_limit(event) for event in events)
-    if not signed and _NAMES_THE_LIMIT.search(said) is None:
+    if _NAMES_THE_LIMIT.search(said) is None and _last_error(events) != RATE_LIMIT:
         return None
     resets = _RESETS.search(said)
     return _from_refusal(UsageLimit(resets=resets.group(1) if resets else None), events)

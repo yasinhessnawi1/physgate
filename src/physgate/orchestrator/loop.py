@@ -596,7 +596,9 @@ class Loop:
         the OS layer; ``confirmed_by`` is the operator who confirms them on the command line
         (ARCH-133). Only then does such a decision act. ``limit_reset_by`` is the operator who
         says on the command line that the account's usage limit has reset, where its reset could
-        not be read.
+        not be read. It is recorded on the ``Resumed`` that follows; a resume that stops early
+        for another reason resumes nothing, so nothing is recorded, and the word is given again
+        on the resume that goes on.
 
         Raises:
             LimitNotResetError: the run waits for the account's usage limit and may not go on
@@ -3391,12 +3393,18 @@ class Loop:
         """Halt the run waiting for the account's usage limit to reset.
 
         No retry is spent and nothing goes to a person: a role session that ended on the limit
-        made no attempt, and a review that could not run leaves the attempt waiting for it. A
-        resume after the reset goes on exactly there (:meth:`resume`).
+        does not move the attempt count, and a review that could not run leaves the attempt
+        waiting for it. A resume after the reset goes on exactly there (:meth:`resume`). What a
+        role session wrote before the limit is not committed: its worktree is kept as it was,
+        the session after the reset runs in it, and the attempt's completed end commits it.
         """
         env = self._env()
         held = _reset_from(limit, env["ts"])
-        waits = "its review is still owed" if review else "the attempt is the same on resume"
+        waits = (
+            "its review is still owed"
+            if review
+            else "the attempt count does not move; its worktree is kept as it was"
+        )
         kind = f"a {limit.limit_type} limit, " if limit.limit_type else ""
         detail = (
             f"subtask {subtask_id} attempt {attempt}: {who} ended on the account's usage limit "
