@@ -425,7 +425,11 @@ def test_a_removed_export_names_what_it_was(tmp_path: Path) -> None:
 def test_a_renamed_export_is_one_line_removed_and_one_added(tmp_path: Path) -> None:
     moved = f"{MODULE}/exports/deck.step"
     repo, base, commit = _change(tmp_path, {STEP_PATH: STEP}, {STEP_PATH: None, moved: STEP})
-    diff = packet._diff(repo, base, commit, _admit((STEP_PATH, STEP), (moved, STEP)))
+    try:
+        diff = packet._diff(repo, base, commit, _admit((STEP_PATH, STEP), (moved, STEP)))
+    except Exception as exc:  # noqa: BLE001
+        # A rename read as one record is a diff the reader cannot take apart: a wrong answer.
+        diff = f"raised {type(exc).__name__}: {exc}".encode()
     assert diff == b"\n".join([_header(), _added(moved, STEP), _removed(STEP_PATH, STEP)]) + b"\n"
 
 
