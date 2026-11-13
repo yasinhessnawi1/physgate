@@ -316,13 +316,22 @@ def make_read_only(root: Path) -> None:
 
 
 def _python(dest: Path, version: str, env: Mapping[str, str], uv: str) -> Path:
+    """Install the pinned interpreter into the environment and name it there.
+
+    Whatever directory provisioning is started in: uv's interpreter commands read the
+    settings file of the directory they run in, so they run in provisioning's own home, and
+    its search takes a virtual environment there or in any directory above before an
+    installed interpreter, so it is told to take none (a checkout's ``.venv`` holding the
+    pinned version was named in its place).
+    """
+    own = Path(env["HOME"])
     try:
-        run([uv, "python", "install", version], env)
+        run([uv, "python", "install", version], env, cwd=own)
     except ProvisionError as exc:
         raise ProvisionError(
             f"the pinned interpreter {version} cannot be installed: {exc}"
         ) from None
-    found = Path(run([uv, "python", "find", version], env).strip())
+    found = Path(run([uv, "python", "find", "--system", version], env, cwd=own).strip())
     if dest / "python" not in found.parents:
         raise ProvisionError(f"uv found an interpreter outside the environment: {found}")
     return found
