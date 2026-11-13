@@ -75,6 +75,7 @@ from physgate.hooks.reasons import (
     ANSWER_KEY_REASON,
     CLAUDE_TEMP_REASON,
     HELD_OUT_REASON,
+    HOME_CLAUDE_REASON,
     HOOK_STATE_REASON,
     OUTSIDE_REVIEW_REASON,
     REVIEW_MATERIAL_REASON,
@@ -408,13 +409,21 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
         # reads of its own there, nor the temporary directory every Claude Code session of the
         # user shares, which holds the other sessions' task outputs, nor another session's own
         # temporary directory, but for the session's own.
+        # Claude Code's directory in the session's scratch home is read by none either: what
+        # is there is not the session's, and the OS layer denies the shell's reads alike.
         for root in config.protected_roots:
             if (
                 root.reads == "denied"
                 and (
                     root.shell_writes == "allowed"
                     or root.reason
-                    in (WITHHELD_REASON, SESSIONS_REASON, CLAUDE_TEMP_REASON, SESSION_TEMPS_REASON)
+                    in (
+                        WITHHELD_REASON,
+                        SESSIONS_REASON,
+                        CLAUDE_TEMP_REASON,
+                        SESSION_TEMPS_REASON,
+                        HOME_CLAUDE_REASON,
+                    )
                 )
                 and _reaches(absolute, root.path, chain)
                 and not any(

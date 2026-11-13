@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 from gate_run import BRIEF, INTERFACE, seed_knowledge, session
-from git_rig import PARAMS, Gate, config, target_repo
+from git_rig import Gate, config, run_params, target_repo
 from scripted_endpoint import DUMMY_KEY, FakeMessagesApi, Script, failure, serving, text, tool
 from test_a_run_is_reviewed_by_the_claude_reviewer_through_the_command import (
     _library,
@@ -85,7 +85,7 @@ def _run_then_generalist(
     repo = target_repo(tmp_path)
     seed_knowledge(repo)
     run_dir = tmp_path / "run"
-    (tmp_path / "params.json").write_text(json.dumps(config().model_dump(include=PARAMS)))
+    (tmp_path / "params.json").write_text(json.dumps(run_params(config())))
     (tmp_path / "brief.md").write_text(BRIEF)
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
     plan = {

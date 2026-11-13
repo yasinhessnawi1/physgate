@@ -92,6 +92,8 @@ def target_repo(root: Path) -> Path:
 
 def config(repo: Path, run_roles: tuple[str, ...], gate_mode: GateMode = "on") -> RunConfig:
     return RunConfig(
+        binary=None,
+        account=None,
         run_id="run-a",
         seed=SEED,
         brief_sha256="a" * 64,

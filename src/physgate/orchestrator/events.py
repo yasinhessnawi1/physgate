@@ -65,7 +65,13 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
-from physgate.orchestrator.managed import ObservedTraffic, PolicyEntry, stricter_only
+from physgate.orchestrator.managed import (
+    FlagCache,
+    ObservedTraffic,
+    PolicyEntry,
+    SessionManaged,
+    stricter_only,
+)
 from physgate.orchestrator.plan import (
     CriterionWords,
     InterfaceConsumers,
@@ -149,13 +155,15 @@ HaltReason = Literal[
     "credential_refused",
     "decomposition_failed",
     "os_layer_unavailable",
+    "disk_full",
     "role_not_built",
 ]
 
 #: Halts a resume continues from, the same attempt with a fresh schedule: the
 #: infrastructure schedule ran out, the credential was refused and has since been
 #: replaced, or the OS layer would not start and has since been repaired. Any other
-#: halt is resolved by a person first.
+#: halt is resolved by a person first; ``disk_full`` is one of those, since a session
+#: whose records a full disk lost is looked at before the run goes on.
 RESUMABLE_HALTS: frozenset[str] = frozenset(
     {"infrastructure_exhausted", "credential_refused", "os_layer_unavailable"}
 )
@@ -428,6 +436,9 @@ class ReviewUnavailable(_Event):
     reviewer_model: NonEmptyStr | None
     #: The specification defects the reviewer recorded, carried to the queue item.
     spec_defects: tuple[SpecDefect, ...] = ()
+    #: Per invocation of the review's session, on a pin whose sessions carry the catalog
+    #: and flag traffic, the conditions it ran under; empty, and not written, otherwise.
+    managed: tuple[SessionManaged, ...] = Field(default=(), exclude_if=lambda v: not v)
 
     @model_validator(mode="after")
     def _only_infrastructure_is_retried(self) -> ReviewUnavailable:
@@ -475,6 +486,15 @@ class SessionEnded(_Event):
     #: The digest of the policy limits the session's invocation received, ``None`` if
     #: none: held to the decomposition call's.
     policy_limits_sha256: Sha256 | None = None
+    #: The served catalog and feature flags the session's debug log showed, on a pin whose
+    #: sessions carry that traffic: held to the run's first observation. ``None`` otherwise,
+    #: and then not written at all, so a session on an earlier pin is recorded byte for byte
+    #: as it was before the field existed.
+    observed_traffic: ObservedTraffic | None = Field(default=None, exclude_if=lambda v: v is None)
+    #: The remote feature flags the session's binary held when it ended, counted and
+    #: digested: a record only, since they differ between sessions minutes apart with nothing
+    #: of the run's changed. Not written where there is none, as above.
+    flag_cache: FlagCache | None = Field(default=None, exclude_if=lambda v: v is None)
     #: Why the session's missing policy limits were recorded and not held to the decomposition
     #: call's: it ended for infrastructure before any model answered it. ``None`` where they were
     #: judged, and on a line written before this was recorded.
@@ -965,6 +985,8 @@ class Decomposed(_Event):
     #: The binary's served catalog and remote feature flags as the call's debug log
     #: showed them; ``None`` for a run started with no call.
     observed_traffic: ObservedTraffic | None = None
+    #: The flag cache the call left, the run's first reading; not written where none.
+    flag_cache: FlagCache | None = Field(default=None, exclude_if=lambda v: v is None)
     #: sha256 of the plan's canonical JSON, every field of its own form in it, taken from
     #: the plan itself. ``None`` on a line written before the digest was recorded.
     plan_sha256: Sha256 | None = None
@@ -1029,6 +1051,7 @@ class Decomposed(_Event):
             "system_requirements",
             "brief_words",
             "followable",
+            "flag_cache",
         ):
             if data.get(name) is None:
                 data.pop(name, None)
@@ -1341,6 +1364,23 @@ class ModuleCompleted(_Event):
     subtask_id: NonEmptyStr
     declared_by: NonEmptyStr
     attempt: Attempt
+
+
+def flag_cache_readings(events: Iterable[_Event]) -> tuple[FlagCache, ...]:
+    """Every flag cache a run's sessions left, in the order the log holds them.
+
+    The decomposition call's, each role session's, and each invocation of each review's
+    session, whether or not the review gave a verdict.
+    """
+    found: list[FlagCache | None] = []
+    for event in events:
+        if isinstance(event, (Decomposed, SessionEnded)):
+            found.append(event.flag_cache)
+        elif isinstance(event, ReviewRan):
+            found.extend(m.flag_cache for m in event.result.managed)
+        elif isinstance(event, ReviewUnavailable):
+            found.extend(m.flag_cache for m in event.managed)
+    return tuple(r for r in found if r is not None)
 
 
 class WriteIntended(_Event):
