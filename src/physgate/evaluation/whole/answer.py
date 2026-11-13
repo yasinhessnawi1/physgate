@@ -29,8 +29,10 @@ failure of the answer, never an error of the scorer.
   the command is changed, never set, by
   ``u[k] = sat(u[k-1] + angle_gain·(θ̂[k] + rate_ratio·θ̇[k]) + distance_gain·x[k]
   + speed_gain·v[k])``, where ``θ̂`` is the controller's own integrated angle (see
-  :class:`IncrementalRisingOffset`, with its optional leak). ``θ̂ + rate_ratio·θ̇`` is zero on
-  the trajectory that rises to vertical with no speed left. Gains in 1/rad, s, 1/m and s/m;
+  :class:`IncrementalRisingOffset`, with its optional leak). ``θ̂ + rate_ratio·θ̇`` is zero
+  where the tilt is ``rate_ratio`` times its rate, rising. ``rate_ratio`` is the controller's
+  lead time, chosen or tuned (the kit's 0.140 s is tuned on its own build), never a property
+  of the plant. Gains in 1/rad, s, 1/m and s/m;
 - ``state_feedback``, a discrete state feedback that sets the command,
   ``u[k] = sat(angle_gain·θ[k] + rate_gain·θ̇[k] + distance_gain·x[k] + speed_gain·v[k])``.
   Gains in 1/rad, s/rad, 1/m and s/m;

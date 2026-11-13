@@ -19,8 +19,9 @@ import pytest
 
 _MODULE = "physgate.evaluation.whole.scenario"
 _DRAFT = Path(__file__).resolve().parents[2] / "src/physgate/evaluation/whole/plant_v0_draft.json"
-#: A discrete LQR state feedback for the draft's nominal plant, designed outside this test:
-#: phase margin about 61°, gain margins about 0.46 and 7.4.
+#: A discrete LQR state feedback for the first draft's nominal plant, designed outside this
+#: test; on the sourced draft's nominal plant, phase margin about 68°, gain margins about 0.45
+#: and 4.1.
 GOOD_GAINS = (1.6643, 0.191, 0.2853, 1.3421)
 
 

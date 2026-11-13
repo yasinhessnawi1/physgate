@@ -105,8 +105,10 @@ class _Frozen(BaseModel):
 class Parameter(_Frozen):
     """One plant parameter: its value and range in its unit, and where it comes from.
 
-    ``source`` cites a criterion, a parts-sheet row or a vendor page, or is ``assumption``;
-    an assumption also says, in ``measure_by``, what measurement would replace it.
+    ``source`` cites a criterion, a parts-sheet row or a vendor document, or is
+    ``assumption``. A cited value says in ``locator`` where in its source the number is read
+    (a page, a table, a row, a URL); an assumption says in ``reason`` what bounds its range
+    and in ``measure_by`` what measurement would replace it.
     """
 
     value: float
@@ -115,6 +117,7 @@ class Parameter(_Frozen):
     high: float
     source: _Text
     reason: _Text
+    locator: _Text | None = None
     measure_by: _Text | None = None
 
 
@@ -137,7 +140,9 @@ def parse_plant(raw: bytes) -> PlantFile:
 
     Raises:
         PlantError: not the schema; a parameter missing or unknown, in another unit, outside
-            its own range, an assumption with no measurement named, or a value not positive.
+            its own range, or a value not positive; a parameter with no source, a cited one
+            with no locator, an assumption with no measurement named, or, in a frozen plant,
+            an assumption held at a point (its outcome would be scored as if it were known).
     """
     try:
         plant = PlantFile.model_validate_json(raw)
@@ -158,8 +163,19 @@ def parse_plant(raw: bytes) -> PlantFile:
         if not 0 < p.low <= p.value <= p.high:
             msg = f"{name} is {p.value} in [{p.low}, {p.high}]; each is positive, low first"
             raise PlantError(msg)
-        if p.source.strip().lower() == ASSUMPTION and p.measure_by is None:
+        if not p.source.strip():
+            msg = f"{name} names no source; it cites one or is an {ASSUMPTION}"
+            raise PlantError(msg)
+        if p.source.strip().lower() != ASSUMPTION:
+            if p.locator is None or not p.locator.strip():
+                msg = f"{name} cites {p.source!r} and names no locator in it"
+                raise PlantError(msg)
+            continue
+        if p.measure_by is None:
             msg = f"{name} is an assumption and names no measurement that would replace it"
+            raise PlantError(msg)
+        if plant.status == "frozen" and p.low == p.high:
+            msg = f"{name} is an assumption held at a point in a frozen plant; it ranges"
             raise PlantError(msg)
     return plant
 

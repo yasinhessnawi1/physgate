@@ -324,10 +324,12 @@ def test_a_leak_free_integrated_angle_is_judged_on_the_balance_not_on_its_offset
 
 
 def test_setting_the_offset_aside_never_hides_a_growing_mode() -> None:
-    # The draft's own rotor: the kit's controller is unstable, leak or none.
+    # A rotor of 5e-8 kg*m^2 (the first draft's, above what the sources support): the kit's
+    # controller is unstable there, leak or none, and setting the offset aside hides nothing.
     loop = _loop()
-    assert loop.margins(_values(), _kit_in_si(0.999)).stable is False
-    assert loop.margins(_values(), _kit_in_si(1.0)).stable is False
+    heavy = {**_values(), "rotor_inertia": 5e-8}
+    assert loop.margins(heavy, _kit_in_si(0.999)).stable is False
+    assert loop.margins(heavy, _kit_in_si(1.0)).stable is False
 
 
 def test_a_loop_that_holds_no_travel_is_not_stable() -> None:
