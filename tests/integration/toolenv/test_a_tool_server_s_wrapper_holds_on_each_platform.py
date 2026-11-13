@@ -53,6 +53,8 @@ def _direct_interpreter() -> str:
 
 
 PYTHON = _direct_interpreter()
+#: Where this interpreter's own library lies, which a server running it reads.
+INSTALLATION = os.path.realpath(sys.base_prefix)
 
 #: Run inside the wrapper: each program by its path, and what became of it.
 TRY = """
@@ -90,6 +92,7 @@ def _profile(tmp_path: Path, exec_roots: tuple[str, ...]) -> Path:
             devices=serial_devices("darwin"),
             command=PYTHON,
             exec_roots=exec_roots,
+            read_roots=(INSTALLATION,),
         )
     )
     return profile
@@ -161,7 +164,7 @@ def test_a_denied_place_made_after_launch_is_not_there_inside(tmp_path: Path) ->
     args = bwrap_args(
         read_denied=(str(denied),),
         server_dir=str(own),
-        read_roots=(str(base / "parent"), sys.base_prefix),
+        read_roots=(str(base / "parent"), INSTALLATION),
     )
     # Made after the server's rules were taken, as a later session or the harness would.
     denied.mkdir()
@@ -192,7 +195,13 @@ def test_a_denied_path_holding_parentheses_is_denied_and_the_server_still_answer
     own.mkdir()
     profile = tmp_path / "odd.sb"
     profile.write_text(
-        seatbelt_profile(read_denied=(str(odd),), server_dir=str(own), devices=(), command=PYTHON)
+        seatbelt_profile(
+            read_denied=(str(odd),),
+            server_dir=str(own),
+            devices=(),
+            command=PYTHON,
+            read_roots=(INSTALLATION, str(tmp_path)),
+        )
     )
     done = subprocess.run(
         [
@@ -276,7 +285,7 @@ def test_a_server_reaches_no_socket_and_runs_no_program_outside_its_roots(tmp_pa
         probe.connect(str(ours))
         probe.close()
         assert subprocess.run([str(program)], check=False).returncode == 0
-        args = bwrap_args(read_denied=(), server_dir=str(own), read_roots=(sys.base_prefix,))
+        args = bwrap_args(read_denied=(), server_dir=str(own), read_roots=(INSTALLATION,))
         done = subprocess.run(
             [bwrap, *args, "--", PYTHON, "-I", "-c", REACH, json.dumps([str(ours), *host]),
              json.dumps([str(program)])],

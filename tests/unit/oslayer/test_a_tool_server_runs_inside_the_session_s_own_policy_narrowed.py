@@ -145,9 +145,7 @@ def test_the_macos_profile_denies_the_network_every_write_but_its_own_and_every_
             line.startswith("(deny file-read*") and f'(subpath "{path}")' in line for line in lines
         ), path
     own_reads = [
-        i
-        for i, line in enumerate(lines)
-        if line.startswith("(allow file-read*") and f'(subpath "{server_dir}")' in line
+        i for i, line in enumerate(lines) if line == f'(allow file-read* (subpath "{server_dir}"))'
     ]
     assert len(own_reads) == 1, profile
     own_read = own_reads[0]
@@ -211,7 +209,7 @@ def test_the_linux_arguments_take_the_network_hide_each_denied_place_and_open_on
         str(root / "elsewhere" / "not-there"),
     )
     (root / "elsewhere").mkdir()
-    args = bwrap_args(read_denied=denied, server_dir=str(server_dir))
+    args = bwrap_args(read_denied=denied, server_dir=str(server_dir), read_roots=(str(root),))
     text = shlex.join(args)
     for option in ("--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-ipc"):
         assert option in args, option
@@ -417,7 +415,7 @@ def test_a_denied_place_absent_at_launch_is_left_out_of_its_parent_s_listing(roo
     server_dir = root / "temps" / OWN / "servers" / "probe"
     server_dir.mkdir(parents=True)
     denied = (str(root / "absent" / "deeper"), str(present / "missing"), str(root / "temps"))
-    args = bwrap_args(read_denied=denied, server_dir=str(server_dir))
+    args = bwrap_args(read_denied=denied, server_dir=str(server_dir), read_roots=(str(root),))
     text = shlex.join(args)
     # Nothing is bound whole: the root is built from the entries it has at launch.
     assert "--ro-bind / /" not in text, text
@@ -486,7 +484,14 @@ def test_the_macos_profile_reads_only_the_listed_places(root: Path) -> None:
     assert "(allow file-read-metadata)" in lines, profile
     reads = [line for line in lines if line.startswith("(allow file-read*")]
     assert reads, profile
-    places = [p for line in reads for p in re.findall(r'\((?:subpath|literal) "([^"]+)"\)', line)]
+    # The root's own listing, never what lies beneath it: the loader reads it as a program starts.
+    assert '(subpath "/")' not in profile
+    places = [
+        p
+        for line in reads
+        for p in re.findall(r'\((?:subpath|literal) "([^"]+)"\)', line)
+        if p != "/"
+    ]
     listed = ("/System", "/usr", "/bin", "/sbin", "/dev", "/private/etc", "/private/var/db")
     allowed = (*listed, worktree, env, str(root / "own"))
     stray = [p for p in places if not any(p == a or p.startswith(a + "/") for a in allowed)]

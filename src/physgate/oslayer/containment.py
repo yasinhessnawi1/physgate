@@ -190,6 +190,28 @@ SYSCTL_PREFIXES = (
 IOCTL_DEVICES = ("/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", "/dev/tty")
 
 
+#: What a server reads on macOS beyond its own roots: the system's libraries, frameworks and
+#: programs (the loader's shared cache lies beneath ``/System``), and the clock's database.
+MACOS_SYSTEM = (
+    "/System",
+    "/usr/lib",
+    "/usr/share",
+    "/usr/bin",
+    "/bin",
+    "/private/var/db/timezone",
+)
+#: Single places of the system a server reads: the root's own listing (the loader reads it as a
+#: program starts; measured, without it the interpreter aborts), the devices it reads, the clock.
+MACOS_SYSTEM_FILES = (
+    "/",
+    "/dev/null",
+    "/dev/zero",
+    "/dev/random",
+    "/dev/urandom",
+    "/private/etc/localtime",
+)
+
+
 def seatbelt_profile(
     *,
     read_denied: Sequence[str],
@@ -204,8 +226,11 @@ def seatbelt_profile(
     The sandbox runtime's own base profile, narrowed for a server: it runs its own command
     and programs beneath its named roots, nothing else; it signals and inspects only processes
     of its own sandbox; it looks up only the runtime's Mach services; no network, no POSIX IPC,
-    no Apple events, no registering a service. It reads everything but what the session's
-    commands may not read, and writes only its own directory and ``/dev/null``. The last rule
+    no Apple events, no registering a service. It reads the contents only of the system's
+    libraries and programs (:data:`MACOS_SYSTEM`), its read and exec roots and its own
+    directory, less what the session's commands may not read; any place's metadata (name,
+    size, times) stays readable, which looking a path up needs. It writes only its own
+    directory and ``/dev/null``. The last rule
     that matches an access decides, so each denial comes before the one place it opens again.
     Every path is named as given and where it really is.
 
@@ -221,6 +246,13 @@ def seatbelt_profile(
             msg = f"the device pattern {pattern!r} cannot be written into a sandbox profile"
             raise ContainmentError(msg)
     own = " ".join(f"(subpath {_quoted(p)})" for p in _spellings(server_dir))
+    readable = [f"(subpath {_quoted(p)})" for p in MACOS_SYSTEM]
+    readable += [f"(literal {_quoted(p)})" for p in MACOS_SYSTEM_FILES]
+    readable += [
+        f"(subpath {_quoted(p)})" for root in (*read_roots, *exec_roots) for p in _spellings(root)
+    ]
+    readable += [f"(literal {_quoted(p)})" for p in _spellings(command)]
+    reads = " ".join([*readable, own])
     runs = [f"(literal {_quoted(p)})" for p in _spellings(command)]
     runs += [f"(subpath {_quoted(p)})" for root in exec_roots for p in _spellings(root)]
     lines = [
@@ -241,7 +273,10 @@ def seatbelt_profile(
         + " ".join(f'(sysctl-name-prefix "{n}")' for n in SYSCTL_PREFIXES)
         + ")",
         "(allow file-ioctl " + " ".join(f'(literal "{d}")' for d in IOCTL_DEVICES) + ")",
-        "(allow file-read*)",
+        # Any place's name, size and times, which looking a path up needs; its contents only
+        # in the list below.
+        "(allow file-read-metadata)",
+        f"(allow file-read* {reads})",
         "(deny file-write*)",
         f'(allow file-write* {own} (literal "/dev/null"))',
     ]
@@ -256,8 +291,26 @@ def seatbelt_profile(
     return "\n".join(lines) + "\n"
 
 
-#: The places bubblewrap makes afresh for a server, never bound from the machine.
-_FRESH = frozenset({"/dev", "/proc"})
+#: What a server's root holds on Linux beyond its own roots: the system's libraries and
+#: programs, and the files the dynamic loader, the user database and the clock read. Nothing
+#: else of the machine is there: not ``/run`` or ``/var/run`` with its services' sockets, not
+#: ``/tmp``, not a home. A place that is a link (``/bin`` on a merged system) stays one.
+LINUX_SYSTEM = (
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/lib32",
+    "/lib64",
+    "/libx32",
+    "/etc/ld.so.cache",
+    "/etc/ld.so.conf",
+    "/etc/ld.so.conf.d",
+    "/etc/localtime",
+    "/etc/passwd",
+    "/etc/group",
+    "/etc/nsswitch.conf",
+)
 
 
 def _within(path: str, place: str) -> bool:
@@ -279,7 +332,7 @@ def _entries(place: str, left_out: set[str]) -> list[str]:
     args: list[str] = []
     for name in sorted(os.listdir(place)):
         child = os.path.join(place, name)
-        if child in left_out or child in _FRESH:
+        if child in left_out:
             continue
         if os.path.islink(child):
             args += ["--symlink", os.readlink(child), child]
@@ -288,42 +341,58 @@ def _entries(place: str, left_out: set[str]) -> list[str]:
     return args
 
 
+def _depth(path: str) -> tuple[int, str]:
+    return (path.rstrip("/").count("/"), path)
+
+
 def bwrap_args(
     *, read_denied: Sequence[str], server_dir: str, read_roots: Sequence[str] = ()
 ) -> list[str]:
     """The bubblewrap options a server runs under on Linux, before its command.
 
-    Nothing is bound whole. The server's root is built from the entries ``/`` has at launch,
-    each bound read-only, and so is the nearest existing parent of every denied place that
-    does not exist yet: a name made there later is not there inside, so a denied place made
-    after the server started is never readable from it (fail closed). An existing denied
-    directory is left out of its parent's listing where that parent is rebuilt, and hidden
-    under an empty filesystem otherwise; a denied file lies under ``/dev/null``. A fresh
-    ``/dev`` (no serial device in it) and a ``/proc`` of a process namespace of its own, so no
-    other process's root is a way out of the mounts; no network but its own loopback; the
-    server's directory bound writable; every filesystem made here, the root's among them, made
-    read-only last. No new session: it stays in the session's process group, and it dies with
-    the binary.
+    An allowlist: the server's root holds the system's libraries and programs
+    (:data:`LINUX_SYSTEM`), its read roots, and its own directory, and nothing else of the
+    machine, so no service's socket and no program outside them is there. Within its roots, a
+    denied directory is hidden under an empty filesystem and a denied file under ``/dev/null``;
+    a denied place that does not exist yet has its nearest existing parent rebuilt from the
+    entries it has at launch, so one made later is not there inside (fail closed). A fresh
+    ``/dev`` (no serial device in it) and a ``/proc`` of a process namespace of its own; no
+    network but its own loopback; its own directory bound writable; every filesystem made
+    here, the root's among them, made read-only last. No new session: it stays in the
+    session's process group, and it dies with the binary.
+
+    What Linux does not hold that macOS does: bubblewrap cannot refuse running a program, so a
+    server may run the system's own programs under ``/usr``. They run inside the same
+    wrapper: no network, nothing outside the list, writes only into its own directory.
     """
+    roots = sorted({os.path.realpath(r) for r in read_roots if os.path.lexists(r)}, key=_depth)
+    roots = [r for r in roots if not any(_within(r, o) and r != o for o in roots)]
     denied = {os.path.realpath(p) for p in read_denied}
-    directories = sorted(p for p in denied if os.path.isdir(p))
+    inside = [p for p in denied if any(_within(p, r) for r in roots)]
+    directories = sorted((p for p in inside if os.path.isdir(p)), key=_depth)
     directories = [d for d in directories if not any(_within(d, o) and d != o for o in directories)]
-    files = sorted(p for p in denied if os.path.lexists(p) and not os.path.isdir(p))
+    files = sorted(p for p in inside if os.path.lexists(p) and not os.path.isdir(p))
 
     def hidden(path: str) -> bool:
         return any(_within(path, d) for d in directories)
 
-    absent_parents = {_nearest_existing(p) for p in denied if not os.path.lexists(p)}
     rebuilt = sorted(
-        {"/"} | {p for p in absent_parents if not hidden(p)},
-        key=lambda p: (p.count("/") if p != "/" else 0, p),
+        {_nearest_existing(p) for p in inside if not os.path.lexists(p)} - {"/"},
+        key=_depth,
     )
+    rebuilt = [p for p in rebuilt if not hidden(p) and any(_within(p, r) for r in roots)]
     args = ["--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-ipc"]
+    for place in LINUX_SYSTEM:
+        if os.path.islink(place):
+            args += ["--symlink", os.readlink(place), place]
+        elif os.path.exists(place):
+            args += ["--ro-bind", place, place]
+    for root in roots:
+        args += ["--ro-bind", root, root]
     made: list[str] = []
     for place in rebuilt:
-        if place != "/":
-            args += ["--tmpfs", place]
-            made.append(place)
+        args += ["--tmpfs", place]
+        made.append(place)
         args += _entries(place, denied)
     args += ["--dev", "/dev", "--proc", "/proc"]
     listed = set(rebuilt)
@@ -386,6 +455,9 @@ def contained_servers(
     denied = server_read_denied(config, platform)
     entries: dict[str, dict[str, object]] = {}
     for server in servers:
+        # What every server reads: its own roots, and the session's worktree, less what the
+        # session's commands may not read there.
+        reads_from = (config.worktree, *server.read_roots)
         server_dir = temp_dir / SERVERS_DIR / server.name
         try:
             server_dir.parent.mkdir(mode=0o700, exist_ok=True)
@@ -403,13 +475,21 @@ def contained_servers(
                     devices=serial_devices(platform),
                     command=server.command,
                     exec_roots=server.exec_roots,
+                    read_roots=reads_from,
                 )
             )
             command, args = SANDBOX_EXEC, ["-f", str(profile)]
         else:
             command, args = (
                 contained_by[0],
-                [*bwrap_args(read_denied=denied, server_dir=str(server_dir)), "--"],
+                [
+                    *bwrap_args(
+                        read_denied=denied,
+                        server_dir=str(server_dir),
+                        read_roots=(*reads_from, *server.exec_roots, server.command),
+                    ),
+                    "--",
+                ],
             )
         entries[server.name] = {
             "type": "stdio",
