@@ -115,7 +115,7 @@ def first_run(
     kill: Callable[[Any, list[Any]], bool] | None = None,
     mutual: bool = False,
 ) -> str:
-    """The run's first process, until it stops; the step it stopped at, or ``killed``."""
+    """The first process, until it stops: the step it stopped at, ``killed``, or what escaped."""
     loop = rig.open()
     hooked(monkeypatch, loop, declared=WITH_BUDGET if budget else ALONE, kill=kill)
     if mutual:
@@ -128,6 +128,8 @@ def first_run(
         return loop.run().kind
     except KilledError:
         return "killed"
+    except Exception as exc:  # noqa: BLE001 - what escaped is the finding, asserted as a step
+        return f"raised {exc!r}"
     finally:
         loop.close()
 
@@ -139,7 +141,7 @@ def resumed(
     budget: bool,
     kill: Callable[[Any, list[Any]], bool] | None = None,
 ) -> str:
-    """A fresh process takes the run over; the step it stopped at, or ``killed``."""
+    """A fresh process takes the run over; the step it stopped at, ``killed``, or what escaped."""
     loop = rig.open()
     hooked(monkeypatch, loop, declared=WITH_BUDGET if budget else ALONE, kill=kill)
     _layer(loop)
@@ -147,6 +149,8 @@ def resumed(
         return loop.resume().kind
     except KilledError:
         return "killed"
+    except Exception as exc:  # noqa: BLE001 - what escaped is the finding, asserted as a step
+        return f"raised {exc!r}"
     finally:
         loop.close()
 
