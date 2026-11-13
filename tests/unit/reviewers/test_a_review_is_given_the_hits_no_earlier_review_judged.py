@@ -291,7 +291,7 @@ def test_a_verdict_that_leaves_an_earlier_attempt_s_hit_unanswered_is_no_verdict
 def test_a_verdict_that_answers_the_earlier_hit_is_a_review(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    result, _ = _review(tmp_path, monkeypatch, _answer([DISMISSED]))
+    result, _ = _review(tmp_path, monkeypatch, _answer([{**DISMISSED, "attempt": 1}]))
     assert getattr(result, "verdict", None) == "pass"
     indicators = getattr(result, "indicators", ())
     assert [(i.evidence, i.disposition) for i in indicators] == [(EARLIER_HIT, "dismissed")]
@@ -300,7 +300,7 @@ def test_a_verdict_that_answers_the_earlier_hit_is_a_review(
 def test_the_session_s_schema_requires_an_answer_to_the_earlier_hit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _, schemas = _review(tmp_path, monkeypatch, _answer([DISMISSED]))
+    _, schemas = _review(tmp_path, monkeypatch, _answer([{**DISMISSED, "attempt": 1}]))
     assert schemas and EARLIER_HIT in json.dumps(schemas[0])
 
 

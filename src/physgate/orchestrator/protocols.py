@@ -637,6 +637,19 @@ class IndicatorReport(_Frozen):
     evidence: NonEmptyStr
     disposition: IndicatorDisposition
     reason: NonEmptyStr
+    #: The earlier attempt whose hit this answers, where a review was given an earlier attempt
+    #: no review judged: two attempts' streams can hold a call of one id, and an answer to one is
+    #: not an answer to the other. Absent on an answer to the attempt's own hit, or an indicator
+    #: the review raised, and left out of a line then, so every answer recorded before reads
+    #: and writes back as it was.
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_no_attempt(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.attempt is None:
+            data.pop("attempt", None)
+        return data
 
 
 class SpecDefect(_Frozen):

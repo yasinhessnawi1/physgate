@@ -92,7 +92,10 @@ def hit(session_id: str) -> str:
     return f"toolu_{session_id.replace('-', '_')}"
 
 
-def judged(evidence: str, disposition: str = "dismissed") -> IndicatorReport:
+def judged(
+    evidence: str, disposition: str = "dismissed", attempt: int | None = None
+) -> IndicatorReport:
+    """An answer to a hit: to an earlier attempt's, naming ``attempt``."""
     return IndicatorReport(
         kind="disabled_checks",
         evidence=evidence,
@@ -100,6 +103,7 @@ def judged(evidence: str, disposition: str = "dismissed") -> IndicatorReport:
         reason="the skip marks a test of hardware the run does not have"
         if disposition == "dismissed"
         else "the skip hides the failing gain test",
+        attempt=attempt,
     )
 
 
@@ -201,7 +205,7 @@ def _review_judged(run_dir: Path) -> list[tuple[int, tuple[int, ...]]]:
 
 def _dismissed_then_blocked(run_dir: Path) -> Rig:
     """Attempt 1 refused before review; attempt 2's review dismisses both hits and blocks."""
-    both = (judged(hit("sess-1")), judged(hit("sess-2")))
+    both = (judged(hit("sess-1"), attempt=1), judged(hit("sess-2")))
     return _rig(run_dir, reviewer=FakeReviewer(results={1: result("blocked", 1, *both)}))
 
 
@@ -242,7 +246,7 @@ def test_the_next_review_is_given_the_earlier_attempt_s_streams(tmp_path: Path) 
 def test_an_attempt_a_review_judged_gives_its_hits_to_no_later_review(tmp_path: Path) -> None:
     # Attempt 2's review judges attempt 1's hits and fails; attempt 3's review is given none.
     run_dir = tmp_path / "run"
-    both = (judged(hit("sess-1")), judged(hit("sess-2")))
+    both = (judged(hit("sess-1"), attempt=1), judged(hit("sess-2")))
     reviewer = FakeReviewer(
         results={1: result("fail", 1, *both), 2: result("blocked", 2, judged(hit("sess-3")))}
     )
@@ -261,7 +265,11 @@ def test_an_attempt_a_review_judged_gives_its_hits_to_no_later_review(tmp_path: 
 def test_an_earlier_hit_a_later_review_confirmed_still_holds_an_approve(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     reviewer = FakeReviewer(
-        results={1: result("fail", 1, judged(hit("sess-1"), "confirmed"), judged(hit("sess-2")))},
+        results={
+            1: result(
+                "fail", 1, judged(hit("sess-1"), "confirmed", attempt=1), judged(hit("sess-2"))
+            )
+        },
         unavailable={2: NO_VERDICT},
     )
     rig = _rig(run_dir, reviewer=reviewer)
@@ -385,7 +393,7 @@ def test_an_approve_still_never_merges_past_an_automated_refusal(
     run_dir = tmp_path / "run"
     if setup.get("dispatcher") == "unread":
         setup = {"dispatcher": SkippingDispatcher(trajectories=run_dir / "sessions", unread={3})}
-    both = (judged(hit("sess-1")), judged(hit("sess-2")))
+    both = (judged(hit("sess-1"), attempt=1), judged(hit("sess-2")))
     rig = _rig(run_dir, reviewer=FakeReviewer(results={1: result("fail", 1, *both)}), **setup)
     _run(rig, "s1")
     assert _review_judged(run_dir) == [(2, (1,))]
@@ -440,7 +448,7 @@ def test_a_run_that_records_decisions_is_reviewed_as_it_always_was(tmp_path: Pat
     # There an approve acts on nothing, and the scan before review never runs: the next review is
     # given no earlier attempt, and its line names none, so what such a run measures is unchanged.
     run_dir = tmp_path / "run"
-    both = (judged(hit("sess-1")), judged(hit("sess-2")))
+    both = (judged(hit("sess-1"), attempt=1), judged(hit("sess-2")))
     rig = _rig(
         run_dir,
         reviewer=FakeReviewer(results={1: result("blocked", 1, *both)}),

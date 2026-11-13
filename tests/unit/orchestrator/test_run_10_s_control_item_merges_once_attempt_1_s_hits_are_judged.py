@@ -76,7 +76,8 @@ class Run10ControlDispatcher(FakeDispatcher):
 def _control(run_dir: Path, confirmed: str | None = None) -> Rig:
     """Attempt 1 refused as a long line; attempt 2's review rejects; attempt 3's blocks."""
     earlier = tuple(
-        judged(call, "confirmed" if call == confirmed else "dismissed") for call in ATTEMPT_1
+        judged(call, "confirmed" if call == confirmed else "dismissed", attempt=1)
+        for call in ATTEMPT_1
     )
     second = result("fail", 1, *earlier, *(judged(c) for c in ATTEMPT_2))
     third = result("blocked", 2, *(judged(c) for c in ATTEMPT_3))

@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from collections.abc import Sequence
 from typing import Annotated, Any
 
 from pydantic import (
@@ -43,7 +44,7 @@ from pydantic import (
     model_serializer,
 )
 
-from physgate.orchestrator.protocols import IndicatorKind
+from physgate.orchestrator.protocols import IndicatorKind, IndicatorReport
 from physgate.reviewers.transcript import parse_event
 
 #: A marker that switches a check off where it is written, and what it does.
@@ -128,6 +129,43 @@ class ScanHit(BaseModel):
     def of_attempt(self, attempt: int) -> ScanHit:
         """This hit, marked as one ``attempt``'s stream shows."""
         return self.model_copy(update={"attempt": attempt})
+
+
+#: The answers that decide a hit. ``noted`` says a hit was seen and decides nothing.
+DECIDING = ("confirmed", "dismissed")
+
+
+def judges(hit: ScanHit, answers: Sequence[IndicatorReport]) -> bool:
+    """Whether ``answers`` judge an earlier attempt's ``hit`` (ARCH-133).
+
+    Only answers naming the hit's attempt and its evidence answer it, and every one of them
+    confirms or dismisses it with a reason that is not blank: an earlier hit noted, or answered
+    for another attempt that holds a call of the same id, is not judged.
+    """
+    found = [a for a in answers if a.attempt == hit.attempt and a.evidence == hit.evidence]
+    return bool(found) and all(a.disposition in DECIDING and a.reason.strip() for a in found)
+
+
+def judged_attempts(
+    shown: Sequence[ScanHit], answers: Sequence[IndicatorReport]
+) -> tuple[int, ...]:
+    """The earlier attempts whose hits, as shown to a review, its ``answers`` judged, in order.
+
+    An attempt is judged when every hit of it that was shown is judged (:func:`judges`) and
+    every answer naming it answers one of those hits: an answer to a hit no scan found is not
+    one a review was given to judge. The loop records what this says; replay holds a review
+    line to it.
+    """
+    judged: list[int] = []
+    for attempt in sorted({hit.attempt for hit in shown if hit.attempt is not None}):
+        hits = [hit for hit in shown if hit.attempt == attempt]
+        evidence = {hit.evidence for hit in hits}
+        naming = [a for a in answers if a.attempt == attempt]
+        if all(judges(hit, answers) for hit in hits) and all(
+            a.evidence in evidence for a in naming
+        ):
+            judged.append(attempt)
+    return tuple(judged)
 
 
 def _written(name: str, tool_input: dict[str, Any]) -> list[str]:

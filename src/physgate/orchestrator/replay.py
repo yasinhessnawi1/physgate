@@ -132,6 +132,7 @@ from physgate.orchestrator.protocols import ChosenValue, QuantityRef
 from physgate.orchestrator.queue import DECOMPOSITION_NAME, PLAN, contract_item_id, item_id_for
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
+from physgate.reviewers.scan import judged_attempts
 from physgate.state.store import payload_digest
 from physgate.state.task_ledger import Outcome, TaskLedger, TaskLine, read_ledger
 
@@ -1935,13 +1936,24 @@ class RunState:
         self.integration = event
 
     def _judged_earlier(self, sub: SubtaskState, now: AttemptState, event: ReviewRan) -> None:
-        """A review names only earlier attempts of its subtask no review had judged, in order."""
+        """A review names only earlier attempts of its subtask no review had judged, in order.
+
+        And only those its own answers bear out: every hit it was shown of such an attempt
+        confirmed or dismissed by an answer naming the attempt, and no answer naming it to a
+        hit it was not shown. A line written before records neither, and names none.
+        """
         named = list(event.judged_earlier)
         earlier = {a.number for a in sub.attempts if a.number < now.number} - sub.judged()
-        if named != sorted(set(named)) or not set(named) <= earlier:
+        shown = {hit.attempt for hit in event.earlier_hits}
+        if named != sorted(set(named)) or not set(named) | shown <= earlier:
             _refuse(
                 "a review line names as judged only earlier attempts of its subtask that no "
                 "review had judged, each once and in order"
+            )
+        if tuple(named) != judged_attempts(event.earlier_hits, event.result.indicators):
+            _refuse(
+                "a review line names as judged exactly the earlier attempts whose hits it was "
+                "shown its answers confirmed or dismissed, and no other"
             )
 
     def _expect(self, condition: bool, what: str) -> None:

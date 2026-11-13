@@ -156,7 +156,8 @@ def to_answer(packet: Packet | PlanPacket) -> tuple[ScanHit, ...]:
     """Every marker the verdict must answer: the attempt's own, then each earlier unjudged one's.
 
     The earlier attempts' are answered exactly as the attempt's own are (ARCH-133): an indicator
-    naming the same evidence, confirmed or dismissed with its reason, or the answer is no verdict.
+    naming the same evidence and, for an earlier one, its attempt, confirmed or dismissed with
+    its reason, or the answer is no verdict.
     """
     earlier = packet.earlier_indicators if isinstance(packet, Packet) else ()
     return (*packet.indicators, *earlier)
@@ -184,7 +185,8 @@ EARLIER_FOUND = (
     "Earlier attempts of this subtask that no review judged are shown in the earlier parts "
     "listed above; their work is in the commit you review. The same search found these markers "
     "in them, each with the attempt it is from. Judge each one as a marker of this attempt: an "
-    "indicator that names the same evidence, confirmed or dismissed with your reason:\n"
+    "indicator that names the same evidence and the same attempt, confirmed or dismissed with "
+    "your reason:\n"
 )
 NO_SCAN_RUN = (
     "No search for the markers of a check switched off was run on this attempt's record. Judge "

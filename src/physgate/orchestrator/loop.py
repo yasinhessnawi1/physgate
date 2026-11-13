@@ -225,7 +225,13 @@ from physgate.orchestrator.replay import (
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.reviewers.packet import fits_one_read, person_order_text
-from physgate.reviewers.scan import REFUSED_NAMES, REFUSED_WRITE, ScanHit, ScanUnreadableError
+from physgate.reviewers.scan import (
+    REFUSED_NAMES,
+    REFUSED_WRITE,
+    ScanHit,
+    ScanUnreadableError,
+    judged_attempts,
+)
 from physgate.roles import dispatchable, owners_of, require_registered
 from physgate.series.reader import attempt_records
 from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
@@ -2416,19 +2422,18 @@ class Loop:
                     usage=message.usage,
                 )
             )
-        # An earlier attempt is judged only where the verdict answered every one of its hits: a
-        # reviewer that left one unanswered judged none of that attempt, which stays unjudged.
-        answered = {indicator.evidence for indicator in review.indicators}
-        judged_now = tuple(
-            u.attempt for u, hits in earlier if {hit.evidence for hit in hits} <= answered
-        )
+        # An earlier attempt is judged only where the verdict confirmed or dismissed every one of
+        # its hits, by answers naming it: a reviewer that left one unanswered or only noted it
+        # judged none of that attempt, which stays unjudged. The line records what it was shown.
+        shown = tuple(hit for _, hits in earlier for hit in hits)
         self._emit(
             ReviewRan(
                 **self._env(),
                 subtask_id=subtask_id,
                 attempt=attempt,
                 result=review,
-                judged_earlier=judged_now,
+                judged_earlier=judged_attempts(shown, review.indicators),
+                earlier_hits=shown,
             )
         )
         if review.verdict == "blocked":

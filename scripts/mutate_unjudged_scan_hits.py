@@ -13,7 +13,9 @@ Rules: 1 the earlier unjudged attempts' hits go to the next review, which must a
 2 a dismissed hit no longer holds an approve, a confirmed or unjudged one still does; 3 the item
 and the UI name each hit's attempt and the review that judged it; 4 what an approve never merges
 past is unchanged; 5 a run recorded before reads, replays and is decided as it was; 6 a call
-the hook layer refused for a protected path is named for what the call was.
+the hook layer refused for a protected path is named for what the call was; 7 the reviewer is
+told of the earlier attempts it must judge; 8 only a confirmed or dismissed answer naming its
+attempt judges an earlier hit, and replay holds a review line to the hits it was shown.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ ROWS = (
     "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
     "tests/unit/orchestrator/test_a_refused_call_is_named_for_what_it_was.py",
     "tests/unit/orchestrator/test_run_10_s_control_item_merges_once_attempt_1_s_hits_are_judged.py",
+    "tests/unit/orchestrator/test_an_earlier_hit_is_judged_only_by_a_confirmed_or_dismissed_answer_naming_its_attempt.py",
 )
 UI_ROWS = ("src/screens/queue/consequence.test.tsx",)
 PROMPT_ROWS = (
@@ -46,6 +49,8 @@ PROT = "src/physgate/orchestrator/protocols.py"
 SCAN = "src/physgate/reviewers/scan.py"
 PKT = "src/physgate/reviewers/packet.py"
 REV = "src/physgate/reviewers/claude.py"
+VER = "src/physgate/reviewers/verdict.py"
+CON = "src/physgate/reviewers/contract.py"
 WORDS = "ui/src/words/queue.ts"
 API = "ui/src/api/queue.ts"
 
@@ -61,9 +66,9 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
     ("earlier-includes-judged", "1", LOOP,
      "if earlier.number >= attempt or earlier.number in judged:",
      "if earlier.number >= attempt:"),
-    ("unanswered-counts-judged", "1", LOOP,
-     "u.attempt for u, hits in earlier if {hit.evidence for hit in hits} <= answered",
-     "u.attempt for u, hits in earlier"),
+    ("unanswered-counts-judged", "1", SCAN,
+     "if all(judges(hit, answers) for hit in hits) and all(",
+     "if all("),
     ("packet-drops-earlier", "1", PKT,
      "earlier_parts = _write_parts(read, split_parts(earlier, EARLIER_PART)) if earlier else ()",
      "earlier_parts = ()"),
@@ -112,8 +117,11 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
     ("held-ignored", "4", DEC, "    if held:", "    if False:"),
     # 5. A run recorded before.
     ("review-line-keeps-empty", "5", EV,
-     "        if not self.judged_earlier:\n            data.pop(\"judged_earlier\", None)\n        return data",
-     "        return data"),
+     "        if not self.judged_earlier:\n            data.pop(\"judged_earlier\", None)\n        if not self.earlier_hits:",
+     "        if not self.earlier_hits:"),
+    ("review-line-keeps-no-hits", "5", EV,
+     "        if not self.earlier_hits:\n            data.pop(\"earlier_hits\", None)\n",
+     ""),
     ("hit-keeps-no-attempt", "5", SCAN,
      "        if self.attempt is None:\n            data.pop(\"attempt\", None)\n",
      ""),
@@ -149,6 +157,35 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
     ("legacy-label-not-mapped", "6", LOOP,
      '"what": REFUSED_WRITE if hit.what in REFUSED_NAMES else hit.what,',
      '"what": hit.what,'),
+    # 8. Only a confirmed or dismissed answer naming its attempt judges an earlier hit, and replay
+    # holds a review line's judged attempts to the hits it was shown and its answers.
+    ("noted-judges", "8", SCAN,
+     "all(a.disposition in DECIDING and a.reason.strip() for a in found)",
+     "all(a.reason.strip() for a in found)"),
+    ("blank-reason-judges", "8", SCAN,
+     "all(a.disposition in DECIDING and a.reason.strip() for a in found)",
+     "all(a.disposition in DECIDING for a in found)"),
+    ("answer-any-attempt", "8", SCAN,
+     "[a for a in answers if a.attempt == hit.attempt and a.evidence == hit.evidence]",
+     "[a for a in answers if a.evidence == hit.evidence]"),
+    ("stray-answer-judges", "8", SCAN,
+     "a.evidence in evidence for a in naming",
+     "True for a in naming"),
+    ("verdict-ignores-undecided", "8", VER,
+     "if h.attempt is not None and not judges(h, answer.indicators)",
+     "if h.attempt is not None and False"),
+    ("schema-admits-noted", "8", CON,
+     '                "disposition": {"enum": ["confirmed", "dismissed"]},\n',
+     ""),
+    ("schema-no-attempt", "8", CON,
+     '                "attempt": {"const": hit.attempt},\n',
+     ""),
+    ("line-records-no-hits", "8", LOOP,
+     "earlier_hits=shown,",
+     "earlier_hits=(),"),
+    ("replay-trusts-judged", "8", REP,
+     "if tuple(named) != judged_attempts(event.earlier_hits, event.result.indicators):",
+     "if False:"),
 )  # fmt: skip
 
 UI_MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
@@ -177,6 +214,9 @@ PROMPT_MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
      'f"- {hit.kind}, evidence {hit.evidence}, attempt {hit.attempt}: {hit.what}\\n"',
      'f"- {hit.kind}, evidence {hit.evidence}: {hit.what}\\n"'),
     ("earlier-told-always", "7", REV, "    if earlier_hits:\n", "    if True:\n"),
+    ("earlier-attempt-untold", "7", REV,
+     '"indicator that names the same evidence and the same attempt, confirmed or dismissed with "',
+     '"indicator that names the same evidence, confirmed or dismissed with "'),
 )  # fmt: skip
 
 _FAILED = re.compile(r"^FAILED \S+ - (.*)$", re.M)

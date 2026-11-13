@@ -150,8 +150,10 @@ def test_a_review_line_records_the_earlier_hits_it_was_shown(tmp_path: Path) -> 
     run_dir = tmp_path / "run"
     _run(_dismissed_then_blocked(run_dir), "s1")
     events, last, data = _review_line(run_dir)
-    assert [(h["evidence"], h["attempt"]) for h in data["earlier_hits"]] == [(hit("sess-1"), 1)]
-    assert data["judged_earlier"] == [1]
+    assert [(h["evidence"], h["attempt"]) for h in data.get("earlier_hits", [])] == [
+        (hit("sess-1"), 1)
+    ]
+    assert data.get("judged_earlier") == [1]
     replay(events)
 
 

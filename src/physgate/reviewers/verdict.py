@@ -60,7 +60,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.reviewers.contract import CONSISTENCY, UNISSUED_RESULTS, as_answer
 from physgate.reviewers.rubric import NotEvaluableNeeds, RubricItem
-from physgate.reviewers.scan import ScanHit
+from physgate.reviewers.scan import ScanHit, judges
 
 #: The model's words for its verdict. ``accept`` and ``reject`` become the review's
 #: pass and fail; ``blocked`` stays blocked, a verdict that is neither.
@@ -314,10 +314,22 @@ def _inconsistency(
         missing = ", ".join(sorted(unevaluated - named))
         kind = "a blocking specification defect" if not_evaluable == "blocking" else "a defect"
         return f"an item not evaluable is named by {kind}: " + missing
-    answered = {r.evidence for r in answer.indicators}
-    unanswered = sorted({h.evidence for h in scan_hits} - answered)
+    # The attempt's own hits are answered as they always were, by an answer to the same evidence.
+    answered = {r.evidence for r in answer.indicators if r.attempt is None}
+    unanswered = sorted({h.evidence for h in scan_hits if h.attempt is None} - answered)
     if unanswered:
         return "a check the trajectory shows switched off is not answered: " + ", ".join(unanswered)
+    # An earlier attempt's, by an answer naming its attempt that confirms or dismisses it.
+    undecided = sorted(
+        f"{h.evidence} (attempt {h.attempt})"
+        for h in scan_hits
+        if h.attempt is not None and not judges(h, answer.indicators)
+    )
+    if undecided:
+        return (
+            "a check an earlier attempt's trajectory shows switched off is not confirmed or "
+            "dismissed, with a reason, by an answer naming its attempt: " + ", ".join(undecided)
+        )
     return None
 
 

@@ -92,7 +92,11 @@ def test_a_review_line_that_names_no_earlier_attempt_judged_its_own_alone(tmp_pa
     for raw in path.read_bytes().splitlines():
         data = json.loads(raw)
         if data.get("kind") == "review_ran":
+            # As the writer before wrote it: no earlier attempt named, shown or answered by one.
             data.pop("judged_earlier", None)
+            data.pop("earlier_hits", None)
+            for answered in data["result"]["indicators"]:
+                answered.pop("attempt", None)
             raw = ReviewRan.model_validate_json(json.dumps(data)).model_dump_json().encode()
         lines.append(raw)
     path.write_bytes(b"\n".join(lines) + b"\n")
@@ -141,7 +145,7 @@ def test_replay_refuses_naming_an_attempt_a_review_already_judged(tmp_path: Path
     # Attempt 2's review judged attempt 1; attempt 3's review line may not name it again, nor
     # attempt 2, which has a review line of its own.
     run_dir = tmp_path / "run"
-    both = (judged(hit("sess-1")), judged(hit("sess-2")))
+    both = (judged(hit("sess-1"), attempt=1), judged(hit("sess-2")))
     reviewer = FakeReviewer(
         results={1: result("fail", 1, *both), 2: result("blocked", 2, judged(hit("sess-3")))}
     )
@@ -160,7 +164,7 @@ def test_a_run_recorded_before_and_resumed_after_gives_its_next_review_the_earli
     reviewer = FakeReviewer(
         results={
             1: result("blocked", 1, judged(hit("sess-2"))),
-            2: result("blocked", 2, judged(hit("sess-1")), judged(hit("sess-3"))),
+            2: result("blocked", 2, judged(hit("sess-1"), attempt=1), judged(hit("sess-3"))),
         }
     )
     rig = _rig(run_dir, reviewer=reviewer)
