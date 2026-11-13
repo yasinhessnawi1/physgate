@@ -51,8 +51,8 @@ from physgate.orchestrator.exports import (
     EXPORTS_DIR,
     MAX_EXPORT_BYTES,
     MAX_MODULE_EXPORT_BYTES,
+    free_text,
     is_export,
-    summary,
 )
 from physgate.orchestrator.git import (
     GitDir,
@@ -108,6 +108,10 @@ NOT_AN_EXPORT = (
 )
 EXPORT_TOO_BIG = f"an export over {MAX_EXPORT_BYTES} bytes"
 EXPORT_INVALID = "an export whose bytes are not what its suffix says"
+EXPORT_STL_OWN_BYTES = (
+    "a binary STL whose 80-byte header is not the one the design helper's writer gives it, or "
+    "with an attribute byte that is not zero: both are free bytes no review is shown"
+)
 #: The fields of a line of ``git ls-tree -l`` before its path: mode, type, object, size.
 _LS_TREE_FIELDS = 4
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -242,7 +246,8 @@ def write_scope_violations(
     So is a misplaced or malformed export (``exports``): a file with an export suffix anywhere
     in the module but directly in its exports folder, anything in that folder that is no export,
     an export over :data:`~physgate.orchestrator.exports.MAX_EXPORT_BYTES` or whose bytes are not
-    what its suffix says, and exports holding more than
+    what its suffix says, a binary STL with a header or attribute byte its writer does not
+    write (``exports.FreeText``), and exports holding more than
     :data:`~physgate.orchestrator.exports.MAX_MODULE_EXPORT_BYTES` together in the module after
     the attempt. Misplaced files are named in git's order, then the exports' bytes, read from
     the commit. An attempt that passes holds only exports the review packet may show by size,
@@ -342,8 +347,11 @@ def _export_read(
     if size > MAX_EXPORT_BYTES:
         return EXPORT_TOO_BIG, b""
     body = git_blob(repo, spec, git_dir=git_dir)
-    if summary(path, body) is None:
+    found = free_text(path, body)
+    if found is None:
         return EXPORT_INVALID, body
+    if found.header or found.attributes:
+        return EXPORT_STL_OWN_BYTES, body
     return None, body
 
 
@@ -384,6 +392,9 @@ def admitted_exports(
     removal is the run branch's, which only an admitted attempt put there, held to the same
     conditions again. Nothing is admitted in a module whose exports hold more than
     :data:`~physgate.orchestrator.exports.MAX_MODULE_EXPORT_BYTES` together at ``commit``.
+    Nor is a side whose free text passes the budget (``exports.FreeText.summarised``): the
+    review shows it in full, and the change check refuses the attempt if a line of it is too
+    long to show.
     Sorted by path, then digest. Called once :func:`write_scope_violations` found nothing.
     """
     exports_dir = _module_path(module_dir) / EXPORTS_DIR
@@ -399,7 +410,8 @@ def admitted_exports(
             if mode not in (_REGULAR, "100755"):
                 continue
             problem, body = _export_read(repo, f"{side}:{change.path}", change.path, git_dir)
-            if problem is None:
+            told = free_text(change.path, body)
+            if problem is None and told is not None and told.summarised:
                 found.add((change.path, hashlib.sha256(body).hexdigest()))
     return tuple(AdmittedExport(path=path, sha256=digest) for path, digest in sorted(found))
 

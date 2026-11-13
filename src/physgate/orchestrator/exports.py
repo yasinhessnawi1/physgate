@@ -10,11 +10,15 @@ It does so only for a file the commit-time rule admitted with exactly those byte
 an export's (:func:`is_export`), within :data:`MAX_EXPORT_BYTES`, and whose bytes are what its
 suffix says (:func:`summary` answers ``None`` otherwise). Everything else stays in the diff.
 
-**What a reviewer does not see in an admitted export,** stated as a limit: a STEP file's string
-fields and comments are free text inside a valid file, and a binary STL file's 80-byte header,
-its two attribute bytes a triangle and the low bits of every coordinate can carry any bytes. The
-summary shows counts, a bounding box and two short header fields, not that text. The geometry
-hash describes the shape a script built, not an export's bytes, so it bounds none of this; the
+**What a reviewer does not see in an admitted export is counted and bounded** (:class:`FreeText`):
+the bytes the writer does not write (a STEP file's comments, and its strings, keywords and stray
+characters outside the writer's own; a binary STL file's header and attribute bytes; an ASCII
+STL file's names) are counted on the export's line, an export with more than the budget is not
+summarised but shown in full, and a binary STL file with a header or attribute byte of its own
+is refused at commit. What stays unseen: the numbers themselves (the low bits of every
+coordinate, which numbers a STEP entity holds), where the writer's own strings and words are
+placed, the spacing between tokens, and up to the budget of free text. The geometry hash
+describes the shape a script built, not an export's bytes, so it bounds none of this; the
 reviewer can still read the whole file in the packet's export of the commit.
 
 The suffixes are data: adding a kind of export adds a suffix here and a check below, and the
@@ -27,7 +31,15 @@ import json
 import math
 import re
 import struct
+from dataclasses import dataclass
 from pathlib import PurePosixPath
+
+from physgate.orchestrator.export_writer import (
+    FREE_TEXT_BUDGET,
+    STEP_WRITER_STRINGS,
+    STEP_WRITER_WORDS,
+    STL_WRITER_HEADERS,
+)
 
 #: The folder of a module that holds its exports, and nothing else.
 EXPORTS_DIR = "exports"
@@ -239,3 +251,132 @@ def _numbers(words: list[str]) -> list[float] | None:
     except ValueError:
         return None
     return values if all(math.isfinite(value) for value in values) else None
+
+
+# ---- free text --------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FreeText:
+    """The bytes of an export that its summary does not show and its writer does not write.
+
+    Counted where they are. A STEP file: every byte of a comment (``comments``); each distinct
+    string the writer does not write, by its bytes, once (``strings``); each distinct keyword or
+    enumeration the writer does not write, likewise (``words``); and every byte that is none of
+    the exchange structure's tokens (``other``). A binary STL file: each header byte that differs
+    from the writer's header (``header``) and each attribute byte that is not zero
+    (``attributes``). An ASCII STL file: each distinct name after ``solid`` or ``endsolid``, by
+    its bytes (``strings``). What the writer writes is data, measured
+    (:mod:`physgate.orchestrator.export_writer`).
+
+    A distinct string or word is counted once because a repeat tells a reader nothing the first
+    did not; where it repeats is the residual this count leaves, with the numbers themselves.
+    """
+
+    kind: str
+    comments: int = 0
+    strings: int = 0
+    words: int = 0
+    other: int = 0
+    header: int = 0
+    attributes: int = 0
+
+    @property
+    def total(self) -> int:
+        """Every byte counted."""
+        return (
+            self.comments + self.strings + self.words + self.other + self.header + self.attributes
+        )
+
+    @property
+    def summarised(self) -> bool:
+        """Whether the export may be shown as one line.
+
+        Only with no header or attribute byte of its own, and at most
+        :data:`~physgate.orchestrator.export_writer.FREE_TEXT_BUDGET` bytes in all.
+        """
+        return self.header == 0 and self.attributes == 0 and self.total <= FREE_TEXT_BUDGET
+
+    def described(self) -> str:
+        """The counts as the reviewer's line gives them."""
+        if self.kind == "binary STL":
+            parts = f"header {self.header}, attributes {self.attributes}"
+        elif self.kind == "ASCII STL":
+            parts = f"names {self.strings}"
+        else:
+            parts = (
+                f"comments {self.comments}, strings {self.strings}, words {self.words}, "
+                f"other characters {self.other}"
+            )
+        return f"free text {self.total} bytes ({parts})"
+
+
+def free_text(path: str, body: bytes) -> FreeText | None:
+    """The free text in an export's bytes; ``None`` if they are not its kind (:func:`summary`)."""
+    if summary(path, body) is None:
+        return None
+    if PurePosixPath(path).name.casefold().endswith(".step"):
+        return _step_free_text(body)
+    if _stl_binary(body) is not None:
+        return _stl_binary_free_text(body)
+    return _stl_ascii_free_text(body)
+
+
+#: Outside strings and comments: what carries no text (an entity's number, a number, the
+#: punctuation and spaces of the structure), a keyword or an enumeration, or any other byte.
+_STEP_PLAIN = re.compile(
+    rb"(?P<plain>#[0-9]+|[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[Ee][+-]?[0-9]+)?|[\s()=,;*$-]+)"
+    rb"|(?P<word>\.[A-Za-z_][A-Za-z0-9_]*\.|[A-Za-z_][A-Za-z0-9_]*)"
+    rb"|(?P<other>.)",
+    re.DOTALL,
+)
+
+
+def _step_free_text(body: bytes) -> FreeText:
+    comments, other = 0, 0
+    strings: set[bytes] = set()
+    words: set[bytes] = set()
+    for token in _STEP_TOKEN.finditer(body):
+        text = token.group()
+        if text.startswith(b"'"):
+            strings.add(text[1:-1])
+        elif text.startswith(b"/*"):
+            comments += len(text)
+        else:
+            for piece in _STEP_PLAIN.finditer(text):
+                if piece.lastgroup == "word":
+                    words.add(piece.group())
+                elif piece.lastgroup == "other":
+                    other += 1
+    return FreeText(
+        kind="STEP",
+        comments=comments,
+        strings=sum(len(s) for s in strings if s.decode("ascii") not in STEP_WRITER_STRINGS),
+        words=sum(len(w) for w in words if w.decode("ascii") not in STEP_WRITER_WORDS),
+        other=other,
+    )
+
+
+def _stl_binary_free_text(body: bytes) -> FreeText:
+    header = body[:_STL_HEADER]
+    differing = min(
+        sum(mine != writers for mine, writers in zip(header, known, strict=True))
+        for known in STL_WRITER_HEADERS
+    )
+    # Each triangle's two attribute bytes are its last two: 48 and 49 bytes into its 50.
+    first = _STL_HEADER + 4 + 48
+    attributes = body[first :: _STL_TRIANGLE.size] + body[first + 1 :: _STL_TRIANGLE.size]
+    return FreeText(
+        kind="binary STL",
+        header=differing,
+        attributes=len(attributes) - attributes.count(0),
+    )
+
+
+def _stl_ascii_free_text(body: bytes) -> FreeText:
+    lines = body.decode("latin-1").splitlines()
+    names = {
+        lines[0].removeprefix("solid").strip(),
+        lines[-1].strip().removeprefix("endsolid").strip(),
+    }
+    return FreeText(kind="ASCII STL", strings=sum(len(name) for name in names))

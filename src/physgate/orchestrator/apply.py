@@ -83,6 +83,8 @@ from physgate.orchestrator.declaration import (
 from physgate.orchestrator.dispute import DISPUTES_DIR, Dispute, DisputeError, disputer_problem
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.exceptions import DutyUnownedError, RoleRegisterError, StoreRefusalError
+from physgate.orchestrator.export_writer import FREE_TEXT_BUDGET
+from physgate.orchestrator.exports import is_export
 from physgate.orchestrator.follow import FollowedInterface, FollowRefusedError, follow
 from physgate.orchestrator.git import (
     GitDir,
@@ -519,11 +521,19 @@ def too_long(long: LongLine) -> str:
         )
     else:
         where = f"line {long.line} of {long.path} is {long.bytes} bytes long"
-    return (
+    found = (
         f"{where}. The reviewer reads the attempt's diff in parts of at most {PART_MAX_BYTES} "
         "bytes, and a line is never cut across two, so this attempt cannot be shown to a "
         f"reviewer. Commit files with no line longer than {LINE_MAX_BYTES} bytes, for example "
         "one value or one row per line."
+    )
+    if not is_export(long.path):
+        return found
+    return (
+        f"{found} {long.path} is an export, and it is shown in full: a review shows an export "
+        f"as one line only while it holds at most {FREE_TEXT_BUDGET} bytes of free text "
+        "(comments, or strings, words or names its writer does not write). Write it with the "
+        "design helper and keep text out of it."
     )
 
 
