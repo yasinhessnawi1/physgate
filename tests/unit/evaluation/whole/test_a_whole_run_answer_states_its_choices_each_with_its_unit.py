@@ -11,6 +11,7 @@ import json
 import math
 import os
 import re
+import threading
 import tracemalloc
 from collections.abc import Callable
 from pathlib import Path
@@ -493,8 +494,22 @@ def test_an_answer_outside_its_root_or_spelt_round_about_is_refused(tmp_path: Pa
 
 def test_a_fifo_is_refused_without_waiting_for_a_writer(tmp_path: Path) -> None:
     root = _root(tmp_path)
-    os.mkfifo(root / "whole_run.json")
-    _refused(root / "whole_run.json", root, "no answer file")
+    fifo = root / "whole_run.json"
+    os.mkfifo(fifo)
+    outcome: list[WholeRun | BaseException] = []
+    reader = threading.Thread(target=lambda: outcome.append(_reading(fifo, root)), daemon=True)
+    reader.start()
+    reader.join(timeout=5)
+    try:
+        assert not reader.is_alive(), "the reader is waiting for a writer to open the FIFO"
+    finally:
+        if reader.is_alive():
+            # Release the blocked open, so the row ends instead of hanging the run.
+            os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+            reader.join(timeout=5)
+    caught = outcome[0]
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "no answer file" in str(caught)
 
 
 def test_an_oversized_answer_is_refused_before_it_is_read_into_memory(tmp_path: Path) -> None:

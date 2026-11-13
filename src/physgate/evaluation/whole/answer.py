@@ -299,9 +299,8 @@ def read_whole_run(path: Path, *, root: Path) -> WholeRun:
     walk), so a link anywhere on the way refuses, and the path as spelt is where the file is.
     The file itself is opened without following a link, and must be a regular file with one
     name: a hard link is a second name it could be changed or read through from outside
-    ``root``. Its size is taken from the descriptor and held to the bound before a byte is
-    read, and the read stops one byte past the bound, so a file that grows after its size was
-    taken is refused too.
+    ``root``. The read stops one byte past the size bound, so neither a large file nor one that
+    grows while it is read is ever held whole.
 
     Raises:
         TaskFormatError: it is missing, outside ``root``, not spelt plainly, reached through a
@@ -338,7 +337,11 @@ def read_whole_run(path: Path, *, root: Path) -> WholeRun:
 
 
 def _read_bounded(fd: int, where: str) -> bytes:
-    """The descriptor's bytes, held to a regular file, one name and the size bound."""
+    """The descriptor's bytes, held to a regular file, one name and the size bound.
+
+    The bound is held by the read itself, which stops one byte past it, never by the size the
+    descriptor reports: a size taken first is out of date the moment the file grows.
+    """
     found = os.fstat(fd)
     if not stat.S_ISREG(found.st_mode):
         msg = "no answer file: it is not a regular file"
@@ -346,9 +349,6 @@ def _read_bounded(fd: int, where: str) -> bytes:
     if found.st_nlink != 1:
         msg = "the answer file has a second name, through which it could be changed"
         raise TaskFormatError(msg, path=where, links=str(found.st_nlink))
-    if found.st_size > MAX_ANSWER_BYTES:
-        msg = f"the answer is larger than any whole-run answer ({found.st_size} bytes)"
-        raise TaskFormatError(msg, path=where)
     chunks: list[bytes] = []
     total = 0
     try:
@@ -362,6 +362,6 @@ def _read_bounded(fd: int, where: str) -> bytes:
         msg = f"no answer file: it cannot be read ({exc.strerror})"
         raise TaskFormatError(msg, path=where) from exc
     if total > MAX_ANSWER_BYTES:
-        msg = "the answer is larger than any whole-run answer (it grew while it was read)"
+        msg = f"the answer is larger than any whole-run answer (over {MAX_ANSWER_BYTES} bytes)"
         raise TaskFormatError(msg, path=where)
     return b"".join(chunks)
