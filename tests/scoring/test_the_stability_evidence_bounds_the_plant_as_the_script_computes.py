@@ -254,3 +254,24 @@ def test_the_sourced_digest_ignores_the_bound_and_reads_every_value_and_range() 
     assert script.sourced_digest(json.dumps(doc).encode()) == base
     doc["parameters"]["body_inertia"]["high"] *= 1.01
     assert script.sourced_digest(json.dumps(doc).encode()) != base
+
+
+def test_the_corner_report_moves_a_bounded_parameter_to_its_bounded_ends() -> None:
+    script = _script()
+    doc = json.loads(_plant({"com_height": (0.005, 0.078)}))
+    digest = "cd" * 32
+    doc["parameters"]["com_height"]["value"] = 0.019
+    doc["parameters"]["com_height"]["bounded"] = {
+        "low": 0.005,
+        "high": 0.030,
+        "evidence": f"bounded by stability evidence; report sha256 {digest}",
+        "report": digest,
+    }
+    report = script.judge(json.dumps(doc).encode(), script.KIT_ANSWER)
+    (moved,) = report["one_at_a_time"]
+    assert moved["parameter"] == "com_height"
+    assert (moved["low"]["value"], moved["high"]["value"]) == (0.005, 0.030)
+    (stable,) = {e["stable_corners"] for e in report["extremes"].values()}
+    assert stable <= 2
+    com = {p["criterion"]: p for p in report["predicates"]}["c15"]
+    assert com["corners"]["count"] == 2
