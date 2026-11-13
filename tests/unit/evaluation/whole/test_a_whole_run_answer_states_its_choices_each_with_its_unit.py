@@ -383,11 +383,18 @@ def test_files_named_by_plain_relative_paths_are_taken() -> None:
     assert _parse(answer(files=files)).files == tuple(files)
 
 
-def test_a_file_named_twice_however_it_is_cased_is_refused() -> None:
+@pytest.mark.parametrize(
+    "files",
+    [
+        ["firmware/Main.c", "firmware/main.c"],
+        ["firmware/main.c", "firmware/Main.c"],
+        ["firmware/main.c", "firmware/main.c"],
+    ],
+    ids=["upper_first", "lower_first", "exact"],
+)
+def test_a_file_named_twice_however_it_is_cased_is_refused(files: list[str]) -> None:
     with pytest.raises(TaskFormatError, match="twice"):
-        _parse(answer(files=["firmware/Main.c", "firmware/main.c"]))
-    with pytest.raises(TaskFormatError, match="twice"):
-        _parse(answer(files=["firmware/main.c", "firmware/main.c"]))
+        _parse(answer(files=files))
 
 
 def test_more_files_than_the_bound_are_refused_and_the_bound_itself_is_taken() -> None:
@@ -628,6 +635,16 @@ def test_nan_and_infinity_are_named_in_the_refusal(token: str) -> None:
     caught = _raised(parse_whole_run, text.encode())
     assert isinstance(caught, TaskFormatError), repr(caught)
     assert "nan or inf" in str(caught), str(caught)
+
+
+def test_bytes_past_the_size_bound_are_refused_and_the_bound_itself_is_taken() -> None:
+    good = json.dumps(answer()).encode()
+    at_bound = good + b" " * (MAX_ANSWER_BYTES - len(good))
+    assert len(at_bound) == MAX_ANSWER_BYTES
+    assert isinstance(parse_whole_run(at_bound), WholeRun)
+    caught = _raised(parse_whole_run, at_bound + b" ")
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "larger" in str(caught)
 
 
 @pytest.mark.parametrize(
