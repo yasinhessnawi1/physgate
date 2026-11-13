@@ -117,15 +117,21 @@ def _measured(geometry: ModuleType, **changed: Any) -> dict[str, Any]:  # noqa: 
 
 def test_the_helper_finds_a_model_beside_its_own_folder_by_name_size_and_digest(env: Path) -> None:
     geometry = _helpers_in(env)
-    path, entry = _reference_file(geometry)("kit.step")
-    assert Path(path) == env / "reference" / "kit.step"
+    found: list[object] = []
+    refused = _raised(lambda: found.extend(_reference_file(geometry)("kit.step")))
+    assert refused is None, repr(refused)
+    path, entry = found
+    assert Path(str(path)) == env / "reference" / "kit.step"
     assert entry == _entry()
 
 
 def test_a_script_run_from_a_checkout_names_the_environment(env: Path, tmp_path: Path) -> None:
     geometry = _helpers_in(tmp_path / "checkout" / "toolenv")
-    path, entry = _reference_file(geometry)("kit.step", env)
-    assert Path(path) == env / "reference" / "kit.step"
+    found: list[object] = []
+    refused = _raised(lambda: found.extend(_reference_file(geometry)("kit.step", env)))
+    assert refused is None, repr(refused)
+    path, entry = found
+    assert Path(str(path)) == env / "reference" / "kit.step"
     assert entry == _entry()
 
 
