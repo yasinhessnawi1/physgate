@@ -43,7 +43,7 @@ from physgate.evaluation.observe.cost import load_price_sheet
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.manifest import read_version
 from physgate.evaluation.tiers.store import role_root, version_dir, withheld_root
-from physgate.evaluation.tiers.task import Task
+from physgate.evaluation.tiers.task import Task, parse_task
 from physgate.orchestrator.budget import REPAIR_BUDGET
 
 API_ERROR = {"is_error": True, "terminal_reason": "api_error", "api_error_status": 529}
@@ -508,6 +508,59 @@ def test_a_run_that_did_not_look_for_a_protected_canary_of_the_version_is_refuse
         tmp_path / "runs", store.tasks["visible"][0], store, held_out_canaries=canaries
     )
     _refused(store, run_set((run, 0)), tmp_path / "round", "canar")
+
+
+@pytest.mark.parametrize("source", ["version", "external"])
+def test_a_run_that_did_not_look_for_another_role_s_canary_is_refused(
+    tmp_path: Path, store: StandInStore, source: str
+) -> None:
+    """A round looks for the canaries of every role's root in the store, its own role's or not.
+
+    Another role's list lies in a protected tier of its own root, where the store's scan for
+    leftovers finds nothing out of place; the harness run looked for the version's canaries
+    alone. On an external set too, which has no version of its own. The same run looking for
+    that canary as well is taken, so the refusal is the canary's and no other.
+    """
+    another = "ab" * 16
+    listed = store.store / "firmware" / store.version / "held_out"
+    listed.mkdir(parents=True)
+    (listed / "canaries.json").write_text(json.dumps([another]))
+    how: dict[str, Any] = {"version": store.version}
+    task = store.tasks["visible"][0]
+    if source == "external":
+        from task_fixtures import external_task, write_task_dir
+
+        raw = external_task(brief="A published plant to stabilise.")
+        write_task_dir(tmp_path / "set" / raw["id"], raw, {})
+        how = {"external": tmp_path / "set"}
+        task = parse_task(json.dumps(raw).encode())
+    run = harness_run(tmp_path / "runs", task, store)
+    arm = StandInArm()
+    outcome = _try(lambda: _round_from(store, run_set((run, 0)), tmp_path / "round", arm, how))
+    assert isinstance(outcome, BaselineError), outcome
+    assert "did not look for every canary" in str(outcome) and arm.calls == []
+    looking = harness_run(
+        tmp_path / "looking", task, store, held_out_canaries=[*store.canaries, another]
+    )
+    taken = _try(lambda: _round_from(store, run_set((looking, 0)), tmp_path / "taken", arm, how))
+    assert isinstance(taken, BaselineRecord), taken
+
+
+def _round_from(
+    made: StandInStore, runs: RunSet, out: Path, arm: StandInArm, how: dict[str, Any]
+) -> BaselineRecord:
+    return run_baseline(
+        store=made.store,
+        role="control",
+        runs=runs,
+        out=out,
+        setup_for=setup_for,
+        score=_score,
+        prices=load_price_sheet(PRICES),
+        arm=arm,
+        sleep=_no_sleep,
+        **how,
+    )
 
 
 def _digest_of(root: str) -> str:

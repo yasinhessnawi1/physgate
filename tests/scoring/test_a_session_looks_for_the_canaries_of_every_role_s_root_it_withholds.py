@@ -70,9 +70,18 @@ def test_a_list_that_comes_under_another_role_s_root_while_an_author_runs_refuse
 def test_a_blind_check_not_looking_for_another_role_s_canary_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The list is there before the check; its own root's canaries are all it is given. The
-    # own root is not made here: the check's fixture cuts its tier there.
-    _listed_under_the_other_role(_plan(tmp_path).root, OTHER)
+    # The list is there before the check, put there once the fixture's own author has cut the
+    # tier; the check is given its own root's canaries alone.
+    import test_every_tier_under_a_protected_root_names_its_canaries as rows
+
+    cut = rows._held_tier
+
+    def cut_then_listed(path: Path, patch: pytest.MonkeyPatch) -> Any:  # noqa: ANN401
+        made = cut(path, patch)
+        _listed_under_the_other_role(_plan(path).root, OTHER)
+        return made
+
+    monkeypatch.setattr(rows, "_held_tier", cut_then_listed)
     session, out, refused = _check(tmp_path, monkeypatch)
     assert refused is not None and refused.get("refused_because") == "canaries_missing", out
     assert session.calls == [], "the check ran without looking for another role's canary"
