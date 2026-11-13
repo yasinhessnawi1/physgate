@@ -351,6 +351,13 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         '"os_layer_unavailable", "usage_limit"}',
         '"os_layer_unavailable"}',
     ),
+    (
+        "evaluation-blames-the-design-for-a-plan",
+        "12",
+        ASSEMBLE,
+        '"sandbox_unavailable", "usage_limit"}',
+        '"sandbox_unavailable"}',
+    ),
 )
 
 #: A failure's line in pytest's summary: the test's id (a parameter's id may hold spaces, inside
