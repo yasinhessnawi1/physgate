@@ -331,4 +331,3 @@ def test_a_loop_that_holds_no_travel_is_not_stable() -> None:
     # No distance gain: nothing holds the travel, and its mode at 1 is the loop's, not set aside.
     loop = _loop()
     assert loop.margins(_light_rotor(), _kit_in_si(1.0, distance=0.0)).stable is False
-

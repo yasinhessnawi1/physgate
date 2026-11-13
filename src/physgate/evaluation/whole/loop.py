@@ -14,6 +14,14 @@ reads it: an incremental structure integrates the measured rate into its own ang
 measured tilt. The command limit is not in the linear loop, nor are the code's integer
 truncations.
 
+**The leak-free angle's offset.** With no leak (``d`` = 1) the integrated angle keeps whatever
+offset from the tilt it starts with, and the travel settles where the distance term cancels
+it: ``θ̂ = c``, ``x = -c·angle/distance``, the body upright and still, the command 0. That is a
+fixed point for every ``c`` and at every gain, a mode at exactly 1 that neither grows nor
+decays, set by the integrator's start and not by the balance. The loop's stability is judged
+on its other modes; that one is set aside exactly, by a change of basis that holds it apart.
+With no distance gain nothing holds the travel, and no mode is set aside.
+
 **Margins.** With the controller's command multiplied by a gain ``κ`` before the plant, the
 closed loop is stable for ``κ`` in an interval about 1 when the design is stable at all. The
 upward and downward gain margins are that interval's ends, found by stepping out from 1 and
@@ -146,6 +154,21 @@ class System:
     cc: Matrix
     dc: Matrix
     period: float
+    neutral: Matrix | None = None
+
+
+def _neutral(loop: SiLoop, plant_size: int, size: int) -> Matrix | None:
+    """The leak-free angle's held offset as a closed-loop state, or ``None`` when it has none.
+
+    The closed loop's state is the plant's (``plant_size``, the tilt first and the travel
+    third), then the controller's ``[θ̂[k-1], u[k-1]]``.
+    """
+    if not loop.incremental or loop.decay != 1.0 or loop.distance == 0.0:
+        return None
+    mode = np.zeros((size, 1))
+    mode[2, 0] = -loop.angle / loop.distance
+    mode[plant_size, 0] = 1.0
+    return mode
 
 
 def closed(system: System, gain: float) -> Matrix:
@@ -157,8 +180,20 @@ def closed(system: System, gain: float) -> Matrix:
 
 
 def stable(system: System, gain: float) -> bool:
-    """Whether the closed loop at ``gain`` has every pole strictly inside the unit circle."""
-    radius = float(np.max(np.abs(np.linalg.eigvals(closed(system, gain)))))
+    """Whether the closed loop at ``gain`` has every pole strictly inside the unit circle.
+
+    A leak-free angle's held offset (:func:`_neutral`) is not one of them: in a basis whose
+    column for ``θ̂`` is that mode, the matrix's column there is the unit vector, and the
+    other poles are those of what remains.
+    """
+    matrix = closed(system, gain)
+    if system.neutral is not None:
+        at = system.ap.shape[0]
+        basis = np.eye(matrix.shape[0])
+        basis[:, at : at + 1] = system.neutral
+        held = np.linalg.solve(basis, matrix @ basis)
+        matrix = np.delete(np.delete(held, at, axis=0), at, axis=1)
+    radius = float(np.max(np.abs(np.linalg.eigvals(matrix))))
     return radius < 1.0 - STABILITY_EPSILON
 
 
@@ -256,7 +291,10 @@ def system(values: dict[str, float], loop: SiLoop) -> System:
     a, b = continuous(values)
     ap, bp, cp = discretise(a, b, loop.period, loop.sensor_delay + loop.compute_delay)
     ac, bc, cc, dc = controller(loop)
-    return System(ap=ap, bp=bp, cp=cp, ac=ac, bc=bc, cc=cc, dc=dc, period=loop.period)
+    neutral = _neutral(loop, ap.shape[0], ap.shape[0] + ac.shape[0])
+    return System(
+        ap=ap, bp=bp, cp=cp, ac=ac, bc=bc, cc=cc, dc=dc, period=loop.period, neutral=neutral
+    )
 
 
 @dataclass(frozen=True)
