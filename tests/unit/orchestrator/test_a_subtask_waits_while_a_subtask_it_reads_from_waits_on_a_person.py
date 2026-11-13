@@ -450,6 +450,17 @@ def test_replay_refuses_a_hold_or_a_release_the_record_does_not_owe(
 # --- a run before the hold, and a run that records only ---------------------------------------
 
 
+def before_the_hold(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch, *, budget: bool, mutual: bool = False
+) -> str:
+    """The first process as the loop ran before the hold existed: no hold, no mark on line one."""
+    with monkeypatch.context() as before:
+        before.setattr("physgate.orchestrator.replay.gated", lambda *_: None, raising=False)
+        before.setattr("physgate.orchestrator.replay.held_subtask", lambda _: None, raising=False)
+        before.setattr("physgate.orchestrator.record.PRODUCER_WAIT", None, raising=False)
+        return first_run(rig, monkeypatch, budget=budget, mutual=mutual)
+
+
 def test_a_run_that_records_only_dispatches_the_reader_as_before_with_no_hold_line(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -464,14 +475,11 @@ def test_a_run_that_records_only_dispatches_the_reader_as_before_with_no_hold_li
 def test_a_log_recorded_before_the_hold_replays_as_before_and_keeps_its_bytes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Written as the loop wrote it before the hold existed: fw dispatched while drive waited.
     rig = rigged(tmp_path)
-    with monkeypatch.context() as before:
-        before.setattr("physgate.orchestrator.replay.gated", lambda *_: None, raising=False)
-        before.setattr("physgate.orchestrator.replay.held_subtask", lambda _: None, raising=False)
-        ended = first_run(rig, monkeypatch, budget=True)
+    ended = before_the_hold(rig, monkeypatch, budget=True)
     raw = (rig.run_dir / "events.jsonl").read_bytes()
     rows = lines(rig)
+    assert "producer_wait" not in rows[0]
     assert [r.subtask_id for r in rig.dispatcher.requests] == [DRIVE] * 3 + [FW, BUDGET]
     assert of(rows, "dispatch_held") == of(rows, "dispatch_released") == []
     events = read_events(rig.run_dir / "events.jsonl")
@@ -484,3 +492,55 @@ def test_a_log_recorded_before_the_hold_replays_as_before_and_keeps_its_bytes(
     after = lines(rig)
     assert of(after, "dispatch_held") == of(after, "dispatch_released") == []
     assert json.dumps(after[: len(rows)]) == json.dumps(rows)
+
+
+# --- a run started under the hold says so once, and replays strictly ------------------------------
+
+
+def test_a_run_that_acts_marks_its_first_line_once_and_a_run_that_records_only_does_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    acting = rigged(tmp_path / "acts")
+    first_run(acting, monkeypatch, budget=False)
+    rows = lines(acting)
+    assert rows[0]["kind"] == "run_started"
+    assert rows[0].get("producer_wait") == "hold"
+    assert [r for r in rows[1:] if "producer_wait" in r] == []
+    recording = rigged(tmp_path / "records", acts=False)
+    first_run(recording, monkeypatch, budget=False)
+    assert "producer_wait" not in lines(recording)[0]
+
+
+def _marked(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{**rows[0], "producer_wait": "hold"}, *rows[1:]]
+
+
+def test_a_marked_run_whose_reader_was_dispatched_with_no_hold_does_not_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The same lines a loop before the hold wrote: fw dispatched while drive waited on a person.
+    rig = rigged(tmp_path)
+    before_the_hold(rig, monkeypatch, budget=True)
+    rows = lines(rig)
+    assert of(rows, "dispatch_held") == []
+    assert refusal(rows) is None
+    said = refusal(_marked(rows))
+    assert said is not None
+    assert "with no hold line" in said, said
+    # Cut just before fw's dispatch, the marked record replays: only the dispatch is refused.
+    assert refusal(_marked(rows[: dispatched_at(rows, FW)])) is None
+
+
+def test_a_marked_run_whose_mutual_reader_was_dispatched_with_no_release_line_does_not_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = rig_for(tmp_path, dispatcher=FakeDispatcher(trajectories=tmp_path / "run" / "sessions"))
+    rig.reviewer.verdicts[:] = SPENT
+    rig.config_overrides.update(ACTS)
+    before_the_hold(rig, monkeypatch, budget=False, mutual=True)
+    rows = lines(rig)
+    assert of(rows, "dispatch_released") == []
+    assert refusal(rows) is None
+    said = refusal(_marked(rows))
+    assert said is not None
+    assert "with no release line" in said, said
