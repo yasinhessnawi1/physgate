@@ -704,6 +704,12 @@ def test_a_new_bound_classed_compared_is_compared(
     from physgate.evaluation.per_role.arms import compare
 
     monkeypatch.setattr(compare, "RunConfig", _HeldCompared)
+    # The run's record read as one whose bounds hold the new field, at its default.
+    monkeypatch.setattr(
+        compare,
+        "load_run_config",
+        lambda path: _HeldCompared.model_validate_json(path.read_bytes()),
+    )
     monkeypatch.setattr(
         compare, "RUN_FIELDS", {**compare.RUN_FIELDS, "bounds.session_max_tools": "compared"}
     )

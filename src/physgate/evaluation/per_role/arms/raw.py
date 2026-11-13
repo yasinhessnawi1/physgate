@@ -12,8 +12,14 @@ every class counted (input, cache writes, cache reads, output). A watcher reads 
 session's stream as it is written, counts each message's final usage once as the run's own
 accounting does, and stops the session when the count passes the cap. Usage is known per
 message, so the session can pass the cap by at most the message in flight; the count it
-reached is recorded, never trimmed. Its turn and wall-clock bounds are a role session's,
-times the harness's repair budget, so neither bound binds before the token cap would.
+reached is recorded, never trimmed.
+
+**Its turn and wall-clock bounds** are a role session's, times the harness's repair budget: a
+fixed multiplier, recorded as the arm's one intended difference in its bounds and compared as
+such. It is an assumption, not a proof that neither bound binds before the cap: one harness run
+can give a role more sessions than the budget (attempts past it, infrastructure retries, several
+subtasks of the same role), so a long raw session can meet its turn or clock bound first. Such
+an end is the arm's own spending (``wall_clock``), recorded, never trimmed or re-run.
 
 What the session left is kept as sealed evidence: its stream, its answer, its end and a
 record of every pin the comparison with the harness arm is held to.
@@ -345,9 +351,26 @@ def require_stopped(watch: BudgetWatch) -> None:
         raise RawArmError(msg, end=watch.end or "", stop_error=watch.stop_error)
 
 
+#: The bounds the raw session runs at a role session's times the repair budget; every other
+#: bound it runs as the harness's role sessions do.
+MULTIPLIED_BOUNDS = ("session_max_turns", "session_wall_clock_s")
+
+
 def raw_bounds(bounds: RunBounds) -> tuple[int, float]:
     """The raw session's turn and wall-clock bounds: a role session's, times the repair budget."""
     return bounds.session_max_turns * REPAIR_BUDGET, bounds.session_wall_clock_s * REPAIR_BUDGET
+
+
+def raw_bound_values(bounds: RunBounds) -> dict[str, Any]:
+    """Every field of ``bounds`` as the raw session runs it, read from the bounds' own fields.
+
+    A bound added to the run's bounds is recorded here without a line written for it, so the
+    comparison sees it; only :data:`MULTIPLIED_BOUNDS` are multiplied, by name.
+    """
+    values: dict[str, Any] = bounds.model_dump(mode="json")
+    for name in MULTIPLIED_BOUNDS:
+        values[name] = values[name] * REPAIR_BUDGET
+    return values
 
 
 def _install(
@@ -661,19 +684,13 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
     The tool list is not here: the comparison reads it from the session's generated
     configuration, the list the session was actually given.
     """
-    max_turns, wall_clock = raw_bounds(setup.bounds)
     return {
         # No raw session is given an advisor; a field to give one records it here.
         "advisor": None,
         "auth": setup.credential.mode,
         # As the session ran them: the binary's retries as given, the turns and the wall
         # clock a role session's times the repair budget.
-        "bounds": {
-            "binary_max_retries": setup.bounds.binary_max_retries,
-            "infra_retry_delays_s": list(setup.bounds.infra_retry_delays_s),
-            "session_max_turns": max_turns,
-            "session_wall_clock_s": wall_clock,
-        },
+        "bounds": raw_bound_values(setup.bounds),
         "endpoint": endpoint_of(setup.base_url),
         "held_out": sorted(setup.held_out),
         # The canaries its stream was scanned for, which the harness run's must equal.

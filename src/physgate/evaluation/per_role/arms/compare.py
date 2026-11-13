@@ -20,19 +20,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal, get_args
 
 from pydantic import BaseModel
 
-from physgate.evaluation.per_role.arms.raw import canaries_sha256
+from physgate.evaluation.per_role.arms.raw import canaries_sha256, raw_bound_values
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.task import Task
 from physgate.hooks.settings import CONFIG_NAME
 from physgate.orchestrator.accounting import TokenAccount
-from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.dispatch import read_captured
 from physgate.orchestrator.events import (
+    Event,
     LeftoverRead,
     SessionEnded,
     SessionSpawned,
@@ -95,12 +96,16 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "queue_decisions": "harness",
     # Whether the plan is reviewed before anything is dispatched; the raw arm has no plan.
     "design_review": "harness",
-    # The binary's retries and the infrastructure retry delays must be equal: retries in
-    # the binary hide requests from the raw arm's cap. The turn and wall-clock bounds are
-    # compared at the harness's times its repair budget, so neither binds before the cap.
+    # The binary's retries must be equal: retries in the binary hide requests from the raw
+    # arm's cap. The turn and wall-clock bounds are compared at the harness's times its
+    # repair budget, the raw arm's intended difference (its own module says why, and that
+    # it is an assumption).
     "bounds": "compared",
     "bounds.binary_max_retries": "compared",
-    "bounds.infra_retry_delays_s": "compared",
+    # The delays between the loop's own retries of a session the infrastructure ended. The
+    # raw session makes no such retry: a trial the machine ended is run once more whole, by
+    # the runner, after the harness run's own recorded delay.
+    "bounds.infra_retry_delays_s": "not_compared",
     "bounds.session_max_turns": "compared",
     "bounds.session_wall_clock_s": "compared",
     # The hook layer's ceiling on what a session loads always; the raw agent loads nothing
@@ -113,8 +118,9 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     # numbers are no baseline's.
     "harness": "required",
     "harness.clean": "required",
-    # ``None`` exactly when the tree is clean.
-    "harness.uncommitted_sha256": "required",
+    # The record's own schema holds it ``None`` exactly when the checkout is clean, which
+    # ``harness.clean`` requires; it has no check of its own to add.
+    "harness.uncommitted_sha256": "not_compared",
     "harness.commit": "identity",
     "reportable": "required",
     # The git the harness's own commands ran; the raw arm runs none of them.
@@ -179,6 +185,20 @@ class ComparisonError(PerRoleError):
     """The two arms cannot be compared from what they recorded."""
 
 
+#: The steps a run stands at, replayed from its log, once the loop has nothing left to do:
+#: every session and every review it started has ended, and each stream was scanned as it did.
+ENDED_STEPS = frozenset({"done", "halted", "escalated"})
+
+
+def next_step(events: Sequence[Event]) -> str:
+    """What the loop would do next with the run, replayed from its log as the loop replays it.
+
+    Raises:
+        CorruptEventLogError: the log does not replay as a run.
+    """
+    return replay(events).next_step().kind
+
+
 def harness_total(run_dir: Path) -> int:
     """Every token the harness run spent, each message once: roles, reviewers, decomposition.
 
@@ -192,7 +212,10 @@ def harness_total(run_dir: Path) -> int:
     - the log is empty, or the run has not ended: its last step, replayed from the log as
       the loop takes it, is not done, halted or escalated. A run killed during a review,
       during its decomposition or between sessions spawned nothing left open, and is
-      refused here.
+      refused here;
+    - the run halted where a resume continues it (the infrastructure's retries ran out, the
+      credential was refused, the OS layer would not start, or a person resolved the
+      incident it halted on): a resume continues the same attempt and spends more.
 
     Raises:
         ComparisonError: the run's token account is not complete.
@@ -219,13 +242,17 @@ def harness_total(run_dir: Path) -> int:
         msg = "a session of the run was spawned and never ended; its tokens are uncounted"
         raise ComparisonError(msg, sessions=",".join(sorted(spawned - ended)))
     try:
-        step = replay(events).next_step().kind
+        state = replay(events)
     except CorruptEventLogError as exc:
         msg = "the run's event log does not replay as a run"
         raise ComparisonError(msg, log=str(log), reason=str(exc)) from None
-    if step not in ("done", "halted", "escalated"):
+    step = state.next_step().kind
+    if step not in ENDED_STEPS:
         msg = "the run has not ended; what it would still have spent is uncounted"
         raise ComparisonError(msg, log=str(log), next_step=step)
+    if step == "halted" and state.halt_resumable():
+        msg = "the run halted for a resume; what the resume would spend is uncounted"
+        raise ComparisonError(msg, log=str(log))
     return TokenAccount.from_events(events).total().total()
 
 
@@ -270,12 +297,8 @@ def _expected(config: RunConfig, role: str, task: Task) -> dict[str, Any]:
         "advisor": None,
         "answer": task.answer.model_dump(mode="json"),
         "auth": config.auth,
-        "bounds": {
-            "binary_max_retries": config.bounds.binary_max_retries,
-            "infra_retry_delays_s": list(config.bounds.infra_retry_delays_s),
-            "session_max_turns": config.bounds.session_max_turns * REPAIR_BUDGET,
-            "session_wall_clock_s": config.bounds.session_wall_clock_s * REPAIR_BUDGET,
-        },
+        # Every bound the run recorded, each as the raw session runs it.
+        "bounds": raw_bound_values(config.bounds),
         "brief_sha256": config.brief_sha256,
         "claude_version": config.claude_version,
         "effort": config.effort,
@@ -290,6 +313,21 @@ def _expected(config: RunConfig, role: str, task: Task) -> dict[str, Any]:
             None if config.role_python is None else config.role_python.model_dump(mode="json")
         ),
         "thinking_display": config.thinking_display,
+    }
+
+
+def _held(name: str, value: Any) -> Any:  # noqa: ANN401 - a pin as either arm recorded it
+    """A pin as it is held equal: without the nested fields its run field's decision leaves out.
+
+    A nested field classed otherwise than ``compared`` (the retry delays) is dropped from both
+    sides; one no decision names is kept, so it still shows as a difference.
+    """
+    if not isinstance(value, dict):
+        return value
+    return {
+        key: inner
+        for key, inner in value.items()
+        if RUN_FIELDS.get(f"{name}.{key}", "compared") == "compared"
     }
 
 
@@ -326,7 +364,7 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
     found += [
         f"{name}: the harness ran with {want!r}, the raw arm with {pins[name]!r}"
         for name, want in _expected(config, role, task).items()
-        if name in pins and pins[name] != want
+        if name in pins and _held(name, pins[name]) != _held(name, want)
     ]
     if not config.reportable:
         found.append("reportable: the harness run is not reportable; no baseline is held to it")
