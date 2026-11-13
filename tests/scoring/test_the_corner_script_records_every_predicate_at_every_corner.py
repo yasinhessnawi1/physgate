@@ -275,3 +275,56 @@ def test_the_command_reads_its_files_and_prints_the_report_as_json(
     assert script.main(["--plant", str(plant), "--answer", str(answer)]) == 0
     printed = json.loads(capsys.readouterr().out)
     assert printed == script.judge(plant.read_bytes(), script.KIT_ANSWER)
+
+
+#: A state feedback (the scoring rows' fixture gains) with the delays the kit's answer states.
+_FIXTURE_GAINS = (1.6643, 0.191, 0.2853, 1.3421)
+_SLOW, _FAST = 54.454272662223076, 81.68140899333461
+
+
+def _feedback_answer(scale: float) -> dict[str, Any]:
+    script = _script()
+    answer: dict[str, Any] = json.loads(json.dumps(script.KIT_ANSWER))
+    g = [scale * x for x in _FIXTURE_GAINS]
+    answer["controller"] = {
+        "structure": "state_feedback",
+        "period": {"value": 0.01, "unit": "s"},
+        "command_limit": {"value": 0.75, "unit": "1"},
+        "sensor_delay": {"value": 0.0048, "unit": "s"},
+        "compute_delay": {"value": 0.002, "unit": "s"},
+        "angle_gain": {"value": g[0], "unit": "1/rad"},
+        "rate_gain": {"value": g[1], "unit": "s/rad"},
+        "distance_gain": {"value": g[2], "unit": "1/m"},
+        "speed_gain": {"value": g[3], "unit": "s/m"},
+    }
+    return answer
+
+
+def test_a_point_unstable_at_any_corner_is_not_stable_at_every_corner() -> None:
+    # Half the gains: below the lower gain margin with the slow motor (the first corner),
+    # inside it with the fast one (the last).
+    script = _script()
+    assert hasattr(script, "region"), "the script judges no region"
+    plant = _plant({"motor_no_load_speed": (_SLOW, _FAST)})
+    answer = _feedback_answer(0.5)
+    ends = []
+    for speed in (_SLOW, _FAST):
+        doc = json.loads(plant)
+        doc["parameters"]["motor_no_load_speed"].update(value=speed, low=speed, high=speed)
+        rows = script.judge(json.dumps(doc).encode(), answer)["predicates"]
+        ends.append(next(r for r in rows if r["metric"] == "phase_margin")["nominal"] is not None)
+    assert ends == [False, True], "the fixture no longer separates the two corners"
+    point = script.region(plant, answer, {"rotor_inertia": [1e-8]})["points"][0]
+    assert point["every_corner"]["stable"] is False
+
+
+def test_a_point_short_of_the_downward_margin_at_a_corner_does_not_meet_at_every_corner() -> None:
+    # The fixture gains meet every bound at nominal; with the slow motor the downward gain
+    # margin alone is above 0.5.
+    script = _script()
+    assert hasattr(script, "region"), "the script judges no region"
+    plant = _plant({"motor_no_load_speed": (_SLOW, _FAST)})
+    point = script.region(plant, _feedback_answer(1.0), {"rotor_inertia": [1e-8]})["points"][0]
+    assert point["nominal"]["meets"] is True
+    assert point["every_corner"]["stable"] is True
+    assert point["every_corner"]["meets"] is False

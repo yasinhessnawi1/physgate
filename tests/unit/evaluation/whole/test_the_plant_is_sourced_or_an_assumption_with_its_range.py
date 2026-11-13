@@ -170,6 +170,7 @@ def test_a_frozen_plant_with_every_assumption_ranged_is_taken() -> None:
         (lambda d: d["parameters"]["kit_mass"].update(value="0.2"), "plant parameter file"),
         (lambda d: d["parameters"]["kit_mass"].update(source="   "), "names no source"),
         (lambda d: d["parameters"]["kit_mass"].pop("locator", None), "names no locator"),
+        (lambda d: d["parameters"]["kit_mass"].update(locator="  "), "names no locator"),
         (_frozen_assumption_at_a_point, "a point"),
     ],
     ids=[
@@ -185,6 +186,7 @@ def test_a_frozen_plant_with_every_assumption_ranged_is_taken() -> None:
         "string",
         "source_blank",
         "cited_without_locator",
+        "cited_with_blank_locator",
         "frozen_assumption_point",
     ],
 )
