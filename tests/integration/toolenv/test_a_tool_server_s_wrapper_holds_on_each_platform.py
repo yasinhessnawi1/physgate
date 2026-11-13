@@ -493,3 +493,69 @@ def test_a_server_sees_a_denied_file_s_metadata_never_its_content(tmp_path: Path
         assert found[place].get("refused") == "PermissionError", (place, found)
     # The root's own listing, names only.
     assert sorted(os.listdir("/")) == found["/"]["listing"], found
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" and not sys.platform.startswith("linux"),
+    reason="the wrappers are Seatbelt on macOS and bubblewrap on Linux",
+)
+def test_a_link_a_session_swaps_in_after_its_path_was_judged_is_not_followed_out(
+    tmp_path: Path,
+) -> None:
+    """The argument rule judges a path when the call is made; the server opens it later.
+
+    A session can replace the project directory it named by a link out of the worktree in
+    between (a command of its own running in the background). What the server then reads through
+    it is the wrapper's to refuse: outside every root it reads, the link leads nowhere inside.
+    """
+    base = tmp_path.resolve()
+    worktree = base / "worktree"
+    project = worktree / "firmware"
+    project.mkdir(parents=True)
+    (project / "platformio.ini").write_text("[env:a_star]\n")
+    elsewhere = base / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "platformio.ini").write_text("not the session's\n")
+    own = base / "own"
+    own.mkdir()
+    read_roots = (str(worktree), INSTALLATION)
+    if sys.platform == "darwin":
+        profile = base / "swap.sb"
+        profile.write_text(
+            seatbelt_profile(
+                read_denied=(),
+                server_dir=str(own),
+                devices=(),
+                command=PYTHON,
+                read_roots=read_roots,
+            )
+        )
+        wrapper = [SANDBOX_EXEC, "-f", str(profile)]
+        refused = "PermissionError"
+    else:
+        bwrap = shutil.which("bwrap")
+        assert bwrap is not None, "bubblewrap is not installed here"
+        wrapper = [bwrap, *bwrap_args(read_denied=(), server_dir=str(own), read_roots=read_roots)]
+        wrapper.append("--")
+        refused = "FileNotFoundError"
+    ini = str(project / "platformio.ini")
+
+    def read_inside() -> object:
+        done = subprocess.run(
+            [*wrapper, PYTHON, "-I", "-c", READ, ini],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert done.returncode == 0, done.stderr[-2000:]
+        return json.loads(done.stdout)[ini]
+
+    # The control: the project as it was judged is read inside.
+    assert read_inside() == "[env:a_star]\n"
+    # Swapped for a link out of the worktree after the judgement: unwrapped it is followed.
+    shutil.rmtree(project)
+    project.symlink_to(elsewhere)
+    with open(ini) as handle:
+        assert handle.read() == "not the session's\n"
+    assert read_inside() == refused
