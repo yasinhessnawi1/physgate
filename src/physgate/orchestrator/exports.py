@@ -21,6 +21,9 @@ from pathlib import PurePosixPath
 EXPORTS_DIR = "exports"
 #: What an export's name ends in, compared without regard to case.
 EXPORT_SUFFIXES: tuple[str, ...] = (".step", ".stl")
+#: Stand-ins until the bytes are checked: the rows that hold them run red on these.
+MAX_EXPORT_BYTES = 0
+MAX_FIELD_CHARS = 0
 
 
 def is_export(path: str) -> bool:
@@ -36,3 +39,9 @@ def is_export(path: str) -> bool:
         and pure.parent.name == EXPORTS_DIR
         and pure.name.casefold().endswith(EXPORT_SUFFIXES)
     )
+
+
+def summary(path: str, body: bytes) -> str | None:
+    """A stand-in: no bytes are summarised yet."""
+    del path, body
+    return None

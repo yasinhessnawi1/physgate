@@ -210,13 +210,18 @@ def first_long_line(diff: bytes) -> LongLine | None:
     return None
 
 
-def long_line(repo: Path | GitDir, base: str, commit: str) -> LongLine | None:
+def long_line(
+    repo: Path | GitDir,
+    base: str,
+    commit: str,
+    admitted: frozenset[tuple[str, str]] = frozenset(),
+) -> LongLine | None:
     """The first line of the diff a review of ``commit`` is issued that one part cannot hold.
 
     The diff is the one the packet issues (:func:`build_packet`), byte for byte, so an attempt
     this finds nothing in is never refused by the packet for a line of its diff.
     """
-    return first_long_line(_diff(repo, base, commit))
+    return first_long_line(_diff(repo, base, commit, admitted))
 
 
 SPEC_AS_ISSUED_NAME = "spec_as_issued.md"
@@ -793,7 +798,12 @@ def _export_line(repo: GitDir, change: _ExportChange) -> bytes:
     return f"exported file {change.path}: {what}".encode()
 
 
-def _diff(repo: Path | GitDir, base: str, commit: str) -> bytes:
+def _diff(
+    repo: Path | GitDir,
+    base: str,
+    commit: str,
+    admitted: frozenset[tuple[str, str]] = frozenset(),
+) -> bytes:
     """The change from ``base`` to ``commit``, every file as text, no driver or filter applied.
 
     The disputes directory is left out, as from the export. Each export
@@ -802,6 +812,7 @@ def _diff(repo: Path | GitDir, base: str, commit: str) -> bytes:
     its bytes are for tools, and a binary one would be a line no part can hold. A change with
     no export is git's diff, byte for byte.
     """
+    del admitted  # a stand-in: the rows that hold the admission run red
     where = _place(repo)
     changed = _export_changes(where, base, commit)
     shown = _git_bytes(
