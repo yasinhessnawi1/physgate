@@ -259,9 +259,13 @@ def test_each_server_is_named_by_its_wrapper_with_a_directory_of_its_own_made_em
             f'(allow process-exec (literal "/usr/bin/python3") (subpath "{root / "env" / "bin"}"))'
             in profile
         ), profile
+        # Every server reads the session's worktree, less what the session may not read there.
+        assert f'(subpath "{config.worktree}")' in profile, profile
     else:
         assert entry["command"] == BWRAP
         assert "--unshare-net" in entry["args"]
+        at = entry["args"].index(config.worktree)
+        assert entry["args"][at - 1 : at + 2] == ["--ro-bind", config.worktree, config.worktree]
     assert entry["args"][-3:] == ["/usr/bin/python3", "-I", "probe.py"]
     assert entry["command"] in wrappers(platform, BWRAP)
 
