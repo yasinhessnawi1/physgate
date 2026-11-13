@@ -126,5 +126,14 @@ def test_a_packet_of_an_attempt_with_no_record_holds_none_and_records_as_before(
 def test_a_parts_file_in_a_packet_of_an_attempt_with_no_record_is_refused(tmp_path: Path) -> None:
     packet, read, repo, base = _build(tmp_path, None)
     (read / "parts-01-of-01.md").write_text("x")
-    with pytest.raises(PacketError):
+    with pytest.raises(PacketError, match="parts record for an attempt that carries none"):
         check_parts(packet, repo=repo, base_commit=base)
+
+
+def test_a_packet_that_names_a_record_for_an_attempt_that_carries_none_is_refused(
+    tmp_path: Path,
+) -> None:
+    packet, _, repo, base = _build(tmp_path, None)
+    named = packet.model_copy(update={"parts_record_sha256": {"parts-01-of-01.md": "0" * 64}})
+    with pytest.raises(PacketError, match="parts record for an attempt that carries none"):
+        check_parts(named, repo=repo, base_commit=base)

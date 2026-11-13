@@ -85,3 +85,17 @@ def test_the_files_are_written_new_and_never_over_another_session_s(tmp_path: Pa
     ClaudeDispatcher._issue_parts_record(_request(_held()), tmp_path)  # noqa: SLF001
     with pytest.raises(FileExistsError):
         ClaudeDispatcher._issue_parts_record(_request(_held()), tmp_path)  # noqa: SLF001
+
+
+def test_a_file_that_reads_back_as_another_than_was_written_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = Path.read_bytes
+
+    def another(self: Path) -> bytes:
+        data = real(self)
+        return data + b"x" if self.parent == parts_record_dir(tmp_path) else data
+
+    monkeypatch.setattr(Path, "read_bytes", another)
+    with pytest.raises(InvocationError, match="not the one rendered"):
+        ClaudeDispatcher._issue_parts_record(_request(_held()), tmp_path)  # noqa: SLF001

@@ -352,6 +352,87 @@ def test_a_plan_with_no_part_is_released_by_a_line_that_names_none(tmp_path: Pat
     assert refusal(tmp_path, stray) != ""
 
 
+# --- each refusal of the replay is pinned by its own reason ---------------------------------------
+# A line that ends the log is held by the check that names it alone: no later line can refuse it.
+
+
+def _ending_at(log: list[dict[str, Any]], at: int, **fields: Any) -> list[dict[str, Any]]:  # noqa: ANN401
+    return [*log[:at], {**log[at], **fields}]
+
+
+def test_an_intent_for_a_revision_that_does_not_follow_the_journal_s_is_refused(
+    tmp_path: Path,
+) -> None:
+    log = _released_log(tmp_path)
+    at = _index(log, "parts_write_intended")
+    assert "does not follow" in refusal(tmp_path, _ending_at(log, at, expected_revision=9))
+
+
+def test_an_intent_whose_node_is_not_the_one_its_payload_names_is_refused(tmp_path: Path) -> None:
+    log = _released_log(tmp_path)
+    at = _index(log, "parts_write_intended", 1)
+    assert "not the derivation" in refusal(tmp_path, _ending_at(log, at, node_id="control.other"))
+
+
+def test_a_cross_node_intended_by_another_role_than_sizing_s_is_refused(tmp_path: Path) -> None:
+    from physgate.orchestrator.parts_write import parts_payload
+    from physgate.orchestrator.queue import PartsBody
+    from physgate.state.store import payload_digest
+
+    log = _released_log(tmp_path)
+    at = _index(log, "parts_write_intended", 1)
+    taken = log[_index(log, "decision_taken")]
+    payload = parts_payload(
+        COMPONENTS[0],
+        shared=True,
+        owner_role="control",
+        item_id=IDS[0],
+        body=PartsBody.model_validate(
+            {**log[at]["parts"], "texts": tuple(log[at]["parts"]["texts"])}
+        ),
+        operator=taken["resolved_by"],
+        decided_ts=taken["decided_ts"],
+    )
+    assert payload is not None
+    forged = _ending_at(log, at, actor_role="control", payload_sha256=payload_digest(payload))
+    assert "its cross node by sizing's role" in refusal(tmp_path, forged)
+
+
+def test_a_write_that_landed_at_another_revision_than_intended_is_refused_by_that_reason(
+    tmp_path: Path,
+) -> None:
+    log = _released_log(tmp_path)
+    at = _index(log, "parts_write_done")
+    assert "another revision" in refusal(tmp_path, _ending_at(log, at, revision=7))
+
+
+def test_a_write_that_landed_for_another_node_than_intended_is_refused(tmp_path: Path) -> None:
+    log = _released_log(tmp_path)
+    at = _index(log, "parts_write_done")
+    assert "was not intended" in refusal(tmp_path, _ending_at(log, at, node_id="control.imu"))
+
+
+def test_a_release_while_a_write_is_not_done_is_refused_by_that_reason(tmp_path: Path) -> None:
+    log = _released_log(tmp_path)
+    pending = _index(log, "parts_write_intended", 2)
+    cut = [*log[: pending + 1], log[_index(log, "parts_released")]]
+    assert "while a write is not done" in refusal(tmp_path, cut)
+
+
+def test_a_release_naming_fewer_components_or_another_choice_is_refused_by_its_reason(
+    tmp_path: Path,
+) -> None:
+    log = _released_log(tmp_path)
+    released = log[_index(log, "parts_released")]
+    short = released["components"][:2]
+    assert "every component" in refusal(tmp_path, _edited(log, "parts_released", components=short))
+    swapped = [{**c} for c in released["components"]]
+    swapped[0]["choice"] = "make"
+    assert "as it was not decided" in refusal(
+        tmp_path, _edited(log, "parts_released", components=swapped)
+    )
+
+
 # --- helpers ----------------------------------------------------------------------------------
 
 

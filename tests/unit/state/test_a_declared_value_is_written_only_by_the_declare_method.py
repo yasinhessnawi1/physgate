@@ -121,6 +121,15 @@ def test_a_decision_the_call_does_not_name_is_refused(store: Store) -> None:
     assert _lines(store) == 0
 
 
+def test_a_quantity_naming_a_decision_the_call_does_not_name_is_refused_beside_one_it_does(
+    store: Store,
+) -> None:
+    node = _node({"mass": _declared(), "stall_current": _declared(2.4, "A", item=OTHER_ITEM)})
+    result = _declare(store, node, (ITEM,))
+    assert (result.accepted, result.reason) == (False, REFUSED)
+    assert _lines(store) == 0
+
+
 def test_an_item_named_that_no_quantity_carries_is_refused(store: Store) -> None:
     result = _declare(store, _node({"mass": _declared()}), (ITEM, OTHER_ITEM))
     assert (result.accepted, result.reason) == (False, REFUSED)
