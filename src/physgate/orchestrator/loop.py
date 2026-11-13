@@ -225,7 +225,7 @@ from physgate.orchestrator.replay import (
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.reviewers.packet import fits_one_read, person_order_text
-from physgate.reviewers.scan import ScanHit, ScanUnreadableError
+from physgate.reviewers.scan import REFUSED_NAMES, REFUSED_WRITE, ScanHit, ScanUnreadableError
 from physgate.roles import dispatchable, owners_of, require_registered
 from physgate.series.reader import attempt_records
 from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
@@ -406,7 +406,16 @@ def _as_listed(scan: tuple[ScanHit, ...], item: QueueItem) -> tuple[ScanHit, ...
     """
     listed = item.consequence.scan_hits if item.consequence is not None else ()
     if listed and all(hit.attempt is None for hit in listed):
-        return tuple(hit.model_copy(update={"attempt": None}) for hit in scan)
+        # Written before, too, every refused call was named a write, whatever the call was.
+        return tuple(
+            hit.model_copy(
+                update={
+                    "attempt": None,
+                    "what": REFUSED_WRITE if hit.what in REFUSED_NAMES else hit.what,
+                }
+            )
+            for hit in scan
+        )
     return scan
 
 

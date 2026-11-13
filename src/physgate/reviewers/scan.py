@@ -21,8 +21,10 @@ What is looked for, each derived from the marker's documented meaning:
 - a hook bypass in a command (``--no-verify``) or a pytest plugin switched off
   (``-p no:``);
 - an assertion that the change comments out or removes;
-- a write the hook layer refused because the path is protected: an attempt to
-  change what judges the work, whatever the session's reason.
+- a call the hook layer refused because its path is protected: an attempt to
+  reach what judges the work, whatever the session's reason. It is named for what
+  the call was, from the call the stream shows: a read, a write, or a shell command
+  that names the path (which the scan cannot tell a reader from a writer by).
 """
 
 from __future__ import annotations
@@ -66,6 +68,24 @@ _COMPILED = tuple((re.compile(p, re.MULTILINE), why) for p, why in _MARKERS)
 _ASSERT = re.compile(r"\bassert\b")
 #: How the hook layer words a refusal of a protected path.
 _PROTECTED = re.compile(r"is protected:")
+#: What a refused call of a protected path is named, by the tool that made it.
+REFUSED_WRITE = "a write to a protected path, refused by the hook layer"
+REFUSED_READ = "a read of a protected path, refused by the hook layer"
+REFUSED_SHELL = "a shell command naming a protected path, refused by the hook layer"
+REFUSED_CALL = "a call naming a protected path, refused by the hook layer"
+_REFUSED_BY_TOOL = {
+    "Write": REFUSED_WRITE,
+    "Edit": REFUSED_WRITE,
+    "MultiEdit": REFUSED_WRITE,
+    "NotebookEdit": REFUSED_WRITE,
+    "Read": REFUSED_READ,
+    "Glob": REFUSED_READ,
+    "Grep": REFUSED_READ,
+    "LS": REFUSED_READ,
+    "Bash": REFUSED_SHELL,
+}
+#: Every name a refused call has. A scan before these names called each one a write.
+REFUSED_NAMES = frozenset({*_REFUSED_BY_TOOL.values(), REFUSED_CALL})
 
 
 class ScanUnreadableError(ValueError):
@@ -133,6 +153,8 @@ def scan(stream: str) -> tuple[ScanHit, ...]:
         ScanUnreadableError: a line or a record the scan cannot read.
     """
     hits: list[ScanHit] = []
+    #: Each call's tool, by its id, as the stream showed the call before its result.
+    calls: dict[str, str] = {}
     for number, line in enumerate(stream.splitlines(), start=1):
         if not line.strip():
             continue
@@ -154,16 +176,18 @@ def scan(stream: str) -> tuple[ScanHit, ...]:
                 msg = f"line {number}: a content block is not an object"
                 raise ScanUnreadableError(msg)
             if event.get("type") == "assistant" and block.get("type") == "tool_use":
+                calls[str(block.get("id"))] = str(block.get("name"))
                 hits += _call_hits(block, number)
             elif event.get("type") == "user" and block.get("type") == "tool_result":
                 text = block.get("content")
                 text = text if isinstance(text, str) else json.dumps(text)
                 if block.get("is_error") and _PROTECTED.search(normalise(text)):
+                    call = str(block.get("tool_use_id"))
                     hits.append(
                         ScanHit(
                             kind="disabled_checks",
-                            evidence=str(block.get("tool_use_id")),
-                            what="a write to a protected path, refused by the hook layer",
+                            evidence=call,
+                            what=_REFUSED_BY_TOOL.get(calls.get(call, ""), REFUSED_CALL),
                         )
                     )
     return tuple(hits)

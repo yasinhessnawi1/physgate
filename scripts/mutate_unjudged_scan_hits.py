@@ -12,7 +12,8 @@ pass.
 Rules: 1 the earlier unjudged attempts' hits go to the next review, which must answer them;
 2 a dismissed hit no longer holds an approve, a confirmed or unjudged one still does; 3 the item
 and the UI name each hit's attempt and the review that judged it; 4 what an approve never merges
-past is unchanged; 5 a run recorded before reads, replays and is decided as it was.
+past is unchanged; 5 a run recorded before reads, replays and is decided as it was; 6 a call
+the hook layer refused for a protected path is named for what the call was.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ ROWS = (
     "tests/unit/orchestrator/test_an_unreviewed_attempt_s_scan_hits_go_to_the_next_review.py",
     "tests/unit/orchestrator/test_a_run_recorded_before_judged_earlier_hits_replays_as_it_did.py",
     "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+    "tests/unit/orchestrator/test_a_refused_call_is_named_for_what_it_was.py",
 )
 UI_ROWS = ("src/screens/queue/consequence.test.tsx",)
 TIMEOUT_S = 1200
@@ -132,6 +134,15 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
     ("legacy-any-unmarked", "5", LOOP,
      "if listed and all(hit.attempt is None for hit in listed):",
      "if listed and any(hit.attempt is None for hit in listed):"),
+    # 6. A refused call is named for what it was.
+    ("refused-read-is-write", "6", SCAN, '"Read": REFUSED_READ,', '"Read": REFUSED_WRITE,'),
+    ("refused-shell-is-write", "6", SCAN, '"Bash": REFUSED_SHELL,', '"Bash": REFUSED_WRITE,'),
+    ("refused-tool-unread", "6", SCAN,
+     'calls[str(block.get("id"))] = str(block.get("name"))',
+     "pass"),
+    ("legacy-label-not-mapped", "6", LOOP,
+     '"what": REFUSED_WRITE if hit.what in REFUSED_NAMES else hit.what,',
+     '"what": hit.what,'),
 )  # fmt: skip
 
 UI_MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (

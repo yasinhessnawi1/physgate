@@ -164,7 +164,7 @@ def to_answer(packet: Packet | PlanPacket) -> tuple[ScanHit, ...]:
 
 #: What a reviewer is told about the marker scan: what it found, that it found none of its
 #: markers, or that none ran (a written account). None of them says a check was, or was
-#: not, switched off: a marker is not proof (a refused write to a protected path is one,
+#: not, switched off: a marker is not proof (a refused call of a protected path is one,
 #: and nothing was switched off), and finding none is not proof of absence.
 SCAN_FOUND_THESE = (
     "A search of the trajectory for the markers of a check switched off found these markers. "
