@@ -212,9 +212,10 @@ def test_a_relative_path_is_refused_where_the_server_decides_what_it_names(
         assert "relative" in reason, (spelling, reason)
 
 
-@pytest.mark.parametrize("spelling", ["", "firmware\x00", "\n"])
+@pytest.mark.parametrize("spelling", ["", "{fw}\x00", "{fw}\n", "{fw}/\x1b", "\n"])
 def test_a_path_that_names_nothing_usable_is_refused(config: SessionConfig, spelling: str) -> None:
-    assert _call(config, BUILD, {"projectDir": spelling}) != "allow"
+    given = spelling.replace("{fw}", _firmware(config))
+    assert "names no path" in _call(config, BUILD, {"projectDir": given})
 
 
 def test_a_path_is_judged_as_a_file_tool_s_read_or_write_of_it(config: SessionConfig) -> None:

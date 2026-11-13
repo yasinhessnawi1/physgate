@@ -37,6 +37,10 @@ from physgate.oslayer.probe import Absent, Present, judge_here
 pytestmark = [pytest.mark.integration]
 
 
+#: The probe stands in for a server of the register: a session is offered only those.
+STAND_IN = "mujoco"
+
+
 def _direct_interpreter() -> str:
     """This Python as a program that runs itself.
 
@@ -93,7 +97,7 @@ def _launch(root: Path, write: Path, secret: Path) -> ServerLaunch:
     probe.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(PROBE, probe)
     return ServerLaunch(
-        name="probe",
+        name=STAND_IN,
         command=_direct_interpreter(),
         # What it reads beyond the system: its interpreter's installation and its own script.
         read_roots=(os.path.realpath(sys.base_prefix), str(probe.parent)),
@@ -115,8 +119,8 @@ def _told(api: Any) -> dict[str, str]:  # noqa: ANN401 - the scripted endpoint's
     found: dict[str, str] = {}
     for request in api.requests:
         for name in request.offered_tools:
-            if name.startswith("mcp__probe__"):
-                reach, _, outcome = name.removeprefix("mcp__probe__").rpartition("_")
+            if name.startswith(f"mcp__{STAND_IN}__"):
+                reach, _, outcome = name.removeprefix(f"mcp__{STAND_IN}__").rpartition("_")
                 found[reach] = outcome
     return found
 
@@ -172,8 +176,8 @@ def test_inside_the_os_layer_a_server_reaches_its_own_directory_and_nothing_else
     record = json.loads((Path(str(report.trajectory)).parent / "process.json").read_text())
     argv = record["argv"]
     servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]
-    assert list(servers) == ["probe"]
-    assert servers["probe"]["command"] in ("/usr/bin/sandbox-exec",) or servers["probe"][
+    assert list(servers) == [STAND_IN]
+    assert servers[STAND_IN]["command"] in ("/usr/bin/sandbox-exec",) or servers[STAND_IN][
         "command"
     ].endswith("/bwrap"), servers
 

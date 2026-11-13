@@ -791,3 +791,11 @@ def test_a_search_path_outside_the_server_s_exec_roots_is_refused(root: Path, ou
     with pytest.raises(ContainmentError):
         _contain(root, "darwin", _builder(root, search_path=(outside,)))
     assert not (root / "temps" / OWN / "servers" / "builder").exists()
+
+
+def test_a_link_beneath_no_directory_the_server_is_given_is_refused(root: Path) -> None:
+    store = _store(root)
+    given = _builder(root, links={"other/platforms": str(store / "platforms")})
+    with pytest.raises(ContainmentError, match="beneath a directory"):
+        _contain(root, "darwin", given)
+    assert not (root / "temps" / OWN / "servers" / "builder").exists()

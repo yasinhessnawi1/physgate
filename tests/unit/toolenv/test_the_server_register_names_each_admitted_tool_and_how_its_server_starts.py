@@ -149,8 +149,10 @@ def _entry(**changes: Any) -> dict[str, Any]:  # noqa: ANN401
     ],
 )
 def test_an_entry_that_could_reach_past_its_server_is_refused(changes: dict[str, Any]) -> None:
+    # Read as the register file is, from JSON: the entry without the change is one.
+    ServerEntry.model_validate_json(json.dumps(_entry()))
     with pytest.raises(ValueError):  # noqa: PT011 - pydantic's, whichever rule refuses
-        ServerEntry.model_validate(_entry(**changes))
+        ServerEntry.model_validate_json(json.dumps(_entry(**changes)))
 
 
 def test_a_register_that_is_not_one_is_refused(tmp_path: Path) -> None:
