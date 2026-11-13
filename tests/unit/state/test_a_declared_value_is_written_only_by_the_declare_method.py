@@ -71,7 +71,9 @@ def _lines(store: Store) -> int:
 def test_the_method_is_not_on_the_frozen_interface() -> None:
     from physgate.state import protocol
 
-    assert "declare" not in {name for name in dir(protocol.DesignStateStore) if not name.startswith("_")}
+    assert "declare" not in {
+        name for name in dir(protocol.DesignStateStore) if not name.startswith("_")
+    }
 
 
 def test_a_declared_node_is_created_with_the_quantities_a_decision_gave(store: Store) -> None:
@@ -80,7 +82,7 @@ def test_a_declared_node_is_created_with_the_quantities_a_decision_gave(store: S
     assert result.revision == 1
     held = store.read_node("control.motor_left")
     assert held["quantities"]["mass"] == _declared()
-    assert store.head_revision == 1
+    assert store.head_revision() == 1
 
 
 def test_the_line_it_appends_is_an_ordinary_write_that_reopens_as_written(
@@ -171,7 +173,9 @@ def test_a_revision_that_changes_nothing_is_refused(store: Store) -> None:
 
 def test_a_declared_quantity_dropped_by_a_revision_is_refused(store: Store) -> None:
     _declare(store, _node({"mass": _declared()}))
-    result = _declare(store, _node({"stall_current": _declared(2.0, "A", OTHER_ITEM)}), (OTHER_ITEM,))
+    result = _declare(
+        store, _node({"stall_current": _declared(2.0, "A", OTHER_ITEM)}), (OTHER_ITEM,)
+    )
     assert (result.accepted, result.reason) == (False, REFUSED)
 
 

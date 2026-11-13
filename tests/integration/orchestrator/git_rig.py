@@ -297,6 +297,9 @@ class EmptyGraph:
     def follow(self, payload: dict[str, Any], role: str, joined: tuple[str, ...]) -> int:
         raise AssertionError("no proposal, so no interface is followed")
 
+    def declare(self, payload: dict[str, Any], item_ids: tuple[str, ...]) -> int:
+        raise AssertionError("no part is decided, so nothing is declared")
+
     def divergences(
         self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
     ) -> tuple[Divergence, ...]:

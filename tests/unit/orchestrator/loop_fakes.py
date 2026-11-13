@@ -404,6 +404,14 @@ class FakeGraph:
     def follow(self, payload: dict[str, Any], role: str, joined: tuple[str, ...]) -> int:
         raise AssertionError("no proposal, so no interface is followed")
 
+    #: The journal's head as the decomposition recorded it, and the nodes declared since.
+    head: int = 1
+    declared: list[dict[str, Any]] = field(default_factory=list)
+
+    def declare(self, payload: dict[str, Any], item_ids: tuple[str, ...]) -> int:
+        self.declared.append(payload)
+        return self.head + len(self.declared)
+
     def divergences(
         self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
     ) -> tuple[Divergence, ...]:

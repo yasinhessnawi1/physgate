@@ -258,15 +258,15 @@ def test_the_integration_call_is_held_as_a_dispatch_is(tmp_path: Path) -> None:
     assert HELD in refusal(tmp_path, [*log, {**skip, "subtasks": ["s1", "s2"]}])
 
 
-def test_a_dispatch_follows_the_last_part_s_decision(tmp_path: Path) -> None:
+def test_a_dispatch_follows_the_release_the_last_part_s_decision_owes(tmp_path: Path) -> None:
     log = _log(tmp_path)
     all_three = [*log, taken(log, 1), taken(log, 2, "have"), taken(log, 3, "make")]
-    assert refusal(tmp_path, [*all_three, dispatch(log)]) == ""
+    assert "before the parts are released" in refusal(tmp_path, [*all_three, dispatch(log)])
 
 
-def test_a_plan_with_no_component_is_dispatched_at_once(tmp_path: Path) -> None:
+def test_a_plan_with_no_component_is_dispatched_once_it_says_it_asked(tmp_path: Path) -> None:
     log = _log(tmp_path, components=())
-    assert refusal(tmp_path, [*log, dispatch(log)]) == ""
+    assert "before the parts are released" in refusal(tmp_path, [*log, dispatch(log)])
 
 
 @pytest.mark.parametrize(
