@@ -24,6 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
+from export_fixture import WRITER_STL_HEADER
 
 from physgate.orchestrator import exports, merge
 from physgate.orchestrator.merge import write_scope_violations
@@ -64,7 +65,7 @@ def _step(size: int | None = None, entities: int = 3) -> bytes:
 
 
 def _stl(triangles: int = 2) -> bytes:
-    body = b"part".ljust(80, b" ") + struct.pack("<I", triangles)
+    body = WRITER_STL_HEADER + struct.pack("<I", triangles)
     for n in range(triangles):
         body += struct.pack("<12fH", 0, 0, 1, 0, 0, n, 1, 0, n, 0, 1, n, 0)
     return body

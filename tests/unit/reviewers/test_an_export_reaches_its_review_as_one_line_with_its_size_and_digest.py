@@ -32,6 +32,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from export_fixture import WRITER_STL_HEADER
 from knowledge_fixture import write_fixture
 from packet_fixture import ISSUED, SPEC, artefact_of, make_attempt, stream
 from rubric_fixture import PLACEHOLDER
@@ -86,7 +87,7 @@ MARK = b"CARTESIAN_POINT"
 def _stl(corners: list[tuple[float, float, float]], *, count: int | None = None) -> bytes:
     """A binary STL file: an 80-byte header, the count, then 50 bytes a triangle."""
     triangles = [corners[i : i + 3] for i in range(0, len(corners), 3)]
-    body = b"physgate test part".ljust(80, b" ")
+    body = WRITER_STL_HEADER
     body += struct.pack("<I", len(triangles) if count is None else count)
     for triangle in triangles:
         body += struct.pack("<3f", 0.0, 0.0, 1.0)
@@ -158,7 +159,10 @@ def _admit(*sides: tuple[str, bytes]) -> frozenset[tuple[str, str]]:
 def _side(path: str, body: bytes) -> str:
     summary = exports.summary(path, body)
     assert summary is not None
-    return f"{len(body)} bytes, sha256 {_sha(body)}; {summary}"
+    read = getattr(exports, "free_text", None)
+    free = None if read is None else read(path, body)
+    told = "(no free text read)" if free is None else free.described()
+    return f"{len(body)} bytes, sha256 {_sha(body)}; {summary}; {told}"
 
 
 def _added(path: str, body: bytes) -> bytes:

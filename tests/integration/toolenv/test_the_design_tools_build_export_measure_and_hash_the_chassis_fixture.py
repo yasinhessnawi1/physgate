@@ -39,6 +39,7 @@ from design_fixtures import (
     quiet_environment,
 )
 
+from physgate.orchestrator import exports
 from physgate.toolenv.manifest import scan
 from physgate.toolenv.record import measure
 
@@ -317,6 +318,18 @@ def test_a_part_s_exports_are_in_its_exports_folder_named_by_size_and_digest(
     step = (run.module / "exports" / f"{name}.step").read_text(encoding="utf-8", errors="replace")
     assert step.startswith("ISO-10303-21;")
     assert "AUTOMOTIVE_DESIGN" in step[:2000]
+
+
+@pytest.mark.parametrize("name", PARTS)
+def test_a_part_s_exports_hold_no_free_text_and_are_shown_as_one_line(run: Run, name: str) -> None:
+    # The budget is set from these files (``export_writer``): the writer's own bytes only.
+    read = getattr(exports, "free_text", None)
+    assert read is not None, "no free text is read"
+    for suffix in ("step", "stl"):
+        path = f"modules/chassis/exports/{name}.{suffix}"
+        found = read(path, (run.module / "exports" / f"{name}.{suffix}").read_bytes())
+        assert found is not None, path
+        assert (found.total, found.summarised) == (0, True), (path, found)
 
 
 def test_a_step_file_carries_the_fixed_time_and_repeats_its_bytes(run: Run, again: Run) -> None:

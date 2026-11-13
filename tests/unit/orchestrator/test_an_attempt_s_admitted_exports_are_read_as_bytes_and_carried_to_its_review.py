@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evaluation"))
+from export_fixture import WRITER_STL_HEADER  # noqa: E402
 from observe_rig import Reviewer, fake_run, target_repo  # noqa: E402
 
 from physgate.orchestrator import merge  # noqa: E402
@@ -50,18 +51,18 @@ _ENV = {
 MODULE = "modules/chassis"
 EXPORTS = f"{MODULE}/exports"
 INVALID = getattr(merge, "EXPORT_INVALID", "(the reason for an invalid export is not written)")
-#: A triangle's two attribute bytes, little-endian: a carriage return, then a line feed.
-CR_LF = 0x0A0D
-#: One attribute holding a lone line feed.
-LF = 0x000A
+#: A coordinate whose four bytes, little-endian, begin with a carriage return and a line feed
+#: (about 1.0003). The writer's attribute bytes are zero, so the bytes are in a coordinate.
+CR_LF = struct.unpack("<f", b"\r\n\x80\x3f")[0]
+#: One whose bytes hold a lone line feed.
+LF = struct.unpack("<f", b"\n\x00\x80\x3f")[0]
 
 
-def _stl(triangles: int = 2, attributes: Mapping[int, int] | None = None) -> bytes:
-    body = b"part".ljust(80, b" ") + struct.pack("<I", triangles)
+def _stl(triangles: int = 2, corners: Mapping[int, float] | None = None) -> bytes:
+    body = WRITER_STL_HEADER + struct.pack("<I", triangles)
     for n in range(triangles):
-        corner = float(n % 3)
-        attribute = (attributes or {}).get(n, 0)
-        body += struct.pack("<12fH", 0, 0, 1, 0, 0, corner, 1, 0, corner, 0, 1, corner, attribute)
+        corner = (corners or {}).get(n, float(n % 3))
+        body += struct.pack("<12fH", 0, 0, 1, 0, 0, corner, 1, 0, corner, 0, 1, corner, 0)
     return body
 
 
@@ -82,8 +83,9 @@ def _step(newline: bytes = b"\n") -> bytes:
 
 
 def _padded_step(size: int) -> bytes:
+    """A valid STEP file of exactly ``size`` bytes, padded with line ends: no free text."""
     body = _step()
-    return body + b"/*" + b"x" * (size - len(body) - 5) + b"*/\n"
+    return body + b"\n" * (size - len(body))
 
 
 def _sha(body: bytes) -> str:
@@ -177,7 +179,7 @@ def test_a_binary_stl_one_byte_too_long_is_refused_even_where_the_extra_byte_is_
     tmp_path: Path,
 ) -> None:
     valid = _stl(3, {1: LF})
-    at = valid.index(struct.pack("<H", LF))
+    at = valid.index(struct.pack("<f", LF))
     # A carriage return before that line feed: one byte more than the count says.
     body = valid[:at] + b"\r" + valid[at:]
     assert len(body) == len(valid) + 1
