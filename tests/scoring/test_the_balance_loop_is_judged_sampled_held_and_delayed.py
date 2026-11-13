@@ -331,3 +331,28 @@ def test_a_loop_that_holds_no_travel_is_not_stable() -> None:
     # No distance gain: nothing holds the travel, and its mode at 1 is the loop's, not set aside.
     loop = _loop()
     assert loop.margins(_light_rotor(), _kit_in_si(1.0, distance=0.0)).stable is False
+
+
+def test_the_controller_reads_the_travel_the_motor_shaft_encoders_give() -> None:
+    # The encoders sit on the motor shafts, whose housings are fixed to the body: they count
+    # the wheel's turn relative to the body, so the travel read is x - r*theta and the speed
+    # v - r*theta_dot, never the ground's.
+    values = _values()
+    r = values["wheel_radius"]
+    system = _loop().system(values, _si(distance=1.0, speed=1.0))
+    read = system.cp[:, :4]
+    want = np.array(
+        [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [-r, 0.0, 1.0, 0.0], [0.0, -r, 0.0, 1.0]]
+    )
+    assert np.allclose(read, want, rtol=0.0, atol=1e-15), read
+
+
+def test_a_tilt_alone_moves_the_travel_the_controller_reads() -> None:
+    # Upright wheels held still, the body tilted forward by 0.1 rad: the encoders read the
+    # wheel as turned back by 0.1 rad relative to the body.
+    values = _values()
+    system = _loop().system(values, _si(distance=1.0))
+    state = np.zeros((system.ap.shape[0], 1))
+    state[0, 0] = 0.1
+    command = float((system.dc @ system.cp @ state)[0, 0])
+    assert command == pytest.approx(-0.1 * values["wheel_radius"], rel=1e-12)

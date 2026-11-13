@@ -76,8 +76,8 @@ PARAMETER_UNITS = {
     "gyro_output_data_rate": "Hz",
     "gyro_full_scale": "deg/s",
     "pwm_frequency": "Hz",
-    "pwm_full_scale": "1",
-    "encoder_counts_per_wheel_revolution": "1",
+    "pwm_full_scale": "count",
+    "encoder_counts_per_wheel_revolution": "count",
 }
 
 
@@ -343,8 +343,8 @@ _POSITIVE = [
     (("parameters", "gyro_output_data_rate"), "Hz"),
     (("parameters", "gyro_full_scale"), "deg/s"),
     (("parameters", "pwm_frequency"), "Hz"),
-    (("parameters", "pwm_full_scale"), "1"),
-    (("parameters", "encoder_counts_per_wheel_revolution"), "1"),
+    (("parameters", "pwm_full_scale"), "count"),
+    (("parameters", "encoder_counts_per_wheel_revolution"), "count"),
 ]
 
 
@@ -904,3 +904,13 @@ def test_a_native_value_too_large_for_a_float_is_a_refused_answer(field: str) ->
         parse_whole_run, json.dumps(_with(doc, ("controller", field), _m(10**400, unit))).encode()
     )
     assert isinstance(caught, TaskFormatError), repr(caught)
+
+
+@pytest.mark.parametrize("field", ["pwm_full_scale", "encoder_counts_per_wheel_revolution"])
+def test_the_counts_are_spelt_count_and_a_bare_one_is_refused(field: str) -> None:
+    doc = answer()
+    doc["parameters"][field] = _m(doc["parameters"][field]["value"], "count")
+    assert _taken(doc).parameters is not None
+    doc["parameters"][field] = _m(doc["parameters"][field]["value"], "1")
+    with pytest.raises(TaskFormatError, match=re.escape(repr("count"))):
+        _parse(doc)

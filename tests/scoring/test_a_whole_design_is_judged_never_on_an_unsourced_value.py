@@ -270,11 +270,15 @@ def test_the_same_coefficients_means_the_numbers_as_written(
 def test_controllers_in_different_structures_are_not_compared_through_a_conversion(
     tmp_path: Path,
 ) -> None:
+    # Criterion 19 asks for a relative difference of 0 in each coefficient; across two
+    # structures there is no coefficient to difference, so it is not judged either way.
     doc = _answer(_native(), analysed_controller=_feedback())
-    row = _rows(_judge(tmp_path, doc, STATIC_SPECS[-1:]))["same"]
-    assert row["verdict"] == "fail"
+    record = _judge(tmp_path, doc, STATIC_SPECS[-1:])
+    row = _rows(record)["same"]
+    assert row["verdict"] == "unscored"
     assert row["measured"] is None
     assert "different structures" in row["reason"]
+    assert record["outcome"] == "unscored"
 
 
 @pytest.mark.parametrize(("limit", "amps"), [(0.75, 1.35), (1.0, 1.8)])
@@ -478,3 +482,9 @@ def test_a_design_written_with_no_leak_is_judged_on_its_balance(tmp_path: Path) 
     for name in ("pm", "up", "down"):
         assert rows[name]["corners"]["unstable"] == 0, rows[name]
         assert rows[name]["measured"] is not None, rows[name]
+
+
+def test_the_counts_are_bounded_in_count() -> None:
+    metrics = _scenario_module().METRICS
+    assert metrics["pwm_full_scale"] == ("count", "static")
+    assert metrics["encoder_counts_per_wheel_revolution"] == ("count", "static")

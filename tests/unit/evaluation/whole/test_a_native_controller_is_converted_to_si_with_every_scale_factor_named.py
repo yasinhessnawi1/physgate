@@ -194,8 +194,11 @@ def test_the_update_time_scales_the_speed_gain_and_sets_the_period() -> None:
 _FACTORS = {
     "gyro_sensitivity": ("count*s/deg", "parameters.gyro_sensitivity"),
     "gyro_divisor": ("count*s/deg", "controller.gyro_divisor"),
-    "encoder_counts_per_wheel_revolution": ("1", "parameters.encoder_counts_per_wheel_revolution"),
-    "pwm_full_scale": ("1", "parameters.pwm_full_scale"),
+    "encoder_counts_per_wheel_revolution": (
+        "count",
+        "parameters.encoder_counts_per_wheel_revolution",
+    ),
+    "pwm_full_scale": ("count", "parameters.pwm_full_scale"),
     "update_time": ("ms", "controller.update_time"),
     "increment_divisor": ("1", "controller.response_divisor"),
     "wheel_radius": ("m", _RADIUS_SOURCE),
