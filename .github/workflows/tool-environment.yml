@@ -58,6 +58,18 @@ jobs:
           # own files name.
           key: tool-environment-${{ runner.os }}-${{ runner.arch }}-uv-0.12.17-${{ hashFiles('toolenv/**') }}
 
+      - name: Restore the display-library packages kept for these pins, where no environment was kept
+        # The CAD kernel's display libraries come from nine distribution packages, fetched by
+        # file name from the distribution's archive and held to the sha256 in pins.json. An
+        # archive can drop an older build, so the nine files are kept here, keyed on the pins:
+        # provisioning finds each in its cache and checks its digest as it does a fetched one.
+        id: packages
+        if: steps.kept.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/provision-downloads/system-libraries
+          key: display-library-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('toolenv/pins.json') }}
+
       - name: Build the tool environment, where none was kept
         # The only step in which the environment meets the network. The script holds each
         # download to a digest recorded before it was fetched (the interpreter, each
@@ -67,6 +79,15 @@ jobs:
         run: |
           uv run --frozen python toolenv/provision.py \
             --dest "$PG_ENVIRONMENT" --cache "$RUNNER_TEMP/provision-downloads"
+
+      - name: Keep the display-library packages for the next build on the same pins
+        # Only files whose digest provisioning checked are in that folder: a mismatch stops
+        # the build above before anything is kept.
+        if: steps.kept.outputs.cache-hit != 'true' && steps.packages.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/provision-downloads/system-libraries
+          key: ${{ steps.packages.outputs.cache-primary-key }}
 
       - name: Measure what was built, before anything uses it
         # The harness's own manifest: every file by mode, size and sha256. Written beside
@@ -262,6 +283,31 @@ jobs:
           passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
           ok = sys.argv[2] == "0" and rows["tests"] > 0 and passed == rows["tests"]
           sys.exit(0 if ok else 1)
+          PY
+
+      - name: A real session builds, exports and measures a chassis with the design tools, offline
+        # The CAD kernel and the helpers in a role session inside bubblewrap, with git and the
+        # network refused; with the layer off, the same probes reach. Counted as above: a skip
+        # here means the row ran nowhere on Linux.
+        if: success() || failure()
+        env:
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_TOOL_ENVIRONMENT: /home/runner/pg-env/env
+        run: |
+          status=0
+          "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync pytest -q -rs -m integration \
+            --junitxml="$RUNNER_TEMP/design-rows.xml" \
+            tests/integration/hooks/test_the_design_tools_work_offline_inside_the_os_layer.py \
+            || status=$?
+          python3 - "$RUNNER_TEMP/design-rows.xml" "$status" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suite = next(ET.parse(sys.argv[1]).getroot().iter("testsuite"))
+          rows = {name: int(suite.get(name, "0")) for name in ("tests", "failures", "errors", "skipped")}
+          print(f"rows: {rows}, pytest exit {sys.argv[2]}")
+          passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
+          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 2 and passed == 2 else 1)
           PY
 
       - name: The environment is unchanged by the sessions that used it
