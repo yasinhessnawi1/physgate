@@ -20,6 +20,8 @@ from pathlib import Path
 ROWS = (
     "tests/unit/orchestrator/test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset.py",
     "tests/unit/reviewers/test_a_review_that_met_the_usage_limit_names_it.py",
+    "tests/unit/orchestrator/test_a_builder_cut_by_the_usage_limit_goes_on_in_the_worktree_it_left.py",
+    "tests/unit/evaluation/per_role/test_a_trial_is_assembled_from_what_its_arm_left_and_unscored_only_by_the_machine.py",
 )
 TIMEOUT_S = 1200
 UL = "src/physgate/orchestrator/usage_limit.py"
@@ -28,6 +30,12 @@ EV = "src/physgate/orchestrator/events.py"
 WAIT = "src/physgate/orchestrator/waiting.py"
 CLI = "src/physgate/orchestrator/cli.py"
 REV = "src/physgate/reviewers/claude.py"
+DISPATCH = "src/physgate/orchestrator/dispatch.py"
+ASSEMBLE = "src/physgate/evaluation/per_role/assemble.py"
+#: The session's last words, as the reader takes them.
+LAST_WORDS = "if _NAMES_THE_LIMIT.search(said) is None and _last_error(events) != RATE_LIMIT:"
+#: The account's rate-limit states, as the reader collects them for the refusal.
+STATES = "states = [state for event in events if (state := _limit_state(event)) is not None]"
 
 #: (name, rule, file, old, new)
 MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
@@ -36,17 +44,17 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "event-any-state",
         "1",
         UL,
-        'info.get("status") == REJECTED',
-        'info.get("status") != REJECTED',
+        'if not states or states[-1].get("status") != REJECTED:',
+        "if not states:",
     ),
-    ("message-sign-dropped", "1", UL, 'event.get("error") == RATE_LIMIT', "False"),
     (
-        "text-sign-dropped",
+        "message-sign-dropped",
         "1",
         UL,
-        "if not signed and _NAMES_THE_LIMIT.search(said) is None:",
-        "if not signed:",
+        LAST_WORDS,
+        "if _NAMES_THE_LIMIT.search(said) is None:",
     ),
+    ("text-sign-dropped", "1", UL, LAST_WORDS, "if _last_error(events) != RATE_LIMIT:"),
     ("never-the-limit", "1", UL, 'if end.cause == "api_error" else None', "if False else None"),
     (
         "reset-text-dropped",
@@ -207,7 +215,7 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         '"limit_type": kind if isinstance(kind, str) and kind else None,',
         '"limit_type": kind if kind in ("five_hour", "seven_day") else None,',
     ),
-    ("first-refusal", "7", UL, "refusal = refusals[-1]", "refusal = refusals[0]"),
+    ("first-refusal", "7", UL, "refusal = states[-1]", "refusal = states[0]"),
     (
         "bool-epoch",
         "7",
@@ -286,6 +294,62 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         EV,
         '        if not self.account_windows:\n            data.pop("account_windows", None)',
         "        pass",
+    ),
+    # 9. The limit is what ended the session: the session's last words, the event only agreeing.
+    (
+        "event-alone-signs",
+        "9",
+        UL,
+        LAST_WORDS,
+        LAST_WORDS[:-1]
+        + ' and not any((_limit_state(e) or {}).get("status") == REJECTED for e in events):',
+    ),
+    (
+        "any-assistant-error",
+        "9",
+        UL,
+        LAST_WORDS,
+        "if _NAMES_THE_LIMIT.search(said) is None and RATE_LIMIT not in "
+        '[e.get("error") for e in events if e.get("type") == "assistant"]:',
+    ),
+    (
+        "stale-refusal",
+        "9",
+        UL,
+        STATES,
+        STATES[:-1] + ' and state.get("status") == REJECTED]',
+    ),
+    ("status-ignored", "9", UL, "if status is not None and status != LIMIT_STATUS:", "if False:"),
+    # 10. No time-zone database: the lookup's failure is no instant, never a crash.
+    (
+        "zone-failure-raised",
+        "10",
+        UL,
+        "except (ZoneInfoNotFoundError, ValueError):",
+        "except ValueError:",
+    ),
+    # 11. A builder cut mid-work: nothing committed, the worktree kept, and said so.
+    (
+        "limit-end-committed",
+        "11",
+        DISPATCH,
+        'if end.outcome == "completed"\n            else None',
+        'if end.outcome in ("completed", "infrastructure")\n            else None',
+    ),
+    (
+        "worktree-not-said",
+        "11",
+        LOOP,
+        'else "the attempt count does not move; its worktree is kept as it was"',
+        'else "the attempt is the same on resume"',
+    ),
+    # 12. Evaluation counts a halt on the limit as the machine's, not the design's.
+    (
+        "evaluation-blames-the-design",
+        "12",
+        ASSEMBLE,
+        '"os_layer_unavailable", "usage_limit"}',
+        '"os_layer_unavailable"}',
     ),
 )
 
