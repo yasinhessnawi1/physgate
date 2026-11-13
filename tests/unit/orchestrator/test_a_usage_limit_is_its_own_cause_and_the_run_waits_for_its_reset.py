@@ -220,6 +220,20 @@ def test_a_weekly_limit_is_recorded_as_one_with_its_instant_days_later() -> None
     ]
 
 
+def test_of_two_refusals_the_last_is_the_limit_the_session_ended_on() -> None:
+    result = _result(WEEKLY_LIMIT, status=429)
+    stream = _stream(
+        INIT,
+        _rate_limit("rejected"),
+        _rate_limit("rejected", kind="seven_day", resets_at=WEEK_EPOCH, seven_day=1),
+        _said(WEEKLY_LIMIT, "rate_limit"),
+        json.dumps(result),
+    )
+    limit = usage_limit_of(stream, result)
+    assert limit is not None
+    assert (limit.limit_type, limit.resets_at) == ("seven_day", WEEK_STAMP)
+
+
 def test_a_kind_of_limit_not_known_here_is_recorded_as_given_and_is_the_limit_all_the_same() -> (
     None
 ):
