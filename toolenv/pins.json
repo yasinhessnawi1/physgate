@@ -43,5 +43,8 @@
       {"package": "libbsd0", "version": "0.12.1-1build1.1", "file": "libbsd0_0.12.1-1build1.1_amd64.deb", "sha256": "f3857b0863ac5cfd4263e9bf6cfb1d4be88d5321e4070d5bc2b62b0949e6c86f", "provides": "libbsd.so.0"},
       {"package": "libmd0", "version": "1.1.0-2build1.1", "file": "libmd0_1.1.0-2build1.1_amd64.deb", "sha256": "e5ba01d3c41f256aaf57ec59aa0554857162e3e7f97cdfbff1ed2c0e8d720ee7", "provides": "libmd.so.0"}
     ]
-  }
+  },
+  "reference_models": [
+    {"file": "balboa-balancing-robot-kit.step", "url": "https://www.pololu.com/file/0J1309/balboa-balancing-robot-kit.step", "sha256": "9208f9d329b3955eb317685ea1291f30b9ce10dbd82388ea1d5f1bad9b6726e1", "describes": "Pololu's published 3D model of the assembled Balboa 32U4 balancing robot kit, 23,531,720 bytes; measured, never shipped"}
+  ]
 }

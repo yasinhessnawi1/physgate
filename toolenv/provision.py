@@ -22,6 +22,7 @@ paths. The result is one directory:
     servers/            this repository's own tool servers
     helpers/            this repository's own helpers for the design libraries
     system-libraries/   on Linux, the display libraries the CAD kernel links, unpacked
+    reference/          published CAD models a design is measured against, by their pinned digest
     provisioned.json    what was built, and what the self-check measured
 
 It ends by checking itself offline (the libraries import at their pins and compute, a firmware
@@ -38,6 +39,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import stat
 import subprocess
@@ -355,6 +357,92 @@ def _system_libraries(
         unpack_tree(_package_tree(kept, work), dest / "system-libraries")
     place_beside_kernel(dest, packages, str(libraries["placed_beside"]))
     return packages
+
+
+#: The environment's folder of published models, read-only to a session like every other file.
+REFERENCE = "reference"
+#: The fields of a reference model's pin, exactly these.
+REFERENCE_FIELDS = frozenset({"file", "url", "sha256", "describes"})
+_REFERENCE_FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def reference_models(pins: Mapping[str, object]) -> list[dict[str, str]]:
+    """The published models ``pins`` names to be fetched; none where it names none.
+
+    Each is a plain file name, the ``https`` address that ends in that name, the sha256 its
+    bytes must have, and what it describes, recorded before anything is fetched.
+
+    Raises:
+        ProvisionError: the models are not a list of such pins, a pin lacks a field or has
+            another, or two pins name one file.
+    """
+    models = pins.get("reference_models")
+    if models is None:
+        return []
+    if not isinstance(models, list):
+        raise ProvisionError("pins.json's reference_models is a list of pins")
+    found: list[dict[str, str]] = []
+    for model in models:
+        if not isinstance(model, dict) or set(model) != REFERENCE_FIELDS:
+            fields = sorted(REFERENCE_FIELDS)
+            raise ProvisionError(f"a reference model's pin names exactly {fields}")
+        pin = {field: model[field] for field in sorted(REFERENCE_FIELDS)}
+        if not all(isinstance(value, str) for value in pin.values()):
+            raise ProvisionError("a reference model's pin holds text only")
+        name = pin["file"]
+        if not _REFERENCE_FILE.fullmatch(name):
+            raise ProvisionError(f"{name!r}: a reference model's pin names a file, never a path")
+        if not (pin["url"].startswith("https://") and pin["url"].endswith(f"/{name}")):
+            raise ProvisionError(f"{name}: a reference model is fetched over https by its own name")
+        if not _SHA256.fullmatch(pin["sha256"]):
+            raise ProvisionError(f"{name}: a reference model's pin holds its sha256 in hex")
+        if not pin["describes"].strip():
+            raise ProvisionError(f"{name}: a reference model's pin says what it describes")
+        if name in {other["file"] for other in found}:
+            raise ProvisionError(f"{name}: two reference models are pinned under one name")
+        found.append(pin)
+    return found
+
+
+def _fetch_reference(model: Mapping[str, str], into: Path, work: Path) -> Path:
+    """Fetch one pinned model, or say which file, from where, and with which digest."""
+    try:
+        return fetch(model["url"], into, work)
+    except (ProvisionError, subprocess.TimeoutExpired) as exc:
+        raise ProvisionError(
+            f"the reference model {model['file']} (sha256 {model['sha256']}) could not be"
+            f" fetched from {model['url']}; placing that file in the cache's {REFERENCE}"
+            f" folder lets provisioning go on:\n{exc}"
+        ) from None
+
+
+def _reference_models(
+    dest: Path, pins: Mapping[str, object], cache: Path, work: Path
+) -> list[dict[str, str]]:
+    """Fetch each pinned model once, hold it to its pin, and copy it into ``dest/reference``.
+
+    A download whose bytes differ is refused before it is kept, and a kept file is held to the
+    pin again before it is copied; either refusal names the file, the pinned digest and the
+    one found (:func:`require_digest`).
+    """
+    models = reference_models(pins)
+    if not models:
+        return []
+    (dest / REFERENCE).mkdir()
+    for model in models:
+        kept = cache / REFERENCE / model["file"]
+        if not kept.exists():
+            downloads = Path(tempfile.mkdtemp(prefix="reference-", dir=work))
+            fetched = _fetch_reference(model, downloads / "file", work)
+            require_digest(fetched, model["sha256"])
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(fetched, kept)
+        require_digest(kept, model["sha256"])
+        placed = dest / REFERENCE / model["file"]
+        shutil.copyfile(kept, placed)
+        require_digest(placed, model["sha256"])
+    return models
 
 
 def _helpers(dest: Path) -> list[str]:
@@ -778,6 +866,7 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
         servers = _own_servers(dest)
         helpers = _helpers(dest)
         system = _system_libraries(dest, pins, cache, work)
+        reference = _reference_models(dest, pins, cache, work)
         session_file(dest)
         require_one_name_each(dest)
         require_links_inside(dest)
@@ -792,6 +881,7 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
             "own_servers": servers,
             "helpers": helpers,
             "system_libraries": system,
+            "reference_models": reference,
             "licences": DESIGN_LICENCES,
             "locks_sha256": {
                 name: sha256_of(HERE / name)
