@@ -84,7 +84,12 @@ def _outbox(config: SessionConfig) -> str:
 
 
 def _probe(root: Path) -> ServerLaunch:
-    return ServerLaunch(name="probe", command="/usr/bin/python3", args=("-I", "probe.py"))
+    return ServerLaunch(
+        name="probe",
+        command="/usr/bin/python3",
+        args=("-I", "probe.py"),
+        exec_roots=(str(root / "env" / "bin"),),
+    )
 
 
 @pytest.mark.parametrize("platform", PLATFORMS)
@@ -249,7 +254,13 @@ def test_each_server_is_named_by_its_wrapper_with_a_directory_of_its_own_made_em
     if platform == "darwin":
         assert entry["command"] == SANDBOX_EXEC
         assert entry["args"][:2] == ["-f", str(profiles / "probe.sb")]
-        assert (profiles / "probe.sb").read_text().startswith("(version 1)")
+        profile = (profiles / "probe.sb").read_text()
+        assert profile.startswith("(version 1)")
+        # The server's own command and its named roots, and nothing else, are what it runs.
+        assert (
+            f'(allow process-exec (literal "/usr/bin/python3") (subpath "{root / "env" / "bin"}"))'
+            in profile
+        ), profile
     else:
         assert entry["command"] == BWRAP
         assert "--unshare-net" in entry["args"]
@@ -418,5 +429,7 @@ def test_a_denied_place_absent_at_launch_is_left_out_of_its_parent_s_listing(roo
         assert f"--ro-bind {kept} {kept}" in text, kept
         assert f"--remount-ro {parent}" in text, parent
     assert str(root / "absent") not in text
+    # A denied place the rebuilt parent holds is left out of its listing, not bound.
+    assert f"--ro-bind {root / 'temps'} " not in text, text
     assert str(present / "missing") not in text
     assert "--remount-ro /" in text
