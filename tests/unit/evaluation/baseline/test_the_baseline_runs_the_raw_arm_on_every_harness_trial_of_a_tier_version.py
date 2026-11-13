@@ -347,3 +347,37 @@ def test_a_round_s_record_is_counts_and_digests_only(tmp_path: Path, store: Stan
     assert not any(canary in text for canary in store.canaries)
     assert store.tasks["held_out"][0].brief not in text
     assert set(json.loads(text)["pins"]) == set(json.loads(text)["pins"]) - {"answer"}
+
+
+def test_a_record_already_there_is_never_written_over(tmp_path: Path) -> None:
+    from physgate.evaluation.baseline.record import BaselineRecordError, write_new
+
+    path = tmp_path / "evaluation" / "tiers.json"
+    write_new(path, b"first\n")
+    with pytest.raises(BaselineRecordError, match="written once and kept"):
+        write_new(path, b"second\n")
+    assert path.read_bytes() == b"first\n"
+
+
+def test_a_version_two_of_whose_tasks_share_a_brief_is_refused_before_any_session(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """A run's task is found by its brief, so two tasks with one brief leave it unknown."""
+    directory = version_dir(store.store, "control", store.version)
+    one, two = sorted((directory / "visible").glob("*/task.json"))[:2]
+    first = json.loads(one.read_text())
+    second = json.loads(two.read_text())
+    second["brief"] = first["brief"]
+    two.write_text(json.dumps(second))
+    # The manifest names the old bytes; the version's own check is set aside here, so the
+    # row reaches the brief rule behind it.
+    from physgate.evaluation.baseline import runner
+
+    run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
+    arm = StandInArm()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(runner, "read_version", lambda _d: None)
+        patch.setattr(runner, "leftover_refusal", lambda _s: None)
+        with pytest.raises(BaselineError, match="share a brief"):
+            _round(store, run_set((run, 0)), tmp_path / "round", arm)
+    assert arm.calls == []

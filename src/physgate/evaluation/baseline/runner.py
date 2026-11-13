@@ -7,9 +7,9 @@ as the one task of the version, in any of its three tiers, with that brief. So t
 which a person writes and keeps anywhere, holds no held-out or validation id.
 
 **Everything is refused before any session starts** (:func:`plan`): a store a split or a
-session's work has not left clean; a version that is not what its manifest says; an entry
-whose run no task of the version was given, whose task is of another role, that is listed
-twice, or whose run's token account cannot give a cap (:func:`.arms.compare.harness_total`);
+session's work has not left clean; a version that is not what its manifest says, or two of
+whose tasks share a brief; an entry whose run no task of the version was given, that is
+listed twice, or whose run's token account cannot give a cap (:func:`.arms.compare.harness_total`);
 and, unless the round is a development one, a harness run that is not reportable or not from
 a clean checkout.
 
@@ -222,9 +222,6 @@ def plan(
         raise BaselineError(refusal[1], refused_because=refusal[0])
     directory = version_dir(store, role, version)
     manifest = read_version(directory)
-    if manifest.role != role:
-        msg = "the version is of another role"
-        raise BaselineError(msg, role=role)
     tasks = _tasks(directory)
     planned: list[Planned] = []
     seen: set[tuple[str, int]] = set()
@@ -242,9 +239,6 @@ def plan(
             msg = "the harness run was given no task of this version"
             raise BaselineError(msg, **where)
         tier, task = found
-        if task.role != role:
-            msg = "the harness run's task is of another role"
-            raise BaselineError(msg, **where)
         if not development and not (config.reportable and config.harness.clean):
             msg = (
                 "the harness run is not reportable or not from a clean checkout; no baseline "
