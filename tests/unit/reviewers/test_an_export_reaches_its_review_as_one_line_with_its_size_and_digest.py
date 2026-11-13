@@ -581,15 +581,19 @@ def test_the_issued_packet_shows_the_exports_the_attempt_carries_as_their_lines(
     library = tmp_path / "harness"
     write_fixture(library, ("cross", "control"))
     carried = ({"path": path, "sha256": _sha(STL)},)
-    built = packet.build_packet(
-        tmp_path / "reviews" / "r0123456789ab",
-        artefact_of(attempt, attempt_commit=commit, exports=carried),
-        repo=attempt.worktree,
-        base_commit=attempt.spec_commit,
-        rubric=Rubric(role="control", text=PLACEHOLDER, sha256=_sha(PLACEHOLDER.encode())),
-        library=library,
-        spec=IssuedSpec(commit=attempt.spec_commit, path=SPEC, sha256=_sha(ISSUED.encode())),
-    )
+    try:
+        built = packet.build_packet(
+            tmp_path / "reviews" / "r0123456789ab",
+            artefact_of(attempt, attempt_commit=commit, exports=carried),
+            repo=attempt.worktree,
+            base_commit=attempt.spec_commit,
+            rubric=Rubric(role="control", text=PLACEHOLDER, sha256=_sha(PLACEHOLDER.encode())),
+            library=library,
+            spec=IssuedSpec(commit=attempt.spec_commit, path=SPEC, sha256=_sha(ISSUED.encode())),
+        )
+    except ReviewError as exc:
+        # The binary file shown whole is a line no part holds: the packet is never issued.
+        raise AssertionError(f"the packet was not issued: {exc}") from None
     read = Path(built.read_root)
     issued = b"".join((read / part.name).read_bytes() for part in built.diff_parts)
     assert _header() in issued and _added(path, STL) in issued

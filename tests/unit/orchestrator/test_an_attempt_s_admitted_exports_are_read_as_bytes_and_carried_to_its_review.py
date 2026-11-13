@@ -232,6 +232,7 @@ def test_nothing_is_admitted_that_is_no_valid_export_of_this_module_s_folder(
         f"{MODULE}/plate.step": _step(),
         f"{EXPORTS}/sub/plate.step": _step(),
         f"{EXPORTS}/exports/plate.step": _step(),
+        f"{EXPORTS}/plate\t2.step": _step(),
         f"{EXPORTS}/notes.txt": _step(),
         "modules/other/exports/plate.step": _step(),
         "exports/plate.step": _step(),
