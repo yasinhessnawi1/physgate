@@ -8,12 +8,15 @@ all) is itself a problem, never a pass. What is checked:
 - **the root:** the run names it, as its real absolute path, and it is a real directory;
 - **the tier:** it is the bytes the run recorded, its digest recomputed now from what is on
   disk with no link followed (a link anywhere in it refuses the run), never taken from the
-  tier's own digest file; it holds only task directories, each named as its task, and its
-  digest file, which must agree too; every task loads whole (every field, unit,
-  reference and the tier marker, unknown fields refused), is marked held out, and carries
-  a canary; the canaries are exactly the run's, each carried once;
+  tier's own digest file; it holds only task directories, each named as its task, its
+  digest file, which must agree too, and its canary list, which must name exactly the
+  canaries its tasks carry; every task loads whole (every field, unit, reference and the
+  tier marker, unknown fields refused), is marked with the tier the run records the root
+  as (held out, or validation, which is protected exactly as held out is), and carries a
+  canary; the canaries are exactly the run's, each carried once;
 - **the visible tier:** it is apart from the held-out tier, neither inside it nor around it,
-  and no task id is both visible and held out, however it is spelt;
+  and no task id is both visible and held out, however it is spelt (case, compatibility,
+  separators: :func:`.task.fold_id`); nor are two of the held-out tier's tasks one id so spelt;
 - **the places:** no place a session works in or reads is the root, lies under it or
   holds it, and none holds a link that reaches it; each is judged by the hooks' own
   matcher (:func:`physgate.hooks.paths.reaches`: every spelling, case-folded, and the
@@ -30,6 +33,9 @@ import os
 import stat
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Literal
+
+from pydantic import TypeAdapter, ValidationError
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.authoring import (
@@ -38,12 +44,18 @@ from physgate.evaluation.tiers.authoring import (
     AuthoringError,
     _open_chain,
 )
-from physgate.evaluation.tiers.task import load_task, task_from_files
+from physgate.evaluation.tiers.task import Canary, fold_id, load_task, task_from_files
 from physgate.hooks.paths import reaches
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 from physgate.oslayer.policy import sandbox_policy
 
 PROFILES = ("role", "reviewer", "baseline")
+#: What a protected root holds, as the run records it: the held-out tier or the validation
+#: tier, each read by no session.
+Protected = Literal["held_out", "validation"]
+_SPOKEN = {"held_out": "held out", "validation": "validation"}
+#: What a tier's canary list holds: canaries, and nothing else.
+_LISTED: TypeAdapter[list[str]] = TypeAdapter(list[Canary])
 
 
 def _relation(place: Path, root: Path) -> str | None:
@@ -158,9 +170,9 @@ def _root_problems(root: Path, run_held_out: tuple[str, ...]) -> list[str]:
 
 
 def _tier_problems(
-    root: Path, run_canaries: tuple[str, ...], recorded: str | None
+    root: Path, run_canaries: tuple[str, ...], recorded: str | None, label: Protected = "held_out"
 ) -> tuple[list[str], set[str]]:
-    """Every problem with the tier's contents, and its task ids, case-folded.
+    """Every problem with the tier's contents, and its task ids, folded (:func:`.task.fold_id`).
 
     The tier is read once, through descriptors (:func:`snapshot`), and everything below is
     judged on those bytes: its digest, recomputed and held to the digest the run recorded,
@@ -183,7 +195,7 @@ def _tier_problems(
     for path, data in files.items():
         top, _, rest = path.partition("/")
         if not rest:
-            if top != SUMS_NAME:
+            if top not in (SUMS_NAME, CANARIES_NAME):
                 problems.append(f"the tier holds {top!r}, which is not a task")
             continue
         tasks.setdefault(top, {})[rest] = data
@@ -197,18 +209,37 @@ def _tier_problems(
             continue
         if name != task.id:
             problems.append(f"the directory {name!r} is not named as its task {task.id!r}")
-        if task.tier != "held_out" or task.canary is None:
-            problems.append(f"the task {task.id!r} is not marked held out with its canary")
+        if task.tier != label or task.canary is None:
+            problems.append(f"the task {task.id!r} is not marked {_SPOKEN[label]} with its canary")
         else:
             carried.append(task.canary)
-        ids.add(task.id.casefold())
+        if fold_id(task.id) in ids:
+            problems.append(f"two tasks of the tier are one id, however spelt: {task.id!r}")
+        ids.add(fold_id(task.id))
     for canary in sorted(set(carried) - set(run_canaries)):
         problems.append(f"a held-out task carries a canary the run does not name ({canary[:4]}…)")
     for canary in sorted(set(run_canaries) - set(carried)):
         problems.append(f"no held-out task carries the run's canary {canary[:4]}…")
     if len(carried) != len(set(carried)):
         problems.append("two held-out tasks carry the same canary")
+    if CANARIES_NAME in files:
+        problems += _list_problems(files[CANARIES_NAME], carried)
     return problems, ids
+
+
+def _list_problems(listed: bytes, carried: list[str]) -> list[str]:
+    """Whether the tier's canary list names exactly the canaries its tasks carry, once each.
+
+    A list that says less would leave a session looking for too little, so anything else
+    is a problem, however it differs.
+    """
+    try:
+        named = _LISTED.validate_json(listed)
+    except ValidationError:
+        return ["the tier's canary list is not a list of canaries"]
+    if len(named) != len(set(named)) or set(named) != set(carried):
+        return ["the tier's canary list does not name exactly the canaries its tasks carry"]
+    return []
 
 
 def _visible_problems(visible: Path, root: Path, held_ids: set[str]) -> list[str]:
@@ -217,10 +248,10 @@ def _visible_problems(visible: Path, root: Path, held_ids: set[str]) -> list[str
     if relation is not None:
         return [f"the visible tier {relation} the held-out root"]
     for entry in sorted(visible.iterdir()):
-        names = {entry.name.casefold()}
+        names = {fold_id(entry.name)}
         try:
             task = load_task(entry).task
-            names.add(task.id.casefold())
+            names.add(fold_id(task.id))
             if task.tier == "held_out" or task.canary is not None:
                 problems.append(f"the visible task {task.id!r} is marked as held out")
         except (PerRoleError, OSError, ValueError):
@@ -298,6 +329,7 @@ def scan(
     places: Mapping[str, Path],
     scratch: Path,
     visible_tier: Path | None = None,
+    label: Protected = "held_out",
 ) -> list[str]:
     """Every reason a run with these parameters and places could expose ``held_out``.
 
@@ -305,14 +337,18 @@ def scan(
     tier was written) and ``run_canaries`` are the run's parameters; ``places`` names every
     directory a session of the run works in or reads; ``scratch`` is an empty directory
     outside the tier where the sessions' configurations are generated to be looked at.
-    An empty list is the only answer that lets the run start.
+    ``label`` is what the run records the root as: the held-out tier, or the validation
+    tier, whose tasks must then all be marked so. An empty list is the only answer that lets
+    the run start.
     """
     problems = _checked("root", lambda: _root_problems(held_out, run_held_out))
     held_ids: set[str] = set()
     if held_out.is_dir() and not held_out.is_symlink():
 
         def tier() -> list[str]:
-            found, ids = _tier_problems(held_out, run_canaries, run_digests.get(str(held_out)))
+            found, ids = _tier_problems(
+                held_out, run_canaries, run_digests.get(str(held_out)), label
+            )
             held_ids.update(ids)
             return found
 

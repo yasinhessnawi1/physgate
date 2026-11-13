@@ -130,6 +130,10 @@ class InstallRequest(BaseModel):
     #: ``corpora`` directory, which is always one.
     answer_keys: tuple[AbsolutePath, ...] = ()
     extra_protected: tuple[AbsolutePath, ...] = ()
+    #: Paths beneath an ``extra_protected`` root that the root does not protect after all:
+    #: the one place under it a session writes (a blind check's own directory inside the
+    #: tier-set store, which holds its worktree). Each must lie beneath one of those roots.
+    extra_protected_exceptions: tuple[AbsolutePath, ...] = ()
     #: Paths no session tool may write, but which the runtime or the spawner writes
     #: while the session runs (its captured stream, its process record), so the
     #: sentinel must not put them back. Only the layers that refuse a write before
@@ -518,6 +522,17 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         root_exceptions[site_packages] = _startup_watch(Path(site_packages))
     for path in request.extra_protected:
         protected.setdefault(path, ("the orchestrator protects it for this session", "revert"))
+        carved = tuple(e for e in request.extra_protected_exceptions if _inside(e, path))
+        if carved:
+            root_exceptions[path] = carved
+    stray = [
+        e
+        for e in request.extra_protected_exceptions
+        if not any(_inside(e, path) for path in request.extra_protected)
+    ]
+    if stray:
+        msg = f"an exception lies beneath no root the session is protected from: {stray}"
+        raise ValueError(msg)
     for path in request.extra_protected_record:
         protected.setdefault(
             path,
@@ -592,7 +607,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     if request.store_root is not None:
         protected[request.store_root] = (STORE_REASON, "journal")
     for path in protected:
-        if _inside(request.worktree, path):
+        # A worktree inside one of the root's own exceptions is written there, not refused.
+        if _inside(request.worktree, path) and not any(
+            _inside(request.worktree, e) for e in root_exceptions.get(path, ())
+        ):
             msg = (
                 f"the protected path {path} contains the worktree, so every write would be refused"
             )
