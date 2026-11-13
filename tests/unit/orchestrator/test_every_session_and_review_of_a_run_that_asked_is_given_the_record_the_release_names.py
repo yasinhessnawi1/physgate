@@ -20,6 +20,7 @@ from parts_rig import COMPONENTS, body, decide, log_of, started
 from plan_hold_rig import again
 
 from physgate.orchestrator import loop as loop_module
+from physgate.orchestrator import parts_write
 
 IDS = ["run-1-parts-1", "run-1-parts-2", "run-1-parts-3"]
 
@@ -74,7 +75,7 @@ def test_a_record_that_is_not_the_release_s_is_an_incident_and_no_session_is_spa
 ) -> None:
     run_dir, the_rig = _ran(tmp_path)
     assert again(the_rig, kill_after="parts_released") == "killed"
-    real = loop_module.parts_record
+    real = parts_write.parts_record
     monkeypatch.setattr(loop_module, "parts_record", lambda *a, **k: real(*a, **k) + b" ")
     again(the_rig)
     incidents = [one for one in log_of(run_dir) if one["kind"] == "incident"]

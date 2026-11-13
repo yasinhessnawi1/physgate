@@ -44,22 +44,23 @@ def test_a_line_that_landed_before_its_done_line_is_the_intents_and_is_not_writt
     tmp_path: Path,
 ) -> None:
     run_dir, the_rig = _decided(tmp_path)
-    real = the_rig.diff.declare
+    diff: Any = the_rig.diff
+    real = diff.declare
     calls: list[str] = []
 
-    def landed_then_killed(payload: dict[str, Any], item_ids: tuple[str, ...]) -> int:
+    def landed_then_killed(payload: dict[str, Any], item_ids: tuple[str, ...]) -> int:  # noqa: E501
         calls.append(str(payload["id"]))
-        revision = real(payload, item_ids)
+        revision: int = real(payload, item_ids)
         if len(calls) == 1:
             raise KilledError("after the journal line, before its done line")
         return revision
 
-    the_rig.diff.declare = landed_then_killed  # type: ignore[method-assign]
+    diff.declare = landed_then_killed
     with contextlib.suppress(KilledError):
         again(the_rig)
     assert len(_of(run_dir, "parts_write_intended")) == 1
     assert _of(run_dir, "parts_write_done") == []
-    the_rig.diff.declare = real  # type: ignore[method-assign]
+    diff.declare = real
     assert again(the_rig) == "done"
     assert "incident" not in kinds(run_dir)
     nodes = [one["node_id"] for one in _of(run_dir, "parts_write_intended")]
@@ -72,10 +73,9 @@ def test_the_store_is_committed_once_after_the_last_write_and_before_the_release
     tmp_path: Path,
 ) -> None:
     run_dir, the_rig = _decided(tmp_path)
+    diff: Any = the_rig.diff
     committed: list[tuple[str, int]] = []
-    the_rig.diff.commit = lambda message: committed.append(  # type: ignore[method-assign]
-        (message, len(_of(run_dir, "parts_write_done")))
-    )
+    diff.commit = lambda message: committed.append((message, len(_of(run_dir, "parts_write_done"))))
     assert again(the_rig) == "done"
     assert len(committed) == 1
     assert committed[0][1] == 3, "the commit came before the last write was done"
@@ -87,8 +87,9 @@ def test_the_store_is_committed_once_after_the_last_write_and_before_the_release
 def test_a_run_that_wrote_nothing_commits_nothing(tmp_path: Path) -> None:
     the_rig = started(tmp_path / "run")
     assert again(the_rig) == "wait"
+    diff: Any = the_rig.diff
     committed: list[str] = []
-    the_rig.diff.commit = committed.append  # type: ignore[method-assign]
+    diff.commit = committed.append
     find_all(the_rig.run_dir)
     assert again(the_rig) == "done"
     assert committed == []
