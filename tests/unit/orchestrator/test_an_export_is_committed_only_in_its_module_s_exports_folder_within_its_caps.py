@@ -145,6 +145,7 @@ def test_an_export_outside_the_module_s_exports_folder_is_refused(
         f"{EXPORTS}/notes.txt",
         f"{EXPORTS}/plate.step.txt",
         f"{EXPORTS}/sub/plate.step",
+        f"{EXPORTS}/exports/plate.step",
         f"{EXPORTS}/a/b/c.stl",
         f"{EXPORTS}/plate\t2.step",
     ],
