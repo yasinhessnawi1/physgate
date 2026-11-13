@@ -401,6 +401,7 @@ def test_a_protected_trial_that_fails_at_any_step_never_rests_in_a_visible_place
         _round(store, runs, tmp_path / "again", again)
         assert again.calls
         return
+    assert len(records) == 1, "the trial is not secured, yet no record names where it lies"
     (record,) = records
     work = Path(json.loads(record.read_text())["work"])
     assert any(work.is_relative_to(w) for w in places), f"the record names {work}"
