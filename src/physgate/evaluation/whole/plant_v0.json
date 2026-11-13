@@ -1,0 +1,171 @@
+{
+  "form": "whole_design_plant",
+  "version": 1,
+  "status": "frozen",
+  "fall_terminals": "open",
+  "parameters": {
+    "pack_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "low": 7.2,
+      "high": 7.2,
+      "source": "brief criterion 3 (six NiMH cells at 1.2 V); criterion 4 judges at it",
+      "reason": "the brief's nominal; every performance criterion is judged there",
+      "locator": "briefs/balboa-32u4.md, criterion 3"
+    },
+    "wheel_radius": {
+      "value": 0.04,
+      "unit": "m",
+      "low": 0.039,
+      "high": 0.041,
+      "source": "brief criterion 2 (80 x 10 mm wheels, 0.040 m +- 0.001 m); Pololu item #1430 (80 x 10 mm)",
+      "reason": "the criterion's own tolerance",
+      "locator": "briefs/balboa-32u4.md, criterion 2; pololu.com/product/1430/specs, '80 x 10 mm'; Balboa 32U4 User's Guide pololu.com/docs/0J70 s1.2, '80x10mm Pololu wheels'"
+    },
+    "gear_ratio": {
+      "value": 110.24175824175825,
+      "unit": "1",
+      "low": 110.24175824175825,
+      "high": 110.24175824175825,
+      "source": "Pololu Micro Metal Gearmotors datasheet Rev 6.2 (February 2026), pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf, the 50:1 HPCB gearbox, times the kit's 45:21 plastic stage (Balboa 32U4 User's Guide, pololu.com/docs/0J70); brief criterion 1 states 110.25 +- 0.5 %",
+      "reason": "exact from the tooth counts",
+      "locator": "datasheet p. 3, 'Gearbox options' table: '50:1 = (32x33x35x38)/(15x14x13x10) = 51.4462:1'; guide s1.1 (tooth counts 21 and 45) and s1.2; 51.4462 x 45/21 = 110.2418"
+    },
+    "external_stage_ratio": {
+      "value": 2.142857142857143,
+      "unit": "1",
+      "low": 2.142857142857143,
+      "high": 2.142857142857143,
+      "source": "Balboa 32U4 User's Guide, pololu.com/docs/0J70 (the kit's 45:21 plastic stage); brief criterion 1",
+      "reason": "exact from the tooth counts; its efficiency is taken as 1",
+      "locator": "guide s1.1 (pinions 17 to 25 teeth, output gears 41 to 49) and s1.2 and s4 step 13 ('1.64:1 to 2.88:1'); the 45:21 pair as brief criterion 1 names it"
+    },
+    "motor_rated_voltage": {
+      "value": 6.0,
+      "unit": "V",
+      "low": 6.0,
+      "high": 6.0,
+      "source": "Pololu item #3073 (50:1 Micro Metal Gearmotor HPCB 6V, extended shaft)",
+      "reason": "the voltage the sheet's figures are given at",
+      "locator": "pololu.com/product/3073/specs, rated voltage 6 V"
+    },
+    "motor_stall_torque": {
+      "value": 0.07256921,
+      "unit": "N*m",
+      "low": 0.07256921,
+      "high": 0.07256921,
+      "source": "Pololu item #3073; Pololu Micro Metal Gearmotors datasheet Rev 6.2 (February 2026), pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "reason": "extrapolated by the vendor ('theoretical'); no tolerance is published; held at the value",
+      "locator": "pololu.com/product/3073/specs, stall torque at 6 V 0.74 kg*cm (10 oz*in); datasheet p. 4 performance table, 'Stall extrapolation 7.4 kg*mm, 1.5 A' (theoretical)"
+    },
+    "motor_stall_current": {
+      "value": 1.5,
+      "unit": "A",
+      "low": 1.5,
+      "high": 1.5,
+      "source": "Pololu item #3073; Pololu Micro Metal Gearmotors datasheet Rev 6.2 (February 2026), pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "reason": "extrapolated by the vendor ('theoretical'); no tolerance is published; held at the value",
+      "locator": "pololu.com/product/3073/specs, stall current at 6 V 1.5 A; datasheet p. 4 performance table, 'Stall extrapolation 7.4 kg*mm, 1.5 A' (theoretical)"
+    },
+    "motor_no_load_speed": {
+      "value": 68.06784082777885,
+      "unit": "rad/s",
+      "low": 54.454272662223076,
+      "high": 81.68140899333461,
+      "source": "parts sheet R1.10 (650 rpm at 6 V, typical, +- 20 %), Pololu item #3073",
+      "reason": "the sheet's tolerance",
+      "locator": "parts sheet row R1.10; pololu.com/product/3073/specs, no-load speed at 6 V 650 rpm"
+    },
+    "motor_no_load_current": {
+      "value": 0.15,
+      "unit": "A",
+      "low": 0.075,
+      "high": 0.225,
+      "source": "Pololu item #3073 (0.15 A at 6 V, typical, +- 50 %); Pololu Micro Metal Gearmotors datasheet Rev 6.2 (February 2026), pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "reason": "the item page's tolerance",
+      "locator": "pololu.com/product/3073/specs, no-load current at 6 V; datasheet p. 4, graph 'Pololu Items #3063, #3073 (50:1 HPCB 6V)', 0.13 A, inside the range"
+    },
+    "kit_mass": {
+      "value": 0.2,
+      "unit": "kg",
+      "low": 0.19,
+      "high": 0.21,
+      "source": "Pololu item #3575 (Balboa 32U4, assembled with motors, 80 x 10 mm wheels and bumper cage, without batteries); brief criterion 7",
+      "reason": "the brief's tolerance; the vendor states 200 g",
+      "locator": "pololu.com/product/3575/specs, Weight '200 g' and its note 'does not include batteries'; briefs/balboa-32u4.md criterion 7 (+- 0.010 kg)"
+    },
+    "wheel_mass": {
+      "value": 0.0198446661875,
+      "unit": "kg",
+      "low": 0.018427190031250002,
+      "high": 0.021262142343750002,
+      "source": "Pololu item #1430 (80 x 10 mm wheel, 0.7 oz each with tire); parts sheet R9.03",
+      "reason": "given to one significant figure: half a unit either side",
+      "locator": "pololu.com/product/1430/specs, Weight 0.7 oz, footnote 1 'per wheel, including tire'"
+    },
+    "cell_mass": {
+      "value": 0.027,
+      "unit": "kg",
+      "low": 0.027,
+      "high": 0.027640785046875,
+      "source": "Panasonic BK-3MCC NiMH AA cell datasheet ('Approx. 27 g'), read from a third-party copy (peak-system.com), second-hand; Pololu item #1003 (0.97 oz, parts sheet R5.07). The kit names no cell",
+      "reason": "the value is the Panasonic cell's 27 g; the range runs to the Pololu #1003 cell's 0.97 oz with half a unit (27.64 g); cells actually used may differ",
+      "locator": "BK-3MCC datasheet, row 'Weight' ('Approx. 27 g'), file Panasonic_Cell Type BK-3MCC.pdf on peak-system.com (Panasonic's own pages refused the fetch); parts sheet row R5.07"
+    },
+    "cell_count": {
+      "value": 6.0,
+      "unit": "1",
+      "low": 6.0,
+      "high": 6.0,
+      "source": "brief criterion 3 (six AA cells)",
+      "reason": "a count",
+      "locator": "briefs/balboa-32u4.md, criterion 3"
+    },
+    "com_height": {
+      "value": 0.019,
+      "unit": "m",
+      "low": 0.005,
+      "high": 0.078,
+      "source": "assumption",
+      "reason": "PROPOSED, for the owner: no source publishes it (not the guide, the product page or the example code). The value is the body as a uniform box of the kit's 0.118 m height, its centre 0.059 m above ground, 0.019 m above the axle; the cells (45 % of the mass) sit in the chassis. The range runs from just above the axle to the envelope's top (0.118 m above ground; pololu.com/product/3575/specs, 118 x 112 x 80 mm)",
+      "measure_by": "hang the assembled robot, cells in, from two points with a plumb line and photograph it (the lines cross at the centre of mass), or balance it on a knife edge at two orientations"
+    },
+    "body_inertia": {
+      "value": 0.0005458868340675417,
+      "unit": "kg*m**2",
+      "low": 0.00027294341703377084,
+      "high": 0.0008188302511013125,
+      "source": "assumption",
+      "reason": "PROPOSED, for the owner: no source publishes it. The value is the body as a uniform box of the envelope, 0.118 m high and 0.080 m deep (pololu.com/product/3575/specs), about its centre, at the sourced body mass (0.3223 kg: the kit's 0.200 kg less two wheels plus six cells); half to one and a half times that",
+      "measure_by": "swing the robot as a pendulum about its axle on two low-friction supports, time 20 small oscillations: I_axle = T^2 m g h / (4 pi^2), I_b = I_axle - m h^2"
+    },
+    "wheel_inertia_factor": {
+      "value": 0.5,
+      "unit": "1",
+      "low": 0.5,
+      "high": 1.0,
+      "source": "assumption",
+      "reason": "PROPOSED, for the owner: no source publishes the wheel's inertia. The value is the wheel as a uniform disc (1/2 m r^2), the documented default of the environment's first slice; a rim-heavy wheel lies towards a ring (m r^2)",
+      "measure_by": "a swing of one wheel about its axle, or the hub and tire masses separately"
+    },
+    "rotor_inertia": {
+      "value": 1e-08,
+      "unit": "kg*m**2",
+      "low": 3e-09,
+      "high": 2e-08,
+      "source": "assumption",
+      "reason": "PROPOSED, for the owner: Pololu publishes none (datasheet Rev 6.2 has no inertia; Pololu staff: 'We have not characterized the moment of inertia for our motors yet'). The range is a first-principles bound on a 12 x 10 mm can, armature 5.5 to 7 mm across, plus the encoder disc on the extended shaft (#3081, about 0.3 g). Coreless 10 to 12 mm motors that publish it lie inside or at its top: Maxon RE 10 1.05e-8, Faulhaber 1224 SR 1.8e-8, Orbray CMS12-20 2.1e-8. The value is the bound's middle case with the disc, 1.0e-8",
+      "measure_by": "a 6 V step from rest on a spare gearmotor with its wheel, the encoder's 12 counts per revolution logged: tau_m = R (J_r + I_w/N^2 + J_gearbox)/(K_t K_e), with R and K_e measured; or the same on the bare motor with the gearbox off",
+      "locator": "forum.pololu.com/t/dc-motor-20d/21711 post 2 (22 Jun 2021); pololu.com/product/3081/specs note 2 and item #2599 (7.65 mm disc); maxongroup.com product 118396; Faulhaber eshop series 1224 SR; orbray.com brushed_ca_cms12-20, row 'Rotor inertia'"
+    },
+    "gearbox_friction": {
+      "value": 0.0173,
+      "unit": "N*m",
+      "low": 0.009,
+      "high": 0.036,
+      "source": "assumption",
+      "reason": "PROPOSED, for the owner: no breakaway or back-driving torque is published for either stage, and the plastic stage's friction is not published. The range is the running friction derived from the datasheet: N x K_t x I0 x efficiency, with I0 0.075 to 0.225 A (+- 50 %), K_t 1.46 to 1.63 mN*m/A (from R = 6 V / 1.5 A and K_e = (6 V - I0 R)/omega0), efficiency 0.68 to 1; the value at 0.15 A and 0.68. A running current includes brush and iron loss, so it overstates the gearbox's share and understates the breakaway",
+      "measure_by": "motor terminals open, a thread round the wheel (r = 0.040 m) with a growing hung mass until the wheel turns, both directions: torque = m g r; with and without the plastic stage"
+    }
+  }
+}
