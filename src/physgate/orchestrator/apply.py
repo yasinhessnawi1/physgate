@@ -93,7 +93,7 @@ from physgate.orchestrator.git import (
     merge_base,
     verified_git_dir,
 )
-from physgate.orchestrator.merge import RunGit, write_scope_violations
+from physgate.orchestrator.merge import RunGit, admitted_exports, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
 from physgate.reviewers.packet import LINE_MAX_BYTES, PART_MAX_BYTES, LongLine, long_line
 from physgate.series.consistency import check_proposals
@@ -591,6 +591,8 @@ class GitChangeChecker:
             return ChangeCheck(
                 refused_by="write_scope", reason=reason, subject=subject, graph_root=str(scratch)
             )
+        # What the review may show of the attempt's exports by line, by the rule just passed.
+        exported = admitted_exports(repo, base, attempt_commit, module_dir, git_dir=pinned)
         try:
             declared = self._declaration(attempt_commit, subtask_id, pinned) if declares else None
         except DeclarationError as exc:
@@ -677,7 +679,8 @@ class GitChangeChecker:
                     series_checks=checks,
                 )
         # Last: the diff the review is issued, held to what one part of it can show.
-        long = long_line(pinned, base, attempt_commit)
+        admitted = frozenset((export.path, export.sha256) for export in exported)
+        long = long_line(pinned, base, attempt_commit, admitted)
         if long is not None:
             return ChangeCheck(
                 refused_by="long_line",
@@ -696,6 +699,7 @@ class GitChangeChecker:
             declaration=declared,
             disputes=disputed,
             followed=followed,
+            exports=exported,
         )
 
     def _follow(

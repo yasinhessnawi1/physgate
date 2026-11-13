@@ -23,7 +23,7 @@ from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.dispute import Dispute
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
-from physgate.orchestrator.protocols import IssuedState, MessageUsage
+from physgate.orchestrator.protocols import AdmittedExport, IssuedState, MessageUsage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.trajectory import Seal
 from physgate.series.seal import SeriesCheck, SessionSeries
@@ -245,6 +245,9 @@ class ChangeCheck(_Frozen):
     #: Each interface the attempt's nodes revise, derived at this check, in id order;
     #: empty unless the check was asked to follow and something differed.
     followed: tuple[FollowedInterface, ...] = ()
+    #: The exports the commit-time rule admitted (``merge.admitted_exports``), for the attempt
+    #: the reviewer is handed. Never on the change check's own line.
+    exports: tuple[AdmittedExport, ...] = ()
 
 
 class WorktreeRemoval(_Frozen):

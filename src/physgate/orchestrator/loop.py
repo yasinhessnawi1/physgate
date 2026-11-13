@@ -2219,7 +2219,7 @@ class Loop:
                 subtask_id=subtask_id,
                 attempt=attempt,
                 checked_commit=session.attempt_commit,
-                **check.model_dump(exclude={"declaration", "disputes"}),
+                **check.model_dump(exclude={"declaration", "disputes", "exports"}),
             )
         )
         if check.refused_by is not None and check.reason is not None:
@@ -2271,6 +2271,7 @@ class Loop:
             series=self._attempt_series(subtask_id, attempt, check.series_checks),
             ordered_by_person=self._instruction(subtask_id, attempt)[1],
             followed=check.followed,
+            exports=check.exports,
         )
         self._stage(subtask_id, attempt, "gate")
         mode = self.config.gate_mode

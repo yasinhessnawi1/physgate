@@ -36,6 +36,7 @@ commit-graph files cannot reshape it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Mapping
@@ -62,6 +63,7 @@ from physgate.orchestrator.git import (
     common_dir,
     diff_text,
     git,
+    git_blob,
     git_timed,
     head_of,
     merge_base,
@@ -70,6 +72,7 @@ from physgate.orchestrator.git import (
     verified_git_dir,
 )
 from physgate.orchestrator.ports import WorktreeRemoval
+from physgate.orchestrator.protocols import AdmittedExport
 
 #: Where an agent proposes graph nodes, one whole node per file (the hook layer's route).
 PROPOSALS = PurePosixPath(".physgate/proposals")
@@ -105,6 +108,8 @@ NOT_AN_EXPORT = (
 )
 EXPORT_TOO_BIG = f"an export over {MAX_EXPORT_BYTES} bytes"
 EXPORT_INVALID = "an export whose bytes are not what its suffix says"
+#: The fields of a line of ``git ls-tree -l`` before its path: mode, type, object, size.
+_LS_TREE_FIELDS = 4
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 #: Where a run's interface contract files are: ``decompose.INTERFACES_DIR``, spelled here as well
@@ -243,10 +248,7 @@ def write_scope_violations(
     the commit. An attempt that passes holds only exports the review packet may show by size,
     sha256 and summary.
     """
-    module = PurePosixPath(module_dir)
-    if module.is_absolute() or ".." in module.parts or not module.parts:
-        msg = "a module directory is a relative path inside the repository"
-        raise GitError(msg, module_dir=module_dir)
+    module = _module_path(module_dir)
     found: list[str] = []
     trees: dict[str, int] = {}
     built: list[str] = []
@@ -293,6 +295,14 @@ def write_scope_violations(
     return found
 
 
+def _module_path(module_dir: str) -> PurePosixPath:
+    module = PurePosixPath(module_dir)
+    if module.is_absolute() or ".." in module.parts or not module.parts:
+        msg = "a module directory is a relative path inside the repository"
+        raise GitError(msg, module_dir=module_dir)
+    return module
+
+
 def _misplaced_export(path: PurePosixPath, exports_dir: PurePosixPath) -> str | None:
     """Why a file the attempt wrote in its module is no admissible export, if it is not."""
     if exports_dir not in path.parents:
@@ -305,35 +315,93 @@ def _misplaced_export(path: PurePosixPath, exports_dir: PurePosixPath) -> str | 
 def _export_bytes_problems(
     repo: Path, commit: str, paths: list[str], exports_dir: PurePosixPath, git_dir: GitDir | None
 ) -> list[str]:
-    """Each export of ``paths`` too big or not its kind; then the module's total, if over.
-
-    Sizes come from git's objects first, so a file far over the cap is never read whole.
-    """
+    """Each export of ``paths`` too big or not its kind; then the module's total, if over."""
     found = []
     for path in paths:
-        size = int(
-            git(repo, "cat-file", "-s", f"{commit}:{path}", objects_only=True, git_dir=git_dir)
-        )
-        if size > MAX_EXPORT_BYTES:
-            found.append(f"{path} ({EXPORT_TOO_BIG})")
-            continue
-        body = git(
-            repo, "cat-file", "blob", f"{commit}:{path}",
-            objects_only=True, git_dir=git_dir, errors="surrogateescape",
-        ).encode("utf-8", "surrogateescape")  # fmt: skip
-        if summary(path, body) is None:
-            found.append(f"{path} ({EXPORT_INVALID})")
-    listed = git(
-        repo, "ls-tree", "-r", "-l", "-z", commit, "--", f"{exports_dir}/",
-        objects_only=True, git_dir=git_dir, errors="surrogateescape",
-    )  # fmt: skip
-    total = sum(int(entry.split()[3]) for entry in listed.split("\0") if entry)
+        problem, _ = _export_read(repo, f"{commit}:{path}", path, git_dir)
+        if problem is not None:
+            found.append(f"{path} ({problem})")
+    total = _module_export_bytes(repo, commit, exports_dir, git_dir)
     if total > MAX_MODULE_EXPORT_BYTES:
         found.append(
             f"{exports_dir}/ (the module's exports hold {total} bytes, over "
             f"{MAX_MODULE_EXPORT_BYTES})"
         )
     return found
+
+
+def _export_read(
+    repo: Path, spec: str, path: str, git_dir: GitDir | None
+) -> tuple[str | None, bytes]:
+    """Why the export ``spec`` names may not stand, or ``None``; and the bytes read.
+
+    The size comes from git's objects first, so a file far over the cap is never read whole;
+    the bytes are read as git holds them, never decoded.
+    """
+    size = int(git(repo, "cat-file", "-s", spec, objects_only=True, git_dir=git_dir))
+    if size > MAX_EXPORT_BYTES:
+        return EXPORT_TOO_BIG, b""
+    body = git_blob(repo, spec, git_dir=git_dir)
+    if summary(path, body) is None:
+        return EXPORT_INVALID, body
+    return None, body
+
+
+def _module_export_bytes(
+    repo: Path, commit: str, exports_dir: PurePosixPath, git_dir: GitDir | None
+) -> int:
+    """How many bytes the files in ``exports_dir`` hold at ``commit``, as git lists them.
+
+    Only files count: a submodule entry has no size here, and is refused by its mode.
+    """
+    listed = git(
+        repo, "ls-tree", "-r", "-l", "-z", commit, "--", f"{exports_dir}/",
+        objects_only=True, git_dir=git_dir, errors="surrogateescape",
+    )  # fmt: skip
+    total = 0
+    for entry in listed.split("\0"):
+        fields = entry.partition("\t")[0].split()
+        if len(fields) == _LS_TREE_FIELDS and fields[1] == "blob":
+            total += int(fields[3])
+    return total
+
+
+def admitted_exports(
+    repo: Path,
+    base: str,
+    commit: str,
+    module_dir: str,
+    *,
+    git_dir: GitDir | None = None,
+) -> tuple[AdmittedExport, ...]:
+    """Each side of each export change from ``base`` to ``commit`` the commit-time rule admits.
+
+    For the review packet, which shows such a side as one line in place of its bytes. A side is
+    admitted when its path is an export directly in the module's own exports folder
+    (``exports.is_export``), it is a regular file there, within
+    :data:`~physgate.orchestrator.exports.MAX_EXPORT_BYTES`, and its bytes are what its suffix
+    says; each is named by its path and the sha256 of its bytes. The side before a change or a
+    removal is the run branch's, which only an admitted attempt put there, held to the same
+    conditions again. Nothing is admitted in a module whose exports hold more than
+    :data:`~physgate.orchestrator.exports.MAX_MODULE_EXPORT_BYTES` together at ``commit``.
+    Sorted by path, then digest. Called once :func:`write_scope_violations` found nothing.
+    """
+    exports_dir = _module_path(module_dir) / EXPORTS_DIR
+    if _module_export_bytes(repo, commit, exports_dir, git_dir) > MAX_MODULE_EXPORT_BYTES:
+        return ()
+    found: set[tuple[str, str]] = set()
+    for change in changes_between(repo, base, commit, git_dir=git_dir):
+        if utf8_name(change.path) is not None or not is_export(change.path):
+            continue
+        if PurePosixPath(change.path).parent != exports_dir:
+            continue
+        for side, mode in ((base, change.old_mode), (commit, change.new_mode)):
+            if mode not in (_REGULAR, "100755"):
+                continue
+            problem, body = _export_read(repo, f"{side}:{change.path}", change.path, git_dir)
+            if problem is None:
+                found.add((change.path, hashlib.sha256(body).hexdigest()))
+    return tuple(AdmittedExport(path=path, sha256=digest) for path, digest in sorted(found))
 
 
 def _build_directory(path: PurePosixPath, module_depth: int) -> str | None:

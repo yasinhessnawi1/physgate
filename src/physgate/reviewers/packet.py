@@ -123,6 +123,12 @@ from physgate.series.summary import SERIES_PART, listing
 #: What the commit-time rule admitted as a change's exports: each path with its bytes' sha256.
 Admitted = frozenset[tuple[str, str]]
 
+
+def carried(artefact: Artefact) -> Admitted:
+    """The exports the attempt carries as its change check admitted them (``Artefact.exports``)."""
+    return frozenset((export.path, export.sha256) for export in artefact.exports)
+
+
 TRANSCRIPT_NAME = "transcript.md"
 WORKTREE_NAME = "worktree"
 DIFF_NAME = "diff.patch"
@@ -823,8 +829,9 @@ def _diff(
     admitted, with the bytes it admitted, is left out of git's diff as well and named after it
     instead, one line each under :data:`EXPORTS_HEADER` (:func:`_admitted_exports`): its bytes
     are for tools, and a binary one would be a line no part can hold. ``admitted`` holds each
-    admitted path with its sha256; nothing gives one yet, so today every export is in git's
-    diff. A change with no admitted export is git's diff, byte for byte.
+    admitted path with its sha256, as the change check's commit-time rule gave them
+    (``merge.admitted_exports``, carried on the attempt). A change with no admitted export is
+    git's diff, byte for byte.
     """
     where = _place(repo)
     leaving = _admitted_exports(where, base, commit, admitted)
@@ -969,7 +976,7 @@ def build_packet(
     # Verified once, and every read below goes through the directory that check confirmed.
     where = _git_dir(Path(repo))
     files = _export(where, artefact.attempt_commit, read / WORKTREE_NAME)
-    diff = _diff(where, base_commit, artefact.attempt_commit)
+    diff = _diff(where, base_commit, artefact.attempt_commit, carried(artefact))
     diff_parts = _write_parts(read, split_parts(diff, DIFF_PART))
     series = _series_listing(artefact)
     series_parts = _write_parts(read, split_parts(series, SERIES_PART)) if series else ()
@@ -1139,7 +1146,7 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
     if joined["transcript"] != transcript or _digest(transcript) != packet.transcript_sha256:
         msg = "the transcript's parts joined are not the sealed trajectory's rendering"
         raise PacketError(msg, read=str(read))
-    diff = _diff(Path(repo), base_commit, artefact.attempt_commit)
+    diff = _diff(Path(repo), base_commit, artefact.attempt_commit, carried(artefact))
     if joined["diff"] != diff or _digest(diff) != packet.diff_sha256:
         msg = "the diff's parts joined are not the attempt's diff"
         raise PacketError(msg, read=str(read))

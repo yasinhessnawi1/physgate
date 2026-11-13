@@ -238,7 +238,11 @@ def test_nothing_is_admitted_that_is_no_valid_export_of_this_module_s_folder(
         f"{EXPORTS}/bad.step": _step()[:-4],
         f"{EXPORTS}/big.step": _padded_step(2_000_001),
     }
-    links = {f"{EXPORTS}/link.stl": "../chassis.py"}
+    # A link is no regular file, even one whose target reads as an STL file.
+    links = {
+        f"{EXPORTS}/link.stl": "../chassis.py",
+        f"{EXPORTS}/solid.stl": "solid x\nendsolid x\n",
+    }
     assert _admitted(tmp_path, after, links=links) == []
 
 

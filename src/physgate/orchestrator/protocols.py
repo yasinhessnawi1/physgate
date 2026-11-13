@@ -206,6 +206,13 @@ class PersonOrder(_Frozen):
         return data
 
 
+class AdmittedExport(_Frozen):
+    """An export the commit-time rule admitted: its path and the sha256 of the bytes it read."""
+
+    path: NonEmptyStr
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
 class Artefact(_Frozen):
     """What an attempt produced, as the gate and the reviewer receive it."""
 
@@ -254,6 +261,10 @@ class Artefact(_Frozen):
     #: which its reviewer is shown quantity by quantity. Left out of a dump when empty, so every
     #: other attempt is recorded as before.
     followed: tuple[FollowedInterface, ...] = ()
+    #: The exports the change check's commit-time rule admitted, each side of each change by
+    #: its path and sha256: what the review packet may show as one line in place of its bytes.
+    #: Left out of a dump when empty, so every other attempt is recorded as before.
+    exports: tuple[AdmittedExport, ...] = ()
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -266,6 +277,8 @@ class Artefact(_Frozen):
             data.pop("integration_state", None)
         if not self.followed:
             data.pop("followed", None)
+        if not self.exports:
+            data.pop("exports", None)
         return data
 
     @model_validator(mode="after")

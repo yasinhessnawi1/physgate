@@ -39,6 +39,7 @@ from rubric_fixture import PLACEHOLDER
 from physgate.orchestrator import exports
 from physgate.orchestrator.protocols import Artefact, IssuedSpec
 from physgate.reviewers import packet
+from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.rubric import Rubric
 
 REPO = Path(__file__).resolve().parents[3]
@@ -593,4 +594,9 @@ def test_the_issued_packet_shows_the_exports_the_attempt_carries_as_their_lines(
     issued = b"".join((read / part.name).read_bytes() for part in built.diff_parts)
     assert _header() in issued and _added(path, STL) in issued
     assert STL not in issued
-    packet.check_parts(built, repo=attempt.worktree, base_commit=attempt.spec_commit)
+    try:
+        packet.check_parts(built, repo=attempt.worktree, base_commit=attempt.spec_commit)
+        held = "held"
+    except ReviewError as exc:
+        held = f"refused: {exc}"
+    assert held == "held"

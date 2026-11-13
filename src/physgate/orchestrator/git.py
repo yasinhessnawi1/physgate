@@ -555,6 +555,36 @@ def git(
     return done.stdout
 
 
+def git_blob(cwd: Path, spec: str, *, git_dir: GitDir | None = None) -> bytes:
+    """The bytes of the object ``spec`` names (``<commit>:<path>``), as git holds them.
+
+    Read as :func:`git` reads with ``objects_only``: against a clean object store, so nothing
+    the repository holds can run. Never decoded, so no line ending is translated.
+
+    Raises:
+        GitError: git cannot read it.
+    """
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
+    object_format = _object_format(Path(cwd), git_dir)
+    store = _object_store(_object_dirs(Path(cwd), git_dir), object_format)
+    env["GIT_ATTR_SOURCE"] = EMPTY_TREES[object_format]
+    done = subprocess.run(
+        [harness_git().path, attr_source(object_format), "--git-dir", store, *_FLAGS]
+        + ["cat-file", "blob", spec],
+        cwd=store,
+        env=env,
+        capture_output=True,
+        check=False,
+    )
+    if done.returncode != 0:
+        msg = "a git command failed"
+        raise GitError(
+            msg, command=f"cat-file blob {spec}", cwd=str(cwd), exit=str(done.returncode),
+            stderr=done.stderr.decode("utf-8", "replace").strip()[-800:],
+        )  # fmt: skip
+    return done.stdout
+
+
 def git_timed(
     cwd: Path, *args: str, timeout: float, git_dir: GitDir | None = None
 ) -> tuple[int | None, str, float]:
