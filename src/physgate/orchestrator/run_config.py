@@ -28,6 +28,7 @@ from pydantic import (
 
 import physgate
 from physgate.flags import DesignReview, OsLayerAbsent, QueueDecisions, replans
+from physgate.orchestrator.binaries import ClaudeBinary
 from physgate.orchestrator.common import (
     AuthMode,
     GateMode,
@@ -36,6 +37,7 @@ from physgate.orchestrator.common import (
     first_problem,
     model_named,
 )
+from physgate.orchestrator.credentials import Credential, fingerprint
 from physgate.orchestrator.escalation import REGISTER, BackendName
 from physgate.orchestrator.exceptions import EscalationBackendError, GitError, RunConfigError
 from physgate.orchestrator.git import GitBinary, git
@@ -196,6 +198,19 @@ def os_layer_refusal(config: RunConfig, layer: Present | Absent | None) -> str |
 #: unset it takes a default from a model catalog that can change without the
 #: binary's version changing, so a run names its level and passes it.
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
+
+
+class RunAccount(_Frozen):
+    """The account a run's model calls draw on: the name the run gives it, and a fingerprint.
+
+    Runs may be spread over several accounts, each with its own usage limits. The name is the
+    run's parameter; the fingerprint is measured from the credential the run was configured
+    with, so a run resumed on another account's credential is refused rather than continued on
+    limits it never recorded.
+    """
+
+    name: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")]
+    token_sha256_prefix: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{12}$")]
 
 
 class HarnessState(_Frozen):
@@ -398,6 +413,14 @@ class RunConfig(_Frozen):
     #: environment and taken from the register, never from the parameters. ``None`` for a run
     #: that names none, which is what a run recorded before the field existed did.
     tool_servers: ToolServers | None
+    #: The Claude Code binary the run executes, measured when it is configured and again each
+    #: time it is driven: the same version string can name other bytes on another platform, or
+    #: after a replacement. ``None`` only on a run recorded before the field existed.
+    binary: ClaudeBinary | None
+    #: The account the run's model calls draw on, by its name and the fingerprint of the
+    #: credential it was configured with. ``None`` only on a run recorded before the field
+    #: existed.
+    account: RunAccount | None
 
     @model_validator(mode="after")
     def _the_binding_is_a_backend_that_ships(self) -> RunConfig:
@@ -500,9 +523,9 @@ class RunConfig(_Frozen):
         ``held_out_canaries`` and ``held_out_sha256`` when empty, ``network`` when ``open``,
         ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``,
         ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off``,
-        ``tool_environment`` and ``tool_servers`` when ``None``, so their recorded digests still
-        name them. A run that names a binding always records it, so the binding is part of its
-        manifest id.
+        ``tool_environment`` and ``tool_servers`` when ``None``, and ``binary`` and ``account``
+        when ``None``, so their recorded digests still name them. A run that names a binding
+        always records it, so the binding is part of its manifest id.
         """
         exclude = set()
         if self.thinking_display == "omitted":
@@ -529,6 +552,10 @@ class RunConfig(_Frozen):
             exclude.add("queue_decisions")
         if self.os_layer_absent == "refuse":
             exclude.add("os_layer_absent")
+        if self.binary is None:
+            exclude.add("binary")
+        if self.account is None:
+            exclude.add("account")
         if self.design_review == "off":
             exclude.add("design_review")
         if self.tool_environment is None:
@@ -572,6 +599,27 @@ def require_harness(config: RunConfig, now: HarnessState) -> None:
         changed = sorted(key for key in theirs if theirs[key] != mine[key])
         msg = "the harness checkout differs from the one this run recorded"
         raise RunConfigError(msg, changed=",".join(changed))
+
+
+def require_same_account(config: RunConfig, credential: Credential) -> None:
+    """Refuse to drive a run on a credential other than the one it was configured with.
+
+    A run recorded before the account was recorded has nothing to hold it to, and is driven.
+
+    Raises:
+        RunConfigError: the credential's fingerprint differs from the recorded one.
+    """
+    if config.account is None:
+        return
+    now = fingerprint(credential)
+    if now != config.account.token_sha256_prefix:
+        msg = (
+            f"the credential is not the one account {config.account.name!r} was recorded with; "
+            "a run continues on the account it started on"
+        )
+        raise RunConfigError(
+            msg, account=config.account.name, recorded=config.account.token_sha256_prefix, now=now
+        )
 
 
 def write_run_config(path: Path, config: RunConfig) -> None:
@@ -637,6 +685,9 @@ def load_run_config(path: Path) -> RunConfig:
         ("queue_decisions", "record"),
         # Recorded before the field existed: no allowance was named.
         ("os_layer_absent", "refuse"),
+        # Recorded before the fields existed: the binary's bytes and the account went unrecorded.
+        ("binary", None),
+        ("account", None),
         # Recorded before the field existed: no plan was reviewed.
         ("design_review", "off"),
         # Recorded before the field existed: no tool environment was named.

@@ -28,7 +28,7 @@ from physgate.evaluation.observe.cost import (
     read_trend,
 )
 from physgate.evaluation.observe.exceptions import ManifestError, PriceSheetError, TrendError
-from physgate.evaluation.observe.manifest import read_manifest
+from physgate.evaluation.observe.manifest import BINARY_DEFAULTS, read_manifest
 from physgate.orchestrator.events import LeftoverRead, ReviewUnavailable, TokensUsed
 from physgate.orchestrator.protocols import Usage
 from physgate.orchestrator.record import RunRecord
@@ -230,8 +230,14 @@ def test_partial_usage_is_marked_and_a_leftover_is_priced_at_the_one_role_model(
 
 
 def test_a_leftover_whose_role_the_log_cannot_name_is_refused(
-    tmp_path: Path, sheet: DatedSheet
+    tmp_path: Path, sheet: DatedSheet, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The manifest needs request defaults for every role's model; this run's second model has
+    # none measured on its version, so the table is given one here: the row is about the cost.
+    stand_in = BINARY_DEFAULTS[("2.1.272", "claude-sonnet-5")].model_copy(
+        update={"model": "claude-haiku-4-5-20251001"}
+    )
+    monkeypatch.setitem(BINARY_DEFAULTS, ("2.1.272", "claude-haiku-4-5-20251001"), stand_in)
     repo = target_repo(tmp_path)
     models = ModelStrings(
         decomposition="claude-sonnet-5",

@@ -31,6 +31,7 @@ from physgate.orchestrator.budget import ATTEMPT_LIMIT
 from physgate.orchestrator.common import ModelString, NonEmptyStr, model_named
 from physgate.orchestrator.exceptions import GateContractError, ModelSeparationError
 from physgate.orchestrator.followed import FollowedInterface
+from physgate.orchestrator.managed import SessionManaged
 from physgate.orchestrator.plan import IntegratedPlan, Plan
 from physgate.orchestrator.trajectory import Seal
 from physgate.series.seal import AttemptSeries
@@ -690,6 +691,10 @@ class ReviewResult(_Frozen):
     #: How many times the session was resumed to repair a refused verdict; ``None``
     #: where repair resumes are off.
     repair_resumes: Count | None = None
+    #: Per invocation of the review's session, on a pin whose sessions carry the catalog
+    #: and flag traffic: the conditions it ran under. Empty otherwise, and then not written
+    #: at all, so a review on an earlier pin is recorded byte for byte as before.
+    managed: tuple[SessionManaged, ...] = Field(default=(), exclude_if=lambda v: not v)
 
     @model_validator(mode="after")
     def _a_verdict_is_consistent(self) -> ReviewResult:

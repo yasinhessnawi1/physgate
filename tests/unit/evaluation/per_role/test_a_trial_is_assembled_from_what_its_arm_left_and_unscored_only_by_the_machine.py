@@ -56,6 +56,10 @@ def _config(**changes: Any) -> RunConfig:
         os_layer=None,
         network_enforced=None,
         tool_servers=None,
+        # As the command records them: the bytes it measured, and the account by its name
+        # and the fingerprint of the credential it was given.
+        binary={"sha256": "d" * 64, "platform": "linux-x64"},
+        account={"name": params["account"], "token_sha256_prefix": "e" * 12},
     )
     params.update(changes)
     return RunConfig.model_validate_json(json.dumps(params))

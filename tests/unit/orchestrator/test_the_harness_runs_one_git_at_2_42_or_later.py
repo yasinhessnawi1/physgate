@@ -173,6 +173,8 @@ def test_a_run_recorded_before_the_field_loads_and_keeps_its_bytes(tmp_path: Pat
         "network_enforced",
         "queue_decisions",
         "os_layer_absent",
+        "binary",
+        "account",
         "design_review",
         "tool_environment",
         "tool_servers",
@@ -235,6 +237,7 @@ def _refusing_claude(tmp_path: Path) -> Path:
 def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
     params = {
         "auth": "api_key",
+        "account": "a-test-account",
         "gate_mode": "on",
         "models": {
             "decomposition": "claude-sonnet-5",

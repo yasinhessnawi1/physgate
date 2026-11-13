@@ -22,6 +22,8 @@ from pydantic import ValidationError
 
 import physgate.orchestrator.cli as orchestrator_cli
 from physgate.cli import main
+from physgate.orchestrator import binaries
+from physgate.orchestrator.binaries import KnownBinary
 from physgate.orchestrator.exceptions import RunConfigError
 from physgate.orchestrator.run_config import (
     HarnessState,
@@ -175,6 +177,7 @@ def test_a_changed_harness_is_refused_and_names_what_changed() -> None:
 def _decompose_args(tmp_path: Path, reportable: bool) -> list[str]:
     params = {
         "auth": "api_key",
+        "account": "a-test-account",
         "gate_mode": "on",
         "models": {
             "decomposition": "claude-sonnet-5",
@@ -271,6 +274,10 @@ def test_decompose_records_the_measured_harness_not_the_parameters_file_s(
     import physgate.evaluation.requirements as evaluation_requirements
 
     monkeypatch.setattr(evaluation_requirements, "REQUIREMENTS", ())
+    # Likewise the listing of binaries a reportable run may execute: the stand-in is listed.
+    stand_in = binaries.measure(os.environ["PHYSGATE_CLAUDE_BIN"])
+    listed = {("2.1.272", stand_in.platform): KnownBinary(sha256=stand_in.sha256, source="test")}
+    monkeypatch.setattr(binaries, "KNOWN_BINARIES", listed)
     main(_decompose_args(tmp_path, reportable=True))  # the call itself fails: no model here
     capsys.readouterr()
     recorded = json.loads((tmp_path / "run" / "run.json").read_text())

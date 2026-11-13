@@ -260,7 +260,8 @@ def test_a_new_run_s_configuration_measures_the_environment_its_parameters_name(
                 brief=tmp_path / "brief.md",
                 target=target,
                 run_dir=tmp_path / "run",
-            )
+            ),
+            Credential(mode="api_key", secret="sk-ant-test-dummy-not-a-credential"),
         )
 
     config = configured({**PARAMS, "tool_environment": named})
@@ -451,6 +452,10 @@ class _Rig:
         # Where the worktree lies is not these tests' subject: a test's own directory may be
         # one the machine's sessions write.
         monkeypatch.setattr(dispatch, "machine_writable", lambda: ())
+        # Nor what the runtime makes in the run repository's git directory, which this rig's
+        # repository does not have.
+        monkeypatch.setattr(dispatch, "runtime_git_paths", lambda *_a: None)
+        monkeypatch.setattr(dispatch, "common_dir", lambda repo: repo)
         monkeypatch.setattr(ClaudeDispatcher, "os_layer", lambda _self: layer)
         monkeypatch.setattr(
             ClaudeDispatcher, "environment", lambda _self: SimpleNamespace(system_managed=())

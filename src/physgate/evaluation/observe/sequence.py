@@ -14,7 +14,8 @@ The binary exposes no seed and no temperature, so there are two levels:
   - *dropped:* ``ts`` on every line; the ``seconds`` a worktree removal and the
     installation check took; a token line's ``message_id``; the scratch
     ``graph_root`` of a proposal check; a review's usage ``message_id``s; a
-    trajectory's seal, whose stream carries uuids and durations by design; the
+    trajectory's seal, whose stream carries uuids and durations by design; the flag
+    cache a session's binary held, which the provider's side changes between sessions; the
     escalation decision's latency; and the first line's configuration digest,
     which is replaced by comparing the two configurations with the run id mapped.
 
@@ -46,6 +47,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.evaluation.observe.exceptions import ManifestError
+from physgate.lines import split_lines
 from physgate.orchestrator.exceptions import GitError
 from physgate.orchestrator.git import git
 from physgate.orchestrator.run_config import RunConfig
@@ -61,7 +63,10 @@ DROPPED: dict[str, frozenset[str]] = {
     "install_checked": frozenset({"seconds"}),
     "tokens_used": frozenset({"message_id"}),
     "proposals_checked": frozenset({"graph_root"}),
-    "session_ended": frozenset({"trajectory_seal"}),
+    # The flag cache a session's binary held: the provider's side changes it between sessions
+    # minutes apart (measured), so it is recorded and counted, and compared nowhere.
+    "session_ended": frozenset({"trajectory_seal", "flag_cache"}),
+    "decomposed": frozenset({"flag_cache"}),
     "leftover_read": frozenset({"trajectory_seal"}),
     "run_started": frozenset({"config_sha256"}),
     # A spawned process's pid and start time are the machine's, never the same twice.
@@ -70,7 +75,11 @@ DROPPED: dict[str, frozenset[str]] = {
 #: Dropped at a path inside a line, per event kind; ``*`` stands for every item of
 #: a list. A review's message ids are random on any real API, like a token line's.
 DROPPED_AT: dict[str, tuple[tuple[str, ...], ...]] = {
-    "review_ran": (("result", "usage", "*", "message_id"),),
+    "review_ran": (
+        ("result", "usage", "*", "message_id"),
+        ("result", "managed", "*", "flag_cache"),
+    ),
+    "review_unavailable": (("managed", "*", "flag_cache"),),
     # How long the escalation backend took is measured on the wall clock, never the same
     # twice; what it answered, and how that routed, are compared.
     "escalation_decided": (("decision", "latency_ms"),),
@@ -127,7 +136,7 @@ def _lines(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     out: list[dict[str, Any]] = []
-    for raw in path.read_text().splitlines():
+    for raw in split_lines(path.read_text()):
         if raw.strip():
             line = json.loads(raw)
             if not isinstance(line, dict):
@@ -269,7 +278,7 @@ class RunView:
             ],
             "journal": [
                 {"raw": raw}
-                for raw in (journal.read_text().splitlines() if journal.exists() else [])
+                for raw in (split_lines(journal.read_text()) if journal.exists() else [])
             ],
             "git": self.git_trees(),
         }

@@ -33,12 +33,17 @@ from scripted_endpoint import (  # noqa: E402
 
 from physgate.knowledge import loader  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
+from physgate.orchestrator.decompose import binary_version  # noqa: E402
 from physgate.orchestrator.dispatch import RUN_RECORDS, ClaudeDispatcher  # noqa: E402
 from physgate.orchestrator.exceptions import InvocationError  # noqa: E402
 from physgate.orchestrator.git import commit_all, git  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
-from physgate.orchestrator.invocation import claude_binary  # noqa: E402
-from physgate.orchestrator.managed import system_managed_paths  # noqa: E402
+from physgate.orchestrator.invocation import (  # noqa: E402
+    TRAFFIC_ALLOWED_VERSIONS,
+    claude_binary,
+    session_env_settings,
+)
+from physgate.orchestrator.managed import flag_cache, system_managed_paths  # noqa: E402
 from physgate.orchestrator.merge import RunGit  # noqa: E402
 from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD  # noqa: E402
 from physgate.orchestrator.ports import SessionRequest  # noqa: E402
@@ -201,10 +206,27 @@ def test_a_session_reads_works_and_proposes_under_the_generated_settings(
     assert facts.owner_is_session_user  # the same user could make it writable again
     # The system tier is recorded as it is.
     assert [f.path for f in facts.system_managed] == [str(p) for p in system_managed_paths()]
-    # The settings that keep the binary's served catalog and remote flags off, as recorded.
+    # The switches the pin's sessions carry, as recorded: the earlier pins keep the served
+    # catalog and remote flags off; on 2.1.322 that traffic is on by the owner's choice.
+    version = binary_version(claude_binary())
     assert facts.traffic is not None
-    assert (facts.traffic.nonessential_traffic, facts.traffic.telemetry) == ("disabled", "disabled")
+    assert facts.traffic.switches == tuple(session_env_settings(version).items())
+    on = version in TRAFFIC_ALLOWED_VERSIONS
+    expected = ("enabled", "enabled") if on else ("disabled", "disabled")
+    assert (facts.traffic.nonessential_traffic, facts.traffic.telemetry) == expected
     assert report.managed_drift is None
+    # On 2.1.322 the session's own debug log is read for the catalog and flags it saw, and
+    # removed with the credential; on the earlier pins a session writes no such log.
+    assert (report.observed_traffic is not None) == on
+    assert not (sdir / "config" / "debug.log").exists()
+    assert ("--debug-file" in record["argv"]) == on
+    # The flag cache the binary left is recorded on 2.1.322 as it is read from the session's
+    # own configuration directory, and never on the earlier pins, which fetch no flags.
+    # Measured at the scripted endpoint (macOS, 12.11.2026): 2.1.322 leaves about 1,250
+    # flags there even so, fetched from the provider's own service; 2.1.301 leaves none.
+    left = flag_cache(sdir / "config")
+    assert report.flag_cache == (left if on else None)
+    assert on or left is None
 
 
 def test_the_first_tool_but_read_is_refused_until_the_reading_is_done(
@@ -256,6 +278,22 @@ def test_the_turn_limit_is_an_infrastructure_outcome(tmp_path: Path, install_bin
     steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("x")]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps, cfg)
     assert report.end.cause == "turn_limit"
+
+
+#: What a dispatched session whose request outgrew the window ends under, per pin: the
+#: binary's own name for it from 2.1.322 on, and the cause without a name before.
+OUTGREW_THE_WINDOW = {"2.1.301": "unexpected_exit", "2.1.322": "prompt_too_long"}
+
+
+def test_a_dispatched_session_whose_request_outgrew_the_window_ends_under_its_pin_s_cause(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    too_long = failure(400, "invalid_request_error", "prompt is too long: 210000 tokens > 200000")
+    api, (report, _), _ = dispatch(tmp_path, install_bin, [too_long])
+    version = binary_version(claude_binary())
+    assert version in OUTGREW_THE_WINDOW, f"nothing was measured on {version}"
+    assert (report.end.outcome, report.end.cause) == ("infrastructure", OUTGREW_THE_WINDOW[version])
+    assert report.attempt_commit is None and report.trajectory_tampered is None
 
 
 def test_a_binary_that_is_not_the_recorded_version_is_refused_before_any_spawn(
@@ -676,6 +714,41 @@ def test_a_tail_after_the_runtime_s_result_is_found_and_not_read(
     # What was read ends at the runtime's own result: the account took no tail line.
     assert "msg_forged" not in {u.message_id for u in report.usage}
     assert len(report.usage) == len(reads) + 2  # every read, the spec read, and "done"
+
+
+def test_the_binary_s_full_disk_event_forged_onto_a_stream_with_space_to_spare_is_a_forged_tail(
+    tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As above, the test stands in for a foreign writer; here the tail is the one event a
+    # binary writes after its result when a full disk lost its records, exact in every
+    # field and naming this very session. The volume was not full, so it is a forgery on
+    # every pin, the one that writes such an event included.
+    import physgate.orchestrator.dispatch as dispatch_module
+
+    real_redact = dispatch_module.redact
+
+    def redact_then_append(path: Path, secret: str | None) -> None:
+        real_redact(path, secret)
+        if path.name == "stdout.jsonl":
+            session = path.parent.name
+            event = {
+                "type": "system",
+                "subtype": "session_writes_lost",
+                "error_code": "ENOSPC",
+                "lost": ["transcript"],
+                "transcript_session_ids": [session],
+                "uuid": "0a37ef0a-4f10-4967-bafb-d35df17b58a4",
+                "session_id": session,
+            }
+            with path.open("a") as stream:
+                stream.write(json.dumps(event) + "\n")
+
+    monkeypatch.setattr(dispatch_module, "redact", redact_then_append)
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    assert report.trajectory_tampered is not None, "a forged event was taken on its word"
+    assert report.end.cause != "disk_full"
 
 
 def test_a_clean_stream_is_sealed_as_it_is_on_disk(tmp_path: Path, install_bin: Path) -> None:
