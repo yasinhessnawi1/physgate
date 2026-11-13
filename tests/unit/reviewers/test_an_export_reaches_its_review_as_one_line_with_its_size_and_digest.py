@@ -323,6 +323,7 @@ def test_an_ascii_stl_file_is_summarised_and_its_name_is_not_shown() -> None:
         ("no endsolid", ASCII_STL.rsplit(b"endsolid", 1)[0]),
         ("a vertex of two numbers", ASCII_STL.replace(b"vertex 10 0 0", b"vertex 10 0")),
         ("a vertex that is a word", ASCII_STL.replace(b"vertex 10 0 0", b"vertex ten 0 0")),
+        ("a vertex at infinity", ASCII_STL.replace(b"vertex 10 0 0", b"vertex inf 0 0")),
         ("no outer loop", ASCII_STL.replace(b" outer loop\n", b"", 1)),
         ("a facet not ended", ASCII_STL.replace(b"endfacet\n", b"", 1)),
         ("text after endsolid's line", ASCII_STL + b"solid again\n"),
@@ -486,6 +487,22 @@ def test_a_link_named_like_an_export_stays_in_the_diff(tmp_path: Path) -> None:
     linked = _git(repo, "rev-parse", "HEAD")
     diff = packet._diff(repo, commit, linked, _admit((STEP_PATH, b"../chassis.py")))
     assert b"new file mode 120000" in diff and b"+../chassis.py" in diff
+    assert _header() not in diff
+
+
+def test_a_link_whose_target_reads_as_an_stl_file_stays_in_the_diff(tmp_path: Path) -> None:
+    # A link's blob is its target: here one that is itself a valid, empty ASCII STL file.
+    target = "solid x\nendsolid x"
+    assert exports.summary(STL_PATH, target.encode()) is not None
+    repo, base, commit = _change(tmp_path, {}, {f"{MODULE}/chassis.py": b"length = 120\n"})
+    link = repo / STL_PATH
+    link.parent.mkdir(parents=True)
+    link.symlink_to(target)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "link")
+    linked = _git(repo, "rev-parse", "HEAD")
+    diff = packet._diff(repo, commit, linked, _admit((STL_PATH, target.encode())))
+    assert b"new file mode 120000" in diff
     assert _header() not in diff
 
 
