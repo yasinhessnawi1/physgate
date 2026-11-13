@@ -26,7 +26,11 @@ from task_fixtures import controller, own_task, write_task_dir  # noqa: E402
 from physgate.evaluation.baseline.runner import RunSet, setup_from_run  # noqa: E402
 from physgate.evaluation.per_role.arms.raw import RawSetup, held_out_seen, pins  # noqa: E402
 from physgate.evaluation.tiers.heldout import tier_digest  # noqa: E402
-from physgate.evaluation.tiers.store import withheld_root, write_version  # noqa: E402
+from physgate.evaluation.tiers.store import (  # noqa: E402
+    withheld_root,
+    work_root,
+    write_version,
+)
 from physgate.evaluation.tiers.task import Role, Task, canonical_json, parse_task  # noqa: E402
 from physgate.hooks.settings import CONFIG_NAME, PROFILE_TOOLS  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
@@ -100,6 +104,7 @@ def stand_in_store(root: Path) -> StandInStore:
     )
     held_out = (
         str(withheld_root(store, "control")),
+        str(work_root(store, "control")),
         *(str(directory / tier) for tier in TIERS[1:]),
     )
     return StandInStore(store, manifest.version, tasks, canaries, held_out)

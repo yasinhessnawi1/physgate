@@ -381,3 +381,74 @@ def test_a_version_two_of_whose_tasks_share_a_brief_is_refused_before_any_sessio
         with pytest.raises(BaselineError, match="share a brief"):
             _round(store, run_set((run, 0)), tmp_path / "round", arm)
     assert arm.calls == []
+
+
+def test_a_run_recorded_against_another_endpoint_is_refused_before_any_credential(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """The record's endpoint is compared with the operator's, never taken as a destination.
+
+    A record that names another host, by mistake or by a hand that edited it, would otherwise
+    have the operator's credential sent there.
+    """
+    run = harness_run(
+        tmp_path / "runs", store.tasks["visible"][0], store, endpoint="http://127.0.0.1:8080"
+    )
+    asked: list[str] = []
+
+    def setup(config: Any, role: Any) -> Any:  # noqa: ANN401 - the runner's setup hook
+        asked.append(config.endpoint)
+        return setup_for(config, role)
+
+    arm = StandInArm()
+    with pytest.raises(BaselineError, match="endpoint"):
+        run_baseline(
+            store=store.store,
+            role="control",
+            version=store.version,
+            runs=run_set((run, 0)),
+            out=tmp_path / "round",
+            setup_for=setup,
+            score=_score,
+            prices=load_price_sheet(PRICES),
+            arm=arm,
+            sleep=[].append,
+        )
+    assert asked == [] and arm.calls == []
+
+
+@pytest.mark.parametrize(
+    "omit", ["withheld", "work", "validation", "held_out"], ids=lambda o: f"no {o} root"
+)
+def test_a_run_that_does_not_withhold_the_store_s_protected_places_is_refused(
+    tmp_path: Path, store: StandInStore, omit: str
+) -> None:
+    """The raw session withholds what the harness run withheld: so the run must withhold it all."""
+    kept = [root for root in store.held_out if not root.endswith(f"/{omit}")]
+    assert len(kept) == len(store.held_out) - 1
+    run = harness_run(
+        tmp_path / "runs",
+        store.tasks["visible"][0],
+        store,
+        held_out=kept,
+        held_out_sha256=[_digest_of(root) for root in kept],
+    )
+    _refused(store, run_set((run, 0)), tmp_path / "round", "withhold")
+
+
+@pytest.mark.parametrize("tier", ["validation", "held_out"])
+def test_a_run_that_did_not_look_for_a_protected_canary_of_the_version_is_refused(
+    tmp_path: Path, store: StandInStore, tier: str
+) -> None:
+    dropped = store.tasks[tier][0].canary
+    canaries = [c for c in store.canaries if c != dropped]
+    run = harness_run(
+        tmp_path / "runs", store.tasks["visible"][0], store, held_out_canaries=canaries
+    )
+    _refused(store, run_set((run, 0)), tmp_path / "round", "canar")
+
+
+def _digest_of(root: str) -> str:
+    from physgate.evaluation.tiers.heldout import tier_digest
+
+    return tier_digest(Path(root))
