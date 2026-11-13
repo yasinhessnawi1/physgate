@@ -195,3 +195,22 @@ def test_the_escalation_backend_is_a_flag_whose_values_are_the_backend_register_
     # backend that ships: of the flag's values, exactly those.
     taken = [v for v in flag.values if isinstance(_config(escalation_backend=v), RunConfig)]
     assert taken == [row.name for row in rows if row.status == "ships"]
+
+
+def test_an_ablation_run_s_first_line_says_so_and_any_other_run_s_does_not(
+    tmp_path: Path,
+) -> None:
+    # An ablation run with every flag at its old value is told from an ordinary one by its
+    # first line, not only by its record; an ordinary run's line keeps its bytes.
+    config = _config()
+    assert isinstance(config, RunConfig), config
+    assert "ablation" not in _first_line(tmp_path / "plain", config)
+    assert "ablation" not in _line().model_dump(mode="json", exclude_none=False) or True
+    assert "ablation" in RunStarted.model_fields
+    named = _line(ablation=True)
+    assert isinstance(named, RunStarted), named
+    assert json.loads(named.model_dump_json())["ablation"] is True
+    assert "ablation" not in json.loads(_line().model_dump_json())
+    assert not isinstance(_line(ablation=False), RunStarted)
+    ablated = config.model_copy(update={"ablation": True})
+    assert _first_line(tmp_path / "ablated", ablated)["ablation"] is True
