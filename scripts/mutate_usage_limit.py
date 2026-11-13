@@ -289,7 +289,9 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
     ),
 )
 
-_FAILED = re.compile(r"^FAILED \S+ - (.*)$", re.M)
+#: A failure's line in pytest's summary: the test's id (a parameter's id may hold spaces, inside
+#: its brackets), then its reason.
+_FAILED = re.compile(r"^FAILED [^\s\[]+(?:\[[^\]]*\])? - (.*)$", re.M)
 
 
 def run_rows(label: str) -> tuple[str, str]:

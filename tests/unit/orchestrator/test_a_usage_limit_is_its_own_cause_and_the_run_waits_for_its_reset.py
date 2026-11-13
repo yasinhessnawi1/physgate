@@ -394,6 +394,8 @@ def _at(stamp: str) -> datetime:
         # In September Oslo is UTC+2; the next day across the change to summer time is +2 too.
         (RESETS, "2026-09-26T10:00:00", "2026-09-26T11:20:00"),
         ("3am (Europe/Oslo)", "2026-03-28T12:00:00", "2026-03-29T01:00:00"),
+        # West of UTC the zone's date is a day behind UTC's late in the evening: still that day.
+        ("11pm (America/New_York)", "2026-11-14T03:00:00", "2026-11-14T04:00:00"),
     ],
 )
 def test_the_reset_is_the_next_time_that_wall_time_comes_in_its_zone(
@@ -489,6 +491,7 @@ def test_a_session_on_the_limit_spends_no_retry_and_no_attempt_and_halts_waiting
     assert [r.attempt for r in rig.dispatcher.requests] == [1]
     line = TaskLedger(tmp_path / "ledger.jsonl").find("s1")
     assert line is not None and line.attempt_count == 1
+    assert _state(rig).halt_resumable(), "a resume, not a person, takes the run on"
     # A plain run of the halted run starts nothing either.
     assert rig.open().run().kind == "halted"
     assert len(rig.dispatcher.requests) == 1
