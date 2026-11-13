@@ -17,13 +17,14 @@ one that claims an attempt whose shown hit it left unanswered, or a hit no scan 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
-from loop_fakes import FakeChanges, FakeDispatcher, FakeReviewer
+from loop_fakes import FakeChanges, FakeDispatcher, FakeReviewer, Rig
 from test_an_unreviewed_attempt_s_scan_hits_go_to_the_next_review import (
     LONG_LINE,
     _dismissed_then_blocked,
@@ -185,3 +186,36 @@ def test_replay_refuses_a_review_line_whose_judged_attempts_its_answers_do_not_b
     # The log to that line: what follows it was decided on the line as it was written.
     with pytest.raises((ValueError, CorruptEventLogError)):
         replay(events[: last + 1])
+
+
+# -- what the loop records of a review, its replay bears out -------------------------------------
+
+
+def _judged_then_reviewed_again(run_dir: Path) -> Rig:
+    """Attempt 2's review judges attempt 1 and rejects; attempt 3's review blocks."""
+    both = (answer(hit("sess-1"), 1), answer(hit("sess-2")))
+    reviewer = FakeReviewer(
+        results={1: result("fail", 1, *both), 2: result("blocked", 2, answer(hit("sess-3")))}
+    )
+    return _rig(run_dir, reviewer=reviewer)
+
+
+@pytest.mark.parametrize(
+    ("build", "judged_by_line"),
+    [(_dismissed_then_blocked, [(2, (1,))]), (_judged_then_reviewed_again, [(2, (1,)), (3, ())])],
+    ids=["a review that judges an earlier attempt", "a later review given none"],
+)
+def test_the_loop_records_of_a_review_only_what_its_replay_bears_out(
+    tmp_path: Path, build: Callable[[Path], Rig], judged_by_line: list[tuple[int, tuple[int, ...]]]
+) -> None:
+    # The loop and replay hold a review line to one rule: a line the loop writes of the earlier
+    # hits a review was shown and judged is one its own replay of the log accepts.
+    run_dir = tmp_path / "run"
+    try:
+        _run(build(run_dir), "s1")
+    except (ValueError, CorruptEventLogError) as refused:
+        assert "review line" not in str(refused), (
+            f"the loop wrote a review line replay refuses: {refused}"
+        )
+        raise
+    assert _review_judged(run_dir) == judged_by_line
