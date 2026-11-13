@@ -190,6 +190,25 @@ SYSCTL_PREFIXES = (
 IOCTL_DEVICES = ("/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", "/dev/tty")
 
 
+def _refuse_roots_inside_denials(read_denied: Sequence[str], roots: Sequence[str]) -> None:
+    """Refuse a root of the server's that lies inside a place it may not read.
+
+    The same on both platforms: a read, exec or command root inside a denied place would be
+    opened again by its own allowance, so no server is offered (fail closed). The server's own
+    directory is not one of them: it is the one place beneath a denied parent opened again.
+
+    Raises:
+        ContainmentError: a root lies inside a denied place, or is one.
+    """
+    denied = [os.path.realpath(p) for p in read_denied]
+    for root in roots:
+        real = os.path.realpath(root)
+        for place in denied:
+            if real == place or real.startswith(place.rstrip("/") + "/"):
+                msg = f"the server's root {root} lies inside {place}, which it may not read"
+                raise ContainmentError(msg)
+
+
 #: What a server reads on macOS beyond its own roots: the system's libraries, frameworks and
 #: programs (the loader's shared cache lies beneath ``/System``), and the clock's database.
 MACOS_SYSTEM = (
@@ -241,6 +260,7 @@ def seatbelt_profile(
     if not command:
         msg = "a contained server names the command it runs"
         raise ContainmentError(msg)
+    _refuse_roots_inside_denials(read_denied, (*read_roots, *exec_roots, command))
     for pattern in devices:
         if not _DEVICE_PATTERN.fullmatch(pattern):
             msg = f"the device pattern {pattern!r} cannot be written into a sandbox profile"
@@ -352,7 +372,8 @@ def bwrap_args(
 
     An allowlist: the server's root holds the system's libraries and programs
     (:data:`LINUX_SYSTEM`), its read roots, and its own directory, and nothing else of the
-    machine, so no service's socket and no program outside them is there. Within its roots, a
+    machine, so no service's socket and no program outside them is there. A root inside a
+    denied place is refused. Within anything the root holds, the system's places too, a
     denied directory is hidden under an empty filesystem and a denied file under ``/dev/null``;
     a denied place that does not exist yet has its nearest existing parent rebuilt from the
     entries it has at launch, so one made later is not there inside (fail closed). A fresh
@@ -365,10 +386,13 @@ def bwrap_args(
     server may run the system's own programs under ``/usr``. They run inside the same
     wrapper: no network, nothing outside the list, writes only into its own directory.
     """
+    _refuse_roots_inside_denials(read_denied, read_roots)
     roots = sorted({os.path.realpath(r) for r in read_roots if os.path.lexists(r)}, key=_depth)
     roots = [r for r in roots if not any(_within(r, o) and r != o for o in roots)]
+    # Every place the root holds, the system's among them: a denial inside any is masked.
+    mounted = [*roots, *(os.path.realpath(p) for p in LINUX_SYSTEM if os.path.exists(p))]
     denied = {os.path.realpath(p) for p in read_denied}
-    inside = [p for p in denied if any(_within(p, r) for r in roots)]
+    inside = [p for p in denied if any(_within(p, m) for m in mounted)]
     directories = sorted((p for p in inside if os.path.isdir(p)), key=_depth)
     directories = [d for d in directories if not any(_within(d, o) and d != o for o in directories)]
     files = sorted(p for p in inside if os.path.lexists(p) and not os.path.isdir(p))
@@ -380,7 +404,7 @@ def bwrap_args(
         {_nearest_existing(p) for p in inside if not os.path.lexists(p)} - {"/"},
         key=_depth,
     )
-    rebuilt = [p for p in rebuilt if not hidden(p) and any(_within(p, r) for r in roots)]
+    rebuilt = [p for p in rebuilt if not hidden(p) and any(_within(p, m) for m in mounted)]
     args = ["--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-ipc"]
     for place in LINUX_SYSTEM:
         if os.path.islink(place):
