@@ -9,8 +9,8 @@ declared.
 
 from __future__ import annotations
 
-from physgate.ui import actions, library, readers
-from physgate.ui.routes import Route, asset, index, runs
+from physgate.ui import actions, library, readers, simulation
+from physgate.ui.routes import Route, asset, engine_catalogue, index, runs
 
 #: The path every route over one run starts with.
 RUN = "/api/runs/{root:index}/{name:name}"
@@ -19,6 +19,7 @@ RUN = "/api/runs/{root:index}/{name:name}"
 ROUTES: tuple[Route, ...] = (
     Route("GET", "/", "read", index),
     Route("GET", "/assets/{name:asset}", "read", asset),
+    Route("GET", "/api/engines", "read", engine_catalogue),
     Route("GET", "/api/runs", "read", runs),
     Route("GET", "/api/prices", "read", readers.prices),
     Route("GET", "/api/library", "read", library.listing),
@@ -49,6 +50,17 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", f"{RUN}/graph/diff/{{from:revision}}/{{to:revision}}", "read", readers.diff),
     Route("GET", f"{RUN}/queue", "read", readers.queue),
     Route("GET", f"{RUN}/queue/items/{{position:index}}", "read", readers.queue_item),
+    # The run's simulation records: what each attempt sealed, read from the event log alone.
+    Route("GET", f"{RUN}/series", "read", simulation.listing),
+    Route(
+        "GET", f"{RUN}/series/{{subtask:subtask}}/{{attempt:attempt}}", "read", simulation.attempt
+    ),
+    Route(
+        "GET",
+        f"{RUN}/series/{{subtask:subtask}}/{{attempt:attempt}}/{{record:record}}",
+        "read",
+        simulation.record,
+    ),
     # The one route that acts: a decision, through the approval queue's own function.
     Route("POST", f"{RUN}/queue/decisions", "act", actions.decide),
 )

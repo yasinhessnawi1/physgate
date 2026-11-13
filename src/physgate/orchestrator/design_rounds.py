@@ -40,6 +40,7 @@ from physgate.orchestrator.decompose import (
     replan_findings,
     replan_prompt,
     require_startable,
+    retry_prompt,
     start_run,
 )
 from physgate.orchestrator.decomposition_review import review_over, review_spawned
@@ -479,7 +480,9 @@ def _one_round(
             ),
         )
         workdir = retry_dir(loop.run_dir, k)
-        outcome = loop.make_call(brief, workdir=workdir, prompt=prompt, session_id=again)
+        # Sent the prompt as it was, and, where a unit of the plan was refused, why.
+        told = retry_prompt(brief, sorted(loop.config.models.roles), prompt, refused)
+        outcome = loop.make_call(brief, workdir=workdir, prompt=told, session_id=again)
         refused_ended, call_ended = call_ended[0], loop.now()
     cause: PlanCause | None = outcome.cause
     detail = outcome.detail
@@ -611,7 +614,11 @@ def decompose_in_rounds(
             spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
             retried = (RetriedCall(round=1, call=spent, detail=outcome.detail or RETRIED_CAUSE),)
             outcome = make_call(
-                brief, workdir=retry_dir(run_dir, 1), prompt=None, session_id=str(uuid.uuid4())
+                brief,
+                workdir=retry_dir(run_dir, 1),
+                # The brief's prompt as it was, and, where a unit of the plan was refused, why.
+                prompt=retry_prompt(brief, sorted(config.models.roles), None, outcome),
+                session_id=str(uuid.uuid4()),
             )
         found = start_run(
             outcome,

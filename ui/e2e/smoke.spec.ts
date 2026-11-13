@@ -160,9 +160,8 @@ test("a ledger the server refuses is shown as a refusal with its reason, and not
 
 test("an address with nothing registered says so, never a blank page", async ({ page }) => {
   const seen = await watch(page);
-  // Simulation has no views yet (its views arrive with the simulation records); its address
-  // from before still lands on a page that says so.
-  await page.goto("/#/simulation");
+  // Concept has no views yet; its address from before still lands on a page that says so.
+  await page.goto("/#/concept");
   await expect(page.getByText("Nothing is registered at this address")).toBeVisible();
   await expect(page.locator(".pg-page-title")).toHaveText("Nothing here");
   await expect(page.locator('nav[aria-label="Areas"] .pg-nav-link').first()).toBeVisible();

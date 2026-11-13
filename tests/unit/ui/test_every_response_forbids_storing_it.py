@@ -16,6 +16,7 @@ import pytest
 from ui_library_rig import STANDARDS_CANDIDATE, build_library
 from ui_rig import METHODS, context_over, escalated_run, fake_ui, real_runs, sealed_session, serving
 
+from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.state.store import journal_records_after
 from physgate.ui.routes import Context
 from physgate.ui.table import ROUTES
@@ -46,6 +47,13 @@ def _targets(world: dict[str, Path]) -> list[str]:
         "revision": "1",
         "round": "2",
         "node": journal_records_after(run / "store", 0)[-1].node_id,
+        # The simulation routes: a subtask and an attempt the run's log names.
+        "subtask": next(
+            e.subtask_id for e in read_events(run / "events.jsonl") if isinstance(e, SessionEnded)
+        ),
+        "attempt": "1",
+        # A record id a control session records; this run recorded none, so it is refused.
+        "record": "step_nominal",
         "library_file": "standards",
         "role": "control",
         "candidate": STANDARDS_CANDIDATE,
@@ -88,3 +96,26 @@ def test_a_refused_host_or_origin_is_answered_no_store_too(world: dict[str, Path
                 status, answered, _ = live.request("GET", "/", host=host, headers=headers)
                 assert status == 403
                 assert answered.get("cache-control") == "no-store"
+
+
+def test_the_engine_catalogue_answers_no_store_whether_read_absent_or_refused(
+    world: dict[str, Path],
+) -> None:
+    from physgate.ui import engines
+
+    plain = context_over(world["root"], ui_root=world["ui"])
+    repo = Path(__file__).resolve().parents[3]
+    states = (
+        engines.load(repo, plain.allowlist),
+        engines.ABSENT,
+        engines.EngineCatalogue(state="refused", reason="it is a link"),
+    )
+    assert [held.state for held in states] == ["read", "absent", "refused"]
+    seen = 0
+    for held in states:
+        with serving(replace(plain, engines=held)) as live:
+            for method in METHODS:
+                status, headers, _ = live.request(method, "/api/engines")
+                assert headers.get("cache-control") == "no-store", (held.state, method, status)
+                seen += 1
+    assert seen == 3 * len(METHODS)

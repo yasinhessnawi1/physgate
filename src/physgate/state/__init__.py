@@ -56,6 +56,7 @@ from physgate.state.store import (
     node_file_path,
     node_history,
     write_node_file,
+    written_quantity,
 )
 from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
 from physgate.state.vocabulary import (
@@ -111,6 +112,7 @@ __all__ = [
     "Store",
     "StoreStaleError",
     "followed_payload",
+    "written_quantity",
     "RecordMovedError",
     "HeldFile",
     "identity_of",

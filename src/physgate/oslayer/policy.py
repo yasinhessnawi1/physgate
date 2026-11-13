@@ -30,6 +30,11 @@ writable place three rules apply:
 - a root above a writable place (the run's ``sessions/`` above the session's
   home) is not named at all: the OS already denies everything in it but the home.
 
+The home is writable, but for what a program started outside the sandbox would read from it:
+git's user configuration, and every shell startup file, which a shell the binary starts
+outside the sandbox would run (:mod:`physgate.hooks.shell_startup`). Each is a protected
+root, so it is named here like any other.
+
 **The node proposals are the file tools' alone.** A node reaches the graph as a proposal
 file the Write and Edit tools write in ``.physgate/proposals``, where the hooks check it
 before it exists. The hooks refuse a command that names the directory, but a command that
@@ -241,6 +246,12 @@ def board_devices(platform: str) -> tuple[str, ...]:
     """A board's devices no command on ``platform`` opens, as the patterns the sandbox reads."""
     key = "linux" if platform.startswith("linux") else platform
     return tuple(BOARD_DEVICES.get(key, ()))
+
+
+#: The same table under the name the tool servers' wrapper (``containment``) reads it by, so a
+#: contained server is denied exactly the devices a session's commands are. One function, two
+#: names, until the wrapper takes the new one.
+serial_devices = board_devices
 
 
 def _spelled(*paths: str) -> list[str]:

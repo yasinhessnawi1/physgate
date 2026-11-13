@@ -9,10 +9,12 @@ for its unit, so a check that refuses one of them is a check that fails a correc
 Two things are held here:
 
 - **No regression.** Every value the catalogue gives a kind passes that kind's unit and sign
-  rules, and its envelope where it has one, in every domain; the only refusals are the four
-  units no name can save (``count/update`` three times, and ``rad/(s*count)``), which run 4's
-  own gate refused (seq 182 and seq 403). At a64e805f three values are mis-kinded by the
-  ``_radius`` and ``_frequency`` suffixes (gate seq 271), so this is red until the fix.
+  rules, and its envelope where it has one, in every domain; the only refusals are the three
+  units no name can save (``count/update`` three times), which run 4's own gate refused (seq
+  182). Run 4's gate also refused ``rad/(s*count)`` (seq 403) for its bracket; since the unit
+  grammar takes a bracketed denominator (11.11.2026) it parses, and has no kind. At a64e805f
+  three values are mis-kinded by the ``_radius`` and ``_frequency`` suffixes (gate seq 271), so
+  this is red until the fix.
 - **The coverage the fix must reach**, counted by the research's own script with the approved
   row set (``classify.py`` narrowed to research section 6 as ruled on 04.11.2026):
 
@@ -25,8 +27,8 @@ Two things are held here:
   - by qualifier (recorded only)       0           32
   a sign check                         5           37
   a definitional envelope (0 to 1)     1           2
-  unchecked: the unit parses, no kind  161         93
-  unit refused by parse                4           4
+  unchecked: the unit parses, no kind  161         93 (94 with the bracket taken)
+  unit refused by parse                4           4 (3 with the bracket taken)
   a kind the unit disagrees with       3           0
   ===================================  ==========  =====================
 
@@ -54,12 +56,12 @@ from physgate.gate.units import UnitRefusedError, parse
 
 VALUES = json.loads((Path(__file__).parent / "run4" / "values.json").read_text())
 
-#: The four values whose unit fails under any name, as run 4's own gate refused them.
+#: The three values whose unit fails under any name, as run 4's own gate refused them. Its gate
+#: refused ``gyro_sensitivity`` in ``rad/(s*count)`` too, for the bracket the grammar now takes.
 PARSE_REFUSED = {
     ("cruise_drive_increment", "count/update"),
     ("cruise_drive_increment_applied", "count/update"),
     ("proposed_cruise_drive_increment", "count/update"),
-    ("gyro_sensitivity", "rad/(s*count)"),
 }
 
 #: Every run-4 name the approved row set gives a kind, and the kind. Every other run-4 name stays
@@ -218,7 +220,8 @@ def test_the_fixture_is_run_4_s_203_values_as_name_value_and_unit_only() -> None
     assert len({r["name"] for r in VALUES}) == 174
     assert all(set(r) == {"name", "value", "unit"} for r in VALUES)
     assert {(r["name"], r["unit"]) for r in VALUES if not _parses(r)} == PARSE_REFUSED
-    assert sum(not _parses(r) for r in VALUES) == 4
+    assert sum(not _parses(r) for r in VALUES) == 3
+    assert any(r["unit"] == "rad/(s*count)" and _parses(r) for r in VALUES)
 
 
 @pytest.mark.parametrize("domain", DOMAINS)
@@ -285,8 +288,8 @@ def test_the_coverage_on_run_4_is_the_approved_row_set_s() -> None:
         "by qualifier": 32,
         "sign check": 37,
         "envelope": 2,
-        "unchecked": 93,
-        "unit refused by parse": 4,
+        "unchecked": 94,
+        "unit refused by parse": 3,
     }
     assert len({r["name"] for r in VALUES if kind_of(r["name"]) is not None}) == 86
 

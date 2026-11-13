@@ -19,11 +19,19 @@ write only its worktree, its home and the temporary directories.
 against the record, so a new run and every resume start from the recorded bytes; each later one
 by a scan against that measure. Any difference refuses the session before its worktree is
 opened or anything of it is installed.
+
+**Wiring a session.** The environment's own file says which programs, directories, links and
+variables a session needs (:mod:`physgate.toolenv.session`); here they are made for one session
+and joined to its environment, with the directory of its programs first on its search path.
+
+**After every session.** The environment is scanned once more when a session has ended. A
+change then was made while that session ran, by a write no layer refused; it is named with the
+session, and nothing the session left is collected or committed.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -43,6 +51,7 @@ from physgate.toolenv.record import (
     require_unchanged,
     run_program,
 )
+from physgate.toolenv.session import wire
 
 
 class NamedToolEnvironment(BaseModel):
@@ -137,3 +146,43 @@ def hold_before_session(
         )
         raise InvocationError(why, **exc.context) from exc
     return at_start
+
+
+def wire_session(
+    recorded: ToolEnvironment, *, bin_dir: Path, temp: Path, taken: Collection[str]
+) -> dict[str, str]:
+    """Make what one session needs of the environment; the variables its environment gains.
+
+    Raises:
+        InvocationError: the environment's session file is refused; nothing was made.
+    """
+    try:
+        return wire(recorded, bin_dir=bin_dir, temp=temp, taken=taken)
+    except ToolEnvironmentError as exc:
+        raise InvocationError(f"{exc}, so no session is started", **exc.context) from exc
+
+
+def session_environment(
+    env: Mapping[str, str], variables: Mapping[str, str], bin_dir: Path
+) -> dict[str, str]:
+    """``env`` with the environment's variables and its programs first on the search path.
+
+    Raises:
+        InvocationError: a variable is one the session's environment already holds. The file
+            was judged against the environment as it stood then; what the installer added
+            since is held here.
+    """
+    held = sorted(set(variables) & set(env))
+    if held:
+        msg = "the tool environment's session file names a variable the session already holds"
+        raise InvocationError(msg, variable=held[0])
+    return {**env, **variables, "PATH": f"{bin_dir}:{env['PATH']}"}
+
+
+def changed_while_running(recorded: ToolEnvironment, at_start: str) -> str | None:
+    """Why the environment is not what it was before the session that just ended, if it is not."""
+    try:
+        require_unchanged(recorded, at_start)
+    except ToolEnvironmentError as exc:
+        return f"the tool environment changed while the session ran: {exc}"
+    return None

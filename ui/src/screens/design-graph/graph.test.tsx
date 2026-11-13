@@ -2,7 +2,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type { GraphDiff, NodeRecord } from "../../api/graph";
+import type { GraphDiff, NodeRecord, Writer } from "../../api/graph";
 import type { RunConfig } from "../../api/records";
 import type { GateCheck } from "../../api/run";
 import { GraphNode } from "../../design/components/graph/GraphNode";
@@ -30,7 +30,10 @@ function node(
     owner: "electrical",
     revision,
     provenance: Object.fromEntries(
-      quantities.map(([name]) => [name, { source: "datasheet", writtenBy: "electrical" }]),
+      quantities.map(([name]) => [
+        name,
+        { source: "datasheet", writtenBy: "electrical", series: null },
+      ]),
     ),
     constrains,
     quantities,
@@ -213,6 +216,97 @@ describe("the node inspector", () => {
     expect(html.indexOf("r3")).toBeLessThan(html.indexOf("Created at revision r1"));
     expect(html).toContain("What changed r1 → r3");
     expect(html).toContain("Decomposition agent");
+  });
+});
+
+describe("a quantity read off a simulation record links to that record", () => {
+  const LOOP: NodeRecord = {
+    ...node("control.loop", [], [["phase_margin", { value: 0.5534885189031078, unit: "rad" }]], 4),
+    domain: "control",
+    owner: "control",
+    provenance: {
+      phase_margin: {
+        source: "read off the session's own record",
+        writtenBy: "control",
+        series: { record: "loop_nominal", extract: "phase_margin", trace: null },
+      },
+    },
+  };
+  const inspect = (writtenBy: Writer, revision = 4) =>
+    renderToStaticMarkup(
+      <NodeInspector
+        node={LOOP}
+        nodes={[LOOP]}
+        checks={[]}
+        config={CONFIG}
+        history={{
+          ok: true,
+          value: {
+            nodeId: "control.loop",
+            baseline: 1,
+            history: [{ revision, op: "write", version: 2, writtenBy, node: LOOP }],
+          },
+        }}
+        historyRoute="/x"
+        onHistoryAgain={() => undefined}
+        source={SOURCE}
+        runLabel="Run 16 Oct, 13:58"
+        diffHref={(a, b) => `#d${String(a)}-${String(b)}`}
+        nodeHref={(id) => `#${id}`}
+        recordHref={(w, s) =>
+          `#/simulation/series?subtask=${w.subtask}&attempt=${String(w.attempt)}&record=${s.record}`
+        }
+      />,
+    );
+
+  it("when the attempt that wrote its current revision is known, at that attempt and record", () => {
+    const html = inspect({ subtask: "s1-af41ca", attempt: 3 });
+    expect(html).toContain("Show the record it was read off");
+    expect(html).toContain(
+      'href="#/simulation/series?subtask=s1-af41ca&amp;attempt=3&amp;record=loop_nominal"',
+    );
+  });
+
+  it("not for a revision the decomposition wrote, nor when the history does not reach it", () => {
+    expect(inspect("decomposition")).not.toContain("Show the record it was read off");
+    expect(inspect({ subtask: "s1-af41ca", attempt: 3 }, 2)).not.toContain(
+      "Show the record it was read off",
+    );
+  });
+
+  it("not for a quantity that names no record", () => {
+    const html = renderToStaticMarkup(
+      <NodeInspector
+        node={DRIVE}
+        nodes={NODES}
+        checks={[]}
+        config={CONFIG}
+        history={{
+          ok: true,
+          value: {
+            nodeId: "electrical.drive",
+            baseline: 1,
+            history: [
+              {
+                revision: 3,
+                op: "write",
+                version: 2,
+                writtenBy: { subtask: "s1", attempt: 2 },
+                node: DRIVE,
+              },
+            ],
+          },
+        }}
+        historyRoute="/x"
+        onHistoryAgain={() => undefined}
+        source={SOURCE}
+        runLabel="Run 16 Oct, 13:58"
+        diffHref={(a, b) => `#d${String(a)}-${String(b)}`}
+        nodeHref={(id) => `#${id}`}
+        recordHref={() => "#/simulation/series"}
+      />,
+    );
+    expect(html).not.toContain("Show the record it was read off");
   });
 });
 

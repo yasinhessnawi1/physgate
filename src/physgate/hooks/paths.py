@@ -211,6 +211,29 @@ def _reaches(path: str, root: str, chain: frozenset[tuple[int, int]]) -> bool:
     return identity is not None and identity in chain
 
 
+def _passes_through(path: str, root: str) -> bool:
+    """True if ``path``, as spelt, passes through ``root`` on its way, by any of its ancestors.
+
+    :func:`_reaches` resolves the path whole, so a path that enters ``root`` through a linked
+    ancestor above it and then leaves it again through a link beneath it is never seen inside.
+    On macOS ``/var`` is a link to ``/private/var``: a command naming ``/var/tmp/pgs/<own>/x``,
+    where ``x`` is a link out of the parent, would otherwise be judged as if it never named the
+    parent at all, where on Linux the same command names it. Each existing ancestor is resolved
+    on its own and compared, so both platforms decide the same.
+    """
+    root_spellings, _ = _root(root)
+    current = path
+    while True:
+        if os.path.lexists(current):
+            resolved = os.path.realpath(current)
+            if any(_folded_under(resolved, spelling) for spelling in root_spellings):
+                return True
+        parent = os.path.dirname(current)
+        if parent == current:
+            return False
+        current = parent
+
+
 def _under(path: str, root: str) -> bool:
     r = root.rstrip("/")
     return path == r or path.startswith(r + "/")
@@ -384,7 +407,12 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
                     or root.reason
                     in (WITHHELD_REASON, SESSIONS_REASON, CLAUDE_TEMP_REASON, SESSION_TEMPS_REASON)
                 )
-                and _reaches(absolute, root.path, chain)
+                and (
+                    _reaches(absolute, root.path, chain)
+                    or (
+                        root.reason == SESSION_TEMPS_REASON and _passes_through(absolute, root.path)
+                    )
+                )
                 and not any(
                     _own_reading(absolute, own)
                     for own in (
@@ -395,7 +423,10 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
                 return root.reason
         return None
     for root in config.protected_roots:
-        if _reaches(absolute, root.path, chain) and not any(
+        reached = _reaches(absolute, root.path, chain) or (
+            root.reason == SESSION_TEMPS_REASON and _passes_through(absolute, root.path)
+        )
+        if reached and not any(
             _reaches(absolute, exception, chain) for exception in root.exceptions
         ):
             # The session's own temporary directory is written by its own commands, never by a

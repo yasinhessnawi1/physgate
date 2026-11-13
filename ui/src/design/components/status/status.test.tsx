@@ -9,6 +9,7 @@ import { StateBanner } from "./StateBanner";
 import { EmptyState, ErrorState, LoadingState } from "./States";
 import { STATUS_KINDS, type StatusKind, StatusTag } from "./StatusTag";
 import { WhatIfMarker } from "./WhatIfMarker";
+import { ENGINE_STATUS_WORDS, PAIR_WORDS } from "../../../words/settings";
 
 const CSS = readFileSync(fileURLToPath(new URL("../../components.css", import.meta.url)), "utf8");
 
@@ -127,5 +128,40 @@ describe("what-if and in-progress", () => {
 
   it("in progress reads 'In progress · partial'", () => {
     expect(renderToStaticMarkup(<InProgressBadge />)).toContain("In progress · partial");
+  });
+});
+
+describe("the Settings screen's states are neutral, and an engine not offered yet is dashed", () => {
+  const table = STATUS_KINDS as Readonly<Record<string, readonly [string, string]>>;
+
+  it("covers an engine's status and a pair's comparison, in the Settings words", () => {
+    expect(table["engine-available"]?.[1]).toBe(ENGINE_STATUS_WORDS.available);
+    expect(table["engine-not-yet"]?.[1]).toBe(ENGINE_STATUS_WORDS["not-yet"]);
+    expect(table["pair-different-strings"]?.[1]).toBe(PAIR_WORDS.different);
+    expect(table["pair-same-string"]?.[1]).toBe(PAIR_WORDS.same);
+  });
+
+  it("draws Not yet dashed, and no other of them", () => {
+    const kinds = [
+      "engine-available",
+      "engine-not-yet",
+      "pair-different-strings",
+      "pair-same-string",
+    ];
+    for (const kind of kinds) expect(Object.keys(STATUS_KINDS)).toContain(kind);
+    const tag = (status: string) =>
+      renderToStaticMarkup(<StatusTag status={status as StatusKind} />);
+    expect(tag("engine-not-yet")).toContain('class="pg-status pg-status-dashed"');
+    for (const status of ["engine-available", "pair-different-strings", "pair-same-string"])
+      expect(tag(status)).not.toContain("pg-status-dashed");
+  });
+
+  it("the dashed style is a dashed neutral outline, never the unchecked verdict's colours", () => {
+    const rules = rulesFor("pg-status-dashed");
+    expect(rules.length).toBeGreaterThan(0);
+    const all = rules.join(";");
+    expect(all).toContain("dashed");
+    expect(all).toContain("--color-border-strong");
+    expect(all).not.toMatch(/--color-(unchecked|pass|fail|warn)/);
   });
 });
