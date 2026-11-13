@@ -226,9 +226,11 @@ def test_the_linux_arguments_take_the_network_hide_each_denied_place_and_open_on
     server_dir = root / "temps" / OWN / "servers" / "probe"
     server_dir.mkdir(parents=True)
     secret = root / "run" / "sessions" / "other" / "login.txt"
+    (root / "temps" / "other").mkdir()
     denied = (
         str(root / "temps"),
         str(root / "temps" / OWN / "inside"),  # beneath a hidden place: hidden with it
+        str(root / "temps" / "other"),  # there, beneath a hidden place: not named again
         str(secret),
         str(root / "elsewhere" / "not-there"),
     )
@@ -243,13 +245,15 @@ def test_the_linux_arguments_take_the_network_hide_each_denied_place_and_open_on
     assert f"--tmpfs {root / 'temps'}" in text
     assert f"--ro-bind /dev/null {secret}" in text
     assert str(root / "temps" / OWN / "inside") not in text
+    assert str(root / "temps" / "other") not in text
     assert str(root / "elsewhere" / "not-there") not in text
     assert f"--tmpfs {root / 'elsewhere'}" in text
     bind = text.index(f"--bind {server_dir} {server_dir}")
     assert bind > text.index(f"--tmpfs {root / 'temps'}")
     # Each hidden place is made read-only last, after the server's directory is bound beneath it.
     assert text.index(f"--remount-ro {root / 'temps'}") > bind
-    assert args[-1] != "--"
+    # The root's own filesystem is made read-only last of all.
+    assert args[-2:] == ["--remount-ro", "/"], args
 
 
 @pytest.mark.parametrize("platform", PLATFORMS)
@@ -272,7 +276,7 @@ def test_each_server_is_named_by_its_wrapper_with_a_directory_of_its_own_made_em
     entry = loaded["mcpServers"]["probe"]
     server_dir = root / "temps" / OWN / "servers" / "probe"
     assert server_dir.is_dir() and not any(server_dir.iterdir())
-    assert entry["env"]["TMPDIR"] == str(server_dir)
+    assert entry.get("env") == {"TMPDIR": str(server_dir)}, entry
     if platform == "darwin":
         assert entry["command"] == SANDBOX_EXEC
         assert entry["args"][:2] == ["-f", str(profiles / "probe.sb")]
@@ -296,7 +300,7 @@ def test_each_server_is_named_by_its_wrapper_with_a_directory_of_its_own_made_em
 
 def test_a_server_directory_already_there_is_refused(root: Path) -> None:
     (root / "temps" / OWN / "servers" / "probe").mkdir(parents=True)
-    with pytest.raises(ContainmentError):
+    with pytest.raises(ContainmentError, match="already there"):
         contained_servers(
             _config(root),
             [_probe(root)],
@@ -320,7 +324,8 @@ def test_linux_without_bubblewrap_offers_no_server(root: Path) -> None:
 
 
 def test_two_servers_of_one_name_are_refused(root: Path) -> None:
-    with pytest.raises(ContainmentError):
+    # Refused for the name itself, before the second server's directory is reached.
+    with pytest.raises(ContainmentError, match="share a name"):
         contained_servers(
             _config(root),
             [_probe(root), _probe(root)],
@@ -368,6 +373,9 @@ def test_a_role_session_carries_the_contained_configuration_it_is_given() -> Non
         {"probe": {"command": "/usr/bin/python3", "args": ["probe.py"]}},
         {"probe": {"command": "python3"}},
         {"probe": {"type": "http", "url": "http://127.0.0.1:1"}},
+        # Named by its wrapper, yet a kind the binary does not start as a program.
+        {"probe": {"type": "http", "command": SANDBOX_EXEC, "url": "http://127.0.0.1:1"}},
+        {"probe": {"type": "sse", "command": SANDBOX_EXEC, "url": "http://127.0.0.1:1"}},
         {"probe": {"args": ["-f", "p"]}},
     ],
 )
