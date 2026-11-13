@@ -18,6 +18,7 @@ import json
 import os
 import platform
 import re
+import subprocess
 import sys
 import tarfile
 import tomllib
@@ -256,6 +257,37 @@ def test_a_fetched_package_whose_bytes_differ_is_refused_and_never_kept(
     # Asked for by its file name alone, over the one source, and not kept for a later run.
     assert asked == [f"{provision.PACKAGE_FILES}/{package['file']}"]
     assert asked[0].startswith("https://")
+    assert read == []
+    assert not (tmp_path / "cache" / "system-libraries" / str(package["file"])).exists()
+
+
+@pytest.mark.parametrize("failure", ["not served", "timed out"])
+def test_a_package_the_archive_does_not_serve_is_named_with_its_digest_and_nothing_is_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    provision = _provision()
+    _as_linux(monkeypatch)
+    pins, package = _one_pin(b"the package as pinned")
+    asked: list[list[str]] = []
+
+    def run(argv: list[str], env: dict[str, str], **more: object) -> str:
+        # The download program fails as it does when the archive has dropped a file, or when
+        # the step's time runs out: provisioning's own step runner says so in its own words.
+        asked.append(list(argv))
+        if failure == "timed out":
+            raise subprocess.TimeoutExpired(argv, provision.STEP_TIMEOUT_S)
+        raise provision.ProvisionError("curl -fsSL --proto failed:\ncurl: (22) error: 404")
+
+    monkeypatch.setattr(provision, "run", run)
+    read: list[Path] = []
+    monkeypatch.setattr(provision, "_package_tree", lambda path, work: read.append(path))
+    dest = tmp_path / "env"
+    dest.mkdir()
+    found = _raised(lambda: provision._system_libraries(dest, pins, tmp_path / "cache", tmp_path))
+    assert len(asked) == 1 and asked[0][-1].endswith(f"/{package['file']}"), asked
+    assert isinstance(found, provision.ProvisionError), repr(found)
+    message = str(found)
+    assert str(package["file"]) in message and str(package["sha256"]) in message, message
     assert read == []
     assert not (tmp_path / "cache" / "system-libraries" / str(package["file"])).exists()
 
