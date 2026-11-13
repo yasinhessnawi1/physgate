@@ -165,6 +165,7 @@ from physgate.orchestrator.ports import (
     SessionReport,
     SessionRequest,
 )
+from physgate.orchestrator.producer_wait import owed_line
 from physgate.orchestrator.protocols import (
     REJECTING_RESULTS,
     Artefact,
@@ -983,6 +984,8 @@ class Loop:
             "wait",
             "reopen",
             "follow_up_ended",
+            "hold",
+            "release",
         ):
             self._record_environment()
         while True:
@@ -1018,6 +1021,9 @@ class Loop:
                 continue
             if step.kind == "reopen":
                 self._reopen()
+                continue
+            if step.kind in ("hold", "release"):
+                self._emit(owed_line(self.state, step.subtask_id or "", self._env()))
                 continue
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"

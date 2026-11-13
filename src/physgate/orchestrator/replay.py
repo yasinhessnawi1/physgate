@@ -70,6 +70,8 @@ from physgate.orchestrator.events import (
     DecompositionRetried,
     DesignReviewRan,
     DiffChecked,
+    DispatchHeld,
+    DispatchReleased,
     DisputeRecorded,
     EnvironmentRecorded,
     Escalated,
@@ -128,6 +130,7 @@ from physgate.orchestrator.exceptions import (
 from physgate.orchestrator.follow import rederived
 from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR, CriterionWords, SystemRequirement
+from physgate.orchestrator.producer_wait import Waits, gated, held_dispatch, held_subtask, take
 from physgate.orchestrator.protocols import ChosenValue, QuantityRef
 from physgate.orchestrator.queue import DECOMPOSITION_NAME, PLAN, contract_item_id, item_id_for
 from physgate.orchestrator.repair import FindingSource
@@ -270,6 +273,8 @@ class Step:
         "return",
         "reopen",
         "follow_up_ended",
+        "hold",
+        "release",
         "done",
     ]
     subtask_id: str | None = None
@@ -281,9 +286,10 @@ def at_a_boundary(step: Step) -> bool:
     """Where a person's decision may be taken: no attempt in progress, none half judged.
 
     Between subtasks, at the integration call, or at the end of the run (ARCH-133). The loop
-    takes decisions only where this holds, and the replay refuses one taken anywhere else.
+    takes decisions only where this holds, and the replay refuses one taken anywhere else. A hold
+    or release line stands where its subtask's first dispatch would: a boundary as that is.
     """
-    if step.kind in ("integrate", "done", "escalated", "wait"):
+    if step.kind in ("integrate", "done", "escalated", "wait", "hold", "release"):
         return True
     return step.kind == "attempt" and step.point == "resolve"
 
@@ -387,6 +393,8 @@ class RunState:
         #: resolved, and the escalation a blocking failure there led to.
         self.integration: IntegrationGateRan | IntegrationGateSkipped | None = None
         self.integration_escalated: IntegrationEscalated | None = None
+        #: The holds on first dispatches while a subtask read from waits on a person.
+        self.producer_waits = Waits()
         #: Integration's subtask, if the plan has one: the one subtask whose planning line marks
         #: it as the completion owner's, read from that line and never from the role register or
         #: a role's name. It reads the system-scope result, so it runs after the integration
@@ -689,6 +697,11 @@ class RunState:
             return
         if isinstance(event, DecisionTaken):
             self._take(event)
+            return
+        if isinstance(event, DispatchHeld | DispatchReleased):
+            why = take(self, event)
+            if why is not None:
+                _refuse(why)
             return
         if isinstance(event, ModuleCompleted):
             self._complete(event)
@@ -1938,6 +1951,8 @@ class RunState:
             _refuse(
                 "sizing's closing pass waits while a dispute's or a contract's item is undecided"
             )
+        if sub.status == "planned" and (held := held_dispatch(self, sub.plan.subtask_id)):
+            _refuse(held)
         if not sub.attempts or sub.attempts[-1].number != attempt:
             if any(a.fix for a in sub.attempts):
                 _refuse("the fix a person ordered is a subtask's last attempt")
@@ -2172,8 +2187,15 @@ class RunState:
             return Step(kind="contract")
         for subtask_id in self.integrated():
             step = self._step_of(subtask_id)
-            if step is not None:
+            # A first dispatch held while a subtask it reads from waits on a person is passed over.
+            gate = gated(self, subtask_id) if step is not None and step.kind == "attempt" else None
+            if gate == "hold" or gate == "release":
+                return Step(gate, subtask_id)
+            if step is not None and gate is None:
                 return step
+        held = held_subtask(self)
+        if held is not None:
+            return Step(kind="wait", subtask_id=held)
         ran = self.integration
         if ran is None:
             return Step(kind="wait") if self._contract_item_open() else Step(kind="integrate")

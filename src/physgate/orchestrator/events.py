@@ -846,6 +846,46 @@ class FollowUpEnded(_Event):
     why: FollowUpWhy
 
 
+class DispatchHeld(_Event):
+    """A subtask's first dispatch is held: a subtask it reads from waits on a person, unmerged.
+
+    "Reads from" is the run's recorded contract pairs: ``producer`` is a pair's producing subtask
+    whose consumer is ``subtask_id``, over ``interfaces``. The producer is escalated and its item
+    ``item_id`` is undecided. Written once per held producer, in a run that acts on decisions;
+    the run goes on with what does not read from it, and otherwise waits on the queue.
+    """
+
+    kind: Literal["dispatch_held"] = "dispatch_held"
+    subtask_id: NonEmptyStr
+    producer: NonEmptyStr
+    item_id: NonEmptyStr
+    interfaces: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
+
+
+#: How a held dispatch was let go, or why one was never held.
+#:
+#: ``merged``: the producer merged. ``ended_unmerged``: it ended without a merge (rejected,
+#: removed, or a decision that acted on nothing), so the subtask runs without its work.
+#: ``waits_for_closing_pass``: a person chose the producer's value in a dispute, and its attempt
+#: waits for sizing's closing pass, which comes after the subtask. ``mutual_readers``: the two
+#: read from each other, so the subtask is dispatched with the producer waiting, and never held.
+ReleasedHow = Literal["merged", "ended_unmerged", "waits_for_closing_pass", "mutual_readers"]
+
+
+class DispatchReleased(_Event):
+    """A held dispatch let go, or a dispatch not held although its producer waits on a person.
+
+    ``item_id`` is the item the hold named, or for ``mutual_readers`` the item the producer waits
+    on. Every outcome but ``mutual_readers`` closes the one hold of ``subtask_id`` on ``producer``.
+    """
+
+    kind: Literal["dispatch_released"] = "dispatch_released"
+    subtask_id: NonEmptyStr
+    producer: NonEmptyStr
+    item_id: NonEmptyStr
+    outcome: ReleasedHow
+
+
 class Incident(_Event):
     """Something the loop cannot answer by itself happened. The run halts after it."""
 
@@ -1545,6 +1585,8 @@ Event = Annotated[
     | SubtaskReopened
     | AttemptReturned
     | FollowUpEnded
+    | DispatchHeld
+    | DispatchReleased
     | FindingsRecorded
     | Incident
     | IncidentResolved
