@@ -62,6 +62,12 @@ def _of(log: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
     return [one for one in log if one["kind"] == kind]
 
 
+def _first(log: list[dict[str, Any]], kind: str) -> dict[str, Any]:
+    found = _of(log, kind)
+    assert found, f"the log holds no {kind} line"
+    return found[0]
+
+
 # --- the loop ---------------------------------------------------------------------------------
 
 
@@ -90,6 +96,7 @@ def test_each_stated_value_is_written_once_behind_an_intent_and_the_run_is_relea
 
 def test_a_value_is_written_where_the_plan_says_and_carries_its_decision(tmp_path: Path) -> None:
     run_dir, the_rig = _run(tmp_path)
+    assert len(the_rig.diff.declared) == 3
     own, shared, made = the_rig.diff.declared
     assert (own["id"], own["kind"], own["domain"], own["owner_role"]) == (
         "control.motor_left",
@@ -109,7 +116,7 @@ def test_a_value_is_written_where_the_plan_says_and_carries_its_decision(tmp_pat
     assert (quantity["value"], quantity["unit"]) == (0.4, "kg")
     assert quantity["source"] == "declared by the person"
     assert quantity["written_by"] == "control"
-    taken = _of(log_of(run_dir), "decision_taken")[0]
+    taken = _first(log_of(run_dir), "decision_taken")
     assert quantity["declared"] == {
         "item_id": IDS[0],
         "decision_sha256": taken["parts_sha256"],
@@ -126,7 +133,7 @@ def test_a_part_to_find_is_written_nowhere_and_a_text_only_body_writes_nothing(
     assert again(rig(run_dir)) == "done"
     log = log_of(run_dir)
     assert _of(log, "parts_write_intended") == []
-    released = _of(log, "parts_released")[0]
+    released = _first(log, "parts_released")
     assert [c["choice"] for c in released["components"]] == ["make", "find", "find"]
 
 
@@ -145,7 +152,7 @@ def test_an_empty_plan_says_that_it_asked_with_one_release(tmp_path: Path) -> No
 
 def test_the_release_names_the_record_a_role_reads(tmp_path: Path) -> None:
     run_dir, _ = _run(tmp_path)
-    released = _of(log_of(run_dir), "parts_released")[0]
+    released = _first(log_of(run_dir), "parts_released")
     assert [c["node"] for c in released["components"]] == [c.node for c in COMPONENTS]
     assert [c["choice"] for c in released["components"]] == ["have", "make", "find"]
     assert released["components"][2]["parts"] is None
@@ -219,7 +226,9 @@ def _released_log(tmp_path: Path) -> list[dict[str, Any]]:
 
 
 def _index(log: list[dict[str, Any]], kind: str, nth: int = 0) -> int:
-    return [i for i, one in enumerate(log) if one["kind"] == kind][nth]
+    found = [i for i, one in enumerate(log) if one["kind"] == kind]
+    assert len(found) > nth, f"the log holds no {kind} line number {nth}"
+    return found[nth]
 
 
 def _edited(
