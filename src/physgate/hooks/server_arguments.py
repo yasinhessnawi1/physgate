@@ -40,6 +40,10 @@ REGISTER_FILE = os.path.join(
 SERVER_TOOL = "mcp__"
 
 NOT_REGISTERED = "The {tool} tool is not in the tool-server register, so it is refused."
+REACHES_A_BOARD = (
+    "The {tool} tool reaches a board, and no session reaches one, so it is refused whatever "
+    "server it is asked of."
+)
 NOT_AN_OBJECT = (
     "The {tool} tool is given its arguments as an object of named values, or not at all."
 )
@@ -76,15 +80,34 @@ _KINDS = {
 
 
 @cache
-def _servers() -> dict[str, Any]:
-    """The register's servers. A file that cannot be read refuses every call it would judge."""
-    with open(REGISTER_FILE, encoding="utf-8") as handle:
+def _read(path: str) -> tuple[dict[str, Any], frozenset[str]]:
+    """The register's servers and the tools it refuses by name, read once per file.
+
+    A file that cannot be read, or holds either part in another shape, refuses every call it
+    would judge.
+    """
+    with open(path, encoding="utf-8") as handle:
         loaded = json.load(handle)
     servers = loaded["servers"]
+    refused = loaded["refused_tools"]
     if not isinstance(servers, dict):
         msg = "the tool-server register holds no servers"
         raise TypeError(msg)
-    return servers
+    if not isinstance(refused, list) or not all(isinstance(name, str) for name in refused):
+        msg = "the tool-server register names no tools it refuses"
+        raise TypeError(msg)
+    return servers, frozenset(refused)
+
+
+def _servers() -> dict[str, Any]:
+    """The register's servers."""
+    return _read(REGISTER_FILE)[0]
+
+
+def _reaches_a_board(tool: str) -> bool:
+    """Whether ``tool`` names, under any server's name, a tool the register refuses."""
+    _server, sep, name = tool.removeprefix(SERVER_TOOL).partition("__")
+    return bool(sep) and name in _read(REGISTER_FILE)[1]
 
 
 def _schema(tool: str) -> tuple[dict[str, Any], dict[str, str]] | None:
@@ -138,6 +161,8 @@ def arguments_refusal(tool: str, arguments: object, cwd: str, config: ConfigView
     ``cwd`` is not read: where the session's tools run says nothing of where its server does.
     """
     del cwd
+    if _reaches_a_board(tool):
+        return REACHES_A_BOARD.format(tool=tool)
     found = _schema(tool)
     if found is None:
         return NOT_REGISTERED.format(tool=tool)

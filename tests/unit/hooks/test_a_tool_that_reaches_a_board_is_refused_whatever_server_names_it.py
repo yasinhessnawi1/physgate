@@ -64,7 +64,9 @@ def test_a_register_whose_server_admits_one_is_refused_whatever_the_server_is_ca
 ) -> None:
     path = tmp_path / "register.json"
     refused = sorted(BOARD_TOOLS)
-    path.write_text(json.dumps({"servers": {"firmware": _entry({"build": {}})}, "refused_tools": refused}))
+    path.write_text(
+        json.dumps({"servers": {"firmware": _entry({"build": {}})}, "refused_tools": refused})
+    )
     assert _loads(path), "a register that admits no board tool is refused"
     for server in SERVERS:
         for tool in refused:
@@ -100,3 +102,25 @@ def test_the_hooks_refuse_a_call_to_one_under_any_server_name_though_the_file_ad
         decision = tools.pre_tool_use(hook_input, config)
         assert not decision.allow, name
         assert "reaches a board" in decision.reason, (name, decision.reason)
+
+
+@pytest.mark.parametrize("refused", [None, "upload_firmware", [1], {"upload_firmware": 1}])
+def test_a_register_file_without_its_refused_tools_judges_no_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, refused: object
+) -> None:
+    # The file the hooks read names the refused tools as a list of names, or no call is judged:
+    # the hook stops, and a hook that stops refuses the call.
+    body: dict[str, object] = {"servers": {"control": _entry({"margins": {}})}}
+    if refused is not None:
+        body["refused_tools"] = refused
+    path = tmp_path / "register.json"
+    path.write_text(json.dumps(body))
+    monkeypatch.setattr(server_arguments, "REGISTER_FILE", str(path))
+    root = tmp_path.resolve() / "session"
+    root.mkdir()
+    config = write_config(root, tools_allowed=[*BASE, "mcp__control__margins"])[2]
+    hook_input = HookInput.model_validate(
+        event(tool_name="mcp__control__margins", cwd=config.worktree, tool_input={})
+    )
+    with pytest.raises((KeyError, TypeError)):
+        tools.pre_tool_use(hook_input, config)

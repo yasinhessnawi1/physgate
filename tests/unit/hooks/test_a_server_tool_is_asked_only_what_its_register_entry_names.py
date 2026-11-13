@@ -5,10 +5,16 @@ marks as a path is judged as a file tool's read or write of that path would be, 
 inside the session's worktree however it is spelt: relative, through ``..``, through a link, or
 by a case variant of the worktree's own spelling. A tool of the register's denied set is refused
 by name, as is any tool the register does not hold.
+
+The rule's subjects are the register's own servers and, beside them, a stand-in build server
+shaped as a firmware build server would be (a project directory it writes, one it reads, a relative
+path refused): no admitted server takes a path it writes today, and the rule for one holds all the
+same.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -16,13 +22,13 @@ from typing import Any
 import pytest
 from hook_helpers import event, volume_is_case_insensitive, write_config
 
-from physgate.hooks import tools
+from physgate.hooks import server_arguments, tools
 from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.runtime import dispatch
 
-BUILD = "mcp__platformio__build_project"
-CONFIG = "mcp__platformio__get_project_config"
+BUILD = "mcp__standin__build_project"
+CONFIG = "mcp__standin__get_project_config"
 LOAD = "mcp__mujoco__load_model"
 STEP = "mcp__mujoco__step"
 MARGINS = "mcp__control__margins"
@@ -32,11 +38,36 @@ ADMITTED = [
     LOAD,
     STEP,
     MARGINS,
-    "mcp__platformio__system_info",
-    "mcp__platformio__check_project",
+    "mcp__standin__system_info",
+    "mcp__standin__check_project",
     "mcp__mujoco__state",
 ]
 BASE = ["Bash", "Edit", "NotebookEdit", "Read", "Write"]
+#: A build server's entry: a project directory written, one read, a relative path refused.
+STANDIN = {
+    "command": "{root}/bin/builder",
+    "relative_paths": "refused",
+    "tools": {
+        "build_project": {
+            "projectDir": "write_path",
+            "environment": "string",
+            "jobs": "integer",
+            "verbose": "boolean",
+        },
+        "check_project": {"projectDir": "write_path", "environment": "string"},
+        "get_project_config": {"projectDir": "read_path"},
+        "system_info": {},
+    },
+}
+
+
+@pytest.fixture(autouse=True)
+def register(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The real register's servers and refused tools, and the stand-in beside them.
+    real = json.loads(Path(server_arguments.REGISTER_FILE).read_text(encoding="utf-8"))
+    path = tmp_path / "register.json"
+    path.write_text(json.dumps({**real, "servers": {**real["servers"], "standin": STANDIN}}))
+    monkeypatch.setattr(server_arguments, "REGISTER_FILE", str(path))
 
 
 @pytest.fixture
@@ -78,7 +109,7 @@ def test_an_admitted_tool_given_only_named_arguments_inside_the_worktree_is_allo
         "allow"
     )
     assert _call(config, CONFIG, {"projectDir": _firmware(config)}) == "allow"
-    assert _call(config, "mcp__platformio__system_info", {}) == "allow"
+    assert _call(config, "mcp__standin__system_info", {}) == "allow"
     assert _call(config, STEP, {"steps": 10, "controls": [0.1, -0.2]}) == "allow"
     assert _call(config, LOAD, {"xml": "<mujoco/>"}) == "allow"
     system = {"transfer_function": {"num": [1], "den": [1, 2, 1]}}
@@ -91,7 +122,7 @@ def test_an_admitted_tool_given_only_named_arguments_inside_the_worktree_is_allo
         (BUILD, {"projectDir": "{fw}", "approvalId": "a1"}, "approvalId"),
         (BUILD, {"projectDir": "{fw}", "background": True}, "background"),
         (BUILD, {"projectDir": "{fw}", "sessionId": "s"}, "sessionId"),
-        ("mcp__platformio__check_project", {"projectDir": "{fw}", "tool": "x"}, "tool"),
+        ("mcp__standin__check_project", {"projectDir": "{fw}", "tool": "x"}, "tool"),
         (STEP, {"steps": 1, "viewer": True}, "viewer"),
         ("mcp__mujoco__state", {"path": "x"}, "path"),
     ],
@@ -289,21 +320,22 @@ def test_an_admitted_name_given_to_the_session_without_a_register_entry_is_refus
     assert "register" in reason, reason
 
 
-def test_a_denied_tool_put_on_a_session_s_list_is_still_refused_by_the_register(
+def test_a_refused_tool_put_on_a_session_s_list_is_still_refused_by_the_register(
     tmp_path: Path,
 ) -> None:
-    # PlatformIO's upload, device, monitor and debug tools are never admitted: a closed list that
-    # named them (a configuration written by hand) still admits none of them.
+    # The upload, device, monitor and debug tools are never admitted: a closed list that named
+    # them (a configuration written by hand) still admits none of them, under the name of the
+    # server that offered them or of the stand-in that admits other tools.
     from physgate.toolenv.register import load_register
 
-    denied = load_register().servers["platformio"].denied
-    names = [f"mcp__platformio__{name}" for name in denied]
+    refused = load_register().refused_tools
+    names = [f"mcp__{server}__{name}" for server in ("platformio", "standin") for name in refused]
     config = write_config(tmp_path.resolve(), tools_allowed=[*BASE, *names])[2]
     worktree = Path(config.worktree)
     for name in names:
         reason = _call(config, name, {"projectDir": str(worktree)})
         assert reason != "allow", name
-        assert "register" in reason, (name, reason)
+        assert "reaches a board" in reason, (name, reason)
 
 
 def test_an_argument_nested_past_the_hooks_bound_is_refused_through_the_session_s_hooks(

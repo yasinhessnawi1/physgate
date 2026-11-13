@@ -47,7 +47,10 @@ def test_no_profile_is_offered_it_and_a_run_records_none() -> None:
     for profile, servers in PROFILE_SERVERS.items():
         assert "platformio" not in servers, profile
     recorded = recorded_servers()
-    assert dict(recorded.profiles) == {"role": ("control", "mujoco"), "baseline": ("control", "mujoco")}
+    assert dict(recorded.profiles) == {
+        "role": ("control", "mujoco"),
+        "baseline": ("control", "mujoco"),
+    }
 
 
 @pytest.fixture
@@ -81,7 +84,9 @@ def _request(root: Path, profile: str, servers: tuple[str, ...]) -> InstallReque
 
 
 @pytest.mark.parametrize("profile", ["role", "baseline"])
-def test_a_session_that_asks_to_be_offered_it_is_not_installed(root: Path, profile: Profile) -> None:
+def test_a_session_that_asks_to_be_offered_it_is_not_installed(
+    root: Path, profile: Profile
+) -> None:
     with pytest.raises(ValueError, match="tool server 'platformio'"):
         build_config(_request(root, profile, ("platformio",)), installation())
     # Offered every server there is, its list names none of that server's tools.
