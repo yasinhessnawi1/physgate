@@ -136,6 +136,36 @@ def test_a_session_finds_the_environment_s_programs_and_variables_as_its_file_sa
     assert scan([root]) == before
 
 
+def test_a_command_naming_the_own_temp_as_given_is_allowed_and_through_its_link_refused(
+    tmp_path: Path,
+    install_bin: Path,
+) -> None:
+    """The session's variables spell its own temporary directory as the hooks open it.
+
+    A plain listing of the directory a variable names is let through on every platform; a read
+    through the link it holds out of the directory is refused, while the tool that reads
+    through the same link itself is answered (so what refuses the command is the rule, not the
+    file). Each command prints in capitals, so what it printed never stands in its own text.
+    """
+    named = _stand_in(tmp_path)
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [
+        *knowledge_reads(worktree),
+        tool("Read", file_path=str(worktree / SPEC)),
+        tool("Bash", command="ls -A $BUILD_CORE_DIR | tr a-z A-Z"),
+        tool("Bash", command="cat $BUILD_CORE_DIR/store/package.txt | tr a-z A-Z"),
+        tool("Bash", command="report-size | tr a-z A-Z"),
+        text("done"),
+    ]
+    api, (report, _), _ = dispatch(tmp_path, install_bin, steps, cfg=_config(named))
+    assert report.end.outcome == "completed", report
+    said = [r.last_user for r in api.requests if r.thread == "main"]
+    listing, through_link, by_the_tool = said[-3:]
+    assert "STORE" in listing.splitlines(), said[-3:]
+    assert "A PACKAGE OF THE STORE" not in through_link, said[-3:]
+    assert "A PACKAGE OF THE STORE" in by_the_tool.splitlines(), said[-3:]
+
+
 def _built_write(root: Path) -> dict[str, Any]:
     """A command that writes into the environment by a path it builds as it runs."""
     whole = str(root / "store" / "package.txt")

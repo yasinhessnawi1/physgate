@@ -202,7 +202,8 @@ def wire(
     ``bin_dir`` is made afresh holding ``python3``, which starts the interpreter by its own
     path, and a link to each program by its name, to be put on the session's search path;
     the directories and links are made in
-    ``temp``, the session's own temporary directory; ``taken`` names every variable the
+    ``temp``, the session's own temporary directory, which the variables name where it really
+    is; ``taken`` names every variable the
     session's environment already holds. Call it only once the environment has been held to
     the run's record, so the files read here are the recorded ones.
 
@@ -211,6 +212,10 @@ def wire(
             be held to its root or to the temporary directory, or two roots name the same
             program, link or variable. Nothing has been made then.
     """
+    # Spelt where it really is, as the hooks open it to the session's commands: through a link
+    # (``/var`` is ``/private/var`` on macOS) a command naming a variable's directory would
+    # name a path the session's own allowance does not, and be refused.
+    temp = Path(os.path.realpath(temp))
     programs: dict[str, Path] = {INTERPRETER_NAME: Path(recorded.interpreter)}
     directories: list[Path] = []
     links: dict[Path, Path] = {}

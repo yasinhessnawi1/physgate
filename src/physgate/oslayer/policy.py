@@ -76,18 +76,14 @@ mechanisms deny the reads differently, each measured on Claude Code 2.1.301:
 A platform with neither mechanism gets no policy at all: building one refuses, rather than
 leaving the outbox readable.
 
-**No command opens a serial device.** A board on USB appears as a serial device, and an
-upload, a flash and a serial monitor all open one. The hooks refuse the commands that say so;
-a program that builds the device's name as it runs, or starts the upload itself, says nothing
-they can read. So each platform's serial devices (the hooks' own table of them) are denied to
-every command of the session, to read and to write: without the read denial a read-only open
-succeeded inside the sandbox (measured on macOS), which is all a serial monitor needs.
-
-**The file tools are left to the hooks.** No ``Read`` permission rule is written:
-Claude Code applies such a rule before any hook runs, so a refused tool call would
-be refused without the hooks' reason and without a line in their log, the record
-the bypass measurements count. The hooks refuse the file tools on what no session
-reads, and log it; the OS layer bounds the shell, where the hooks cannot see.
+**No command opens a board's device.** A board on USB appears as a serial device, and an
+upload, a flash and a serial monitor all open one; a programmer may open a USB or HID node
+directly. The hooks refuse the commands that say so; a program that builds the device's name
+as it runs, or starts the upload itself, says nothing they can read. So each platform's
+devices of that kind (the hooks' own table of them) are denied to every command of the
+session, to read and to write: without the read denial a read-only open of a serial device
+succeeded inside the sandbox (measured on macOS), which is all a serial monitor needs. On
+macOS a USB device is not a file and no rule here names it.
 """
 
 from __future__ import annotations
@@ -102,7 +98,7 @@ from typing import Any, Literal
 
 from physgate.hooks.config import ExperimentRule, SessionConfig
 from physgate.hooks.graph import COMPLETION_DIR, DISPUTES_DIR, PROPOSALS_DIR
-from physgate.hooks.hardware import SERIAL_DEVICES
+from physgate.hooks.hardware import BOARD_DEVICES
 from physgate.hooks.reasons import SESSION_TEMPS_REASON
 
 #: What the OS layer does with each path field of the session configuration.
@@ -225,7 +221,7 @@ def sandbox_policy(
     )
     # Written by the session's commands, as its home is, where it lies in a denied parent.
     own_writes = (temp_dir,) if real_under(temp_dir, temps) else ()
-    devices = serial_devices(platform)
+    devices = board_devices(platform)
     settings: dict[str, Any] = {
         "sandbox": {
             "enabled": True,
@@ -246,10 +242,10 @@ def sandbox_policy(
     return OsPolicy(settings=settings, absent_named=tuple(sorted(absent_named)))
 
 
-def serial_devices(platform: str) -> tuple[str, ...]:
-    """The serial devices no command on ``platform`` opens, as the patterns the sandbox reads."""
+def board_devices(platform: str) -> tuple[str, ...]:
+    """A board's devices no command on ``platform`` opens, as the patterns the sandbox reads."""
     key = "linux" if platform.startswith("linux") else platform
-    return tuple(SERIAL_DEVICES.get(key, ()))
+    return tuple(BOARD_DEVICES.get(key, ()))
 
 
 def _spelled(*paths: str) -> list[str]:
