@@ -333,6 +333,9 @@ def test_each_server_starts_by_absolute_path_from_the_root_that_holds_its_progra
     assert platformio.environment["PIO_MCP_DISABLE_DASHBOARD"] == "1"
     assert platformio.environment["PLATFORMIO_SETTING_ENABLE_TELEMETRY"] == "no"
     assert platformio.directories == ("pio-core", "pio-mcp")
+    # It runs its build tool by name, from the environment and nowhere else.
+    assert platformio.search_path == (str(root / "venv" / "bin"),)
+    assert control.search_path == ()
     assert platformio.links == {
         f"pio-core/{store}": str(root / "platformio" / store)
         for store in ("platforms", "packages", "lib")

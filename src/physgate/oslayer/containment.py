@@ -83,6 +83,9 @@ class ServerLaunch(BaseModel):
     #: given a directory of its own that links into the read-only store.
     directories: tuple[str, ...] = ()
     links: dict[str, str] = {}
+    #: Where it finds the programs it runs by name, each inside one of its exec roots, before
+    #: the system's own directories. Empty: the search path it is started with.
+    search_path: tuple[str, ...] = ()
 
 
 def server_read_denied(config: SessionConfig, platform: str) -> tuple[str, ...]:

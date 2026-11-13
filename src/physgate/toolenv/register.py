@@ -114,6 +114,8 @@ class ServerEntry(BaseModel):
     environment: dict[VariableName, VariableValue] = {}
     directories: tuple[RelativePath, ...] = ()
     links: dict[RelativePath, LinkTarget] = {}
+    #: Where the server finds the programs it runs by name (a build server, its build tool).
+    search_path: tuple[LinkTarget, ...] = ()
     tools: dict[ToolName, dict[ArgumentName, ArgumentKind]]
     denied: tuple[ToolName, ...] = ()
 

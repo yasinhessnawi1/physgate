@@ -52,6 +52,7 @@
         "PLATFORMIO_NO_ANSI": "true",
         "PLATFORMIO_DISABLE_PROGRESSBAR": "true"
       },
+      "search_path": ["{root}/venv/bin"],
       "directories": ["pio-core", "pio-mcp"],
       "links": {
         "pio-core/platforms": "{root}/platformio/platforms",

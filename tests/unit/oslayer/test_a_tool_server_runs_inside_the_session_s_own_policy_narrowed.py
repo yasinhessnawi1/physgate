@@ -770,3 +770,23 @@ def test_a_server_that_would_reach_past_its_own_directory_is_refused_and_nothing
     with pytest.raises(ContainmentError):
         _contain(root, "darwin", _builder(root, **changes))
     assert not (root / "temps" / OWN / "servers" / "builder").exists()
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_a_server_finds_programs_by_name_only_in_its_own_roots_and_the_system_s(
+    root: Path, platform: str
+) -> None:
+    (root / "env" / "bin").mkdir(parents=True, exist_ok=True)
+    given = _builder(root, search_path=(str(root / "env" / "bin"),))
+    entry = _contain(root, platform, given)["builder"]
+    assert isinstance(entry, dict)
+    env = entry["env"]
+    assert isinstance(env, dict)
+    assert env.get("PATH") == f"{root / 'env' / 'bin'}:/usr/bin:/bin", env
+
+
+@pytest.mark.parametrize("outside", ["/opt/homebrew/bin", "relative/bin", "{worktree}/bin"])
+def test_a_search_path_outside_the_server_s_exec_roots_is_refused(root: Path, outside: str) -> None:
+    with pytest.raises(ContainmentError):
+        _contain(root, "darwin", _builder(root, search_path=(outside,)))
+    assert not (root / "temps" / OWN / "servers" / "builder").exists()
