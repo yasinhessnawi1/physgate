@@ -403,19 +403,29 @@ def run_baseline(
     pins: dict[str, Any] | None = None
     for trial in planned:
         protected = trial.tier in PROTECTED_TIERS
-        record, line = _one_trial(
-            trial,
-            out=out,
-            store=store,
-            role=role,
-            protected_root=protected_root if protected else None,
-            setup_for=setup_for,
-            score=score,
-            prices=prices,
-            arm=arm,
-            sleep=sleep,
-            development=development,
-        )
+        try:
+            record, line = _one_trial(
+                trial,
+                out=out,
+                store=store,
+                role=role,
+                protected_root=protected_root if protected else None,
+                setup_for=setup_for,
+                score=score,
+                prices=prices,
+                arm=arm,
+                sleep=sleep,
+                development=development,
+            )
+        except BaselineError:
+            raise  # the runner's own: it names the entry and fields, never the task
+        except Exception as exc:
+            if not protected:
+                raise
+            # A scorer's or an arm's error may name the task, a spec or a value of it; of a
+            # protected trial only the tier and the error's kind are said, and nothing chained.
+            msg = f"a {trial.tier} trial stopped on an error ({type(exc).__name__}), not repeated"
+            raise BaselineError(msg, tier=trial.tier, entry=str(trial.index)) from None
         these = pin_set(record["pins"])
         if pins is None:
             pins = these

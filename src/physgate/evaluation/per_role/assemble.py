@@ -168,21 +168,22 @@ def harness_exclusion(
 ) -> str | None:
     """Why a harness trial is excluded, or ``None``.
 
-    The run recorded a held-out read. Or the task is held out and the run could not have
-    recorded one: the loop writes that incident only when one of the run's canaries shows in
-    a stream it scanned, so a canary it did not look for, or a stream it never scanned, leaves
+    The run recorded a held-out read. Or the run did not end: a run that did not end is not a
+    measurement in any tier. Or the task is held out and the run could not have recorded one:
+    the loop writes that incident only when one of the run's canaries shows in a stream it
+    scanned, so a canary it did not look for, or a stream it never scanned, leaves
     an exposed trial looking like a clean one. The raw arm is held to the same rule.
 
     Raises:
-        CorruptEventLogError: on a held-out task, the log does not replay as a run, so whether
-            it ended cannot be said.
+        CorruptEventLogError: the log does not replay as a run, so whether it ended cannot be
+            said.
     """
     for event in events:
         if isinstance(event, Incident) and event.cause == "held_out_read":
             # The incident's detail is not repeated: it may name what was read.
             return f"incident: the run recorded a held-out read (event {event.seq})"
     if task.canary is None:
-        return None
+        return _unended(events)
     if task.canary not in config.held_out_canaries:
         return "held_out_canaries: the task is held out and the run did not look for its canary"
     for event in events:
@@ -206,9 +207,21 @@ def harness_exclusion(
     # outside it, beneath the review root, and is scanned only as its review ends, or by a
     # resume. A run killed during a review, and never resumed, has neither, and wrote no line
     # whose missing end would show it; only the run's own end says every review ended.
+    return _unended(events)
+
+
+def _unended(events: Sequence[Event]) -> str | None:
+    """Why a run that did not end is excluded, or ``None`` for one that ended.
+
+    Raises:
+        CorruptEventLogError: the log does not replay as a run.
+    """
     step = next_step(events)
     if step not in ENDED_STEPS:
-        return f"run: the run has not ended (its next step is {step}), so a stream may be unscanned"
+        return (
+            f"run: the run has not ended (its next step is {step}): it is no measurement, "
+            "and a stream of it may be unscanned"
+        )
     return None
 
 

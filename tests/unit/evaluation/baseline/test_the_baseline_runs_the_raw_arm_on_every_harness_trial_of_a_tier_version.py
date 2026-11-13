@@ -169,7 +169,8 @@ def test_a_protected_trial_whose_session_failed_leaves_its_record_and_the_store_
     """A round stopped while a protected session's work is outside the store says so there."""
     task = store.tasks["held_out"][0]
     runs = run_set((harness_run(tmp_path / "runs", task, store), 0))
-    with pytest.raises(RuntimeError, match="the session could not start"):
+    # Said by its tier and the error's kind: an arm's error may name the task.
+    with pytest.raises(BaselineError, match=r"held_out trial stopped on an error \(RuntimeError\)"):
         _round(
             store,
             runs,

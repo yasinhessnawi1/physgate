@@ -47,6 +47,7 @@ def loop_run(
     *,
     kill: str | None = None,
     decomposed: bool = False,
+    verdicts: tuple[str, ...] = (),
     **config: Any,  # noqa: ANN401 - a run configuration's own fields
 ) -> Path:
     """A run of one control subtask, ``run_id`` ``r``, made by the loop in ``run_dir``.
@@ -54,7 +55,8 @@ def loop_run(
     ``kill`` is where a killed orchestrator stopped and never resumed: ``"session"`` (during
     the role session) or ``"review"`` (during its review), or ``None`` for a run that ends.
     ``decomposed`` records the run's decomposition line, as a run decomposed by its one call
-    does. ``config`` replaces fields of the run's configuration.
+    does. ``verdicts`` are the reviewer's, call by call; a pass after them. ``config``
+    replaces fields of the run's configuration.
     """
     run_dir.mkdir(parents=True)
     rig = Rig(
@@ -62,7 +64,7 @@ def loop_run(
         dispatcher=FakeDispatcher(
             trajectories=run_dir / "sessions", kill_on=1 if kill == "session" else None
         ),
-        reviewer=FakeReviewer(kill_on=1 if kill == "review" else None),
+        reviewer=FakeReviewer(kill_on=1 if kill == "review" else None, verdicts=list(verdicts)),
         config_overrides={"run_id": "r", "models": CONTROL_MODELS, **config},
     )
     loop = rig.open()

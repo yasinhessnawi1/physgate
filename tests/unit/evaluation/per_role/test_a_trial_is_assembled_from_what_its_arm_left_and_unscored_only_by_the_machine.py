@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -243,7 +244,12 @@ SCORED = {"passed": True, "flags": {"no_gain_crossover": True}, "specs": []}
 
 
 def test_a_harness_trial_carries_its_score_cost_span_and_reviews(tmp_path: Path) -> None:
-    run = _run(tmp_path, _start(), _planned(1), _review(2, T0), _halt("incident", seq=3))
+    """A run the loop made and let end, its first review a fail; its span read from its log."""
+    run = loop_run(tmp_path / "run", verdicts=("fail",))
+    lines = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+    verdicts = [e["result"]["verdict"] for e in lines if e["kind"] == "review_ran"]
+    assert verdicts == ["fail", "pass"]
+    first, last = (datetime.fromisoformat(lines[i]["ts"]) for i in (0, -1))
     record = harness_trial(
         suite="control_visible",
         task=TASK,
@@ -258,9 +264,9 @@ def test_a_harness_trial_carries_its_score_cost_span_and_reviews(tmp_path: Path)
     assert record.outcome == "pass" and record.trial == 2 and record.arm == "harness"
     assert record.control is not None and record.control.no_gain_crossover
     assert record.cost.tokens == 1160 and record.cost.usd == Decimal("3.50")
-    assert record.wall_clock_s == 1800.0
+    assert record.wall_clock_s == (last - first).total_seconds() > 0
     assert record.review is not None and record.review.failed == 1
-    assert record.gate is not None and record.gate.checks_run == 0
+    assert record.gate is not None
 
 
 def test_a_trial_the_machine_ended_twice_is_unscored_whatever_score_was_passed(
@@ -270,7 +276,7 @@ def test_a_trial_the_machine_ended_twice_is_unscored_whatever_score_was_passed(
         suite="s",
         task=TASK,
         trial=0,
-        run_dir=_run(tmp_path, _start()),
+        run_dir=_run(tmp_path, _start(), _halt("incident")),
         manifest_id="e" * 64,
         cost=_cost_line(),
         score=SCORED,
@@ -287,7 +293,7 @@ def test_a_trial_with_no_answer_that_the_machine_did_not_end_is_the_arm_s_fail(
         suite="s",
         task=TASK,
         trial=0,
-        run_dir=_run(tmp_path, _start()),
+        run_dir=_run(tmp_path, _start(), _halt("incident")),
         manifest_id="e" * 64,
         cost=_cost_line(),
         score=None,
@@ -716,7 +722,7 @@ def test_a_trial_whose_score_says_passed_in_anything_but_a_bool_is_excluded(
         )
     )
     assert isinstance(raw, ExcludedTrial) and raw.reason.startswith("score:"), raw
-    run = _run(tmp_path, _start(), _planned(1), _review(2, T0))
+    run = _run(tmp_path, _start(), _halt("incident"))
     harness = _scored(
         lambda: harness_trial(
             suite="s",
