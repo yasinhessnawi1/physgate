@@ -336,6 +336,38 @@ def _own_reading(path: str, place: str) -> bool:
     return not stat.S_ISLNK(st.st_mode) and not (stat.S_ISREG(st.st_mode) and st.st_nlink > 1)
 
 
+def _own_writing(path: str, place: str) -> bool:
+    """Whether ``path`` is ``place``, a protected root's exception, or beneath it, and written.
+
+    An allowance, so it is not met by any spelling that reaches ``place``, as a refusal is. The
+    path as spelt and the path as resolved both lie exactly beneath ``place`` (as given or
+    resolved), never case-folded, and no component of the path beneath ``place`` is a symbolic
+    link: a link made there to the root around it is spelt inside the exception and lies outside
+    it, and one that points inside it now can point elsewhere by the time the tool writes. A
+    component that does not exist yet is none; one that cannot be read is taken as a link.
+    """
+    places = [p.rstrip("/") for p in _spellings(place)]
+    spelt = [p for p in places if _under(path, p)]
+    resolved = os.path.realpath(path)
+    if not spelt or not any(_under(resolved, p) for p in places):
+        return False
+    for held in spelt:
+        current = held
+        for part in path[len(held) :].split("/"):
+            if not part:
+                continue
+            current = os.path.join(current, part)
+            try:
+                st = os.lstat(current)
+            except FileNotFoundError:
+                break
+            except OSError:
+                return False
+            if stat.S_ISLNK(st.st_mode):
+                return False
+    return True
+
+
 def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = False) -> str | None:
     """Why the one spelling ``absolute`` may not be touched this way, by the listed rules.
 
@@ -396,7 +428,7 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
         return None
     for root in config.protected_roots:
         if _reaches(absolute, root.path, chain) and not any(
-            _reaches(absolute, exception, chain) for exception in root.exceptions
+            _own_writing(absolute, exception) for exception in root.exceptions
         ):
             # The session's own temporary directory is written by its own commands, never by a
             # file tool: held exactly, as their reads are, so no link or case variant there

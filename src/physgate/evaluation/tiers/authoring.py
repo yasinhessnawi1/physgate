@@ -1,17 +1,21 @@
 """Own tasks: authored blind by a model that is not the implementers', then split, then sealed.
 
 Authoring sessions write tasks for a role, one task at a time, into a directory of their
-own; what holds is pooled until sixteen are there. Each is told the task format, the
+own; what holds is pooled until twenty-four are there. Each is told the task format, the
 scorer's metrics and their units, the role's domain and the rule that every task composes
 at least two requirements, and nothing of the harness: no role prompt, no knowledge, no
 rubric, no visible task. Its model must differ from the model the run's implementers use
 (ARCH-141); a request naming the same model is refused before anything runs.
 
-A seeded split then sends eight tasks to the visible tier and eight to the held-out tier,
-so both tiers come from one author, one brief and one distribution, and the gap between
-them measures overfitting to what was seen, not a difference in difficulty. Each held-out
-task gets a canary. The held-out tier is written under its protected root, outside the
-repository, and only its digest leaves it; the staging directory is removed.
+A seeded split then sends eight tasks each to the visible, the validation and the held-out
+tier, so all three come from one author, one brief and one distribution, and the gaps between
+them measure overfitting to what was seen, not a difference in difficulty. The split takes
+only what its entry check admits (:func:`entry_refusal`), and the pool takes only that too.
+The validation and held-out tiers are protected alike: each of their tasks gets a canary, and
+each tier's canary list lies inside it, beneath the root that protects it, where every layer
+refuses it to a session as it refuses a task: a canary a session could read would tell it
+what not to print. They are written under their protected root, outside the repository, and
+only their digests and their lists' digests leave them; the staging directory is removed.
 
 The validator (in the evaluation environment, since it runs the scorer) reports counts,
 task ids and digests only, so a person can approve the held-out tier without reading it.
@@ -26,12 +30,13 @@ import random
 import secrets
 import shutil
 import stat
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.metrics import CONTROL_METRIC_UNITS, CONTROL_SCORER_VERSION
-from physgate.evaluation.tiers.task import Role, load_task, parse_task, task_bytes
+from physgate.evaluation.tiers.task import Role, Task, fold_id, load_task, parse_task, task_bytes
 
 PER_TIER = 8
 CANARIES_NAME = "canaries.json"
@@ -137,7 +142,26 @@ CONTROL_METRIC_MEANINGS: dict[str, str] = {
 }
 
 
-def author_brief(role: Role, *, count: int = 2 * PER_TIER, id_prefix: str = "") -> str:
+#: The tiers one round is split into, in the order of the seeded shuffle.
+TIERS = ("visible", "validation", "held_out")
+
+
+def entry_refusal(task: Task) -> str | None:
+    """Why the split would not take ``task``, as a counted reason; ``None`` if it would.
+
+    The split and the pool hold every task to this one check, so nothing enters the pool
+    that would stop a later split: a task is written as a visible one (``tier_not_visible``;
+    the schema makes a visible task one of our own), and carries no canary, which is given at
+    the split and only there (``carries_canary``).
+    """
+    if task.tier != "visible":
+        return "tier_not_visible"
+    if task.canary is not None:
+        return "carries_canary"
+    return None
+
+
+def author_brief(role: Role, *, count: int = len(TIERS) * PER_TIER, id_prefix: str = "") -> str:
     """What the authoring session is told: the format, the metrics, the rules. Nothing else.
 
     ``id_prefix`` is what every id must begin with, so that sessions pooled together do
@@ -216,6 +240,22 @@ def _write_file(dir_fd: int, name: str, data: bytes) -> None:
         os.close(fd)
 
 
+#: What a file is called while it is written, before it is whole and given its own name.
+_PARTIAL = ".{}.partial"
+
+
+def _write_whole(dir_fd: int, name: str, data: bytes) -> None:
+    """Write ``name`` under ``dir_fd`` so that, under that name, it is only ever whole.
+
+    It is written under a name of its own first, which no reader takes for it, and renamed
+    to ``name`` once every byte is down: a look at the directory finds the file whole, or
+    not at all.
+    """
+    partial = _PARTIAL.format(name)
+    _write_file(dir_fd, partial, data)
+    os.rename(partial, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+
+
 def _read_file(dir_fd: int, name: str) -> bytes:
     fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
     try:
@@ -285,40 +325,74 @@ def _apart(one: Path, other: Path) -> bool:
 
 
 def split(
-    staging: Path, visible: Path, held_out: Path, *, seed: int, per_tier: int = PER_TIER
+    staging: Path,
+    visible: Path,
+    held_out: Path,
+    *,
+    validation: Path,
+    seed: int,
+    per_tier: int = PER_TIER,
 ) -> dict[str, Any]:
-    """The staged tasks split by ``seed`` into the two tiers; the staging directory removed.
+    """The staged tasks split by ``seed`` into the three tiers; the staging directory removed.
 
-    Returns what may be shown: the visible ids, the number held out and the held-out tier's
-    digest. The held-out tasks' canaries are written beside the held-out root, not inside it.
-    Every write goes through directory descriptors reached without following a link, each
-    task is read back and checked for its tier and canary, and the two tiers never share a
-    place.
+    The staged tasks are shuffled by ``seed`` and cut in that order: the first ``per_tier``
+    to the visible tier, the next to the validation tier, the last to the held-out tier.
+
+    Returns what may be shown: the visible ids, and for each protected tier its count, its
+    digest and its canary list's digest. Each protected tier's list is written inside it, as
+    ``canaries.json`` beside its digest file, so it lies beneath the root that protects the
+    tier; it is written whole (:func:`_write_whole`) and before any task, so the tier never
+    holds a task without its list. Every write goes through directory descriptors reached
+    without following a link, each task is read back and checked for its tier and canary,
+    and no two tiers share a place.
 
     Raises:
-        AuthoringError: the staging directory does not hold exactly ``2 * per_tier`` tasks
-            that each load whole with their references and nothing but plain files, the
-            tiers are not apart, a target already exists, or a link is on the way to one.
+        AuthoringError: the staging directory does not hold exactly ``3 * per_tier`` tasks
+            that each load whole with their references and nothing but plain files, a task
+            is one the entry check refuses (``refused_because`` says why) or repeats an id
+            however it is spelt (``id_fold_collision``: :func:`.task.fold_id`),
+            the tiers are not apart, a target already exists, or a link is on the way to one.
     """
-    if not _apart(visible, held_out):
-        msg = "the visible and held-out tiers must be apart: neither the same nor nested"
-        raise AuthoringError(msg, visible=str(visible), held_out=str(held_out))
+    places = {"visible": visible, "validation": validation, "held_out": held_out}
+    if not all(_apart(one, other) for one, other in combinations(places.values(), 2)):
+        msg = "the visible, validation and held-out tiers must be apart: none the same or nested"
+        raise AuthoringError(msg, **{name: str(path) for name, path in places.items()})
     _refuse_links(staging)
     entries = sorted(p for p in staging.iterdir() if p.is_dir())
-    if len(entries) != 2 * per_tier or len(list(staging.iterdir())) != len(entries):
-        msg = f"the staging directory holds {len(entries)} task directories, not {2 * per_tier}"
+    whole = len(TIERS) * per_tier
+    if len(entries) != whole or len(list(staging.iterdir())) != len(entries):
+        msg = f"the staging directory holds {len(entries)} task directories, not {whole}"
         raise AuthoringError(msg, staging=str(staging))
     loaded = [load_task(entry) for entry in entries]
     ids = [item.task.id for item in loaded]
-    if len(set(ids)) != len(ids) or any(item.task.tier != "visible" for item in loaded):
-        msg = "the staged tasks repeat an id, or are not written as visible tasks"
-        raise AuthoringError(msg, staging=str(staging))
+    if len({fold_id(task_id) for task_id in ids}) != len(ids):
+        msg = "the staged tasks repeat an id, however it is spelt (case, compatibility, separators)"
+        raise AuthoringError(msg, staging=str(staging), refused_because="id_fold_collision")
+    for item in loaded:
+        reason = entry_refusal(item.task)
+        if reason is not None:
+            msg = f"a staged task is one the split does not take ({reason})"
+            raise AuthoringError(msg, staging=str(staging), refused_because=reason)
+    for path in places.values():
+        if os.path.lexists(path):
+            msg = f"{path} already exists (or a link stands there); a split never writes over one"
+            raise AuthoringError(msg, path=str(path))
     order = list(range(len(entries)))
     random.Random(seed).shuffle(order)
-    canaries = {ids[index]: secrets.token_hex(16) for index in order[per_tier:]}
+    tier_of = {ids[index]: TIERS[n // per_tier] for n, index in enumerate(order)}
+    canaries = {
+        task_id: secrets.token_hex(16) for task_id, tier in tier_of.items() if tier != "visible"
+    }
+    listed = {
+        tier: (
+            json.dumps(sorted(c for t, c in canaries.items() if tier_of[t] == tier)) + "\n"
+        ).encode()
+        for tier in TIERS[1:]
+    }
     fds: dict[str, int] = {}
+    sums: dict[str, str] = {}
     try:
-        for name, tier_path in (("visible", visible), ("held_out", held_out)):
+        for name, tier_path in places.items():
             parent = _open_chain(tier_path.parent, make=True)
             try:
                 os.mkdir(tier_path.name, 0o700, dir_fd=parent)
@@ -331,25 +405,23 @@ def split(
             finally:
                 os.close(parent)
             fds[name] = _open_chain(tier_path, make=False)
+        for tier in TIERS[1:]:
+            _write_whole(fds[tier], CANARIES_NAME, listed[tier])
         for index in order:
             task_id = ids[index]
-            tier = "held_out" if task_id in canaries else "visible"
+            tier = tier_of[task_id]
             _place(entries[index], fds[tier], tier, canaries.get(task_id))
             _check_placed(fds[tier], task_id, tier, canaries.get(task_id))
-        sums = sha256sums(held_out)
-        _write_file(fds["held_out"], SUMS_NAME, sums.encode())
-        parent = _open_chain(held_out.parent, make=False)
-        try:
-            payload = json.dumps(sorted(canaries.values())) + "\n"
-            _write_file(parent, f"{held_out.name}.{CANARIES_NAME}", payload.encode())
-        finally:
-            os.close(parent)
+        for tier in TIERS[1:]:
+            sums[tier] = sha256sums(places[tier])
+            _write_file(fds[tier], SUMS_NAME, sums[tier].encode())
     finally:
         for fd in fds.values():
             os.close(fd)
     shutil.rmtree(staging)
-    return {
-        "visible": sorted(p.name for p in visible.iterdir()),
-        "held_out_count": len(canaries),
-        "held_out_sha256": hashlib.sha256(sums.encode()).hexdigest(),
-    }
+    shown: dict[str, Any] = {"visible": sorted(p.name for p in visible.iterdir())}
+    for tier in TIERS[1:]:
+        shown[f"{tier}_count"] = per_tier
+        shown[f"{tier}_sha256"] = hashlib.sha256(sums[tier].encode()).hexdigest()
+        shown[f"{tier}_canaries_sha256"] = hashlib.sha256(listed[tier]).hexdigest()
+    return shown
