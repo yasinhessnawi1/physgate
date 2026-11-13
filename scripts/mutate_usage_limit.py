@@ -295,7 +295,13 @@ _FAILED = re.compile(r"^FAILED \S+ - (.*)$", re.M)
 def run_rows(label: str) -> tuple[str, str]:
     """Run the rows once; say how they came out, with the tail of the output."""
     with tempfile.TemporaryDirectory(prefix=f"mut-{label}-") as scratch:
-        env = {**os.environ, "PYTHONPYCACHEPREFIX": str(Path(scratch) / "pycache")}
+        # A wide terminal, so pytest's summary keeps each failure's reason on its line: without
+        # it the reason is cut and no failure can be read as an assertion's.
+        env = {
+            **os.environ,
+            "PYTHONPYCACHEPREFIX": str(Path(scratch) / "pycache"),
+            "COLUMNS": "4000",
+        }
         argv = [
             sys.executable,
             "-u",
