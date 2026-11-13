@@ -126,6 +126,8 @@ from physgate.orchestrator.tool_environment import (
     changed_while_running,
     forbidden_places,
     hold_before_session,
+    sealing_environment,
+    series_environment,
     session_environment,
     wire_session,
 )
@@ -1817,6 +1819,9 @@ class ClaudeDispatcher:
             # The environment's interpreter is the session's ``python3``; a run that also
             # names it as its interpreter names the same one.
             env = session_environment(env, wired, sdir / "bin")
+            # Its scripts' records name the environment's code once, by the run's roots and
+            # digest, and every other file outside the module by its path.
+            env = series_environment(env, recorded_tools)
         elif recorded_python is not None:
             # The run's named interpreter, measured again, first on the session's PATH as
             # ``python3``: a directory holding nothing else, so nothing beside it comes too.
@@ -2037,6 +2042,14 @@ class ClaudeDispatcher:
             # The session's own directory holds its home; with the machine's temporary
             # directories these are the places it can write besides its worktree.
             writable_roots=(sdir, *temporary_roots()),
+            # The run's environment, which this session was held to before it started (else it
+            # never started) and after it ended (else nothing reaches here); the roots were
+            # write-denied to it only where the OS layer ran.
+            tool_environment=sealing_environment(
+                self._config.tool_environment,
+                held=self._tool_environment_scan is not None,
+                layer=temp is not None,
+            ),
         )
         # The tripwire on the files no session reads, once more before the attempt is committed:
         # a second name, a changed file or one that cannot be checked refuses the attempt.

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -29,7 +28,7 @@ from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.tool_environment import measure_named
 from physgate.orchestrator.trajectory import Seal
 from physgate.oslayer.probe import Present, judge_here
-from physgate.series.collect import series_library
+from physgate.series.collect import REFUSED_DIR, series_library
 from physgate.series.reader import read_record, record_path
 from physgate.toolenv.manifest import scan
 
@@ -63,28 +62,60 @@ print("RECORDED " + name + " " + mujoco.__version__)
 """
 
 
+#: The session's own copy of ``control``, edited, in a virtual environment it makes; the script
+#: run on it. Every path is found as the program runs, so no command names the environment.
+OWN_VENV = """import control, os, shutil, subprocess, sys
+def writable(top):
+    for here, _dirs, files in os.walk(top):
+        os.chmod(here, 0o755)
+        for name in files:
+            if not os.path.islink(os.path.join(here, name)):
+                os.chmod(os.path.join(here, name), 0o644)
+temp = os.path.dirname(os.environ["MPLCONFIGDIR"])
+own = os.path.join(temp, "own")
+subprocess.run([sys.executable, "-m", "venv", "--without-pip", own], check=True)
+site = os.path.join(own, "lib", "python3.12", "site-packages")
+library = os.path.dirname(control.__file__)
+shutil.copytree(library, os.path.join(site, "control"))
+writable(os.path.join(site, "control"))
+with open(os.path.join(site, "control", "__init__.py"), "a") as edited:
+    edited.write("EDITED = True\\n")
+with open(os.path.join(site, "environment.pth"), "w") as rest:
+    rest.write(os.path.dirname(library) + "\\n")
+subprocess.run([os.path.join(own, "bin", "python"), "step.py", "venv"], check=True)
+"""
+#: The same, with ``PYTHONHOME`` at a tree of the session's own: the standard library copied in,
+#: and the edited ``control`` in its site-packages.
+OWN_HOME = """import control, os, shutil, subprocess, sys
+def writable(top):
+    for here, _dirs, files in os.walk(top):
+        os.chmod(here, 0o755)
+        for name in files:
+            if not os.path.islink(os.path.join(here, name)):
+                os.chmod(os.path.join(here, name), 0o644)
+temp = os.path.dirname(os.environ["MPLCONFIGDIR"])
+home = os.path.join(temp, "home")
+stdlib = os.path.join(home, "lib", "python3.12")
+shutil.copytree(os.path.join(sys.base_prefix, "lib", "python3.12"), stdlib, symlinks=True)
+writable(home)
+site = os.path.join(stdlib, "site-packages")
+library = os.path.dirname(control.__file__)
+shutil.copytree(library, os.path.join(site, "control"))
+writable(os.path.join(site, "control"))
+with open(os.path.join(site, "control", "__init__.py"), "a") as edited:
+    edited.write("EDITED = True\\n")
+with open(os.path.join(site, "environment.pth"), "w") as rest:
+    rest.write(os.path.dirname(library) + "\\n")
+base = os.path.realpath(sys._base_executable)
+env = dict(os.environ, PYTHONHOME=home)
+subprocess.run([base, "step.py", "home"], check=True, env=env)
+"""
+
+
 @pytest.fixture(scope="module")
 def install_bin(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = Path(__file__).resolve().parents[3]
     return prepare_install(tmp_path_factory.mktemp("install") / "hooks", root)
-
-
-def _places(interpreter: Path) -> tuple[str, str]:
-    """The environment interpreter's own installation, and where ``control`` lies in it."""
-    said = subprocess.run(
-        [
-            str(interpreter),
-            "-I",
-            "-c",
-            "import sys, os, control; print(sys.base_prefix); "
-            "print(os.path.dirname(os.path.dirname(control.__file__)))",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=120,
-    ).stdout.split("\n")
-    return said[0], said[1]
 
 
 def _with_the_writer(run: RunGit) -> None:
@@ -108,8 +139,6 @@ def test_a_library_backed_record_seals_and_a_session_s_own_copy_of_the_library_d
         pytest.skip("the OS layer cannot run here")
     root = Path(PROVISIONED)
     interpreter = root / "venv" / "bin" / "python3"
-    base, site = _places(interpreter)
-    version = "python3.12"
     measured = measure_named({"interpreter": str(interpreter), "roots": [str(root)]}, forbidden={})
     cfg = config().model_copy(
         update={
@@ -128,28 +157,13 @@ def test_a_library_backed_record_seals_and_a_session_s_own_copy_of_the_library_d
     before = scan([root])
     worktree = tmp_path / "run" / "worktrees" / "s1"
     module = worktree / "modules" / "power"
-    temp = 'T="$(dirname "$MPLCONFIGDIR")"'
-    venv = (
-        f"{temp} && python3 -m venv --without-pip $T/own && "
-        f"cp -R {site}/control $T/own/lib/{version}/site-packages/control && "
-        f"echo 'EDITED = True' >> $T/own/lib/{version}/site-packages/control/__init__.py && "
-        f"echo {site} > $T/own/lib/{version}/site-packages/environment.pth && "
-        f"cd {module} && $T/own/bin/python step.py venv"
-    )
-    home = (
-        f"{temp} && mkdir -p $T/home/lib && cp -R {base}/lib/{version} $T/home/lib/{version} && "
-        f"cp -R {site}/control $T/home/lib/{version}/site-packages/control && "
-        f"echo 'EDITED = True' >> $T/home/lib/{version}/site-packages/control/__init__.py && "
-        f"echo {site} > $T/home/lib/{version}/site-packages/environment.pth && "
-        f"cd {module} && PYTHONHOME=$T/home {base}/bin/{version} step.py home"
-    )
     steps = [
         *knowledge_reads(worktree),
         tool("Read", file_path=str(worktree / SPEC)),
         tool("Write", file_path=str(module / "step.py"), content=STEP),
         tool("Bash", command=f"cd {module} && python3 step.py plant 2>&1 | tail -3"),
-        tool("Bash", command=f"({venv}) 2>&1 | tail -3", timeout=600000),
-        tool("Bash", command=f"({home}) 2>&1 | tail -3", timeout=600000),
+        tool("Bash", command=f"cd {module} && python3 - <<'EOF' 2>&1 | tail -3\n{OWN_VENV}EOF"),
+        tool("Bash", command=f"cd {module} && python3 - <<'EOF' 2>&1 | tail -3\n{OWN_HOME}EOF"),
         text("done"),
     ]
     api, (report, _), run = dispatch(tmp_path, install_bin, steps, cfg=cfg, before=_with_the_writer)
@@ -166,10 +180,15 @@ def test_a_library_backed_record_seals_and_a_session_s_own_copy_of_the_library_d
         "venv_loop.json",
         "venv_step.json",
     ], series
-    for reason in refused.values():
-        assert "not the run's tool environment" in reason, reason
-        assert "/control/" in reason, reason
     session_id = Path(str(report.trajectory)).parent.name
+    kept = run.run_dir / "series" / REFUSED_DIR / "s1" / "1" / session_id
+    for name, reason in refused.items():
+        assert "not the run's tool environment" in reason, reason
+        # The session's own edited copy is named by its path in the session's temporary
+        # directory, never left out.
+        loaded = json.loads((kept / name).read_bytes())["producer"]["loaded"]
+        copies = [e["path"] for e in loaded if e["path"].endswith("/control/__init__.py")]
+        assert copies and all("/pgs/" in path for path in copies), (name, copies)
     for sealed in series.records:
         held = record_path(run.run_dir, "s1", 1, session_id, sealed.record_id)
         environment = json.loads(held.read_bytes())["producer"]["environment"]

@@ -547,12 +547,54 @@ class _Provenance:
     environment: tuple[CodeDigest, ...]
 
 
+def _on_the_environment(record: Record, environment: SeriesEnvironment | None) -> None:
+    """Whether the record may stand on the tool environment it names, if it names one.
+
+    The record's ``producer.environment`` is the session's claim; it is held to the run's own.
+    A run that records a tool environment admits code from outside the module only as that
+    environment, named by the record once: the run's roots and digest, held to the run's
+    record before the session, with the OS layer keeping the roots from the session's writes.
+    Without the layer the record is kept unsealed, with the reason. A record that names no
+    environment there was written by a process not told it, which left its interpreter's own
+    places out unnamed; and a record that names one on a run that records none names code the
+    run never measured.
+
+    Raises:
+        _RefusedError: any of these does not hold.
+    """
+    named = record.producer.environment
+    if environment is None:
+        if named is not None:
+            msg = "the record names a tool environment, and this run records no tool environment"
+            raise _RefusedError(msg)
+        return
+    if named is None:
+        msg = (
+            "this run records a tool environment, and the record names no tool environment: it "
+            "was written by a process not told the run's, so the code it ran is not known"
+        )
+        raise _RefusedError(msg)
+    if named.roots != environment.roots or named.sha256 != environment.sha256:
+        msg = "the record names another tool environment than the run's"
+        raise _RefusedError(msg)
+    if not environment.held:
+        msg = "the tool environment was not held to the run's record before the session"
+        raise _RefusedError(msg)
+    if not environment.layer:
+        msg = (
+            "kept unsealed: the session ran without the OS layer, so nothing kept the tool "
+            "environment's roots from its writes"
+        )
+        raise _RefusedError(msg)
+
+
 def _provenance(
     record: Record,
     base: Path,
     module: PurePosixPath,
     object_format: str,
     roots: tuple[Path, ...],
+    environment: SeriesEnvironment | None = None,
 ) -> _Provenance:
     """The script's bytes, the blob of every other module file, and the environment code.
 
@@ -570,12 +612,21 @@ def _provenance(
     if script == WRITER_PATH:
         msg = "a record names the writer as its script"
         raise _RefusedError(msg)
+    _on_the_environment(record, environment)
     script_bytes = b""
     loaded: dict[str, CodeBlob] = {}
-    environment: dict[str, CodeDigest] = {}
+    installed: dict[str, CodeDigest] = {}
     for named in (record.producer.script, *record.producer.loaded):
         if named is not record.producer.script and PurePosixPath(named.path).is_absolute():
-            environment[named.path] = _environment_code(named, roots)
+            if environment is not None:
+                # The run's environment stands for all the code it admits, named once; the
+                # rule for an interpreter's own installation is not kept beside it.
+                msg = (
+                    "code from outside the module ran that is not the run's tool "
+                    f"environment: {named.path}"
+                )
+                raise _RefusedError(msg)
+            installed[named.path] = _environment_code(named, roots)
             continue
         relative = _in_the_module(named.path, module)
         data = _code_bytes(base, relative)
@@ -589,7 +640,7 @@ def _provenance(
     return _Provenance(
         script=script_bytes,
         loaded=tuple(loaded[path] for path in sorted(loaded)),
-        environment=tuple(environment[path] for path in sorted(environment)),
+        environment=tuple(installed[path] for path in sorted(installed)),
     )
 
 
@@ -714,7 +765,7 @@ def collect(
                         f"the file is named for another record than the one it holds ({record.id})"
                     )
                     raise _RefusedError(msg)
-                found = _provenance(record, base, module, object_format, roots)
+                found = _provenance(record, base, module, object_format, roots, tool_environment)
             except _RefusedError as exc:
                 _move_aside(fd, name, refused_at)
                 refused.add(name, str(exc))

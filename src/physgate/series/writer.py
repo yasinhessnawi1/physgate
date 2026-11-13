@@ -20,6 +20,13 @@ anything else is written as it is, absolute, and the orchestrator refuses a reco
 code ran from anywhere but the module and the interpreter's own installation. Write the
 record after the simulation, from the script that ran it.
 
+**On a run's tool environment.** Where the session's environment names the run's recorded
+tool environment (``PHYSGATE_SERIES_ENVIRONMENT``: its roots and its digest), every file of
+code under those roots is named once, by the environment's digest, and nothing else is left
+out: the running interpreter's own places are named file by file like any other code, since
+a session can make them its own (a virtual environment, ``PYTHONHOME``). The orchestrator
+then seals the record only on the run's own environment.
+
 Use, from a script under the module directory::
 
     import os, sys
@@ -399,20 +406,96 @@ def _shown(path: str, base: str) -> str:
     return os.path.relpath(path, base).replace(os.sep, "/") if _under(path, base) else path
 
 
+_DIGEST = re.compile(r"[0-9a-f]{64}")
+
+
+def _environment_refused(why: str) -> SeriesWriterError:
+    return SeriesWriterError(
+        f"the tool environment this session was told ({ENVIRONMENT_VARIABLE}) {why}, so no "
+        "record can name it"
+    )
+
+
+def _plain_root(root: object) -> bool:
+    return (
+        isinstance(root, str)
+        and 0 < len(root) <= MAX_PATH
+        and root.startswith("/")
+        and not root.startswith("//")
+        and "\0" not in root
+        and ".." not in root.split("/")
+        and os.path.normpath(root) == root
+    )
+
+
+def told_environment() -> dict[str, object] | None:
+    """The run's tool environment as the session was told it, or ``None`` if it was told none.
+
+    Raises:
+        SeriesWriterError: it was told in a form a record cannot name, or the process may run
+            cached bytecode from outside the environment (a cache prefix), which Python runs in
+            place of a source file whose stamp it matches.
+    """
+    given = os.environ.get(ENVIRONMENT_VARIABLE)
+    if given is None:
+        return None
+    try:
+        told = json.loads(given)
+    except ValueError:
+        raise _environment_refused("is not JSON") from None
+    if not isinstance(told, dict) or set(told) != {"roots", "sha256"}:
+        raise _environment_refused("does not name exactly its roots and its digest")
+    roots, digest = told["roots"], told["sha256"]
+    if (
+        not isinstance(roots, list)
+        or not 1 <= len(roots) <= MAX_ROOTS
+        or not all(_plain_root(root) for root in roots)
+    ):
+        msg = f"does not name between 1 and {MAX_ROOTS} roots by absolute, plain paths"
+        raise _environment_refused(msg)
+    if not isinstance(digest, str) or not _DIGEST.fullmatch(digest):
+        raise _environment_refused("does not name its digest as 64 hexadecimal digits")
+    if getattr(sys, "pycache_prefix", None):
+        msg = (
+            "cannot stand behind this process: its bytecode cache is kept elsewhere "
+            f"({sys.pycache_prefix}), and a cached file there runs in place of the "
+            "environment's source"
+        )
+        raise _environment_refused(msg)
+    return {"roots": roots, "sha256": digest}
+
+
 def producer(base: str) -> dict[str, object]:
     """The code that is producing a record now: the running script, and what it loaded.
 
+    Where the session was told the run's tool environment, every file under its roots is named
+    once, by the environment's digest, and every other file outside the worktree by its path:
+    the running interpreter's own places are then not left out, since a session can make them
+    its own (a virtual environment, ``PYTHONHOME``). Where it was told none, the interpreter's
+    own installation is left out, as it always was.
+
     Raises:
-        SeriesWriterError: there is no script (an interactive session or ``-c``), or more
-            files of code are loaded than a record may name.
+        SeriesWriterError: there is no script (an interactive session or ``-c``), more files
+            of code are loaded than a record may name, or the environment was told in a form
+            a record cannot name.
     """
     main = getattr(sys.modules.get("__main__"), "__file__", None)
     if not main:
         msg = "a record is written from a script file, and this process runs none"
         raise SeriesWriterError(msg)
     script = os.path.realpath(main)
-    roots = _interpreter_roots()
-    standard_library = _standard_library()
+    environment = told_environment()
+    if environment is None:
+        roots = _interpreter_roots()
+        standard_library = _standard_library()
+    else:
+        named_roots: list[str] = environment["roots"]  # type: ignore[assignment]
+        roots = sorted({os.path.realpath(root) for root in named_roots})
+        # The site hook is left out only as the environment's own: loaded from a standard
+        # library that itself lies in the environment's roots.
+        standard_library = {
+            d for d in _standard_library() if any(_under(os.path.realpath(d), r) for r in roots)
+        }
     loaded = set()
     for name, module in list(sys.modules.items()):
         found = getattr(module, "__file__", None)
@@ -431,7 +514,13 @@ def producer(base: str) -> dict[str, object]:
     if len(named) > MAX_LOADED:
         msg = f"the process loaded {len(named)} files of code; a record names at most {MAX_LOADED}"
         raise SeriesWriterError(msg)
-    return {"script": {"path": _shown(script, base), "sha256": script_digest}, "loaded": named}
+    produced: dict[str, object] = {
+        "script": {"path": _shown(script, base), "sha256": script_digest},
+        "loaded": named,
+    }
+    if environment is not None:
+        produced["environment"] = environment
+    return produced
 
 
 #: How a record is opened: made new, in the outbox itself, never through a link. A name already
