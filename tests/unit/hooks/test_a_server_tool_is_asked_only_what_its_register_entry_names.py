@@ -26,7 +26,16 @@ CONFIG = "mcp__platformio__get_project_config"
 LOAD = "mcp__mujoco__load_model"
 STEP = "mcp__mujoco__step"
 MARGINS = "mcp__control__margins"
-ADMITTED = [BUILD, CONFIG, LOAD, STEP, MARGINS, "mcp__platformio__system_info"]
+ADMITTED = [
+    BUILD,
+    CONFIG,
+    LOAD,
+    STEP,
+    MARGINS,
+    "mcp__platformio__system_info",
+    "mcp__platformio__check_project",
+    "mcp__mujoco__state",
+]
 BASE = ["Bash", "Edit", "NotebookEdit", "Read", "Write"]
 
 

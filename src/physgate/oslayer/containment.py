@@ -43,6 +43,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from physgate.hooks.config import SessionConfig
 from physgate.oslayer.policy import _read_denied, board_devices, outbox_read_denial
+from physgate.toolenv.session import REFUSED_PREFIXES, REFUSED_VARIABLES
 
 #: Seatbelt's front end, where macOS ships it.
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
@@ -463,6 +464,67 @@ def wrappers(platform: str, bwrap: str | None) -> tuple[str, ...]:
     return ()
 
 
+#: The variables the wrapper sets for every server: its own directory, as its temporary one and
+#: matplotlib's (which warns, and writes beneath the home, without one).
+WRAPPER_VARIABLES = ("TMPDIR", "MPLCONFIGDIR")
+#: A directory or link a server is given, as a path beneath its own directory.
+_OWN_PATH = re.compile(r"^[A-Za-z0-9._+@-]+(/[A-Za-z0-9._+@-]+)*$")
+
+
+def _placed(value: str, *, server_dir: str, worktree: str, what: str) -> str:
+    rest = value.replace("{server_dir}", "").replace("{worktree}", "")
+    if "{" in rest or "}" in rest:
+        msg = f"a server's {what} holds a placeholder other than {{server_dir}} and {{worktree}}"
+        raise ContainmentError(msg)
+    return value.replace("{server_dir}", server_dir).replace("{worktree}", worktree)
+
+
+def _own_parts(path: str) -> list[str]:
+    parts = path.split("/")
+    if not _OWN_PATH.match(path) or any(part in (".", "..") for part in parts):
+        msg = f"a server's directory or link {path!r} is not a plain path beneath its own"
+        raise ContainmentError(msg)
+    return parts
+
+
+def _judged(
+    server: ServerLaunch, server_dir: Path, worktree: str
+) -> tuple[list[str], dict[str, str], list[Path], dict[Path, str]]:
+    """A server's arguments, variables, directories and links, each held, before any is made."""
+    args = [
+        _placed(arg, server_dir=str(server_dir), worktree=worktree, what="argument")
+        for arg in server.args
+    ]
+    env = dict.fromkeys(WRAPPER_VARIABLES, str(server_dir))
+    for name, value in server.environment.items():
+        if (
+            name in env
+            or name in REFUSED_VARIABLES
+            or name.startswith(REFUSED_PREFIXES)
+            or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", name)
+        ):
+            msg = f"a server's variable {name} is one its start is built on"
+            raise ContainmentError(msg)
+        env[name] = _placed(value, server_dir=str(server_dir), worktree=worktree, what="variable")
+    directories = [server_dir.joinpath(*_own_parts(d)) for d in server.directories]
+    links: dict[Path, str] = {}
+    roots = (*server.read_roots, *server.exec_roots)
+    for link, target in server.links.items():
+        parts = _own_parts(link)
+        made = server_dir.joinpath(*parts)
+        if made.parent not in directories:
+            msg = f"a server's link {link!r} is not beneath a directory it is given"
+            raise ContainmentError(msg)
+        real = os.path.realpath(target)
+        if not os.path.isabs(target) or not any(
+            _within(real, os.path.realpath(root)) for root in roots
+        ):
+            msg = f"a server's link {link!r} leads outside every root it reads or runs"
+            raise ContainmentError(msg)
+        links[made] = target
+    return args, env, directories, links
+
+
 def contained_servers(
     config: SessionConfig,
     servers: Sequence[ServerLaunch],
@@ -494,8 +556,14 @@ def contained_servers(
         )
         raise ContainmentError(msg)
     denied = server_read_denied(config, platform)
+    # Every server held before anything of any is made.
+    judged = {
+        server.name: _judged(server, temp_dir / SERVERS_DIR / server.name, config.worktree)
+        for server in servers
+    }
     entries: dict[str, dict[str, object]] = {}
     for server in servers:
+        args_given, env, directories, links = judged[server.name]
         # What every server reads: its own roots, and the session's worktree, less what the
         # session's commands may not read there.
         reads_from = (config.worktree, *server.read_roots)
@@ -506,6 +574,10 @@ def contained_servers(
         except FileExistsError as exc:
             msg = f"the tool server's directory {server_dir} is already there"
             raise ContainmentError(msg) from exc
+        for directory in directories:
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for link, target in links.items():
+            link.symlink_to(target)
         if platform == "darwin":
             profile = profiles_dir / f"{server.name}.sb"
             profiles_dir.mkdir(parents=True, exist_ok=True)
@@ -535,7 +607,7 @@ def contained_servers(
         entries[server.name] = {
             "type": "stdio",
             "command": command,
-            "args": [*args, server.command, *server.args],
-            "env": {"TMPDIR": str(server_dir)},
+            "args": [*args, server.command, *args_given],
+            "env": env,
         }
     return json.dumps({"mcpServers": entries}, sort_keys=True)

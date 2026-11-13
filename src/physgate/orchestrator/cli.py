@@ -115,7 +115,12 @@ from physgate.orchestrator.run_config import (
     require_harness,
     require_reportable,
 )
-from physgate.orchestrator.tool_environment import forbidden_places, measure_named
+from physgate.orchestrator.tool_environment import (
+    forbidden_places,
+    measure_named,
+    recorded_servers,
+    server_launches,
+)
 from physgate.oslayer.listeners import loopback_listeners
 from physgate.oslayer.policy import NETWORK_UNENFORCED
 from physgate.oslayer.probe import Absent, Present, judge_here
@@ -596,6 +601,13 @@ def _config(args: argparse.Namespace) -> RunConfig:
         "os_layer": layer.model_dump(),
         # And so whether it enforces the network the parameters ask for.
         "network_enforced": network_enforced(str(params.get("network")), layer),
+        # Taken from the register, never from the parameters: the servers a run naming a tool
+        # environment offers its sessions, the bound on one answer, and the register's digest.
+        "tool_servers": (
+            recorded_servers().model_dump(mode="json")
+            if params.get("tool_environment") is not None
+            else None
+        ),
     }
     if isinstance(fields.get("role_python"), RolePython):
         fields["role_python"] = fields["role_python"].model_dump()
@@ -919,6 +931,9 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
             credential=credential,
             review_root=review_root,
             quarantine=quarantine,
+            # Each role session's tool servers, as the run recorded them; offered only where
+            # the OS layer contains them.
+            tool_servers=server_launches(config),
         )
         loop = Loop(
             config=config,

@@ -19,7 +19,7 @@ session is started with them.
 | `lean.py`, `views.py` | The hot path's standard-library validator for the same two shapes, and the read-only interfaces every hook is typed against |
 | `runtime.py`, `__main__.py`, `trampoline.sh` | The dispatcher, the entry point, and the shell wrapper that turns every outcome but a clean pass into a refusal |
 | `registry.py` | Every hook module by name; the generator wires exactly these |
-| `tools.py` | Each profile runs on a closed list of tools |
+| `tools.py`, `server_arguments.py` | Each profile runs on a closed list of tools; a session offered tool servers runs on their admitted tools too, each asked only the arguments its register entry names, a path among them judged as a file tool's and held inside the worktree |
 | `paths.py` | No file tool writes a protected path, and nothing reads the held-out tier |
 | `shell_paths.py`, `shell.py` | No shell command names a protected path unless it only reads; no background jobs; no nested Claude Code. `shell.py` splits a command into the commands it would run |
 | `git_ops.py` | No force push, no skipping the repository's hooks, no rebase, no hard reset beyond the session's own branch, no ref writes |

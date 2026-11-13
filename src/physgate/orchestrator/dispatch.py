@@ -1593,6 +1593,9 @@ class ClaudeDispatcher:
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # The tool servers the session is offered: their admitted tools join its closed
+            # list. None without the OS layer, which alone contains them.
+            *(arg for name in self._offered_servers() for arg in ("--tool-server", name)),
             # Without the layer the session still keeps its temporary files in a directory of
             # its own, never in the one every session of the user shares.
             *(["--temp", str(own_temp)] if temp is None and own_temp is not None else []),
@@ -1731,6 +1734,12 @@ class ClaudeDispatcher:
     def _layer_on(self) -> bool:
         return isinstance(self.os_layer(), Present)
 
+    def _offered_servers(self) -> tuple[str, ...]:
+        """The names of the tool servers a session is offered: none without the OS layer."""
+        if not self._tool_servers or not self._layer_on():
+            return ()
+        return tuple(server.name for server in self._tool_servers)
+
     def _contained_servers(
         self, installed: Installed, sdir: Path, own_temp: Path, env: dict[str, str]
     ) -> tuple[str, tuple[str, ...]]:
@@ -1743,7 +1752,7 @@ class ClaudeDispatcher:
         Raises:
             InvocationError: a server cannot be contained here, so the session is not started.
         """
-        if not self._tool_servers or not self._layer_on():
+        if not self._offered_servers():
             return NO_TOOL_SERVERS, ()
         platform = sys.platform
         bwrap = shutil.which("bwrap", path=env["PATH"]) if platform.startswith("linux") else None

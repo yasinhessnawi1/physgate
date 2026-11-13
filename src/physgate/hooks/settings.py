@@ -69,6 +69,7 @@ from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.policy import NETWORK_UNENFORCED, sandbox_policy
 from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
 from physgate.oslayer.session_temp import session_temps_root
+from physgate.toolenv.register import load_register, server_tools
 
 WATCHDOG_SECONDS = 5
 HOOK_TIMEOUT_SECONDS = 30
@@ -93,11 +94,12 @@ PROFILE_TOOLS: Mapping[Profile, tuple[str, ...]] = {
 #: A role session and the raw agent get the identical set: the environment is the same for
 #: every role, and the comparison is with the same tools. A reviewer and the orchestrator get
 #: none.
+_EVERY_SERVER = tuple(sorted(load_register().servers))
 PROFILE_SERVERS: Mapping[Profile, tuple[str, ...]] = {
-    "role": (),
+    "role": _EVERY_SERVER,
     "reviewer": (),
     "orchestrator": (),
-    "baseline": (),
+    "baseline": _EVERY_SERVER,
 }
 
 #: The web tools, which bring in text nobody reviewed.
@@ -383,6 +385,24 @@ def _design_discipline(worktree: Path) -> tuple[str, ...]:
     )
 
 
+def _tools_allowed(request: InstallRequest) -> tuple[str, ...]:
+    """The profile's list, and the admitted tools of the servers the session is offered.
+
+    Raises:
+        ValueError: a server is named twice, is not in the register, or is not one the
+            profile may be offered.
+    """
+    servers = request.tool_servers
+    if len(set(servers)) != len(servers):
+        msg = f"a tool server is named twice: {sorted(servers)}"
+        raise ValueError(msg)
+    for server in servers:
+        if server not in PROFILE_SERVERS[request.profile]:
+            msg = f"a {request.profile} session may not be offered the tool server {server!r}"
+            raise ValueError(msg)
+    return (*PROFILE_TOOLS[request.profile], *server_tools(load_register(), servers))
+
+
 def build_config(request: InstallRequest, installation: Installation) -> SessionConfig:
     """The session configuration for ``request``.
 
@@ -658,7 +678,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         required_reading=tuple(sorted(request.required_reading)),
         always_loaded=tuple(sorted(request.always_loaded)),
         token_ceiling=request.token_ceiling,
-        tools_allowed=tuple(sorted(PROFILE_TOOLS[request.profile])),
+        tools_allowed=tuple(sorted(_tools_allowed(request))),
         installation=installation,
         watchdog_seconds=WATCHDOG_SECONDS,
         hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,

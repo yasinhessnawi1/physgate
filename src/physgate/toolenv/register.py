@@ -21,6 +21,7 @@ entry here, never code.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Literal
@@ -83,10 +84,20 @@ Argument = Annotated[
 VariableValue = Annotated[
     str, StringConstraints(max_length=1024), _placeholders_only(_PLACEHOLDERS)
 ]
+
+
+def _no_dot_parts_after_root(value: str) -> str:
+    if any(part in ("", ".", "..") for part in value.removeprefix("{root}/").split("/")):
+        msg = "a link's target has no empty, '.' or '..' part"
+        raise ValueError(msg)
+    return value
+
+
 LinkTarget = Annotated[
     str,
     StringConstraints(pattern=r"^\{root\}/[A-Za-z0-9._+@/-]+$"),
     _placeholders_only(("{root}",)),
+    AfterValidator(_no_dot_parts_after_root),
 ]
 
 
@@ -164,8 +175,17 @@ def server_tools(register: Register, servers: Sequence[str]) -> tuple[str, ...]:
     Raises:
         ToolEnvironmentError: a server is not in the register.
     """
-    del register, servers
-    return ()
+    return tuple(
+        tool_name(server, tool) for server in servers for tool in _entry(register, server).tools
+    )
+
+
+def _entry(register: Register, server: str) -> ServerEntry:
+    entry = register.servers.get(server)
+    if entry is None:
+        msg = "the tool-server register holds no such server"
+        raise ToolEnvironmentError(msg, server=server)
+    return entry
 
 
 def launches(
@@ -173,9 +193,43 @@ def launches(
 ) -> tuple[ServerLaunch, ...]:
     """How each of ``servers`` is started from the run's recorded environment.
 
+    ``{root}`` becomes the one recorded root that holds the server's program; the server runs
+    and reads the recorded roots, and nothing else of the environment's. ``{worktree}`` and
+    ``{server_dir}`` are left for the containment wrapper, which knows the session.
+
     Raises:
         ToolEnvironmentError: a server is not in the register, or no single root of the
             recorded environment holds its program.
     """
-    del register, servers, recorded
-    return ()
+    found: list[ServerLaunch] = []
+    for server in servers:
+        entry = _entry(register, server)
+        holding = [
+            root
+            for root in recorded.roots
+            if os.path.isfile(entry.command.replace("{root}", root.rstrip("/")))
+        ]
+        if len(holding) != 1:
+            msg = (
+                f"the tool server {server} cannot be started: "
+                f"{len(holding)} roots of the recorded environment hold its program"
+            )
+            raise ToolEnvironmentError(msg, server=server, command=entry.command)
+        root = holding[0].rstrip("/")
+
+        def placed(value: str, root: str = root) -> str:
+            return value.replace("{root}", root)
+
+        found.append(
+            ServerLaunch(
+                name=server,
+                command=placed(entry.command),
+                args=tuple(placed(arg) for arg in entry.args),
+                exec_roots=recorded.roots,
+                read_roots=recorded.roots,
+                environment={name: placed(value) for name, value in entry.environment.items()},
+                directories=entry.directories,
+                links={link: placed(target) for link, target in entry.links.items()},
+            )
+        )
+    return tuple(found)

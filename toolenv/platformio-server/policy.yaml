@@ -1,1 +1,3 @@
 profile: build_only
+overrides:
+  allow: [agent_build_diagnose, build_project, check_project, get_project_config, system_info]

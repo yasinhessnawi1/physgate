@@ -275,10 +275,6 @@ def test_a_new_run_s_configuration_measures_the_environment_its_parameters_name(
         configured({**PARAMS, "tool_environment": None, "tool_servers": claimed}).tool_servers
         is None
     )
-    assert (
-        configured({**PARAMS, "tool_environment": named, "tool_servers": claimed}).tool_servers
-        == recorded_servers()
-    )
     assert len(asked) == 1
     # Not named at all: not a complete configuration, as for every other input of a run.
     with pytest.raises(ValidationError) as missing:
@@ -286,6 +282,10 @@ def test_a_new_run_s_configuration_measures_the_environment_its_parameters_name(
     assert missing.value.errors()[0]["loc"] == ("tool_environment",)
     with pytest.raises(RunConfigError, match="tool environment"):
         configured({**PARAMS, "tool_environment": {**named, "manifest_digest": "0" * 64}})
+    assert (
+        configured({**PARAMS, "tool_environment": named, "tool_servers": claimed}).tool_servers
+        == recorded_servers()
+    )
 
 
 # -- held to the record ----------------------------------------------------------------------

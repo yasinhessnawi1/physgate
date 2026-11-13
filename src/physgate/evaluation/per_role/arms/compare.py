@@ -149,6 +149,12 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "tool_environment.manifest_digest": "required",
     "tool_environment.entries": "required",
     "tool_environment.total_bytes": "required",
+    # Recorded with a tool environment alone: the servers its role sessions were offered. The
+    # raw arm is offered none, so a harness run that records them is named.
+    "tool_servers": "required",
+    "tool_servers.profiles": "required",
+    "tool_servers.max_output_tokens": "required",
+    "tool_servers.register_sha256": "required",
 }
 
 #: Every pin the raw arm's record carries. Each is compared below; one the record lacks,
@@ -356,6 +362,11 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
         found.append(
             "tool_environment: the harness run named a tool environment, and the raw arm is "
             "given none"
+        )
+    if config.tool_servers is not None:
+        found.append(
+            "tool_servers: the harness run offered its sessions tool servers, and the raw arm "
+            "is offered none"
         )
     if hashlib.sha256(task.brief.encode()).hexdigest() != config.brief_sha256:
         found.append("brief: the harness run was not given this task's brief")

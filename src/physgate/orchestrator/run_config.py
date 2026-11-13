@@ -430,6 +430,13 @@ class RunConfig(_Frozen):
         return self
 
     @model_validator(mode="after")
+    def _tool_servers_start_from_the_tool_environment(self) -> RunConfig:
+        if self.tool_servers is not None and self.tool_environment is None:
+            msg = "tool_servers are started from the run's tool environment, and it names none"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
     def _every_held_out_root_has_its_digest(self) -> RunConfig:
         if len(self.held_out_sha256) != len(self.held_out):
             msg = "held_out_sha256 records one digest per held-out root, in the same order"
@@ -634,6 +641,8 @@ def load_run_config(path: Path) -> RunConfig:
         ("design_review", "off"),
         # Recorded before the field existed: no tool environment was named.
         ("tool_environment", None),
+        # Recorded before the field existed: no session was offered a tool server.
+        ("tool_servers", None),
     ):
         if isinstance(recorded, dict) and name not in recorded:
             # Recorded before the field existed: nothing was held out, the network was open
