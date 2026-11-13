@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 from gate_run import PayingReviewer, build_install
-from git_rig import PARAMS, config, target_repo
+from git_rig import config, run_params, target_repo
 from knowledge_fixture import fixture_text
 from scripted_endpoint import DUMMY_KEY, LAST_JSON_LINE, Script, serving, text, tool
 from stand_in_control import CONTROL_SCRIPT, RECORD_IDS
@@ -116,7 +116,7 @@ def test_a_control_session_s_records_are_sealed_and_its_quantities_agree_with_th
             ),
         }
     )
-    (tmp_path / "params.json").write_text(json.dumps(params.model_dump(include=PARAMS)))
+    (tmp_path / "params.json").write_text(json.dumps(run_params(params)))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot; start with its control.\n")
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
     plan = {

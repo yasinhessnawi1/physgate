@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from git_rig import PARAMS, Reviewer, config, target_repo
+from git_rig import Reviewer, config, run_params, target_repo
 from knowledge_fixture import fixture_text
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 from stand_in_drive_plan import POWER_BUS
@@ -122,7 +122,7 @@ def drive_run(
     repo = target_repo(tmp_path)
     seed_knowledge(repo)
     run_dir = tmp_path / "run"
-    params = config().model_dump(include=PARAMS)
+    params = run_params(config())
     params["gate_mode"] = gate_mode
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text(brief)
