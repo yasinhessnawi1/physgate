@@ -4,9 +4,11 @@ The path a mechanical role takes in a run, from end to end, with the real binary
 scripted endpoint inside the OS layer with no network: the run names a provisioned tool
 environment; the session finds its interpreter as ``python3`` and its first-use places in its
 own temporary directory, all from the environment's own file, with nothing set by hand. It
-writes two scripts into its module and runs them: one builds the chassis fixture's parts and
-writes their results and exports through the environment's helper; the other reads the
-published Balboa model from the environment's ``reference/`` folder and writes what it measured.
+writes two scripts into its module and runs them, naming no path of the environment (a
+command may not): each finds the helpers beside the interpreter it runs on. One builds the
+chassis fixture's parts and writes their results and exports through the environment's
+helper; the other reads the published Balboa model from the environment's ``reference/``
+folder and writes what it measured.
 The published model cannot be written. The attempt the dispatcher commits holds the scripts,
 their results and the exports; the commit-time rule admits the six exports, and the diff a
 reviewer reads names each on one line with its size, digest and free-text count, never its
@@ -160,17 +162,16 @@ def test_a_session_builds_measures_and_exports_and_its_review_names_each_export_
     before = scan([root])
     worktree = tmp_path / "run" / "worktrees" / "s1"
     module = worktree / MODULE
-    helpers = root / "helpers"
     steps = [
         *[tool("Read", file_path=str(worktree / relative)) for relative in ALWAYS_LOADED],
         tool("Read", file_path=str(worktree / SPEC)),
         tool("Write", file_path=str(module / "chassis.py"), content=CHASSIS),
         tool("Write", file_path=str(module / "balboa.py"), content=design_reference.BALBOA),
         tool("Bash", command="echo CACHE=$XDG_CACHE_HOME; echo DATA=$XDG_DATA_HOME"),
-        tool("Bash", command=f"cd {module} && python3 chassis.py {helpers} | cut -c1-120"),
+        tool("Bash", command=f"cd {module} && python3 chassis.py | cut -c1-120"),
         tool(
             "Bash",
-            command=f"cd {module} && python3 balboa.py {helpers} | cut -c1-120",
+            command=f"cd {module} && python3 balboa.py | cut -c1-120",
             timeout=1200000,
         ),
         _built_append(reference),

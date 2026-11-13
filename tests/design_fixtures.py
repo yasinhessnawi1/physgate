@@ -24,9 +24,12 @@ from pathlib import Path
 DENSITY_KG_M3 = 1240.0
 
 CHASSIS = """
-import json, sys
+import json, os, sys
 
-sys.path.insert(0, sys.argv[1])
+# The helpers' folder as named, or beside the environment's interpreter: a session's command
+# may not name the environment, so a script in a session finds them from where it runs.
+here = os.path.join(os.path.dirname(sys.prefix), "helpers")
+sys.path.insert(0, sys.argv[1] if len(sys.argv) > 1 else here)
 length = float(sys.argv[2]) if len(sys.argv) > 2 else 110.0
 
 import geometry, result_file, structure

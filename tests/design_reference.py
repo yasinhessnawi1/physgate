@@ -9,7 +9,7 @@ result through the geometry helper. From the model's volumes under the stated ma
 body's centre of mass above the axle and its inertia about the axle, with a low and a high case.
 
 The script takes the helpers' folder and, for a run from a checkout, the environment's root:
-``python -I balboa.py <helpers> [<environment>]``. :data:`BALBOA_RECORDED` holds the numbers of
+``python -I balboa.py [<helpers> [<environment>]]``. :data:`BALBOA_RECORDED` holds the numbers of
 its first run (macOS arm64), which every platform must repeat.
 """
 
@@ -86,7 +86,10 @@ import math
 import os
 import sys
 
-sys.path.insert(0, sys.argv[1])
+# The helpers' folder as named, or beside the environment's interpreter: a session's command
+# may not name the environment, so the script finds them from where it runs.
+here = os.path.join(os.path.dirname(sys.prefix), "helpers")
+sys.path.insert(0, sys.argv[1] if len(sys.argv) > 1 else here)
 import geometry  # noqa: E402
 import result_file  # noqa: E402
 from build123d import Cylinder, Pos, Rot  # noqa: E402
