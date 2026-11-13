@@ -1,4 +1,4 @@
-"""A stand-in tool server that tries six reaches when it starts, then serves MCP over stdio.
+"""A stand-in tool server that tries seven reaches when it starts, then serves MCP over stdio.
 
 Standard library only, run on any Python 3. Each reach is tried once, at start, inside whatever
 the server was started in, and its outcome is told in the names of the tools it lists:
@@ -8,6 +8,7 @@ reads them from the requests the scripted endpoint recorded, with nothing writte
 
 Arguments: ``--write PATH`` (a file outside its own directory), ``--read PATH`` (a file the
 session may not read), ``--device PATH`` (a serial device). Its own directory is ``$TMPDIR``.
+The seventh is not tried but seen: whether the session's credential is among its variables.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ import sys
 from collections.abc import Callable
 
 PROTOCOL = "2025-06-18"
+#: The variables a session's binary is given its credential in.
+CREDENTIALS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
 
 
 def _try(action: Callable[[], None]) -> bool:
@@ -55,6 +58,8 @@ def reaches(write: str, read: str, device: str) -> dict[str, bool]:
             handle.write("own\n")
 
     return {
+        # The session's credential, in the environment the server was started with.
+        "credential": any(name in os.environ for name in CREDENTIALS),
         "write_outside": _try(write_outside),
         "read_denied": _try(read_denied),
         "tcp": _try(tcp),

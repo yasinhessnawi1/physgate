@@ -4,7 +4,8 @@ The binary starts a session's tool servers itself, outside the sandbox around th
 commands. A stand-in server (``reach_probe_server.py``) tries six reaches when it starts: a write
 outside its own directory (into the worktree), a read of a file no session may read (another
 session's directory), a TCP connection out, a name lookup, a serial device opened for writing, and
-a write into its own directory. It tells what got through in the names of the tools it lists,
+a write into its own directory; and it says whether the session's credential is among its
+variables. It tells what got through in the names of the tools it lists,
 which the binary sends to the model, so the test reads them from the scripted endpoint.
 
 Run unwrapped, the same server reaches what it tries (the control). Inside the OS layer the
@@ -66,7 +67,7 @@ PROBE = Path(__file__).with_name("reach_probe_server.py")
 #: A serial device that exists on every Mac (measured on the laptop); on Linux the denied
 #: names, which a runner has none of, so the row is vacuous there and says so.
 DEVICE = "/dev/cu.debug-console" if sys.platform == "darwin" else "/dev/ttyACM0"
-REACHES = ("device", "dns", "read_denied", "tcp", "write_outside", "write_own")
+REACHES = ("credential", "device", "dns", "read_denied", "tcp", "write_outside", "write_own")
 
 
 @pytest.fixture(scope="module")
@@ -133,7 +134,11 @@ def test_unwrapped_the_server_reaches_what_it_tries(tmp_path: Path) -> None:
     secret.write_text("x\n")
     done = subprocess.run(
         [*_launch_argv(tmp_path, tmp_path / "wrote.txt", secret), "--once"],
-        env={**os.environ, "TMPDIR": str(own)},
+        env={
+            **os.environ,
+            "TMPDIR": str(own),
+            "ANTHROPIC_API_KEY": "sk-ant-test-dummy-not-a-credential",
+        },
         capture_output=True,
         text=True,
         timeout=60,
@@ -141,7 +146,7 @@ def test_unwrapped_the_server_reaches_what_it_tries(tmp_path: Path) -> None:
     )
     found = json.loads(done.stdout)
     assert sorted(found) == list(REACHES)
-    for reach in ("write_outside", "read_denied", "tcp", "dns", "write_own"):
+    for reach in ("credential", "write_outside", "read_denied", "tcp", "dns", "write_own"):
         assert found[reach] is True, (reach, found)
     assert found["device"] is os.path.exists(DEVICE), found
     assert (tmp_path / "wrote.txt").exists()
@@ -170,7 +175,8 @@ def test_inside_the_os_layer_a_server_reaches_its_own_directory_and_nothing_else
     found = _told(api)
     assert sorted(found) == list(REACHES), found
     assert found["write_own"] == "reached", found
-    for reach in ("write_outside", "read_denied", "tcp", "dns", "device"):
+    # The binary is given the session's credential; the server is started without it.
+    for reach in ("credential", "write_outside", "read_denied", "tcp", "dns", "device"):
         assert found[reach] == "refused", (reach, found)
     assert not (worktree / "server-wrote.txt").exists()
     record = json.loads((Path(str(report.trajectory)).parent / "process.json").read_text())
