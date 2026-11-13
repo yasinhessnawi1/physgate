@@ -243,7 +243,11 @@ def test_a_round_into_a_directory_that_exists_is_refused(
     out = tmp_path / "round"
     out.mkdir()
     run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
-    _refused(store, run_set((run, 0)), out, "directory of its own")
+    arm = StandInArm()
+    outcome = _try(lambda: _round(store, run_set((run, 0)), out, arm))
+    assert isinstance(outcome, BaselineError), outcome
+    assert "directory of its own" in str(outcome) and arm.calls == []
+    assert list(out.iterdir()) == [], "the directory that was there was written into"
 
 
 def test_a_version_of_the_store_that_changed_is_refused_before_any_session(
@@ -380,8 +384,8 @@ def test_a_version_two_of_whose_tasks_share_a_brief_is_refused_before_any_sessio
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(runner, "read_version", lambda _d: None)
         patch.setattr(runner, "leftover_refusal", lambda _s: None)
-        with pytest.raises(BaselineError, match="share a brief"):
-            _round(store, run_set((run, 0)), tmp_path / "round", arm)
+        outcome = _try(lambda: _round(store, run_set((run, 0)), tmp_path / "round", arm))
+    assert isinstance(outcome, BaselineError) and "share a brief" in str(outcome), outcome
     assert arm.calls == []
 
 
@@ -417,6 +421,58 @@ def test_a_run_recorded_against_another_endpoint_is_refused_before_any_credentia
             sleep=_no_sleep,
         )
     assert asked == [] and arm.calls == []
+
+
+def _try(call: Any) -> Any:  # noqa: ANN401 - what the call returned, or raised
+    try:
+        return call()
+    except Exception as exc:  # noqa: BLE001 - the row asserts on what it was
+        return exc
+
+
+def test_a_version_whose_provenance_is_not_its_manifest_s_is_refused_before_any_session(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """A version is read as its manifest says it is, or not at all (``read_version``).
+
+    The store's scan for leftovers refuses a changed version first; it is set aside here, as
+    in the shared-brief row, so the row reaches the version's own check behind it: the
+    provenance record, changed, no longer has the digest the manifest names.
+    """
+    from physgate.evaluation.baseline import runner
+
+    directory = version_dir(store.store, "control", store.version)
+    provenance = directory / "provenance.json"
+    provenance.write_bytes(provenance.read_bytes().replace(b"s-1", b"s-2"))
+    run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
+    arm = StandInArm()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(runner, "leftover_refusal", lambda _s: None)
+        outcome = _try(lambda: _round(store, run_set((run, 0)), tmp_path / "round", arm))
+    assert isinstance(outcome, PerRoleError), outcome
+    assert "provenance" in str(outcome) and arm.calls == []
+
+
+def test_a_run_withholding_the_store_in_another_case_is_refused(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """Every place is named as the filesystem spells it.
+
+    Another case reaches the same files where case is ignored, but not every layer of the
+    protection is shown to refuse it.
+    """
+    other = store.store.parent / store.store.name.upper()
+    if not other.exists():
+        pytest.skip("this filesystem tells cases apart, so another case names no place")
+    spelt = [h.replace(str(store.store), str(other)) for h in store.held_out]
+    run = harness_run(
+        tmp_path / "runs",
+        store.tasks["visible"][0],
+        store,
+        held_out=spelt,
+        held_out_sha256=[_digest_of(root) for root in spelt],
+    )
+    _refused(store, run_set((run, 0)), tmp_path / "round", "spelt as the filesystem")
 
 
 def _no_sleep(_seconds: float) -> None:
