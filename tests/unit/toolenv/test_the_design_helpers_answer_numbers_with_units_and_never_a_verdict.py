@@ -179,6 +179,19 @@ def test_the_kinds_of_result_and_their_fields_are_a_closed_list(result_file: Mod
         "load_case": sorted(
             ["schema", "kind", "case", "model", "formulas", "assumptions", "inputs", "values"]
         ),
+        "reference_measurement": sorted(
+            [
+                "schema",
+                "kind",
+                "subject",
+                "reference",
+                "method",
+                "inputs",
+                "assumptions",
+                "values",
+                "libraries",
+            ]
+        ),
     }
     named = {name for fields in result_file.FIELDS.values() for name in fields}
     assert not named & set(result_file.JUDGEMENT_WORDS)
