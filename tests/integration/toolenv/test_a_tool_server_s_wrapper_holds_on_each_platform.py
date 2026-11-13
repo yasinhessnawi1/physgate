@@ -335,3 +335,147 @@ def test_a_denial_inside_a_root_or_a_system_place_is_not_readable_inside(tmp_pat
     assert found[str(worktree / "answers" / "key.txt")] == "FileNotFoundError", found
     assert found[system_file] == "", found  # the file lies under /dev/null
     assert found[str(worktree / "model.xml")] == "<mujoco/>\n", found
+
+
+#: Run inside bubblewrap: run each system program, and say how it ended and what it printed.
+SYSTEM = """
+import json, subprocess, sys
+found = {}
+for name, argv in json.loads(sys.argv[1]).items():
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+    found[name] = {"code": done.returncode, "out": done.stdout, "err": done.stderr[-300:]}
+print(json.dumps(found))
+"""
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the bubblewrap row runs on Linux")
+def test_a_system_program_a_server_runs_has_no_network_no_home_and_no_denied_place(
+    tmp_path: Path,
+) -> None:
+    """The stated residual on Linux, bounded by the wrapper the program runs in.
+
+    Bubblewrap cannot refuse running a program, so a server may run the system's own programs
+    under ``/usr``; they run inside the same wrapper.
+    """
+    bwrap = shutil.which("bwrap")
+    assert bwrap is not None, "bubblewrap is not installed here"
+    base = tmp_path.resolve()
+    own = base / "own"
+    own.mkdir()
+    worktree = base / "worktree"
+    (worktree / "answers").mkdir(parents=True)
+    (worktree / "answers" / "key.txt").write_text("the key\n")
+    (worktree / "model.xml").write_text("<mujoco/>\n")
+    elsewhere = base / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "secret.txt").write_text("not listed\n")
+    home = os.path.realpath(os.path.expanduser("~"))
+    cat, ls, bash = "/usr/bin/cat", "/usr/bin/ls", "/usr/bin/bash"
+    programs = {
+        "listed": [cat, str(worktree / "model.xml")],
+        "denied_in_a_root": [cat, str(worktree / "answers" / "key.txt")],
+        "outside_the_list": [cat, str(elsewhere / "secret.txt")],
+        "home": [ls, "-A", home],
+        "tcp": [bash, "-c", "exec 3<>/dev/tcp/1.1.1.1/443"],
+    }
+    # The control: unwrapped, the same programs read every file and list the home.
+    for name in ("listed", "denied_in_a_root", "outside_the_list", "home"):
+        done = subprocess.run(programs[name], capture_output=True, text=True, check=False)
+        assert done.returncode == 0 and done.stdout, (name, done.stderr)
+    home_entries = set(os.listdir(home))
+    args = bwrap_args(
+        read_denied=(str(worktree / "answers"),),
+        server_dir=str(own),
+        read_roots=(str(worktree), INSTALLATION),
+    )
+    done = subprocess.run(
+        [bwrap, *args, "--", PYTHON, "-I", "-c", SYSTEM, json.dumps(programs)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+    found = json.loads(done.stdout)
+    # A system program runs inside, and reads what the server may read.
+    assert found["listed"] == {"code": 0, "out": "<mujoco/>\n", "err": ""}, found
+    for name in ("denied_in_a_root", "outside_the_list"):
+        assert found[name]["code"] != 0 and found[name]["out"] == "", (name, found)
+    # No home: at most the way down to a place bound for the server, where one lies beneath it
+    # (the interpreter's installation, or the test's own root on a runner that keeps it there).
+    inside = set(found["home"]["out"].split())
+    bound = (INSTALLATION, str(worktree), str(own))
+    toward = {Path(p).relative_to(home).parts[0] for p in bound if _within(p, home)}
+    assert inside <= toward, (inside, toward)
+    assert home_entries - toward, home_entries
+    assert found["tcp"]["code"] != 0, found
+
+
+def _within(path: str, place: str) -> bool:
+    return path == place or path.startswith(place.rstrip("/") + "/")
+
+
+#: Run inside the profile: each path's size, and its content or listing.
+METADATA = """
+import json, os, sys
+found = {}
+for path in sys.argv[1:]:
+    seen = {"size": os.stat(path).st_size}
+    try:
+        if os.path.isdir(path):
+            seen["listing"] = sorted(os.listdir(path))
+        else:
+            with open(path) as handle:
+                seen["content"] = handle.read()
+    except OSError as exc:
+        seen["refused"] = type(exc).__name__
+    found[path] = seen
+print(json.dumps(found))
+"""
+
+
+@macos
+def test_a_server_sees_a_denied_file_s_metadata_never_its_content(tmp_path: Path) -> None:
+    """The stated residual on macOS, bounded: a place's metadata is readable, its content is not.
+
+    Any place's metadata and the root's listing stay readable, which looking a path up needs; no
+    content and no listing outside the listed places is.
+    """
+    base = tmp_path.resolve()
+    denied = base / "denied"
+    denied.mkdir()
+    (denied / "secret.txt").write_text("the answers\n")
+    elsewhere = base / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "other.txt").write_text("not listed\n")
+    own = base / "own"
+    own.mkdir()
+    profile = base / "metadata.sb"
+    profile.write_text(
+        seatbelt_profile(
+            read_denied=(str(denied),),
+            server_dir=str(own),
+            devices=(),
+            command=PYTHON,
+            read_roots=(INSTALLATION,),
+        )
+    )
+    home = os.path.realpath(os.path.expanduser("~"))
+    paths = [str(denied / "secret.txt"), str(elsewhere / "other.txt"), str(elsewhere), home, "/"]
+    done = subprocess.run(
+        [SANDBOX_EXEC, "-f", str(profile), PYTHON, "-I", "-c", METADATA, *paths],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+    found = json.loads(done.stdout)
+    # Its size is seen, as outside; its content is not.
+    assert found[str(denied / "secret.txt")] == {"size": 12, "refused": "PermissionError"}, found
+    assert found[str(elsewhere / "other.txt")] == {"size": 11, "refused": "PermissionError"}, found
+    # No directory's listing outside the list, the home's among them.
+    for place in (str(elsewhere), home):
+        assert found[place].get("refused") == "PermissionError", (place, found)
+    # The root's own listing, names only.
+    assert sorted(os.listdir("/")) == found["/"]["listing"], found
