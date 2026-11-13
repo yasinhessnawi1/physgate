@@ -126,6 +126,7 @@ from physgate.orchestrator.tool_environment import (
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
+from physgate.oslayer.containment import ServerLaunch
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.oslayer.reaper_install import CANARY_EXPORT
@@ -1371,6 +1372,7 @@ class ClaudeDispatcher:
         credential: Credential,
         review_root: Path,
         quarantine: tuple[str, str, str] | None = None,
+        tool_servers: tuple[ServerLaunch, ...] = (),
     ) -> None:
         """Dispatch attempts of ``run`` with the hooks from ``install_bin``'s installation.
 

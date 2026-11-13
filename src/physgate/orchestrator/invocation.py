@@ -211,6 +211,8 @@ def role_argv(
     max_turns: int,
     effort: str,
     thinking_display: str,
+    tool_servers: str = NO_TOOL_SERVERS,
+    wrappers: tuple[str, ...] = (),
 ) -> list[str]:
     """A role session: the hook layer's spawn arguments, the stream the trajectory is.
 
