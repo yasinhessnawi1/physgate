@@ -39,6 +39,7 @@ FIELDS = sorted(
         "libraries",
     ]
 )
+LIBRARIES = {"build123d": "0.13.0", "cadquery-ocp-novtk": "8.0.1.1.0"}
 BODY = b"ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n"
 
 
@@ -63,6 +64,8 @@ def _helpers_in(env: Path) -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     sys.modules["geometry"] = module
     spec.loader.exec_module(module)
+    # The kernel is the tool environment's, not the harness's: its versions are stood in for.
+    module.library_versions = lambda: dict(LIBRARIES)
     return module
 
 
@@ -165,7 +168,7 @@ def test_a_measurement_of_a_model_is_a_result_of_its_own_kind_with_exactly_its_f
     assert found["method"] == ["the gear is the body whose name holds 'gear'"]
     assert found["values"] == {"centre_distance": {"value": 0.0165, "unit": "m"}}
     assert found["assumptions"] == ["uniform density in each body"]
-    assert set(found["libraries"]) == {"build123d", "cadquery-ocp-novtk"}
+    assert found["libraries"] == LIBRARIES
     assert result_file.render(found).endswith("\n")
 
 

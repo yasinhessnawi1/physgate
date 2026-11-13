@@ -10,7 +10,10 @@ A part script builds a shape and asks here for what a design records about it:
 - :func:`export`: a STEP and an STL file in the module's ``exports`` folder, by name, size and
   sha256;
 - :func:`geometry_result` and :func:`pair_result`: the result a script writes beside itself
-  with :func:`result_file.write`.
+  with :func:`result_file.write`;
+- :func:`reference_file` and :func:`import_reference`: a published model the environment
+  carries in its ``reference`` folder, by its name, size and sha256, and read as a shape;
+  :func:`reference_result`: what a script measured from it, and by which rules.
 
 Every number leaves in SI as a value with its unit. Nothing here says whether a number is good,
 and no function takes a limit to compare one with.
@@ -67,6 +70,15 @@ POSITION_UNITS = {"mm": 1.0, "m": 1000.0}
 
 #: The components of a position, a rotation and a point.
 AXES = 3
+
+#: The environment's folder of published models, beside the folder these helpers are copied to.
+REFERENCE = "reference"
+#: A published model's file name: one name, never a path.
+REFERENCE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+#: What a measurement says it measured: one short line of printable characters.
+SUBJECT = re.compile(r"(?=.*[!-~])[ -~]{1,200}")
+#: A file's sha256 as a result names it.
+SHA256 = re.compile(r"[0-9a-f]{64}")
 
 _MM = 1.0e-3
 #: The distributions whose versions a result names: the library and its kernel.
@@ -392,6 +404,112 @@ def pair_result(names: Sequence[str], first: Any, second: Any) -> dict[str, Any]
             "parts": [_part_name(name) for name in names],
             "placed_geometry_hashes": [geometry_hash(first), geometry_hash(second)],
             "values": {**interference(first, second), **clearance(first, second)},
+            "libraries": library_versions(),
+        }
+    )
+
+
+# ---- a published model: read from the environment, measured by a script ----------------------
+
+
+def reference_file(
+    name: str, root: str | os.PathLike[str] | None = None
+) -> tuple[str, dict[str, Any]]:
+    """The published model ``name`` in the environment: its path, and its file's entry.
+
+    The entry names the file as a result does: by its name, size and sha256.
+
+    ``root`` is the environment; by default the one these helpers were copied into, found
+    from this file's own folder. Provisioning placed the file there by the digest it was
+    pinned with; the sha256 here is read from the bytes, for the result to carry.
+
+    Raises:
+        HelperRefusedError: the name is not a plain file name, or no regular file of that name
+            is there (a link is refused).
+    """
+    if not isinstance(name, str) or not REFERENCE_NAME.fullmatch(name):
+        raise HelperRefusedError("a published model is named by its file name, never a path")
+    base = os.fspath(root) if root is not None else os.path.dirname(os.path.dirname(__file__))
+    path = os.path.join(os.path.abspath(base), REFERENCE, name)
+    if os.path.islink(path) or not os.path.isfile(path):
+        raise HelperRefusedError(f"the environment carries no published model named {name}")
+    return path, file_entry(path, f"{REFERENCE}/{name}")
+
+
+def import_reference(
+    name: str, root: str | os.PathLike[str] | None = None
+) -> tuple[Any, dict[str, Any]]:
+    """The published model ``name`` read as a shape by the kernel, and its file's entry.
+
+    Raises:
+        HelperRefusedError: as :func:`reference_file`.
+    """
+    path, entry = reference_file(name, root)
+    from build123d import import_step
+
+    return import_step(path), entry
+
+
+def _reference_entry(reference: Any) -> dict[str, Any]:  # noqa: ANN401 - an entry as given
+    if not isinstance(reference, Mapping) or set(reference) != {"file", "size", "sha256"}:
+        raise HelperRefusedError("a measurement names its file as reference_file gave it")
+    file, digest = reference["file"], reference["sha256"]
+    named = isinstance(file, str) and file.startswith(f"{REFERENCE}/")
+    if not named or not REFERENCE_NAME.fullmatch(file[len(REFERENCE) + 1 :]):
+        raise HelperRefusedError("a measurement names its file as reference_file gave it")
+    if not isinstance(digest, str) or not SHA256.fullmatch(digest):
+        raise HelperRefusedError("a measurement names its file's sha256 as reference_file gave it")
+    return dict(reference)
+
+
+def _texts(given: Any, what: str) -> list[str]:  # noqa: ANN401 - a list as the script wrote it
+    if not isinstance(given, (list, tuple)):
+        raise HelperRefusedError(f"a measurement's {what} is a list of sentences")
+    if not all(isinstance(item, str) and item.strip() for item in given):
+        raise HelperRefusedError(f"each of a measurement's {what} is a sentence")
+    return [item.strip() for item in given]
+
+
+def reference_result(
+    subject: str,
+    reference: Mapping[str, Any],
+    *,
+    method: Sequence[str],
+    values: Mapping[str, Any],
+    inputs: Mapping[str, Any],
+    assumptions: Sequence[str],
+) -> dict[str, Any]:
+    """What a script measured from a published model, as a result of its own kind.
+
+    ``subject`` says in one line what was measured; ``reference`` is the file's entry from
+    :func:`reference_file`; ``method`` lists, as sentences, the rules by which the features
+    were found, so that a second reader can repeat them; ``inputs`` are what the script
+    stated (a mass and its source); ``assumptions`` what it assumed; ``values`` the numbers,
+    each with its unit.
+
+    Raises:
+        HelperRefusedError: the subject is not one short line, the file is not named as
+            :func:`reference_file` names it, no rule is given, a list holds anything but
+            sentences, or the result is refused (:func:`result_file.checked`).
+    """
+    line = subject.strip() if isinstance(subject, str) else ""
+    if not SUBJECT.fullmatch(line):
+        raise HelperRefusedError("a measurement says in one short line what was measured")
+    rules = _texts(method, "rules")
+    if not rules:
+        raise HelperRefusedError("a measurement gives the rules that found its features")
+    if not isinstance(values, Mapping) or not isinstance(inputs, Mapping):
+        raise HelperRefusedError("a measurement's values and inputs are objects")
+    return checked(
+        {
+            "schema": SCHEMA,
+            "kind": "reference_measurement",
+            "subject": line,
+            "reference": _reference_entry(reference),
+            "method": rules,
+            "inputs": dict(inputs),
+            "assumptions": _texts(assumptions, "assumptions"),
+            "values": dict(values),
             "libraries": library_versions(),
         }
     )

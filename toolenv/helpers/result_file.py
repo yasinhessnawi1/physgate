@@ -37,6 +37,19 @@ FIELDS: dict[str, frozenset[str]] = {
     "load_case": frozenset(
         {"schema", "kind", "case", "model", "formulas", "assumptions", "inputs", "values"}
     ),
+    "reference_measurement": frozenset(
+        {
+            "schema",
+            "kind",
+            "subject",
+            "reference",
+            "method",
+            "inputs",
+            "assumptions",
+            "values",
+            "libraries",
+        }
+    ),
 }
 
 #: Field names that state a judgement. None may appear anywhere in a result.
