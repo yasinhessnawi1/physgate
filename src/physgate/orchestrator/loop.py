@@ -142,7 +142,10 @@ from physgate.orchestrator.follow_up import follow_up_order, owed
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.held_records import record_change, second_names, unaccounted
 from physgate.orchestrator.integration_state import issued_state
+from physgate.orchestrator.invocation import TRAFFIC_ALLOWED_VERSIONS
 from physgate.orchestrator.managed import (
+    ObservedTraffic,
+    SessionManaged,
     UnshowableKeyError,
     limits_with,
     policy_diff,
@@ -151,6 +154,7 @@ from physgate.orchestrator.managed import (
     read_limits,
     session_limits,
     stricter_only,
+    traffic_change,
 )
 from physgate.orchestrator.merge import merge_message
 from physgate.orchestrator.ports import (
@@ -1794,6 +1798,8 @@ class Loop:
                 trajectory_seal=report.trajectory_seal,
                 decisions_bytes=self._decisions_bytes(),
                 policy_limits_sha256=report.policy_limits_sha256,
+                observed_traffic=report.observed_traffic,
+                flag_cache=report.flag_cache,
                 policy_limits_unjudged=_unjudged(report),
                 issued_spec_sha256=report.issued_spec_sha256,
                 series=report.series,
@@ -1848,6 +1854,11 @@ class Loop:
         if changed is not None:
             # The account's policy limits are applied without a trace the hooks see: the
             # session ran under other limits than the run began with.
+            return "managed_settings_changed", changed
+        changed = traffic_change(self._traffic_baseline(), report.observed_traffic)
+        if changed is not None:
+            # On a pin whose sessions fetch the flags and may be served a catalog, the run is
+            # held to what it first saw: this session ran under other conditions.
             return "managed_settings_changed", changed
         return None
 
@@ -2031,6 +2042,29 @@ class Loop:
             changes=changes,
             omitted=omitted,
         )
+
+    def _traffic_baseline(self) -> ObservedTraffic | None:
+        """The catalog and flags the run first saw: the decomposition call's, else a session's.
+
+        A run given its plan directly has no decomposition call, so its first session that
+        read a log, a role session's or a review's, sets what every later session is held to.
+        """
+        for event in self.log.events:
+            if isinstance(event, Decomposed) and event.observed_traffic is not None:
+                return event.observed_traffic
+        for event in self.log.events:
+            if isinstance(event, SessionEnded):
+                seen: tuple[ObservedTraffic | None, ...] = (event.observed_traffic,)
+            elif isinstance(event, ReviewRan):
+                seen = tuple(m.observed_traffic for m in event.result.managed)
+            elif isinstance(event, ReviewUnavailable):
+                seen = tuple(m.observed_traffic for m in event.managed)
+            else:
+                continue
+            first = next((s for s in seen if s is not None), None)
+            if first is not None:
+                return first
+        return None
 
     def _repair_node_files(self, subtask_id: str, attempt: int) -> bool:
         """Reopen the store so recovery rebuilds node files from the journal, before any read."""
@@ -2585,7 +2619,7 @@ class Loop:
         retried = False
         while True:
             try:
-                return reviewer.review(artefact)
+                review = reviewer.review(artefact)
             except HeldOutExposedError as exc:
                 # The review session showed held-out material: the tier counts as exposed
                 # (ARCH-141). The exposure is recorded first, then what it spent, then one halt;
@@ -2619,6 +2653,8 @@ class Loop:
                             usage=message.usage,
                         )
                     )
+                if self._review_held(subtask_id, exc.session_id, exc.managed):
+                    return None  # it ran under other conditions: neither recorded nor retried
                 if exc.usage_limit is not None:
                     who = f"review session {exc.session_id or 'none'}"
                     self._wait_for_limit(subtask_id, attempt, exc.usage_limit, who, review=True)
@@ -2635,11 +2671,73 @@ class Loop:
                         session_id=exc.session_id,
                         reviewer_model=exc.reviewer_model,
                         spec_defects=exc.spec_defects,
+                        managed=exc.managed,
                     )
                 )
                 if not retry:
                     return None
                 retried = True
+                continue
+            if self._review_held(subtask_id, review.session_id, review.managed, review):
+                return None
+            return review
+
+    def _review_held(
+        self,
+        subtask_id: str,
+        session_id: str | None,
+        managed: tuple[SessionManaged, ...],
+        review: ReviewResult | None = None,
+    ) -> bool:
+        """Whether a review ran under other conditions than its run began with; then it halts.
+
+        Each invocation of the review's session is held as a role session is: no managed
+        settings delivered or changed, the decomposition call's policy limits, and the run's
+        first catalog and flags. On a pin whose sessions carry that traffic, an invocation
+        whose catalog and flags went unread (its stop was not confirmed) is held too. What a
+        held review with a verdict spent is recorded here, as its verdict is not taken.
+        """
+        changed = self._review_change(managed)
+        if changed is None:
+            return False
+        if review is not None:
+            for message in review.usage:
+                self._emit(
+                    TokensUsed(
+                        **self._env(),
+                        attribution=f"reviewer:{review.session_id}",
+                        message_id=message.message_id,
+                        usage=message.usage,
+                    )
+                )
+        detail = f"review session {session_id or 'none'} {changed}"
+        self._emit(
+            Incident(
+                **self._env(),
+                subtask_id=subtask_id,
+                cause="managed_settings_changed",
+                detail=detail,
+            )
+        )
+        self._halt_for(subtask_id, "managed_settings_changed")
+        return True
+
+    def _review_change(self, managed: tuple[SessionManaged, ...]) -> str | None:
+        """How a review's invocations differ from what its run began with, or ``None``."""
+        held = self.config.claude_version in TRAFFIC_ALLOWED_VERSIONS
+        for n, seen in enumerate(managed, start=1):
+            changed = (
+                seen.managed_drift
+                or policy_limits_change(self._policy_baseline(), seen.policy_limits_sha256)
+                or (
+                    "had its catalog and flags not read: its stop was not confirmed"
+                    if held and seen.observed_traffic is None
+                    else traffic_change(self._traffic_baseline(), seen.observed_traffic)
+                )
+            )
+            if changed is not None:
+                return f"(invocation {n}): {changed}"
+        return None
 
     def _scopes(self, subtask_id: str) -> tuple[AttemptScope, ...]:
         """Subtask scope always; module scope when this completes its module, or is sizing's.
@@ -3256,6 +3354,18 @@ class Loop:
                 "dependencies and resume (the binary's message is in the session's stream)"
             )
             self._emit(Halted(**self._env(), reason="os_layer_unavailable", detail=detail))
+            return
+        if cause == "disk_full":
+            # Never retried: the binary said a full disk lost the session's own records,
+            # and the harness measured the volume as full. Nothing the session did is
+            # taken, and a person looks before anything else runs.
+            detail = (
+                f"subtask {subtask_id} attempt {attempt}: the session's binary said a full "
+                "disk lost the session's own records, and the volume holding them was "
+                "measured full when it ended; free the space and look at the session "
+                "before the run goes on"
+            )
+            self._emit(Halted(**self._env(), reason="disk_full", detail=detail))
             return
         if delay is None:
             detail = (

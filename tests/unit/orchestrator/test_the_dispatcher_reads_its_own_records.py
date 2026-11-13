@@ -220,4 +220,4 @@ def test_an_installation_with_no_interpreter_is_a_domain_error(tmp_path: Path) -
 
     (tmp_path / "broken" / "bin").mkdir(parents=True)
     with pytest.raises(InvocationError, match="no interpreter"):
-        install_facts(tmp_path / "broken", tmp_path / "state")
+        install_facts(tmp_path / "broken", tmp_path / "state", claude_version="2.1.301")

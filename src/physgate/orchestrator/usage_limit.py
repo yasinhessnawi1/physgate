@@ -244,6 +244,8 @@ def session_end(
     *,
     exit_code: int | None,
     stopped_at_wall_clock: bool,
+    lost: str | None = None,
+    claude_version: str | None = None,
 ) -> tuple[SessionEnd, UsageLimit | None]:
     """How a role session ended, a usage limit named as its own cause.
 
@@ -252,7 +254,11 @@ def session_end(
     Every other end, a refused credential and a 503 among them, is classified as before.
     """
     end = classify_session_end(
-        result, exit_code=exit_code, stopped_at_wall_clock=stopped_at_wall_clock
+        result,
+        exit_code=exit_code,
+        stopped_at_wall_clock=stopped_at_wall_clock,
+        lost=lost,
+        claude_version=claude_version,
     )
     limit = usage_limit_of(data, result) if end.cause == "api_error" else None
     if limit is None:

@@ -168,6 +168,7 @@ def params() -> dict[str, Any]:
     """The run parameters, as a parameters file holds them."""
     return {
         "auth": "subscription",
+        "account": "a-test-account",
         "gate_mode": "on",
         "models": ModelStrings(
             decomposition=MODEL, roles={"electrical": MODEL}, reviewers={"electrical": REVIEWER}

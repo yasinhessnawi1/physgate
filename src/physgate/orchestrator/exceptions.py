@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from physgate.orchestrator.managed import SessionManaged
     from physgate.orchestrator.protocols import MessageUsage, SpecDefect, UnavailableCause
     from physgate.orchestrator.usage_limit import UsageLimit
 
@@ -186,6 +187,7 @@ class ReviewUnavailableError(OrchestratorError):
         usage: tuple[MessageUsage, ...] = (),
         spec_defects: tuple[SpecDefect, ...] = (),
         usage_limit: UsageLimit | None = None,
+        managed: tuple[SessionManaged, ...] = (),
         **context: str,
     ) -> None:
         """Store the cause and what the review spent beside the message."""
@@ -198,6 +200,9 @@ class ReviewUnavailableError(OrchestratorError):
         #: The account's usage limit the review session ended on, if its stream named one: the
         #: review could not run, and the attempt waits for it (the cause stays ``infrastructure``).
         self.usage_limit = usage_limit
+        #: Per invocation of the review's session, the conditions it ran under (see
+        #: ``ReviewResult.managed``); empty on a pin whose sessions carry no such traffic.
+        self.managed = managed
 
 
 class HeldOutExposedError(OrchestratorError):

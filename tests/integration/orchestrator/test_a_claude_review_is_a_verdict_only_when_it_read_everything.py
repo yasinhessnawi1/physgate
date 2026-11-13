@@ -34,6 +34,7 @@ from knowledge_fixture import write_fixture
 from scripted_endpoint import (
     COMPACTION_MARKER,
     DUMMY_KEY,
+    DUMMY_OAUTH_TOKEN,
     FakeMessagesApi,
     Script,
     failure,
@@ -49,7 +50,7 @@ from physgate.orchestrator.install import prepare_install
 from physgate.orchestrator.protocols import Artefact, IssuedSpec, ReviewResult
 from physgate.orchestrator.run_config import HarnessState, ModelStrings, RunBounds, RunConfig
 from physgate.orchestrator.trajectory import seal
-from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
+from physgate.reviewers.claude import COMPACT_BOUNDARY, ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.contract import verdict_schema
 from physgate.reviewers.packet import DIFF_NAME, WORKTREE_NAME
 from physgate.reviewers.rubric import Rubric, not_evaluable_needs, parse_rubric
@@ -237,6 +238,8 @@ def _config(version: str) -> RunConfig:
         held_out_sha256=(),
         network="open",
         network_enforced=None,
+        binary=None,
+        account=None,
         os_layer=None,
     )
 
@@ -288,6 +291,7 @@ def run_review(tmp_path: Path, install: Path, binary: str) -> Iterator[Any]:
         answer_as: str | None = None,
         read_usage: dict[str, int] | None = None,
         artefact: Artefact | None = None,
+        credential: Credential | None = None,
     ) -> Review:
         library = tmp_path / "harness"
         write_fixture(library, ("cross", "control"))
@@ -303,7 +307,7 @@ def run_review(tmp_path: Path, install: Path, binary: str) -> Iterator[Any]:
                     install_bin=install,
                     binary=binary,
                     base_url=url,
-                    credential=Credential(mode="api_key", secret=DUMMY_KEY),
+                    credential=credential or Credential(mode="api_key", secret=DUMMY_KEY),
                     library=library,
                 ),
             )
@@ -397,6 +401,32 @@ def test_a_large_context_does_not_compact_what_the_reviewer_read(run_review: Any
     assert not any(COMPACTION_MARKER in r.last_user for r in review.api.requests)
     assert review.result.verdict == "pass"
     assert review.result.peak_context_tokens == 195_007
+
+
+def test_a_review_stopped_for_usage_credits_is_infrastructure_and_compacts_nothing(
+    run_review: Any,  # noqa: ANN401
+    tmp_path: Path,
+) -> None:
+    # The API's stop for a long-context request on an account without usage credits, met
+    # with a context near the window, on a subscription login. A later version of the binary
+    # can compact and go on after it; in a review, with compaction off, the session ends
+    # there on each pin: no summary is asked for, nothing is marked compacted, and the end
+    # is infrastructure, never a verdict.
+    stop = failure(429, "rate_limit_error", "Usage credits are required for long context requests.")
+    review = run_review(
+        [],
+        [stop],
+        read_usage=LARGE,
+        credential=Credential(mode="subscription", secret=DUMMY_OAUTH_TOKEN),
+    )
+    assert review.unavailable.cause == "infrastructure"
+    assert "api_error" in str(review.unavailable)
+    assert "error" in (review.api.requests[-1].served or {})
+    assert not any(COMPACTION_MARKER in r.last_user for r in review.api.requests)
+    (session,) = _sessions(tmp_path / "rs")
+    stream = (session / "stdout.jsonl").read_text()
+    assert COMPACT_BOUNDARY not in stream
+    assert "Usage credits required" in stream  # the binary took the stop for what it is
 
 
 def test_a_review_answered_by_another_model_is_refused_outright(run_review: Any) -> None:  # noqa: ANN401

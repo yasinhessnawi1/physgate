@@ -53,6 +53,7 @@ from physgate.hooks.reasons import GATE_REASON as GATE_REASON
 from physgate.hooks.reasons import GIT_USER_CONFIG_REASON as GIT_USER_CONFIG_REASON
 from physgate.hooks.reasons import HARNESS_REASON as HARNESS_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
+from physgate.hooks.reasons import HOME_CLAUDE_REASON as HOME_CLAUDE_REASON
 from physgate.hooks.reasons import HOOK_STATE_REASON as HOOK_STATE_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
@@ -351,6 +352,18 @@ def _startup_watch(site_packages: Path) -> tuple[str, ...]:
     )
 
 
+def _is_the_installing_user_s_home(home: Path) -> bool:
+    """True where a session is given the home of the user installing it, not a scratch one.
+
+    That home's ``.claude`` is the user's own Claude Code directory, which their other
+    sessions read and write: it is left to the two named files, as before.
+    """
+    try:
+        return home.resolve() == Path.home().resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
 def _design_discipline(worktree: Path) -> tuple[str, ...]:
     """The roots that are the harness's discipline over a design worktree, not integrity."""
     return (
@@ -471,6 +484,21 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         request.state_dir: "denied",
         request.claude_config_dir: "shell_denied",
     }
+    if not _is_the_installing_user_s_home(home):
+        # A scratch home is the session's own to write, all but the one directory in it the
+        # binary treats as a user's own: skills, mods, commands and settings a user keeps are
+        # read from a directory of that name, and a file a session left there is a file a
+        # later version may load. Whole, both ways, for every tool and every command.
+        # Where the OS layer does not run, nothing stands behind the hooks: whatever appears
+        # there is put back, and the binary makes nothing there itself (measured on 2.1.301
+        # and 2.1.322). Where it runs, the layer denies the write, and the root is not put
+        # back, because the runtime then makes directories there before a shell command
+        # (measured on macOS, 12.11.2026: 2.1.301 makes ``.claude`` and ``bridge-spawn`` in
+        # it, 2.1.322 those and ``ssh``, with other modes), as it writes its configuration
+        # directory.
+        watched: Watch = "revert" if request.os_layer_temp_dir is None else "none"
+        protected[str(home / ".claude")] = (HOME_CLAUDE_REASON, watched)
+        reads[str(home / ".claude")] = "denied"
     reaper_on = request.os_layer_temp_dir is not None and reaper_install.wanted()
     if reaper_on:
         # The reaper's front tells a hook command from a sandboxed one by whether it can
