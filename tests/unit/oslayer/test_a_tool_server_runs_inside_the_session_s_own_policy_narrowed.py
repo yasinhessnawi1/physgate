@@ -26,6 +26,7 @@ from physgate.hooks.settings import InstallRequest, build_config
 from physgate.hooks.settings import current_installation as installation
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.invocation import NO_TOOL_SERVERS, role_argv
+from physgate.oslayer import containment
 from physgate.oslayer.containment import (
     SANDBOX_EXEC,
     ContainmentError,
@@ -614,3 +615,18 @@ def test_a_denial_under_a_system_place_is_masked_after_its_bind(root: Path) -> N
     text = shlex.join(args)
     assert f"--tmpfs {os.path.realpath(under)}" in text, text
     assert text.index(f"--tmpfs {os.path.realpath(under)}") > text.index("--ro-bind /usr /usr")
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_a_denial_named_by_a_pattern_is_refused_for_a_server(
+    root: Path, platform: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A server lives as long as its session, so a denial naming entries as they stand when a
+    # command starts would not cover one made after the server started: no server is offered.
+    config = _config(root)
+    patterned = str(root / "held-out" / "*")
+    monkeypatch.setattr(
+        containment, "_read_denied", lambda _config, _platform: {patterned, config.state_dir}
+    )
+    with pytest.raises(ContainmentError, match="pattern"):
+        server_read_denied(config, platform)
