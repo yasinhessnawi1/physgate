@@ -35,6 +35,7 @@ REFUSED = {
     "thinking_display",
     "role_python",
     "claude_version",
+    "binary",
     "git_binary",
     "endpoint",
     "brief_sha256",
@@ -59,7 +60,14 @@ REPORTED = {
     "skills",
     "hooks",
 }
-NEVER_COMPARED = {"run_id", "seed", "held_out", "held_out_canaries", "network_enforced"}
+NEVER_COMPARED = {
+    "run_id",
+    "seed",
+    "held_out",
+    "held_out_canaries",
+    "network_enforced",
+    "account",
+}
 
 
 def _fields() -> set[str]:
