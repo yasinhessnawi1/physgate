@@ -275,10 +275,12 @@ def test_a_window_with_no_reset_instant_is_left_out() -> None:
 
 
 def test_a_share_outside_its_range_is_refused_on_the_record() -> None:
+    def window(used: float) -> Callable[[], object]:
+        return lambda: AccountWindow(window="w", used_fraction=used, resets_at=RESET_STAMP)
+
     for used in (-0.1, float("nan"), float("inf")):
-        assert _refused(
-            lambda used=used: AccountWindow(window="w", used_fraction=used, resets_at=RESET_STAMP)
-        )
+        assert _refused(window(used))
+    assert not _refused(window(0.5))
 
 
 # -- how full the account's windows were at a session's end ------------------------------------

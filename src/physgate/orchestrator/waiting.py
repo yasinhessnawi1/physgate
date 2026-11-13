@@ -1,11 +1,13 @@
 """What the command line says of a run waiting for the account's usage limit.
 
 A run halted on the limit prints its own step, ``waiting_for_limit``, in place of ``halted``,
-with the reset as the stream gave it, its instant where it was read, and ``resume_after``: the
-instant after which a resume goes on. It exits :data:`EXIT_WAITING_FOR_LIMIT`. A resume asked
-before then is refused before anything is stopped, written or started, with the same step and
-instant on standard error and the same exit status, so a script can wait and try again. Every
-other step prints and exits as before.
+with the kind of limit (``limit_type``: ``five_hour``, ``seven_day`` days later, or a kind the
+stream named that is not known here; ``null`` where it named none), the reset as the stream gave
+it, its instant where it was read, and ``resume_after``: the instant after which a resume goes
+on. It exits :data:`EXIT_WAITING_FOR_LIMIT`. A resume asked before then is refused before
+anything is stopped, written or started, with the same step and instant on standard error and
+the same exit status, so a script can wait and try again. Every other step prints and exits as
+before.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ def printed_step(kind: str, state: RunState) -> tuple[dict[str, str | None], int
         limit = halted.usage_limit
         printed: dict[str, str | None] = {
             "step": WAITING_FOR_LIMIT,
+            "limit_type": limit.limit_type if limit is not None else None,
             "resets": limit.resets if limit is not None else None,
             "resets_at": limit.resets_at if limit is not None else None,
             "resume_after": resume_after(halted.ts, limit),

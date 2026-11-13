@@ -1798,6 +1798,7 @@ class Loop:
                 issued_spec_sha256=report.issued_spec_sha256,
                 series=report.series,
                 usage_limit=_reset_from(report.usage_limit, env["ts"]),
+                account_windows=report.account_windows,
             )
         )
         if found is not None:
@@ -3286,9 +3287,10 @@ class Loop:
         env = self._env()
         held = _reset_from(limit, env["ts"])
         waits = "its review is still owed" if review else "the attempt is the same on resume"
+        kind = f"a {limit.limit_type} limit, " if limit.limit_type else ""
         detail = (
             f"subtask {subtask_id} attempt {attempt}: {who} ended on the account's usage limit "
-            f"(resets {limit.resets or 'not given'}); {waits}; resume after "
+            f"({kind}resets {limit.resets or 'not given'}); {waits}; resume after "
             f"{resume_after(env['ts'], held)}"
         )
         self._emit(Halted(**env, reason="usage_limit", detail=detail, usage_limit=held))

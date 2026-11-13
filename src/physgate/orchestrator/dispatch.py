@@ -116,7 +116,7 @@ from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root, os_layer_refusal
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
-from physgate.orchestrator.usage_limit import session_end
+from physgate.orchestrator.usage_limit import account_windows, session_end
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.placement import machine_writable, placement_refusal
@@ -1890,8 +1890,9 @@ class ClaudeDispatcher:
         result, usage, answered = captured.result, captured.usage, captured.answered
         require_matching_totals(result, usage)
         # An API error the stream names as the account's usage limit is that limit, its own cause.
+        streamed = read_stream_file(stdout)
         end, usage_limit = session_end(
-            read_stream_file(stdout), result, exit_code=exit_code, stopped_at_wall_clock=timed_out
+            streamed, result, exit_code=exit_code, stopped_at_wall_clock=timed_out
         )
         if end.outcome == "completed":
             echoed = sorted(answered)
@@ -1976,6 +1977,7 @@ class ClaudeDispatcher:
             os_layer_aborted=aborted,
             reaper_unverified=unverified,
             usage_limit=usage_limit,
+            account_windows=account_windows(streamed),
         )
 
     @staticmethod

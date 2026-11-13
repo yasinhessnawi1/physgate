@@ -4,8 +4,15 @@ When the account a run's sessions spend from reaches its usage limit, every sess
 once with an API error. The stream names the cause: a ``rate_limit_event`` whose state is
 ``rejected``, an assistant message whose error is ``rate_limit``, and a result whose text names
 the limit and when it resets ("You've hit your session limit · resets 1:20pm (Europe/Oslo)").
-Any one of those signs on a session that ended in an API error is read as the limit; the
-reset is read from the result's text alone, and only for what it says of the reset.
+Any one of those signs on a session that ended in an API error is read as the limit.
+
+The refusal event says when the limit resets, as an exact instant (``resetsAt``, epoch
+seconds), and what kind of limit it is (``rateLimitType``: ``five_hour`` for the session window,
+``seven_day`` for the weekly one, which resets days later). That instant is the reset; a kind
+not known here is recorded as given and waited for all the same. The event also says how full
+each of the account's windows was (``unifiedWindows``), recorded with the limit, and every
+session's end records the same figures from its stream's last rate-limit event, of any state,
+so a run's analysis can say how near the limit each session ended.
 
 That is neither a fault of the attempt nor a transient error: a retry inside the limit's window
 cannot succeed, and a review that could not run is no reason to send its attempt to a person.
@@ -13,13 +20,15 @@ So the loop spends no retry on it and halts the run waiting for the reset (ARCH-
 infrastructure outcomes, one more cause). Every other API error, a 503 among them, keeps its
 retries.
 
-The reset's text has no date and names a zone: it is the next time that wall time comes in that
-zone after the session ended. A text that does not parse is recorded as it is, with no instant,
-and a resume then waits for the operator's word or :data:`UNREAD_RESET_WAIT`.
+Where the stream gave no instant, the result's text is the fallback. It has no date and names a
+zone: the reset is the next time that wall time comes in that zone after the session ended. A
+text that does not parse is recorded as it is, with no instant, and a resume then waits for the
+operator's word or :data:`UNREAD_RESET_WAIT`.
 """
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -82,18 +91,92 @@ class UsageLimit(BaseModel):
     windows: tuple[AccountWindow, ...] = ()
 
 
+def _events(data: bytes | str) -> list[dict[str, object]]:
+    """Every event line of a session's stream, in order."""
+    text = data.decode(errors="replace") if isinstance(data, bytes) else data
+    return [event for line in text.splitlines() if (event := parse_event(line)) is not None]
+
+
+def _limit_state(event: Mapping[str, object]) -> Mapping[str, object] | None:
+    """The account's rate-limit state an event gives, if it is a ``rate_limit_event``."""
+    if event.get("type") != "rate_limit_event":
+        return None
+    info = event.get("rate_limit_info")
+    return info if isinstance(info, Mapping) else None
+
+
+def _instant(epoch: object) -> str | None:
+    """An instant the stream gives as whole epoch seconds, as a record stamps it; or ``None``."""
+    if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch <= 0:
+        return None
+    try:
+        return utc_stamp(datetime.fromtimestamp(epoch, UTC))
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _share(used: object) -> float | None:
+    """A window's ``utilization`` as the share spent, where it is a finite number not below 0."""
+    if isinstance(used, bool) or not isinstance(used, int | float):
+        return None
+    share = float(used)
+    return share if math.isfinite(share) and share >= 0 else None
+
+
+def _windows(state: Mapping[str, object]) -> tuple[AccountWindow, ...]:
+    """How full each window was, as one rate-limit state gives it; a malformed window left out."""
+    given = state.get("unifiedWindows")
+    if not isinstance(given, Mapping):
+        return ()
+    windows = []
+    for name, window in given.items():
+        if not isinstance(name, str) or not name or not isinstance(window, Mapping):
+            continue
+        share, at = _share(window.get("utilization")), _instant(window.get("resetsAt"))
+        if share is not None and at is not None:
+            windows.append(AccountWindow(window=name, used_fraction=share, resets_at=at))
+    return tuple(windows)
+
+
 def account_windows(data: bytes | str) -> tuple[AccountWindow, ...]:
-    """How full the account's windows were at the last rate-limit event a session's stream gave."""
-    del data
+    """How full the account's windows were at the last rate-limit event a session's stream gave.
+
+    The last event of any state that gives them; empty where the stream gave none.
+    """
+    for event in reversed(_events(data)):
+        state = _limit_state(event)
+        windows = _windows(state) if state is not None else ()
+        if windows:
+            return windows
     return ()
 
 
 def _signs_the_limit(event: Mapping[str, object]) -> bool:
     """Whether one stream event says the account's limit refused the session."""
     if event.get("type") == "rate_limit_event":
-        info = event.get("rate_limit_info")
-        return isinstance(info, Mapping) and info.get("status") == REJECTED
+        info = _limit_state(event)
+        return info is not None and info.get("status") == REJECTED
     return event.get("type") == "assistant" and event.get("error") == RATE_LIMIT
+
+
+def _from_refusal(limit: UsageLimit, events: list[dict[str, object]]) -> UsageLimit:
+    """``limit`` with what the stream's last refusal event says of it: instant, kind, windows."""
+    refusals = [
+        state
+        for event in events
+        if (state := _limit_state(event)) is not None and state.get("status") == REJECTED
+    ]
+    if not refusals:
+        return limit
+    refusal = refusals[-1]
+    kind = refusal.get("rateLimitType")
+    return limit.model_copy(
+        update={
+            "resets_at": _instant(refusal.get("resetsAt")),
+            "limit_type": kind if isinstance(kind, str) and kind else None,
+            "windows": _windows(refusal),
+        }
+    )
 
 
 def usage_limit_of(data: bytes | str, result: Mapping[str, object] | None) -> UsageLimit | None:
@@ -101,23 +184,22 @@ def usage_limit_of(data: bytes | str, result: Mapping[str, object] | None) -> Us
 
     Only a session that ended in an API error ended on the limit: one that completed, ran out
     of turns, or left no result did not, whatever its stream holds. Of those, one whose stream
-    shows the limit's refusal, or whose result's text names the limit, did.
+    shows the limit's refusal, or whose result's text names the limit, did. The reset's text is
+    the result's; its instant, the limit's kind and the windows are the refusal event's, where
+    the stream gave one.
     """
     if result is None or result.get("is_error") is not True:
         return None
     if result.get("terminal_reason") != "api_error":
         return None
-    text = data.decode(errors="replace") if isinstance(data, bytes) else data
+    events = _events(data)
     said = result.get("result")
     said = said if isinstance(said, str) else ""
-    signed = any(
-        (event := parse_event(line)) is not None and _signs_the_limit(event)
-        for line in text.splitlines()
-    )
+    signed = any(_signs_the_limit(event) for event in events)
     if not signed and _NAMES_THE_LIMIT.search(said) is None:
         return None
     resets = _RESETS.search(said)
-    return UsageLimit(resets=resets.group(1) if resets else None)
+    return _from_refusal(UsageLimit(resets=resets.group(1) if resets else None), events)
 
 
 def reset_instant(resets: str, *, after: datetime) -> datetime | None:
