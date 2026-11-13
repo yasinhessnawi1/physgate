@@ -54,6 +54,7 @@ from physgate.state.exceptions import (
     CorruptRecordError,
     DesignStateError,
     MalformedNodeIdError,
+    MissingUnitError,
     StoreStaleError,
 )
 from physgate.state.protocol import (
@@ -81,6 +82,8 @@ OnCorrupt = Literal["raise", "truncate"]
 #: reasons (``protocol``): the method is not on the frozen interface, and ``write_node``, which
 #: is, never gives it.
 REJECT_INTERFACE_NOT_FOLLOWED = "interface_not_followed"
+#: The one reason :meth:`Store.declare` refuses for; not one of the frozen workload's either.
+REJECT_DECLARE_REFUSED = "declare_refused"
 #: The source a followed interface quantity carries: the node and attempt it was taken from.
 FOLLOWED_SOURCE = "followed from {node} at attempt {attempt}"
 _FOLLOWED = re.compile(r"^followed from (?P<node>\S+) at attempt (?P<attempt>[1-9][0-9]{0,8})$")
@@ -978,6 +981,58 @@ class Store:
         validate_node(node)
         version = known[1] + 1
         rev = self._append("write", node_id, version, node)
+        self._materialise(node_id, rev, version, node)
+        return WriteResult(True, rev, None)
+
+    def declare(self, node: Payload, item_ids: Sequence[str]) -> WriteResult:
+        """Write a node's declared quantities: the one creator of a quantity a person declared.
+
+        Not on the frozen interface, and ``write_node`` is unchanged. ``node`` is the whole
+        node as it will stand. Where the store holds it already, nothing but its quantities
+        and its ``updated`` stamp differs from the held node; where it does not, the node is
+        created, and its owner is the one it names. Every quantity the revision changes or adds
+        is declared (it carries the record of a decision) and each such record names one of
+        ``item_ids``, each of which some changed quantity names. A quantity the node held is
+        kept: none is dropped, and none that is not declared changes. An interface is never
+        declared. Anything else is refused with ``declare_refused`` and writes nothing. The line
+        it appends is an ordinary ``write`` (``create`` for a new node) that recovery replays as
+        it replays every write.
+
+        Raises:
+            StoreStaleError: the journal moved underneath this handle.
+            MalformedNodeIdError: the node id is not a legal identifier.
+        """
+        self._assert_current()
+        node_id = validate_node_id(node.get("id"))
+        refused = WriteResult(False, None, REJECT_DECLARE_REFUSED)
+        try:
+            validate_node(node)
+        except (MissingUnitError, ValueError):
+            return refused
+        if node["kind"] == "interface" or not item_ids:
+            return refused
+        known = self._head.get(node_id)
+        current: Payload | None = None if known is None else self._read_node(node_id)
+        held: Mapping[str, Any] = {} if current is None else current["quantities"]
+        if current is not None:
+            fixed = {k for k in node if k not in ("quantities", "updated")}
+            if any(node[k] != current.get(k) for k in fixed) or fixed != (
+                set(current) - {"quantities", "updated"}
+            ):
+                return refused
+        if any(name not in node["quantities"] for name in held):
+            return refused
+        changed = {name: q for name, q in node["quantities"].items() if held.get(name) != q}
+        named = {(q.get("declared") or {}).get("item_id") for q in changed.values()}
+        if not changed or any(q.get("declared") is None for q in changed.values()):
+            return refused
+        # A declaration revises only what a declaration wrote: a role's own quantity stays its.
+        if any(name in held and held[name].get("declared") is None for name in changed):
+            return refused
+        if named != set(item_ids):
+            return refused
+        version = 1 if known is None else known[1] + 1
+        rev = self._append("create" if known is None else "write", node_id, version, node)
         self._materialise(node_id, rev, version, node)
         return WriteResult(True, rev, None)
 

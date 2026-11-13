@@ -921,6 +921,14 @@ class StoreKeeper:
             raise StoreRefusalError(msg, node=str(payload.get("id")), reason=str(result.reason))
         return result.revision
 
+    def declare(self, payload: Payload, item_ids: tuple[str, ...]) -> int:
+        """Write a node the parts decisions owe; a node the store refuses raises."""
+        result = self._handle().declare(payload, item_ids)
+        if not result.accepted or result.revision is None:
+            msg = "the store refused a declared node the decisions owed"
+            raise StoreRefusalError(msg, node=str(payload.get("id")), reason=str(result.reason))
+        return result.revision
+
     def divergences(
         self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
     ) -> tuple[Divergence, ...]:

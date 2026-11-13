@@ -1413,6 +1413,87 @@ class WriteDone(_Event):
     revision: Annotated[int, Field(ge=1)]
 
 
+class StatedValue(BaseModel):
+    """One value a decision stated of a part, as a line holds it (the body's own form)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    value: Annotated[float, Field(allow_inf_nan=False)] | int
+    unit: NonEmptyStr
+
+
+class StatedPart(BaseModel):
+    """What a choice of have or make stated of a part, as a line holds it.
+
+    The form of the queue's body, kept here so a line reads without the queue. Replay reads it
+    back as the body and holds it to the digest the decision's own line names.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    declared: dict[str, StatedValue]
+    texts: tuple[str, ...]
+
+
+class PartsWriteIntended(_Event):
+    """The orchestrator is about to write one node a part's decision owes, through ``declare``.
+
+    Synced before the write, as :class:`WriteIntended` is, and belonging to no subtask: it names
+    the node, the part's item, what the decision stated, the role that owns the node, the payload's
+    digest and the revision it expects. Replay derives the payload from the plan and the decision
+    and refuses a line that is not that derivation.
+    """
+
+    kind: Literal["parts_write_intended"] = "parts_write_intended"
+    node_id: NonEmptyStr
+    item_id: NonEmptyStr
+    parts: StatedPart
+    actor_role: NonEmptyStr
+    payload_sha256: Sha256
+    expected_revision: Annotated[int, Field(ge=1)]
+
+
+class PartsWriteDone(_Event):
+    """The intended parts write landed at this revision of the canonical journal."""
+
+    kind: Literal["parts_write_done"] = "parts_write_done"
+    node_id: NonEmptyStr
+    revision: Annotated[int, Field(ge=1)]
+
+
+class ReleasedPart(BaseModel):
+    """One component as the release records it: its item, node, choice, and what it stated."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    item_id: NonEmptyStr
+    node: NodeIdKey
+    choice: Literal["have", "make", "find"]
+    parts: StatedPart | None
+
+    @model_validator(mode="after")
+    def _only_a_part_that_is_found_states_nothing(self) -> ReleasedPart:
+        if (self.parts is None) != (self.choice == "find"):
+            msg = "a part states what it has or makes, and a part to find states nothing"
+            raise ValueError(msg)
+        return self
+
+
+class PartsReleased(_Event):
+    """Every part is decided and what the decisions owe is written: the run may dispatch.
+
+    One line per run that asks, naming each component in the plan's order with the choice and
+    what it stated, and the digest and length of the record a role reads (an empty list says the
+    run asked and found nothing to ask). Replay derives the record from the plan and the
+    decisions and refuses a line that is not it.
+    """
+
+    kind: Literal["parts_released"] = "parts_released"
+    components: tuple[ReleasedPart, ...]
+    record_sha256: Sha256
+    record_length: Annotated[int, Field(ge=1)]
+
+
 class NodeFilesRepaired(_Event):
     """Node files changed behind the journal were repaired before anything read the graph.
 
@@ -1598,6 +1679,9 @@ Event = Annotated[
     | PlanProposed
     | DesignReviewRan
     | PlanRejected
+    | PartsWriteIntended
+    | PartsWriteDone
+    | PartsReleased
     | ContractPairsPlanned
     | ContractTested
     | IntegrationStateIssued

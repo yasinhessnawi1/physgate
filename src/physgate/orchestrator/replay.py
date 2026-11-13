@@ -16,6 +16,7 @@ that ledger back from disk, not from memory.
 from __future__ import annotations
 
 import copy
+import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -96,6 +97,9 @@ from physgate.orchestrator.events import (
     ModuleCompleted,
     NodeFilesRepaired,
     OsLayerChecked,
+    PartsReleased,
+    PartsWriteDone,
+    PartsWriteIntended,
     PlanProposed,
     PlanRejected,
     ProposalsChecked,
@@ -107,6 +111,7 @@ from physgate.orchestrator.events import (
     SessionSpawned,
     Stage,
     StageEntered,
+    StatedPart,
     SubtaskPlanned,
     SubtaskRejected,
     SubtaskRemoved,
@@ -127,6 +132,13 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.follow import rederived
 from physgate.orchestrator.managed import policy_limits_change
+from physgate.orchestrator.parts_write import (
+    PartsWrite,
+    TakenPart,
+    parts_payload,
+    parts_record,
+    parts_writes,
+)
 from physgate.orchestrator.plan import (
     INTEGRATION_MODULE_DIR,
     Component,
@@ -137,12 +149,15 @@ from physgate.orchestrator.protocols import ChosenValue, QuantityRef
 from physgate.orchestrator.queue import (
     DECOMPOSITION_NAME,
     PLAN,
+    PartsBody,
     contract_item_id,
     item_id_for,
     parts_item_id,
+    parts_sha256,
 )
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
+from physgate.roles import owners_of as _cross_owners
 from physgate.state.store import payload_digest
 from physgate.state.task_ledger import Outcome, TaskLedger, TaskLine, read_ledger
 
@@ -278,6 +293,7 @@ class Step:
         "halted",
         "escalated",
         "wait",
+        "parts",
         "return",
         "reopen",
         "follow_up_ended",
@@ -377,6 +393,13 @@ class RunState:
         self.asks_parts = False
         self.components: tuple[Component, ...] | None = None
         self.parts_ids: tuple[str, ...] = ()
+        #: The write the parts decisions owe that is intended and not done, each node's write
+        #: as it landed in the order they were intended, and the line that released the run.
+        self.parts_pending: PartsWriteIntended | None = None
+        self.parts_landed: list[tuple[str, str, int]] = []
+        self.parts_places: list[tuple[int, bool]] = []
+        self._parts_place = (0, False)
+        self.parts_released: PartsReleased | None = None
         self.order: list[str] = []
         self.subtasks: dict[str, SubtaskState] = {}
         self.halted: Halted | None = None
@@ -690,10 +713,15 @@ class RunState:
                 _refuse("a plan is rejected once, after a person's reject of the plan's item")
             self.plan_rejected = event
             return
+        if isinstance(event, PartsWriteIntended | PartsWriteDone | PartsReleased):
+            self._parts_line(event)
+            return
         if dispatch and self.plan_hold() is not None:
             _refuse("nothing is dispatched while the plan's review holds the run")
         if dispatch and self.parts_hold() is not None:
             _refuse("nothing is dispatched while a part is undecided")
+        if dispatch and self.parts_owed():
+            _refuse("nothing is dispatched before the parts are released")
         if dispatch and self.plan_ends() and not isinstance(event, IntegrationGateSkipped):
             _refuse("nothing is dispatched in a run whose plan a person rejected")
         if isinstance(event, ContractTested):
@@ -1034,6 +1062,158 @@ class RunState:
         if self.plan_ends():
             return None
         return next((one for one in self.parts_ids if one not in self.taken), None)
+
+    def parts_owed(self) -> bool:
+        """Whether every part is decided and the line that releases the run is not yet written.
+
+        What the decisions owe is written first, and the release closes it, an empty plan's too:
+        the run says that it asked. None once a person rejected the plan.
+        """
+        return (
+            self.asks_parts
+            and self.components is not None
+            and self.parts_released is None
+            and not self.plan_ends()
+            and self.parts_hold() is None
+        )
+
+    def _stated_body(self, item_id: str, stated: StatedPart | None) -> PartsBody | None:
+        """What a line states of the part decided on ``item_id``, held to the decision's digest.
+
+        ``None`` for a part to find, which states nothing. A body that is not the body the
+        decision's own line names is refused, and so is one that does not read as a body.
+        """
+        decided = self.taken[item_id]
+        if decided.position == "find":
+            if stated is not None:
+                _refuse(f"{item_id} was to be found, and a line states values of it")
+            return None
+        if stated is None:
+            _refuse(f"{item_id} was decided as {decided.position}, and a line states nothing of it")
+        try:
+            body = PartsBody.model_validate(stated.model_dump())
+        except ValueError as exc:
+            _refuse(f"what a line states of {item_id} is not a part's body: {exc}")
+        if parts_sha256(body) != decided.parts_sha256:
+            _refuse(f"what a line states of {item_id} is not what its decision stated")
+        return body
+
+    def _cross_owner(self) -> str | None:
+        owners = _cross_owners("cross_nodes")
+        return owners[0] if len(owners) == 1 else None
+
+    def _parts_line(self, event: PartsWriteIntended | PartsWriteDone | PartsReleased) -> None:
+        """Hold a line of the parts' release to the derivation the plan and the decisions give.
+
+        A value is written only once every part is decided, as the payload those decisions and
+        the plan give, at the revision after the last, one write at a time and in the plan's order:
+        each component's node, then its cross node. The release names every component with what
+        its decision stated, and only after every write owed has landed.
+        """
+        if self.parts_released is not None or not self.parts_owed():
+            _refuse("a part's values are written, once, after every part is decided")
+        components = self.components or ()
+        if isinstance(event, PartsWriteDone):
+            pending = self.parts_pending
+            if pending is None or pending.node_id != event.node_id:
+                _refuse("a parts write that was not intended landed")
+            if event.revision != pending.expected_revision:
+                _refuse("a parts write landed at another revision than the one intended")
+            self.parts_landed.append((event.node_id, pending.payload_sha256, event.revision))
+            self.parts_places.append(self._parts_place)
+            self.journal_head = event.revision
+            self.parts_pending = None
+            return
+        if isinstance(event, PartsWriteIntended):
+            held = self.parts_pending
+            # A process killed after its intent and before the write that journal line belongs
+            # to finds no line and intends the same write again; any other is refused.
+            if held is not None and (
+                held.node_id,
+                held.item_id,
+                held.payload_sha256,
+                held.expected_revision,
+            ) != (event.node_id, event.item_id, event.payload_sha256, event.expected_revision):
+                _refuse("a parts write is intended while another is not done")
+            if event.item_id not in self.parts_ids:
+                _refuse(f"{event.item_id} is no item of the plan's parts")
+            if event.expected_revision != self.journal_head + 1:
+                _refuse("a parts write intends a revision that does not follow the journal's")
+            body = self._stated_body(event.item_id, event.parts)
+            index = self.parts_ids.index(event.item_id)
+            component = components[index]
+            shared = event.node_id != component.node
+            if body is None or (shared and self._cross_owner() != event.actor_role):
+                _refuse("a parts write is the part's own node, or its cross node by sizing's role")
+            decided = self.taken[event.item_id]
+            payload = parts_payload(
+                component,
+                shared=shared,
+                owner_role=event.actor_role,
+                item_id=event.item_id,
+                body=body,
+                operator=decided.resolved_by,
+                decided_ts=decided.decided_ts,
+            )
+            if (
+                payload is None
+                or payload["id"] != event.node_id
+                or payload_digest(payload) != event.payload_sha256
+            ):
+                _refuse(f"the write of {event.node_id} is not the derivation of its decision")
+            if self.parts_places and (index, shared) <= self.parts_places[-1]:
+                _refuse("the parts are written in the plan's order, each node once")
+            self._parts_place = (index, shared)
+            self.parts_pending = event
+            return
+        self._parts_released(event)
+
+    def _parts_released(self, event: PartsReleased) -> None:
+        """Hold the release to the plan, the decisions and what has landed."""
+        components = self.components or ()
+        if self.parts_pending is not None:
+            _refuse("the parts are released while a write is not done")
+        if len(event.components) != len(components):
+            _refuse("the release names every component of the plan, once")
+        stated: list[TakenPart] = []
+        for item_id, component, named in zip(
+            self.parts_ids, components, event.components, strict=True
+        ):
+            decided = self.taken[item_id]
+            body = self._stated_body(item_id, named.parts)
+            if (named.item_id, named.node, named.choice) != (
+                item_id,
+                component.node,
+                decided.position,
+            ):
+                _refuse(f"the release names {named.node} as it was not decided")
+            stated.append(
+                TakenPart(
+                    item_id=item_id,
+                    choice=named.choice,
+                    body=body,
+                    operator=decided.resolved_by,
+                    decided_ts=decided.decided_ts,
+                )
+            )
+        owed: tuple[PartsWrite, ...]
+        try:
+            owed = parts_writes(
+                components, self.parts_ids, {t.item_id: t for t in stated}, self._cross_owner()
+            )
+        except ValueError as exc:
+            _refuse(str(exc))
+        if [(w.node_id, w.payload_sha256) for w in owed] != [
+            (node, digest) for node, digest, _ in self.parts_landed
+        ]:
+            _refuse("the release comes before every write the decisions owe has landed")
+        record = parts_record(components, stated)
+        if (event.record_sha256, event.record_length) != (
+            hashlib.sha256(record).hexdigest(),
+            len(record),
+        ):
+            _refuse("the release's record is not the record the decisions give")
+        self.parts_released = event
 
     def planned(self) -> tuple[str, ...]:
         """Every planned subtask not yet dispatched or removed, in plan order."""
@@ -2210,6 +2390,8 @@ class RunState:
             return Step(kind="integrate") if self.integration is None else Step(kind="done")
         if self.parts_hold() is not None:
             return Step(kind="wait")  # only a run that acts asks, and so only a run that acts waits
+        if self.parts_owed():
+            return Step(kind="parts")
         if self.pending_reopen is not None:
             return Step(kind="reopen", subtask_id=self.pending_reopen.reopens)
         if any(o is not None for o in (self.owed_ruling(), self.owed_item(), self.owed_contract())):

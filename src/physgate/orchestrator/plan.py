@@ -307,3 +307,12 @@ def plan_bytes(plan: Plan) -> bytes:
 def plan_sha256(plan: Plan) -> str:
     """The plan's digest: sha256 of :func:`plan_bytes`."""
     return hashlib.sha256(plan_bytes(plan)).hexdigest()
+
+
+def shared_node_id(owner: str, component: str) -> str:
+    """The node the role that writes the cross nodes holds a component's shared values on.
+
+    Named from the component's own id with its dots as underscores, under the role's name,
+    so the plan fixes where each value goes and no session chooses.
+    """
+    return f"{owner}.{component.replace('.', '_')}"

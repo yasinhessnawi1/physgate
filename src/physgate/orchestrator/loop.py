@@ -101,8 +101,12 @@ from physgate.orchestrator.events import (
     NodeFilesRepaired,
     OsLayerChecked,
     OwedEdge,
+    PartsReleased,
+    PartsWriteDone,
+    PartsWriteIntended,
     PlanRejected,
     ProposalsChecked,
+    ReleasedPart,
     Resumed,
     ReviewRan,
     ReviewUnavailable,
@@ -111,6 +115,7 @@ from physgate.orchestrator.events import (
     SessionSpawned,
     Stage,
     StageEntered,
+    StatedPart,
     SubtaskRejected,
     SubtaskReopened,
     TokensUsed,
@@ -152,6 +157,7 @@ from physgate.orchestrator.managed import (
     stricter_only,
 )
 from physgate.orchestrator.merge import merge_message
+from physgate.orchestrator.parts_write import TakenPart, parts_record, parts_writes
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
     ChangeCheck,
@@ -233,7 +239,7 @@ from physgate.state.exceptions import DesignStateError, StoreStaleError
 from physgate.state.held_file import HeldFile
 from physgate.state.protocol import REJECT_CROSS_ROLE
 from physgate.state.schema import Node, validate_node
-from physgate.state.store import payload_digest
+from physgate.state.store import JournalLine, payload_digest
 
 UNREAD = (
     "The session ended without completing its required reading, so nothing it "
@@ -982,6 +988,7 @@ class Loop:
             "complete",
             "halt",
             "wait",
+            "parts",
             "reopen",
             "follow_up_ended",
         ):
@@ -1008,6 +1015,9 @@ class Loop:
             if step.kind == "halt":
                 # A process killed between an incident and its halt: the halt, and nothing else.
                 self._owed_halt()
+                continue
+            if step.kind == "parts":
+                self._release_parts()
                 continue
             if step.kind == "integrate":
                 self._integrate()
@@ -2051,6 +2061,10 @@ class Loop:
             self._incident(subtask_id, "foreign_journal_line", str(exc))
             return False
         for line in tail:
+            owed = self.state.parts_pending
+            if now is None and owed is not None and self._own_parts_line(line, owed):
+                self._emit(PartsWriteDone(**self._env(), node_id=line.node_id, revision=line.rev))
+                continue
             pending = now.pending if now is not None else None
             own = (
                 pending is not None
@@ -2079,6 +2093,110 @@ class Loop:
             return False
         self._graph.hold()
         return True
+
+    @staticmethod
+    def _own_parts_line(line: JournalLine, owed: PartsWriteIntended) -> bool:
+        """Whether a journal line is the parts write the run intended and did not see land."""
+        return (
+            line.rev == owed.expected_revision
+            and line.node_id == owed.node_id
+            and payload_digest(line.payload) == owed.payload_sha256
+        )
+
+    def _release_parts(self) -> None:
+        """Write what the decisions owe, each node behind an intent, then release the run.
+
+        The values are read from the decisions file, held to the digest each decision's line
+        names, and written through the store's ``declare`` only. A process killed between an
+        intent and its write finds the pending intent on the record, accounts for the journal
+        line if it landed (:meth:`_journal_clean`), and otherwise intends the same write again.
+        The release names every component with what it stated, and the record a role reads.
+        """
+        state = self.state
+        components = state.components or ()
+        try:
+            resolutions = {d.item_id: d for _, d in read_queue(self.run_dir).decisions}
+        except QueueError as exc:
+            if not self._decisions_unreadable(exc):
+                raise
+            return
+        taken: list[TakenPart] = []
+        for item_id in state.parts_ids:
+            decided = state.taken[item_id]
+            said = resolutions.get(item_id)
+            body = None if said is None or decided.position == "find" else said.parts
+            digest = None if body is None else parts_sha256(body)
+            if digest != decided.parts_sha256:
+                detail = f"item {item_id}: the decisions file no longer states what was taken"
+                self._incident(None, "queue_item_mismatch", detail)
+                return
+            taken.append(
+                TakenPart(
+                    item_id=item_id,
+                    choice=decided.position,  # type: ignore[arg-type]  # have, make or find
+                    body=body,
+                    operator=decided.resolved_by,
+                    decided_ts=decided.decided_ts,
+                )
+            )
+        owners = owners_of("cross_nodes")
+        owed = parts_writes(
+            components,
+            state.parts_ids,
+            {part.item_id: part for part in taken},
+            owners[0] if len(owners) == 1 else None,
+        )
+        landed = {node for node, _, _ in state.parts_landed}
+        for write in owed:
+            if write.node_id in landed:
+                continue
+            expected = state.journal_head + 1
+            self._emit(
+                PartsWriteIntended(
+                    **self._env(),
+                    node_id=write.node_id,
+                    item_id=write.item_id,
+                    parts=StatedPart.model_validate(write.body.model_dump()),
+                    actor_role=write.owner_role,
+                    payload_sha256=write.payload_sha256,
+                    expected_revision=expected,
+                )
+            )
+            try:
+                revision = self._graph.declare(write.payload, (write.item_id,))
+            except StoreStaleError:
+                if self._journal_clean():
+                    detail = "the store handle went stale"
+                    self._incident(None, "foreign_journal_line", detail)
+                return
+            except StoreRefusalError as exc:
+                self._incident(None, "store_refusal", f"{exc} ({exc.context.get('reason')})")
+                return
+            if revision != expected:
+                self._incident(None, "foreign_journal_line", f"revision {revision}, not {expected}")
+                return
+            self._emit(PartsWriteDone(**self._env(), node_id=write.node_id, revision=revision))
+        if owed:
+            self._graph.commit("Parts the person declared\n")
+        record = parts_record(components, taken)
+        self._emit(
+            PartsReleased(
+                **self._env(),
+                components=tuple(
+                    ReleasedPart(
+                        item_id=part.item_id,
+                        node=component.node,
+                        choice=part.choice,
+                        parts=None
+                        if part.body is None
+                        else StatedPart.model_validate(part.body.model_dump()),
+                    )
+                    for component, part in zip(components, taken, strict=True)
+                ),
+                record_sha256=hashlib.sha256(record).hexdigest(),
+                record_length=len(record),
+            )
+        )
 
     def _apply(self, subtask_id: str, attempt: int, commit: str, role: str) -> bool:
         """Write the attempt's proposals into the canonical store, each behind an intent."""

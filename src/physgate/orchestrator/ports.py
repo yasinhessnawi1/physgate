@@ -421,6 +421,15 @@ class GraphPort(Protocol):
         """
         ...
 
+    def declare(self, payload: Payload, item_ids: tuple[str, ...]) -> int:
+        """Write a node a person's decisions owe through the store's ``declare``; its revision.
+
+        Raises ``StoreRefusalError`` for a node the store does not hold to be the declared
+        revision of ``item_ids``, and ``StoreStaleError`` when the journal moved underneath the
+        handle.
+        """
+        ...
+
     def divergences(
         self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()
     ) -> tuple[Divergence, ...]:

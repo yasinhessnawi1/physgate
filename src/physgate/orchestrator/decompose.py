@@ -95,6 +95,7 @@ from physgate.orchestrator.plan import PlannedModule as PlannedModule
 from physgate.orchestrator.plan import SystemRequirement as SystemRequirement
 from physgate.orchestrator.plan import list_problems as list_problems
 from physgate.orchestrator.plan import plan_sha256 as plan_sha256
+from physgate.orchestrator.plan import shared_node_id as shared_node_id
 from physgate.orchestrator.protocols import REJECTING_RESULTS, MessageUsage, ReviewResult, Usage
 from physgate.orchestrator.record import (
     DecompositionCall,
@@ -376,15 +377,6 @@ def _declared_problems(plan: Plan) -> list[str]:
         for name, quantity in node.quantities.items()
         if quantity.declared is not None
     ]
-
-
-def shared_node_id(owner: str, component: str) -> str:
-    """The node the role that writes the cross nodes holds a component's shared values on.
-
-    Named from the component's own id with its dots as underscores, under the role's name,
-    so the plan fixes where each value goes and no session chooses.
-    """
-    return f"{owner}.{component.replace('.', '_')}"
 
 
 def _component_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
