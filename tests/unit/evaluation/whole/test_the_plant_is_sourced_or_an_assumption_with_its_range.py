@@ -192,7 +192,11 @@ def test_the_geared_fall_moves_with_the_rotor_s_inertia_as_the_check_found(
     )
 
 
-@pytest.mark.parametrize(("friction", "degrees"), [(0.0086, 14.9), (0.0173, 29.8), (0.0346, 59.5)])
+@pytest.mark.parametrize(
+    ("friction", "degrees"),
+    # The check's half, nominal and double of 0.01728 N*m, which its table rounds.
+    [(0.01728 / 2, 14.9), (0.01728, 29.8), (0.01728 * 2, 59.5)],
+)
 def test_the_lock_holds_below_the_angle_the_check_found(friction: float, degrees: float) -> None:
     fall = _plant().fall(_checked_body(gearbox_friction=friction))
     assert fall.lock_torque_per_rad == pytest.approx(0.0666, rel=2e-3)

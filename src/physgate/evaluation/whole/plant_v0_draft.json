@@ -1,0 +1,157 @@
+{
+  "form": "whole_design_plant",
+  "version": 1,
+  "status": "draft",
+  "fall_terminals": "open",
+  "parameters": {
+    "pack_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "low": 7.2,
+      "high": 7.2,
+      "source": "brief criterion 3 (six NiMH cells at 1.2 V); criterion 4 judges at it",
+      "reason": "the brief's nominal; every performance criterion is judged there"
+    },
+    "wheel_radius": {
+      "value": 0.04,
+      "unit": "m",
+      "low": 0.039,
+      "high": 0.041,
+      "source": "brief criterion 2 (80 x 10 mm wheels, 0.040 m +- 0.001 m)",
+      "reason": "the criterion's own tolerance"
+    },
+    "gear_ratio": {
+      "value": 110.24175824175825,
+      "unit": "1",
+      "low": 110.24175824175825,
+      "high": 110.24175824175825,
+      "source": "parts sheet R2.08 (3344/65 from the tooth counts) and R2.04 (45:21); brief criterion 1 states 110.25 +- 0.5 %",
+      "reason": "exact from the tooth counts"
+    },
+    "external_stage_ratio": {
+      "value": 2.142857142857143,
+      "unit": "1",
+      "low": 2.142857142857143,
+      "high": 2.142857142857143,
+      "source": "parts sheet R2.04; brief criterion 1 (the kit's 45:21 plastic stage)",
+      "reason": "exact from the tooth counts; its efficiency is taken as 1"
+    },
+    "motor_rated_voltage": {
+      "value": 6.0,
+      "unit": "V",
+      "low": 6.0,
+      "high": 6.0,
+      "source": "Pololu item #3073 (the gearmotor's rated voltage)",
+      "reason": "the voltage the sheet's figures are given at"
+    },
+    "motor_stall_torque": {
+      "value": 0.07256921,
+      "unit": "N*m",
+      "low": 0.07256921,
+      "high": 0.07256921,
+      "source": "parts sheet R1.07 (0.74 kg*cm at 6 V, Pololu #3073)",
+      "reason": "extrapolated by the vendor; no tolerance is published; held at the value"
+    },
+    "motor_stall_current": {
+      "value": 1.5,
+      "unit": "A",
+      "low": 1.5,
+      "high": 1.5,
+      "source": "parts sheet R1.03 (1.5 A at 6 V, Pololu #3073)",
+      "reason": "extrapolated by the vendor; no tolerance is published; held at the value"
+    },
+    "motor_no_load_speed": {
+      "value": 68.06784082777885,
+      "unit": "rad/s",
+      "low": 54.454272662223076,
+      "high": 81.68140899333461,
+      "source": "parts sheet R1.10 (650 rpm at 6 V, typical, +- 20 %)",
+      "reason": "the sheet's tolerance"
+    },
+    "motor_no_load_current": {
+      "value": 0.15,
+      "unit": "A",
+      "low": 0.075,
+      "high": 0.225,
+      "source": "parts sheet R1.05 (0.15 A at 6 V, typical, +- 50 %)",
+      "reason": "the sheet's tolerance"
+    },
+    "kit_mass": {
+      "value": 0.2,
+      "unit": "kg",
+      "low": 0.19,
+      "high": 0.21,
+      "source": "brief criterion 7 (Pololu #3575: motors, 80 mm wheels and bumper cage, no cells)",
+      "reason": "the criterion's own tolerance"
+    },
+    "wheel_mass": {
+      "value": 0.0198446661875,
+      "unit": "kg",
+      "low": 0.018427190031250002,
+      "high": 0.021262142343750002,
+      "source": "parts sheet R9.03 (0.7 oz each, with tire, Pololu #1430)",
+      "reason": "given to one significant figure: half a unit either side"
+    },
+    "cell_mass": {
+      "value": 0.02749903743125,
+      "unit": "kg",
+      "low": 0.027357289815625,
+      "high": 0.027640785046875,
+      "source": "parts sheet R5.07 (0.97 oz each, Pololu #1003)",
+      "reason": "given to two decimals: half a unit either side"
+    },
+    "cell_count": {
+      "value": 6.0,
+      "unit": "1",
+      "low": 6.0,
+      "high": 6.0,
+      "source": "brief criterion 3 (six AA cells)",
+      "reason": "a count"
+    },
+    "com_height": {
+      "value": 0.019,
+      "unit": "m",
+      "low": 0.005,
+      "high": 0.078,
+      "source": "assumption",
+      "reason": "PROPOSED, for the owner: the body as a uniform box of the kit's 0.118 m height puts its centre 0.059 m above ground, 0.019 m above the axle; the cells (half the body's mass) sit along the axle plane (Pololu #3573). The range runs from just above the axle to the envelope's top (0.118 m above ground)",
+      "measure_by": "the balance point of the assembled robot, with cells, on a knife edge at two orientations, or a CAD model with masses"
+    },
+    "body_inertia": {
+      "value": 0.0005509565413333333,
+      "unit": "kg*m**2",
+      "low": 0.00027547827066666666,
+      "high": 0.0008264348119999998,
+      "source": "assumption",
+      "reason": "PROPOSED, for the owner: the body as a uniform box of the envelope, 0.118 m high and 0.080 m deep, about its centre of mass (0.3253 kg); half to one and a half times that",
+      "measure_by": "a bifilar or compound-pendulum swing of the body about a known axis, or a CAD model with masses"
+    },
+    "wheel_inertia_factor": {
+      "value": 0.5,
+      "unit": "1",
+      "low": 0.5,
+      "high": 1.0,
+      "source": "assumption",
+      "reason": "PROPOSED, for the owner: the wheel as a uniform disc (1/2 m r^2), the documented default of D-A3-1; a rim-heavy wheel lies towards a ring (m r^2)",
+      "measure_by": "a swing of one wheel about its axle, or the hub and tire masses separately"
+    },
+    "rotor_inertia": {
+      "value": 5e-08,
+      "unit": "kg*m**2",
+      "low": 2.5e-08,
+      "high": 1e-07,
+      "source": "assumption",
+      "reason": "PROPOSED, for the owner: no published figure for the gearmotor's rotor; 5e-8 kg*m^2 per motor is the illustrative value of the earlier fall check; half to double",
+      "measure_by": "a spin-down of a bare motor from a known speed with its no-load current, or the vendor's figure if one is found"
+    },
+    "gearbox_friction": {
+      "value": 0.01728,
+      "unit": "N*m",
+      "low": 0.0086,
+      "high": 0.0383,
+      "source": "assumption",
+      "reason": "PROPOSED, for the owner: the gearbox's breakaway torque at the wheel, read as all of the no-load current at the motor reflected through the ratio (0.1152 N*m/A x 0.15 A); the range carries the +- 50 % on that current and the choice of torque constant",
+      "measure_by": "the torque needed to start one unpowered wheel turning against its motor, on a spring scale or a known weight"
+    }
+  }
+}
