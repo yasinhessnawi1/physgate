@@ -72,7 +72,9 @@ def main() -> None:
     elif mode == "drive-kill":
         _drive_and_die(run_dir)
     elif mode in ("drive-kill-intent", "drive-kill-done"):
-        _drive_and_die(run_dir, "parts_write_" + mode.rsplit("-", 1)[1] + "")
+        _drive_and_die(
+            run_dir, "parts_write_intended" if mode == "drive-kill-intent" else "parts_write_done"
+        )
     else:
         raise SystemExit(f"no mode {mode}")
 
