@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -66,15 +67,35 @@ class StandInStore:
     held_out: tuple[str, ...]
 
 
-def stand_in_store(root: Path) -> StandInStore:
-    """Twenty-four fixture tasks, each with its own brief, split into one version."""
+def marker(i: int) -> str:
+    """The string fixture task ``i`` carries in every field but its brief (``marked`` stores)."""
+    return f"zqmark{i:02d}zq"
+
+
+def _marked(i: int) -> dict[str, Any]:
+    """Task ``i``'s fields other than its brief, each carrying :func:`marker`."""
+    task = own_task()
+    for spec in task["specs"]:
+        spec["name"] = f"{marker(i)}_{spec['name']}"
+        spec["composes"] = [f"{marker(i)}_{req}" for req in spec["composes"]]
+    return {"id": f"control.{marker(i)}", "specs": task["specs"]}
+
+
+def stand_in_store(root: Path, *, marked: bool = False) -> StandInStore:
+    """Twenty-four fixture tasks, each with its own brief, split into one version.
+
+    ``marked``: every field of task ``i`` but its brief carries :func:`marker` ``(i)``, so
+    what of a task reached a place can be found by a plain search.
+    """
     store = root.resolve() / "store"
     pool = store / "control" / "withheld" / "pool"
     for i in range(24):
+        fields = _marked(i) if marked else {"id": f"control.t{i:02d}"}
+        slow = f"{marker(i)}_settling" if marked else "settling"
         write_task_dir(
-            pool / f"control.t{i:02d}",
-            own_task(id=f"control.t{i:02d}", brief=f"Stabilise plant number {i}. Answer here."),
-            {"good": (controller(), None), "bad_slow": (controller(), "settling")},
+            pool / str(fields["id"]),
+            own_task(**fields, brief=f"Stabilise plant number {i}. Answer here."),
+            {"good": (controller(), None), "bad_slow": (controller(), slow)},
         )
     chosen = sorted(p for p in pool.iterdir() if p.is_dir())
     manifest, _ = write_version(
@@ -108,6 +129,19 @@ def stand_in_store(root: Path) -> StandInStore:
         *(str(directory / tier) for tier in TIERS[1:]),
     )
     return StandInStore(store, manifest.version, tasks, canaries, held_out)
+
+
+def copied(made: StandInStore, copy: Path) -> StandInStore:
+    """``made``'s store copied to ``copy``, so a row's round leaves its records there."""
+    shutil.copytree(made.store, copy, symlinks=True)
+    old, new = str(made.store), str(copy)
+    return StandInStore(
+        copy,
+        made.version,
+        made.tasks,
+        made.canaries,
+        tuple(h.replace(old, new) for h in made.held_out),
+    )
 
 
 def config(task: Task, made: StandInStore, **changes: Any) -> RunConfig:  # noqa: ANN401

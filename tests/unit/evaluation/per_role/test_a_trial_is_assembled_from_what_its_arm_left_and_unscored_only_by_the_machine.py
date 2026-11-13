@@ -775,6 +775,28 @@ def test_a_held_out_harness_trial_of_a_run_that_never_ended_is_excluded(
         harness_ended_by_infrastructure(run, HELD_OUT, answer_found=False)
 
 
+@pytest.mark.parametrize("kill", ["review", "session"])
+def test_a_visible_harness_trial_of_a_run_that_never_ended_is_excluded(
+    tmp_path: Path, kill: str
+) -> None:
+    """A run that did not end is not a measurement in any tier: excluded, with its reason.
+
+    The same run let end is taken (the counterpart below), so the run's end is what excludes.
+    """
+    assert TASK.tier == "visible" and TASK.canary is None
+    run = _loop_run(tmp_path, kill=kill)
+    trial = _harness_trial(run, TASK)
+    assert isinstance(trial, ExcludedTrial), trial
+    assert trial.reason.startswith("run: the run has not ended"), trial.reason
+    with pytest.raises(TrialExcludedError, match="^run: the run has not ended"):
+        harness_ended_by_infrastructure(run, TASK, answer_found=False)
+
+
+def test_a_visible_harness_trial_of_a_run_that_ended_is_taken(tmp_path: Path) -> None:
+    trial = _harness_trial(_loop_run(tmp_path), TASK)
+    assert isinstance(trial, TrialRecord) and trial.outcome == "pass", trial
+
+
 def _decomposed(seq: int) -> Decomposed:
     return Decomposed(
         seq=seq,
