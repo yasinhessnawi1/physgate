@@ -32,6 +32,9 @@ ROWS = (
     "tests/unit/orchestrator/test_a_refused_call_is_named_for_what_it_was.py",
 )
 UI_ROWS = ("src/screens/queue/consequence.test.tsx",)
+PROMPT_ROWS = (
+    "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+)
 TIMEOUT_S = 1200
 LOOP = "src/physgate/orchestrator/loop.py"
 DEC = "src/physgate/orchestrator/decisions.py"
@@ -163,16 +166,26 @@ UI_MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
      "if (false)"),
 )  # fmt: skip
 
+#: Rule 7: the reviewer is told of the earlier parts and markers; no other prompt changes.
+PROMPT_MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("earlier-parts-untold", "7", REV, "        f\"{earlier}\"\n", ""),
+    ("earlier-markers-untold", "7", REV, "    if earlier_hits:\n", "    if False:\n"),
+    ("earlier-markers-unmarked", "7", REV,
+     'f"- {hit.kind}, evidence {hit.evidence}, attempt {hit.attempt}: {hit.what}\\n"',
+     'f"- {hit.kind}, evidence {hit.evidence}: {hit.what}\\n"'),
+    ("earlier-told-always", "7", REV, "    if earlier_hits:\n", "    if True:\n"),
+)  # fmt: skip
+
 _FAILED = re.compile(r"^FAILED \S+ - (.*)$", re.M)
 
 
-def run_rows(label: str) -> tuple[str, str]:
+def run_rows(label: str, rows: tuple[str, ...] = ROWS) -> tuple[str, str]:
     """Run the Python rows once; say how they came out, with the tail of the output."""
     with tempfile.TemporaryDirectory(prefix=f"mut-{label}-") as scratch:
         env = {**os.environ, "PYTHONPYCACHEPREFIX": str(Path(scratch) / "pycache")}
         argv = [
             sys.executable, "-u", "-m", "pytest", "-q", "-rfE", "-p", "no:cacheprovider",
-            "-p", "no:randomly", "-n", "0", f"--basetemp={Path(scratch) / 'basetemp'}", *ROWS,
+            "-p", "no:randomly", "-n", "0", f"--basetemp={Path(scratch) / 'basetemp'}", *rows,
         ]  # fmt: skip
         try:
             done = subprocess.run(  # noqa: S603 - this interpreter, fixed arguments
@@ -212,8 +225,13 @@ def run_ui_rows(label: str) -> tuple[str, str]:
 
 def main() -> int:
     """Run the baselines and every mutant; say what each came to."""
-    ui = sys.argv[1:] == ["ui"]
-    mutants, rows = (UI_MUTANTS, run_ui_rows) if ui else (MUTANTS, run_rows)
+    mode = sys.argv[1] if len(sys.argv) > 1 else "python"
+    if mode == "ui":
+        mutants, rows = UI_MUTANTS, run_ui_rows
+    elif mode == "prompt":
+        mutants, rows = PROMPT_MUTANTS, lambda label: run_rows(label, PROMPT_ROWS)
+    else:
+        mutants, rows = MUTANTS, run_rows
     root = Path.cwd()
     head = subprocess.run(  # noqa: S603, S607 - git, fixed arguments
         ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
