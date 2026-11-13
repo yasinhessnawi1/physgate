@@ -75,6 +75,8 @@ def found_in(tmp_path: Path, files: Mapping[str, str | None]) -> list[str]:
         f"{MODULE}/build/main.cpp.o",
         f"{MODULE}/build/libFrameworkArduino.a",
         f"{MODULE}/firmware.eep",
+        f"{MODULE}/firmware.bin",
+        f"{MODULE}/out/FIRMWARE.BIN",
     ],
 )
 def test_a_built_file_in_the_module_is_named(tmp_path: Path, path: str) -> None:
@@ -134,6 +136,8 @@ def test_a_build_directory_in_the_module_is_named_once_with_its_size(
         f"{MODULE}/.pioneer/readme.md",
         f"{MODULE}/firmware.hex.md",
         f"{MODULE}/table.o.txt",
+        f"{MODULE}/bin/readme.md",
+        f"{MODULE}/firmware.bin.md",
     ],
 )
 def test_a_source_file_named_like_one_is_in_scope(tmp_path: Path, path: str) -> None:
