@@ -120,6 +120,7 @@ def _review(seq: int, ts: str) -> ReviewRan:
         ("usage_limit", "x", True),
         ("decomposition_failed", "api_error: 529 overloaded", True),
         ("decomposition_failed", "sandbox_unavailable: no bubblewrap", True),
+        ("decomposition_failed", "usage_limit: limit reached", True),
         ("decomposition_failed", "invalid_plan: no module", False),
         ("incident", "merge_conflict", False),
     ],
