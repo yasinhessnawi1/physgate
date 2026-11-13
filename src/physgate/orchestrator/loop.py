@@ -554,7 +554,13 @@ class Loop:
         self._stop_leftovers()
         return owed
 
-    def resume(self, *, confirm: Sequence[str] = (), confirmed_by: str | None = None) -> Step:
+    def resume(
+        self,
+        *,
+        confirm: Sequence[str] = (),
+        confirmed_by: str | None = None,
+        limit_reset_by: str | None = None,
+    ) -> Step:
         """Take over a run a previous process left, then drive it.
 
         The interrupted attempt restarts at its checkpoint with a fresh session,

@@ -84,6 +84,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
+from physgate.orchestrator.usage_limit import UsageLimit
 from physgate.oslayer.probe import OsLayerState
 from physgate.roles import owner_of, owners_of
 from physgate.series.seal import SeriesCheck, SessionSeries
@@ -150,6 +151,7 @@ HaltReason = Literal[
     "decomposition_failed",
     "os_layer_unavailable",
     "role_not_built",
+    "usage_limit",
 ]
 
 #: Halts a resume continues from, the same attempt with a fresh schedule: the
@@ -340,6 +342,9 @@ class Halted(_Event):
     kind: Literal["halted"] = "halted"
     reason: HaltReason
     detail: NonEmptyStr
+    #: For a halt on the account's usage limit: the reset as the stream gave it, and as an
+    #: instant where it parses.
+    usage_limit: UsageLimit | None = None
 
 
 class GateRan(_Event):
@@ -485,6 +490,9 @@ class SessionEnded(_Event):
     #: The series records the session left, each sealed by digest and length, and what was
     #: refused or discarded instead. Every later reader holds a record to its seal here.
     series: SessionSeries = SessionSeries()
+    #: For an end on the account's usage limit: the reset as the stream gave it, and as an
+    #: instant where it parses.
+    usage_limit: UsageLimit | None = None
 
     @model_validator(mode="after")
     def _completed_names_its_work(self) -> SessionEnded:
@@ -1516,6 +1524,9 @@ class Resumed(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     point: Literal["resolve", "verify_reading", "diff"]
+    #: The operator who said on the command line that the account's usage limit has reset, for a
+    #: resume of a run waiting on a limit whose reset could not be read.
+    limit_reset_by: NonEmptyStr | None = None
 
 
 Event = Annotated[
