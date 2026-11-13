@@ -20,6 +20,8 @@
     "PLATFORMIO_NO_ANSI": "true",
     "PLATFORMIO_DISABLE_PROGRESSBAR": "true",
     "MPLBACKEND": "Agg",
-    "MPLCONFIGDIR": "{temp}/matplotlib"
+    "MPLCONFIGDIR": "{temp}/matplotlib",
+    "XDG_CACHE_HOME": "{temp}/xdg-cache",
+    "XDG_DATA_HOME": "{temp}/xdg-data"
   }
 }
