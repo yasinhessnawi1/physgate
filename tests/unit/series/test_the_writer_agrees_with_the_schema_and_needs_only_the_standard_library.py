@@ -203,6 +203,8 @@ def test_the_writer_s_constants_are_the_schema_s() -> None:
         "MAX_INPUTS",
         "MAX_LOADED",
         "MAX_TITLE",
+        "MAX_PATH",
+        "MAX_ROOTS",
         "MAX_INPUT_INTEGER",
         "NAME_PATTERN",
     ):

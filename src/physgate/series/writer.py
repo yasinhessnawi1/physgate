@@ -77,6 +77,8 @@ MAX_SESSION_BYTES = 64 * 1024 * 1024
 MAX_INPUTS = 64
 MAX_LOADED = 256
 MAX_TITLE = 200
+MAX_PATH = 512
+MAX_ROOTS = 16
 MAX_INPUT_INTEGER = 2**63 - 1
 NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
 _UNIT_FACTOR = r"[A-Za-z_\u00b5\u03bc\u03a9]+(?:(?:\*\*|\^)-?[0-9]{1,2})?"
@@ -86,6 +88,10 @@ UNIT_GRAMMAR_PATTERN = rf"(?:1|{_UNIT_FACTOR})(?:{_UNIT_TERM})*"
 
 #: Where records go, relative to the worktree.
 OUTBOX = os.path.join(".physgate", "series")
+
+#: The variable through which the orchestrator tells a session's scripts the run's tool
+#: environment: its roots and its manifest digest, as JSON.
+ENVIRONMENT_VARIABLE = "PHYSGATE_SERIES_ENVIRONMENT"
 
 _NAME = re.compile(NAME_PATTERN)
 _UNIT = re.compile(UNIT_GRAMMAR_PATTERN)

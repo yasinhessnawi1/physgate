@@ -362,6 +362,21 @@ def _read_all(fd: int, bound: int) -> bytes:
 
 
 @dataclass(frozen=True)
+class SeriesEnvironment:
+    """The run's recorded tool environment, as the session that left the records ran on it.
+
+    ``roots`` are spelt as the run recorded them and ``sha256`` is its manifest digest;
+    ``held`` says the environment was measured equal to that record before the session, and
+    ``layer`` that the OS layer ran around the session, so the roots were write-denied to it.
+    """
+
+    roots: tuple[str, ...]
+    sha256: str
+    held: bool
+    layer: bool
+
+
+@dataclass(frozen=True)
 class Installation:
     """Where the harness's own interpreter is installed.
 
@@ -634,6 +649,7 @@ def collect(
     object_format: str,
     discarded_before: tuple[SetAside, ...] = (),
     writable_roots: tuple[Path, ...] | None = None,
+    tool_environment: SeriesEnvironment | None = None,
 ) -> SessionSeries:
     """Take every entry out of the outbox: seal what holds, set the rest aside, list both.
 

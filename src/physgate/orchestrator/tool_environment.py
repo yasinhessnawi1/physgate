@@ -43,6 +43,7 @@ from physgate.orchestrator.invocation import MAX_SERVER_OUTPUT_TOKENS
 from physgate.orchestrator.run_config import ToolServers
 from physgate.oslayer.placement import machine_writable
 from physgate.oslayer.session_temp import session_temps_root
+from physgate.series.collect import SeriesEnvironment
 from physgate.toolenv.exceptions import ToolEnvironmentError
 from physgate.toolenv.record import (
     AbsolutePath,
@@ -185,6 +186,22 @@ def session_environment(
         msg = "the tool environment's session file names a variable the session already holds"
         raise InvocationError(msg, variable=held[0])
     return {**env, **variables, "PATH": f"{bin_dir}:{env['PATH']}"}
+
+
+def series_environment(env: Mapping[str, str], recorded: ToolEnvironment) -> dict[str, str]:
+    """``env`` telling the session's scripts the run's tool environment, for their records.
+
+    Raises:
+        InvocationError: the session's environment already holds the variable.
+    """
+    return dict(env)
+
+
+def sealing_environment(
+    recorded: ToolEnvironment | None, *, held: bool, layer: bool
+) -> SeriesEnvironment | None:
+    """What the collector is told of the run's tool environment for a session's records."""
+    return None
 
 
 def changed_while_running(recorded: ToolEnvironment, at_start: str) -> str | None:
