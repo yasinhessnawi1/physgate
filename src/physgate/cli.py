@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from physgate.evaluation import requirements as evaluation_requirements
 from physgate.evaluation import tierset_cli
+from physgate.evaluation.baseline import cli as baseline_cli
 from physgate.evaluation.inject import cli as inject_cli
 from physgate.evaluation.observe import cli as observe_cli
 from physgate.evaluation.per_role import cli as per_role_cli
@@ -38,6 +39,7 @@ def main(
     inject_cli.add_parser(subparsers, registrations)
     per_role_cli.add_parser(subparsers)
     tierset_cli.add_parser(subparsers)
+    baseline_cli.add_parser(subparsers)
     ui_cli.add_parser(subparsers)
     args = parser.parse_args(argv)
     result: int = args.func(args)
