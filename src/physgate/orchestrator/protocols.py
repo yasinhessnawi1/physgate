@@ -250,6 +250,9 @@ class Artefact(_Frozen):
     #: Integration's issued state, for an attempt of integration's subtask: what its session was
     #: given to read. Left out of a dump when absent, so every other attempt is recorded as before.
     integration_state: IssuedState | None = None
+    #: The parts record the attempt's session read, as the release line names it, for an attempt
+    #: of a run whose decisions named parts. Left out of a dump when absent.
+    parts_record: IssuedState | None = None
     #: The interfaces the attempt's nodes revise, as its change check derived them,
     #: which its reviewer is shown quantity by quantity. Left out of a dump when empty, so every
     #: other attempt is recorded as before.
@@ -264,6 +267,8 @@ class Artefact(_Frozen):
             data.pop("ordered_by_person", None)
         if self.integration_state is None:
             data.pop("integration_state", None)
+        if self.parts_record is None:
+            data.pop("parts_record", None)
         if not self.followed:
             data.pop("followed", None)
         return data

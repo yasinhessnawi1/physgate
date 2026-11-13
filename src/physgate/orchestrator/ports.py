@@ -61,6 +61,10 @@ class SessionRequest(_Frozen):
     #: Integration's issued state, for a session of integration's subtask: the dispatcher writes it
     #: where the session reads it and adds it to the required reading.
     issued_state: IssuedState | None = None
+    #: The parts record, for every session of a run whose decisions named parts: the bytes the
+    #: release line names, which the dispatcher writes as files where the session reads them and
+    #: adds to the required reading.
+    parts_record: IssuedState | None = None
     #: Whether the session is told how to dispute a value of a cross node: a role that may, in a
     #: plan that holds the work of the role that writes those values.
     disputes: bool = False
