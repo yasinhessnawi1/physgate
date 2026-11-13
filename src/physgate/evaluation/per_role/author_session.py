@@ -90,7 +90,6 @@ from physgate.evaluation.tiers.authoring import (
     require_author_model,
 )
 from physgate.evaluation.tiers.canaries import names_a_list, store_canaries
-from physgate.evaluation.tiers.canaries import root_canaries as root_canaries
 from physgate.evaluation.tiers.manifest import VERSION_NAME, read_version
 from physgate.evaluation.tiers.store import (
     AUTHOR_EVIDENCE,

@@ -33,9 +33,9 @@ from physgate.evaluation.per_role.author_session import (
     QUESTIONS,
     author,
     blind_check,
-    root_canaries,
 )
 from physgate.evaluation.tiers.authoring import AuthoringError
+from physgate.evaluation.tiers.canaries import root_canaries
 
 
 class _Stopped(BaseException):

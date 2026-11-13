@@ -41,8 +41,9 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
 from test_what_an_author_s_watch_could_not_hold_is_never_pooled import _Ending, _listed
 
 from physgate.evaluation.per_role import author_session
-from physgate.evaluation.per_role.author_session import author, root_canaries
+from physgate.evaluation.per_role.author_session import author
 from physgate.evaluation.tiers.authoring import AuthoringError
+from physgate.evaluation.tiers.canaries import root_canaries
 from physgate.evaluation.tiers.store import pool_dir
 
 CANARY = "5f0c3a9e1b7d4c2a8e6f0b1d3c5a7e9f"
