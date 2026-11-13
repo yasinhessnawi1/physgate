@@ -537,6 +537,7 @@ class RunRecord:
             reviewers=None if self.config.reviewers == "paired" else self.config.reviewers,
             skills=None if self.config.skills == "on" else self.config.skills,
             hooks=None if self.config.hooks == "on" else self.config.hooks,
+            ablation=True if self.config.ablation else None,
         )
         calls = [*(one.call for one in earlier), *((call,) if call is not None else ())]
         if calls:

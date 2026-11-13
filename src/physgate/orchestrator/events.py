@@ -213,11 +213,20 @@ class RunStarted(_Event):
     skills: Literal["off"] | None = None
     #: ``off`` in a run whose role sessions run without the design discipline; left out otherwise.
     hooks: Literal["off"] | None = None
+    #: ``True`` in an ablation run, which is never reportable; left out of every other run.
+    ablation: Literal[True] | None = None
 
     @model_serializer(mode="wrap")
     def _omit_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for absent in ("queue_decisions", "design_review", "reviewers", "skills", "hooks"):
+        for absent in (
+            "queue_decisions",
+            "design_review",
+            "reviewers",
+            "skills",
+            "hooks",
+            "ablation",
+        ):
             if getattr(self, absent) is None:
                 data.pop(absent, None)
         return data

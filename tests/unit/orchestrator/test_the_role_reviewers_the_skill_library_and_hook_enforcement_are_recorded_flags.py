@@ -205,7 +205,6 @@ def test_an_ablation_run_s_first_line_says_so_and_any_other_run_s_does_not(
     config = _config()
     assert isinstance(config, RunConfig), config
     assert "ablation" not in _first_line(tmp_path / "plain", config)
-    assert "ablation" not in _line().model_dump(mode="json", exclude_none=False) or True
     assert "ablation" in RunStarted.model_fields
     named = _line(ablation=True)
     assert isinstance(named, RunStarted), named
