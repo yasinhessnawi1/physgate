@@ -5,6 +5,10 @@ every review line written before did; an item whose hits name no attempt reads, 
 is taken byte for byte as it was listed. The new fields are left out of a line when empty, so no
 line written before changes. A review line that names an earlier attempt is held to the log: an
 attempt before its own, never one a review had already judged.
+
+A run recorded before and resumed after: what its log records stays as it was, and the rule
+applies to each review that runs after the resume. Its earlier attempts that no review line
+judged are given to that review; an item already listed is decided as it was listed.
 """
 
 from __future__ import annotations
@@ -30,7 +34,7 @@ from test_an_unreviewed_attempt_s_scan_hits_go_to_the_next_review import (
 
 from physgate.orchestrator.events import DecisionTaken, Incident, ReviewRan, read_events
 from physgate.orchestrator.exceptions import CorruptEventLogError
-from physgate.orchestrator.queue import QueueItem
+from physgate.orchestrator.queue import QUEUE_NAME, QueueItem
 from physgate.orchestrator.replay import replay
 
 EVENTS = "events.jsonl"
@@ -145,3 +149,38 @@ def test_replay_refuses_naming_an_attempt_a_review_already_judged(tmp_path: Path
     for named in ([1], [2]):
         with pytest.raises((ValueError, CorruptEventLogError)):
             replay(_named(run_dir, named))
+
+
+def test_a_run_recorded_before_and_resumed_after_gives_its_next_review_the_earlier_hits(
+    tmp_path: Path,
+) -> None:
+    # Recorded before: attempt 1 refused before review; attempt 2's review, never given attempt 1,
+    # answered its own hit alone and blocked; the item listed attempt 1's hit with no attempt.
+    run_dir = tmp_path / "run"
+    reviewer = FakeReviewer(
+        results={
+            1: result("blocked", 1, judged(hit("sess-2"))),
+            2: result("blocked", 2, judged(hit("sess-1")), judged(hit("sess-3"))),
+        }
+    )
+    rig = _rig(run_dir, reviewer=reviewer)
+    _run(rig, "s1")
+    items = run_dir / QUEUE_NAME
+    data = json.loads(items.read_bytes())
+    assert [h["evidence"] for h in data["consequence"]["scan_hits"]] == [hit("sess-1")]
+    for listed in data["consequence"]["scan_hits"]:
+        listed.pop("attempt", None)
+    old = QueueItem.model_validate_json(json.dumps(data)).model_dump_json().encode() + b"\n"
+    items.write_bytes(old)
+    assert "judged_earlier" not in (run_dir / EVENTS).read_text()
+    # Resumed after: the person orders another attempt; its review is the first under the rule.
+    decide(run_dir, "reject")
+    _resume(rig)
+    given = rig.reviewer.seen[1].model_dump().get("unjudged")
+    assert given is not None, "the review after the resume was given no earlier attempt"
+    assert [u["attempt"] for u in given] == [1]
+    assert [
+        (r.attempt, tuple(r.model_dump().get("judged_earlier", ())))
+        for r in _of(run_dir, ReviewRan)
+    ] == [(2, ()), (3, (1,))]
+    assert items.read_bytes().startswith(old), "the item listed before changed"
