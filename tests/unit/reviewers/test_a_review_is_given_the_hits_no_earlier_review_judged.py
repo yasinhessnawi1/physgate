@@ -11,6 +11,7 @@ attempt is written exactly as before.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
 import json
@@ -41,6 +42,8 @@ from physgate.reviewers.packet import (
     listed_paths,
 )
 from physgate.reviewers.rubric import Rubric, load_rubric
+from physgate.reviewers.scan import ScanHit
+from physgate.reviewers.verdict import Answered, Unavailable, judge
 
 REPO = Path(__file__).resolve().parents[3]
 RUBRIC = Rubric(
@@ -184,7 +187,7 @@ MODEL = "claude-sonnet-5"
 VERSION = "2.1.283"
 
 
-def _answer(indicators: list[dict[str, str]]) -> dict[str, Any]:
+def _answer(indicators: list[dict[str, Any]]) -> dict[str, Any]:
     items = load_rubric(REPO / "knowledge", ROLE).items
     clean = {
         "acceptance_criteria": "met",
@@ -210,7 +213,7 @@ def _answer(indicators: list[dict[str, str]]) -> dict[str, Any]:
     }
 
 
-DISMISSED = {
+DISMISSED: dict[str, Any] = {
     "kind": "disabled_checks",
     "evidence": EARLIER_HIT,
     "disposition": "dismissed",
@@ -219,7 +222,10 @@ DISMISSED = {
 
 
 def _review(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: dict[str, Any]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    answer: dict[str, Any],
+    schemas: list[Any] | None = None,
 ) -> tuple[object, list[Any]]:
     """``review`` of attempt 2's packet, which carries attempt 1's hit, the session stood in for."""
     packet, _, _ = _build(tmp_path)
@@ -227,7 +233,7 @@ def _review(
     stdout.write_text("")
     result = {"type": "result", "is_error": False, "structured_output": {WRAPPER: answer}}
     captured = SimpleNamespace(result=result, usage=(), answered={MODEL}, tampered=None)
-    schemas: list[Any] = []
+    schemas = [] if schemas is None else schemas
 
     def spawn(self: object, *a: Any, **k: Any) -> tuple[Path, int, bool]:
         schemas.append(k.get("schema"))
@@ -296,3 +302,66 @@ def test_the_session_s_schema_requires_an_answer_to_the_earlier_hit(
 ) -> None:
     _, schemas = _review(tmp_path, monkeypatch, _answer([DISMISSED]))
     assert schemas and EARLIER_HIT in json.dumps(schemas[0])
+
+
+# -- only a confirmed or dismissed answer naming the attempt judges an earlier hit -----------------
+
+
+def _outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, indicators: list[dict[str, Any]]
+) -> str:
+    """``pass`` for a review, or the cause of the review that is none."""
+    try:
+        result, _ = _review(tmp_path, monkeypatch, _answer(indicators))
+    except ReviewUnavailableError as refused:
+        return refused.cause
+    return str(getattr(result, "verdict", None))
+
+
+@pytest.mark.parametrize(
+    ("answered", "outcome"),
+    [
+        ({"attempt": 1}, "pass"),
+        ({"attempt": 1, "disposition": "noted"}, "invalid_verdict"),
+        ({"attempt": 1, "reason": "   "}, "invalid_verdict"),
+        ({}, "invalid_verdict"),
+        ({"attempt": 2}, "invalid_verdict"),
+    ],
+    ids=["dismissed naming it", "noted", "a blank reason", "naming no attempt", "naming another"],
+)
+def test_an_earlier_hit_is_answered_only_confirmed_or_dismissed_naming_its_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answered: dict[str, Any], outcome: str
+) -> None:
+    assert _outcome(tmp_path, monkeypatch, [{**DISMISSED, **answered}]) == outcome
+
+
+def test_the_schema_asks_for_the_earlier_hit_s_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    schemas: list[Any] = []
+    # The schema the session was given is what this row reads, whatever the answer came to.
+    with contextlib.suppress(ReviewUnavailableError):
+        _review(tmp_path, monkeypatch, _answer([{**DISMISSED, "attempt": 1}]), schemas)
+    assert schemas, "the session was given no schema"
+    shown = json.dumps(schemas[0])
+    assert '"attempt": {"const": 1}' in shown
+    assert '"disposition": {"enum": ["confirmed", "dismissed"]}' in shown
+
+
+def test_two_attempts_hits_of_one_id_are_answered_each_apart() -> None:
+    hits = (
+        ScanHit(kind="disabled_checks", evidence="toolu_same", what="a test skipped", attempt=1),
+        ScanHit(kind="disabled_checks", evidence="toolu_same", what="a test skipped", attempt=2),
+    )
+    items = load_rubric(REPO / "knowledge", ROLE).items
+    one = {**DISMISSED, "evidence": "toolu_same", "attempt": 1}
+    both = [one, {**one, "attempt": 2}]
+    assert isinstance(judge(_answer(both), hits, items), Answered)
+    assert isinstance(judge(_answer([one]), hits, items), Unavailable)
+
+
+def test_an_own_hit_noted_is_answered_as_it_was() -> None:
+    own = (ScanHit(kind="disabled_checks", evidence="toolu_own", what="a test skipped"),)
+    items = load_rubric(REPO / "knowledge", ROLE).items
+    noted = {**DISMISSED, "evidence": "toolu_own", "disposition": "noted"}
+    assert isinstance(judge(_answer([noted]), own, items), Answered)
