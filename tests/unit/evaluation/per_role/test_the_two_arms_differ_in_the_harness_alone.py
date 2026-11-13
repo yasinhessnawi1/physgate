@@ -714,3 +714,9 @@ def test_a_new_bound_classed_compared_is_compared(
         compare, "RUN_FIELDS", {**compare.RUN_FIELDS, "bounds.session_max_tools": "compared"}
     )
     assert [f.split(":", 1)[0] for f in _found(tmp_path)] == ["bounds"]
+
+
+def test_a_nested_pin_no_decision_names_is_a_difference(tmp_path: Path) -> None:
+    """A bound the raw arm recorded that no run field classes is kept, so it is named."""
+    found = _found(tmp_path, pins=_pins(bounds=_bounds(session_max_tools=9)))
+    assert [f.split(":", 1)[0] for f in found] == ["bounds"]
