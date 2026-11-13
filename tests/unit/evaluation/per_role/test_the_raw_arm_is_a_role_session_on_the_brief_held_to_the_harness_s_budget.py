@@ -339,3 +339,130 @@ def test_without_the_os_layer_the_installed_session_withholds_its_own_and_every_
     assert [os.path.realpath(p) for p in family.read_exceptions] == [os.path.realpath(OWN_TEMP)]
     shared = root(f"/tmp/claude-{os.getuid()}")
     assert shared.reads == "denied" and shared.read_exceptions == ()
+
+
+def _store_tree(root: Path) -> dict[str, Path]:
+    """A store's places, by name: a protected trial's own directory in the work root among them."""
+    places = {
+        "firmware": root / "store" / "firmware",
+        "withheld": root / "store" / "control" / "withheld",
+        "tier": root / "store" / "control" / "v1" / "held_out",
+        "other work": root / "store" / "control" / "work" / "check",
+        "trial": root / "store" / "control" / "work" / "baseline-r-0000-1",
+    }
+    for place in places.values():
+        place.mkdir(parents=True)
+    (root / "store" / "control" / "baseline-0000-1.working").write_text("{}\n")
+    return places
+
+
+def _carved_install(
+    root: Path, monkeypatch: pytest.MonkeyPatch, held_out: tuple[str, ...], carved: Path
+) -> list[str]:
+    """The installer's argv for a session working in ``carved``, the installer not run."""
+    import dataclasses
+
+    seen: list[list[str]] = []
+
+    def fake_run(argv: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
+        seen.append(argv)
+        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": stand_in_spawn_env()}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
+
+    setup = dataclasses.replace(_setup(root), held_out=held_out, held_out_carved=str(carved))
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    raw._install(setup, carved / "worktree", carved / "session", None, own_temp=OWN_TEMP)
+    monkeypatch.undo()
+    return seen[0]
+
+
+def _held(argv: list[str]) -> set[str]:
+    return {argv[i + 1] for i, a in enumerate(argv) if a == "--held-out"}
+
+
+@pytest.mark.parametrize("whole", [True, False], ids=["the store named whole", "its places named"])
+def test_a_protected_trial_s_session_is_given_its_own_directory_out_of_the_held_out_roots_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, whole: bool
+) -> None:
+    """Every other place beneath a held-out root stays withheld; a root that holds none is kept."""
+    import os
+
+    places = _store_tree(tmp_path)
+    store, control = tmp_path / "store", tmp_path / "store" / "control"
+    work = control / "work"
+    named = (str(store),) if whole else (str(places["withheld"]), str(work), str(places["tier"]))
+    argv = _carved_install(tmp_path, monkeypatch, (*named, "/elsewhere/heldout"), places["trial"])
+    held = {os.path.realpath(p) for p in _held(argv) - {"/elsewhere/heldout"}}
+    if whole:
+        want = {
+            places["firmware"],
+            places["withheld"],
+            control / "v1",
+            control / "baseline-0000-1.working",
+            places["other work"],
+        }
+    else:
+        want = {places["withheld"], places["tier"], places["other work"]}
+    assert held == {os.path.realpath(p) for p in want}
+    assert "/elsewhere/heldout" in _held(argv)
+    # The run's own list is what the record pins, the directory taken out beside it.
+    task = parse_task(json.dumps(own_task(id="control.t")).encode())
+    setup = RawSetup(**{**vars(_setup(tmp_path)), "held_out": named, "held_out_carved": "/x"})
+    pinned = raw.pins(task, setup)
+    assert pinned["held_out"] == sorted(named) and pinned["held_out_carved"] == "/x"
+
+
+def test_a_session_working_elsewhere_than_its_carved_directory_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import dataclasses
+
+    places = _store_tree(tmp_path)
+    setup = dataclasses.replace(
+        _setup(tmp_path),
+        held_out=(str(tmp_path / "store"),),
+        held_out_carved=str(places["trial"]),
+    )
+    with pytest.raises(raw.RawArmError, match="works elsewhere than the directory taken out"):
+        raw._install(setup, places["other work"] / "worktree", places["other work"] / "s", None)
+
+
+def test_a_held_out_root_inside_the_session_s_own_directory_is_refused(tmp_path: Path) -> None:
+    places = _store_tree(tmp_path)
+    inside = places["trial"] / "kept"
+    with pytest.raises(raw.RawArmError, match="is the session's own directory or lies in it"):
+        raw.held_out_but((str(inside),), places["trial"])
+    with pytest.raises(raw.RawArmError, match="is the session's own directory or lies in it"):
+        raw.held_out_but((str(places["trial"]),), places["trial"])
+
+
+def test_the_real_installer_takes_a_protected_trial_s_session_in_the_store_s_work_root(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The carved roots, through the real installer: the worktree lies in no withheld root.
+
+    The installer refuses a session whose worktree a protected root holds, so a carve that
+    left the work root whole would stop here; every other place in the work root is withheld.
+    """
+    import argparse
+    import os
+
+    from physgate.hooks.cli import add_parser
+    from physgate.hooks.config import SessionConfig
+
+    places = _store_tree(outside_tmp)
+    trial = places["trial"]
+    (trial / "worktree").mkdir()
+    (trial / "session").mkdir()
+    argv = _carved_install(outside_tmp, monkeypatch, (str(outside_tmp / "store"),), trial)
+    parser = argparse.ArgumentParser()
+    add_parser(parser.add_subparsers(dest="command"))
+    args = parser.parse_args(argv[1:])
+    assert args.func(args) == 0
+    printed = json.loads(capsys.readouterr().out)
+    config = SessionConfig.model_validate_json(Path(printed["config"]).read_text())
+    roots = {os.path.realpath(r.path): r for r in config.protected_roots}
+    assert os.path.realpath(places["other work"]) in roots
+    assert roots[os.path.realpath(places["other work"])].reads == "denied"
+    assert os.path.realpath(outside_tmp / "store") not in roots
+    assert not [r for r in roots if os.path.realpath(trial).startswith(r + os.sep)]

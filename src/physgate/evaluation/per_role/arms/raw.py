@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import threading
@@ -134,6 +135,12 @@ class RawSetup:
     #: own directory there. Empty for the raw arm.
     write_protected: tuple[str, ...] = ()
     writable_within: tuple[str, ...] = ()
+    #: The session's own directory where it lies inside a held-out root: a protected trial's,
+    #: made in the store's work root, which every run withholds. It alone is taken out of the
+    #: held-out roots for this session (:func:`held_out_but`), as a blind check's own work is;
+    #: every other place they hold stays withheld. ``None`` where the session works outside
+    #: every held-out root. ``held_out`` stays the run's list, held equal to the harness's.
+    held_out_carved: str | None = None
 
 
 def stream_total(stream: Path) -> int:
@@ -373,6 +380,38 @@ def raw_bound_values(bounds: RunBounds) -> dict[str, Any]:
     return values
 
 
+def held_out_but(roots: Iterable[str], own: Path) -> tuple[str, ...]:
+    """``roots`` with the directory ``own`` taken out: what a session working in ``own`` withholds.
+
+    A root that holds ``own`` is replaced by every entry beside the way down to it, at each level,
+    as they are now: ``own`` and the directories above it are not withheld, every other entry
+    beneath the root is. A root that does not hold ``own`` is kept as given.
+
+    Raises:
+        RawArmError: a root is ``own`` or lies in it, or a level on the way cannot be listed.
+    """
+    place = Path(os.path.realpath(own))
+    kept: set[str] = set()
+    for root in roots:
+        resolved = Path(os.path.realpath(root))
+        if resolved.is_relative_to(place):
+            msg = "a held-out root is the session's own directory or lies in it"
+            raise RawArmError(msg, root=root)
+        if not place.is_relative_to(resolved):
+            kept.add(root)
+            continue
+        here = resolved
+        for part in place.relative_to(resolved).parts:
+            try:
+                names = os.listdir(here)
+            except OSError as exc:
+                msg = "a held-out root cannot be listed, so what it holds beside the session's own"
+                raise RawArmError(msg + " directory cannot be withheld", place=str(here)) from exc
+            kept |= {str(here / name) for name in names if name != part}
+            here = here / part
+    return tuple(sorted(kept))
+
+
 def _install(
     setup: RawSetup,
     worktree: Path,
@@ -381,6 +420,12 @@ def _install(
     *,
     own_temp: Path | None = None,
 ) -> dict[str, Any]:
+    held = setup.held_out
+    if setup.held_out_carved is not None:
+        if os.path.realpath(worktree.parent) != os.path.realpath(setup.held_out_carved):
+            msg = "the session works elsewhere than the directory taken out of its held-out roots"
+            raise RawArmError(msg, carved=setup.held_out_carved)
+        held = held_out_but(setup.held_out, Path(setup.held_out_carved))
     state = sdir / "state"
     state.mkdir(mode=0o700, parents=True)
     (sdir / "config").mkdir(mode=0o700, exist_ok=True)
@@ -415,7 +460,7 @@ def _install(
         # The harness checkout is protected from the raw agent and its shell reads denied:
         # what it would find there (the knowledge, the rubrics) is the harness's help.
         *harness_protection(),
-        *(arg for root in setup.held_out for arg in ("--held-out", root)),
+        *(arg for root in held for arg in ("--held-out", root)),
         *(arg for root in setup.withheld_reads for arg in ("--review-material", root)),
         *(arg for root in setup.write_protected for arg in ("--protect", root)),
         *(arg for place in setup.writable_within for arg in ("--protect-except", place)),
@@ -693,6 +738,8 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
         "bounds": raw_bound_values(setup.bounds),
         "endpoint": endpoint_of(setup.base_url),
         "held_out": sorted(setup.held_out),
+        # The session's own directory, taken out of those roots for it alone; ``None`` if none.
+        "held_out_carved": setup.held_out_carved,
         # The canaries its stream was scanned for, which the harness run's must equal.
         "held_out_canaries_sha256": canaries_sha256(setup.held_out_canaries),
         "model": setup.model,

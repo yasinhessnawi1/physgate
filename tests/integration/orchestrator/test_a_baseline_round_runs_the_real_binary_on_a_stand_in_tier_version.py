@@ -245,6 +245,11 @@ def test_a_round_on_the_real_binary_tells_each_session_its_brief_alone_and_keeps
             path, beneath, data, forbidden
         )
     assert len((out / TRIALS).read_text().splitlines()) == 1
+    # The round's directory holds the visible trial alone: a protected one was never made there.
+    (visible,) = list((out / "work").iterdir())
+    visible_ids = {t.id for t in round_.tasks if t.tier == "visible"}
+    assert json.loads((visible / "raw.json").read_text())["task"] in visible_ids
+    assert not list((role_root(made.store, "control") / "work").iterdir())
     assert not list(role_root(made.store, "control").glob("*.working"))
     assert {out / TRIALS, out / BASELINE_RECORD, out / TIERS_RECORD} <= set(round_.written)
     for path, data in round_.written.items():
@@ -256,9 +261,11 @@ def test_a_round_on_the_real_binary_tells_each_session_its_brief_alone_and_keeps
     strict=True,
     raises=AssertionError,
     reason=(
-        "open, for a ruling: the hook sentinel's snapshot of the withheld "
-        "roots names each entry by path, so a visible trial's session leaves protected task ids "
-        "in the round's visible directory"
+        "Open, and to be closed before the first real round: the hook sentinel's change-detection "
+        "snapshot of the withheld roots keeps, for each protected entry, its path (and so a "
+        "protected task's id), its file name, size, mtime and sha256, though none of its content; "
+        "a visible trial's raw session leaves that snapshot in the round's visible directory, and "
+        "every harness role session takes the same snapshot in its run directory."
     ),
 )
 def test_no_session_s_sentinel_snapshot_in_a_visible_place_names_a_protected_task(

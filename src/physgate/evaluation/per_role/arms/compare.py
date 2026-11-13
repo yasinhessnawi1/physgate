@@ -150,6 +150,10 @@ RAW_PINS = frozenset(
         "effort",
         "endpoint",
         "held_out",
+        # The trial's own directory, made new inside the store's work root after the harness
+        # run ended, and taken out of the held-out roots for the raw session alone: the
+        # harness run has none to hold it against, and ``held_out`` is compared whole.
+        "held_out_carved",
         "held_out_canaries_sha256",
         "max_output_tokens",
         "model",

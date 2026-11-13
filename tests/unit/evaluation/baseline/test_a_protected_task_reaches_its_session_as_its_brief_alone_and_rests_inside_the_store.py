@@ -12,6 +12,7 @@ record names where it lies, and the store refuses the next round until a person 
 from __future__ import annotations
 
 import json
+import secrets
 import shutil
 import traceback
 from collections.abc import Callable
@@ -352,8 +353,9 @@ def test_a_protected_trial_that_fails_at_any_step_never_rests_in_a_visible_place
     runs = run_set((harness_run(tmp_path / "runs", task, store), 0))
     out = tmp_path / "round"
     reached: list[str] = []
+    score: Callable[..., Any]
     if step == "place taken":
-        monkeypatch.setattr(runner.secrets, "token_hex", lambda _n: "f" * 16)
+        monkeypatch.setattr(secrets, "token_hex", lambda _n: "f" * 16)
         place = withheld_root(store.store, "control") / BASELINE_DIR / ("f" * 16) / "0000-1"
         place.mkdir(parents=True)
         arm, score = StandInArm(), _score

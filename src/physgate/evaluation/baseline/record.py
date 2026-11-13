@@ -41,6 +41,8 @@ from physgate.evaluation.tiers.task import Role, Sha256, canonical_json
 
 #: The pins that name the task a session ran on, not the conditions it ran under.
 PER_TASK_PINS = frozenset({"brief_sha256", "answer"})
+#: The pins that name the trial's own place: a protected trial's directory, new for each.
+PER_TRIAL_PINS = frozenset({"held_out_carved"})
 TIERS_RECORD = Path("evaluation") / "tiers.json"
 EXTERNAL_RECORD = Path("evaluation") / "external.json"
 BASELINE_RECORD = "baseline.json"
@@ -139,8 +141,10 @@ def tiers_record(manifest: TierSet) -> TiersRecord:
 
 
 def pin_set(pins: Mapping[str, Any]) -> dict[str, Any]:
-    """The pins a raw session ran under, without those that name its task."""
-    return {name: value for name, value in pins.items() if name not in PER_TASK_PINS}
+    """The pins a raw session ran under, without those that name its task or its place."""
+    return {
+        name: value for name, value in pins.items() if name not in PER_TASK_PINS | PER_TRIAL_PINS
+    }
 
 
 def pin_set_sha256(pins: Mapping[str, Any]) -> str:

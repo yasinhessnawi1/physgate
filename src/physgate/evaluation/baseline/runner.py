@@ -29,13 +29,18 @@ development round names (``reportable``, ``harness``) refuses the round, with th
 named and nothing of the task. The trial is assembled by the trial layer
 (:func:`.assemble.raw_trial`), excluded where its records say so.
 
-**Where a protected task's trial lies.** A validation or held-out task's session works outside
-the store, as an authoring session's does, with a record in the role's root saying so; once
-the trial is scored and compared, its whole directory (the session's record, stream, answer
-and score) is moved beneath the role's withheld root, ``withheld/baseline/<round id>/``, which
-every run that names the store withholds, and the record is removed. A round stopped between
-leaves the record, and nothing starts on the store until a person has looked. Their trial
-records go there too; the visible tier's lie in the round's own directory.
+**Where a protected task's trial lies.** A validation or held-out task's trial is never in a
+visible place, at any step. Its directory is made in the role's work root, which every run on
+the store withholds, as a blind check's work is; its session alone is given that directory,
+taken out of the run's held-out roots, and every other place they hold stays withheld from it.
+A record in the role's root names the directory before the session starts. Once the trial is
+scored and compared, its whole directory (the session's record, stream, answer and score) is
+renamed beneath the role's withheld root, ``withheld/baseline/<round id>/``, and the record is
+removed. A round stopped at any step leaves the directory in one of the two and the record,
+and nothing starts on the store until a person has looked. A setup that cannot be made (no
+credential, another binary) is refused before the record is written, so it leaves nothing.
+Their trial records go beneath the withheld root too; the visible tier's lie in the round's
+own directory.
 
 **What it writes,** beside the visible trials: ``evaluation/tiers.json`` and ``baseline.json``
 (:mod:`.record`), each a new file, counts and digests only.
@@ -61,7 +66,7 @@ import secrets
 import shutil
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args
@@ -111,6 +116,7 @@ from physgate.evaluation.tiers.store import (
     withheld_refusal,
     withheld_root,
     work_refusal,
+    work_root,
 )
 from physgate.evaluation.tiers.task import (
     PROTECTED_TIERS,
@@ -391,6 +397,11 @@ def _listed(store: Path) -> set[str]:
     except AuthoringError as exc:
         msg = f"the store's canaries cannot all be read, so no run can be held to them: {exc}"
         raise BaselineError(msg, **exc.context) from None
+    except OSError as exc:
+        # Its kind and words alone: the path it names may be a protected task's directory.
+        msg = "the store's canaries cannot all be read, so no run can be held to them: "
+        msg += str(exc.strerror)
+        raise BaselineError(msg, refused_because="canary_list_unreadable") from None
 
 
 def _require_withheld(
@@ -448,7 +459,7 @@ class _Tally:
 
 
 def _working(root: Path, name: str, work: Path) -> Path:
-    """Record inside the role's root ``root`` that ``work`` is out of it, as an author's is.
+    """Record inside the role's root ``root`` that a session's work lies at ``work``.
 
     The record's form is the authoring session's, so the same reading of it refuses every
     later run, author and check on the store until a person has looked at the work it names.
@@ -464,7 +475,10 @@ def _working(root: Path, name: str, work: Path) -> Path:
 
 
 def _secure(work: Path, place: Path) -> None:
-    """Move a protected trial's whole directory beneath the withheld root."""
+    """Move a protected trial's whole directory from the work root beneath the withheld root.
+
+    Both lie in the role's root, so the move is a rename: the directory is in one or the other.
+    """
     place.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     if place.exists():
         msg = "a trial's place beneath the withheld root is taken"
@@ -605,15 +619,22 @@ def _one_trial(
     """One harness trial's raw trial, run once more if the machine ended it; its last attempt."""
     task, run_dir = trial.task, Path(trial.entry.run_dir)
     delays = trial.config.bounds.infra_retry_delays_s
+    # Before any record of work: a setup refused here (no credential, another binary) leaves
+    # nothing behind for the next round to refuse.
+    setup = setup_for(trial.config, role)
     for attempt in (1, 2):
         name = f"{trial.index:04d}-{attempt}"
-        work = out / "work" / name
-        working = (
-            _working(role_root(store, role), f"baseline-{name}", work)
-            if protected_root is not None
-            else None
-        )
-        record = arm(task, setup_for(trial.config, role), work, cap=trial.cap)
+        working: Path | None = None
+        if protected_root is None:
+            work, given = out / "work" / name, setup
+        else:
+            # Made in the work root, which every run on the store withholds, and moved from
+            # there beneath the withheld root alone: never in a visible place. Its session is
+            # given this one directory out of the run's held-out roots, and nothing else there.
+            work = work_root(store, role) / f"{BASELINE_DIR}-{protected_root.name}-{name}"
+            working = _working(role_root(store, role), f"{BASELINE_DIR}-{name}", work)
+            given = replace(setup, held_out_carved=str(work))
+        record = arm(task, given, work, cap=trial.cap)
         stream = work / "session" / "stdout.jsonl"
         answer = work / "answer" / task.answer.path
         scored: Mapping[str, Any] | None = None
