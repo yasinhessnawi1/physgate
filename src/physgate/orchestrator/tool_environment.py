@@ -31,6 +31,7 @@ session, and nothing the session left is collected or committed.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -43,6 +44,8 @@ from physgate.orchestrator.invocation import MAX_SERVER_OUTPUT_TOKENS
 from physgate.orchestrator.run_config import ToolServers
 from physgate.oslayer.placement import machine_writable
 from physgate.oslayer.session_temp import session_temps_root
+from physgate.series.collect import SeriesEnvironment
+from physgate.series.writer import ENVIRONMENT_VARIABLE
 from physgate.toolenv.exceptions import ToolEnvironmentError
 from physgate.toolenv.record import (
     AbsolutePath,
@@ -185,6 +188,38 @@ def session_environment(
         msg = "the tool environment's session file names a variable the session already holds"
         raise InvocationError(msg, variable=held[0])
     return {**env, **variables, "PATH": f"{bin_dir}:{env['PATH']}"}
+
+
+def series_environment(env: Mapping[str, str], recorded: ToolEnvironment) -> dict[str, str]:
+    """``env`` telling the session's scripts the run's tool environment, for their records.
+
+    The roots are spelt as the run recorded them, and the digest is the run's manifest digest:
+    the writer names the environment's code once by them, and the collector holds the record
+    to exactly these.
+
+    Raises:
+        InvocationError: the session's environment already holds the variable.
+    """
+    if ENVIRONMENT_VARIABLE in env:
+        msg = "the session's environment already holds the variable that names its tool environment"
+        raise InvocationError(msg, variable=ENVIRONMENT_VARIABLE)
+    told = json.dumps({"roots": list(recorded.roots), "sha256": recorded.manifest_digest})
+    return {**env, ENVIRONMENT_VARIABLE: told}
+
+
+def sealing_environment(
+    recorded: ToolEnvironment | None, *, held: bool, layer: bool
+) -> SeriesEnvironment | None:
+    """What the collector is told of the run's tool environment for a session's records.
+
+    ``held``: the environment was measured equal to the run's record before the session;
+    ``layer``: the OS layer ran around the session. ``None`` for a run that names none.
+    """
+    if recorded is None:
+        return None
+    return SeriesEnvironment(
+        roots=tuple(recorded.roots), sha256=recorded.manifest_digest, held=held, layer=layer
+    )
 
 
 def changed_while_running(recorded: ToolEnvironment, at_start: str) -> str | None:

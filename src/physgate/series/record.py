@@ -38,6 +38,7 @@ which JSON cannot tell apart.
 from __future__ import annotations
 
 import json
+import posixpath
 from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
@@ -72,6 +73,8 @@ MAX_LOADED = 256
 #: The longest title, and the longest path of a file of code.
 MAX_TITLE = 200
 MAX_PATH = 512
+#: The most roots a record may name for the run's tool environment.
+MAX_ROOTS = 16
 
 Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
@@ -157,11 +160,43 @@ class CodeFile(_Frozen):
     sha256: Sha256
 
 
+def _environment_root(path: str) -> str:
+    """``path`` if it names a directory absolutely, normalised and without a NUL."""
+    plain = path.startswith("/") and not path.startswith("//") and posixpath.normpath(path) == path
+    if "\0" in path or ".." in path.split("/") or not plain:
+        msg = "a root of the tool environment is an absolute, normalised path"
+        raise ValueError(msg)
+    return path
+
+
+EnvironmentRoot = Annotated[
+    str, StringConstraints(min_length=1, max_length=MAX_PATH), AfterValidator(_environment_root)
+]
+
+
+class EnvironmentCode(_Frozen):
+    """The run's recorded tool environment, named once for every file of code loaded from it.
+
+    The roots are spelt as the run recorded them and the session was told them; the digest
+    is the environment's manifest digest. Whether the record may stand on it is the
+    collector's judgement: the run's own environment, held to its record before the session,
+    with the OS layer keeping its roots from the session's writes.
+    """
+
+    roots: Annotated[tuple[EnvironmentRoot, ...], Field(min_length=1, max_length=MAX_ROOTS)]
+    sha256: Sha256
+
+
 class Producer(_Frozen):
-    """The code that produced a record: the script that ran, and every file it loaded."""
+    """The code that produced a record: the script that ran, and every file it loaded.
+
+    ``environment`` is absent from a record whose session was told no tool environment, and
+    from every record written before it existed, so those read exactly as they did.
+    """
 
     script: CodeFile
     loaded: Annotated[tuple[CodeFile, ...], Field(max_length=MAX_LOADED)] = ()
+    environment: EnvironmentCode | None = None
 
 
 def _dimension(unit: str) -> Any:

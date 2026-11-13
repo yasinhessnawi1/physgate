@@ -356,3 +356,33 @@ jobs:
           assert now.digest == kept["digest"], f"measured {now.digest}, built {kept['digest']}"
           print(f"environment {now.digest}, as built")
           PY
+
+      - name: A library-backed record seals on the run's environment, through the real dispatcher
+        # A dispatched role session inside bubblewrap, its run's network none: records whose
+        # library code is the environment's seal; the session's own copy of the library, in a
+        # virtual environment or under a PYTHONHOME of its own, is refused; without the layer
+        # the record is kept unsealed. The hook installation the dispatcher spawns from is
+        # built here first, which needs the host's network, so this step is not wrapped in the
+        # offline namespace; the session's own network is the run's (none) all the same.
+        # Counted as above: a skip means the rows ran nowhere on Linux.
+        if: success() || failure()
+        env:
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_TOOL_ENVIRONMENT: /home/runner/pg-env/env
+        run: |
+          status=0
+          uv run --frozen --no-sync pytest -q -rs -m integration \
+            --junitxml="$RUNNER_TEMP/seal-rows.xml" \
+            tests/integration/orchestrator/test_a_dispatched_session_s_library_backed_record_seals_on_the_run_s_environment.py \
+            || status=$?
+          python3 - "$RUNNER_TEMP/seal-rows.xml" "$status" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suite = next(ET.parse(sys.argv[1]).getroot().iter("testsuite"))
+          rows = {name: int(suite.get(name, "0")) for name in ("tests", "failures", "errors", "skipped")}
+          print(f"rows: {rows}, pytest exit {sys.argv[2]}")
+          passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
+          ok = sys.argv[2] == "0" and rows["tests"] > 0 and passed == rows["tests"]
+          sys.exit(0 if ok else 1)
+          PY
