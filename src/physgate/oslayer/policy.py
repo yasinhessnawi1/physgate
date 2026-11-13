@@ -248,12 +248,6 @@ def board_devices(platform: str) -> tuple[str, ...]:
     return tuple(BOARD_DEVICES.get(key, ()))
 
 
-#: The same table under the name the tool servers' wrapper (``containment``) reads it by, so a
-#: contained server is denied exactly the devices a session's commands are. One function, two
-#: names, until the wrapper takes the new one.
-serial_devices = board_devices
-
-
 def _spelled(*paths: str) -> list[str]:
     """Each path as given and where it really is, when the two differ.
 

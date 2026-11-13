@@ -11,7 +11,7 @@ harness generates from the same policy the session's commands run under (``oslay
 - **writes:** only a directory of its own beneath the session's temporary directory, made empty
   for it, so nothing it leaves is a channel another session reads;
 - **network:** none, ever (all of a server's network happened at provisioning);
-- **serial devices:** neither read nor written;
+- **a board's devices** (the session's device table): neither read nor written;
 - **lifetime:** it stays in the session's process group, so the check that nothing of a session
   outlives it covers its servers too.
 
@@ -42,7 +42,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from physgate.hooks.config import SessionConfig
-from physgate.oslayer.policy import _read_denied, outbox_read_denial, serial_devices
+from physgate.oslayer.policy import _read_denied, board_devices, outbox_read_denial
 
 #: Seatbelt's front end, where macOS ships it.
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
@@ -504,7 +504,7 @@ def contained_servers(
                 seatbelt_profile(
                     read_denied=denied,
                     server_dir=str(server_dir),
-                    devices=serial_devices(platform),
+                    devices=board_devices(platform),
                     command=server.command,
                     exec_roots=server.exec_roots,
                     read_roots=reads_from,

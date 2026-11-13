@@ -37,7 +37,7 @@ from physgate.oslayer.containment import (
     server_read_denied,
     wrappers,
 )
-from physgate.oslayer.policy import outbox_read_denial, sandbox_policy, serial_devices
+from physgate.oslayer.policy import board_devices, outbox_read_denial, sandbox_policy
 
 SID = "5a4b3c2d-a-session"
 OWN = "a1a1a1a1a1"
@@ -113,7 +113,7 @@ def test_a_server_is_denied_every_read_the_session_s_commands_are_and_the_whole_
         temp_dir=str(root / "temps" / OWN),
         platform=platform,
     ).settings["sandbox"]["filesystem"]["denyRead"]
-    devices = set(serial_devices(platform))
+    devices = set(board_devices(platform))
     expected = {p for p in session if p not in devices}
     expected = {p for p in expected if p != outbox_read_denial(outbox, platform)} | {outbox}
     denied = set(server_read_denied(config, platform))
@@ -135,7 +135,7 @@ def test_the_macos_profile_denies_the_network_every_write_but_its_own_and_every_
     profile = seatbelt_profile(
         read_denied=denied,
         server_dir=server_dir,
-        devices=serial_devices("darwin"),
+        devices=board_devices("darwin"),
         command="/usr/bin/python3",
     )
     lines = [line.strip() for line in profile.splitlines() if line.strip()]
@@ -426,7 +426,7 @@ def test_the_macos_profile_denies_by_default_and_opens_only_what_a_server_needs(
     profile = seatbelt_profile(
         read_denied=(str(root / "held-out"),),
         server_dir=str(root / "own"),
-        devices=serial_devices("darwin"),
+        devices=board_devices("darwin"),
         command=command,
         exec_roots=(exec_root,),
     )

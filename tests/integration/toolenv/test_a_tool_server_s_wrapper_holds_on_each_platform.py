@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 from physgate.oslayer.containment import SANDBOX_EXEC, bwrap_args, seatbelt_profile
-from physgate.oslayer.policy import serial_devices
+from physgate.oslayer.policy import board_devices
 
 pytestmark = [pytest.mark.integration]
 
@@ -89,7 +89,7 @@ def _profile(tmp_path: Path, exec_roots: tuple[str, ...]) -> Path:
         seatbelt_profile(
             read_denied=(str(tmp_path / "denied"),),
             server_dir=str(own),
-            devices=serial_devices("darwin"),
+            devices=board_devices("darwin"),
             command=PYTHON,
             exec_roots=exec_roots,
             read_roots=(INSTALLATION,),
