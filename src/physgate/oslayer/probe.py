@@ -21,11 +21,13 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-#: The Claude Code versions the OS layer is generated for: the first that keeps a
-#: denied path denied when it is reached through a symbolic link on macOS, and that
+#: The Claude Code versions the OS layer is generated for: each one its rows were measured
+#: on, through the real binary, on Seatbelt and on bubblewrap. 2.1.301 is the first that
+#: keeps a denied path denied when it is reached through a symbolic link on macOS, and that
 #: holds a sandbox started from the settings flag against a repository's settings.
-#: A run on an older pinned version records the layer as absent.
-SANDBOX_VERSIONS = frozenset({"2.1.301"})
+#: A run on any other version records the layer as absent: an older pinned one predates
+#: it, and a later one has no measurement to stand on.
+SANDBOX_VERSIONS = frozenset({"2.1.301", "2.1.322"})
 
 #: How long a trial command may take before it counts as not having run.
 TRIAL_SECONDS = 10.0
@@ -117,7 +119,10 @@ def judge(facts: PlatformFacts) -> Present | Absent:
     if facts.system == "other":
         return Absent(reason="this system is not macOS or Linux, where the sandbox runs")
     if facts.claude_version not in SANDBOX_VERSIONS:
-        wanted = ", ".join(sorted(SANDBOX_VERSIONS))
+        wanted = ", ".join(sorted(SANDBOX_VERSIONS, key=_numbers))
+        if _numbers(facts.claude_version) > min(map(_numbers, SANDBOX_VERSIONS)):
+            said = f"the OS layer was not measured on the binary {facts.claude_version}"
+            return Absent(reason=_bounded(f"{said} (measured on {wanted})"))
         return Absent(
             reason=_bounded(
                 f"the binary {facts.claude_version} predates the OS-layer pin ({wanted})"
@@ -126,6 +131,14 @@ def judge(facts: PlatformFacts) -> Present | Absent:
     if facts.system == "darwin":
         return _judge_macos(facts)
     return _judge_linux(facts)
+
+
+def _numbers(version: str) -> tuple[int, ...]:
+    """A version's three numbers, for its place among the measured ones; none if it has none."""
+    parts = version.split(".")
+    if len(parts) != 3 or not all(p.isascii() and p.isdigit() for p in parts):
+        return ()
+    return tuple(int(p) for p in parts)
 
 
 def _judge_macos(facts: PlatformFacts) -> Present | Absent:

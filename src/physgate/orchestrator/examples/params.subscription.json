@@ -1,5 +1,6 @@
 {
  "auth": "subscription",
+ "account": "run-seat-1",
  "gate_mode": "on",
  "models": {
   "decomposition": "claude-opus-5-5",

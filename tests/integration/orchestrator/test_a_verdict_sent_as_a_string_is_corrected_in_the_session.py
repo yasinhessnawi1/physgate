@@ -24,7 +24,10 @@ from test_the_first_real_reviews_replay_as_they_ended import binary as binary  #
 from test_the_first_real_reviews_replay_as_they_ended import install as install  # noqa: F401
 
 from physgate.hooks.verdict_shape import CORRECTION, NOT_AN_OBJECT
+from physgate.orchestrator.budget import STRUCTURED_OUTPUT_EXHAUSTED
+from physgate.orchestrator.decompose import binary_version, read_stream
 from physgate.orchestrator.exceptions import ReviewUnavailableError
+from physgate.reviewers.claude import schema_refusals
 from physgate.reviewers.rubric import load_rubric
 
 pytestmark = [
@@ -33,6 +36,8 @@ pytestmark = [
 ]
 
 REPO = Path(__file__).resolve().parents[3]
+#: How many refused verdicts end a review session, per pin (measured: the binary's own cap).
+REFUSALS_BEFORE_THE_CAP = {"2.1.301": 5, "2.1.322": 5}
 
 
 @pytest.mark.parametrize("role", ["control", "firmware"])
@@ -65,5 +70,13 @@ def test_a_reviewer_that_never_corrects_is_an_invalid_verdict_not_infrastructure
             tmp_path, install, binary, "control", {"review": stringified}, then_correct=False
         )
     assert raised.value.cause == "invalid_verdict"
-    assert "after 5 attempts" in str(raised.value)
+    cap = REFUSALS_BEFORE_THE_CAP[binary_version(binary)]
+    assert f"after {cap} attempts" in str(raised.value)
     assert NOT_AN_OBJECT in str(raised.value)
+    # The session ended at the cap and nowhere else: that many verdicts refused, each told
+    # to the reviewer, and the binary's own reason for the end.
+    (stream,) = [p.read_text() for p in (tmp_path / "rs").glob("*/session/stdout.jsonl")]
+    assert schema_refusals(stream) == cap
+    result, _, _ = read_stream(stream)
+    assert result is not None and result["terminal_reason"] == STRUCTURED_OUTPUT_EXHAUSTED
+    assert "structured_output" not in result

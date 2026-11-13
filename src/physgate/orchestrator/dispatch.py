@@ -31,6 +31,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import sysconfig
 import time
 import uuid
@@ -51,20 +52,32 @@ from physgate.hooks.snapshot import Signature, file_digest, signature
 from physgate.hooks.state import LOG_NAME
 from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
+from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import classify_session_end
-from physgate.orchestrator.canaries import canary_seen
+from physgate.orchestrator.budget import (
+    DISK_FULL_BELOW_BYTES,
+    WRITES_LOST_VERSIONS,
+    classify_session_end,
+)
+from physgate.orchestrator.canaries import canary_seen, redact_text
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
+    debug_logs_removed_on_failure,
     open_in_session,
     remove_secrets,
     write_key_helper,
     write_login,
 )
 from physgate.orchestrator.declaration import DECLARATION_PATH
-from physgate.orchestrator.decompose import binary_version, interface_contracts, read_stream
+from physgate.orchestrator.decompose import (
+    DEBUG_LOG,
+    binary_version,
+    interface_contracts,
+    read_debug_log,
+    read_stream,
+)
 from physgate.orchestrator.events import (
     Decomposed,
     Event,
@@ -90,8 +103,19 @@ from physgate.orchestrator.git import common_dir, named_from, object_format, ver
 from physgate.orchestrator.held_records import second_names
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.integration_state import STATE_NAME
-from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
-from physgate.orchestrator.managed import drift, model_answered, policy_limits_digest
+from physgate.orchestrator.invocation import (
+    TRAFFIC_ALLOWED_VERSIONS,
+    isolated_env,
+    role_argv,
+    session_search_path,
+)
+from physgate.orchestrator.managed import (
+    ObservedTraffic,
+    drift,
+    flag_cache,
+    model_answered,
+    policy_limits_digest,
+)
 from physgate.orchestrator.merge import RunGit, attempt_head, attempt_message, commit_attempt
 from physgate.orchestrator.params_record import RECORD_NAME as PARAMS_RECORD
 from physgate.orchestrator.params_record import recorded_params
@@ -116,7 +140,13 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root, os_layer_refusal
-from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
+from physgate.orchestrator.trajectory import (
+    Seal,
+    forged_tail,
+    own_loss_tail,
+    seal,
+    through_first_result,
+)
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.placement import machine_writable, placement_refusal
@@ -452,6 +482,45 @@ class Captured:
     result: dict[str, Any] | None
     usage: tuple[MessageUsage, ...]
     answered: frozenset[str]
+    #: What the binary said after its result that a full disk lost, where a pin says it.
+    lost: str | None = None
+
+
+def free_bytes(*places: Path) -> int | None:
+    """The least free space on the volumes holding ``places``, or ``None`` if unmeasured.
+
+    The harness's own measurement, of the volume each place resolves to. A place that is
+    not there holds nothing; a volume that cannot be measured, or no place at all, gives
+    ``None``, which is never read as a full volume.
+    """
+    least: int | None = None
+    for place in places:
+        try:
+            volume = os.statvfs(place)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return None
+        free = volume.f_bavail * volume.f_frsize
+        least = free if least is None else min(least, free)
+    return least
+
+
+def tail_owner(claude_version: str, session_id: str, free: int | None = None) -> str | None:
+    """The session whose own word may follow its result here, or ``None``.
+
+    A binary on a pin measured to write it says, in one event after its result, that a
+    full disk lost the session's records. A stream is something a session can reach, so
+    that event is never taken on its own word: it counts only where ``free``, the
+    harness's measurement of the volumes holding the session's records when it ended
+    (:func:`free_bytes`), is below ``DISK_FULL_BELOW_BYTES``. With space to spare, with
+    nothing measured, or on any other pin, a stream holds nothing after its result.
+    """
+    if claude_version not in WRITES_LOST_VERSIONS:
+        return None
+    if free is None or free >= DISK_FULL_BELOW_BYTES:
+        return None
+    return session_id
 
 
 def read_stream_file(stream: Path) -> bytes:
@@ -471,25 +540,44 @@ def read_stream_file(stream: Path) -> bytes:
     return data
 
 
-def read_captured(stream: Path, data: bytes | None = None) -> Captured:
+def read_captured(
+    stream: Path, data: bytes | None = None, *, own_tail_of: str | None = None
+) -> Captured:
     """Parse a session's stream (:func:`captured_from`), from ``data`` if its read is in hand."""
-    return captured_from(read_stream_file(stream) if data is None else data)
+    return captured_from(
+        read_stream_file(stream) if data is None else data, own_tail_of=own_tail_of
+    )
 
 
-def captured_from(data: bytes) -> Captured:
+def captured_from(data: bytes, *, own_tail_of: str | None = None) -> Captured:
     """Seal a session's stream bytes, find a forged tail, parse what the runtime wrote.
 
     One path for every reader, the session that ended under its orchestrator and the
     leftover a resume finds, from the bytes one read returned. A stream with a tail after
     the runtime's result is parsed only up to that result; the tail is reported, never read.
+
+    ``own_tail_of`` is the session whose binary may say, in one event after its result,
+    that a full disk lost its records, and is given only where the harness measured the
+    records' volume as full (:func:`tail_owner`): that event alone is then no forged tail,
+    and what it names is returned as ``lost``. Nothing after a result is parsed.
     """
     text = data.decode(errors="replace")
     tampered = forged_tail(text)
+    lost = None
     if tampered is not None:
+        if own_tail_of is not None:
+            lost = own_loss_tail(text, own_tail_of)
+        if lost is not None:
+            tampered = None
         text = through_first_result(text)
     result, usage, answered = read_stream(text)
     return Captured(
-        seal=seal(data), tampered=tampered, result=result, usage=usage, answered=answered
+        seal=seal(data),
+        tampered=tampered,
+        result=result,
+        usage=usage,
+        answered=answered,
+        lost=lost,
     )
 
 
@@ -750,6 +838,22 @@ def process_rows() -> list[tuple[int, int, str, str]] | None:
     return rows
 
 
+def settle_debug_log(
+    process: subprocess.Popen[bytes], *, confirmed: bool, debug_file: Path | None
+) -> ObservedTraffic | None:
+    """What a role session's debug log showed, read and removed once the session has ended.
+
+    Read only when the stop is ``confirmed``: the session's tree and group are gone, so nothing
+    can write the log again after it is read. Otherwise the group is killed first and nothing is
+    read; the log is removed with the credential, and whatever a process that left the group
+    writes later goes with every leftover session's credential at the resume.
+    """
+    if not confirmed:
+        kill_own(process)
+        return None
+    return read_debug_log(debug_file) if debug_file is not None else None
+
+
 def still_running(
     session_pid: int, started: str | None, stopped: Iterable[int], stop_done: float
 ) -> str | None:
@@ -996,7 +1100,8 @@ def _hook_records(state: Path) -> tuple[list[dict[str, Any]], str | None]:
         return [], f"{HOOK_LOG_UNREAD}: {exc}"
     records: list[dict[str, Any]] = []
     unread: str | None = None
-    for n, line in enumerate(text.splitlines(), start=1):
+    # One record per "\n": a record's string may hold a character ``splitlines`` also breaks at.
+    for n, line in enumerate(split_lines(text), start=1):
         try:
             record = json.loads(line)
         except ValueError:
@@ -1260,6 +1365,58 @@ def runtime_paths(worktree: Path, home: Path) -> None:
         os.close(fd)
 
 
+#: What a version's runtime makes in the target repository's git directory when a session
+#: starts inside the OS layer, each with the mode it gives it, parents first. Measured on
+#: macOS through the real binary (12.11.2026): 2.1.322 makes three empty directories there;
+#: the earlier pins make none.
+RUNTIME_GIT_DIRECTORIES: dict[str, tuple[tuple[tuple[str, ...], int], ...]] = {
+    "2.1.322": (
+        (("branches",), 0o755),
+        (("remotes",), 0o755),
+        (("objects", "info", "commit-graphs"), 0o755),
+    ),
+}
+
+
+#: On Linux (bubblewrap, measured on CI, 12.11.2026) a version that makes the directories
+#: above also leaves three marker directories of its own and an empty ``alternates`` file.
+RUNTIME_GIT_DIRECTORIES_LINUX: tuple[tuple[tuple[str, ...], int], ...] = (
+    (("info", ".claude-sandbox-noreplace"), 0o755),
+    (("objects", "info", ".claude-sandbox-noreplace"), 0o755),
+    (("objects", "info", "commit-graphs", ".claude-sandbox-noreplace"), 0o755),
+)
+RUNTIME_GIT_FILES_LINUX: tuple[tuple[tuple[str, ...], int], ...] = (
+    (("objects", "info", "alternates"), 0o644),
+)
+
+
+def runtime_git_paths(git_dir: Path, claude_version: str, platform: str = sys.platform) -> None:
+    """Make what the runtime of ``claude_version`` makes in a repository's git directory.
+
+    The git directory is a root every session's end is held to: a session whose runtime made
+    a directory there would end as one that changed it. Made here first, before the record
+    is taken, they are part of it; nothing is exempted, and a session that changes one is
+    still caught. A path already present is left as it is. Nothing is made through a link or
+    beneath a parent that is not a real directory already there.
+    """
+    made = RUNTIME_GIT_DIRECTORIES.get(claude_version, ())
+    files: tuple[tuple[tuple[str, ...], int], ...] = ()
+    if made and platform.startswith("linux"):
+        made = (*made, *RUNTIME_GIT_DIRECTORIES_LINUX)
+        files = RUNTIME_GIT_FILES_LINUX
+    for parts, mode in (*made, *files):
+        path = git_dir.joinpath(*parts)
+        parents = [git_dir.joinpath(*parts[:n]) for n in range(len(parts))]
+        if any(p.is_symlink() or not p.is_dir() for p in parents) or os.path.lexists(path):
+            continue
+        if (parts, mode) in files:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+            os.close(os.open(path, flags, mode))
+        else:
+            path.mkdir(mode=mode)
+        path.chmod(mode)
+
+
 class Installed(BaseModel):
     """What the hook layer's installer prints: its files and how to spawn the session."""
 
@@ -1304,8 +1461,11 @@ def redact(path: Path, secret: str | None) -> None:
         while chunk := os.read(fd, 1 << 20):
             chunks.append(chunk)
         data = b"".join(chunks)
-        if secret.encode() in data:
-            redacted = data.replace(secret.encode(), REDACTED)
+        # The stream as the canary scan reads it (each line decoded strictly, every code point
+        # that shows nothing removed, the lines joined): a credential split by such a character,
+        # across a line's strings or across lines, is still one. What cannot be read goes whole.
+        redacted = redact_text(data, secret, REDACTED_TEXT)
+        if redacted != data:
             os.ftruncate(fd, 0)
             os.pwrite(fd, redacted, 0)
     finally:
@@ -1396,7 +1556,9 @@ class ClaudeDispatcher:
         """The installation's and the session directories' facts, taken once."""
         if self._facts is None:
             self._facts = install_facts(
-                self._install_bin.parent.parent, self._run.run_dir / "sessions"
+                self._install_bin.parent.parent,
+                self._run.run_dir / "sessions",
+                claude_version=self._config.claude_version,
             )
         return self._facts
 
@@ -1705,6 +1867,7 @@ class ClaudeDispatcher:
         # Made before the installation, so the OS layer's rules name them as they will stand.
         (sdir / "home").mkdir(parents=True, exist_ok=True)
         runtime_paths(worktree, sdir / "home")
+        runtime_git_paths(common_dir(self._run.repo), self._config.claude_version)
         installed = self._install(request, worktree, sdir, temp, own_temp=own_temp)
         # Read before the session starts, while nothing of it can have touched the file.
         end_check = session_end_command(Path(installed.settings))
@@ -1730,6 +1893,14 @@ class ClaudeDispatcher:
                 install=self._install_bin.parent.parent,
             )
             env["PATH"] = f"{session_bin(sdir, recorded_python)}:{env['PATH']}"
+        # On a pin whose sessions carry the catalog and flag traffic, the session's own debug
+        # log says what it saw; it is written beside the session's login, in its
+        # configuration directory, and read and removed with the credential.
+        debug_file = (
+            sdir / "config" / DEBUG_LOG
+            if self._config.claude_version in TRAFFIC_ALLOWED_VERSIONS
+            else None
+        )
         argv = role_argv(
             self._binary,
             prompt=role_prompt(
@@ -1741,6 +1912,7 @@ class ClaudeDispatcher:
             max_turns=request.bounds.session_max_turns,
             effort=self._config.effort,
             thinking_display=self._config.thinking_display,
+            debug_file=debug_file,
         )
         stdout = sdir / "stdout.jsonl"
         before = placeholders.snapshot(str(worktree), absent=named_in(installed, worktree))
@@ -1769,7 +1941,11 @@ class ClaudeDispatcher:
             }
             write_record(sdir.parent, sdir.name, record, "process.json")
 
-        with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:
+        with (
+            debug_logs_removed_on_failure(sdir / "config"),
+            stdout.open("wb") as out,
+            (sdir / "stderr.txt").open("wb") as err,
+        ):
             process, spawned = spawn_held(
                 argv,
                 cwd=worktree,
@@ -1799,6 +1975,9 @@ class ClaudeDispatcher:
                 # waits for the resume, which refuses while it runs.
                 kill_own(process)
             stop_done = time.time()
+        # Measured by the harness as the session ends, before anything of it is removed:
+        # the only thing that bears out a binary's word that a full disk lost its records.
+        records_free = free_bytes(sdir / "config", sdir / "config" / "projects")
         if ended is not None:
             # The table is read again: nothing the stop concluded is taken as its proof.
             unconfirmed = still_running(
@@ -1811,14 +1990,26 @@ class ClaudeDispatcher:
         # the credential's removal, the placeholder sweep, the series collection, the
         # commit. The credential is removed whatever the check did; the steps after it run
         # only once the stop and the check have settled.
+        observed: ObservedTraffic | None = None
         try:
             # On every path, the stop confirmed or not.
             after_stop = check_after_stop(end_check, session_id, worktree, env, sdir / "state")
         finally:
             # The credential is on disk only while its session runs: removed whatever the
-            # check did.
-            remove_secrets(sdir / "state", sdir / "config")
-            redact(stdout, self._credential.secret)
+            # check did. So is the debug log, which may hold it; only its reading is kept, and
+            # only from a session whose group is confirmed gone. Each step runs whatever the
+            # one before it did.
+            try:
+                observed = settle_debug_log(
+                    process,
+                    confirmed=ended is not None and unconfirmed is None,
+                    debug_file=debug_file,
+                )
+            finally:
+                try:
+                    remove_secrets(sdir / "state", sdir / "config")
+                finally:
+                    redact(stdout, self._credential.secret)
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
         try:
@@ -1885,7 +2076,10 @@ class ClaudeDispatcher:
         # worktree; they are removed before anything is committed, and recorded. What
         # the sweep refuses, or a sweep that fails, is recorded and refuses the attempt.
         placeholders_refused = self._sweep(worktree, before, sdir) if temp is not None else None
-        captured = read_captured(stdout)
+        captured = read_captured(
+            stdout,
+            own_tail_of=tail_owner(self._config.claude_version, session_id, records_free),
+        )
         # A command bubblewrap aborted never ran: recorded as such, never as a denial.
         aborted = (
             aborted_tool_uses(read_stream_file(stdout).decode(errors="replace"))
@@ -1897,7 +2091,13 @@ class ClaudeDispatcher:
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
         require_matching_totals(result, usage)
-        end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
+        end = classify_session_end(
+            result,
+            exit_code=exit_code,
+            stopped_at_wall_clock=timed_out,
+            lost=captured.lost,
+            claude_version=self._config.claude_version,
+        )
         if end.outcome == "completed":
             echoed = sorted(answered)
             if echoed != [request.model]:
@@ -1970,6 +2170,14 @@ class ClaudeDispatcher:
             managed_drift=drift(sdir / "config", system_before),
             policy_limits_sha256=limits,
             model_answered=model_answered(answered),
+            observed_traffic=observed,
+            # Read on a pin whose sessions fetch the flags, where the binary keeps them; the
+            # earlier pins fetch none, and their record is what it was.
+            flag_cache=(
+                flag_cache(sdir / "config")
+                if self._config.claude_version in TRAFFIC_ALLOWED_VERSIONS
+                else None
+            ),
             trajectory_seal=sealed,
             trajectory_tampered=tampered,
             review_material_seen=seen,
@@ -2205,6 +2413,8 @@ class ClaudeDispatcher:
         # tail after the runtime's result not taken, and a stream with a result held to the
         # runtime's own totals. A repair resume's totals are the whole session's, so each
         # stream's result is held to the usage of every stream up to it.
+        # No one measured its records' volume when it ended, so nothing bears out a word
+        # after its result: a tail is a forged one here on every pin.
         usage: tuple[MessageUsage, ...] = ()
         tampered: str | None = None
         complete = True

@@ -302,8 +302,11 @@ def filesystem_of(path: Path) -> tuple[str, bool]:
     return kind, kind not in NETWORK_FILESYSTEMS and kind != "unknown"
 
 
-def install_facts(dest: Path, state_dir: Path) -> InstallFacts:
-    """Record what ``dest`` and ``state_dir`` actually are on this machine."""
+def install_facts(dest: Path, state_dir: Path, *, claude_version: str) -> InstallFacts:
+    """Record what ``dest`` and ``state_dir`` actually are on this machine.
+
+    With the switches the sessions of the run's pin (``claude_version``) carry.
+    """
     writable = linked = 0
     for directory, _, files in os.walk(dest):
         for name in files:
@@ -336,5 +339,5 @@ def install_facts(dest: Path, state_dir: Path) -> InstallFacts:
         state_on_local_disk=local,
         system_managed=system_managed_facts(),
         manifest_sha256=manifest_digest(dest),
-        traffic=traffic_settings(),
+        traffic=traffic_settings(claude_version),
     )

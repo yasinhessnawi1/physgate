@@ -273,6 +273,8 @@ def _config() -> RunConfig:
         held_out_sha256=(),
         network="open",
         network_enforced=None,
+        binary=None,
+        account=None,
         os_layer=None,
     )
 

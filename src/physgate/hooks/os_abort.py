@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec
 from physgate.hooks.state import append_log
+from physgate.lines import split_lines
 from physgate.oslayer.abort import OS_LAYER_ABORTED, is_abort
 
 if TYPE_CHECKING:
@@ -40,7 +41,7 @@ def after_shell(hook_input: InputView, config: ConfigView) -> Decision:
     told = hook_input.error or ""
     if not is_abort(told):
         return ALLOW
-    line = next(t.strip() for t in told.splitlines() if is_abort(t))
+    line = next(t.strip() for t in split_lines(told) if is_abort(t))
     append_log(
         config,
         {

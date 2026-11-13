@@ -17,6 +17,9 @@ from pathlib import Path
 
 import pytest
 
+from physgate.orchestrator import binaries
+from physgate.orchestrator.binaries import ClaudeBinary
+from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import probe_interpreter
 from physgate.orchestrator.exceptions import RunConfigError
 from physgate.orchestrator.role_python import RolePython, measure, require_same, session_bin
@@ -26,6 +29,11 @@ REPO = Path(__file__).resolve().parents[3]
 #: The interpreter the harness's own environment is built on: a standard Python with no
 #: harness installed into it.
 BASE = Path(sys.base_prefix) / "bin" / "python3"
+
+
+#: What the command measures of the binary and reads of the credential: not this test's subject.
+STAND_IN_BINARY = ClaudeBinary(sha256="a" * 64, platform="linux-x64")
+CREDENTIAL = Credential(mode="api_key", secret="sk-ant-test-dummy-not-a-credential")
 
 
 def test_a_standard_interpreter_is_measured_and_recorded() -> None:
@@ -103,6 +111,8 @@ def test_a_configuration_that_names_none_records_what_it_did_before() -> None:
         "held_out_sha256": [],
         "network": "open",
         "network_enforced": None,
+        "binary": None,
+        "account": None,
         "queue_decisions": "record",
         "os_layer_absent": "refuse",
         "reviewers": "paired",
@@ -146,6 +156,7 @@ def _params(tmp_path: Path, role_python: object) -> object:
         "held_out_canaries": [],
         "held_out_sha256": [],
         "network": "open",
+        "account": "a-test-account",
     }
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("brief\n")
@@ -170,10 +181,11 @@ def test_the_run_records_what_it_measured_never_what_the_parameters_claim(
     absent = Absent(reason="stand-in: not measured here")
     monkeypatch.setattr(cli, "judge_here", lambda **_: absent)
     monkeypatch.setattr(cli, "claude_binary", lambda: "/nonexistent/claude")
-    cfg = cli._config(_params(tmp_path, str(BASE)))  # type: ignore[arg-type]
+    monkeypatch.setattr(binaries, "measure", lambda _: STAND_IN_BINARY)
+    cfg = cli._config(_params(tmp_path, str(BASE)), CREDENTIAL)  # type: ignore[arg-type]
     assert cfg.role_python == measure(str(BASE), probe=probe_interpreter, harness=REPO)
     claimed = {"path": str(BASE), "resolved": str(BASE), "version": "9.9", "prefix": "/"}
     with pytest.raises(RunConfigError, match="by its path"):
-        cli._config(_params(tmp_path, claimed))  # type: ignore[arg-type]
+        cli._config(_params(tmp_path, claimed), CREDENTIAL)  # type: ignore[arg-type]
     with pytest.raises(RunConfigError):
-        cli._config(_params(tmp_path, sys.executable))  # type: ignore[arg-type]
+        cli._config(_params(tmp_path, sys.executable), CREDENTIAL)  # type: ignore[arg-type]

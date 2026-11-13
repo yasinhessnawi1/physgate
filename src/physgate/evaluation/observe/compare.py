@@ -65,6 +65,7 @@ DRIFT: tuple[str, ...] = (
     "thinking_display",
     "role_python",
     "claude_version",
+    "binary",
     "git_binary",
     "endpoint",
     "brief_sha256",
@@ -94,11 +95,21 @@ REPORTED: tuple[str, ...] = (
 
 #: Never compared: what names one run (its id and seed), where its held-out tier was and the
 #: tokens its tasks carry (the tier's digests are compared), and what is measured from the
-#: network setting and the OS layer, which are both classed above.
-PER_RUN: tuple[str, ...] = ("run_id", "seed", "held_out", "held_out_canaries", "network_enforced")
+#: network setting and the OS layer, which are both classed above. The account is left out on
+#: purpose: runs spread over several accounts of one plan compare.
+PER_RUN: tuple[str, ...] = (
+    "run_id",
+    "seed",
+    "held_out",
+    "held_out_canaries",
+    "network_enforced",
+    "account",
+)
 
-#: Compared only where both runs recorded it: ``None`` is a run that measured nothing.
-_WHERE_BOTH_RECORDED = frozenset({"git_binary"})
+#: Compared only where both runs recorded it: ``None`` is a run that measured nothing. The
+#: binary's bytes as well as its version: another platform's build, or a replaced binary, is
+#: another tool under measurement.
+_WHERE_BOTH_RECORDED = frozenset({"binary", "git_binary"})
 
 
 def census_problems(model: type[RunConfig] = RunConfig) -> list[str]:

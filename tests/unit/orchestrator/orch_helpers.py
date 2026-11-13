@@ -79,6 +79,8 @@ def make_config(**overrides: Any) -> RunConfig:
         "held_out_sha256": (),
         "network": "open",
         "network_enforced": None,
+        "binary": None,
+        "account": None,
         "os_layer": None,
     }
     fields.update(overrides)
