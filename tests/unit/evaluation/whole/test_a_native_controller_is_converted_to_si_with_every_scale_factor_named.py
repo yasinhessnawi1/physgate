@@ -278,6 +278,8 @@ def test_the_native_coefficients_compared_are_the_code_s_integers_and_no_delay()
         assert type(value) is int, (name, value)
     as_float = _answer(_native(speed_response=3300.0)).controller
     assert _convert().coefficients(as_float) == compared
+    for name, value, _ in _convert().coefficients(as_float):
+        assert type(value) is int, (name, value)
 
 
 def test_an_absent_angle_decay_compares_as_one() -> None:
@@ -309,3 +311,11 @@ def test_the_state_feedback_s_coefficients_are_its_gains_period_and_limit() -> N
         "distance_gain",
         "speed_gain",
     }
+
+
+@pytest.mark.parametrize(("counts", "full_scale_duty"), [(300, 0.75), (200, 0.5), (400, 1.0)])
+def test_the_command_limit_is_the_speed_limit_over_the_pwm_full_scale(
+    counts: int, full_scale_duty: float
+) -> None:
+    loop = _si(_answer(_native(motor_speed_limit=counts)))
+    assert loop.command_limit == full_scale_duty
