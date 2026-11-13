@@ -245,7 +245,10 @@ def test_the_discrete_margins_agree_with_the_continuous_scorer_s_within_the_froz
     loop = _loop()
     values = _values()
     gains = _lqr(values)
-    si = _si(angle=gains[0], rate=gains[1], distance=gains[2], speed=gains[3], compute_delay=delay)
+    # The controller reads the encoders' travel; these gains on what it reads are the LQR's on
+    # the state, so both sides judge the same feedback.
+    read = gains @ np.linalg.inv(loop.measurement(values))
+    si = _si(angle=read[0], rate=read[1], distance=read[2], speed=read[3], compute_delay=delay)
     system = loop.system(values, si)
     assert loop.stable(system, 1.0)
     assert _crossover(system) * T <= LARGEST_OMEGA_T

@@ -14,6 +14,11 @@ reads it: an incremental structure integrates the measured rate into its own ang
 measured tilt. The command limit is not in the linear loop, nor are the code's integer
 truncations.
 
+**What the controller reads.** The tilt and its rate, and the travel and speed the wheel
+encoders give. The encoders sit on the motor shafts, whose housings are fixed to the body, so
+they count each wheel's turn relative to the body: the travel read is ``x − r·θ`` and the
+speed ``v − r·θ̇`` (:func:`measurement`), never the ground's.
+
 **The leak-free angle's offset.** With no leak (``d`` = 1) the integrated angle keeps whatever
 offset from the tilt it starts with, and the travel settles where the distance term cancels
 it: ``θ̂ = c``, ``x = -c·angle/distance``, the body upright and still, the command 0. That is a
@@ -80,6 +85,18 @@ def continuous(values: dict[str, float]) -> tuple[Matrix, Matrix]:
     a[3, :] = r * phi_dd[:4]
     b = np.array([[0.0], [theta_dd[4]], [0.0], [r * phi_dd[4]]])
     return a, b
+
+
+def measurement(values: dict[str, float]) -> Matrix:
+    """What the controller reads of ``[θ, θ̇, x, v]``: the tilt, its rate, and the encoders'.
+
+    Rows ``θ``, ``θ̇``, ``x − r·θ`` and ``v − r·θ̇``, ``r`` the wheel radius of ``values``.
+    """
+    r = values["wheel_radius"]
+    read = np.eye(4)
+    read[2, 0] = -r
+    read[3, 1] = -r
+    return read
 
 
 def _held(a: Matrix, b: Matrix, span: float) -> tuple[Matrix, Matrix]:
@@ -289,7 +306,8 @@ def phase_margin(system: System) -> tuple[float, bool]:
 def system(values: dict[str, float], loop: SiLoop) -> System:
     """The pendulum of ``values`` under ``loop``, discretised as the module's docstring says."""
     a, b = continuous(values)
-    ap, bp, cp = discretise(a, b, loop.period, loop.sensor_delay + loop.compute_delay)
+    ap, bp, held = discretise(a, b, loop.period, loop.sensor_delay + loop.compute_delay)
+    cp = measurement(values) @ held
     ac, bc, cc, dc = controller(loop)
     neutral = _neutral(loop, ap.shape[0], ap.shape[0] + ac.shape[0])
     return System(

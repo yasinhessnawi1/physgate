@@ -62,8 +62,8 @@ METRICS: dict[str, tuple[str, Kind]] = {
     "gyro_output_data_rate": ("Hz", "static"),
     "gyro_full_scale": ("deg/s", "static"),
     "pwm_frequency": ("Hz", "static"),
-    "pwm_full_scale": ("1", "static"),
-    "encoder_counts_per_wheel_revolution": ("1", "static"),
+    "pwm_full_scale": ("count", "static"),
+    "encoder_counts_per_wheel_revolution": ("count", "static"),
     "coefficient_difference": ("1", "static"),
     "stall_current": ("A", "computed"),
     "phase_margin": ("deg", "computed"),
@@ -282,7 +282,9 @@ class WholeDesignScenario:
         if kind == "static":
             value, reason = _static(read, spec.metric)
             if value is None:
-                row.update(verdict="fail", measured=None, reason=reason)
+                # Not judged either way: criterion 19's relative difference of 0 is taken
+                # coefficient by coefficient, and two structures share no coefficient.
+                row.update(verdict="unscored", measured=None, reason=reason)
                 return row
             row.update(
                 verdict="pass" if _holds(spec, value) else "fail",

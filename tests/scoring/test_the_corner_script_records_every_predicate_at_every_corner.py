@@ -35,6 +35,8 @@ def _plant(ranged: dict[str, tuple[float, float]]) -> bytes:
         p["low"] = p["high"] = p["value"]
         if name in ranged:
             p["low"], p["high"] = ranged[name]
+            if not p["low"] <= p["value"] <= p["high"]:
+                p["value"] = p["low"]
     return json.dumps(doc).encode()
 
 

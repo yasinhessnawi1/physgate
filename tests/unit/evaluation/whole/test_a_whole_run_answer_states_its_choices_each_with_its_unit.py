@@ -141,8 +141,8 @@ def parameters() -> dict[str, Any]:
         "gyro_output_data_rate": _m(208, "Hz"),
         "gyro_full_scale": _m(1000, "deg/s"),
         "pwm_frequency": _m(20000, "Hz"),
-        "pwm_full_scale": _m(400, "1"),
-        "encoder_counts_per_wheel_revolution": _m(1322.9, "1"),
+        "pwm_full_scale": _m(400, "count"),
+        "encoder_counts_per_wheel_revolution": _m(1322.9, "count"),
     }
 
 
@@ -213,7 +213,9 @@ def test_an_answer_with_the_incremental_rising_offset_controller_is_read_with_ev
     assert read.controller.rate_ratio == Measure(value=0.14, unit="s")
     assert read.controller.speed_gain == Measure(value=0.9, unit="s/m")
     assert read.controller.compute_delay == Measure(value=0.002, unit="s")
-    assert read.parameters.encoder_counts_per_wheel_revolution == Measure(value=1322.9, unit="1")
+    assert read.parameters.encoder_counts_per_wheel_revolution == Measure(
+        value=1322.9, unit="count"
+    )
     assert read.parameters.gyro_full_scale == Measure(value=1000, unit="deg/s")
     assert read.analysed_controller is None
     assert read.files == ("firmware/src/main.cpp",)
@@ -405,11 +407,11 @@ def test_a_delay_in_samples_is_refused(field: str) -> None:
 @pytest.mark.parametrize("value", [400.5, 0.5])
 def test_the_pwm_full_scale_is_a_whole_count(value: float) -> None:
     with pytest.raises(TaskFormatError, match="whole"):
-        _parse(_with(answer(), ("parameters", "pwm_full_scale"), _m(value, "1")))
+        _parse(_with(answer(), ("parameters", "pwm_full_scale"), _m(value, "count")))
 
 
 def test_a_pwm_full_scale_written_as_a_whole_float_is_taken() -> None:
-    read = _taken(_with(answer(), ("parameters", "pwm_full_scale"), _m(400.0, "1")))
+    read = _taken(_with(answer(), ("parameters", "pwm_full_scale"), _m(400.0, "count")))
     assert isinstance(read.parameters, Parameters)
     assert read.parameters.pwm_full_scale.value == 400.0
 

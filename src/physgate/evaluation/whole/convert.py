@@ -133,13 +133,13 @@ def _native_to_si(
         ScaleFactor(
             "encoder_counts_per_wheel_revolution",
             float(parameters.encoder_counts_per_wheel_revolution.value),
-            "1",
+            "count",
             "the answer, parameters.encoder_counts_per_wheel_revolution",
         ),
         ScaleFactor(
             "pwm_full_scale",
             float(parameters.pwm_full_scale.value),
-            "1",
+            "count",
             "the answer, parameters.pwm_full_scale: PWM counts at a duty of 1",
         ),
         ScaleFactor(

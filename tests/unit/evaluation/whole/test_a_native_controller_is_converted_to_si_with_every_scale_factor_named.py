@@ -100,8 +100,8 @@ def _answer(
             "gyro_output_data_rate": _m(208, "Hz"),
             "gyro_full_scale": _m(1000, "deg/s"),
             "pwm_frequency": _m(20000, "Hz"),
-            "pwm_full_scale": _m(400, "1"),
-            "encoder_counts_per_wheel_revolution": _m(counts, "1"),
+            "pwm_full_scale": _m(400, "count"),
+            "encoder_counts_per_wheel_revolution": _m(counts, "count"),
             "gyro_sensitivity": _m(sensitivity, "count*s/deg"),
         },
     }

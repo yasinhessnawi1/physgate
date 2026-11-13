@@ -65,9 +65,13 @@ STATIC_SPECS = [
     _spec("odr", "gyro_output_data_rate", "in", [_m(208, "Hz"), _m(208, "Hz")], "c11"),
     _spec("scale", "gyro_full_scale", "in", [_m(1000, "deg/s"), _m(1000, "deg/s")], "c11"),
     _spec("pwm", "pwm_frequency", "in", [_m(19800, "Hz"), _m(20200, "Hz")], "c12"),
-    _spec("top", "pwm_full_scale", "in", [_m(400, "1"), _m(400, "1")], "c12"),
+    _spec("top", "pwm_full_scale", "in", [_m(400, "count"), _m(400, "count")], "c12"),
     _spec(
-        "counts", "encoder_counts_per_wheel_revolution", "in", [_m(1322, "1"), _m(1324, "1")], "c13"
+        "counts",
+        "encoder_counts_per_wheel_revolution",
+        "in",
+        [_m(1322, "count"), _m(1324, "count")],
+        "c13",
     ),
     _spec("same", "coefficient_difference", "<=", _m(0, "1"), "c19"),
 ]
@@ -138,8 +142,8 @@ def _answer(controller: dict[str, Any] | None = None, **over: Any) -> dict[str, 
             "gyro_output_data_rate": _m(208, "Hz"),
             "gyro_full_scale": _m(1000, "deg/s"),
             "pwm_frequency": _m(20000, "Hz"),
-            "pwm_full_scale": _m(400, "1"),
-            "encoder_counts_per_wheel_revolution": _m(1322.9, "1"),
+            "pwm_full_scale": _m(400, "count"),
+            "encoder_counts_per_wheel_revolution": _m(1322.9, "count"),
             "gyro_sensitivity": _m(28.571, "count*s/deg"),
         },
     }
@@ -200,8 +204,8 @@ _STATIC_BREAKS = [
     (("parameters", "gyro_output_data_rate"), _m(416, "Hz"), "odr"),
     (("parameters", "gyro_full_scale"), _m(2000, "deg/s"), "scale"),
     (("parameters", "pwm_frequency"), _m(10000, "Hz"), "pwm"),
-    (("parameters", "pwm_full_scale"), _m(255, "1"), "top"),
-    (("parameters", "encoder_counts_per_wheel_revolution"), _m(1332, "1"), "counts"),
+    (("parameters", "pwm_full_scale"), _m(255, "count"), "top"),
+    (("parameters", "encoder_counts_per_wheel_revolution"), _m(1332, "count"), "counts"),
 ]
 
 

@@ -15,9 +15,11 @@ failure of the answer, never an error of the scorer.
 
 - ``θ``, the body's tilt from vertical in rad, positive when it leans forward (towards the
   direction of positive travel), and ``θ̇`` its rate in rad/s;
-- ``x``, the axle's ground travel in m (the mean of the two wheels'), and ``v`` its ground
-  speed in m/s, each measured minus a reference that advances at the commanded speed, so both
-  are zero when the robot holds its commanded motion;
+- ``x``, the travel in m that the wheel encoders give (the mean of the two wheels'), and ``v``
+  its speed in m/s, each measured minus a reference that advances at the commanded speed, so
+  both are zero when the robot holds its commanded motion. The encoders sit on the motor
+  shafts, whose housings are fixed to the body, so they count each wheel's turn relative to
+  the body: ``x`` is the wheel radius times that turn, the ground travel less ``r·θ``;
 - ``u``, the command to both motors as a duty: the average voltage across a motor is ``u``
   times the pack voltage, positive driving forward, held to ``[-limit, +limit]``.
 
@@ -314,7 +316,7 @@ class Parameters(_Frozen):
         _positive(self.gyro_output_data_rate, "Hz", "the gyro's output data rate")
         _positive(self.gyro_full_scale, "deg/s", "the gyro's full scale")
         _positive(self.pwm_frequency, "Hz", "the PWM frequency")
-        full_scale = _positive(self.pwm_full_scale, "1", "the PWM full scale")
+        full_scale = _positive(self.pwm_full_scale, "count", "the PWM full scale")
         if not _whole(full_scale):
             msg = f"the PWM full scale is {full_scale}; it is a whole number of counts"
             raise ValueError(msg)
@@ -322,7 +324,7 @@ class Parameters(_Frozen):
         # drive gives 1322.9 counts per wheel revolution, and that is the true figure.
         _positive(
             self.encoder_counts_per_wheel_revolution,
-            "1",
+            "count",
             "the encoder counts per wheel revolution",
         )
         if self.gyro_sensitivity is not None:
