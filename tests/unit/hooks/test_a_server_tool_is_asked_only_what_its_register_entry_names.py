@@ -183,6 +183,18 @@ def test_a_path_through_a_link_out_of_the_worktree_is_refused(config: SessionCon
     assert "outside the session's worktree" in reason, reason
 
 
+def test_a_path_written_outside_the_worktree_is_refused_though_a_link_leads_it_back_in(
+    config: SessionConfig,
+) -> None:
+    # The server opens the path as written: it must lie inside the worktree as written too.
+    worktree = Path(config.worktree)
+    back = worktree.parent / "outside" / "back"
+    back.symlink_to(worktree / "firmware")
+    for tool, argument in ((BUILD, "projectDir"), (LOAD, "path")):
+        reason = _call(config, tool, {argument: str(back)})
+        assert "outside the session's worktree" in reason, (tool, reason)
+
+
 def test_a_case_variant_of_the_worktree_s_spelling_is_outside_it(config: SessionConfig) -> None:
     worktree = Path(config.worktree)
     variant = str(worktree.parent / "WORKTREE" / "firmware")
