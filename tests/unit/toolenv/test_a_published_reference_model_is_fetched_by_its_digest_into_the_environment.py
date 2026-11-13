@@ -134,6 +134,13 @@ def test_reference_models_that_are_not_a_list_of_pins_are_refused(pinned: object
     assert isinstance(found, provision.ProvisionError), repr(found)
 
 
+def test_a_model_pin_with_a_field_of_its_own_is_refused() -> None:
+    provision = _provision()
+    model = _model() | {"licence": "unstated"}
+    found = _raised(lambda: _models(provision, {"reference_models": [model]}))
+    assert isinstance(found, provision.ProvisionError), repr(found)
+
+
 def test_two_pins_of_one_file_name_are_refused() -> None:
     provision = _provision()
     two = [_model(), _model(b"other bytes")]

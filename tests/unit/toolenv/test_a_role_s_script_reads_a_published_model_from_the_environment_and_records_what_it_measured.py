@@ -129,7 +129,10 @@ def test_a_script_run_from_a_checkout_names_the_environment(env: Path, tmp_path:
     assert entry == _entry()
 
 
-@pytest.mark.parametrize("name", ["../kit.step", "reference/kit.step", "", ".step", "kit.step/"])
+@pytest.mark.parametrize(
+    "name",
+    ["../kit.step", "reference/kit.step", "", ".step", "kit.step/", "../reference/kit.step"],
+)
 def test_a_name_that_is_not_a_plain_file_name_is_refused(env: Path, name: str) -> None:
     geometry = _helpers_in(env)
     found = _raised(lambda: _reference_file(geometry)(name))
