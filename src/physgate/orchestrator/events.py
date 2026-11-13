@@ -206,11 +206,16 @@ class RunStarted(_Event):
     #: hold every dispatch to the review's line, and but under ``observe`` to the person's decision
     #: on a plan it did not pass; left out of a run that does not, so its line keeps its bytes.
     design_review: Literal["observe", "on", "repair:1", "repair:2", "repair:3"] | None = None
+    #: ``hold`` in a run that acts on decisions and was started under the rule that a subtask's
+    #: first dispatch waits while a subtask it reads from waits on a person; replay then refuses
+    #: such a dispatch with no hold or release line before it. Left out of every other run, so a
+    #: line written before the rule keeps its bytes and replays as it did.
+    producer_wait: Literal["hold"] | None = None
 
     @model_serializer(mode="wrap")
     def _omit_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for absent in ("queue_decisions", "design_review"):
+        for absent in ("queue_decisions", "design_review", "producer_wait"):
             if getattr(self, absent) is None:
                 data.pop(absent, None)
         return data

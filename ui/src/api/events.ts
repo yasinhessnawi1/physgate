@@ -12,6 +12,13 @@ export const LEVELS = ["gate", "person", "sizing", "queue"] as const;
 export type Level = (typeof LEVELS)[number];
 /** What ended a subtask rejected: a person, the fix a person ordered, or sizing's closing pass. */
 const REJECTED_BY = ["person", "fix_not_accepted", "closing_pass"] as const;
+/** How a held dispatch was let go, or why one was never held, as the loop writes it. */
+export const RELEASED_HOW = [
+  "merged",
+  "ended_unmerged",
+  "waits_for_closing_pass",
+  "mutual_readers",
+] as const;
 
 interface Line {
   readonly seq: number;
@@ -170,6 +177,22 @@ export type RunEvent = Line &
         readonly attempt: number;
         readonly by: (typeof REJECTED_BY)[number];
         readonly itemId: string | null;
+      }
+    /** A subtask's first dispatch held while a subtask it reads from is with a person. */
+    | {
+        readonly kind: "dispatch_held";
+        readonly subtask: string;
+        readonly producer: string;
+        readonly itemId: string;
+        readonly interfaces: readonly string[];
+      }
+    /** A held dispatch let go, or a dispatch not held because the two read from each other. */
+    | {
+        readonly kind: "dispatch_released";
+        readonly subtask: string;
+        readonly producer: string;
+        readonly itemId: string;
+        readonly outcome: (typeof RELEASED_HOW)[number];
       }
     | { readonly kind: "other"; readonly recorded: string }
   );
@@ -433,6 +456,24 @@ export function runEvent(value: unknown): RunEvent {
         attempt: attempt(),
         by: oneOf(e.by, REJECTED_BY, "what ended a subtask"),
         itemId: optionalText(e.item_id, "an item id"),
+      };
+    case "dispatch_held":
+      return {
+        ...line,
+        kind: "dispatch_held",
+        subtask: subtask(),
+        producer: text(e.producer, "a producing subtask"),
+        itemId: text(e.item_id, "an item id"),
+        interfaces: list(e.interfaces, "interfaces").map((i) => text(i, "an interface")),
+      };
+    case "dispatch_released":
+      return {
+        ...line,
+        kind: "dispatch_released",
+        subtask: subtask(),
+        producer: text(e.producer, "a producing subtask"),
+        itemId: text(e.item_id, "an item id"),
+        outcome: oneOf(e.outcome, RELEASED_HOW, "how a hold was let go"),
       };
     default:
       return { ...line, kind: "other", recorded: text(e.kind, "an event kind") };

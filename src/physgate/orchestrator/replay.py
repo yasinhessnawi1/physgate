@@ -508,6 +508,7 @@ class RunState:
             self.gate_mode = event.gate_mode
             self.escalation_backend = event.escalation_backend
             self.acts = event.queue_decisions == "act"
+            self.producer_waits.strict = event.producer_wait == "hold"
             self.reviews_plan = event.design_review is not None
             self.holds_plan = self.reviews_plan and event.design_review != "observe"
             self.replans = replans(event.design_review or "off")

@@ -227,6 +227,10 @@ class _Mark(TypedDict, total=False):
 #: asked for it, so the lines that are written keep the times they always had.
 _UNWRITTEN_TS = utc_stamp(datetime(1970, 1, 1, tzinfo=UTC))
 
+#: What a run that acts on decisions writes on its first line of the rule it starts under: a
+#: subtask's first dispatch waits while a subtask it reads from waits on a person.
+PRODUCER_WAIT: Literal["hold"] | None = "hold"
+
 
 def _fields(line: BaseModel, names: Sequence[str]) -> tuple[object, ...]:
     return tuple(getattr(line, name) for name in names)
@@ -533,6 +537,7 @@ class RunRecord:
             escalation_backend=self.config.escalation_backend,
             queue_decisions=self._said()[0],
             design_review=self._said()[1],
+            producer_wait=PRODUCER_WAIT if self._said()[0] == "act" else None,
         )
         calls = [*(one.call for one in earlier), *((call,) if call is not None else ())]
         if calls:

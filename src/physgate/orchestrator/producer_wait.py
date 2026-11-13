@@ -11,7 +11,9 @@ subtasks that read from each other are never held, and a line says so.
 
 Only in a run that acts on decisions and records its pairs: a run that records only never takes
 a decision, so a producer in the queue has ended there, and a run without pairs has no recorded
-relation. A run recorded before these lines existed has none of them, and replays as it did.
+relation. A run recorded before these lines existed has none of them, and replays as it did; a
+run started under the rule says so on its first line, and its replay refuses a dispatch the record
+owed one of them before.
 """
 
 from __future__ import annotations
@@ -32,10 +34,16 @@ Gated = Literal["hold", "release", "held"]
 
 @dataclass
 class Waits:
-    """The holds on the record: each open one by (subtask, producer), and each mutual release."""
+    """The holds on the record: each open one by (subtask, producer), and each mutual release.
+
+    ``strict`` once the run's first line says it started under the rule: a dispatch the record
+    owes a hold or release line before is then refused, where a run without the mark replays it
+    as it did before the rule existed.
+    """
 
     open: dict[tuple[str, str], DispatchHeld] = field(default_factory=dict)
     mutual: set[tuple[str, str, str]] = field(default_factory=set)
+    strict: bool = False
 
 
 @dataclass(frozen=True)
@@ -196,8 +204,18 @@ def take(state: RunState, event: DispatchHeld | DispatchReleased) -> str | None:
 
 
 def held_dispatch(state: RunState, subtask_id: str) -> str | None:
-    """Why ``subtask_id`` cannot be dispatched now: a hold on the record still keeps it back."""
+    """Why ``subtask_id`` cannot be dispatched now, or ``None``.
+
+    A hold on the record still keeps it back; or, in a run started under the rule, the record owes
+    a hold or release line before it, which a dispatch in its place left out.
+    """
     for d, producer in state.producer_waits.open:
         if d == subtask_id:
             return f"{subtask_id!r} is held while {producer!r}, which it reads from, waits"
+    owed = _owed(state, subtask_id) if state.producer_waits.strict and _applies(state) else None
+    if isinstance(owed, _Owed):
+        return (
+            f"{subtask_id!r} is dispatched while {owed.producer!r}, which it reads from, waits on"
+            f" a person, with no {owed.kind} line on the record of a run started under the hold"
+        )
     return None
