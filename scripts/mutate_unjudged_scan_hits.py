@@ -135,9 +135,11 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
     ("legacy-not-as-listed", "5", LOOP,
      "scan = _as_listed(found, item)",
      "scan = found"),
-    ("legacy-any-unmarked", "5", LOOP,
-     "if listed and all(hit.attempt is None for hit in listed):",
-     "if listed and any(hit.attempt is None for hit in listed):"),
+    # Replaces "any hit unmarked" for "every hit unmarked", an equivalent mutant: an item with
+    # some hits marked and some not matches neither the scan marked nor the scan unmarked.
+    ("legacy-marks-kept", "5", LOOP,
+     '                    "attempt": None,\n',
+     ""),
     # 6. A refused call is named for what it was.
     ("refused-read-is-write", "6", SCAN, '"Read": REFUSED_READ,', '"Read": REFUSED_WRITE,'),
     ("refused-shell-is-write", "6", SCAN, '"Bash": REFUSED_SHELL,', '"Bash": REFUSED_WRITE,'),
