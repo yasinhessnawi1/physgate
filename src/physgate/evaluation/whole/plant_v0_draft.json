@@ -132,7 +132,7 @@
       "low": 0.5,
       "high": 1.0,
       "source": "assumption",
-      "reason": "PROPOSED, for the owner: the wheel as a uniform disc (1/2 m r^2), the documented default of D-A3-1; a rim-heavy wheel lies towards a ring (m r^2)",
+      "reason": "PROPOSED, for the owner: the wheel as a uniform disc (1/2 m r^2), the documented default of the environment's first slice; a rim-heavy wheel lies towards a ring (m r^2)",
       "measure_by": "a swing of one wheel about its axle, or the hub and tire masses separately"
     },
     "rotor_inertia": {

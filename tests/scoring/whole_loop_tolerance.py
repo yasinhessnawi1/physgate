@@ -1,4 +1,4 @@
-"""The cross-check's tolerance, frozen before any comparison was run (D-A3-7).
+"""The cross-check's tolerance, frozen before any comparison was run.
 
 The discrete loop's margins are checked against the continuous control scorer's, the
 zero-order hold taken there as a delay of half a period. That approximation is exact to
