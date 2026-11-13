@@ -83,6 +83,14 @@ def _outbox(config: SessionConfig) -> str:
     return found
 
 
+def _named(program: str) -> str:
+    """A program as a profile names it: as given and where it really is.
+
+    On a runner ``/usr/bin/python3`` is a link to the versioned interpreter.
+    """
+    return " ".join(f'(literal "{p}")' for p in sorted({program, os.path.realpath(program)}))
+
+
 def _probe(root: Path) -> ServerLaunch:
     return ServerLaunch(
         name="probe",
@@ -196,6 +204,21 @@ def test_a_path_holding_parentheses_stays_one_quoted_path(root: Path) -> None:
     assert "(allow default)" not in lines
 
 
+def test_a_denial_given_through_a_link_is_named_where_it_really_is_too(root: Path) -> None:
+    # Seatbelt judges an access where it lands: a denial named only through a link (``/var``
+    # on macOS) would deny nothing.
+    real = root / "real" / "held-out"
+    real.mkdir(parents=True)
+    (root / "linked").symlink_to(root / "real")
+    given = str(root / "linked" / "held-out")
+    profile = seatbelt_profile(
+        read_denied=(given,), server_dir=str(root / "own"), devices=(), command="/usr/bin/python3"
+    )
+    denials = [line for line in profile.splitlines() if line.startswith("(deny file-read*")]
+    assert any(f'(subpath "{real}")' in line for line in denials), profile
+    assert any(f'(subpath "{given}")' in line for line in denials), profile
+
+
 def test_the_linux_arguments_take_the_network_hide_each_denied_place_and_open_only_its_own(
     root: Path,
 ) -> None:
@@ -256,7 +279,7 @@ def test_each_server_is_named_by_its_wrapper_with_a_directory_of_its_own_made_em
         assert profile.startswith("(version 1)")
         # The server's own command and its named roots, and nothing else, are what it runs.
         assert (
-            f'(allow process-exec (literal "/usr/bin/python3") (subpath "{root / "env" / "bin"}"))'
+            f'(allow process-exec {_named("/usr/bin/python3")} (subpath "{root / "env" / "bin"}"))'
             in profile
         ), profile
         # Every server reads the session's worktree, less what the session may not read there.
@@ -354,6 +377,23 @@ def test_a_server_not_named_by_its_wrapper_is_refused_at_the_spawn(
         _role(json.dumps({"mcpServers": servers}))
 
 
+@pytest.mark.parametrize(
+    "configuration",
+    [
+        "not json",
+        json.dumps(["mcpServers"]),
+        json.dumps({"servers": {}}),
+        # A contained server beside a key the binary reads as more than servers.
+        json.dumps({"mcpServers": {"probe": {"command": SANDBOX_EXEC}}, "other": {}}),
+    ],
+)
+def test_a_configuration_naming_anything_but_its_servers_is_refused_at_the_spawn(
+    configuration: str,
+) -> None:
+    with pytest.raises(InvocationError):
+        _role(configuration)
+
+
 #: The Mach services the sandbox runtime's own base profile (0.0.79, the OS layer's family)
 #: lets a sandboxed process look up: a server is allowed no other.
 RUNTIME_MACH_SERVICES = frozenset(
@@ -404,9 +444,23 @@ def test_the_macos_profile_denies_by_default_and_opens_only_what_a_server_needs(
     ):
         assert not [line for line in lines if line.startswith(refused)], (refused, profile)
     execs = [line for line in lines if line.startswith("(allow process-exec")]
-    assert execs == [f'(allow process-exec (literal "{command}") (subpath "{exec_root}"))'], profile
+    assert execs == [f'(allow process-exec {_named(command)} (subpath "{exec_root}"))'], profile
     signals = [line for line in lines if line.startswith("(allow signal")]
     assert signals == ["(allow signal (target same-sandbox))"], profile
+    infos = [line for line in lines if line.startswith("(allow process-info")]
+    assert infos == ["(allow process-info* (target same-sandbox))"], profile
+    # The system values and the devices it may touch are named, never all of them.
+    sysctls = [line for line in lines if line.startswith("(allow sysctl")]
+    assert len(sysctls) == 1 and sysctls[0].startswith("(allow sysctl-read (sysctl-name "), profile
+    ioctls = [line for line in lines if line.startswith("(allow file-ioctl")]
+    assert ioctls == [
+        '(allow file-ioctl (literal "/dev/null") (literal "/dev/zero") (literal "/dev/random") '
+        '(literal "/dev/urandom") (literal "/dev/tty"))'
+    ], profile
+    writes = [line for line in lines if line.startswith("(allow file-write")]
+    assert writes == [f'(allow file-write* (subpath "{root / "own"}") (literal "/dev/null"))'], (
+        profile
+    )
     looked_up = set(re.findall(r'\(global-name "([^"]+)"\)', profile))
     assert looked_up, profile
     assert looked_up <= RUNTIME_MACH_SERVICES, looked_up - RUNTIME_MACH_SERVICES
@@ -439,7 +493,22 @@ def test_a_denied_place_absent_at_launch_is_left_out_of_its_parent_s_listing(roo
 
 #: What a server's root may hold on Linux beyond its own roots: the system's libraries and
 #: programs, and the loader's and the clock's files.
-LINUX_LISTED = ("/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc")
+LINUX_LISTED = (
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/lib32",
+    "/lib64",
+    "/libx32",
+    "/etc/ld.so.cache",
+    "/etc/ld.so.conf",
+    "/etc/ld.so.conf.d",
+    "/etc/localtime",
+    "/etc/passwd",
+    "/etc/group",
+    "/etc/nsswitch.conf",
+)
 
 
 def _bound(args: list[str]) -> list[str]:
