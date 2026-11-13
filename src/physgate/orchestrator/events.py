@@ -84,7 +84,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
-from physgate.orchestrator.usage_limit import UsageLimit
+from physgate.orchestrator.usage_limit import AccountWindow, UsageLimit
 from physgate.oslayer.probe import OsLayerState
 from physgate.roles import owner_of, owners_of
 from physgate.series.seal import SeriesCheck, SessionSeries
@@ -509,6 +509,9 @@ class SessionEnded(_Event):
     #: For an end on the account's usage limit: the reset as the stream gave it, and as an
     #: instant where it parses.
     usage_limit: UsageLimit | None = None
+    #: How full the account's usage windows were at the last rate-limit event the session's
+    #: stream gave, so a run's analysis can say how near the limit each session ended.
+    account_windows: tuple[AccountWindow, ...] = ()
 
     @model_validator(mode="after")
     def _completed_names_its_work(self) -> SessionEnded:
@@ -535,6 +538,9 @@ class SessionEnded(_Event):
         data: dict[str, Any] = handler(self)
         if self.usage_limit is None:
             data.pop("usage_limit", None)
+        # And an end whose stream gave no rate-limit state, as before the windows were read.
+        if not self.account_windows:
+            data.pop("account_windows", None)
         return data
 
 

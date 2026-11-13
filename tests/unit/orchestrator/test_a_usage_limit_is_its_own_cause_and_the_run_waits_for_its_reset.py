@@ -13,9 +13,13 @@ Every other infrastructure error keeps its handling: an API error such as a 503 
 the schedule. A run recorded before the limit had a cause of its own replays as it did, and
 its lines are written byte for byte as before.
 
-The streams here are stand-ins built from the reader's fixtures and the three texts the live
-runs printed; the event fields beyond ``type`` are assumed (``rate_limit_info.status``,
-the assistant line's top-level ``error``).
+The streams here are stand-ins in the shape a live run's stream gave when its account reached
+the limit, its values replaced: a ``rate_limit_event`` whose ``rate_limit_info`` gives the state
+(``rejected``), the reset as an exact instant (``resetsAt``, epoch seconds), the kind of limit
+(``rateLimitType``) and how full each of the account's windows was (``unifiedWindows``); an
+assistant line whose top-level ``error`` is ``rate_limit``, with its ``request_id``; and a result
+whose ``terminal_reason`` is ``api_error`` and whose text names the limit and its reset. The
+reset is taken from the event's instant; the result's wall-clock text is the fallback only.
 """
 
 from __future__ import annotations
@@ -55,7 +59,9 @@ from physgate.orchestrator.ports import SessionReport, SessionRequest, SpawnHook
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.usage_limit import (
     UNREAD_RESET_WAIT,
+    AccountWindow,
     UsageLimit,
+    account_windows,
     reset_instant,
     session_end,
     usage_limit_of,
@@ -72,8 +78,21 @@ OUTAGE = (
     "API Error: 503 credential validation failed. This is usually temporary; "
     "please try again in a moment."
 )
+#: The weekly limit's text in a recorded stream's form: it has a date, so the text gives no instant.
+WEEKLY_LIMIT = "You've hit your weekly limit · resets Nov 18 at 10am (Europe/Oslo)"
 RESETS = "1:20pm (Europe/Oslo)"
 UNREAD = "Nov 20 at 3am (Europe/Oslo)"
+#: The session window's reset in the stand-in events: 1:20pm in Oslo on 13 November.
+RESET_EPOCH = 1794572400
+RESET_STAMP = "2026-11-13T12:20:00.000000Z"
+#: The weekly window's reset in the stand-in events: 10am in Oslo on 18 November.
+WEEK_EPOCH = 1794992400
+WEEK_STAMP = "2026-11-18T09:00:00.000000Z"
+#: How full the account's windows were in the stand-in refusal: the session window spent.
+WINDOWS = (
+    AccountWindow(window="five_hour", used_fraction=1.0, resets_at=RESET_STAMP),
+    AccountWindow(window="seven_day", used_fraction=0.47, resets_at=WEEK_STAMP),
+)
 
 
 def _line(**fields: Any) -> str:  # noqa: ANN401 - the binary's own untyped events
@@ -87,12 +106,32 @@ def _stream(*lines: str) -> str:
 INIT = _line(type="system", subtype="init", session_id="s", model="claude-opus-5-5")
 
 
-def _rate_limit(status: str) -> str:
-    return _line(
-        type="rate_limit_event",
-        rate_limit_info={"status": status, "rateLimitType": "five_hour"},
-        session_id="s",
-    )
+def _rate_limit(
+    status: str,
+    *,
+    kind: str = "five_hour",
+    resets_at: object = RESET_EPOCH,
+    five_hour: object = 1,
+    seven_day: object = 0.47,
+    windows: object = None,
+) -> str:
+    """A ``rate_limit_event`` in the shape a live run's stream gave it."""
+    unified = {
+        "five_hour": {"utilization": five_hour, "resetsAt": RESET_EPOCH},
+        "seven_day": {"utilization": seven_day, "resetsAt": WEEK_EPOCH},
+    }
+    info: dict[str, Any] = {
+        "status": status,
+        "resetsAt": resets_at,
+        "rateLimitType": kind,
+        "overageStatus": "rejected",
+        "overageDisabledReason": "out_of_credits",
+        "isUsingOverage": False,
+        "unifiedWindows": unified if windows is None else windows,
+    }
+    if resets_at is None:
+        del info["resetsAt"]
+    return _line(type="rate_limit_event", rate_limit_info=info, uuid="u", session_id="s")
 
 
 def _said(text: str, error: str | None) -> str:
@@ -100,11 +139,11 @@ def _said(text: str, error: str | None) -> str:
         "id": "msg_1",
         "model": "<synthetic>",
         "role": "assistant",
+        "type": "message",
         "content": [{"type": "text", "text": text}],
     }
-    return _line(
-        type="assistant", message=message, session_id="s", **({"error": error} if error else {})
-    )
+    marked = {"error": error, "request_id": "req_1", "is_api_error_message": True}
+    return _line(type="assistant", message=message, session_id="s", **(marked if error else {}))
 
 
 def _result(text: str, *, is_error: bool = True, status: int | None = None) -> dict[str, Any]:
@@ -121,9 +160,11 @@ def _result(text: str, *, is_error: bool = True, status: int | None = None) -> d
     return result
 
 
-def _limited(text: str = SESSION_LIMIT) -> tuple[str, dict[str, Any]]:
-    result = _result(text)
-    stream = _stream(INIT, _rate_limit("rejected"), _said(text, "rate_limit"), json.dumps(result))
+def _limited(text: str = SESSION_LIMIT, **event: Any) -> tuple[str, dict[str, Any]]:  # noqa: ANN401
+    result = _result(text, status=429)
+    stream = _stream(
+        INIT, _rate_limit("rejected", **event), _said(text, "rate_limit"), json.dumps(result)
+    )
     return stream, result
 
 
@@ -138,18 +179,130 @@ def _outage() -> tuple[str, dict[str, Any]]:
 # -- reading the limit from the stream -------------------------------------------------------
 
 
-def test_a_session_that_ended_on_the_limit_is_read_as_the_limit_with_its_reset_text() -> None:
+def test_a_session_that_ended_on_the_limit_is_read_with_the_event_s_instant_kind_and_windows() -> (
+    None
+):
     stream, result = _limited()
-    assert usage_limit_of(stream, result) == UsageLimit(resets=RESETS)
-    assert usage_limit_of(stream.encode(), result) == UsageLimit(resets=RESETS)
+    read = UsageLimit(resets=RESETS, resets_at=RESET_STAMP, limit_type="five_hour", windows=WINDOWS)
+    assert usage_limit_of(stream, result) == read
+    assert usage_limit_of(stream.encode(), result) == read
     end, limit = session_end(stream, result, exit_code=1, stopped_at_wall_clock=False)
     assert end == SessionEnd(outcome="infrastructure", cause="usage_limit")
-    assert limit == UsageLimit(resets=RESETS)
+    assert limit == read
 
 
 def test_the_night_form_of_the_reset_is_read_as_given() -> None:
     stream, result = _limited(NIGHT_LIMIT)
-    assert usage_limit_of(stream, result) == UsageLimit(resets="3am (Europe/Oslo)")
+    limit = usage_limit_of(stream, result)
+    assert limit is not None and limit.resets == "3am (Europe/Oslo)"
+
+
+def test_the_event_s_instant_is_the_reset_whatever_the_text_says() -> None:
+    later = 1794574200  # 12:50Z, half an hour after the text's 1:20pm in Oslo
+    stream, result = _limited(resets_at=later)
+    limit = usage_limit_of(stream, result)
+    assert limit is not None
+    assert (limit.resets, limit.resets_at) == (RESETS, "2026-11-13T12:50:00.000000Z")
+
+
+def test_a_weekly_limit_is_recorded_as_one_with_its_instant_days_later() -> None:
+    stream, result = _limited(WEEKLY_LIMIT, kind="seven_day", resets_at=WEEK_EPOCH, seven_day=1)
+    limit = usage_limit_of(stream, result)
+    assert limit is not None
+    assert (limit.limit_type, limit.resets_at) == ("seven_day", WEEK_STAMP)
+    assert limit.resets == "Nov 18 at 10am (Europe/Oslo)"
+    assert reset_instant(limit.resets, after=_at("2026-11-13T11:30:00")) is None, (
+        "the text alone gives no instant; the event's is the one recorded"
+    )
+    assert [(w.window, w.used_fraction) for w in limit.windows] == [
+        ("five_hour", 1.0),
+        ("seven_day", 1.0),
+    ]
+
+
+def test_a_kind_of_limit_not_known_here_is_recorded_as_given_and_is_the_limit_all_the_same() -> (
+    None
+):
+    stream, result = _limited(kind="opus_monthly")
+    end, limit = session_end(stream, result, exit_code=1, stopped_at_wall_clock=False)
+    assert end.cause == "usage_limit"
+    assert limit is not None
+    assert (limit.limit_type, limit.resets, limit.resets_at) == (
+        "opus_monthly",
+        RESETS,
+        RESET_STAMP,
+    )
+
+
+@pytest.mark.parametrize(
+    "resets_at",
+    [None, "1794572400", True, 1794572400.5, 0, -1, 10**20],
+    ids=["absent", "a-string", "a-bool", "a-fraction", "zero", "negative", "out-of-range"],
+)
+def test_an_event_instant_that_is_not_an_epoch_leaves_the_text_as_the_fallback(
+    resets_at: object,
+) -> None:
+    stream, result = _limited(resets_at=resets_at)
+    limit = usage_limit_of(stream, result)
+    assert limit is not None
+    assert (limit.resets, limit.resets_at, limit.limit_type) == (RESETS, None, "five_hour")
+    # The text, read in its zone, is then the reset.
+    assert with_instant(limit, after=_at("2026-11-13T11:30:00")).resets_at == RESET_STAMP
+
+
+@pytest.mark.parametrize(
+    "used",
+    [True, -0.1, "0.5", None, float("nan"), float("inf")],
+    ids=["a-bool", "negative", "a-string", "absent", "nan", "infinite"],
+)
+def test_a_window_whose_figure_is_not_a_share_is_left_out(used: object) -> None:
+    stream, result = _limited(five_hour=used)
+    limit = usage_limit_of(stream, result)
+    assert limit is not None
+    assert limit.windows == WINDOWS[1:]
+
+
+def test_a_window_with_no_reset_instant_is_left_out() -> None:
+    windows = {
+        "five_hour": {"utilization": 1, "resetsAt": "soon"},
+        "seven_day": {"utilization": 0.47, "resetsAt": WEEK_EPOCH},
+        "other": "not a window",
+    }
+    stream, result = _limited(windows=windows)
+    limit = usage_limit_of(stream, result)
+    assert limit is not None
+    assert limit.windows == WINDOWS[1:]
+
+
+def test_a_share_outside_its_range_is_refused_on_the_record() -> None:
+    for used in (-0.1, float("nan"), float("inf")):
+        assert _refused(
+            lambda used=used: AccountWindow(window="w", used_fraction=used, resets_at=RESET_STAMP)
+        )
+
+
+# -- how full the account's windows were at a session's end ------------------------------------
+
+
+def test_a_session_s_end_records_the_latest_windows_its_stream_gave() -> None:
+    result = _result("done", is_error=False)
+    stream = _stream(
+        INIT,
+        _rate_limit("allowed", five_hour=0.81, seven_day=0.47),
+        _rate_limit("allowed_warning", five_hour=0.9, seven_day=0.77),
+        _rate_limit("allowed", windows={}),
+        json.dumps(result),
+    )
+    assert account_windows(stream) == (
+        AccountWindow(window="five_hour", used_fraction=0.9, resets_at=RESET_STAMP),
+        AccountWindow(window="seven_day", used_fraction=0.77, resets_at=WEEK_STAMP),
+    )
+    assert account_windows(stream.encode()) == account_windows(stream)
+
+
+def test_a_stream_with_no_rate_limit_state_gives_no_windows() -> None:
+    result = _result("done", is_error=False)
+    assert account_windows(_stream(INIT, json.dumps(result))) == ()
 
 
 @pytest.mark.parametrize(
@@ -169,6 +322,8 @@ def test_each_of_the_stream_s_signs_alone_names_the_limit(signal: str) -> None:
     limit = usage_limit_of(_stream(*lines), result)
     assert limit is not None
     assert limit.resets == (RESETS if signal == "text" else None)
+    from_event = (RESET_STAMP, "five_hour", WINDOWS) if signal == "event" else (None, None, ())
+    assert (limit.resets_at, limit.limit_type, limit.windows) == from_event
 
 
 def test_a_503_is_an_api_error_as_today_and_never_the_limit() -> None:
@@ -471,6 +626,108 @@ def test_the_operator_s_word_does_not_override_a_reset_that_was_read(
     assert len(rig.dispatcher.requests) == 1
 
 
+#: A weekly limit met at the rig's noon, as a recorded stream gave its text, and its reset: 7am in
+#: Oslo on 1 October, five days later.
+WEEKLY_TEXT = "Oct 1 at 7am (Europe/Oslo)"
+WEEKLY_INSTANT = "2026-10-01T05:00:00.000000Z"
+
+
+def test_a_weekly_limit_halts_until_its_own_instant_days_later_not_hours(
+    tmp_path: Path, clock: list[datetime]
+) -> None:
+    weekly = UsageLimit(resets=WEEKLY_TEXT, resets_at=WEEKLY_INSTANT, limit_type="seven_day")
+    dispatcher = LimitDispatcher(infra={1: "usage_limit"}, limits={1: weekly})
+    rig = Rig(tmp_path, dispatcher=dispatcher, delays=(60.0,))
+    halt = _halted_on_the_limit(tmp_path, rig)
+    assert halt.usage_limit == weekly
+    assert "seven_day" in halt.detail and WEEKLY_INSTANT in halt.detail
+    printed, status = printed_step("halted", _state(rig))
+    assert (printed.get("limit_type"), printed["resume_after"], status) == (
+        "seven_day",
+        WEEKLY_INSTANT,
+        EXIT_WAITING_FOR_LIMIT,
+    )
+    clock[0] = NOON + UNREAD_RESET_WAIT + timedelta(minutes=1)
+    refused = _resume(rig.open())
+    assert isinstance(refused, LimitNotResetError)
+    assert refused.context["resume_after"] == WEEKLY_INSTANT
+    assert len(rig.dispatcher.requests) == 1
+    clock[0] = datetime(2026, 10, 1, 5, 1, tzinfo=UTC)
+    assert _resume(rig.open()) == "done"
+    assert [r.attempt for r in rig.dispatcher.requests] == [1, 1]
+
+
+def test_the_loop_keeps_the_event_s_instant_over_the_text_s(
+    tmp_path: Path, clock: list[datetime]
+) -> None:
+    later = "2026-09-26T11:50:00.000000Z"  # half an hour after the text's 1:20pm in Oslo
+    limit = UsageLimit(resets=RESETS, resets_at=later, limit_type="five_hour")
+    rig = Rig(
+        tmp_path,
+        dispatcher=LimitDispatcher(infra={1: "usage_limit"}, limits={1: limit}),
+        delays=(60.0,),
+    )
+    halt = _halted_on_the_limit(tmp_path, rig)
+    assert halt.usage_limit == limit
+    clock[0] = NOON + timedelta(hours=1, minutes=21)  # past the text's reset, before the event's
+    refused = _resume(rig.open())
+    assert isinstance(refused, LimitNotResetError)
+    assert refused.context["resume_after"] == later
+
+
+def test_a_kind_of_limit_not_known_here_halts_waiting_all_the_same(
+    tmp_path: Path, clock: list[datetime]
+) -> None:
+    limit = UsageLimit(resets=RESETS, resets_at=INSTANT, limit_type="opus_monthly")
+    rig = Rig(
+        tmp_path,
+        dispatcher=LimitDispatcher(infra={1: "usage_limit"}, limits={1: limit}),
+        delays=(60.0,),
+    )
+    halt = _halted_on_the_limit(tmp_path, rig)
+    assert halt.usage_limit == limit
+    assert rig.slept == []
+    printed, status = printed_step("halted", _state(rig))
+    assert (printed.get("limit_type"), status) == ("opus_monthly", EXIT_WAITING_FOR_LIMIT)
+
+
+@dataclass
+class WindowsDispatcher(FakeDispatcher):
+    """A fake dispatcher whose every session's stream gave the account's windows."""
+
+    windows: tuple[AccountWindow, ...] = ()
+
+    def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
+        report = super().run(request, on_spawn)
+        return report.model_copy(update={"account_windows": self.windows})
+
+
+def test_each_session_s_end_records_how_full_the_account_s_windows_were(
+    tmp_path: Path, clock: list[datetime]
+) -> None:
+    windows = (
+        AccountWindow(window="five_hour", used_fraction=0.9, resets_at=INSTANT),
+        AccountWindow(window="seven_day", used_fraction=0.77, resets_at=WEEKLY_INSTANT),
+    )
+    rig = Rig(tmp_path, dispatcher=WindowsDispatcher(windows=windows))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    assert loop.run().kind == "done"
+    loop.close()
+    (ended,) = [e for e in _events(tmp_path) if isinstance(e, SessionEnded)]
+    assert ended.account_windows == windows
+    line = next(
+        json.loads(raw)
+        for raw in (tmp_path / "events.jsonl").read_text().splitlines()
+        if '"session_ended"' in raw
+    )
+    assert line["account_windows"][0] == {
+        "window": "five_hour",
+        "used_fraction": 0.9,
+        "resets_at": INSTANT,
+    }
+
+
 # -- the command line ---------------------------------------------------------------------------
 
 
@@ -489,6 +746,7 @@ def test_a_run_halted_on_the_limit_prints_its_own_step_and_exit_status(
     printed, status = printed_step("halted", _state(rig))
     assert printed == {
         "step": "waiting_for_limit",
+        "limit_type": None,
         "resets": RESETS,
         "resets_at": INSTANT,
         "resume_after": INSTANT,
@@ -601,6 +859,7 @@ def test_a_line_with_no_limit_is_written_byte_for_byte_as_before(
     data = (tmp_path / "events.jsonl").read_bytes()
     assert b'"usage_limit"' not in data
     assert b'"limit_reset_by"' not in data
+    assert b'"account_windows"' not in data
     lines = data.splitlines(keepends=True)
     events = _events(tmp_path)
     assert [e.model_dump_json().encode() + b"\n" for e in events] == lines

@@ -20,7 +20,6 @@ from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import Installed
 from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.run_config import RunBounds
-from physgate.orchestrator.usage_limit import UsageLimit
 from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.rubric import Rubric
 
@@ -28,6 +27,8 @@ MODEL = "claude-sonnet-5"
 VERSION = "2.1.283"
 LIMIT = "You've hit your session limit · resets 1:20pm (Europe/Oslo)"
 OUTAGE = "API Error: 503 credential validation failed. This is usually temporary."
+#: The session window's reset in the stand-in event: 1:20pm in Oslo on 13 November.
+RESET_EPOCH = 1794572400
 
 
 def _setup(tmp_path: Path) -> ReviewerSetup:
@@ -66,14 +67,32 @@ def _review(
         "subtype": "success",
         "is_error": True,
         "terminal_reason": "api_error",
+        "api_error_status": 429 if status == "rejected" else 503,
         "result": text,
     }
     said = {
         "type": "assistant",
         "message": {"model": "<synthetic>", "content": [{"type": "text", "text": text}]},
         "error": error,
+        "request_id": "req_1",
+        "is_api_error_message": True,
     }
-    limit_state = {"type": "rate_limit_event", "rate_limit_info": {"status": status}}
+    # The shape a live run's stream gave, its values replaced.
+    limit_state = {
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+            "status": status,
+            "resetsAt": RESET_EPOCH,
+            "rateLimitType": "five_hour",
+            "overageStatus": "rejected",
+            "overageDisabledReason": "out_of_credits",
+            "isUsingOverage": False,
+            "unifiedWindows": {
+                "five_hour": {"utilization": 1, "resetsAt": RESET_EPOCH},
+                "seven_day": {"utilization": 0.47, "resetsAt": RESET_EPOCH + 4 * 86400},
+            },
+        },
+    }
     stdout = tmp_path / "stdout.jsonl"
     stdout.write_text("".join(json.dumps(e) + "\n" for e in (limit_state, said, result)))
     captured = SimpleNamespace(result=result, usage=(), answered={"<synthetic>"}, tampered=None)
@@ -108,7 +127,17 @@ def test_a_review_on_the_limit_is_no_verdict_and_names_the_limit_and_its_reset(
 ) -> None:
     raised = _review(tmp_path, monkeypatch, LIMIT, "rejected", "rate_limit")
     assert raised.cause == "infrastructure"
-    assert raised.usage_limit == UsageLimit(resets="1:20pm (Europe/Oslo)")
+    limit = raised.usage_limit
+    assert limit is not None
+    assert (limit.resets, limit.resets_at, limit.limit_type) == (
+        "1:20pm (Europe/Oslo)",
+        "2026-11-13T12:20:00.000000Z",
+        "five_hour",
+    )
+    assert [(w.window, w.used_fraction) for w in limit.windows] == [
+        ("five_hour", 1.0),
+        ("seven_day", 0.47),
+    ]
     assert raised.session_id
 
 

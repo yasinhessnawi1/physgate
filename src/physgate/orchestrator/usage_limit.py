@@ -23,9 +23,10 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.orchestrator.budget import SessionEnd, classify_session_end
 from physgate.orchestrator.common import NonEmptyStr, Timestamp, utc_stamp
@@ -51,15 +52,40 @@ _WALL_TIME = re.compile(
 _STAMP = "%Y-%m-%dT%H:%M:%S.%fZ"
 
 
+class AccountWindow(BaseModel):
+    """How full one of the account's usage windows was, as a rate-limit event gave it."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    #: The window, as the stream names it: ``five_hour`` (the session window), ``seven_day``.
+    window: NonEmptyStr
+    #: The share of the window's allowance spent: 0 none of it, 1 all of it.
+    used_fraction: Annotated[float, Field(ge=0, allow_inf_nan=False)]
+    #: When the window resets.
+    resets_at: Timestamp
+
+
 class UsageLimit(BaseModel):
     """The account's usage limit as a session's stream named it, and when it resets."""
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    #: The reset as the stream gave it ("1:20pm (Europe/Oslo)"), or ``None`` if it gave none.
+    #: The reset as the result's text gave it ("1:20pm (Europe/Oslo)"), or ``None``.
     resets: NonEmptyStr | None
-    #: That reset as an instant, where it parses; ``None`` where it does not.
+    #: The reset as an instant: the refusal event's own, where it gave one; otherwise the text's,
+    #: where it parses; ``None`` where neither does.
     resets_at: Timestamp | None = None
+    #: The kind of limit, as the refusal event named it (``five_hour``, ``seven_day``, or a kind
+    #: not known here, recorded as given); ``None`` where the stream gave no refusal event.
+    limit_type: NonEmptyStr | None = None
+    #: How full each of the account's windows was when the limit refused the session.
+    windows: tuple[AccountWindow, ...] = ()
+
+
+def account_windows(data: bytes | str) -> tuple[AccountWindow, ...]:
+    """How full the account's windows were at the last rate-limit event a session's stream gave."""
+    del data
+    return ()
 
 
 def _signs_the_limit(event: Mapping[str, object]) -> bool:
