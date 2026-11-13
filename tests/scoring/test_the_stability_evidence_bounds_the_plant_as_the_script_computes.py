@@ -275,3 +275,20 @@ def test_the_corner_report_moves_a_bounded_parameter_to_its_bounded_ends() -> No
     assert stable <= 2
     com = {p["criterion"]: p for p in report["predicates"]}["c15"]
     assert com["corners"]["count"] == 2
+
+
+def test_the_bound_used_is_the_wider_delay_reading_and_the_stronger_one_is_beside_it() -> None:
+    script = _script()
+    axes = {"com_height": [0.01, 0.02, 0.03, 0.04, 0.05], "rotor_inertia": [1e-9]}
+    # The rows: com, rotor, admitted (stable at any set), stable at every set.
+    assumed = [[c, 1e-9, c <= 0.02, c <= 0.01] for c in axes["com_height"]]
+    zero = [[c, 1e-9, c <= 0.03, c <= 0.02] for c in axes["com_height"]]
+    bounds = script.bounds_from_points(axes, {"assumed": assumed, "zero": zero})
+    com = bounds["com_height"]
+    assert com["sourced"] == [0.01, 0.05]
+    assert com["assumed"] == [0.01, 0.03]
+    assert com["zero"] == [0.01, 0.04]
+    assert com["used"] == [0.01, 0.04]
+    assert com["every_corner"] == {"assumed": [0.01, 0.02], "zero": [0.01, 0.03]}
+    swapped = script.bounds_from_points(axes, {"assumed": zero, "zero": assumed})
+    assert swapped["com_height"]["used"] == [0.01, 0.04]
