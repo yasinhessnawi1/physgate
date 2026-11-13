@@ -112,3 +112,41 @@ def test_a_run_whose_role_set_names_a_server_the_register_cannot_start_is_refuse
     )
     with pytest.raises(RunConfigError, match="platformio"):
         server_launches(config)
+
+
+@pytest.mark.parametrize("command", ["run", "resume"])
+def test_the_command_gives_the_dispatcher_the_launches_from_the_run_s_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    from test_a_role_session_runs_only_inside_the_os_layer_unless_allowed import (
+        PRESENT,
+        _recorded,
+        _through_the_command,
+    )
+
+    from physgate.orchestrator import cli
+    from physgate.orchestrator.dispatch import ClaudeDispatcher
+    from physgate.oslayer.containment import ServerLaunch
+
+    launch = ServerLaunch(name="control", command="/usr/bin/python3")
+    asked: list[object] = []
+    given: list[object] = []
+
+    def launches(config: object) -> tuple[ServerLaunch, ...]:
+        asked.append(config)
+        return (launch,)
+
+    built = ClaudeDispatcher.__init__
+
+    def init(self: ClaudeDispatcher, *args: object, **kwargs: object) -> None:
+        given.append(kwargs.get("tool_servers", ()))
+        built(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(cli, "server_launches", launches)
+    monkeypatch.setattr(ClaudeDispatcher, "__init__", init)
+    _recorded(tmp_path, os_layer_absent="refuse", os_layer=PRESENT)
+    # The stand-in stops the first session as it is about to start, after the dispatcher is built.
+    with pytest.raises(AssertionError, match="about to start"):
+        _through_the_command(tmp_path, monkeypatch, command, PRESENT)
+    assert asked, "the run's launches were never asked for"
+    assert given and given[0] == (launch,), given
