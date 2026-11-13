@@ -386,6 +386,22 @@ def test_a_kill_between_the_decision_and_the_release_resumes_to_the_uninterrupte
     assert refusal(lines(rig)) is None
 
 
+def test_a_decision_on_record_where_the_hold_would_go_is_taken_there_and_no_hold_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The hold stands where fw's dispatch would: a boundary, so a decision already written is taken
+    # first, as at that dispatch, and drive merges before fw is ever held.
+    rig = rigged(tmp_path)
+    assert first_run(rig, monkeypatch, budget=False, kill=_at("dispatch_held")) == "killed"
+    decide(rig.run_dir, "approve", item_id=drive_item(lines(rig)))
+    assert resumed(rig, monkeypatch, budget=False) == "done"
+    rows = lines(rig)
+    assert of(rows, "dispatch_held") == of(rows, "dispatch_released") == []
+    taken = first_line(rows, "decision_taken")
+    assert taken < first_line(rows, "merged", subtask_id=DRIVE) < dispatched_at(rows, FW)
+    assert refusal(rows) is None
+
+
 # --- the record holds the hold ----------------------------------------------------------------
 
 
