@@ -433,3 +433,62 @@ def test_a_denied_place_absent_at_launch_is_left_out_of_its_parent_s_listing(roo
     assert f"--ro-bind {root / 'temps'} " not in text, text
     assert str(present / "missing") not in text
     assert "--remount-ro /" in text
+
+
+#: What a server's root may hold on Linux beyond its own roots: the system's libraries and
+#: programs, and the loader's and the clock's files.
+LINUX_LISTED = ("/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc")
+
+
+def _bound(args: list[str]) -> list[str]:
+    """Every place the arguments put into the server's root, by where it lands."""
+    found: list[str] = []
+    for i, word in enumerate(args):
+        if word in ("--ro-bind", "--bind", "--symlink"):
+            found.append(args[i + 2])
+    return found
+
+
+def test_the_linux_root_holds_only_the_listed_places(root: Path) -> None:
+    worktree = root / "run" / "worktrees" / "s1"
+    env = root / "env"
+    (env / "bin").mkdir(parents=True)
+    own = root / "temps" / OWN / "servers" / "probe"
+    own.mkdir(parents=True)
+    args = bwrap_args(
+        read_denied=(str(worktree / ".physgate" / "series"),),
+        server_dir=str(own),
+        read_roots=(str(worktree), str(env)),
+    )
+    allowed = (*LINUX_LISTED, str(worktree), str(env), str(own))
+    bound = _bound(args)
+    assert bound, args
+    stray = [p for p in bound if not any(p == a or p.startswith(a + "/") for a in allowed)]
+    assert stray == [], stray
+    for socket_place in ("/run", "/var/run", "/tmp", "/var", "/home", "/Users", "/private"):
+        assert socket_place not in bound, socket_place
+    assert str(worktree) in bound and str(env) in bound
+    assert "--ro-bind / /" not in shlex.join(args)
+
+
+def test_the_macos_profile_reads_only_the_listed_places(root: Path) -> None:
+    worktree = str(root / "run" / "worktrees" / "s1")
+    env = str(root / "env")
+    profile = seatbelt_profile(
+        read_denied=(),
+        server_dir=str(root / "own"),
+        devices=(),
+        command="/usr/bin/python3",
+        read_roots=(worktree, env),
+    )
+    lines = [line.strip() for line in profile.splitlines()]
+    assert "(allow file-read*)" not in lines, profile
+    assert "(allow file-read-metadata)" in lines, profile
+    reads = [line for line in lines if line.startswith("(allow file-read*")]
+    assert reads, profile
+    places = [p for line in reads for p in re.findall(r'\((?:subpath|literal) "([^"]+)"\)', line)]
+    listed = ("/System", "/usr", "/bin", "/sbin", "/dev", "/private/etc", "/private/var/db")
+    allowed = (*listed, worktree, env, str(root / "own"))
+    stray = [p for p in places if not any(p == a or p.startswith(a + "/") for a in allowed)]
+    assert stray == [], stray
+    assert worktree in places and env in places

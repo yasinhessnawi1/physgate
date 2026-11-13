@@ -60,6 +60,9 @@ class ServerLaunch(BaseModel):
     #: Where the programs it runs in turn lie (a build server runs its build tool), each by
     #: absolute path; it runs nothing else but its own command.
     exec_roots: tuple[Annotated[str, StringConstraints(pattern=r"^/")], ...] = ()
+    #: Where what it reads lies beyond the system's own libraries (its environment's roots);
+    #: the session's worktree is added for every server.
+    read_roots: tuple[Annotated[str, StringConstraints(pattern=r"^/")], ...] = ()
 
 
 def server_read_denied(config: SessionConfig, platform: str) -> tuple[str, ...]:
@@ -194,6 +197,7 @@ def seatbelt_profile(
     devices: Sequence[str],
     command: str,
     exec_roots: Sequence[str] = (),
+    read_roots: Sequence[str] = (),
 ) -> str:
     """The Seatbelt profile a server runs under on macOS: denied by default.
 
@@ -284,7 +288,9 @@ def _entries(place: str, left_out: set[str]) -> list[str]:
     return args
 
 
-def bwrap_args(*, read_denied: Sequence[str], server_dir: str) -> list[str]:
+def bwrap_args(
+    *, read_denied: Sequence[str], server_dir: str, read_roots: Sequence[str] = ()
+) -> list[str]:
     """The bubblewrap options a server runs under on Linux, before its command.
 
     Nothing is bound whole. The server's root is built from the entries ``/`` has at launch,

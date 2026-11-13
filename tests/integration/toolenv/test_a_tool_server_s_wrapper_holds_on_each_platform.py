@@ -17,6 +17,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import socket
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -156,7 +158,11 @@ def test_a_denied_place_made_after_launch_is_not_there_inside(tmp_path: Path) ->
     before = base / "parent" / "before.txt"
     before.write_text("there at launch\n")
     denied = base / "parent" / "held-out"
-    args = bwrap_args(read_denied=(str(denied),), server_dir=str(own))
+    args = bwrap_args(
+        read_denied=(str(denied),),
+        server_dir=str(own),
+        read_roots=(str(base / "parent"), sys.base_prefix),
+    )
     # Made after the server's rules were taken, as a later session or the harness would.
     denied.mkdir()
     (denied / "answers.txt").write_text("the answers\n")
@@ -209,3 +215,82 @@ def test_a_denied_path_holding_parentheses_is_denied_and_the_server_still_answer
     found = json.loads(done.stdout)
     assert found[str(odd / "secret.txt")] == "PermissionError", found
     assert found[str(tmp_path / "open.txt")] == "readable\n", found
+
+
+#: Run inside bubblewrap: connect to each socket, run each program, and say what became of it.
+REACH = """
+import json, socket, subprocess, sys
+found = {}
+for path in json.loads(sys.argv[1]):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.connect(path)
+        found[path] = "connected"
+    except OSError as exc:
+        found[path] = type(exc).__name__
+    finally:
+        s.close()
+for program in json.loads(sys.argv[2]):
+    try:
+        subprocess.run([program], timeout=10, check=False)
+        found[program] = "ran"
+    except OSError as exc:
+        found[program] = type(exc).__name__
+print(json.dumps(found))
+"""
+
+
+def _host_sockets() -> list[str]:
+    """The sockets the machine's services listen on under /run, as many as there are."""
+    found: list[str] = []
+    for top, _, names in os.walk("/run"):
+        for name in names:
+            path = os.path.join(top, name)
+            try:
+                if stat.S_ISSOCK(os.lstat(path).st_mode):
+                    found.append(path)
+            except OSError:
+                continue
+    return sorted(found)
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the bubblewrap row runs on Linux")
+def test_a_server_reaches_no_socket_and_runs_no_program_outside_its_roots(tmp_path: Path) -> None:
+    bwrap = shutil.which("bwrap")
+    assert bwrap is not None, "bubblewrap is not installed here"
+    base = tmp_path.resolve()
+    own = base / "own"
+    own.mkdir()
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    ours = base / "service.sock"
+    listener.bind(str(ours))
+    listener.listen(1)
+    elsewhere = base / "elsewhere"
+    elsewhere.mkdir()
+    program = elsewhere / "program"
+    shutil.copy2("/bin/true", program)
+    host = _host_sockets()
+    try:
+        # The control: from outside, the socket answers and the program runs.
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        probe.connect(str(ours))
+        probe.close()
+        assert subprocess.run([str(program)], check=False).returncode == 0
+        args = bwrap_args(read_denied=(), server_dir=str(own), read_roots=(sys.base_prefix,))
+        done = subprocess.run(
+            [bwrap, *args, "--", PYTHON, "-I", "-c", REACH, json.dumps([str(ours), *host]),
+             json.dumps([str(program)])],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )  # fmt: skip
+    finally:
+        listener.close()
+    assert done.returncode == 0, done.stderr[-2000:]
+    found = json.loads(done.stdout)
+    assert found[str(ours)] == "FileNotFoundError", found
+    assert found[str(program)] == "FileNotFoundError", found
+    # Every service socket of the machine: not there inside. Says how many there were.
+    assert all(found[path] == "FileNotFoundError" for path in host), (len(host), found)
+    print(f"host sockets tried: {len(host)}")

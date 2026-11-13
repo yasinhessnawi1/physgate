@@ -95,6 +95,8 @@ def _launch(root: Path, write: Path, secret: Path) -> ServerLaunch:
     return ServerLaunch(
         name="probe",
         command=_direct_interpreter(),
+        # What it reads beyond the system: its interpreter's installation and its own script.
+        read_roots=(os.path.realpath(sys.base_prefix), str(probe.parent)),
         args=(
             "-I",
             str(probe),
