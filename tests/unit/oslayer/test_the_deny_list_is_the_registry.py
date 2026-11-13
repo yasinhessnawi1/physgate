@@ -39,9 +39,9 @@ from physgate.oslayer.policy import (
     FIELD_RULES,
     GLOB_CHARACTERS,
     OsPolicy,
+    board_devices,
     outbox_read_denial,
     sandbox_policy,
-    serial_devices,
 )
 
 
@@ -249,7 +249,7 @@ def test_no_path_is_a_pattern_but_the_outbox_s_entries_on_linux(
     entries = {str(outbox / EVERY_ENTRY), os.path.join(os.path.realpath(outbox), EVERY_ENTRY)}
     # The serial devices are named by pattern too, and only where something is denied: a
     # board's device has no name until it is plugged in.
-    devices = set(serial_devices(platform))
+    devices = set(board_devices(platform))
     assert devices and devices <= set(fs["denyRead"]) and devices <= set(fs["denyWrite"])
     patterns = []
     for name in ("allowWrite", "denyWrite", "denyRead", "allowRead"):

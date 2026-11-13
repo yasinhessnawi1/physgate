@@ -134,14 +134,20 @@ jobs:
           bwrap --unshare-user --unshare-pid --unshare-net --ro-bind / / --dev /dev \
             --proc /proc /bin/true && echo "bubblewrap starts here"
 
-      - name: A stand-in for a board's serial device
+      - name: Stand-ins for a board's devices
         # A runner has no board, and its own serial ports are not this user's to open. So
-        # the null device is given a second node under a serial device's name, which every
-        # user can open: outside the OS layer a session's program opens it, and inside the
-        # layer nothing does. Nothing is fetched.
+        # the null device is given a node under each name the OS layer denies on Linux (five
+        # kinds of serial port, a HID node, a USB node), which every user can open: outside
+        # the OS layer a session's program opens each, and inside the layer nothing does.
+        # Nothing is fetched.
         run: |
-          sudo mknod --mode=666 /dev/ttyUSB7 c 1 3
-          : < /dev/ttyUSB7 && echo "the stand-in opens here"
+          sudo mkdir -p /dev/bus/usb/909
+          for node in /dev/ttyACM7 /dev/ttyUSB7 /dev/ttyS77 /dev/ttyAMA7 /dev/rfcomm7 \
+            /dev/hidraw7 /dev/bus/usb/909/001; do
+            sudo mknod --mode=666 "$node" c 1 3
+            : < "$node" && echo "the stand-in $node opens here"
+          done
+          sudo chmod 755 /dev/bus /dev/bus/usb /dev/bus/usb/909
 
       # ---- the half that tests: nothing below this line reaches the network ------------
       - name: How a step below runs with no network
@@ -228,7 +234,8 @@ jobs:
       - name: Real sessions use the tool environment inside the OS layer, offline
         # A role session computes and builds with the environment inside bubblewrap; no
         # session writes a tool environment through the real tool path, or opens a serial
-        # device, or is let to start an upload; the environment's
+        # device, or is let to start an upload; a plain build whose own project file starts a
+        # flash finds the device denied; the environment's
         # own servers answer with the pinned libraries, to the pinned binary too. Then
         # every row is counted: a file that skipped here ran nowhere on Linux, so a skip
         # is a failure, as is a run that collected nothing.
@@ -242,6 +249,7 @@ jobs:
             tests/integration/hooks/test_the_tool_environment_works_offline_inside_the_os_layer.py \
             tests/integration/hooks/test_no_session_writes_the_tool_environment_through_the_real_tool_path.py \
             tests/integration/hooks/test_no_session_reaches_a_serial_device_through_the_real_tool_path.py \
+            tests/integration/hooks/test_a_plain_build_told_to_flash_finds_no_device_inside_the_os_layer.py \
             tests/integration/toolenv/test_the_own_tool_servers_compute_with_the_pinned_libraries.py \
             || status=$?
           python3 - "$RUNNER_TEMP/rows.xml" "$status" <<'PY'
