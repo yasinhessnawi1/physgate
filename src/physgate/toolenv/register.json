@@ -1,0 +1,101 @@
+{
+  "servers": {
+    "control": {
+      "command": "{root}/venv/bin/python",
+      "args": ["-I", "{root}/servers/control_server.py"],
+      "relative_paths": "refused",
+      "environment": {
+        "MPLBACKEND": "Agg"
+      },
+      "directories": [],
+      "links": {},
+      "tools": {
+        "frequency_response": {"system": "object", "omega": "object"},
+        "margins": {"system": "object"},
+        "poles_zeros": {"system": "object"},
+        "step_response": {"system": "object", "times": "object", "output_unit": "string"}
+      },
+      "denied": []
+    },
+    "mujoco": {
+      "command": "{root}/venv/bin/python",
+      "args": ["-I", "{root}/servers/mujoco_server.py", "--root", "{worktree}"],
+      "relative_paths": "worktree",
+      "environment": {},
+      "directories": [],
+      "links": {},
+      "tools": {
+        "load_model": {"path": "read_path", "xml": "string"},
+        "model_info": {},
+        "reset": {},
+        "state": {},
+        "step": {"steps": "integer", "controls": "array"}
+      },
+      "denied": []
+    },
+    "platformio": {
+      "command": "{root}/node/bin/node",
+      "args": ["{root}/platformio-server/node_modules/platformio-mcp/build/cli.js"],
+      "relative_paths": "refused",
+      "environment": {
+        "PIO_MCP_POLICY_FILE": "{root}/platformio-server/policy.yaml",
+        "PIO_MCP_DISABLE_DASHBOARD": "1",
+        "PIO_MCP_NO_BROWSER": "1",
+        "PIO_MCP_DATA_DIR": "{server_dir}/pio-mcp",
+        "PLATFORMIO_CORE_DIR": "{server_dir}/pio-core",
+        "PLATFORMIO_BUILD_DIR": "{server_dir}/pio-build",
+        "PLATFORMIO_WORKSPACE_DIR": "{server_dir}/pio-workspace",
+        "PLATFORMIO_CACHE_DIR": "{server_dir}/pio-cache",
+        "PLATFORMIO_SETTING_ENABLE_TELEMETRY": "no",
+        "PLATFORMIO_SETTING_CHECK_PLATFORMIO_INTERVAL": "36500",
+        "PLATFORMIO_SETTING_CHECK_PRUNE_SYSTEM_THRESHOLD": "0",
+        "PLATFORMIO_NO_ANSI": "true",
+        "PLATFORMIO_DISABLE_PROGRESSBAR": "true"
+      },
+      "directories": ["pio-core", "pio-mcp"],
+      "links": {
+        "pio-core/platforms": "{root}/platformio/platforms",
+        "pio-core/packages": "{root}/platformio/packages",
+        "pio-core/lib": "{root}/platformio/lib"
+      },
+      "tools": {
+        "agent_build_diagnose": {"projectDir": "write_path", "environment": "string", "verbose": "boolean"},
+        "build_project": {
+          "projectDir": "write_path",
+          "environment": "string",
+          "jobs": "integer",
+          "verbose": "boolean",
+          "forceExecution": "boolean"
+        },
+        "check_project": {
+          "projectDir": "write_path",
+          "environment": "string",
+          "severity": "string",
+          "skipPackages": "boolean"
+        },
+        "decode_backtrace": {"projectDir": "write_path", "environment": "string", "text": "string"},
+        "get_project_config": {"projectDir": "read_path"},
+        "project_envs": {"projectDir": "read_path"},
+        "size_report": {"projectDir": "write_path", "environment": "string", "top": "integer"},
+        "system_info": {}
+      },
+      "denied": [
+        "acquire_lock", "agent_flash_monitor_verify", "agent_generate_board_report",
+        "agent_get_last_report", "agent_monitor_health", "agent_resolve_target",
+        "agent_safe_pin_audit", "agent_validate_project", "cancel_task", "capture_serial_window",
+        "check_task_status", "clean_project", "coredump", "debug_cmd", "debug_list", "debug_start",
+        "debug_stop", "deps_check", "flash_verification", "get_approval_request", "get_board_info",
+        "get_dashboard_url", "get_lock_status", "get_monitor_status", "get_policy_status",
+        "get_project_context", "init_project", "install_library", "list_boards", "list_devices",
+        "list_installed_libraries", "list_pending_approvals", "list_targets", "list_task_history",
+        "memory_watch", "monitor_capture", "partition_table", "pkg_install", "pkg_list",
+        "pkg_outdated", "pkg_search", "pkg_uninstall", "pkg_update", "port_diagnose",
+        "power_profile", "project_metadata", "query_logs", "release_lock", "reset_server_state",
+        "run_target", "run_tests", "search_libraries", "serial_session_list",
+        "serial_session_read", "serial_session_start", "serial_session_stop",
+        "serial_session_write", "start_monitor", "stop_monitor", "uninstall_library",
+        "update_library", "upload_filesystem", "upload_firmware", "upload_ota"
+      ]
+    }
+  }
+}

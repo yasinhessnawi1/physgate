@@ -283,6 +283,19 @@ def harness_state(root: Path | None) -> HarnessState:
 ThinkingDisplay = Literal["summarized", "omitted"]
 
 
+class ToolServers(_Frozen):
+    """The tool servers a run's sessions are offered, as the register named them at the start."""
+
+    #: The servers each profile's sessions are offered, by their names in the register: the
+    #: role profile's (every role, sizing and integration among them) and the raw agent's.
+    profiles: dict[Literal["role", "baseline"], tuple[str, ...]]
+    #: The most one answer of a server may hold, in tokens, as every session is told
+    #: (``MAX_MCP_OUTPUT_TOKENS``). Left unset, a remote flag of the binary could move it.
+    max_output_tokens: int = Field(gt=0)
+    #: The register's digest: every tool, argument and launch the run was configured with.
+    register_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class RunConfig(_Frozen):
     """Everything a run is reproduced from."""
 
@@ -381,6 +394,10 @@ class RunConfig(_Frozen):
     #: session. ``None`` for a run that names none, which is what a run recorded before the
     #: field existed did, and reads so.
     tool_environment: ToolEnvironment | None
+    #: The tool servers its sessions are offered, recorded when the run names a tool
+    #: environment and taken from the register, never from the parameters. ``None`` for a run
+    #: that names none, which is what a run recorded before the field existed did.
+    tool_servers: ToolServers | None = None
 
     @model_validator(mode="after")
     def _the_binding_is_a_backend_that_ships(self) -> RunConfig:
@@ -475,9 +492,10 @@ class RunConfig(_Frozen):
         ``escalation_backend`` and ``os_layer`` when they are ``None``, ``held_out``,
         ``held_out_canaries`` and ``held_out_sha256`` when empty, ``network`` when ``open``,
         ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``,
-        ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off`` and
-        ``tool_environment`` when ``None``, so their recorded digests still name them. A
-        run that names a binding always records it, so the binding is part of its manifest id.
+        ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off``,
+        ``tool_environment`` and ``tool_servers`` when ``None``, so their recorded digests still
+        name them. A run that names a binding always records it, so the binding is part of its
+        manifest id.
         """
         exclude = set()
         if self.thinking_display == "omitted":
@@ -508,6 +526,8 @@ class RunConfig(_Frozen):
             exclude.add("design_review")
         if self.tool_environment is None:
             exclude.add("tool_environment")
+        if self.tool_servers is None:
+            exclude.add("tool_servers")
         return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
 
     def sha256(self) -> str:

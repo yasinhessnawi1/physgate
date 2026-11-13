@@ -276,7 +276,8 @@ def test_each_server_is_named_by_its_wrapper_with_a_directory_of_its_own_made_em
     entry = loaded["mcpServers"]["probe"]
     server_dir = root / "temps" / OWN / "servers" / "probe"
     assert server_dir.is_dir() and not any(server_dir.iterdir())
-    assert entry.get("env") == {"TMPDIR": str(server_dir)}, entry
+    # Its own directory is its temporary one and matplotlib's, which warns without one.
+    assert entry.get("env") == {"TMPDIR": str(server_dir), "MPLCONFIGDIR": str(server_dir)}, entry
     if platform == "darwin":
         assert entry["command"] == SANDBOX_EXEC
         assert entry["args"][:2] == ["-f", str(profiles / "probe.sb")]
@@ -660,3 +661,112 @@ def test_a_denial_named_by_a_pattern_is_refused_for_a_server(
     )
     with pytest.raises(ContainmentError, match="pattern"):
         server_read_denied(config, platform)
+
+
+# ---- a server's own variables, directories and links (task 12) -------------------------------
+
+
+def _store(root: Path) -> Path:
+    store = root / "env" / "platformio"
+    for name in ("platforms", "packages"):
+        (store / name).mkdir(parents=True, exist_ok=True)
+    return store
+
+
+def _builder(root: Path, **changes: object) -> ServerLaunch:
+    store = _store(root)
+    fields: dict[str, object] = {
+        "name": "builder",
+        "command": "/usr/bin/python3",
+        "args": ("-I", "builder.py", "--root", "{worktree}"),
+        "exec_roots": (str(root / "env"),),
+        "read_roots": (str(root / "env"),),
+        "environment": {
+            "CORE_DIR": "{server_dir}/core",
+            "PROJECTS": "{worktree}/projects",
+            "QUIET": "1",
+        },
+        "directories": ("core",),
+        "links": {
+            "core/platforms": str(store / "platforms"),
+            "core/packages": str(store / "packages"),
+        },
+    }
+    return ServerLaunch.model_validate({**fields, **changes})
+
+
+def _contain(root: Path, platform: str, *servers: ServerLaunch) -> dict[str, object]:
+    loaded = json.loads(
+        contained_servers(
+            _config(root),
+            list(servers),
+            platform=platform,
+            temp_dir=root / "temps" / OWN,
+            profiles_dir=root / "run" / "sessions" / SID / "servers",
+            bwrap=BWRAP,
+        )
+    )
+    return loaded["mcpServers"]  # type: ignore[no-any-return]
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_a_server_s_variables_name_its_own_directory_and_the_session_s_worktree(
+    root: Path, platform: str
+) -> None:
+    entry = _contain(root, platform, _builder(root))["builder"]
+    assert isinstance(entry, dict)
+    server_dir = root / "temps" / OWN / "servers" / "builder"
+    worktree = _config(root).worktree
+    assert entry["env"] == {
+        "TMPDIR": str(server_dir),
+        "MPLCONFIGDIR": str(server_dir),
+        "CORE_DIR": f"{server_dir}/core",
+        "PROJECTS": f"{worktree}/projects",
+        "QUIET": "1",
+    }, entry
+    assert entry["args"][-4:] == ["-I", "builder.py", "--root", worktree], entry["args"]
+    assert not any("{" in arg for arg in entry["args"]), entry["args"]
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_a_server_s_directories_and_links_are_made_in_its_own_directory(
+    root: Path, platform: str
+) -> None:
+    _contain(root, platform, _builder(root))
+    core = root / "temps" / OWN / "servers" / "builder" / "core"
+    assert core.is_dir() and not core.is_symlink()
+    store = _store(root)
+    for name in ("platforms", "packages"):
+        assert (core / name).is_symlink()
+        assert os.readlink(core / name) == str(store / name)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        # A link to a place the server neither reads nor runs.
+        {"links": {"core/platforms": "/etc"}},
+        {"links": {"core/platforms": "{worktree}"}},
+        # A link out of its own directory, or beneath none it makes.
+        {"links": {"../escape": "/usr/bin"}},
+        {"links": {"other/platforms": "/usr/bin"}},
+        {"directories": ("../up",), "links": {}},
+        {"directories": ("/abs",), "links": {}},
+        # A variable the wrapper sets, or one a start is built on.
+        {"environment": {"TMPDIR": "/tmp"}},
+        {"environment": {"MPLCONFIGDIR": "/tmp"}},
+        {"environment": {"PATH": "/tmp"}},
+        {"environment": {"LD_PRELOAD": "/x.so"}},
+        {"environment": {"DYLD_INSERT_LIBRARIES": "/x.dylib"}},
+        {"environment": {"NODE_OPTIONS": "--require=/x"}},
+        # A placeholder other than the two it may name, left in a variable or an argument.
+        {"environment": {"A": "{temp}/x"}},
+        {"args": ("{root}/x",)},
+    ],
+)
+def test_a_server_that_would_reach_past_its_own_directory_is_refused_and_nothing_is_made(
+    root: Path, changes: dict[str, object]
+) -> None:
+    with pytest.raises(ContainmentError):
+        _contain(root, "darwin", _builder(root, **changes))
+    assert not (root / "temps" / OWN / "servers" / "builder").exists()

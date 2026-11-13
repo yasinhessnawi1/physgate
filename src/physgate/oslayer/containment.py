@@ -73,6 +73,15 @@ class ServerLaunch(BaseModel):
     #: Where what it reads lies beyond the system's own libraries (its environment's roots);
     #: the session's worktree is added for every server.
     read_roots: tuple[Annotated[str, StringConstraints(pattern=r"^/")], ...] = ()
+    #: The variables it reads, beside the ones the wrapper sets (its directory as ``TMPDIR``
+    #: and ``MPLCONFIGDIR``). ``{server_dir}`` and ``{worktree}`` stand for its own directory
+    #: and the session's worktree.
+    environment: dict[str, str] = {}
+    #: Directories made in its own directory, and links made beneath them, each to a path
+    #: inside one of its read or exec roots: a tool that takes lock files beside its store is
+    #: given a directory of its own that links into the read-only store.
+    directories: tuple[str, ...] = ()
+    links: dict[str, str] = {}
 
 
 def server_read_denied(config: SessionConfig, platform: str) -> tuple[str, ...]:

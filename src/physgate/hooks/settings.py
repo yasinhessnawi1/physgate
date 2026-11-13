@@ -89,6 +89,17 @@ PROFILE_TOOLS: Mapping[Profile, tuple[str, ...]] = {
     "baseline": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
 }
 
+#: The tool servers each profile's sessions may be offered, by their names in the register.
+#: A role session and the raw agent get the identical set: the environment is the same for
+#: every role, and the comparison is with the same tools. A reviewer and the orchestrator get
+#: none.
+PROFILE_SERVERS: Mapping[Profile, tuple[str, ...]] = {
+    "role": (),
+    "reviewer": (),
+    "orchestrator": (),
+    "baseline": (),
+}
+
 #: The web tools, which bring in text nobody reviewed.
 WEB_TOOLS = ("WebFetch", "WebSearch")
 #: The tools each profile's settings deny, a second layer beside the tools hook: a deny rule
@@ -212,6 +223,10 @@ class InstallRequest(BaseModel):
     #: spawn does. A session that gets the reaper is refused without it: its reaper could
     #: never prove its fence, and every command would be refused.
     spawns_with_canary: bool = False
+    #: The tool servers the session is offered, by their names in the tool-server register.
+    #: Their admitted tools join the session's closed list; only a profile whose server set
+    #: names them may be offered them (:data:`PROFILE_SERVERS`).
+    tool_servers: tuple[str, ...] = ()
 
 
 #: The longest temporary directory Claude Code takes for a sandboxed session. A longer

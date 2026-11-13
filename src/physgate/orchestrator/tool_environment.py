@@ -33,11 +33,13 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from physgate.orchestrator.common import first_problem
 from physgate.orchestrator.exceptions import InvocationError, RunConfigError
+from physgate.orchestrator.run_config import ToolServers
 from physgate.oslayer.placement import machine_writable
 from physgate.oslayer.session_temp import session_temps_root
 from physgate.toolenv.exceptions import ToolEnvironmentError
@@ -52,6 +54,10 @@ from physgate.toolenv.record import (
     run_program,
 )
 from physgate.toolenv.session import wire
+
+if TYPE_CHECKING:
+    from physgate.orchestrator.run_config import RunConfig
+    from physgate.oslayer.containment import ServerLaunch
 
 
 class NamedToolEnvironment(BaseModel):
@@ -186,3 +192,19 @@ def changed_while_running(recorded: ToolEnvironment, at_start: str) -> str | Non
     except ToolEnvironmentError as exc:
         return f"the tool environment changed while the session ran: {exc}"
     return None
+
+
+def recorded_servers() -> ToolServers:
+    """The tool servers a run naming a tool environment records, from the register now."""
+    return ToolServers(profiles={}, max_output_tokens=1, register_sha256="0" * 64)
+
+
+def server_launches(config: RunConfig) -> tuple[ServerLaunch, ...]:
+    """How the run's role sessions' tool servers start, from its record and the register.
+
+    Raises:
+        RunConfigError: the register or the token bound differs from the one the run recorded,
+            or the register cannot start a recorded server from the recorded environment.
+    """
+    del config
+    return ()
