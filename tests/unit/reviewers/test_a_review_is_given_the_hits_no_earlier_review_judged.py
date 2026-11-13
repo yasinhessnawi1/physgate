@@ -120,7 +120,7 @@ def test_the_packet_carries_the_earlier_attempt_s_streams_to_be_read_whole(tmp_p
     assert parts, "the packet carries no earlier attempt's streams"
     names = [str(read / p["name"]) for p in parts]
     assert all(n in packet.required_reading for n in names)
-    shown = joined_parts(read, packet.earlier_parts).decode()  # type: ignore[attr-defined]
+    shown = joined_parts(read, packet.earlier_parts).decode()
     assert "Attempt 1" in shown
     assert EARLIER_HIT in shown
     listing = set(listed_paths(joined_parts(read, packet.files_parts).decode()))
