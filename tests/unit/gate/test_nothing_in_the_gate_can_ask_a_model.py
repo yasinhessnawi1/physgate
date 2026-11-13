@@ -20,6 +20,10 @@ What it cannot prove is what a string annotation evaluates to when pydantic or
 ``typing`` resolves it. Nothing in the gate uses one for that today; the limit
 is registered, not fenced.
 
+A law's expression is read by the gate's own syntax-tree walk, so the gate may import ``ast``,
+and from it only ``parse`` and the node classes: parsing builds a tree and runs nothing, while
+``literal_eval`` evaluates, so it is refused however it is reached, like ``eval``.
+
 It also holds sympy to one module. sympy ships no type information, and the one
 typed wrapper is what keeps its untyped values from spreading.
 """
@@ -50,6 +54,7 @@ ALLOWED_MODULES = {
     "pathlib",
     "tomllib",
     "types",
+    "ast",
     "typing",
     "pint",
     "pydantic",
@@ -57,8 +62,15 @@ ALLOWED_MODULES = {
     "physgate.orchestrator.common",
     "physgate.state.schema",
 }
+#: What the gate may take from ``ast``: the parser and the node classes it walks, nothing else.
+AST_USES = {"parse"} | {
+    name
+    for name in dir(ast)
+    if isinstance(getattr(ast, name), type) and issubclass(getattr(ast, name), ast.AST)
+}
 #: Modules the gate may take named things from, and only those things.
 ALLOWED_NAMES = {
+    "ast": AST_USES,
     "physgate.state.store": {"journal_records_after"},
     # The shared unit-spelling guard: a regular expression and its refusal, nothing else.
     "physgate.unit_spelling": {"UnitSpellingError", "require_bounded_spelling"},
@@ -92,6 +104,8 @@ FORBIDDEN_NAMES = {
     "parse_expr",
     "lambdify",
     "get_type_hints",
+    # The standard library's own string evaluator: the law parser walks the tree instead.
+    "literal_eval",
 }
 #: What the sympy wrapper may take from sympy, and nothing else: sympy has many
 #: entry points that parse and evaluate a string, and a list of what the wrapper
@@ -180,6 +194,13 @@ def violations_in(name: str, source: str) -> list[str]:
             and node.attr not in SYMPY_USES
         ):
             found.append(f"{name}: uses sympy.{node.attr}, which the wrapper does not list")
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "ast"
+            and node.attr not in AST_USES
+        ):
+            found.append(f"{name}: uses ast.{node.attr}, which the law parser does not need")
         text = _folded(node)
         if text is not None and "claude" in text.lower():
             found.append(f"{name}: names the model binary")
@@ -247,6 +268,13 @@ def test_nothing_in_the_gate_can_ask_a_model_or_reach_out() -> None:
         ("import pydantic\nx = pydantic.ImportString\n", "uses ImportString"),
         ("from typing import get_type_hints\n", "imports get_type_hints"),
         ("import typing\ntyping.get_type_hints(x)\n", "uses get_type_hints"),
+        ("import ast\nast.literal_eval('1')\n", "uses literal_eval"),
+        ("from ast import literal_eval\n", "imports literal_eval"),
+        ("import ast\nast.unparse(x)\n", "uses ast.unparse"),
+        ("from ast import unparse\n", "imports unparse from ast"),
+        ("x.sympify('1 + 1')\n", "uses sympify"),
+        ("parse_expr('x')\n", "uses parse_expr"),
+        ("lambdify(x, y)\n", "uses lambdify"),
     ],
 )
 def test_each_forbidden_form_is_caught_when_planted(
@@ -265,6 +293,10 @@ def test_what_the_gate_needs_passes_the_fence(tmp_path: Path) -> None:
         "from physgate.state.store import journal_records_after\n"
         "from physgate.orchestrator.protocols import CheckRecord\n"
         "from . import units\n"
+        "import ast\n"
+        "from ast import BinOp, parse\n"
+        "TREE = ast.parse('P == V * I', mode='eval')\n"
+        "IS_SUM = isinstance(TREE.body, ast.Compare) and BinOp is not None and parse is not None\n"
         "VERSION = pint.__version__\n"
     )
     assert fence(tmp_path) == []

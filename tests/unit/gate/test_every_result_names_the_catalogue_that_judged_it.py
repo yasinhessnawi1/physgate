@@ -11,6 +11,7 @@ from gate_fixtures import graph, node
 from physgate.gate import catalogue
 from physgate.gate.catalogue import QUANTITIES, Entry, catalogue_digest
 from physgate.gate.graph import GraphView
+from physgate.gate.laws import load_laws
 from physgate.gate.runner import PhysicsGate
 
 
@@ -22,7 +23,7 @@ def view(tmp_path: Path) -> GraphView:
 
 def test_the_result_carries_the_digest_of_the_catalogue_in_use(view: GraphView) -> None:
     result = PhysicsGate().run(view, ["subtask"], "on")
-    assert result.catalogue_sha256 == catalogue_digest()
+    assert result.catalogue_sha256 == catalogue_digest(load_laws())
     assert len(result.catalogue_sha256) == 64
 
 
@@ -38,4 +39,4 @@ def test_changing_one_catalogue_entry_changes_the_digest_on_the_result(
 
 
 def test_the_digest_is_of_content_and_stable() -> None:
-    assert catalogue_digest() == catalogue_digest()
+    assert catalogue_digest(load_laws()) == catalogue_digest(load_laws())

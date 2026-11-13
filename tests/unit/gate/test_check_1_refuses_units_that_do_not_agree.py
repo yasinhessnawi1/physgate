@@ -219,7 +219,12 @@ ALL_RELATIONS = (
     ),
     node(
         "electrical.motor_left",
-        quantities={"power_draw": (9, "W"), "stall_current": (2.4, "A"), "mass": (0.2, "kg")},
+        quantities={
+            "power_draw": (9, "W"),
+            "stall_current": (2.4, "A"),
+            "peak_stall_current": (2.6, "A"),
+            "mass": (0.2, "kg"),
+        },
         constrains=["electrical.drive", "electrical.driver"],
     ),
 )
@@ -475,4 +480,6 @@ def test_every_kind_declares_its_sign_and_the_thirteen_that_have_one_say_so() ->
         "modulus": "nonnegative",
         "temperature": "nonnegative",
         "frequency": "nonnegative",
+        # The law library's rows (07.11.2026): a store's rated charge is never negative.
+        "charge_capacity": "nonnegative",
     }

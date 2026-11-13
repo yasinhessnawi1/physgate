@@ -1,5 +1,5 @@
 /**
- * The physics gate's seven checks in words: one human name and a one-line explanation each. The
+ * The physics gate's eight checks in words: one human name and a one-line explanation each. The
  * table is keyed by the schema's own list of check names, so a check the gate gains and this
  * table lacks is a type error, and a test holds the list to the schema.
  */
@@ -41,6 +41,11 @@ export const CHECK_WORDS: Readonly<Record<CheckName, CheckWords>> = {
   propagation: {
     name: "Change propagation check",
     explains: "A changed value reaches every node it constrains, or that node says why not.",
+  },
+  laws: {
+    name: "Closed-form laws check",
+    explains:
+      "Each sourced textbook law over values the design holds, such as electrical power, holds; a law still on probation only warns.",
   },
 };
 

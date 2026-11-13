@@ -35,6 +35,7 @@ from physgate.gate.catalogue import (
 )
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
+from physgate.gate.laws import load_laws
 from physgate.gate.runner import PhysicsGate
 from physgate.orchestrator.protocols import UncheckedDetails
 
@@ -77,7 +78,7 @@ def test_the_list_is_closed_and_every_suffix_has_one_kind_and_a_source() -> None
         "loop_rate",
         "specific_power",
         "reduction_ratio",
-        "charge_capacity",
+        "battery_capacity",
         "winding_resistance",
         "eddy_current",
         "motor_current_draw",
@@ -132,9 +133,9 @@ def test_a_suffix_word_inside_the_name_holds_it_to_nothing(tmp_path: Path) -> No
 def test_the_suffixes_are_part_of_the_catalogue_digest(monkeypatch: pytest.MonkeyPatch) -> None:
     import physgate.gate.catalogue as catalogue
 
-    before = catalogue_digest()
+    before = catalogue_digest(load_laws())
     monkeypatch.setattr(catalogue, "SUFFIXES", SUFFIXES[:-1])
-    assert catalogue_digest() != before
+    assert catalogue_digest(load_laws()) != before
 
 
 def test_a_battery_voltage_written_in_watts_is_recorded_unchecked_naming_the_suffix(

@@ -31,7 +31,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.orchestrator.gate_events import GateEvent
-from physgate.orchestrator.protocols import CheckName, RunningGateMode
+from physgate.orchestrator.protocols import LAST_CHECK, CheckName, RunningGateMode
 
 Count = Annotated[int, Field(ge=0)]
 #: One attempt, in one run, that a verdict belongs to.
@@ -44,7 +44,7 @@ class CatchRow(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     gate_mode: RunningGateMode
-    check: Annotated[int, Field(ge=1, le=7)] | None
+    check: Annotated[int, Field(ge=1, le=LAST_CHECK)] | None
     name: CheckName | Literal["all"]
     #: Gate calls in which this check ran, one per scope it ran at.
     checks_run: Count

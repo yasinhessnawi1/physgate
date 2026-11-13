@@ -22,6 +22,7 @@ from knowledge_fixture import build_fixture_library
 from stand_in_roles import stand_in_roles
 
 from physgate import roles
+from physgate.gate import laws
 from physgate.orchestrator.cli import _harness_root
 from physgate.orchestrator.git import harness_git
 from physgate.orchestrator.run_config import HarnessState, harness_state
@@ -83,6 +84,22 @@ def _decompose_against_the_fixture_library(
     that role throughout. A test of the real library asks for it explicitly.
     """
     monkeypatch.setattr("physgate.orchestrator.cli._library_root", lambda: fixture_library)
+
+
+@pytest.fixture
+def no_law_table(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """For one test, the law table the gate loads wherever a caller names none holds no law.
+
+    A test that pins bytes the law table also feeds (the decomposition prompt, or a gate
+    result's records and digest) pins them as they are with no law, so a person promoting a law
+    does not turn it red. What a law adds to them is pinned by the laws' own tests, against the
+    table in this checkout.
+    """
+    root = tmp_path_factory.mktemp("no-law-table")
+    (root / "laws.toml").write_text("[meta]\nformat = 1\n", encoding="utf-8")
+    (root / "promotions.jsonl").write_text("", encoding="utf-8")
+    monkeypatch.setattr(laws, "LAWS_PATH", root / "laws.toml")
+    monkeypatch.setattr(laws, "PROMOTIONS_PATH", root / "promotions.jsonl")
 
 
 @pytest.fixture(scope="session", autouse=True)

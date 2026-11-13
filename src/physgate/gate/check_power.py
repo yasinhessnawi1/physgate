@@ -276,6 +276,12 @@ def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
     A node holding both quantities is judged against its own limit; a stall current with no
     limit on its node or on a node its edges name is recorded as unchecked.
 
+    A motor's peak stall current, at full duty and its supply's highest voltage, is judged the
+    same way under its own relation, where a node holds it: a driver's peak rating and a fuse
+    are judged at the peak, while the design sizes for the stall at the command limit's duty.
+    Its records say "peak stall current" and "at full duty"; a stall current's say what they
+    said before.
+
     Named limits:
 
     - **An aggregate node.** A node that holds a consumer's stall current beside some other
@@ -290,6 +296,8 @@ def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
     - **A supply in between.** Only the supply the motor's own edge names is read; a limit
       two hops away, past a regulator that declares none, is not.
     """
+    peak = instance.relation.name == "peak_current_limit"
+    said = "peak stall" if peak else "stall"
     if instance.missing:
         return Observation(
             outcome="unchecked",
@@ -298,7 +306,8 @@ def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
             value=None,
             expected=None,
             message=(
-                f"the stall current of {instance.subject} cannot be checked: no current_limit "
+                f"the {said} current of {instance.subject} cannot be "
+                "checked: no current_limit "
                 "is declared on its node or on a node its constrains edges name, so nothing "
                 "bounds it"
             ),
@@ -335,14 +344,16 @@ def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
         if consumer.node == instance.subject
         else f"the {shown_limit} A current limit of {instance.subject}"
     )
+    # The peak is the stall at full duty and the supply's highest voltage, and says so.
+    at = " at full duty and its supply's highest voltage" if peak else ""
     return Observation(
         outcome="fail",
         node=instance.subject,
         module=view.module_of(instance.subject),
         value=over,
-        expected=f"a stall current of at most the {shown_limit} A current limit",
+        expected=f"a {said} current of at most the {shown_limit} A current limit",
         message=(
-            f"{consumer.node} stalls at {shown_stall} A, more than {whose} by {over.value} A: "
+            f"{consumer.node} stalls at {shown_stall} A{at}, more than {whose} by {over.value} A: "
             "at stall a motor has no back-EMF and draws its stall current, which its supply "
             "is not rated to deliver"
         ),
@@ -399,6 +410,7 @@ JUDGES = {
     "supply_covered": _judge_covered,
     "source_rating": _judge_rating,
     "current_limit": _judge_headroom,
+    "peak_current_limit": _judge_headroom,
     "discharge_rate": _judge_discharge,
 }
 #: Relations about one node's own numbers: at module scope they are judged for
@@ -406,7 +418,7 @@ JUDGES = {
 OWN = {"supply_covered", "source_rating", "discharge_rate"}
 #: Relations between two components: at module scope they are judged wherever the
 #: attempt affected either side.
-BETWEEN = {"current_limit"}
+BETWEEN = {"current_limit", "peak_current_limit"}
 SECONDS_PER_HOUR = Fraction(3600)
 
 

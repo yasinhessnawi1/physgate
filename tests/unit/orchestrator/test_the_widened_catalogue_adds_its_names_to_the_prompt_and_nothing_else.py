@@ -28,10 +28,11 @@ from __future__ import annotations
 
 import hashlib
 
+import law_library_names
 import pytest
 
 from physgate import roles
-from physgate.gate.catalogue import QUALIFIERS
+from physgate.gate.catalogue import QUALIFIERS, RELATIONS
 from physgate.orchestrator.decompose import (
     UNIT_SPELLING_SENTENCE,
     bounds_sentence,
@@ -39,6 +40,10 @@ from physgate.orchestrator.decompose import (
     prompt_for,
     relations_sentence,
 )
+
+#: The bytes pinned here are the prompt with no law in the table: a promoted law adds its
+#: own paragraph, which the law prompt's tests pin against the table in this checkout.
+pytestmark = pytest.mark.usefixtures("no_law_table")
 
 BRIEF = "Build a robot."
 
@@ -139,6 +144,11 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def _relations_before_the_peak() -> str:
+    """The relations sentence without the peak headroom, which check 4 gained after (07.11.2026)."""
+    return relations_sentence().replace(f"; {RELATIONS['peak_current_limit'].statement}", "")
+
+
 def _base_sentence() -> str:
     """The catalogue sentence at a64e805f, rebuilt from its groups in the order it had."""
     groups = "; ".join(f"{label}: {', '.join(names)}" for label, names in BASE_ORDER)
@@ -169,7 +179,11 @@ def test_the_base_sentence_is_rebuilt_byte_for_byte() -> None:
 
 
 def test_the_catalogue_sentence_gains_the_new_names_and_kind_labels_and_nothing_else() -> None:
-    assert _groups(catalogue_sentence()) == WIDENED_GROUPS
+    # The law library's names (07.11.2026) came after, with their own test; without them, the
+    # sentence's groups are the widening's.
+    later = set(law_library_names.NAMES)
+    groups = {label: names - later for label, names in _groups(catalogue_sentence()).items()}
+    assert {label: names for label, names in groups.items() if names} == WIDENED_GROUPS
 
 
 def test_the_added_words_sentence_says_what_the_gate_reads_of_such_a_name() -> None:
@@ -187,20 +201,24 @@ def test_the_qualifier_words_in_the_prompt_are_the_catalogue_s_own() -> None:
 def test_the_bounds_and_relations_sentences_are_unchanged() -> None:
     # Guard: no envelope, range or relation is added.
     assert _sha(bounds_sentence()) == BOUNDS_SENTENCE_SHA256
-    assert _sha(relations_sentence()) == RELATIONS_SENTENCE_SHA256
+    # The peak headroom check 4 gained since (07.11.2026) is the one relation added; its own
+    # test pins the sentence with it.
+    assert _sha(_relations_before_the_peak()) == RELATIONS_SENTENCE_SHA256
 
 
 @pytest.mark.parametrize("run_roles", sorted(BASE_PROMPT_SHA256), ids=", ".join)
 def test_every_other_byte_of_the_prompt_is_as_it_was(
     run_roles: tuple[str, ...], sizing_registered: None
 ) -> None:
-    # Guard: with the catalogue sentence put back as it was, and without the sentence on how a
-    # unit is spelt (added 12.11.2026), the prompt is a64e805f's.
+    # Guard: with the catalogue sentence put back as it was, the relations sentence without the
+    # peak headroom added since, and without the sentence on how a unit is spelt (added
+    # 12.11.2026), the prompt is a64e805f's.
     prompt = prompt_for(BRIEF, run_roles)
     assert prompt.count(catalogue_sentence()) == 1
+    assert prompt.count(relations_sentence()) == 1
     assert prompt.count(f"{UNIT_SPELLING_SENTENCE} ") == 1
     prompt = prompt.replace(f"{UNIT_SPELLING_SENTENCE} ", "")
-    assert (
-        _sha(prompt.replace(catalogue_sentence(), _base_sentence()))
-        == (BASE_PROMPT_SHA256[run_roles])
+    before = prompt.replace(catalogue_sentence(), _base_sentence()).replace(
+        relations_sentence(), _relations_before_the_peak()
     )
+    assert _sha(before) == BASE_PROMPT_SHA256[run_roles]

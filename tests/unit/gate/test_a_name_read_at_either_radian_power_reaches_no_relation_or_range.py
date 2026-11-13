@@ -12,7 +12,7 @@ Two invariants the wider reading loosened are held here too:
 - the relation guard in ``relations.measured`` refuses a term the catalogue does not name. It
   asked whether the name has a kind, which a qualified name now has (``stall_current_max``);
 - what ``EITHER_ANGLE`` holds changes how a name is read, as the qualifier words do, so it is part
-  of ``catalogue_digest()`` (the build STOP's first fix order).
+  of ``catalogue_digest(load_laws())`` (the build STOP's first fix order).
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from physgate.gate.bounds_table import load_bounds
 from physgate.gate.catalogue import KINDS, QUANTITIES, SUFFIXES, catalogue_digest, kind_of
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
+from physgate.gate.laws import load_laws
 from physgate.gate.relations import TermRef, measured
 
 
@@ -110,8 +111,8 @@ def test_a_term_the_catalogue_does_not_name_is_refused_by_the_relation_guard(
 def test_what_is_read_at_either_power_is_part_of_the_catalogue_digest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    before = catalogue_digest()
+    before = catalogue_digest(load_laws())
     either = catalogue.EITHER_ANGLE
     emptied: object = {} if isinstance(either, Mapping) else ()
     monkeypatch.setattr(catalogue, "EITHER_ANGLE", emptied)
-    assert catalogue_digest() != before
+    assert catalogue_digest(load_laws()) != before

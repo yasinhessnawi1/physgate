@@ -36,8 +36,12 @@ from escalation_paths import (
 )
 from stand_in_drive_plan import DRIVE_MODULE, POWER_BUS
 
+from physgate.gate import check_laws
 from physgate.gate.catalogue import catalogue_digest
+from physgate.gate.laws import load_laws
+from physgate.gate.registry import CADENCE
 from physgate.orchestrator import decompose
+from physgate.orchestrator.protocols import CHECK_NUMBERS, CheckRecord, PassDetails
 
 #: Event kinds the escalation interface writes, absent from the golden file by
 #: construction: one decision line at every attempt end that did not merge.
@@ -139,10 +143,15 @@ def _as_the_gate_now_judges(event: dict[str, Any]) -> dict[str, Any]:
     joins the count of those evaluated, and one that joins it leaves that count; the unchecked
     record itself is dropped when its list is empty. Which quantities have a bound is read
     from the gate's own tables, so the rule is the one sentence above, not a list of names.
+
+    The closed-form laws check runs after propagation, at module and system scope. The test
+    holds the law table empty, so at each of those scopes the gate ran at it writes one pass that
+    judged nothing, after every other record: what a law writes is the laws check's tests'
+    business, and this test's is the loop.
     """
     if event.get("kind") not in ("gate_ran", "integration_gate_ran"):
         return event
-    result = {**event["result"], "catalogue_sha256": catalogue_digest()}
+    result = {**event["result"], "catalogue_sha256": catalogue_digest(load_laws())}
     checks: list[dict[str, Any]] = []
     moved: dict[str, int] = {}
     for record in result["checks"]:
@@ -181,6 +190,26 @@ def _as_the_gate_now_judges(event: dict[str, Any]) -> dict[str, Any]:
             and (r["name"], r["scope"]) in unchecked
         )
     ]
+    ran_at = {r["scope"] for r in checks}
+    checks.extend(
+        CheckRecord(
+            check=CHECK_NUMBERS["laws"],
+            name="laws",
+            scope=scope,
+            outcome="pass",
+            blocking=on_failure == "block",
+            node=None,
+            module=None,
+            value=None,
+            expected=None,
+            tool=check_laws.TOOL,
+            message="the laws check found nothing wrong (0 evaluated)",
+            gate_mode=result["mode"],
+            details=PassDetails(evaluated=0),
+        ).model_dump(mode="json")
+        for scope, on_failure in CADENCE["laws"].items()
+        if scope in ran_at
+    )
     return {**event, "result": {**result, "checks": checks}}
 
 
@@ -254,6 +283,7 @@ def test_every_path_reaches_the_queue_exactly_as_before(name: str, tmp_path: Pat
     assert differences(comparable(golden), comparable(now)) == []
 
 
+@pytest.mark.usefixtures("no_law_table")
 def test_the_real_gate_s_three_modes_reach_the_queue_exactly_as_before(tmp_path: Path) -> None:
     from ui_three_mode_rig import three_mode_runs  # noqa: PLC0415 - real git and gate
 
