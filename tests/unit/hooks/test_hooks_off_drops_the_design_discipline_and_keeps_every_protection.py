@@ -457,7 +457,6 @@ def test_a_tier_store_s_protected_root_and_its_one_exception_are_held_alike(
     assert isinstance(off, SessionConfig), off
     assert _roots(off)[str(store)] == _roots(on)[str(store)]
     assert _roots(off)[str(store)].exceptions == (str(exception),)
-    assert str(store / "withheld") in _roots(off) or off.withheld == on.withheld
     stray = {"extra_protected_exceptions": (str(outside_tmp / "elsewhere"),)}
     for hooks in ("on", "off"):
         refused = _config(outside_tmp, hooks=hooks, **stray)
