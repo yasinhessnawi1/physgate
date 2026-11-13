@@ -32,7 +32,7 @@ from design_fixtures import offline_prefix, quiet_environment
 from physgate.toolenv.manifest import manifest, scan
 
 try:
-    import design_reference
+    design_reference: ModuleType | None = importlib.import_module("design_reference")
 except ImportError:  # the red rows run before the script exists
     design_reference = None
 

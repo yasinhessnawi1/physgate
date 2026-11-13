@@ -20,10 +20,12 @@ bytes. The environment is as it was.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
 import shutil
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -34,7 +36,7 @@ from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 from physgate.knowledge import loader
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
-from physgate.orchestrator.git import commit_all, git
+from physgate.orchestrator.git import commit_all, git, merge_base, verified_git_dir
 from physgate.orchestrator.install import prepare_install
 from physgate.orchestrator.invocation import claude_binary
 from physgate.orchestrator.merge import RunGit, admitted_exports
@@ -47,7 +49,7 @@ from physgate.state.store import Store
 from physgate.toolenv.manifest import scan
 
 try:
-    import design_reference
+    design_reference: ModuleType | None = importlib.import_module("design_reference")
 except ImportError:  # the red rows run before the script exists
     design_reference = None
 
@@ -119,14 +121,17 @@ def _dispatch(
 
 
 def _built_append(path: Path) -> dict[str, Any]:
-    """A command that appends to ``path`` by a name it builds as it runs."""
+    """A command that appends to ``path`` by a name it builds as it runs, in pieces of three.
+
+    No piece names the environment, so the hooks, which refuse a command naming it, let the
+    command through, and what stops the write is the OS layer.
+    """
     whole = str(path)
-    half = len(whole) // 2
+    pieces = "".join(f"$(printf %s '{whole[k : k + 3]}')" for k in range(0, len(whole), 3))
     return tool(
         "Bash",
         command=(
-            f"p=$(printf %s '{whole[:half]}')$(printf %s '{whole[half:]}'); "
-            '(echo changed >> "$p") 2>/dev/null && echo REF-WRITTEN || echo REF-DENIED'
+            f'p={pieces}; (echo changed >> "$p") 2>/dev/null && echo REF-WRITTEN || echo REF-DENIED'
         ),
     )
 
@@ -210,15 +215,18 @@ def test_a_session_builds_measures_and_exports_and_its_review_names_each_export_
     assert measured["reference"]["sha256"] == digest
     assert measured["reference"]["file"] == f"reference/{design_reference.BALBOA_FILE}"
     # The commit-time rule admits each export, and the review names each on one line.
-    base = git(run.repo, "rev-parse", f"{commit}^")
-    admitted = admitted_exports(run.repo, base, commit, MODULE)
+    # Read as the change check reads it: through the verified git directory, from the run
+    # branch's merge base.
+    pinned = verified_git_dir(run.repo, linked=False)
+    base = merge_base(run.repo, run.run_branch, commit, git_dir=pinned)
+    admitted = admitted_exports(run.repo, base, commit, MODULE, git_dir=pinned)
     assert sorted(a.path for a in admitted) == sorted(f"{MODULE}/{p}" for p in exported)
-    diff = packet._diff(run.repo, base, commit, frozenset((a.path, a.sha256) for a in admitted))
+    diff = packet._diff(pinned, base, commit, frozenset((a.path, a.sha256) for a in admitted))
     shown = diff.decode("utf-8", errors="replace").splitlines()
     assert shown.count(packet.EXPORTS_HEADER) == 1
-    named = [line for line in shown if line.startswith("exported file ")]
-    assert len(named) == len(exported), named
-    for line in named:
+    lines_named = [line for line in shown if line.startswith("exported file ")]
+    assert len(lines_named) == len(exported), lines_named
+    for line in lines_named:
         assert ": added, " in line and "sha256 " in line, line
         assert "free text 0 bytes" in line, line
     assert "ISO-10303-21" not in "\n".join(shown)

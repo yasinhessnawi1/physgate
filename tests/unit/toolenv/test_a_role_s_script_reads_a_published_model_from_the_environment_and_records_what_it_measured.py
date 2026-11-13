@@ -65,7 +65,7 @@ def _helpers_in(env: Path) -> ModuleType:
     sys.modules["geometry"] = module
     spec.loader.exec_module(module)
     # The kernel is the tool environment's, not the harness's: its versions are stood in for.
-    module.library_versions = lambda: dict(LIBRARIES)
+    setattr(module, "library_versions", lambda: dict(LIBRARIES))  # noqa: B010
     return module
 
 
@@ -199,9 +199,15 @@ def test_a_measurement_with_no_rule_a_verdict_or_a_number_that_is_not_one_is_ref
 
 def test_a_measurement_names_its_file_as_the_helper_found_it(env: Path) -> None:
     geometry = _helpers_in(env)
-    for entry in ({}, {"file": "reference/kit.step"}, {**_entry(), "sha256": "x"}):
-        found = _raised(
-            lambda entry=entry: _reference_result(geometry)(
+    entries: list[dict[str, Any]] = [
+        {},
+        {"file": "reference/kit.step"},
+        {**_entry(), "sha256": "x"},
+    ]
+    for entry in entries:
+
+        def measured(entry: dict[str, Any] = entry) -> object:
+            return _reference_result(geometry)(
                 "the gear centre distance",
                 entry,
                 method=["a rule"],
@@ -209,7 +215,8 @@ def test_a_measurement_names_its_file_as_the_helper_found_it(env: Path) -> None:
                 inputs={},
                 assumptions=[],
             )
-        )
+
+        found = _raised(measured)
         assert isinstance(found, geometry.HelperRefusedError), (entry, repr(found))
 
 
