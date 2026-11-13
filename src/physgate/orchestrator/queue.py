@@ -32,6 +32,7 @@ import errno
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import stat
@@ -352,6 +353,9 @@ def declared_problem(name: str, stated: DeclaredValue) -> str | None:
             f"{name!r} shadows {shadowed[0][1]!r}, a quantity a relation reads; it is named "
             "by the catalogue's name"
         )
+    value = stated.value
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        return f"{name!r}: the value must be a finite number, not {value!r}"
     kind = kind_of(name)
     try:
         if kind is None:

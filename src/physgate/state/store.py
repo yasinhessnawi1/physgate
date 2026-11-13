@@ -67,7 +67,14 @@ from physgate.state.protocol import (
     WriteResult,
     canonical_json,
 )
-from physgate.state.schema import quantities_are_valid, validate_node, validate_node_id
+from physgate.state.schema import (
+    REJECT_DECLARED_FORGED,
+    declared_refusal,
+    forged_sources,
+    quantities_are_valid,
+    validate_node,
+    validate_node_id,
+)
 from physgate.unit_spelling import as_product, canonical_unit
 
 # A node payload is a plain JSON object on the way in and on the way out. The
@@ -87,28 +94,9 @@ REJECT_DECLARE_REFUSED = "declare_refused"
 #: What :meth:`Store.write_node` refuses a quantity a person declared for: one it adds or turns
 #: into a declared one (forged), and one the node holds as declared that it changes or drops
 #: (fixed). Not the frozen workload's reasons: that workload holds no declared quantity.
-REJECT_DECLARED_FORGED = "declared_forged"
-REJECT_DECLARED_FIXED = "declared_fixed"
 #: The source a followed interface quantity carries: the node and attempt it was taken from.
 FOLLOWED_SOURCE = "followed from {node} at attempt {attempt}"
 _FOLLOWED = re.compile(r"^followed from (?P<node>\S+) at attempt (?P<attempt>[1-9][0-9]{0,8})$")
-
-
-def _declared_refusal(held: Mapping[str, Any], written: Mapping[str, Any]) -> str | None:
-    """Why a revision that writes ``written`` over ``held`` quantities touches a declared one.
-
-    A declared quantity is one that carries the record of a decision. ``declared_fixed`` for a
-    held one the revision changes in any field or drops; ``declared_forged`` for a declared one
-    the revision adds, or makes of a quantity that was not. ``None`` where every declared
-    quantity is as it stood and none is new. Only :meth:`Store.declare` writes one.
-    """
-    for name, quantity in held.items():
-        if quantity.get("declared") is not None and written.get(name) != quantity:
-            return REJECT_DECLARED_FIXED
-    for name, quantity in written.items():
-        if quantity.get("declared") is not None and held.get(name) != quantity:
-            return REJECT_DECLARED_FORGED
-    return None
 
 
 def written_quantity(quantity: Mapping[str, Any]) -> str:
@@ -930,14 +918,17 @@ class Store:
                 return WriteResult(False, None, REJECT_INTERFACE_IMMUTABLE)
 
         if not quantities_are_valid(node):
+            # The reserved source without the decision behind it is a forgery, not a bare number.
+            if forged_sources(node):
+                return WriteResult(False, None, REJECT_DECLARED_FORGED)
             return WriteResult(False, None, REJECT_MISSING_UNIT)
 
         validate_node(node)
 
         held = {} if known is None else self._read_node(node_id).get("quantities", {})
-        refused_for = _declared_refusal(held, node.get("quantities", {}))
+        refused_for = declared_refusal(held, node.get("quantities", {}))
         if refused_for is not None:
-            return WriteResult(False, None, refused_for)
+            return WriteResult(False, None, refused_for[0])
 
         version = 1 if known is None else known[1] + 1
         rev = self._append("create" if known is None else "write", node_id, version, node)

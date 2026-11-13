@@ -313,6 +313,83 @@ def validate_node_id(node_id: object) -> str:
     return node_id
 
 
+#: What a refusal of a quantity a person declared for is called, wherever it is made: one a
+#: revision adds or turns into a declared one (forged), and one the node holds as declared that
+#: it changes or drops (fixed). Not the frozen workload's reasons: that holds no declared one.
+REJECT_DECLARED_FORGED = "declared_forged"
+REJECT_DECLARED_FIXED = "declared_fixed"
+
+
+def declared_refusal(
+    held: dict[str, Any], written: dict[str, Any]
+) -> tuple[str, tuple[str, ...]] | None:
+    """Why a revision writing ``written`` over the ``held`` quantities touches a declared one.
+
+    ``(reason, the quantities' names)``: ``declared_fixed`` for a held declared quantity the
+    revision changes in any field or drops, ``declared_forged`` for a declared one it adds or
+    makes of a quantity that was not. ``None`` where every declared quantity stands as it did
+    and none is new. Only ``Store.declare`` writes one.
+    """
+    fixed = tuple(
+        name
+        for name, quantity in held.items()
+        if isinstance(quantity, dict)
+        and quantity.get("declared") is not None
+        and written.get(name) != quantity
+    )
+    if fixed:
+        return REJECT_DECLARED_FIXED, fixed
+    forged = tuple(
+        name
+        for name, quantity in written.items()
+        if isinstance(quantity, dict)
+        and quantity.get("declared") is not None
+        and held.get(name) != quantity
+    )
+    return (REJECT_DECLARED_FORGED, forged) if forged else None
+
+
+def forged_sources(payload: dict[str, Any]) -> tuple[str, ...]:
+    """The quantities of ``payload`` that take the reserved source, or one that imitates it.
+
+    Called where a quantity is already known to be malformed: a quantity that claims the
+    reserved source without the decision behind it is forged, and is not a missing unit.
+    """
+    quantities = payload.get("quantities") or {}
+    if not isinstance(quantities, dict):
+        return ()
+    found = []
+    for name, entry in quantities.items():
+        if not isinstance(entry, dict):
+            continue
+        source = entry.get("source")
+        if not isinstance(source, str) or not (
+            source == DECLARED_SOURCE or imitates_declared(source)
+        ):
+            continue
+        try:
+            Quantity.model_validate(entry)
+        except Exception:  # noqa: BLE001 - any validation failure is the answer
+            found.append(str(name))
+    return tuple(found)
+
+
+def declared_message(reason: str, names: tuple[str, ...]) -> str:
+    """What a session reads when its write touches a declared quantity: it can repair it."""
+    told = ", ".join(names)
+    if reason == REJECT_DECLARED_FIXED:
+        return (
+            f"{told}: a declared part is fixed by a person. Write the node with each declared "
+            "quantity exactly as it stands (value, unit, source and record), and keep to "
+            "quantities of your own beside it."
+        )
+    return (
+        f"{told}: a quantity is declared only by a person's recorded decision, never by a session. "
+        "Write the quantity under your own source, or leave it out; declared parts are fixed by a "
+        "person."
+    )
+
+
 def quantities_are_valid(payload: dict[str, Any]) -> bool:
     """True if every quantity in ``payload`` is a well-formed quantity.
 

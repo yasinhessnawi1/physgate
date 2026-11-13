@@ -29,8 +29,13 @@ order, so a refused proposal is refused for the reason the store would give:
    completion declaration;
 6. an existing interface node is not written at all;
 7. every quantity is a value with a unit, a source and a writer — a bare number
-   is refused here, with the schema's own message;
-8. no quantity's name shadows one a relation reads: a name the catalogue lacks
+   is refused here, with the schema's own message; the reserved source without
+   the decision behind it is ``declared_forged``;
+8. a session leaves each declared quantity as it stands and declares none: a
+   quantity added or turned into a declared one is ``declared_forged``, one
+   changed or dropped is ``declared_fixed``, and the message names it and says
+   declared parts are fixed by a person, so the session repairs the proposal;
+9. no quantity's name shadows one a relation reads: a name the catalogue lacks
    that is a misspelling of a relation's quantity (``stall_currnt``,
    ``currentlimit``, ``supported_mas``: within two insertions or deletions of a
    quantity longer than five characters, underscores ignored; ``mess``, ``moss``,
@@ -41,7 +46,7 @@ order, so a refused proposal is refused for the reason the store would give:
    uncatalogued name is written, and the gate records it as unchecked. This rule
    is the hook's and the orchestrator's, not the store's: a corpus written
    straight into a store is unaffected;
-9. the node as a whole is valid.
+10. the node as a whole is valid.
 
 The current owner and kind come from the journal, read without opening the
 store. The ownership rules (2 to 5) are a list, so a rule the architecture adds
@@ -344,7 +349,15 @@ def _check(proposal: object, file_stem: str, config: ConfigView) -> tuple[str, s
         MissingUnitError,
     )
     from physgate.state.protocol import REJECT_INTERFACE_IMMUTABLE, REJECT_MISSING_UNIT
-    from physgate.state.schema import quantities_are_valid, validate_node, validate_node_id
+    from physgate.state.schema import (
+        REJECT_DECLARED_FORGED,
+        declared_message,
+        declared_refusal,
+        forged_sources,
+        quantities_are_valid,
+        validate_node,
+        validate_node_id,
+    )
 
     if not isinstance(proposal, dict):
         return "invalid", NOT_JSON
@@ -365,12 +378,21 @@ def _check(proposal: object, file_stem: str, config: ConfigView) -> tuple[str, s
         )
         return REJECT_INTERFACE_IMMUTABLE, str(immutable)
     if not quantities_are_valid(proposal):
+        forged = forged_sources(proposal)
+        if forged:
+            return REJECT_DECLARED_FORGED, declared_message(REJECT_DECLARED_FORGED, forged)
         refusal = MissingUnitError(
             "every quantity is a value with a unit, a source and the role that wrote it; "
             + _quantity_problems(proposal),
             node_id=node_id,
         )
         return REJECT_MISSING_UNIT, str(refusal)
+    declared = declared_refusal(
+        {} if current is None else current[2].get("quantities") or {},
+        proposal.get("quantities") or {},
+    )
+    if declared is not None:
+        return declared[0], declared_message(*declared)
     shadowed = _shadowing_quantities(proposal)
     if shadowed:
         return SHADOWED_QUANTITY, shadowed

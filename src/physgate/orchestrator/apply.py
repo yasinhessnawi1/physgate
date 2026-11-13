@@ -53,7 +53,7 @@ import hashlib
 import json
 import re
 import shutil
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from physgate import roles
@@ -106,7 +106,15 @@ from physgate.state.protocol import (
     REJECT_INTERFACE_IMMUTABLE,
     REJECT_MISSING_UNIT,
 )
-from physgate.state.schema import quantities_are_valid, validate_node, validate_node_id
+from physgate.state.schema import (
+    REJECT_DECLARED_FORGED,
+    declared_message,
+    declared_refusal,
+    forged_sources,
+    quantities_are_valid,
+    validate_node,
+    validate_node_id,
+)
 
 # A node payload is typed as the store's frozen interface types it: a plain JSON
 # object, given its structure by the node schema, which validates it here.
@@ -301,11 +309,13 @@ def _ownership_refusal(payload: Payload, fixed: _Fixed, role: str) -> _Refusal:
     return None
 
 
-def _content_refusal(payload: Payload, path: str) -> None:
-    """Refuse a malformed quantity, then a shadowing name, then any other invalid field.
+def _content_refusal(payload: Payload, path: str, held: Mapping[str, Payload]) -> None:
+    """Refuse a malformed quantity, a declared one touched, a shadowing name, or any fault.
 
     The hook's order after ownership: a quantity that is not a value with a unit, a source
-    and a writer; a name that shadows a relation's quantity; the node as a whole.
+    and a writer (the reserved source without its decision is a forgery); a declared quantity
+    added, changed or dropped against the ``held`` ones; a name that shadows a relation's
+    quantity; the node as a whole.
 
     Raises:
         ProposalRefusedError: the first of these ``payload`` breaks.
@@ -316,7 +326,21 @@ def _content_refusal(payload: Payload, path: str) -> None:
     except (DesignStateError, ValueError) as exc:
         problem = f"{path} is not a valid node: {exc}"
     if problem is not None and not quantities_are_valid(payload):
+        forged = forged_sources(payload)
+        if forged:
+            raise ProposalRefusedError(
+                f"{path} {declared_message(REJECT_DECLARED_FORGED, forged)}",
+                str(payload["id"]),
+                REJECT_DECLARED_FORGED,
+            )
         raise ProposalRefusedError(problem, path, REJECT_MISSING_UNIT)
+    declared = declared_refusal(dict(held), payload.get("quantities") or {})
+    if declared is not None:
+        raise ProposalRefusedError(
+            f"{path} is refused ({declared[0]}): {declared_message(*declared)}",
+            str(payload["id"]),
+            declared[0],
+        )
     shadowed = shadowing_names(payload.get("quantities") or {})
     if shadowed:
         told = "; ".join(
@@ -361,6 +385,7 @@ def read_proposals(
             owner of completion, rewrites an interface node, or is not a valid node.
     """
     fixed = _fixed(store_root)
+    journal_heads = heads(str(store_root))
     found: list[Payload] = []
     for change in changes_between(repo, base, commit, git_dir=git_dir):
         named = _PROPOSAL.fullmatch(change.path)
@@ -389,7 +414,10 @@ def read_proposals(
         if refused is not None:
             reason, said = refused
             raise ProposalRefusedError(f"{change.path} {said}", named["id"], reason)
-        _content_refusal(payload, change.path)
+        head = journal_heads.get(named["id"])
+        _content_refusal(
+            payload, change.path, {} if head is None else head[2].get("quantities", {})
+        )
         found.append(payload)
     return sorted(found, key=lambda p: str(p["id"]))
 
