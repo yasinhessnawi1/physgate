@@ -119,7 +119,10 @@ def test_the_macos_profile_denies_the_network_every_write_but_its_own_and_every_
     server_dir = str(root / "temps" / OWN / "servers" / "probe")
     denied = (str(root / "held-out"), str(root / "temps"))
     profile = seatbelt_profile(
-        read_denied=denied, server_dir=server_dir, devices=serial_devices("darwin")
+        read_denied=denied,
+        server_dir=server_dir,
+        devices=serial_devices("darwin"),
+        command="/usr/bin/python3",
     )
     lines = [line.strip() for line in profile.splitlines() if line.strip()]
     assert lines[:1] == ["(version 1)"], profile
@@ -136,7 +139,11 @@ def test_the_macos_profile_denies_the_network_every_write_but_its_own_and_every_
         assert any(
             line.startswith("(deny file-read*") and f'(subpath "{path}")' in line for line in lines
         ), path
-    own_reads = [i for i, line in enumerate(lines) if line.startswith("(allow file-read*")]
+    own_reads = [
+        i
+        for i, line in enumerate(lines)
+        if line.startswith("(allow file-read*") and f'(subpath "{server_dir}")' in line
+    ]
     assert len(own_reads) == 1, profile
     own_read = own_reads[0]
     last_read_deny = max(i for i, line in enumerate(lines) if line.startswith("(deny file-read*"))
@@ -149,10 +156,41 @@ def test_the_macos_profile_denies_the_network_every_write_but_its_own_and_every_
 
 @pytest.mark.parametrize("bad", ['/x/"y', "/x/\\y", "/x/\ny"])
 def test_a_path_the_profile_cannot_quote_is_refused(root: Path, bad: str) -> None:
+    python = "/usr/bin/python3"
     with pytest.raises(ContainmentError):
-        seatbelt_profile(read_denied=(bad,), server_dir=str(root), devices=())
+        seatbelt_profile(read_denied=(bad,), server_dir=str(root), devices=(), command=python)
     with pytest.raises(ContainmentError):
-        seatbelt_profile(read_denied=(), server_dir=bad, devices=())
+        seatbelt_profile(read_denied=(), server_dir=bad, devices=(), command=python)
+    with pytest.raises(ContainmentError):
+        seatbelt_profile(read_denied=(), server_dir=str(root), devices=(), command=bad)
+    with pytest.raises(ContainmentError):
+        seatbelt_profile(
+            read_denied=(), server_dir=str(root), devices=(), command=python, exec_roots=(bad,)
+        )
+
+
+@pytest.mark.parametrize("bad", ['/dev/cu."))(allow default)', "/dev/cu.(x)", "cu.*", "/dev/a\\b"])
+def test_a_device_pattern_the_profile_cannot_hold_is_refused(root: Path, bad: str) -> None:
+    with pytest.raises(ContainmentError):
+        seatbelt_profile(
+            read_denied=(), server_dir=str(root), devices=(bad,), command="/usr/bin/python3"
+        )
+
+
+def test_a_server_that_names_no_command_is_refused(root: Path) -> None:
+    with pytest.raises(ContainmentError):
+        seatbelt_profile(read_denied=(), server_dir=str(root), devices=(), command="")
+
+
+def test_a_path_holding_parentheses_stays_one_quoted_path(root: Path) -> None:
+    # A parenthesis inside a quoted string is a character of the path, not a rule.
+    odd = str(root / "a) (allow default) (b")
+    profile = seatbelt_profile(
+        read_denied=(odd,), server_dir=str(root / "own"), devices=(), command="/usr/bin/python3"
+    )
+    lines = [line.strip() for line in profile.splitlines()]
+    assert f'(deny file-read* (subpath "{odd}"))' in lines, profile
+    assert "(allow default)" not in lines
 
 
 def test_the_linux_arguments_take_the_network_hide_each_denied_place_and_open_only_its_own(
@@ -165,8 +203,9 @@ def test_the_linux_arguments_take_the_network_hide_each_denied_place_and_open_on
         str(root / "temps"),
         str(root / "temps" / OWN / "inside"),  # beneath a hidden place: hidden with it
         str(secret),
-        str(root / "not-there"),
+        str(root / "elsewhere" / "not-there"),
     )
+    (root / "elsewhere").mkdir()
     args = bwrap_args(read_denied=denied, server_dir=str(server_dir))
     text = shlex.join(args)
     for option in ("--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-ipc"):
@@ -177,7 +216,8 @@ def test_the_linux_arguments_take_the_network_hide_each_denied_place_and_open_on
     assert f"--tmpfs {root / 'temps'}" in text
     assert f"--ro-bind /dev/null {secret}" in text
     assert str(root / "temps" / OWN / "inside") not in text
-    assert str(root / "not-there") not in text
+    assert str(root / "elsewhere" / "not-there") not in text
+    assert f"--tmpfs {root / 'elsewhere'}" in text
     bind = text.index(f"--bind {server_dir} {server_dir}")
     assert bind > text.index(f"--tmpfs {root / 'temps'}")
     # Each hidden place is made read-only last, after the server's directory is bound beneath it.

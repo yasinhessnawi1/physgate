@@ -41,6 +41,8 @@ SERVERS_DIR = "servers"
 #: What a path in a profile may hold: a quote, a backslash or a control character would end or
 #: bend the string it is written into.
 _UNQUOTABLE = re.compile(r'["\\\x00-\x1f\x7f]')
+#: A serial device's name pattern, as the device table holds them (``/dev/cu.*``).
+_DEVICE_PATTERN = re.compile(r"/dev/[A-Za-z0-9._-]*\*?[A-Za-z0-9._-]*")
 
 
 class ContainmentError(RuntimeError):
@@ -99,27 +101,143 @@ def _device_regex(pattern: str) -> str:
     return "^" + ".*".join(re.escape(part) for part in pattern.split("*")) + "$"
 
 
+#: The Mach services a contained server may look up: the sandbox runtime's own base list
+#: (0.0.79, the family the session's OS layer comes from), and no other. Launch Services' open,
+#: Apple events and launchd's own services are not on it, so ``open``, ``osascript`` and
+#: ``launchctl`` cannot act outside the sandbox from inside it.
+MACH_SERVICES = (
+    "com.apple.audio.systemsoundserver",
+    "com.apple.distributed_notifications@Uv3",
+    "com.apple.FontObjectsServer",
+    "com.apple.fonts",
+    "com.apple.logd",
+    "com.apple.lsd.mapdb",
+    "com.apple.PowerManagement.control",
+    "com.apple.system.logger",
+    "com.apple.system.notification_center",
+    "com.apple.system.opendirectoryd.libinfo",
+    "com.apple.system.opendirectoryd.membership",
+    "com.apple.bsd.dirhelper",
+    "com.apple.securityd.xpc",
+    "com.apple.coreservices.launchservicesd",
+    "com.apple.SecurityServer",
+)
+#: The system values a contained server may read, as the sandbox runtime's base lists them.
+SYSCTLS = (
+    "hw.activecpu",
+    "hw.busfrequency_compat",
+    "hw.byteorder",
+    "hw.cacheconfig",
+    "hw.cachelinesize_compat",
+    "hw.cpufamily",
+    "hw.cpufrequency",
+    "hw.cpufrequency_compat",
+    "hw.cputype",
+    "hw.l1dcachesize_compat",
+    "hw.l1icachesize_compat",
+    "hw.l2cachesize_compat",
+    "hw.l3cachesize_compat",
+    "hw.logicalcpu",
+    "hw.logicalcpu_max",
+    "hw.machine",
+    "hw.memsize",
+    "hw.ncpu",
+    "hw.nperflevels",
+    "hw.packages",
+    "hw.pagesize_compat",
+    "hw.pagesize",
+    "hw.physicalcpu",
+    "hw.physicalcpu_max",
+    "hw.tbfrequency_compat",
+    "hw.vectorunit",
+    "kern.argmax",
+    "kern.bootargs",
+    "kern.hostname",
+    "kern.maxfiles",
+    "kern.maxfilesperproc",
+    "kern.maxproc",
+    "kern.ngroups",
+    "kern.osproductversion",
+    "kern.osrelease",
+    "kern.ostype",
+    "kern.osvariant_status",
+    "kern.osversion",
+    "kern.secure_kernel",
+    "kern.tcsm_available",
+    "kern.tcsm_enable",
+    "kern.usrstack64",
+    "kern.version",
+    "kern.willshutdown",
+    "machdep.cpu.brand_string",
+    "machdep.ptrauth_enabled",
+    "security.mac.lockdown_mode_state",
+    "sysctl.proc_cputype",
+    "vm.loadavg",
+)
+SYSCTL_PREFIXES = (
+    "hw.optional.arm",
+    "hw.optional.arm.",
+    "hw.optional.armv8_",
+    "hw.perflevel",
+    "kern.proc.pgrp.",
+    "kern.proc.pid.",
+    "machdep.cpu.",
+)
+#: The devices a contained server may control, as the runtime's base names them.
+IOCTL_DEVICES = ("/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", "/dev/tty")
+
+
 def seatbelt_profile(
     *,
     read_denied: Sequence[str],
     server_dir: str,
     devices: Sequence[str],
-    command: str = "",
+    command: str,
     exec_roots: Sequence[str] = (),
 ) -> str:
-    """The Seatbelt profile a server runs under on macOS.
+    """The Seatbelt profile a server runs under on macOS: denied by default.
 
-    The last rule that matches an access decides, so each denial comes before the one place it
-    opens again. Every path is named as given and where it really is.
+    The sandbox runtime's own base profile, narrowed for a server: it runs its own command
+    and programs beneath its named roots, nothing else; it signals and inspects only processes
+    of its own sandbox; it looks up only the runtime's Mach services; no network, no POSIX IPC,
+    no Apple events, no registering a service. It reads everything but what the session's
+    commands may not read, and writes only its own directory and ``/dev/null``. The last rule
+    that matches an access decides, so each denial comes before the one place it opens again.
+    Every path is named as given and where it really is.
 
     Raises:
-        ContainmentError: a path holds a character the profile cannot quote.
+        ContainmentError: no command is named, a path holds a character the profile cannot
+            quote, or a device is named by more than a plain pattern.
     """
+    if not command:
+        msg = "a contained server names the command it runs"
+        raise ContainmentError(msg)
+    for pattern in devices:
+        if not _DEVICE_PATTERN.fullmatch(pattern):
+            msg = f"the device pattern {pattern!r} cannot be written into a sandbox profile"
+            raise ContainmentError(msg)
     own = " ".join(f"(subpath {_quoted(p)})" for p in _spellings(server_dir))
+    runs = [f"(literal {_quoted(p)})" for p in _spellings(command)]
+    runs += [f"(subpath {_quoted(p)})" for root in exec_roots for p in _spellings(root)]
     lines = [
         "(version 1)",
-        "(allow default)",
+        "(deny default)",
         "(deny network*)",
+        f"(allow process-exec {' '.join(runs)})",
+    ]
+    lines += [
+        "(allow process-fork)",
+        "(allow process-info* (target same-sandbox))",
+        "(allow signal (target same-sandbox))",
+        "(allow user-preference-read)",
+        "(allow mach-lookup " + " ".join(f'(global-name "{n}")' for n in MACH_SERVICES) + ")",
+        "(allow sysctl-read "
+        + " ".join(f'(sysctl-name "{n}")' for n in SYSCTLS)
+        + " "
+        + " ".join(f'(sysctl-name-prefix "{n}")' for n in SYSCTL_PREFIXES)
+        + ")",
+        "(allow file-ioctl " + " ".join(f'(literal "{d}")' for d in IOCTL_DEVICES) + ")",
+        "(allow file-read*)",
         "(deny file-write*)",
         f'(allow file-write* {own} (literal "/dev/null"))',
     ]
@@ -134,47 +252,89 @@ def seatbelt_profile(
     return "\n".join(lines) + "\n"
 
 
+#: The places bubblewrap makes afresh for a server, never bound from the machine.
+_FRESH = frozenset({"/dev", "/proc"})
+
+
+def _within(path: str, place: str) -> bool:
+    return path == place or path.startswith(place.rstrip("/") + "/")
+
+
+def _nearest_existing(path: str) -> str:
+    current = path
+    while not os.path.lexists(current):
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return current
+
+
+def _entries(place: str, left_out: set[str]) -> list[str]:
+    """Bind each entry ``place`` has now, read-only, but those left out; a link as a link."""
+    args: list[str] = []
+    for name in sorted(os.listdir(place)):
+        child = os.path.join(place, name)
+        if child in left_out or child in _FRESH:
+            continue
+        if os.path.islink(child):
+            args += ["--symlink", os.readlink(child), child]
+        else:
+            args += ["--ro-bind", child, child]
+    return args
+
+
 def bwrap_args(*, read_denied: Sequence[str], server_dir: str) -> list[str]:
     """The bubblewrap options a server runs under on Linux, before its command.
 
-    The whole filesystem read-only; a fresh ``/dev`` (no serial device in it) and a ``/proc`` of
-    a process namespace of its own, so no other process's root is a way out of the mounts; each
-    denied directory hidden under an empty filesystem and each denied file under ``/dev/null``,
-    a place beneath one already hidden left to it; no network namespace but its own loopback;
-    the server's directory bound writable; and each hidden place made read-only last, after the
-    server's directory is bound beneath it. No new session: it stays in the session's process
-    group, and it dies with the binary.
+    Nothing is bound whole. The server's root is built from the entries ``/`` has at launch,
+    each bound read-only, and so is the nearest existing parent of every denied place that
+    does not exist yet: a name made there later is not there inside, so a denied place made
+    after the server started is never readable from it (fail closed). An existing denied
+    directory is left out of its parent's listing where that parent is rebuilt, and hidden
+    under an empty filesystem otherwise; a denied file lies under ``/dev/null``. A fresh
+    ``/dev`` (no serial device in it) and a ``/proc`` of a process namespace of its own, so no
+    other process's root is a way out of the mounts; no network but its own loopback; the
+    server's directory bound writable; every filesystem made here, the root's among them, made
+    read-only last. No new session: it stays in the session's process group, and it dies with
+    the binary.
     """
-    hidden: list[str] = []
-    files: list[str] = []
-    for path in sorted({os.path.realpath(p) for p in read_denied}):
-        if any(path == h or path.startswith(h + "/") for h in hidden):
-            continue
-        if os.path.isdir(path):
-            hidden.append(path)
-        elif os.path.lexists(path):
-            files.append(path)
-    own = os.path.realpath(server_dir)
-    args = [
-        "--die-with-parent",
-        "--unshare-net",
-        "--unshare-pid",
-        "--unshare-ipc",
-        "--ro-bind",
-        "/",
-        "/",
-        "--dev",
-        "/dev",
-        "--proc",
-        "/proc",
-    ]
-    for path in hidden:
+    denied = {os.path.realpath(p) for p in read_denied}
+    directories = sorted(p for p in denied if os.path.isdir(p))
+    directories = [d for d in directories if not any(_within(d, o) and d != o for o in directories)]
+    files = sorted(p for p in denied if os.path.lexists(p) and not os.path.isdir(p))
+
+    def hidden(path: str) -> bool:
+        return any(_within(path, d) for d in directories)
+
+    absent_parents = {_nearest_existing(p) for p in denied if not os.path.lexists(p)}
+    rebuilt = sorted(
+        {"/"} | {p for p in absent_parents if not hidden(p)},
+        key=lambda p: (p.count("/") if p != "/" else 0, p),
+    )
+    args = ["--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-ipc"]
+    made: list[str] = []
+    for place in rebuilt:
+        if place != "/":
+            args += ["--tmpfs", place]
+            made.append(place)
+        args += _entries(place, denied)
+    args += ["--dev", "/dev", "--proc", "/proc"]
+    listed = set(rebuilt)
+    for path in directories:
+        if os.path.dirname(path) in listed:
+            continue  # left out of a listing that was rebuilt: not there at all
         args += ["--tmpfs", path]
+        made.append(path)
     for path in files:
+        if hidden(path) or os.path.dirname(path) in listed:
+            continue
         args += ["--ro-bind", "/dev/null", path]
+    own = os.path.realpath(server_dir)
     args += ["--bind", own, own]
-    for path in hidden:
+    for path in made:
         args += ["--remount-ro", path]
+    args += ["--remount-ro", "/"]
     return args
 
 
@@ -235,6 +395,8 @@ def contained_servers(
                     read_denied=denied,
                     server_dir=str(server_dir),
                     devices=serial_devices(platform),
+                    command=server.command,
+                    exec_roots=server.exec_roots,
                 )
             )
             command, args = SANDBOX_EXEC, ["-f", str(profile)]

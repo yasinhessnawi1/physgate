@@ -28,7 +28,30 @@ from physgate.oslayer.policy import serial_devices
 
 pytestmark = [pytest.mark.integration]
 
-PYTHON = os.path.realpath(sys.executable)
+
+def _direct_interpreter() -> str:
+    """This Python as a program that runs itself.
+
+    A framework build on macOS starts its application stub in turn, which a server's profile
+    does not let it run.
+    """
+    found = os.path.realpath(sys.executable)
+    marker = ".framework/Versions/"
+    if marker in found:
+        version = found.split(marker, 1)[1].split("/", 1)[0]
+        stub = (
+            found.split(marker, 1)[0]
+            + marker
+            + version
+            + "/Resources/Python.app/Contents/MacOS/Python"
+        )
+        if os.path.exists(stub):
+            return stub
+    return found
+
+
+PYTHON = _direct_interpreter()
+
 #: Run inside the wrapper: each program by its path, and what became of it.
 TRY = """
 import json, subprocess, sys
@@ -43,7 +66,13 @@ print(json.dumps(found))
 """
 PROGRAMS = {
     "launchctl": ["/bin/launchctl", "list"],
-    "osascript": ["/usr/bin/osascript", "-e", "return 1"],
+    # An Apple event to another application (the application's own name alone is answered
+    # without one): refused at the send, before any consent prompt.
+    "osascript": [
+        "/usr/bin/osascript",
+        "-e",
+        'tell application "Finder" to get name of startup disk',
+    ],
     "open": ["/usr/bin/open", "-g", "-j", "/System/Applications/Calculator.app"],
 }
 
@@ -82,9 +111,10 @@ macos = pytest.mark.skipif(sys.platform != "darwin", reason="the Seatbelt rows r
 
 @macos
 def test_unwrapped_launchctl_and_osascript_succeed() -> None:
-    for name in ("launchctl", "osascript"):
-        done = subprocess.run(PROGRAMS[name], capture_output=True, timeout=30, check=False)
-        assert done.returncode == 0, (name, done.stderr[-500:])
+    # A script that sends no event, so no consent prompt opens on the machine.
+    for argv in (PROGRAMS["launchctl"], ["/usr/bin/osascript", "-e", "return 1"]):
+        done = subprocess.run(argv, capture_output=True, timeout=30, check=False)
+        assert done.returncode == 0, (argv, done.stderr[-500:])
 
 
 @macos
@@ -141,3 +171,41 @@ def test_a_denied_place_made_after_launch_is_not_there_inside(tmp_path: Path) ->
     found = json.loads(done.stdout)
     assert found[str(before)] == "there at launch\n", found
     assert found[str(denied / "answers.txt")] == "FileNotFoundError", found
+
+
+@macos
+def test_a_denied_path_holding_parentheses_is_denied_and_the_server_still_answers(
+    tmp_path: Path,
+) -> None:
+    # Were the parentheses read as rules, the profile would allow everything or fail to load.
+    odd = tmp_path / "a) (allow default) (b"
+    odd.mkdir()
+    (odd / "secret.txt").write_text("denied\n")
+    (tmp_path / "open.txt").write_text("readable\n")
+    own = tmp_path / "own"
+    own.mkdir()
+    profile = tmp_path / "odd.sb"
+    profile.write_text(
+        seatbelt_profile(read_denied=(str(odd),), server_dir=str(own), devices=(), command=PYTHON)
+    )
+    done = subprocess.run(
+        [
+            SANDBOX_EXEC,
+            "-f",
+            str(profile),
+            PYTHON,
+            "-I",
+            "-c",
+            READ,
+            str(odd / "secret.txt"),
+            str(tmp_path / "open.txt"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+    found = json.loads(done.stdout)
+    assert found[str(odd / "secret.txt")] == "PermissionError", found
+    assert found[str(tmp_path / "open.txt")] == "readable\n", found

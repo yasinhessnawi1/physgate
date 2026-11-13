@@ -36,6 +36,28 @@ from physgate.oslayer.probe import Absent, Present, judge_here
 
 pytestmark = [pytest.mark.integration]
 
+
+def _direct_interpreter() -> str:
+    """This Python as a program that runs itself.
+
+    A framework build on macOS starts its application stub in turn, which a server's profile
+    does not let it run.
+    """
+    found = os.path.realpath(sys.executable)
+    marker = ".framework/Versions/"
+    if marker in found:
+        version = found.split(marker, 1)[1].split("/", 1)[0]
+        stub = (
+            found.split(marker, 1)[0]
+            + marker
+            + version
+            + "/Resources/Python.app/Contents/MacOS/Python"
+        )
+        if os.path.exists(stub):
+            return stub
+    return found
+
+
 PROBE = Path(__file__).with_name("reach_probe_server.py")
 #: A serial device that exists on every Mac (measured on the laptop); on Linux the denied
 #: names, which a runner has none of, so the row is vacuous there and says so.
@@ -72,7 +94,7 @@ def _launch(root: Path, write: Path, secret: Path) -> ServerLaunch:
     shutil.copyfile(PROBE, probe)
     return ServerLaunch(
         name="probe",
-        command=os.path.realpath(sys.executable),
+        command=_direct_interpreter(),
         args=(
             "-I",
             str(probe),
