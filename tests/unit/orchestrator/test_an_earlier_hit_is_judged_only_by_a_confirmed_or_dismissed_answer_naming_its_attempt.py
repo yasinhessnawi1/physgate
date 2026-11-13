@@ -182,5 +182,6 @@ def test_replay_refuses_a_review_line_whose_judged_attempts_its_answers_do_not_b
     else:
         data.pop("judged_earlier")
     events[last] = ReviewRan.model_validate_json(json.dumps(data))
+    # The log to that line: what follows it was decided on the line as it was written.
     with pytest.raises((ValueError, CorruptEventLogError)):
-        replay(events)
+        replay(events[: last + 1])

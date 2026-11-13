@@ -219,7 +219,8 @@ PROMPT_MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
      '"indicator that names the same evidence, confirmed or dismissed with "'),
 )  # fmt: skip
 
-_FAILED = re.compile(r"^FAILED \S+ - (.*)$", re.M)
+#: A failing row's line; a parametrised row's id may hold spaces.
+_FAILED = re.compile(r"^FAILED .+? - (.*)$", re.M)
 
 
 def run_rows(label: str, rows: tuple[str, ...] = ROWS) -> tuple[str, str]:

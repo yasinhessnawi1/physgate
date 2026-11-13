@@ -32,7 +32,7 @@ from test_an_unreviewed_attempt_s_scan_hits_go_to_the_next_review import (
     result,
 )
 
-from physgate.orchestrator.events import DecisionTaken, Incident, ReviewRan, read_events
+from physgate.orchestrator.events import DecisionTaken, Event, Incident, ReviewRan, read_events
 from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.queue import QUEUE_NAME, QueueItem
 from physgate.orchestrator.replay import replay
@@ -150,9 +150,29 @@ def test_replay_refuses_naming_an_attempt_a_review_already_judged(tmp_path: Path
         results={1: result("fail", 1, *both), 2: result("blocked", 2, judged(hit("sess-3")))}
     )
     _run(_rig(run_dir, reviewer=reviewer), "s1")
-    for named in ([1], [2]):
+    for named in (1, 2):
         with pytest.raises((ValueError, CorruptEventLogError)):
-            replay(_named(run_dir, named))
+            replay(_claimed(run_dir, named))
+
+
+def _claimed(run_dir: Path, earlier: int) -> list[Event]:
+    """The run's events to its last review line, which claims ``earlier`` judged.
+
+    As its own answers would bear out: shown that attempt's hit, and dismissing it by an answer
+    naming it. Only that the attempt was judged already refuses it.
+    """
+    events = list(read_events(run_dir / EVENTS))
+    last = max(n for n, e in enumerate(events) if isinstance(e, ReviewRan))
+    data = json.loads(events[last].model_dump_json())
+    data["judged_earlier"] = [earlier]
+    shown = hit(f"sess-{earlier}")
+    data["earlier_hits"] = [
+        {"kind": "disabled_checks", "evidence": shown, "what": "a test skipped", "attempt": earlier}
+    ]
+    answered = judged(shown, attempt=earlier).model_dump(mode="json")
+    data["result"]["indicators"].append(answered)
+    events[last] = ReviewRan.model_validate_json(json.dumps(data))
+    return events[: last + 1]
 
 
 def test_a_run_recorded_before_and_resumed_after_gives_its_next_review_the_earlier_hits(
