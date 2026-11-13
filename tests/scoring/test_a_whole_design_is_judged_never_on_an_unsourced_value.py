@@ -40,6 +40,8 @@ def _plant(**ranges: tuple[float, float]) -> bytes:
         p["low"] = p["high"] = p["value"]
         if name in ranges:
             p["low"], p["high"] = ranges[name]
+            if not p["low"] <= p["value"] <= p["high"]:
+                p["value"] = p["low"]
     return json.dumps(doc).encode()
 
 
@@ -82,8 +84,9 @@ DYNAMIC_SPECS = [
 
 
 def _task(specs: list[dict[str, Any]], requirements: tuple[str, ...] = ("c5", "c15")) -> Any:
-    return _scenario_module().WholeDesignTask.model_validate(
-        {"id": "whole.fixture", "requirements": list(requirements), "specs": specs}
+    # Read from JSON, as a tier's task file is.
+    return _scenario_module().WholeDesignTask.model_validate_json(
+        json.dumps({"id": "whole.fixture", "requirements": list(requirements), "specs": specs})
     )
 
 
