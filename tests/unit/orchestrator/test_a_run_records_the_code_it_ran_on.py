@@ -194,6 +194,7 @@ def _decompose_args(tmp_path: Path, reportable: bool) -> list[str]:
         "thinking_display": "summarized",
         "role_python": None,
         "tool_environment": None,
+        "tool_servers": None,
         "escalation_backend": "rules",
         "queue_decisions": "record",
         # The stand-in binary predates the layer's pin: allowed absent, for development.

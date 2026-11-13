@@ -226,9 +226,11 @@ def test_the_linux_arguments_take_the_network_hide_each_denied_place_and_open_on
     server_dir = root / "temps" / OWN / "servers" / "probe"
     server_dir.mkdir(parents=True)
     secret = root / "run" / "sessions" / "other" / "login.txt"
+    (root / "temps" / "other").mkdir()
     denied = (
         str(root / "temps"),
         str(root / "temps" / OWN / "inside"),  # beneath a hidden place: hidden with it
+        str(root / "temps" / "other"),  # there, beneath a hidden place: not named again
         str(secret),
         str(root / "elsewhere" / "not-there"),
     )
@@ -243,13 +245,15 @@ def test_the_linux_arguments_take_the_network_hide_each_denied_place_and_open_on
     assert f"--tmpfs {root / 'temps'}" in text
     assert f"--ro-bind /dev/null {secret}" in text
     assert str(root / "temps" / OWN / "inside") not in text
+    assert str(root / "temps" / "other") not in text
     assert str(root / "elsewhere" / "not-there") not in text
     assert f"--tmpfs {root / 'elsewhere'}" in text
     bind = text.index(f"--bind {server_dir} {server_dir}")
     assert bind > text.index(f"--tmpfs {root / 'temps'}")
     # Each hidden place is made read-only last, after the server's directory is bound beneath it.
     assert text.index(f"--remount-ro {root / 'temps'}") > bind
-    assert args[-1] != "--"
+    # The root's own filesystem is made read-only last of all.
+    assert args[-2:] == ["--remount-ro", "/"], args
 
 
 @pytest.mark.parametrize("platform", PLATFORMS)
@@ -272,7 +276,8 @@ def test_each_server_is_named_by_its_wrapper_with_a_directory_of_its_own_made_em
     entry = loaded["mcpServers"]["probe"]
     server_dir = root / "temps" / OWN / "servers" / "probe"
     assert server_dir.is_dir() and not any(server_dir.iterdir())
-    assert entry["env"]["TMPDIR"] == str(server_dir)
+    # Its own directory is its temporary one and matplotlib's, which warns without one.
+    assert entry.get("env") == {"TMPDIR": str(server_dir), "MPLCONFIGDIR": str(server_dir)}, entry
     if platform == "darwin":
         assert entry["command"] == SANDBOX_EXEC
         assert entry["args"][:2] == ["-f", str(profiles / "probe.sb")]
@@ -285,18 +290,40 @@ def test_each_server_is_named_by_its_wrapper_with_a_directory_of_its_own_made_em
         ), profile
         # Every server reads the session's worktree, less what the session may not read there.
         assert f'(subpath "{config.worktree}")' in profile, profile
+        # The session's denials and the board devices reach the server's own profile.
+        assert f'(deny file-read* (subpath "{_outbox(config)}"))' in profile, profile
+        assert re.search(r'\(deny file-read\* file-write\* \(regex #"\^/dev/cu', profile), profile
     else:
         assert entry["command"] == BWRAP
         assert "--unshare-net" in entry["args"]
         at = entry["args"].index(config.worktree)
         assert entry["args"][at - 1 : at + 2] == ["--ro-bind", config.worktree, config.worktree]
+        # The session's denials reach the server's own arguments: the outbox in its worktree.
+        assert f"--tmpfs {_outbox(config)}" in shlex.join(entry["args"]), entry["args"]
     assert entry["args"][-3:] == ["/usr/bin/python3", "-I", "probe.py"]
     assert entry["command"] in wrappers(platform, BWRAP)
 
 
+def test_a_command_given_through_a_link_is_run_by_both_spellings(root: Path) -> None:
+    real = root / "env" / "bin" / "python3.12"
+    real.parent.mkdir(parents=True)
+    real.write_text("")
+    real.chmod(0o755)
+    link = root / "python3"
+    link.symlink_to(real)
+    profile = seatbelt_profile(
+        read_denied=(),
+        server_dir=str(root / "temps" / OWN / "servers" / "probe"),
+        devices=(),
+        command=str(link),
+    )
+    (runs,) = [line for line in profile.splitlines() if line.startswith("(allow process-exec")]
+    assert f'(literal "{link}")' in runs and f'(literal "{real}")' in runs, runs
+
+
 def test_a_server_directory_already_there_is_refused(root: Path) -> None:
     (root / "temps" / OWN / "servers" / "probe").mkdir(parents=True)
-    with pytest.raises(ContainmentError):
+    with pytest.raises(ContainmentError, match="already there"):
         contained_servers(
             _config(root),
             [_probe(root)],
@@ -320,7 +347,8 @@ def test_linux_without_bubblewrap_offers_no_server(root: Path) -> None:
 
 
 def test_two_servers_of_one_name_are_refused(root: Path) -> None:
-    with pytest.raises(ContainmentError):
+    # Refused for the name itself, before the second server's directory is reached.
+    with pytest.raises(ContainmentError, match="share a name"):
         contained_servers(
             _config(root),
             [_probe(root), _probe(root)],
@@ -368,6 +396,9 @@ def test_a_role_session_carries_the_contained_configuration_it_is_given() -> Non
         {"probe": {"command": "/usr/bin/python3", "args": ["probe.py"]}},
         {"probe": {"command": "python3"}},
         {"probe": {"type": "http", "url": "http://127.0.0.1:1"}},
+        # Named by its wrapper, yet a kind the binary does not start as a program.
+        {"probe": {"type": "http", "command": SANDBOX_EXEC, "url": "http://127.0.0.1:1"}},
+        {"probe": {"type": "sse", "command": SANDBOX_EXEC, "url": "http://127.0.0.1:1"}},
         {"probe": {"args": ["-f", "p"]}},
     ],
 )
@@ -630,3 +661,133 @@ def test_a_denial_named_by_a_pattern_is_refused_for_a_server(
     )
     with pytest.raises(ContainmentError, match="pattern"):
         server_read_denied(config, platform)
+
+
+# ---- a server's own variables, directories and links (task 12) -------------------------------
+
+
+def _store(root: Path) -> Path:
+    store = root / "env" / "platformio"
+    for name in ("platforms", "packages"):
+        (store / name).mkdir(parents=True, exist_ok=True)
+    return store
+
+
+def _builder(root: Path, **changes: object) -> ServerLaunch:
+    store = _store(root)
+    fields: dict[str, object] = {
+        "name": "builder",
+        "command": "/usr/bin/python3",
+        "args": ("-I", "builder.py", "--root", "{worktree}"),
+        "exec_roots": (str(root / "env"),),
+        "read_roots": (str(root / "env"),),
+        "environment": {
+            "CORE_DIR": "{server_dir}/core",
+            "PROJECTS": "{worktree}/projects",
+            "QUIET": "1",
+        },
+        "directories": ("core",),
+        "links": {
+            "core/platforms": str(store / "platforms"),
+            "core/packages": str(store / "packages"),
+        },
+    }
+    return ServerLaunch.model_validate({**fields, **changes})
+
+
+def _contain(root: Path, platform: str, *servers: ServerLaunch) -> dict[str, object]:
+    loaded = json.loads(
+        contained_servers(
+            _config(root),
+            list(servers),
+            platform=platform,
+            temp_dir=root / "temps" / OWN,
+            profiles_dir=root / "run" / "sessions" / SID / "servers",
+            bwrap=BWRAP,
+        )
+    )
+    return loaded["mcpServers"]  # type: ignore[no-any-return]
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_a_server_s_variables_name_its_own_directory_and_the_session_s_worktree(
+    root: Path, platform: str
+) -> None:
+    entry = _contain(root, platform, _builder(root))["builder"]
+    assert isinstance(entry, dict)
+    server_dir = root / "temps" / OWN / "servers" / "builder"
+    worktree = _config(root).worktree
+    assert entry["env"] == {
+        "TMPDIR": str(server_dir),
+        "MPLCONFIGDIR": str(server_dir),
+        "CORE_DIR": f"{server_dir}/core",
+        "PROJECTS": f"{worktree}/projects",
+        "QUIET": "1",
+    }, entry
+    assert entry["args"][-4:] == ["-I", "builder.py", "--root", worktree], entry["args"]
+    assert not any("{" in arg for arg in entry["args"]), entry["args"]
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_a_server_s_directories_and_links_are_made_in_its_own_directory(
+    root: Path, platform: str
+) -> None:
+    _contain(root, platform, _builder(root))
+    core = root / "temps" / OWN / "servers" / "builder" / "core"
+    assert core.is_dir() and not core.is_symlink()
+    store = _store(root)
+    for name in ("platforms", "packages"):
+        assert (core / name).is_symlink()
+        assert os.readlink(core / name) == str(store / name)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        # A link to a place the server neither reads nor runs.
+        {"links": {"core/platforms": "/etc"}},
+        {"links": {"core/platforms": "{worktree}"}},
+        # A link out of its own directory, or beneath none it makes.
+        {"links": {"../escape": "/usr/bin"}},
+        {"links": {"other/platforms": "/usr/bin"}},
+        {"directories": ("../up",), "links": {}},
+        {"directories": ("/abs",), "links": {}},
+        {"directories": ("core\n",), "links": {}},
+        # A variable the wrapper sets, or one a start is built on.
+        {"environment": {"TMPDIR": "/tmp"}},
+        {"environment": {"MPLCONFIGDIR": "/tmp"}},
+        {"environment": {"PATH": "/tmp"}},
+        {"environment": {"LD_PRELOAD": "/x.so"}},
+        {"environment": {"DYLD_INSERT_LIBRARIES": "/x.dylib"}},
+        {"environment": {"NODE_OPTIONS": "--require=/x"}},
+        # A placeholder other than the two it may name, left in a variable or an argument.
+        {"environment": {"A": "{temp}/x"}},
+        {"args": ("{root}/x",)},
+    ],
+)
+def test_a_server_that_would_reach_past_its_own_directory_is_refused_and_nothing_is_made(
+    root: Path, changes: dict[str, object]
+) -> None:
+    with pytest.raises(ContainmentError):
+        _contain(root, "darwin", _builder(root, **changes))
+    assert not (root / "temps" / OWN / "servers" / "builder").exists()
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_a_server_finds_programs_by_name_only_in_its_own_roots_and_the_system_s(
+    root: Path, platform: str
+) -> None:
+    (root / "env" / "bin").mkdir(parents=True, exist_ok=True)
+    given = _builder(root, search_path=(str(root / "env" / "bin"),))
+    entry = _contain(root, platform, given)["builder"]
+    assert isinstance(entry, dict)
+    env = entry["env"]
+    assert isinstance(env, dict)
+    assert env.get("PATH") == f"{root / 'env' / 'bin'}:/usr/bin:/bin", env
+
+
+@pytest.mark.parametrize("outside", ["/opt/homebrew/bin", "relative/bin", "{worktree}/bin"])
+def test_a_search_path_outside_the_server_s_exec_roots_is_refused(root: Path, outside: str) -> None:
+    with pytest.raises(ContainmentError):
+        _contain(root, "darwin", _builder(root, search_path=(outside,)))
+    assert not (root / "temps" / OWN / "servers" / "builder").exists()

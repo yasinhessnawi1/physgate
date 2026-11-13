@@ -31,17 +31,24 @@ from physgate.orchestrator import cli, dispatch
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
 from physgate.orchestrator.exceptions import InvocationError, RunConfigError
+from physgate.orchestrator.invocation import MAX_SERVER_OUTPUT_TOKENS
 from physgate.orchestrator.ports import SessionRequest
 from physgate.orchestrator.role_python import RolePython
-from physgate.orchestrator.run_config import RunConfig, load_run_config, write_run_config
+from physgate.orchestrator.run_config import (
+    RunConfig,
+    load_run_config,
+    write_run_config,
+)
 from physgate.orchestrator.tool_environment import (
     changed_while_running,
     forbidden_places,
     hold_before_session,
     measure_named,
+    recorded_servers,
     session_environment,
     wire_session,
 )
+from physgate.oslayer.containment import ServerLaunch
 from physgate.oslayer.probe import Absent, Present
 from physgate.oslayer.session_temp import session_temps_root
 from physgate.toolenv.exceptions import ToolEnvironmentError
@@ -250,6 +257,10 @@ def test_a_new_run_s_configuration_measures_the_environment_its_parameters_name(
 
     config = configured({**PARAMS, "tool_environment": named})
     assert config.tool_environment == measure_named(named, forbidden={})
+    # The servers its sessions are offered are recorded beside it, from the register.
+    assert config.tool_servers == recorded_servers()
+    assert config.tool_servers is not None
+    assert config.tool_servers.max_output_tokens == MAX_SERVER_OUTPUT_TOKENS
     assert len(asked) == 1, "the places it may not lie in were not asked for once"
     given = asked[0]
     assert given["run_dir"] == (tmp_path / "run").resolve()
@@ -257,6 +268,13 @@ def test_a_new_run_s_configuration_measures_the_environment_its_parameters_name(
     assert given["harness"] == cli._harness_root()
     # Named null: no environment, and nothing is measured.
     assert configured({**PARAMS, "tool_environment": None}).tool_environment is None
+    assert configured({**PARAMS, "tool_environment": None}).tool_servers is None
+    # Never a parameter: what the register names is recorded, whatever the parameters say.
+    claimed = {"profiles": {"role": ["x"]}, "max_output_tokens": 1, "register_sha256": "0" * 64}
+    assert (
+        configured({**PARAMS, "tool_environment": None, "tool_servers": claimed}).tool_servers
+        is None
+    )
     assert len(asked) == 1
     # Not named at all: not a complete configuration, as for every other input of a run.
     with pytest.raises(ValidationError) as missing:
@@ -264,6 +282,10 @@ def test_a_new_run_s_configuration_measures_the_environment_its_parameters_name(
     assert missing.value.errors()[0]["loc"] == ("tool_environment",)
     with pytest.raises(RunConfigError, match="tool environment"):
         configured({**PARAMS, "tool_environment": {**named, "manifest_digest": "0" * 64}})
+    assert (
+        configured({**PARAMS, "tool_environment": named, "tool_servers": claimed}).tool_servers
+        == recorded_servers()
+    )
 
 
 # -- held to the record ----------------------------------------------------------------------
@@ -374,6 +396,7 @@ class _Rig:
         run_dir: Path,
         recorded: ToolEnvironment | None,
         layer: Present | Absent = ABSENT,
+        tool_servers: tuple[ServerLaunch, ...] = (),
     ) -> None:
         self.installs: list[list[str]] = []
         #: What the session's own directory of programs and its temporary directory held when
@@ -446,6 +469,7 @@ class _Rig:
             base_url=None,
             credential=Credential(mode="api_key", secret="not-a-key"),
             review_root=run_dir / "reviews",
+            tool_servers=tool_servers,
         )
         self.request = SessionRequest(
             subtask_id="s1",
@@ -619,3 +643,33 @@ def test_a_change_made_while_a_session_ran_is_named_when_it_has_ended(tmp_path: 
     _library(named).write_text("def margin(): return 2\n")
     why = changed_while_running(found, held)
     assert why is not None and "changed while the session ran" in why
+
+
+# -- the tool servers its sessions are offered ---------------------------------------------------
+
+
+def _launch(name: str) -> ServerLaunch:
+    return ServerLaunch(name=name, command="/usr/bin/python3", args=("-I", f"{name}.py"))
+
+
+def test_a_session_offered_servers_is_installed_with_their_names_where_the_layer_contains_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    servers = (_launch("control"), _launch("mujoco"))
+    rig = _Rig(monkeypatch, tmp_path / "run", None, layer=PRESENT, tool_servers=servers)
+    rig.attempt()
+    assert len(rig.installs) == 1
+    assert _value(rig.installs[0], "--tool-server") == ["control", "mujoco"]
+
+
+def test_a_session_is_offered_no_server_without_the_layer_or_without_servers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    servers = (_launch("control"),)
+    rig = _Rig(monkeypatch, tmp_path / "absent", None, layer=ABSENT, tool_servers=servers)
+    rig.attempt()
+    assert len(rig.installs) == 1
+    assert _value(rig.installs[0], "--tool-server") == []
+    rig = _Rig(monkeypatch, tmp_path / "none", None, layer=PRESENT)
+    rig.attempt()
+    assert _value(rig.installs[0], "--tool-server") == []

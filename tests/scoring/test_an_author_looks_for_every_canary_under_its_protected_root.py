@@ -41,8 +41,9 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
 from test_what_an_author_s_watch_could_not_hold_is_never_pooled import _Ending, _listed
 
 from physgate.evaluation.per_role import author_session
-from physgate.evaluation.per_role.author_session import author, pool_dir, root_canaries
+from physgate.evaluation.per_role.author_session import author, root_canaries
 from physgate.evaluation.tiers.authoring import AuthoringError
+from physgate.evaluation.tiers.store import pool_dir
 
 CANARY = "5f0c3a9e1b7d4c2a8e6f0b1d3c5a7e9f"
 OTHER = "0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a"
@@ -55,16 +56,14 @@ LIST_NAME = "actuator.canaries.json"
 NESTED = [
     "actuator/canaries.json",
     "older/round-1/actuator.canaries.json",
-    "actuator/control.pool/canaries.json",
+    "actuator/pool/canaries.json",
 ]
 #: A planted list that would match everything, in each folder a session's work ends up in.
 SESSION_FILLED = [
-    "control.pool/canaries.json",
-    "control.pool/control.t09/x.canaries.json",
-    "control.author/s-0/canaries.json",
-    "control.check/s-0/x.canaries.json",
-    "control.draw/canaries.json",
-    "firmware.pool/canaries.json",
+    "withheld/pool/canaries.json",
+    "withheld/pool/control.t09/x.canaries.json",
+    "withheld/author/s-0/canaries.json",
+    "withheld/check/s-0/x.canaries.json",
 ]
 #: A list's name in other cases, beside a tier and inside one.
 OTHER_CASES = [
@@ -74,11 +73,11 @@ OTHER_CASES = [
     "actuator/Canaries.Json",
 ]
 #: Where a stream is kept, for the session the scripted author runs.
-KEPT = "control.author/s-1/stdout.jsonl"
+KEPT = "withheld/author/s-1/stdout.jsonl"
 
 
 def _root(tmp_path: Path) -> Path:
-    root = _plan(tmp_path).held_out_root
+    root = _plan(tmp_path).root
     root.mkdir(parents=True)
     return root
 
@@ -143,9 +142,9 @@ def _staged(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
 
 
 def _nothing_taken(tmp_path: Path, staged: list[Path]) -> None:
-    root = _plan(tmp_path).held_out_root
+    root = _plan(tmp_path).root
     assert staged == [], "what the session wrote was staged"
-    assert _listed(pool_dir(root, "control")) == [], "what the session wrote was pooled"
+    assert _listed(pool_dir(_plan(tmp_path).store, "control")) == [], "it was pooled"
     assert (root / KEPT).is_file(), "the session's stream was not kept"
 
 
@@ -450,7 +449,7 @@ def test_a_task_that_holds_a_list_s_name_is_refused_at_staging(
     assert (result["refused_as_files"], result["pooled"]) == (1, 1), (
         f"a task that holds {planted} was taken: {result}"
     )
-    pool = pool_dir(_plan(tmp_path).held_out_root, "control")
+    pool = pool_dir(_plan(tmp_path).store, "control")
     assert _listed(pool) == ["control.t01"]
     assert list(pool.rglob("*canaries.json")) == []
 
@@ -469,7 +468,7 @@ def test_a_task_named_as_a_list_is_refused_at_staging(
     _, result, refused = _author(tmp_path, monkeypatch, write=write)
     assert refused is None and result is not None
     assert (result["refused_as_files"], result["pooled"]) == (1, 1), f"it was taken: {result}"
-    assert _listed(pool_dir(_plan(tmp_path).held_out_root, "control")) == ["control.t00"]
+    assert _listed(pool_dir(_plan(tmp_path).store, "control")) == ["control.t00"]
 
 
 def test_a_task_whose_id_is_a_list_s_name_is_not_pooled(
@@ -484,7 +483,7 @@ def test_a_task_whose_id_is_a_list_s_name_is_not_pooled(
     _root(tmp_path)
     _, result, refused = _author(tmp_path, monkeypatch, write=write)
     assert refused is None and result is not None and result["pooled"] == 1
-    assert _listed(pool_dir(_plan(tmp_path).held_out_root, "control")) == ["control.t01"]
+    assert _listed(pool_dir(_plan(tmp_path).store, "control")) == ["control.t01"]
 
 
 def test_a_session_that_would_not_look_for_a_canary_under_its_root_is_refused(
@@ -516,7 +515,7 @@ def test_a_record_that_cannot_say_what_it_saw_is_refused_where_the_root_names_ca
     _listed_at(_root(tmp_path), name, CANARY)
     _, _, refused = _author(tmp_path, monkeypatch, canaries=(CANARY,), seen=None)
     assert refused is not None and refused.get("refused_because") == "held_out_seen"
-    assert _listed(pool_dir(_plan(tmp_path).held_out_root, "control")) == []
+    assert _listed(pool_dir(_plan(tmp_path).store, "control")) == []
 
 
 def test_a_record_that_cannot_say_is_pooled_only_where_the_root_names_no_canary(
@@ -552,8 +551,8 @@ def test_the_author_command_passes_every_canary_under_the_root_to_the_session(
     monkeypatch.setattr(author_session, "author", recording)
     parser = argparse.ArgumentParser()
     cli.add_parser(parser.add_subparsers())
-    places = ["--held-out-root", str(root), "--work", str(tmp_path / "w")]
-    places += ["--visible", str(tmp_path / "v"), "--role-python", "/p"]
+    places = ["--store", str(root.parent), "--work", str(tmp_path / "w")]
+    places += ["--role-python", "/p"]
     args = parser.parse_args(
         ["per-role", "author", "--role", "control", "--cap", "1", "--seed", "1", *places]
     )

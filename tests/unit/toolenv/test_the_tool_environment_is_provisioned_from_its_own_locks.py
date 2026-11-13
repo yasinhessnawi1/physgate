@@ -158,7 +158,8 @@ def test_the_platformio_server_is_locked_with_an_integrity_hash_for_every_packag
         assert entry["resolved"].startswith("https://registry.npmjs.org/"), name
         assert re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", entry["integrity"]), name
     policy = (server / "policy.yaml").read_text(encoding="utf-8")
-    assert policy.strip() == "profile: build_only"
+    # The server's build_only profile, its allow list narrowed to the register's tools.
+    assert policy.splitlines()[0] == "profile: build_only"
 
 
 def test_the_platformio_store_is_named_package_by_package() -> None:

@@ -66,6 +66,7 @@ def make_config(**overrides: Any) -> RunConfig:
         "thinking_display": "summarized",
         "role_python": None,
         "tool_environment": None,
+        "tool_servers": None,
         "git_binary": None,
         "escalation_backend": "rules",
         "queue_decisions": "record",

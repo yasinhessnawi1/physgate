@@ -69,6 +69,7 @@ from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.policy import NETWORK_UNENFORCED, sandbox_policy
 from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
 from physgate.oslayer.session_temp import session_temps_root
+from physgate.toolenv.register import load_register, server_tools
 
 WATCHDOG_SECONDS = 5
 HOOK_TIMEOUT_SECONDS = 30
@@ -87,6 +88,18 @@ PROFILE_TOOLS: Mapping[Profile, tuple[str, ...]] = {
     "orchestrator": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
     # The raw agent gets exactly a role's tools: the comparison is with the same tools.
     "baseline": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
+}
+
+#: The tool servers each profile's sessions may be offered, by their names in the register.
+#: A role session and the raw agent get the identical set: the environment is the same for
+#: every role, and the comparison is with the same tools. A reviewer and the orchestrator get
+#: none.
+_EVERY_SERVER = tuple(sorted(load_register().servers))
+PROFILE_SERVERS: Mapping[Profile, tuple[str, ...]] = {
+    "role": _EVERY_SERVER,
+    "reviewer": (),
+    "orchestrator": (),
+    "baseline": _EVERY_SERVER,
 }
 
 #: The web tools, which bring in text nobody reviewed.
@@ -130,6 +143,10 @@ class InstallRequest(BaseModel):
     #: ``corpora`` directory, which is always one.
     answer_keys: tuple[AbsolutePath, ...] = ()
     extra_protected: tuple[AbsolutePath, ...] = ()
+    #: Paths beneath an ``extra_protected`` root that the root does not protect after all:
+    #: the one place under it a session writes (a blind check's own directory inside the
+    #: tier-set store, which holds its worktree). Each must lie beneath one of those roots.
+    extra_protected_exceptions: tuple[AbsolutePath, ...] = ()
     #: Paths no session tool may write, but which the runtime or the spawner writes
     #: while the session runs (its captured stream, its process record), so the
     #: sentinel must not put them back. Only the layers that refuse a write before
@@ -208,6 +225,10 @@ class InstallRequest(BaseModel):
     #: spawn does. A session that gets the reaper is refused without it: its reaper could
     #: never prove its fence, and every command would be refused.
     spawns_with_canary: bool = False
+    #: The tool servers the session is offered, by their names in the tool-server register.
+    #: Their admitted tools join the session's closed list; only a profile whose server set
+    #: names them may be offered them (:data:`PROFILE_SERVERS`).
+    tool_servers: tuple[str, ...] = ()
 
 
 #: The longest temporary directory Claude Code takes for a sandboxed session. A longer
@@ -364,6 +385,24 @@ def _design_discipline(worktree: Path) -> tuple[str, ...]:
     )
 
 
+def _tools_allowed(request: InstallRequest) -> tuple[str, ...]:
+    """The profile's list, and the admitted tools of the servers the session is offered.
+
+    Raises:
+        ValueError: a server is named twice, is not in the register, or is not one the
+            profile may be offered.
+    """
+    servers = request.tool_servers
+    if len(set(servers)) != len(servers):
+        msg = f"a tool server is named twice: {sorted(servers)}"
+        raise ValueError(msg)
+    for server in servers:
+        if server not in PROFILE_SERVERS[request.profile]:
+            msg = f"a {request.profile} session may not be offered the tool server {server!r}"
+            raise ValueError(msg)
+    return (*PROFILE_TOOLS[request.profile], *server_tools(load_register(), servers))
+
+
 def build_config(request: InstallRequest, installation: Installation) -> SessionConfig:
     """The session configuration for ``request``.
 
@@ -496,6 +535,17 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         root_exceptions[site_packages] = _startup_watch(Path(site_packages))
     for path in request.extra_protected:
         protected.setdefault(path, ("the orchestrator protects it for this session", "revert"))
+        carved = tuple(e for e in request.extra_protected_exceptions if _inside(e, path))
+        if carved:
+            root_exceptions[path] = carved
+    stray = [
+        e
+        for e in request.extra_protected_exceptions
+        if not any(_inside(e, path) for path in request.extra_protected)
+    ]
+    if stray:
+        msg = f"an exception lies beneath no root the session is protected from: {stray}"
+        raise ValueError(msg)
     for path in request.extra_protected_record:
         protected.setdefault(
             path,
@@ -574,7 +624,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     if request.store_root is not None:
         protected[request.store_root] = (STORE_REASON, "journal")
     for path in protected:
-        if _inside(request.worktree, path):
+        # A worktree inside one of the root's own exceptions is written there, not refused.
+        if _inside(request.worktree, path) and not any(
+            _inside(request.worktree, e) for e in root_exceptions.get(path, ())
+        ):
             msg = (
                 f"the protected path {path} contains the worktree, so every write would be refused"
             )
@@ -625,7 +678,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         required_reading=tuple(sorted(request.required_reading)),
         always_loaded=tuple(sorted(request.always_loaded)),
         token_ceiling=request.token_ceiling,
-        tools_allowed=tuple(sorted(PROFILE_TOOLS[request.profile])),
+        tools_allowed=tuple(sorted(_tools_allowed(request))),
         installation=installation,
         watchdog_seconds=WATCHDOG_SECONDS,
         hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,

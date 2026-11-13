@@ -527,6 +527,19 @@ def test_a_harness_run_that_named_a_tool_environment_is_named(tmp_path: Path) ->
     )
     found = differences(run, _raw_dir(tmp_path), role="control", task=TASK)
     assert [f.split(":", 1)[0] for f in found] == ["tool_environment"]
+    # Its sessions offered tool servers: named as well, the raw arm being offered none.
+    (tmp_path / "servers").mkdir()
+    servers = {
+        "profiles": {"role": ["control"], "baseline": ["control"]},
+        "max_output_tokens": 25000,
+        "register_sha256": "b" * 64,
+    }
+    run = _harness_run(
+        tmp_path / "servers",
+        config=_config(tool_environment=environment.model_dump(mode="json"), tool_servers=servers),
+    )
+    found = differences(run, _raw_dir(tmp_path / "servers"), role="control", task=TASK)
+    assert [f.split(":", 1)[0] for f in found] == ["tool_environment", "tool_servers"]
 
 
 def test_both_arms_canaries_are_compared_as_digests(tmp_path: Path) -> None:

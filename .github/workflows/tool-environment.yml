@@ -272,6 +272,7 @@ jobs:
             tests/integration/hooks/test_no_session_reaches_a_serial_device_through_the_real_tool_path.py \
             tests/integration/hooks/test_a_plain_build_told_to_flash_finds_no_device_inside_the_os_layer.py \
             tests/integration/toolenv/test_the_own_tool_servers_compute_with_the_pinned_libraries.py \
+            tests/integration/toolenv/test_provisioning_finds_its_own_interpreter_from_any_working_directory.py \
             || status=$?
           python3 - "$RUNNER_TEMP/rows.xml" "$status" <<'PY'
           import sys

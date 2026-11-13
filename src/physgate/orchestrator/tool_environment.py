@@ -33,11 +33,14 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from physgate.orchestrator.common import first_problem
 from physgate.orchestrator.exceptions import InvocationError, RunConfigError
+from physgate.orchestrator.invocation import MAX_SERVER_OUTPUT_TOKENS
+from physgate.orchestrator.run_config import ToolServers
 from physgate.oslayer.placement import machine_writable
 from physgate.oslayer.session_temp import session_temps_root
 from physgate.toolenv.exceptions import ToolEnvironmentError
@@ -51,7 +54,12 @@ from physgate.toolenv.record import (
     require_unchanged,
     run_program,
 )
+from physgate.toolenv.register import launches, load_register, register_sha256
 from physgate.toolenv.session import wire
+
+if TYPE_CHECKING:
+    from physgate.orchestrator.run_config import RunConfig
+    from physgate.oslayer.containment import ServerLaunch
 
 
 class NamedToolEnvironment(BaseModel):
@@ -186,3 +194,47 @@ def changed_while_running(recorded: ToolEnvironment, at_start: str) -> str | Non
     except ToolEnvironmentError as exc:
         return f"the tool environment changed while the session ran: {exc}"
     return None
+
+
+def recorded_servers() -> ToolServers:
+    """The tool servers a run naming a tool environment records, from the register now.
+
+    Every server of the register, for the role profile and the raw agent alike; the bound on one
+    answer every session is told; the register's digest.
+    """
+    every = tuple(sorted(load_register().servers))
+    return ToolServers(
+        profiles={"role": every, "baseline": every},
+        max_output_tokens=MAX_SERVER_OUTPUT_TOKENS,
+        register_sha256=register_sha256(),
+    )
+
+
+def server_launches(config: RunConfig) -> tuple[ServerLaunch, ...]:
+    """How the run's role sessions' tool servers start, from its record and the register.
+
+    None for a run that records no tool servers.
+
+    Raises:
+        RunConfigError: the register or the token bound differs from the one the run recorded,
+            or the register cannot start a recorded server from the recorded environment.
+    """
+    recorded = config.tool_servers
+    if recorded is None or config.tool_environment is None:
+        return ()
+    if recorded.register_sha256 != register_sha256():
+        msg = (
+            "the tool-server register differs from the one the run recorded, so its sessions "
+            "would be offered other tools; no tool server is started"
+        )
+        raise RunConfigError(msg, recorded=recorded.register_sha256)
+    if recorded.max_output_tokens != MAX_SERVER_OUTPUT_TOKENS:
+        msg = (
+            "the bound on a tool server's answer differs from the one the run recorded; no tool "
+            "server is started"
+        )
+        raise RunConfigError(msg, recorded=str(recorded.max_output_tokens))
+    try:
+        return launches(load_register(), recorded.profiles.get("role", ()), config.tool_environment)
+    except ToolEnvironmentError as exc:
+        raise RunConfigError(str(exc), **exc.context) from exc

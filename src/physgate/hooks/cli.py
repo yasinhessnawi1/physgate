@@ -49,6 +49,13 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     )
     p.add_argument("--protect", action="append", default=[])
     p.add_argument(
+        "--protect-except",
+        action="append",
+        default=[],
+        help="a path beneath a --protect root that root does not protect: the one place "
+        "under it the session writes",
+    )
+    p.add_argument(
         "--protect-refuse-only",
         action="append",
         default=[],
@@ -59,6 +66,12 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         action="append",
         default=[],
         help="a root of the run's recorded tool environment: read and run, written by no tool",
+    )
+    p.add_argument(
+        "--tool-server",
+        action="append",
+        default=[],
+        help="a tool server the session is offered, by its name in the register",
     )
     p.add_argument(
         "--protect-record",
@@ -200,8 +213,10 @@ def _install(args: argparse.Namespace) -> int:
         read_roots=tuple(_abs(p) for p in args.read_root),
         extra_review_material=tuple(_abs(p) for p in args.review_material),
         extra_protected=tuple(_abs(p) for p in args.protect),
+        extra_protected_exceptions=tuple(_abs(p) for p in args.protect_except),
         extra_protected_refuse_only=tuple(_abs(p) for p in args.protect_refuse_only),
         tool_environment_roots=tuple(_abs(p) for p in args.tool_environment_root),
+        tool_servers=tuple(args.tool_server),
         sessions_root=_abs(args.sessions_root) if args.sessions_root else None,
         extra_protected_record=tuple(_abs(p) for p in args.protect_record),
         withheld=tuple(_abs(p) for p in args.withheld),

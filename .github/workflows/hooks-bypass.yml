@@ -147,6 +147,24 @@ jobs:
           PHYSGATE_OSLAYER_REPORT: ${{ github.workspace }}/oslayer-report
         run: uv run pytest -q -rs -m integration tests --ignore=tests/integration/hooks
 
+      - name: The task author and the blind check on the real binary, in the evaluation environment
+        # The runner holds every task to the control scorer, which only the evaluation group
+        # installs, so the step above skips this file. Here it must run: a skip fails the step.
+        if: success() || failure()
+        env:
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_OSLAYER_REPORT: ${{ github.workspace }}/oslayer-report
+          UV_PROJECT_ENVIRONMENT: .venv-evaluation
+        # Both rows must pass: pytest's own exit code fails the step (pipefail), and its summary
+        # line must read exactly "2 passed", so a skip, an error or a deselect fails it too.
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --frozen --group evaluation pytest -q -rs -m integration \
+            tests/integration/orchestrator/test_the_task_author_and_the_blind_check_run_on_the_real_binary.py \
+            | tee author-and-check.txt
+          tail -n 1 author-and-check.txt | grep -Eq '^2 passed in [0-9.]+s'
+
       - name: What the layer refused, and what it cost
         if: always()
         run: cat oslayer-report/*.json || echo "no report was written"
