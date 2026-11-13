@@ -536,39 +536,94 @@ def test_a_run_that_did_not_look_for_a_protected_canary_of_the_version_is_refuse
     _refused(store, run_set((run, 0)), tmp_path / "round", "canar")
 
 
+def _another_role_s_places(made: StandInStore) -> list[str]:
+    """The firmware role's places beside the store's own role, each made, empty.
+
+    Its withheld and work roots and the two protected tiers of one version; the store's scan
+    for leftovers finds nothing out of place in them.
+    """
+    root = made.store / "firmware"
+    places = [root / "withheld", root / "work"]
+    places += [root / made.version / tier for tier in ("validation", "held_out")]
+    for place in places:
+        place.mkdir(parents=True, exist_ok=True)
+    return [str(place) for place in places]
+
+
+def _source(tmp_path: Path, made: StandInStore, source: str) -> tuple[Task, dict[str, Any]]:
+    """A visible task of the version, or the one task of an external set, and how to name it."""
+    if source == "version":
+        return made.tasks["visible"][0], {"version": made.version}
+    from task_fixtures import external_task, write_task_dir
+
+    raw = external_task(brief="A published plant to stabilise.")
+    write_task_dir(tmp_path / "set" / raw["id"], raw, {})
+    return parse_task(json.dumps(raw).encode()), {"external": tmp_path / "set"}
+
+
+def _withholding(
+    root: Path, task: Task, made: StandInStore, places: list[str], **changes: Any
+) -> Path:  # noqa: ANN401
+    """A harness run withholding the store's own places and ``places`` as well."""
+    held_out = [*made.held_out, *places]
+    return harness_run(
+        root,
+        task,
+        made,
+        held_out=held_out,
+        held_out_sha256=[_digest_of(place) for place in held_out],
+        **changes,
+    )
+
+
 @pytest.mark.parametrize("source", ["version", "external"])
 def test_a_run_that_did_not_look_for_another_role_s_canary_is_refused(
     tmp_path: Path, store: StandInStore, source: str
 ) -> None:
     """A round looks for the canaries of every role's root in the store, its own role's or not.
 
-    Another role's list lies in a protected tier of its own root, where the store's scan for
-    leftovers finds nothing out of place; the harness run looked for the version's canaries
-    alone. On an external set too, which has no version of its own. The same run looking for
-    that canary as well is taken, so the refusal is the canary's and no other.
+    Another role's list lies in a protected tier of its own root, which the run withholds;
+    the harness run looked for the version's canaries alone. On an external set too, which
+    has no version of its own. The same run looking for that canary as well is taken, so the
+    refusal is the canary's and no other.
     """
     another = "ab" * 16
-    listed = store.store / "firmware" / store.version / "held_out"
-    listed.mkdir(parents=True)
-    (listed / "canaries.json").write_text(json.dumps([another]))
-    how: dict[str, Any] = {"version": store.version}
-    task = store.tasks["visible"][0]
-    if source == "external":
-        from task_fixtures import external_task, write_task_dir
-
-        raw = external_task(brief="A published plant to stabilise.")
-        write_task_dir(tmp_path / "set" / raw["id"], raw, {})
-        how = {"external": tmp_path / "set"}
-        task = parse_task(json.dumps(raw).encode())
-    run = harness_run(tmp_path / "runs", task, store)
+    places = _another_role_s_places(store)
+    (Path(places[-1]) / "canaries.json").write_text(json.dumps([another]))
+    task, how = _source(tmp_path, store, source)
+    run = _withholding(tmp_path / "runs", task, store, places)
     arm = StandInArm()
     outcome = _try(lambda: _round_from(store, run_set((run, 0)), tmp_path / "round", arm, how))
     assert isinstance(outcome, BaselineError), outcome
     assert "did not look for every canary" in str(outcome) and arm.calls == []
-    looking = harness_run(
-        tmp_path / "looking", task, store, held_out_canaries=[*store.canaries, another]
+    looking = _withholding(
+        tmp_path / "looking", task, store, places, held_out_canaries=[*store.canaries, another]
     )
     taken = _try(lambda: _round_from(store, run_set((looking, 0)), tmp_path / "taken", arm, how))
+    assert isinstance(taken, BaselineRecord), taken
+
+
+@pytest.mark.parametrize("source", ["version", "external"])
+def test_a_run_not_withholding_another_role_s_root_is_refused_before_any_session(
+    tmp_path: Path, store: StandInStore, source: str
+) -> None:
+    """Every run on the store withholds every role's root in it, not its own role's alone.
+
+    What a run looks for is every role's canaries, so what it withholds is the same scope:
+    another role's withheld and work roots and every version's protected tiers there. A run
+    withholding its own role's places alone is refused before any session; the same run
+    withholding the other role's as well is taken.
+    """
+    places = _another_role_s_places(store)
+    task, how = _source(tmp_path, store, source)
+    run = harness_run(tmp_path / "runs", task, store)
+    arm = StandInArm()
+    outcome = _try(lambda: _round_from(store, run_set((run, 0)), tmp_path / "round", arm, how))
+    assert isinstance(outcome, BaselineError), outcome
+    assert outcome.context.get("refused_because") == "withheld_root_not_named", outcome.context
+    assert arm.calls == []
+    whole = _withholding(tmp_path / "whole", task, store, places)
+    taken = _try(lambda: _round_from(store, run_set((whole, 0)), tmp_path / "taken", arm, how))
     assert isinstance(taken, BaselineRecord), taken
 
 
