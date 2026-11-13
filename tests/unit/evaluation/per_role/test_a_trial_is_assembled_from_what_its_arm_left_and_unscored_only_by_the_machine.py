@@ -585,14 +585,6 @@ def _harness_trial(run: Path, task: Any = None) -> TrialRecord | ExcludedTrial:
     )
 
 
-def test_a_sound_held_out_harness_trial_with_a_passing_answer_is_a_pass(tmp_path: Path) -> None:
-    """Its canary looked for, every stream scanned and none showing it: the trial is scored."""
-    run = _held_out_run(tmp_path)
-    trial = _harness_trial(run)
-    assert isinstance(trial, TrialRecord) and trial.outcome == "pass"
-    assert harness_ended_by_infrastructure(run, HELD_OUT, answer_found=True) is False
-
-
 @pytest.mark.parametrize(
     ("build", "field"),
     [
@@ -754,8 +746,11 @@ def _loop_run(tmp_path: Path, **how: Any) -> Path:
     return loop_run(tmp_path / "run", held_out_canaries=(CANARY,), **how)
 
 
-def test_a_held_out_harness_trial_of_a_run_that_ended_is_taken(tmp_path: Path) -> None:
-    """The counterpart of the rows below: the same run, let end, is scored."""
+def test_a_sound_held_out_harness_trial_with_a_passing_answer_is_a_pass(tmp_path: Path) -> None:
+    """Its canary looked for, every stream scanned and none showing it, and the run ended.
+
+    A run the loop itself made and let end: the counterpart of the rows that exclude.
+    """
     run = _loop_run(tmp_path)
     trial = _harness_trial(run)
     assert isinstance(trial, TrialRecord) and trial.outcome == "pass", trial
