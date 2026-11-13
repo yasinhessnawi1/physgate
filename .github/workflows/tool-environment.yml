@@ -311,33 +311,55 @@ jobs:
           sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 2 and passed == 2 else 1)
           PY
 
-      - name: A dispatched session builds, measures and is reviewed, and the published model measures as recorded
-        # Through the dispatcher inside bubblewrap: a mechanical session finds the interpreter
-        # and its first-use places from the environment's own file, builds the chassis, measures
-        # the published Balboa model from reference/, cannot write it, and the review names each
-        # export on one line. The recorded script's numbers repeat here to a nanometre. Counted
-        # as above: a skip here means the row ran nowhere on Linux.
+      - name: The published model measures as recorded, offline
+        # The recorded script reads Pololu's model from the environment's reference folder and
+        # its numbers repeat here to a nanometre. Counted as above: a skip here means the rows
+        # ran nowhere on Linux.
         if: success() || failure()
         env:
-          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
           PHYSGATE_TOOL_ENVIRONMENT: /home/runner/pg-env/env
         run: |
           status=0
           "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync pytest -q -rs -m integration \
             --junitxml="$RUNNER_TEMP/reference-rows.xml" \
             tests/integration/toolenv/test_a_recorded_script_measures_the_published_balboa_model.py \
-            tests/integration/orchestrator/test_a_dispatched_session_builds_and_measures_with_the_design_tools_and_its_review_shows_the_exports.py \
             || status=$?
           python3 - "$RUNNER_TEMP/reference-rows.xml" "$status" <<'PY'
           import sys
           import xml.etree.ElementTree as ET
 
-          suites = list(ET.parse(sys.argv[1]).getroot().iter("testsuite"))
-          rows = {name: sum(int(s.get(name, "0")) for s in suites)
-                  for name in ("tests", "failures", "errors", "skipped")}
+          suite = next(ET.parse(sys.argv[1]).getroot().iter("testsuite"))
+          rows = {name: int(suite.get(name, "0")) for name in ("tests", "failures", "errors", "skipped")}
           print(f"rows: {rows}, pytest exit {sys.argv[2]}")
           passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
-          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 7 and passed == 7 else 1)
+          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 6 and passed == 6 else 1)
+          PY
+
+      - name: A dispatched session builds, measures and is reviewed with the design tools
+        # Through the dispatcher inside bubblewrap, the run's network none: a mechanical session
+        # finds the interpreter and its first-use places from the environment's own file, builds
+        # the chassis, measures the published model, cannot write it, and the review names each
+        # export on one line. The hook installation the dispatcher spawns from is built first,
+        # which needs the host's network, so this step is not wrapped in the offline namespace.
+        if: success() || failure()
+        env:
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_TOOL_ENVIRONMENT: /home/runner/pg-env/env
+        run: |
+          status=0
+          uv run --frozen --no-sync pytest -q -rs -m integration \
+            --junitxml="$RUNNER_TEMP/design-session-rows.xml" \
+            tests/integration/orchestrator/test_a_dispatched_session_builds_and_measures_with_the_design_tools_and_its_review_shows_the_exports.py \
+            || status=$?
+          python3 - "$RUNNER_TEMP/design-session-rows.xml" "$status" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suite = next(ET.parse(sys.argv[1]).getroot().iter("testsuite"))
+          rows = {name: int(suite.get(name, "0")) for name in ("tests", "failures", "errors", "skipped")}
+          print(f"rows: {rows}, pytest exit {sys.argv[2]}")
+          passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
+          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 1 and passed == 1 else 1)
           PY
 
       - name: The environment is unchanged by the sessions that used it
