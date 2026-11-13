@@ -337,10 +337,11 @@ def read_whole_run(path: Path, *, root: Path) -> WholeRun:
 
 
 def _read_bounded(fd: int, where: str) -> bytes:
-    """The descriptor's bytes, held to a regular file, one name and the size bound.
+    """The descriptor's bytes, from a regular file with one name, never past the bound and a byte.
 
-    The bound is held by the read itself, which stops one byte past it, never by the size the
-    descriptor reports: a size taken first is out of date the moment the file grows.
+    The read stops one byte past the bound, never trusting the size the descriptor reports: a
+    size taken first is out of date the moment the file grows. One byte past is enough for
+    :func:`parse_whole_run`, which holds the one size bound, to refuse it.
     """
     found = os.fstat(fd)
     if not stat.S_ISREG(found.st_mode):
@@ -361,7 +362,4 @@ def _read_bounded(fd: int, where: str) -> bytes:
     except OSError as exc:
         msg = f"no answer file: it cannot be read ({exc.strerror})"
         raise TaskFormatError(msg, path=where) from exc
-    if total > MAX_ANSWER_BYTES:
-        msg = f"the answer is larger than any whole-run answer (over {MAX_ANSWER_BYTES} bytes)"
-        raise TaskFormatError(msg, path=where)
     return b"".join(chunks)
