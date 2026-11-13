@@ -72,6 +72,8 @@ MAX_ANSWER_BYTES = 64 * 1024
 #: The longest delay accepted, in updates. Half a second at the reference brief's 100 Hz:
 #: far past any delay a balancing loop survives, and it keeps the scorer's delay line small.
 MAX_DELAY_SAMPLES = 50
+#: The largest magnitude any value may have (not yet enforced).
+MAX_MAGNITUDE = 1e12
 #: The most module files an answer names.
 MAX_FILES = 64
 #: The longest path to a module file.
@@ -266,12 +268,13 @@ def parse_whole_run(raw: bytes, *, where: str = "answer") -> WholeRun:
         raise TaskFormatError(msg, where=where) from exc
 
 
-def read_whole_run(path: Path) -> WholeRun:
+def read_whole_run(path: Path, *, root: Path) -> WholeRun:
     """The whole-run answer at ``path``, or refused with the reason.
 
     Raises:
         TaskFormatError: it is missing, a link, not a regular file, or not an answer.
     """
+    del root  # not yet held to it
     if path.is_symlink() or not path.is_file():
         msg = "no answer file"
         raise TaskFormatError(msg, path=str(path))

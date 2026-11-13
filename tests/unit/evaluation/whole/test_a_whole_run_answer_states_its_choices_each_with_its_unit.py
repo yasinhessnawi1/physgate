@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import copy
 import json
+import math
+import os
 import re
+import tracemalloc
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -21,6 +24,7 @@ from physgate.evaluation.whole.answer import (
     MAX_ANSWER_BYTES,
     MAX_DELAY_SAMPLES,
     MAX_FILES,
+    MAX_MAGNITUDE,
     IncrementalRisingOffset,
     Parameters,
     StateFeedback,
@@ -407,28 +411,208 @@ def test_the_form_and_its_version_are_named_exactly(field: str, value: object) -
         _parse(answer(**{field: value}))
 
 
+def _root(tmp_path: Path) -> Path:
+    """The test's root as the filesystem spells it: the reader follows no link at all."""
+    root = Path(os.path.realpath(tmp_path)) / "answers"
+    root.mkdir()
+    return root
+
+
+def _reading(path: Path, root: Path) -> WholeRun | BaseException:
+    """The answer read, or what reading it raised, of any type."""
+    try:
+        return read_whole_run(path, root=root)
+    except Exception as exc:  # caught whole, so the row can assert which type it was
+        return exc
+
+
+def _refused(path: Path, root: Path, says: str) -> None:
+    caught = _reading(path, root)
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert says in str(caught), str(caught)
+
+
 def test_a_good_answer_on_disk_is_read(tmp_path: Path) -> None:
-    target = tmp_path / "whole_run.json"
+    root = _root(tmp_path)
+    (root / "run").mkdir()
+    target = root / "run" / "whole_run.json"
     target.write_text(json.dumps(answer()))
-    assert isinstance(read_whole_run(target).controller, IncrementalRisingOffset)
+    read = _reading(target, root)
+    assert isinstance(read, WholeRun), repr(read)
+    assert isinstance(read.controller, IncrementalRisingOffset)
 
 
 def test_reading_refuses_a_missing_file_a_link_a_directory_and_an_oversized_file(
     tmp_path: Path,
 ) -> None:
-    good = tmp_path / "good.json"
+    root = _root(tmp_path)
+    good = root / "good.json"
     good.write_text(json.dumps(answer()))
-    link = tmp_path / "link.json"
+    link = root / "link.json"
     link.symlink_to(good)
-    large = tmp_path / "large.json"
+    folder = root / "folder.json"
+    folder.mkdir()
+    large = root / "large.json"
     large.write_text(json.dumps(answer()) + " " * MAX_ANSWER_BYTES)
-    for path in (tmp_path / "missing.json", link, tmp_path):
-        caught = _raised(read_whole_run, path)
-        assert isinstance(caught, TaskFormatError), repr(caught)
-        assert "no answer file" in str(caught)
-    caught = _raised(read_whole_run, large)
+    for path in (root / "missing.json", link, folder, root):
+        _refused(path, root, "no answer file")
+    _refused(large, root, "larger")
+
+
+def test_an_answer_reached_through_a_linked_directory_is_refused(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    real = root / "real"
+    real.mkdir()
+    (real / "whole_run.json").write_text(json.dumps(answer()))
+    (root / "linked").symlink_to(real, target_is_directory=True)
+    assert isinstance(_reading(real / "whole_run.json", root), WholeRun)
+    _refused(root / "linked" / "whole_run.json", root, "no answer file")
+
+
+def test_an_answer_with_a_second_name_is_refused(tmp_path: Path) -> None:
+    # A hard link is a second name the file can be changed or read through, from outside the
+    # directory the answer was looked for in.
+    root = _root(tmp_path)
+    outside = Path(os.path.realpath(tmp_path)) / "outside.json"
+    outside.write_text(json.dumps(answer()))
+    os.link(outside, root / "whole_run.json")
+    _refused(root / "whole_run.json", root, "second name")
+
+
+def test_an_answer_outside_its_root_or_spelt_round_about_is_refused(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    outside = Path(os.path.realpath(tmp_path)) / "whole_run.json"
+    outside.write_text(json.dumps(answer()))
+    (root / "run").mkdir()
+    (root / "run" / "whole_run.json").write_text(json.dumps(answer()))
+    _refused(outside, root, "no answer file")
+    _refused(root / "run" / ".." / ".." / "whole_run.json", root, "no answer file")
+    _refused(root / "run" / ".." / "run" / "whole_run.json", root, "no answer file")
+    _refused(Path("run") / "whole_run.json", root, "no answer file")
+
+
+def test_a_fifo_is_refused_without_waiting_for_a_writer(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    os.mkfifo(root / "whole_run.json")
+    _refused(root / "whole_run.json", root, "no answer file")
+
+
+def test_an_oversized_answer_is_refused_before_it_is_read_into_memory(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    huge = root / "whole_run.json"
+    with huge.open("wb") as handle:
+        handle.truncate(64 * 1024 * 1024)
+    tracemalloc.start()
+    try:
+        caught = _reading(huge, root)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
     assert isinstance(caught, TaskFormatError), repr(caught)
     assert "larger" in str(caught)
+    assert peak < 4 * MAX_ANSWER_BYTES, peak
+
+
+def test_a_file_that_grows_after_its_size_is_taken_is_read_no_further_than_the_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _root(tmp_path)
+    grown = root / "whole_run.json"
+    with grown.open("wb") as handle:
+        handle.truncate(64 * 1024 * 1024)
+    real_fstat = os.fstat
+
+    def small(fd: int) -> os.stat_result:
+        found = list(real_fstat(fd))
+        found[6] = 10  # st_size, as it was before the file grew
+        return os.stat_result(found)
+
+    monkeypatch.setattr(os, "fstat", small)
+    tracemalloc.start()
+    try:
+        caught = _reading(grown, root)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    monkeypatch.undo()
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "larger" in str(caught)
+    assert peak < 4 * MAX_ANSWER_BYTES, peak
+
+
+def test_the_bytes_read_are_the_file_opened_whatever_the_path_names_afterwards(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _root(tmp_path)
+    target = root / "whole_run.json"
+    target.write_text(json.dumps(answer()))
+    swapped = root / "swapped.json"
+    swapped.write_text(json.dumps(answer(controller=feedback())))
+    real_fstat = os.fstat
+    calls: list[int] = []
+
+    def swap_after(fd: int) -> os.stat_result:
+        found = real_fstat(fd)
+        if not calls:
+            os.replace(swapped, target)
+        calls.append(fd)
+        return found
+
+    monkeypatch.setattr(os, "fstat", swap_after)
+    read = _reading(target, root)
+    monkeypatch.undo()
+    assert calls, "the reader took no size from its descriptor"
+    assert isinstance(read, WholeRun), repr(read)
+    assert isinstance(read.controller, IncrementalRisingOffset)
+
+
+_EVERY_MEASURE = [("controller", f) for f in RISING_UNITS] + [
+    ("parameters", f) for f in PARAMETER_UNITS
+]
+
+
+@pytest.mark.parametrize("path", _EVERY_MEASURE, ids=["/".join(p) for p in _EVERY_MEASURE])
+def test_a_value_too_large_for_a_float_is_a_refused_answer_never_a_crash(
+    path: tuple[str, ...],
+) -> None:
+    doc = answer()
+    unit = doc[path[0]][path[1]]["unit"]
+    caught = _raised(parse_whole_run, json.dumps(_with(doc, path, _m(10**400, unit))).encode())
+    assert isinstance(caught, TaskFormatError), repr(caught)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("controller", "angle_gain"),
+        ("controller", "rate_ratio"),
+        ("controller", "speed_gain"),
+        ("parameters", "pwm_frequency"),
+        ("parameters", "encoder_counts_per_wheel_revolution"),
+    ],
+)
+def test_a_value_beyond_the_magnitude_bound_is_refused_and_the_bound_itself_is_taken(
+    path: tuple[str, ...],
+) -> None:
+    doc = answer()
+    unit = doc[path[0]][path[1]]["unit"]
+    assert _parse(_with(doc, path, _m(MAX_MAGNITUDE, unit))) is not None
+    for value in (math.nextafter(MAX_MAGNITUDE, math.inf), 10 * MAX_MAGNITUDE):
+        with pytest.raises(TaskFormatError, match="magnitude"):
+            _parse(_with(doc, path, _m(value, unit)))
+    if path[0] == "controller":
+        assert _parse(_with(doc, path, _m(-MAX_MAGNITUDE, unit))) is not None
+        with pytest.raises(TaskFormatError, match="magnitude"):
+            _parse(_with(doc, path, _m(-10 * MAX_MAGNITUDE, unit)))
+
+
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity", "1e400"])
+def test_nan_and_infinity_are_named_in_the_refusal(token: str) -> None:
+    text = json.dumps(answer()).replace('"value": 0.3', '"value": ' + token)
+    assert token in text
+    caught = _raised(parse_whole_run, text.encode())
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "nan or inf" in str(caught), str(caught)
 
 
 @pytest.mark.parametrize(
