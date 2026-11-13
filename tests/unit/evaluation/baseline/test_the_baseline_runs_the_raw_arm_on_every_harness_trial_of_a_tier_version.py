@@ -475,6 +475,32 @@ def test_a_run_withholding_the_store_in_another_case_is_refused(
     _refused(store, run_set((run, 0)), tmp_path / "round", "spelt as the filesystem")
 
 
+def test_a_run_the_spelling_check_refuses_is_refused_before_any_session_on_any_filesystem(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """The round asks the store's spelling check of every run, where cases are told apart too.
+
+    The check itself is shown elsewhere; here it is made to refuse, so the row holds on a
+    filesystem where no other case of the store exists to name.
+    """
+    from physgate.evaluation.baseline import runner
+
+    asked: list[tuple[str, ...]] = []
+
+    def refusing(held_out: tuple[str, ...], **_also: Any) -> tuple[str, str]:  # noqa: ANN401
+        asked.append(held_out)
+        return "held_out_not_spelt_as_on_disk", "not spelt as the filesystem spells them"
+
+    run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
+    arm = StandInArm()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(runner, "spelling_refusal", refusing)
+        outcome = _try(lambda: _round(store, run_set((run, 0)), tmp_path / "round", arm))
+    assert isinstance(outcome, BaselineError), outcome
+    assert outcome.context.get("refused_because") == "held_out_not_spelt_as_on_disk"
+    assert asked == [tuple(store.held_out)] and arm.calls == []
+
+
 def _no_sleep(_seconds: float) -> None:
     return None
 
