@@ -546,6 +546,24 @@ def test_a_run_that_did_not_look_for_another_role_s_canary_is_refused(
     assert isinstance(taken, BaselineRecord), taken
 
 
+def test_a_store_whose_other_role_s_list_cannot_be_taken_whole_is_refused_before_any_session(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """A list that is not a list of canaries is never read as naming none, in any role's root.
+
+    The refusal names the list's tier and its reason, never a task.
+    """
+    listed = store.store / "firmware" / store.version / "held_out"
+    listed.mkdir(parents=True)
+    (listed / "canaries.json").write_text(json.dumps("not a list"))
+    run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
+    arm = StandInArm()
+    outcome = _try(lambda: _round(store, run_set((run, 0)), tmp_path / "round", arm))
+    assert isinstance(outcome, BaselineError), outcome
+    assert outcome.context.get("refused_because") == "canary_list_unparsed", outcome.context
+    assert arm.calls == []
+
+
 def _round_from(
     made: StandInStore, runs: RunSet, out: Path, arm: StandInArm, how: dict[str, Any]
 ) -> BaselineRecord:
