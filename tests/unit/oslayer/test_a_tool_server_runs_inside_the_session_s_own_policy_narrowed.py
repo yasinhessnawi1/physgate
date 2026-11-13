@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 from pathlib import Path
 
@@ -172,7 +173,7 @@ def test_the_linux_arguments_take_the_network_hide_each_denied_place_and_open_on
         assert option in args, option
     assert "--new-session" not in args  # it stays in the session's process group
     assert text.startswith("--die-with-parent")
-    assert "--ro-bind / /" in text and "--dev /dev" in text and "--proc /proc" in text
+    assert "--dev /dev" in text and "--proc /proc" in text
     assert f"--tmpfs {root / 'temps'}" in text
     assert f"--ro-bind /dev/null {secret}" in text
     assert str(root / "temps" / OWN / "inside") not in text
@@ -298,3 +299,84 @@ def test_a_server_not_named_by_its_wrapper_is_refused_at_the_spawn(
 ) -> None:
     with pytest.raises(InvocationError):
         _role(json.dumps({"mcpServers": servers}))
+
+
+#: The Mach services the sandbox runtime's own base profile (0.0.79, the OS layer's family)
+#: lets a sandboxed process look up: a server is allowed no other.
+RUNTIME_MACH_SERVICES = frozenset(
+    {
+        "com.apple.audio.systemsoundserver",
+        "com.apple.distributed_notifications@Uv3",
+        "com.apple.FontObjectsServer",
+        "com.apple.fonts",
+        "com.apple.logd",
+        "com.apple.lsd.mapdb",
+        "com.apple.PowerManagement.control",
+        "com.apple.system.logger",
+        "com.apple.system.notification_center",
+        "com.apple.system.opendirectoryd.libinfo",
+        "com.apple.system.opendirectoryd.membership",
+        "com.apple.bsd.dirhelper",
+        "com.apple.securityd.xpc",
+        "com.apple.coreservices.launchservicesd",
+        "com.apple.SecurityServer",
+    }
+)
+
+
+def test_the_macos_profile_denies_by_default_and_opens_only_what_a_server_needs(
+    root: Path,
+) -> None:
+    command = "/usr/bin/python3"
+    exec_root = str(root / "env" / "bin")
+    profile = seatbelt_profile(
+        read_denied=(str(root / "held-out"),),
+        server_dir=str(root / "own"),
+        devices=serial_devices("darwin"),
+        command=command,
+        exec_roots=(exec_root,),
+    )
+    lines = [line.strip() for line in profile.splitlines() if line.strip()]
+    assert "(allow default)" not in lines, profile
+    assert lines[1:2] == ["(deny default)"], profile
+    for refused in (
+        "(allow mach-register",
+        "(allow ipc-posix",
+        "(allow appleevent",
+        "(allow lsopen",
+        "(allow network",
+        "(allow mach-priv",
+        "(allow process-exec)",
+        "(allow file-write*)",
+    ):
+        assert not [line for line in lines if line.startswith(refused)], (refused, profile)
+    execs = [line for line in lines if line.startswith("(allow process-exec")]
+    assert execs == [f'(allow process-exec (literal "{command}") (subpath "{exec_root}"))'], profile
+    signals = [line for line in lines if line.startswith("(allow signal")]
+    assert signals == ["(allow signal (target same-sandbox))"], profile
+    looked_up = set(re.findall(r'\(global-name "([^"]+)"\)', profile))
+    assert looked_up, profile
+    assert looked_up <= RUNTIME_MACH_SERVICES, looked_up - RUNTIME_MACH_SERVICES
+    assert "global-name-prefix" not in profile
+
+
+def test_a_denied_place_absent_at_launch_is_left_out_of_its_parent_s_listing(root: Path) -> None:
+    present = root / "present"
+    (present / "kept").mkdir(parents=True)
+    server_dir = root / "temps" / OWN / "servers" / "probe"
+    server_dir.mkdir(parents=True)
+    denied = (str(root / "absent" / "deeper"), str(present / "missing"), str(root / "temps"))
+    args = bwrap_args(read_denied=denied, server_dir=str(server_dir))
+    text = shlex.join(args)
+    # Nothing is bound whole: the root is built from the entries it has at launch.
+    assert "--ro-bind / /" not in text, text
+    assert "--ro-bind /usr /usr" in text, text
+    # Each absent place's nearest existing parent is rebuilt from the entries it has now, so a
+    # name made there later is not there inside.
+    for parent, kept in ((present, present / "kept"), (root, present)):
+        assert f"--tmpfs {parent}" in text, parent
+        assert f"--ro-bind {kept} {kept}" in text, kept
+        assert f"--remount-ro {parent}" in text, parent
+    assert str(root / "absent") not in text
+    assert str(present / "missing") not in text
+    assert "--remount-ro /" in text

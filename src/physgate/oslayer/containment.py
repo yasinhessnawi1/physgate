@@ -55,6 +55,9 @@ class ServerLaunch(BaseModel):
     name: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_-]{0,31}$")]
     command: Annotated[str, StringConstraints(pattern=r"^/")]
     args: tuple[str, ...] = ()
+    #: Where the programs it runs in turn lie (a build server runs its build tool), each by
+    #: absolute path; it runs nothing else but its own command.
+    exec_roots: tuple[Annotated[str, StringConstraints(pattern=r"^/")], ...] = ()
 
 
 def server_read_denied(config: SessionConfig, platform: str) -> tuple[str, ...]:
@@ -96,7 +99,14 @@ def _device_regex(pattern: str) -> str:
     return "^" + ".*".join(re.escape(part) for part in pattern.split("*")) + "$"
 
 
-def seatbelt_profile(*, read_denied: Sequence[str], server_dir: str, devices: Sequence[str]) -> str:
+def seatbelt_profile(
+    *,
+    read_denied: Sequence[str],
+    server_dir: str,
+    devices: Sequence[str],
+    command: str = "",
+    exec_roots: Sequence[str] = (),
+) -> str:
     """The Seatbelt profile a server runs under on macOS.
 
     The last rule that matches an access decides, so each denial comes before the one place it
