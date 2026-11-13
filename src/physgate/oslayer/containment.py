@@ -200,11 +200,12 @@ def contained_servers(
     if len(set(names)) != len(names):
         msg = f"two tool servers share a name: {sorted(names)}"
         raise ContainmentError(msg)
-    if platform.startswith("linux") and bwrap is None:
-        msg = "Linux: bubblewrap is not on the session's search path, so no server is contained"
-        raise ContainmentError(msg)
-    if platform != "darwin" and not platform.startswith("linux"):
-        msg = f"no wrapper contains a tool server on {platform}"
+    contained_by = wrappers(platform, bwrap)
+    if not contained_by:
+        msg = (
+            f"no wrapper contains a tool server on {platform} here (Linux needs bubblewrap on "
+            "the session's search path)"
+        )
         raise ContainmentError(msg)
     denied = server_read_denied(config, platform)
     entries: dict[str, dict[str, object]] = {}
@@ -228,9 +229,8 @@ def contained_servers(
             )
             command, args = SANDBOX_EXEC, ["-f", str(profile)]
         else:
-            assert bwrap is not None  # refused above
             command, args = (
-                bwrap,
+                contained_by[0],
                 [*bwrap_args(read_denied=denied, server_dir=str(server_dir)), "--"],
             )
         entries[server.name] = {
