@@ -120,6 +120,7 @@ def test_a_round_runs_every_harness_trial_and_records_its_tier_version_and_pin_s
     assert {cap for _, cap, _ in arm.calls} == {1000}
     manifest = read_version(version_dir(store.store, "control", store.version))
     tiers = TiersRecord.model_validate_json((out / TIERS_RECORD).read_bytes())
+    assert record.tiers is not None and record.external is None
     assert tiers.version == store.version == record.tiers.version
     assert (tiers.visible, tiers.validation, tiers.held_out) == (
         manifest.visible.sha256,

@@ -235,6 +235,6 @@ def test_a_record_holds_one_source_and_counts_only_its_tiers(
         counts={"external": good["counts"]["external"]},
     )
     for bad in (both, counted, tier_counted):
-        outcome = _try(lambda bad=bad: BaselineRecord.model_validate_json(json.dumps(bad)))
-        assert not isinstance(outcome, BaselineRecord), bad
+        with pytest.raises(ValueError, match="one source|exactly its source"):
+            BaselineRecord.model_validate_json(json.dumps(bad))
     assert BaselineRecord.model_validate_json(json.dumps(good)) == external

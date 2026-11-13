@@ -10,6 +10,8 @@ reportable; the record says so. The endpoint is ``ANTHROPIC_BASE_URL``, or the b
 default, as for every other command, and every harness run must have recorded it; the
 credential is read from the environment variable the run's auth mode names, after every
 entry has been checked. It exits 1, naming no task, if the round is refused or stopped.
+``--external DIR`` in place of ``--version`` runs the round on an external task set (one
+benchmark's published tasks, each ``DIR/<id>/task.json``), kept apart from the store's tiers.
 
 The scorer's numerical libraries are the evaluation group's; they are imported only when the
 command runs.
@@ -34,7 +36,11 @@ def add_parser(subparsers: Any) -> None:  # noqa: ANN401 - argparse's private su
     run = commands.add_parser("run", help="run the raw arm on a harness run set's trials")
     run.add_argument("--store", type=Path, required=True)
     run.add_argument("--role", choices=("control",), required=True)
-    run.add_argument("--version", required=True)
+    source = run.add_mutually_exclusive_group(required=True)
+    source.add_argument("--version", help="the store's tier version the harness runs ran on")
+    source.add_argument(
+        "--external", type=Path, help="an external task set's directory, kept apart from the tiers"
+    )
     run.add_argument("--runs", type=Path, required=True)
     run.add_argument("--out", type=Path, required=True)
     run.add_argument("--prices", required=True, help="the dated price sheet the harness used")
@@ -72,6 +78,7 @@ def _run(args: argparse.Namespace) -> int:
             store=args.store.resolve(),
             role=args.role,
             version=args.version,
+            external=None if args.external is None else args.external.resolve(),
             runs=runs,
             out=out,
             setup_for=_setup_for(install_bin, base_url),

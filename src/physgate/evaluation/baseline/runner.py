@@ -37,6 +37,16 @@ records go there too; the visible tier's lie in the round's own directory.
 
 **What it writes,** beside the visible trials: ``evaluation/tiers.json`` and ``baseline.json``
 (:mod:`.record`), each a new file, counts and digests only.
+
+**An external task set** (a published benchmark's tasks, ARCH-143) is a source of its own, given
+by its directory in place of a version (:func:`_external_tasks`): every task in it is an
+external one of the role and of one benchmark, and the set lies outside the store. Its trials
+are run as a visible tier's are, since a published task is no protected one, counted under
+``external`` alone, and its round writes ``evaluation/external.json`` in place of
+``tiers.json``. The store is still named and still refused when not clean, and every harness
+run must still withhold its protected places; there is no version, so no version's canaries
+are asked for. Whether an external number may be reported waits on its audit, which is a
+person's reading (ARCH-143), never this module's.
 """
 
 from __future__ import annotations
@@ -57,8 +67,13 @@ from pydantic import Field, StringConstraints
 
 from physgate.evaluation.baseline.record import (
     BASELINE_RECORD,
+    EXTERNAL_RECORD,
+    EXTERNAL_TIERS,
     TIERS_RECORD,
+    VERSION_TIERS,
     BaselineRecord,
+    ExternalSetRecord,
+    SourceTier,
     TierCounts,
     pin_set,
     pin_set_sha256,
@@ -78,6 +93,7 @@ from physgate.evaluation.per_role.assemble import (
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.report import TrialRecord
 from physgate.evaluation.tiers.base import _Frozen
+from physgate.evaluation.tiers.heldout import tier_digest
 from physgate.evaluation.tiers.manifest import TierSet, read_version
 from physgate.evaluation.tiers.store import (
     WORKING,
@@ -91,7 +107,14 @@ from physgate.evaluation.tiers.store import (
     withheld_root,
     work_refusal,
 )
-from physgate.evaluation.tiers.task import PROTECTED_TIERS, Role, Task, canonical_json, parse_task
+from physgate.evaluation.tiers.task import (
+    PROTECTED_TIERS,
+    ExternalSource,
+    Role,
+    Task,
+    canonical_json,
+    parse_task,
+)
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.exceptions import RunConfigError
 from physgate.orchestrator.role_python import RolePython
@@ -110,9 +133,8 @@ DEVELOPMENT_DIFFERENCES = frozenset({"reportable", "harness"})
 TRIALS = "trials.jsonl"
 SCORE = "score.json"
 
-TierName = Literal["visible", "validation", "held_out"]
-#: The version's three tiers, in the order the split writes them.
-VERSION_TIERS: tuple[TierName, ...] = ("visible", "validation", "held_out")
+#: A trial's tier: one of a version's three, or ``external`` for an external set's.
+TierName = SourceTier
 
 
 class BaselineError(PerRoleError):
@@ -224,28 +246,89 @@ def _tasks(directory: Path) -> dict[str, tuple[TierName, Task]]:
     return found
 
 
+def _external_tasks(
+    store: Path, role: Role, directory: Path
+) -> tuple[ExternalSetRecord, dict[str, tuple[TierName, Task]]]:
+    """The external set at ``directory``: its record, and every task by its brief's digest.
+
+    Raises:
+        BaselineError: the set holds no task, holds one that is not an external task of the
+            role, mixes benchmarks, or two of its tasks share a brief.
+    """
+    real = directory.resolve()
+    entries = sorted(p for p in real.iterdir() if p.is_dir() and not p.is_symlink())
+    found: dict[str, tuple[TierName, Task]] = {}
+    benchmarks: set[str] = set()
+    for entry in entries:
+        try:
+            task = parse_task((entry / "task.json").read_bytes())
+        except (OSError, PerRoleError) as exc:
+            msg = "a task of the external set cannot be read"
+            raise BaselineError(msg, external=str(directory)) from exc
+        if not isinstance(task.source, ExternalSource) or task.role != role:
+            # Not named: a tier's task put here may be a protected one.
+            msg = f"the external set holds a task that is not an external one of the {role} role"
+            raise BaselineError(msg, external=str(directory), tier=task.tier)
+        benchmarks.add(task.source.benchmark)
+        brief = hashlib.sha256(task.brief.encode()).hexdigest()
+        if brief in found:
+            msg = "two tasks of the external set share a brief, so a run's task cannot be told"
+            raise BaselineError(msg, external=str(directory))
+        found[brief] = ("external", task)
+    if not found:
+        msg = "the external set holds no task"
+        raise BaselineError(msg, external=str(directory))
+    if len(benchmarks) != 1:
+        msg = "an external set is one benchmark's tasks, and this one mixes several"
+        raise BaselineError(msg, external=str(directory), benchmarks=",".join(sorted(benchmarks)))
+    record = ExternalSetRecord(
+        format=1,
+        benchmark=benchmarks.pop(),
+        role=role,
+        tasks=len(found),
+        sha256=tier_digest(real),
+    )
+    return record, found
+
+
 def plan(
     store: Path,
     role: Role,
-    version: str,
+    version: str | None,
     runs: RunSet,
     *,
     base_url: str | None,
     development: bool = False,
-) -> tuple[TierSet, list[Planned]]:
+    external: Path | None = None,
+) -> tuple[TierSet | ExternalSetRecord, list[Planned]]:
     """Every harness trial of ``runs``, read and found, or the round refused before it starts.
 
+    The round's source is the store's ``version``, or the external set at ``external``: one.
+
     Raises:
-        BaselineError: the store, the version or an entry refuses the round; it names the
+        BaselineError: the store, the source or an entry refuses the round; it names the
             entry by its place in the run set, never by its task.
     """
+    if (version is None) == (external is None):
+        msg = "a round names one source: a tier version or an external task set"
+        raise BaselineError(msg)
+    # Before the store's own scan, which would read a set put in the store as work left there.
+    if external is not None and external.resolve().is_relative_to(store.resolve()):
+        msg = "an external task set is kept apart from the store's tiers, and this one is in it"
+        raise BaselineError(msg, external=str(external))
     refusal = leftover_refusal(store)
     if refusal is not None:
         raise BaselineError(refusal[1], refused_because=refusal[0])
-    directory = version_dir(store, role, version)
-    manifest = read_version(directory)
-    tasks = _tasks(directory)
+    source: TierSet | ExternalSetRecord
+    if version is not None:
+        directory = version_dir(store, role, version)
+        source = read_version(directory)
+        tasks = _tasks(directory)
+    else:
+        assert external is not None  # one of the two, checked above
+        source, tasks = _external_tasks(store, role, external)
     canaries = {task.canary for _, task in tasks.values() if task.canary is not None}
+    of_what = "this version" if version is not None else "this external set"
     planned: list[Planned] = []
     seen: set[tuple[str, int]] = set()
     for index, entry in enumerate(runs.trials):
@@ -268,7 +351,7 @@ def plan(
         _require_withheld(store, role, config, canaries, where)
         found = tasks.get(config.brief_sha256)
         if found is None:
-            msg = "the harness run was given no task of this version"
+            msg = f"the harness run was given no task of {of_what}"
             raise BaselineError(msg, **where)
         tier, task = found
         if not development and not (config.reportable and config.harness.clean):
@@ -283,7 +366,7 @@ def plan(
             msg = f"the harness run's token account gives no cap: {exc}"
             raise BaselineError(msg, **where) from None
         planned.append(Planned(index, entry, config, task, tier, cap))
-    return manifest, planned
+    return source, planned
 
 
 def _require_withheld(
@@ -371,7 +454,6 @@ def run_baseline(
     *,
     store: Path,
     role: Role,
-    version: str,
     runs: RunSet,
     out: Path,
     setup_for: SetupFor,
@@ -381,12 +463,15 @@ def run_baseline(
     sleep: Callable[[float], None] = time.sleep,
     development: bool = False,
     base_url: str | None = None,
+    version: str | None = None,
+    external: Path | None = None,
 ) -> BaselineRecord:
     """Run the raw arm on every trial of ``runs``, and write the round's records under ``out``.
 
     ``out`` is new: a round gets a directory of its own, and its records are never replaced.
     ``base_url`` is the operator's endpoint, ``None`` for the binary's default; every harness
-    run must have recorded it, and ``setup_for`` must send the credential there.
+    run must have recorded it, and ``setup_for`` must send the credential there. The round's
+    source is the store's ``version`` or the external set at ``external``, exactly one.
 
     Raises:
         BaselineError: the round was refused before it started, or stopped by a pair that
@@ -395,11 +480,14 @@ def run_baseline(
     if out.exists():
         msg = "the round's directory exists; each round gets a directory of its own"
         raise BaselineError(msg, out=str(out))
-    manifest, planned = plan(store, role, version, runs, base_url=base_url, development=development)
+    source, planned = plan(
+        store, role, version, runs, base_url=base_url, development=development, external=external
+    )
     out.mkdir(mode=0o700, parents=True)
     round_id = secrets.token_hex(8)
     protected_root = withheld_root(store, role) / BASELINE_DIR / round_id
-    tallies = {tier: _Tally() for tier in VERSION_TIERS}
+    counted = EXTERNAL_TIERS if isinstance(source, ExternalSetRecord) else VERSION_TIERS
+    tallies = {tier: _Tally() for tier in counted}
     pins: dict[str, Any] | None = None
     for trial in planned:
         protected = trial.tier in PROTECTED_TIERS
@@ -448,19 +536,24 @@ def run_baseline(
         else:
             tally.unscored += 1
     assert pins is not None  # the run set holds at least one trial
-    tiers = tiers_record(manifest)
+    external_set = source if isinstance(source, ExternalSetRecord) else None
+    tiers = None if isinstance(source, ExternalSetRecord) else tiers_record(source)
     baseline = BaselineRecord(
         format=1,
         id=round_id,
         created=datetime.now(UTC).strftime("%Y-%m-%d"),
         tiers=tiers,
+        external=external_set,
         pins=pins,
         pin_set_sha256=pin_set_sha256(pins),
         development=development,
         harness_runs=len({p.entry.run_dir for p in planned}),
-        counts={tier: tallies[tier].counts() for tier in VERSION_TIERS},
+        counts={tier: tallies[tier].counts() for tier in counted},
     )
-    write_new(out / TIERS_RECORD, record_bytes(tiers))
+    if external_set is not None:
+        write_new(out / EXTERNAL_RECORD, record_bytes(external_set))
+    if tiers is not None:
+        write_new(out / TIERS_RECORD, record_bytes(tiers))
     write_new(out / BASELINE_RECORD, record_bytes(baseline))
     return baseline
 

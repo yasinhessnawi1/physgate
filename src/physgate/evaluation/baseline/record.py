@@ -11,6 +11,11 @@ Two records, each written once, as a new file:
   baseline is bound to the version id and the pin-set digest: a comparison against a harness
   run set on another version, or under another pin, is no comparison with this baseline.
 
+A round on an external task set (a published benchmark's tasks, ARCH-143) writes
+``<out>/evaluation/external.json`` (:class:`ExternalSetRecord`: the benchmark, the task count
+and the set's digest) in place of ``tiers.json``, and counts its trials under ``external``
+alone: the set is a source of its own, never a fourth tier of a version.
+
 The pin set is every pin the raw arm records but those that name the task (its brief's digest
 and its answer contract), which differ from trial to trial by design. Every trial of a round
 ran under one pin set, or the round is refused.
@@ -27,18 +32,23 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import Field, StringConstraints
+from pydantic import Field, StringConstraints, model_validator
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
-from physgate.evaluation.tiers.base import _Frozen
+from physgate.evaluation.tiers.base import Identifier, _Frozen
 from physgate.evaluation.tiers.manifest import TierSet
 from physgate.evaluation.tiers.task import Role, Sha256, canonical_json
 
 #: The pins that name the task a session ran on, not the conditions it ran under.
 PER_TASK_PINS = frozenset({"brief_sha256", "answer"})
 TIERS_RECORD = Path("evaluation") / "tiers.json"
+EXTERNAL_RECORD = Path("evaluation") / "external.json"
 BASELINE_RECORD = "baseline.json"
 Count = Annotated[int, Field(ge=0)]
+#: What a round counts its trials under: a tier version's three tiers, or an external set.
+SourceTier = Literal["visible", "validation", "held_out", "external"]
+VERSION_TIERS: tuple[SourceTier, ...] = ("visible", "validation", "held_out")
+EXTERNAL_TIERS: tuple[SourceTier, ...] = ("external",)
 
 
 class BaselineRecordError(PerRoleError):
@@ -54,6 +64,20 @@ class TiersRecord(_Frozen):
     visible: Sha256
     validation: Sha256
     held_out: Sha256
+
+
+class ExternalSetRecord(_Frozen):
+    """The external task set a round ran on: one benchmark's published tasks, apart from the tiers.
+
+    ``sha256`` is the set's directory's digest, as a tier's is taken, so a changed set is
+    another set; a round on it is no baseline for runs on this one.
+    """
+
+    format: Literal[1]
+    benchmark: Identifier
+    role: Role
+    tasks: Annotated[int, Field(ge=1)]
+    sha256: Sha256
 
 
 class TierCounts(_Frozen):
@@ -77,7 +101,10 @@ class BaselineRecord(_Frozen):
     #: The round's own id: names its place beneath the withheld root, and nothing else.
     id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")]
     created: Annotated[str, StringConstraints(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")]
-    tiers: TiersRecord
+    #: The tier version the round ran on; ``None`` for a round on an external set.
+    tiers: TiersRecord | None
+    #: The external set the round ran on; ``None`` for a round on a tier version.
+    external: ExternalSetRecord | None
     pins: dict[str, Any]
     pin_set_sha256: Sha256
     #: Whether the round was a development one: held to harness runs that need not be
@@ -85,7 +112,18 @@ class BaselineRecord(_Frozen):
     #: comparison, whatever runs it happened to be held to.
     development: bool
     harness_runs: Count
-    counts: dict[Literal["visible", "validation", "held_out"], TierCounts]
+    counts: dict[SourceTier, TierCounts]
+
+    @model_validator(mode="after")
+    def _one_source_and_its_tiers(self) -> BaselineRecord:
+        if (self.tiers is None) == (self.external is None):
+            msg = "a baseline record names one source: a tier version or an external task set"
+            raise ValueError(msg)
+        wanted = VERSION_TIERS if self.external is None else EXTERNAL_TIERS
+        if set(self.counts) != set(wanted):
+            msg = "a baseline record counts exactly its source's tiers"
+            raise ValueError(msg)
+        return self
 
 
 def tiers_record(manifest: TierSet) -> TiersRecord:
@@ -129,6 +167,6 @@ def write_new(path: Path, payload: bytes) -> None:
         os.close(fd)
 
 
-def record_bytes(record: TiersRecord | BaselineRecord) -> bytes:
+def record_bytes(record: TiersRecord | ExternalSetRecord | BaselineRecord) -> bytes:
     """A record's bytes as written: its canonical JSON, one line."""
     return canonical_json(record.model_dump(mode="json"))
