@@ -21,9 +21,9 @@ import pytest
 
 from physgate.evaluation.per_role.exceptions import TaskFormatError
 from physgate.evaluation.tiers.base import Measure
+from physgate.evaluation.whole import answer as contract
 from physgate.evaluation.whole.answer import (
     MAX_ANSWER_BYTES,
-    MAX_DELAY_SAMPLES,
     MAX_FILES,
     MAX_MAGNITUDE,
     IncrementalRisingOffset,
@@ -34,7 +34,10 @@ from physgate.evaluation.whole.answer import (
     read_whole_run,
 )
 
-LOOP_UNITS = {"period": "s", "command_limit": "1", "sensor_delay": "1", "compute_delay": "1"}
+#: The longest delay, in s: half a second, far past any delay a balancing loop survives.
+MAX_DELAY = 0.5
+DELAY_UNITS = {"sensor_delay": "s", "compute_delay": "s"}
+LOOP_UNITS = {"period": "s", "command_limit": "1", **DELAY_UNITS}
 RISING_UNITS = {
     **LOOP_UNITS,
     "rate_ratio": "s",
@@ -49,6 +52,25 @@ FEEDBACK_UNITS = {
     "distance_gain": "1/m",
     "speed_gain": "s/m",
 }
+#: The reference kit's balancing example as its code writes it: integers in the code's own
+#: scalings (angle in millidegrees, rate in deg/s, travel in encoder counts, command in PWM
+#: counts), with the two times in ms and the gyro's divisor in raw counts per deg/s.
+NATIVE_UNITS = {
+    **DELAY_UNITS,
+    "update_time": "ms",
+    "motor_speed_limit": "count",
+    "angle_rate_ratio": "ms",
+    "angle_response": "1",
+    "distance_response": "1",
+    "speed_response": "1",
+    "response_divisor": "1",
+    "gear_ratio_coefficient": "1",
+    "gyro_divisor": "count*s/deg",
+    "angle_decay_numerator": "1",
+    "angle_decay_denominator": "1",
+}
+#: The native fields that are the code's integers, each held to a whole number.
+NATIVE_WHOLE = [f for f in NATIVE_UNITS if f not in DELAY_UNITS]
 PARAMETER_UNITS = {
     "update_rate": "Hz",
     "gyro_output_data_rate": "Hz",
@@ -67,8 +89,8 @@ def _loop() -> dict[str, Any]:
     return {
         "period": _m(0.01, "s"),
         "command_limit": _m(0.75, "1"),
-        "sensor_delay": _m(0, "1"),
-        "compute_delay": _m(1, "1"),
+        "sensor_delay": _m(0.0048, "s"),
+        "compute_delay": _m(0.002, "s"),
     }
 
 
@@ -94,6 +116,25 @@ def feedback() -> dict[str, Any]:
     }
 
 
+def native() -> dict[str, Any]:
+    return {
+        "structure": "native_incremental_rising_offset",
+        "sensor_delay": _m(0.0048, "s"),
+        "compute_delay": _m(0.002, "s"),
+        "update_time": _m(10, "ms"),
+        "motor_speed_limit": _m(300, "count"),
+        "angle_rate_ratio": _m(140, "ms"),
+        "angle_response": _m(11, "1"),
+        "distance_response": _m(73, "1"),
+        "speed_response": _m(3300, "1"),
+        "response_divisor": _m(100, "1"),
+        "gear_ratio_coefficient": _m(111, "1"),
+        "gyro_divisor": _m(29, "count*s/deg"),
+        "angle_decay_numerator": _m(999, "1"),
+        "angle_decay_denominator": _m(1000, "1"),
+    }
+
+
 def parameters() -> dict[str, Any]:
     return {
         "update_rate": _m(100, "Hz"),
@@ -108,7 +149,7 @@ def parameters() -> dict[str, Any]:
 def answer(**over: Any) -> dict[str, Any]:
     doc: dict[str, Any] = {
         "form": "whole_run",
-        "version": 1,
+        "version": 2,
         "controller": rising(),
         "parameters": parameters(),
         "files": ["firmware/src/main.cpp"],
@@ -117,8 +158,22 @@ def answer(**over: Any) -> dict[str, Any]:
     return doc
 
 
+def native_answer(**over: Any) -> dict[str, Any]:
+    """An answer whose firmware controller is written natively, with the gyro's sensitivity."""
+    doc = answer(controller=native(), **over)
+    doc["parameters"]["gyro_sensitivity"] = _m(28.571, "count*s/deg")
+    return doc
+
+
 def _parse(doc: dict[str, Any]) -> WholeRun:
     return parse_whole_run(json.dumps(doc).encode())
+
+
+def _taken(doc: dict[str, Any]) -> WholeRun:
+    """The answer read; a refusal is a failed assertion that names the reason."""
+    read = _raised(_parse, doc)
+    assert read is None, f"refused: {read}"
+    return _parse(doc)
 
 
 def _with(doc: dict[str, Any], path: tuple[str, ...], value: object) -> dict[str, Any]:
@@ -153,11 +208,11 @@ def _wrong_unit(unit: str) -> str:
 
 
 def test_an_answer_with_the_incremental_rising_offset_controller_is_read_with_every_unit() -> None:
-    read = _parse(answer())
+    read = _taken(answer())
     assert isinstance(read.controller, IncrementalRisingOffset)
     assert read.controller.rate_ratio == Measure(value=0.14, unit="s")
     assert read.controller.speed_gain == Measure(value=0.9, unit="s/m")
-    assert read.controller.compute_delay == Measure(value=1, unit="1")
+    assert read.controller.compute_delay == Measure(value=0.002, unit="s")
     assert read.parameters.encoder_counts_per_wheel_revolution == Measure(value=1322.9, unit="1")
     assert read.parameters.gyro_full_scale == Measure(value=1000, unit="deg/s")
     assert read.analysed_controller is None
@@ -165,19 +220,19 @@ def test_an_answer_with_the_incremental_rising_offset_controller_is_read_with_ev
 
 
 def test_an_answer_with_a_discrete_state_feedback_is_read_as_that_structure() -> None:
-    read = _parse(answer(controller=feedback()))
+    read = _taken(answer(controller=feedback()))
     assert isinstance(read.controller, StateFeedback)
     assert read.controller.rate_gain == Measure(value=0.5, unit="s/rad")
 
 
 def test_the_analysed_controller_is_kept_beside_the_one_the_firmware_runs() -> None:
-    read = _parse(answer(analysed_controller=feedback()))
+    read = _taken(answer(analysed_controller=feedback()))
     assert isinstance(read.controller, IncrementalRisingOffset)
     assert isinstance(read.analysed_controller, StateFeedback)
 
 
 def test_an_answer_names_no_files_when_it_has_none_to_name() -> None:
-    assert getattr(_parse(_without(answer(), ("files",))), "files", None) == ()
+    assert getattr(_taken(_without(answer(), ("files",))), "files", None) == ()
 
 
 _MEASURE_PATHS = [
@@ -221,7 +276,7 @@ def test_each_gain_period_limit_and_delay_is_held_to_its_own_unit(
     structure: str, field: str, unit: str
 ) -> None:
     controller = rising() if structure == "rising" else feedback()
-    assert _parse(answer(controller=controller)).controller is not None
+    assert _taken(answer(controller=controller)).controller is not None
     controller[field] = _m(controller[field]["value"], _wrong_unit(unit))
     with pytest.raises(TaskFormatError, match=re.escape(repr(unit))):
         _parse(answer(controller=controller))
@@ -310,24 +365,41 @@ def test_the_command_limit_is_a_duty_above_zero_and_at_most_one(value: float) ->
 
 @pytest.mark.parametrize("value", [1, 1.0, 0.75])
 def test_a_command_limit_of_a_duty_up_to_one_is_taken(value: float) -> None:
-    read = _parse(_with(answer(), ("controller", "command_limit"), _m(value, "1")))
+    read = _taken(_with(answer(), ("controller", "command_limit"), _m(value, "1")))
     assert isinstance(read.controller, IncrementalRisingOffset)
     assert read.controller.command_limit.value == value
 
 
-@pytest.mark.parametrize("field", ["sensor_delay", "compute_delay"])
-@pytest.mark.parametrize("value", [1.5, -1, MAX_DELAY_SAMPLES + 1])
-def test_a_delay_is_a_whole_number_of_samples_within_its_bound(field: str, value: float) -> None:
-    with pytest.raises(TaskFormatError, match="samples"):
-        _parse(_with(answer(), ("controller", field), _m(value, "1")))
+def test_the_delay_bound_is_half_a_second() -> None:
+    assert getattr(contract, "MAX_DELAY_SECONDS", None) == MAX_DELAY
 
 
-@pytest.mark.parametrize("field", ["sensor_delay", "compute_delay"])
-@pytest.mark.parametrize("value", [0, 2.0, MAX_DELAY_SAMPLES])
-def test_a_delay_of_whole_samples_up_to_the_bound_is_taken(field: str, value: float) -> None:
-    read = _parse(_with(answer(), ("controller", field), _m(value, "1")))
-    assert isinstance(read.controller, IncrementalRisingOffset)
-    assert getattr(read.controller, field).value == value
+@pytest.mark.parametrize("make", [answer, native_answer], ids=["si", "native"])
+@pytest.mark.parametrize("field", list(DELAY_UNITS))
+@pytest.mark.parametrize("value", [-0.001, math.nextafter(MAX_DELAY, math.inf), 1])
+def test_a_delay_is_a_time_from_zero_to_its_bound(
+    make: Callable[[], dict[str, Any]], field: str, value: float
+) -> None:
+    caught = _raised(_parse, _with(make(), ("controller", field), _m(value, "s")))
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "delay" in str(caught), str(caught)
+
+
+@pytest.mark.parametrize("make", [answer, native_answer], ids=["si", "native"])
+@pytest.mark.parametrize("field", list(DELAY_UNITS))
+@pytest.mark.parametrize("value", [0, 0.0048, 0.01, 0.0125, MAX_DELAY])
+def test_a_delay_of_any_time_up_to_the_bound_is_taken_sub_sample_included(
+    make: Callable[[], dict[str, Any]], field: str, value: float
+) -> None:
+    read = _taken(_with(make(), ("controller", field), _m(value, "s")))
+    assert getattr(read.controller, field) == Measure(value=value, unit="s")
+
+
+@pytest.mark.parametrize("field", list(DELAY_UNITS))
+def test_a_delay_in_samples_is_refused(field: str) -> None:
+    caught = _raised(_parse, _with(answer(), ("controller", field), _m(1, "1")))
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "'s'" in str(caught), str(caught)
 
 
 @pytest.mark.parametrize("value", [400.5, 0.5])
@@ -337,7 +409,7 @@ def test_the_pwm_full_scale_is_a_whole_count(value: float) -> None:
 
 
 def test_a_pwm_full_scale_written_as_a_whole_float_is_taken() -> None:
-    read = _parse(_with(answer(), ("parameters", "pwm_full_scale"), _m(400.0, "1")))
+    read = _taken(_with(answer(), ("parameters", "pwm_full_scale"), _m(400.0, "1")))
     assert isinstance(read.parameters, Parameters)
     assert read.parameters.pwm_full_scale.value == 400.0
 
@@ -380,7 +452,7 @@ def test_a_file_is_named_by_a_path_inside_the_answer_s_directory(path: str) -> N
 
 def test_files_named_by_plain_relative_paths_are_taken() -> None:
     files = ["firmware/src/main.cpp", "README.md", "control/design_v2.py"]
-    assert _parse(answer(files=files)).files == tuple(files)
+    assert _taken(answer(files=files)).files == tuple(files)
 
 
 @pytest.mark.parametrize(
@@ -401,7 +473,7 @@ def test_more_files_than_the_bound_are_refused_and_the_bound_itself_is_taken() -
     names = [f"f{i}.c" for i in range(MAX_FILES + 1)]
     with pytest.raises(TaskFormatError):
         _parse(answer(files=names))
-    assert len(_parse(answer(files=names[:MAX_FILES])).files) == MAX_FILES
+    assert len(_taken(answer(files=names[:MAX_FILES])).files) == MAX_FILES
 
 
 @pytest.mark.parametrize(
@@ -409,9 +481,10 @@ def test_more_files_than_the_bound_are_refused_and_the_bound_itself_is_taken() -
     [
         ("form", "lti_tf"),
         ("form", "Whole_Run"),
-        ("version", 2),
+        ("version", 1),
+        ("version", 3),
         ("version", True),
-        ("version", "1"),
+        ("version", "2"),
     ],
 )
 def test_the_form_and_its_version_are_named_exactly(field: str, value: object) -> None:
@@ -618,12 +691,12 @@ def test_a_value_beyond_the_magnitude_bound_is_refused_and_the_bound_itself_is_t
 ) -> None:
     doc = answer()
     unit = doc[path[0]][path[1]]["unit"]
-    assert _parse(_with(doc, path, _m(MAX_MAGNITUDE, unit))) is not None
+    assert _taken(_with(doc, path, _m(MAX_MAGNITUDE, unit))) is not None
     for value in (math.nextafter(MAX_MAGNITUDE, math.inf), 10 * MAX_MAGNITUDE):
         with pytest.raises(TaskFormatError, match="magnitude"):
             _parse(_with(doc, path, _m(value, unit)))
     if path[0] == "controller":
-        assert _parse(_with(doc, path, _m(-MAX_MAGNITUDE, unit))) is not None
+        assert _taken(_with(doc, path, _m(-MAX_MAGNITUDE, unit))) is not None
         with pytest.raises(TaskFormatError, match="magnitude"):
             _parse(_with(doc, path, _m(-10 * MAX_MAGNITUDE, unit)))
 
@@ -641,7 +714,7 @@ def test_bytes_past_the_size_bound_are_refused_and_the_bound_itself_is_taken() -
     good = json.dumps(answer()).encode()
     at_bound = good + b" " * (MAX_ANSWER_BYTES - len(good))
     assert len(at_bound) == MAX_ANSWER_BYTES
-    assert isinstance(parse_whole_run(at_bound), WholeRun)
+    assert isinstance(_raised(parse_whole_run, at_bound) or parse_whole_run(at_bound), WholeRun)
     caught = _raised(parse_whole_run, at_bound + b" ")
     assert isinstance(caught, TaskFormatError), repr(caught)
     assert "larger" in str(caught)
@@ -656,4 +729,178 @@ def test_bytes_that_are_not_an_answer_are_a_refused_answer_never_another_error(
     raw: bytes,
 ) -> None:
     caught = _raised(parse_whole_run, raw)
+    assert isinstance(caught, TaskFormatError), repr(caught)
+
+
+# The amendment of 13.11: the code's own integer form, the angle's leak, delays as a time.
+
+
+def test_the_native_structure_is_read_with_every_field_in_its_own_unit() -> None:
+    read = _taken(native_answer())
+    assert type(read.controller).__name__ == "NativeRisingOffset"
+    for field, unit in NATIVE_UNITS.items():
+        assert getattr(read.controller, field).unit == unit, field
+    assert getattr(read.controller, "speed_response", None) == Measure(value=3300, unit="1")
+    assert getattr(read.controller, "gyro_divisor", None) == Measure(value=29, unit="count*s/deg")
+    assert getattr(read.parameters, "gyro_sensitivity", None) == Measure(
+        value=28.571, unit="count*s/deg"
+    )
+
+
+def test_a_native_controller_may_be_the_analysed_one_beside_a_native_firmware_controller() -> None:
+    read = _taken(native_answer(analysed_controller=native()))
+    assert type(read.analysed_controller).__name__ == "NativeRisingOffset"
+
+
+@pytest.mark.parametrize(("field", "unit"), list(NATIVE_UNITS.items()))
+def test_each_native_field_is_held_to_its_own_unit(field: str, unit: str) -> None:
+    doc = native_answer()
+    _taken(doc)
+    wrong = "1" if unit != "1" else "count"
+    doc["controller"][field]["unit"] = wrong
+    caught = _raised(_parse, doc)
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert repr(unit) in str(caught), str(caught)
+
+
+@pytest.mark.parametrize("field", list(NATIVE_UNITS))
+def test_a_missing_native_field_is_refused(field: str) -> None:
+    caught = _raised(_parse, _without(native_answer(), ("controller", field)))
+    assert isinstance(caught, TaskFormatError), repr(caught)
+
+
+@pytest.mark.parametrize("field", NATIVE_WHOLE)
+def test_each_native_integer_is_a_whole_number(field: str) -> None:
+    doc = native_answer()
+    value = doc["controller"][field]["value"]
+    caught = _raised(_parse, _with(doc, ("controller", field, "value"), value + 0.5))
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "whole" in str(caught), str(caught)
+    assert _taken(_with(doc, ("controller", field, "value"), float(value))) is not None
+
+
+_NATIVE_POSITIVE = [
+    "update_time",
+    "motor_speed_limit",
+    "response_divisor",
+    "gear_ratio_coefficient",
+    "gyro_divisor",
+    "angle_decay_numerator",
+    "angle_decay_denominator",
+]
+
+
+@pytest.mark.parametrize("field", _NATIVE_POSITIVE)
+@pytest.mark.parametrize("value", [0, -1])
+def test_a_native_time_limit_divisor_or_decay_term_is_positive(field: str, value: int) -> None:
+    caught = _raised(_parse, _with(native_answer(), ("controller", field, "value"), value))
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "positive" in str(caught), str(caught)
+
+
+@pytest.mark.parametrize("field", ["angle_response", "distance_response", "speed_response"])
+@pytest.mark.parametrize("value", [0, -11])
+def test_a_native_response_may_be_zero_or_negative(field: str, value: int) -> None:
+    read = _taken(_with(native_answer(), ("controller", field, "value"), value))
+    assert getattr(read.controller, field).value == value
+
+
+def test_the_native_rate_ratio_may_be_zero_but_not_negative() -> None:
+    assert _taken(_with(native_answer(), ("controller", "angle_rate_ratio", "value"), 0))
+    caught = _raised(
+        _parse, _with(native_answer(), ("controller", "angle_rate_ratio", "value"), -1)
+    )
+    assert isinstance(caught, TaskFormatError), repr(caught)
+
+
+def test_the_native_decay_never_grows_the_angle() -> None:
+    doc = _with(native_answer(), ("controller", "angle_decay_numerator", "value"), 1001)
+    caught = _raised(_parse, doc)
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "decay" in str(caught), str(caught)
+    same = _with(native_answer(), ("controller", "angle_decay_numerator", "value"), 1000)
+    assert _taken(same) is not None
+
+
+@pytest.mark.parametrize("limit", [401, 1000])
+def test_the_native_speed_limit_is_at_most_the_pwm_full_scale(limit: int) -> None:
+    caught = _raised(
+        _parse, _with(native_answer(), ("controller", "motor_speed_limit", "value"), limit)
+    )
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "full scale" in str(caught), str(caught)
+    assert _taken(_with(native_answer(), ("controller", "motor_speed_limit", "value"), 400))
+
+
+@pytest.mark.parametrize("where", ["controller", "analysed_controller"])
+def test_a_native_controller_without_the_gyro_s_stated_sensitivity_is_refused(where: str) -> None:
+    doc = answer(**{where: native()})
+    caught = _raised(_parse, doc)
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "sensitivity" in str(caught), str(caught)
+
+
+def test_the_gyro_s_sensitivity_is_optional_when_no_controller_is_native() -> None:
+    assert getattr(_taken(answer()).parameters, "gyro_sensitivity", "absent") is None
+    doc = answer()
+    doc["parameters"]["gyro_sensitivity"] = _m(28.571, "count*s/deg")
+    assert getattr(_taken(doc).parameters, "gyro_sensitivity", None) == Measure(
+        value=28.571, unit="count*s/deg"
+    )
+
+
+@pytest.mark.parametrize(
+    "measure",
+    [_m(28.571, "1"), _m(0, "count*s/deg"), _m(-28.571, "count*s/deg"), _m(1e13, "count*s/deg")],
+    ids=["unit", "zero", "negative", "magnitude"],
+)
+def test_the_gyro_s_sensitivity_is_positive_in_counts_per_degree_per_second(
+    measure: dict[str, object],
+) -> None:
+    doc = native_answer()
+    doc["parameters"]["gyro_sensitivity"] = measure
+    caught = _raised(_parse, doc)
+    assert isinstance(caught, TaskFormatError), repr(caught)
+
+
+def test_the_angle_decay_is_optional_on_the_incremental_structure_and_absent_by_default() -> None:
+    assert getattr(_taken(answer()).controller, "angle_decay_per_update", "absent") is None
+    doc = _with(answer(), ("controller", "angle_decay_per_update"), _m(0.999, "1"))
+    assert getattr(_taken(doc).controller, "angle_decay_per_update", None) == Measure(
+        value=0.999, unit="1"
+    )
+
+
+@pytest.mark.parametrize(
+    "measure",
+    [_m(0, "1"), _m(-0.5, "1"), _m(1.001, "1"), _m(0.999, "1/s")],
+    ids=["zero", "negative", "growing", "unit"],
+)
+def test_the_angle_decay_is_a_factor_above_zero_and_at_most_one(measure: dict[str, object]) -> None:
+    caught = _raised(_parse, _with(answer(), ("controller", "angle_decay_per_update"), measure))
+    assert isinstance(caught, TaskFormatError), repr(caught)
+    assert "decay" in str(caught), str(caught)
+    assert _taken(_with(answer(), ("controller", "angle_decay_per_update"), _m(1, "1")))
+
+
+def test_a_state_feedback_has_no_angle_decay() -> None:
+    doc = _with(
+        answer(controller=feedback()), ("controller", "angle_decay_per_update"), _m(0.999, "1")
+    )
+    caught = _raised(_parse, doc)
+    assert isinstance(caught, TaskFormatError), repr(caught)
+
+
+def test_the_incremental_structure_states_the_leak_s_continuous_time_meaning() -> None:
+    doc = IncrementalRisingOffset.__doc__ or ""
+    assert "high-pass" in doc and "τ_L" in doc, doc
+
+
+@pytest.mark.parametrize("field", NATIVE_WHOLE)
+def test_a_native_value_too_large_for_a_float_is_a_refused_answer(field: str) -> None:
+    doc = native_answer()
+    unit = doc["controller"][field]["unit"]
+    caught = _raised(
+        parse_whole_run, json.dumps(_with(doc, ("controller", field), _m(10**400, unit))).encode()
+    )
     assert isinstance(caught, TaskFormatError), repr(caught)
