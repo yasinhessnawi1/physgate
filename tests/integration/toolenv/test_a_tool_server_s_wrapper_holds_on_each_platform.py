@@ -333,7 +333,21 @@ def test_a_denial_inside_a_root_or_a_system_place_is_not_readable_inside(tmp_pat
     assert done.returncode == 0, done.stderr[-2000:]
     found = json.loads(done.stdout)
     assert found[str(worktree / "answers" / "key.txt")] == "FileNotFoundError", found
-    assert found[system_file] == "", found  # the file lies under /dev/null
+    # The file lies under /dev/null, bound without its device semantics (bubblewrap binds a
+    # place with no device access unless asked), so opening it is refused.
+    assert found[system_file] == "PermissionError", found
+    # The control: the same file, not denied, is read inside the same wrapper.
+    args = bwrap_args(read_denied=(), server_dir=str(own), read_roots=(INSTALLATION,))
+    done = subprocess.run(
+        [bwrap, *args, "--", PYTHON, "-I", "-c", READ, system_file],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+    with open(system_file) as handle:
+        assert json.loads(done.stdout)[system_file] == handle.read() != ""
     assert found[str(worktree / "model.xml")] == "<mujoco/>\n", found
 
 

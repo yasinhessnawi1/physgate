@@ -384,7 +384,8 @@ def bwrap_args(
     (:data:`LINUX_SYSTEM`), its read roots, and its own directory, and nothing else of the
     machine, so no service's socket and no program outside them is there. A root inside a
     denied place is refused. Within anything the root holds, the system's places too, a
-    denied directory is hidden under an empty filesystem and a denied file under ``/dev/null``;
+    denied directory is hidden under an empty filesystem and a denied file under ``/dev/null``
+    (bound without device access, so opening it is refused);
     a denied place that does not exist yet has its nearest existing parent rebuilt from the
     entries it has at launch, so one made later is not there inside (fail closed). A fresh
     ``/dev`` (no serial device in it) and a ``/proc`` of a process namespace of its own; no
