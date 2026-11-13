@@ -37,7 +37,7 @@ from packet_fixture import ISSUED, SPEC, artefact_of, make_attempt, stream
 from rubric_fixture import PLACEHOLDER
 
 from physgate.orchestrator import exports
-from physgate.orchestrator.protocols import IssuedSpec
+from physgate.orchestrator.protocols import Artefact, IssuedSpec
 from physgate.reviewers import packet
 from physgate.reviewers.rubric import Rubric
 
@@ -563,4 +563,34 @@ def test_the_issued_packet_shows_an_export_s_bytes_until_the_commit_rule_admits_
     read = Path(built.read_root)
     issued = b"".join((read / part.name).read_bytes() for part in built.diff_parts)
     assert MARK in issued and _header() not in issued
+    packet.check_parts(built, repo=attempt.worktree, base_commit=attempt.spec_commit)
+
+
+def test_the_issued_packet_shows_the_exports_the_attempt_carries_as_their_lines(
+    tmp_path: Path,
+) -> None:
+    """The admission the change check made reaches the packet on the attempt, and holds."""
+    assert "exports" in Artefact.model_fields, "the attempt carries no admitted exports"
+    attempt = make_attempt(tmp_path, stream())
+    path = "m/exports/plate.stl"
+    _write(attempt.worktree, {path: STL})
+    _git(attempt.worktree, "add", "-A")
+    _git(attempt.worktree, "commit", "-q", "-m", "exports")
+    commit = _git(attempt.worktree, "rev-parse", "HEAD")
+    library = tmp_path / "harness"
+    write_fixture(library, ("cross", "control"))
+    carried = ({"path": path, "sha256": _sha(STL)},)
+    built = packet.build_packet(
+        tmp_path / "reviews" / "r0123456789ab",
+        artefact_of(attempt, attempt_commit=commit, exports=carried),
+        repo=attempt.worktree,
+        base_commit=attempt.spec_commit,
+        rubric=Rubric(role="control", text=PLACEHOLDER, sha256=_sha(PLACEHOLDER.encode())),
+        library=library,
+        spec=IssuedSpec(commit=attempt.spec_commit, path=SPEC, sha256=_sha(ISSUED.encode())),
+    )
+    read = Path(built.read_root)
+    issued = b"".join((read / part.name).read_bytes() for part in built.diff_parts)
+    assert _header() in issued and _added(path, STL) in issued
+    assert STL not in issued
     packet.check_parts(built, repo=attempt.worktree, base_commit=attempt.spec_commit)

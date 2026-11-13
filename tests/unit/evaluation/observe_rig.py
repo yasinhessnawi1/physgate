@@ -197,6 +197,8 @@ class FakeSession:
     #: The calls that end for infrastructure (an API error) after recording: nothing is
     #: committed, and the loop retries the attempt in a fresh session.
     infra: set[int] = field(default_factory=set)
+    #: Further files every call writes, by path under its module, with their bytes.
+    files: dict[str, bytes] = field(default_factory=dict)
     calls: int = 0
 
     def environment(self) -> None:
@@ -214,6 +216,9 @@ class FakeSession:
         module = worktree / request.module_dir
         module.mkdir(parents=True, exist_ok=True)
         (module / "impl.py").write_text(self.content.get(self.calls, "x = 1\n"))
+        for name, body in self.files.items():
+            (module / name).parent.mkdir(parents=True, exist_ok=True)
+            (module / name).write_bytes(body)
         node_id = f"{self.role}.node_{request.subtask_id.replace('-', '_')}"
         proposal = worktree / ".physgate" / "proposals" / f"{node_id}.json"
         proposal.parent.mkdir(parents=True, exist_ok=True)
