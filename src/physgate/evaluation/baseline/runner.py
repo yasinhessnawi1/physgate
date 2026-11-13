@@ -12,7 +12,8 @@ is not what its manifest says, or two of whose tasks share a brief; an entry who
 task of the version was given, that is listed twice, whose run recorded another endpoint
 than the operator's (the record's endpoint is compared, never a destination for the
 credential), whose run does not withhold the store's protected places or did not look for
-the version's protected canaries (the raw session withholds exactly what its run did), or
+the version's protected canaries and those listed under every role's root in the store (the
+raw session withholds exactly what its run did, and looks for what it looked for), or
 whose run's token account cannot give a cap (:func:`.arms.compare.harness_total`); and,
 unless the round is a development one, a harness run that is not reportable or not from a
 clean checkout.
@@ -44,9 +45,10 @@ external one of the role and of one benchmark, and the set lies outside the stor
 are run as a visible tier's are, since a published task is no protected one, counted under
 ``external`` alone, and its round writes ``evaluation/external.json`` in place of
 ``tiers.json``. The store is still named and still refused when not clean, and every harness
-run must still withhold its protected places; there is no version, so no version's canaries
-are asked for. Whether an external number may be reported waits on its audit, which is a
-person's reading (ARCH-143), never this module's.
+run must still withhold its protected places and look for the canaries listed under every
+role's root in the store; there is no version, so no version's own are asked for. Whether
+an external number may be reported waits on its audit, which is a person's reading
+(ARCH-143), never this module's.
 """
 
 from __future__ import annotations
@@ -92,7 +94,9 @@ from physgate.evaluation.per_role.assemble import (
 )
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.report import TrialRecord
+from physgate.evaluation.tiers.authoring import AuthoringError
 from physgate.evaluation.tiers.base import _Frozen
+from physgate.evaluation.tiers.canaries import store_canaries
 from physgate.evaluation.tiers.heldout import tier_digest
 from physgate.evaluation.tiers.manifest import TierSet, read_version
 from physgate.evaluation.tiers.store import (
@@ -328,6 +332,7 @@ def plan(
         assert external is not None  # one of the two, checked above
         source, tasks = _external_tasks(store, role, external)
     canaries = {task.canary for _, task in tasks.values() if task.canary is not None}
+    canaries |= _listed(store)
     of_what = "this version" if version is not None else "this external set"
     planned: list[Planned] = []
     seen: set[tuple[str, int]] = set()
@@ -369,6 +374,24 @@ def plan(
     return source, planned
 
 
+def _listed(store: Path) -> set[str]:
+    """Every canary the lists under every role's root in ``store`` name, its own role's or not.
+
+    A round looks for them all, as an authoring session does
+    (:func:`.tiers.canaries.store_canaries`): another role's protected tier lies in the same
+    store, and a canary of it in the raw session's stream is an exposure all the same.
+
+    Raises:
+        BaselineError: a list cannot be taken whole, or a tier holds no list; it is never
+            read as naming none.
+    """
+    try:
+        return set(store_canaries(store))
+    except AuthoringError as exc:
+        msg = f"the store's canaries cannot all be read, so no run can be held to them: {exc}"
+        raise BaselineError(msg, **exc.context) from None
+
+
 def _require_withheld(
     store: Path, role: Role, config: RunConfig, canaries: set[str], where: dict[str, str]
 ) -> None:
@@ -379,7 +402,7 @@ def _require_withheld(
     open, or did not look for a protected task's canary, would leave it open to the raw
     session too. Every run on the store withholds the role's withheld root and work root and
     the validation and held-out tiers of every version, each spelt as on disk, and looks for
-    every canary of the version's protected tasks.
+    every canary of the version's protected tasks and of every role's root (:func:`_listed`).
 
     Raises:
         BaselineError: a place or a canary is missing; places by path, canaries by count.
@@ -398,7 +421,10 @@ def _require_withheld(
             raise BaselineError(msg, refused_because=refusal[0], **where)
     missing = canaries - set(config.held_out_canaries)
     if missing:
-        msg = "the harness run did not look for every canary of the version's protected tasks"
+        msg = (
+            "the harness run did not look for every canary of the version's protected tasks "
+            "and of every role's root in the store"
+        )
         raise BaselineError(msg, missing=str(len(missing)), **where)
 
 

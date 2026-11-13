@@ -23,7 +23,12 @@ from test_an_author_looks_for_every_canary_under_its_protected_root import (
     _root,
 )
 from test_every_tier_under_a_protected_root_names_its_canaries import _check
-from test_the_task_author_s_session_is_staged_held_and_split_blind import _plan, _setup, _tasks
+from test_the_task_author_s_session_is_staged_held_and_split_blind import (
+    _held_tier,
+    _plan,
+    _setup,
+    _tasks,
+)
 
 from physgate.evaluation.per_role import author_session
 
@@ -74,10 +79,8 @@ def test_a_blind_check_not_looking_for_another_role_s_canary_is_refused(
     # tier; the check is given its own root's canaries alone.
     import test_every_tier_under_a_protected_root_names_its_canaries as rows
 
-    cut = rows._held_tier
-
     def cut_then_listed(path: Path, patch: pytest.MonkeyPatch) -> Any:  # noqa: ANN401
-        made = cut(path, patch)
+        made = _held_tier(path, patch)
         _listed_under_the_other_role(_plan(path).root, OTHER)
         return made
 

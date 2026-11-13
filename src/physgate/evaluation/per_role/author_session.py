@@ -13,9 +13,10 @@ version still being written holds tasks that become held-out ones with no canary
 nothing starts while one is there. The role's root is surveyed as the session's tripwire will
 survey it: a link or an unreadable file anywhere under it would have the session refused
 every tool call, so the runner refuses first, at no cost. It refuses too unless the session
-looks for every canary that the lists the harness wrote under the root name, at any depth
-(:func:`root_canaries`), and a list that cannot be taken whole, a directory that cannot be
-listed, or a tier that holds tasks but no list, is never read as naming none.
+looks for every canary that the lists the harness wrote under every role's root in the store
+name, at any depth, since it withholds them all (:func:`.tiers.canaries.store_canaries`),
+and a list that cannot be taken whole, a directory that cannot be listed, or a tier that holds
+tasks but no list, is never read as naming none.
 While it runs, a checkpoint on the budget watch holds each task to its references as soon as
 it is written (on a copy, never in the worktree), and stops the session when no task holds
 after a quarter of the cap, or when more than a task's worth of tokens has gone by since the
@@ -76,29 +77,28 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, RootModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, RootModel, ValidationError
 
 from physgate.evaluation.per_role.arms.raw import WATCH_FAILURES, RawSetup, run_session
 from physgate.evaluation.per_role.firmware.sandbox import open_directory
 from physgate.evaluation.per_role.validate import id_digest, refusal_reasons, sound, validate
 from physgate.evaluation.tiers.authoring import (
-    CANARIES_NAME,
     PER_TIER,
     TIERS,
     AuthoringError,
     author_brief,
     require_author_model,
 )
+from physgate.evaluation.tiers.canaries import names_a_list, store_canaries
+from physgate.evaluation.tiers.canaries import root_canaries as root_canaries
 from physgate.evaluation.tiers.manifest import VERSION_NAME, read_version
 from physgate.evaluation.tiers.store import (
     AUTHOR_EVIDENCE,
     CHECK_EVIDENCE,
-    SESSION_FOLDERS,
     WORKING,
     author_evidence,
     check_evidence,
     check_root_refusal,
-    is_visible_tier,
     leftover_refusal,
     make_role_root,
     pool_dir,
@@ -110,7 +110,7 @@ from physgate.evaluation.tiers.store import (
     work_root,
     write_version,
 )
-from physgate.evaluation.tiers.task import Canary, Role, canonical_json, fold_id, load_task
+from physgate.evaluation.tiers.task import Role, canonical_json, fold_id, load_task
 from physgate.hooks.withheld import survey
 
 _READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
@@ -309,125 +309,6 @@ def _require_clear(root: Path) -> None:
         )
 
 
-#: The largest canary list read: a few dozen canaries per tier, a few tiers per root.
-MOST_CANARY_LIST_BYTES = 1024 * 1024
-#: What a canary list holds. A short entry would match nearly any stream, so nothing else
-#: passes for one.
-_CANARIES: TypeAdapter[list[str]] = TypeAdapter(list[Canary])
-
-
-def _names_a_list(name: str) -> bool:
-    """Whether ``name`` is what a canary list is called, in any case.
-
-    The harness writes lower case, but a disk that ignores case opens ``Canaries.json`` by
-    that name all the same.
-    """
-    folded = name.casefold()
-    return folded == CANARIES_NAME or folded.endswith(f".{CANARIES_NAME}")
-
-
-def _refuse_list(reason: str, path: str, detail: str) -> AuthoringError:
-    msg = (
-        f"the canary list {path} is {detail}; it is never read as naming no canary, so the "
-        "session does not run until it is put right"
-    )
-    return AuthoringError(msg, refused_because=reason, path=path)
-
-
-def _canary_list(path: str) -> set[str]:
-    """The canaries one list names, read whole through a descriptor that follows no link.
-
-    Raises:
-        AuthoringError: the list is a link, not a regular file with one name, too large or
-            unreadable (``canary_list_unreadable``), not a list of canaries, each exactly
-            :data:`.task.Canary` (``canary_list_unparsed``), or names none
-            (``canary_list_empty``).
-    """
-    try:
-        fd = os.open(path, _READ)
-    except OSError as exc:
-        raise _refuse_list("canary_list_unreadable", path, f"not readable ({exc})") from exc
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-            raise _refuse_list("canary_list_unreadable", path, "not a file with one name")
-        if info.st_size > MOST_CANARY_LIST_BYTES:
-            raise _refuse_list("canary_list_unreadable", path, "too large")
-        with os.fdopen(os.dup(fd), "rb") as handle:
-            data = handle.read(MOST_CANARY_LIST_BYTES + 1)
-    except OSError as exc:
-        raise _refuse_list("canary_list_unreadable", path, f"not readable ({exc})") from exc
-    finally:
-        os.close(fd)
-    try:
-        listed = json.loads(data)
-    except (ValueError, RecursionError) as exc:
-        raise _refuse_list("canary_list_unparsed", path, "not JSON") from exc
-    try:
-        _CANARIES.validate_python(listed)
-    except ValidationError as exc:
-        raise _refuse_list("canary_list_unparsed", path, "not a list of canaries") from exc
-    if not listed:
-        raise _refuse_list("canary_list_empty", path, "empty")
-    return set(listed)
-
-
-def root_canaries(root: Path) -> tuple[str, ...]:
-    """Every canary the lists the harness wrote under ``root`` name; none while it holds none.
-
-    A split leaves each protected tier's list inside the tier, as ``canaries.json``; a list
-    named ``<tier>.canaries.json`` beside one is read as well, at any depth, in any case.
-    The session folders at the root's top (:data:`.tiers.store.SESSION_FOLDERS`) are not
-    entered: what a session wrote is no list of ours, and the pool's tasks carry no canary,
-    which is given at the split. Of everything else only names are looked at, by the runner,
-    never a task. A link is judged as the list it is named as, and never followed.
-
-    A directory that holds a task (a directory with a ``task.json`` in it) is a tier, and a
-    tier holds its list: one that holds a task but no list (the split stopped before its list
-    was written, or the list was removed) leaves its canaries unknown, so it refuses rather
-    than reading as naming none. A directory that holds no task is no tier. The one tier
-    with no canaries is a version's visible tier, known by its place alone
-    (``<root>/<version>/visible``, :func:`.tiers.store.is_visible_tier`); a list-less tier
-    anywhere else, a version being written included, refuses.
-
-    Raises:
-        AuthoringError: a list cannot be taken whole (:func:`_canary_list`), a directory that
-            could hold one cannot be listed (``canary_list_unreadable``), or a tier holds no
-            list (``canary_list_missing``).
-    """
-
-    def unlisted(exc: OSError) -> None:
-        msg = f"{exc.filename} cannot be listed, so a canary list in it cannot be ruled out"
-        raise AuthoringError(
-            msg, refused_because="canary_list_unreadable", path=str(exc.filename)
-        ) from exc
-
-    if not root.is_dir():
-        return ()
-    found: set[str] = set()
-    tiers: set[str] = set()
-    listed: set[str] = set()
-    for where, directories, files in os.walk(root, onerror=unlisted):
-        if where == str(root):
-            directories[:] = [d for d in directories if d not in SESSION_FOLDERS]
-        elif any(name.casefold() == "task.json" for name in files):
-            tier = os.path.dirname(where)
-            if not (is_visible_tier(Path(tier)) and Path(tier).parent.parent == root):
-                tiers.add(tier)
-        for name in sorted((*directories, *files)):
-            if _names_a_list(name):
-                found |= _canary_list(str(Path(where) / name))
-                listed.add(where)
-    unlisted_tiers = sorted(tiers - listed)
-    if unlisted_tiers:
-        msg = (
-            f"{unlisted_tiers[0]} holds tasks but no canary list, so its canaries cannot be "
-            "looked for; it is never read as naming none"
-        )
-        raise AuthoringError(msg, refused_because="canary_list_missing", path=unlisted_tiers[0])
-    return tuple(sorted(found))
-
-
 def _require_looking(canaries: Sequence[str], setup: RawSetup) -> None:
     """Refuse a session that would not look for every one of ``canaries``.
 
@@ -437,8 +318,8 @@ def _require_looking(canaries: Sequence[str], setup: RawSetup) -> None:
     missing = set(canaries) - set(setup.held_out_canaries)
     if missing:
         msg = (
-            f"the session would not look for {len(missing)} of the canaries its protected "
-            "root names, so its record could not say whether it saw a held-out task"
+            f"the session would not look for {len(missing)} of the canaries the protected "
+            "roots it withholds name, so its record could not say whether it saw a held-out task"
         )
         raise AuthoringError(msg, refused_because="canaries_missing", missing=str(len(missing)))
 
@@ -458,17 +339,18 @@ def _require_unseen(record: dict[str, Any], canaries: Sequence[str], taken: str)
         raise AuthoringError(msg, end=str(record.get("end")), refused_because="held_out_seen")
 
 
-def _require_none_came(root: Path, canaries: Sequence[str], taken: str) -> None:
-    """Refuse what a session left if its root's canaries changed while it ran.
+def _require_none_came(store: Path, canaries: Sequence[str], taken: str) -> None:
+    """Refuse what a session left if the store's canaries changed while it ran.
 
-    The root is walked again: a list that came while the session ran names canaries it was
-    not looking for, so its record says nothing of them, and a list that can no longer be
-    taken whole, or has gone, refuses as it does before the session.
+    Every role's root in the store is walked again, as the session withholds them all: a list
+    that came while the session ran names canaries it was not looking for, so its record says
+    nothing of them, and a list that can no longer be taken whole, or has gone, refuses as it
+    does before the session.
 
     Raises:
         AuthoringError: ``canaries_missing``, or a list's own reason.
     """
-    grown = set(root_canaries(root)) - set(canaries)
+    grown = set(store_canaries(store)) - set(canaries)
     if grown:
         msg = (
             f"the protected root came to name {len(grown)} canaries while the session ran "
@@ -514,7 +396,7 @@ def _copy_into(source_fd: int, target_fd: int, budget: list[int]) -> None:
 def _copy_level(source_fd: int, target_fd: int, budget: list[int], depth: int) -> None:
     """:func:`_copy_into` for the entries ``depth`` levels below the task."""
     for name in sorted(os.listdir(source_fd)):
-        if _names_a_list(name):
+        if names_a_list(name):
             raise _NotPlainError(name)
         try:
             kind = _classify(name, source_fd).st_mode
@@ -580,7 +462,7 @@ def _stage_one(name: str, source: int, target: int) -> bool:
         OSError: what was copied of a refused task cannot be removed, so the staging
             directory cannot be trusted to hold whole tasks only.
     """
-    if _names_a_list(name):
+    if names_a_list(name):
         return False
     try:
         task = open_directory(name, source)
@@ -1001,7 +883,8 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
     root = plan.root
     _require_no_work_left(root)
     _require_nothing_left(plan.store, continuing=pool_dir(plan.store, plan.role))
-    canaries = root_canaries(root)
+    # Every role's root it withholds, never its own alone (:func:`.tiers.canaries.store_canaries`).
+    canaries = store_canaries(plan.store)
     _require_looking(canaries, setup)
     _require_clear(plan.store)
     evidence = author_evidence(plan.store, plan.role)
@@ -1041,7 +924,7 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
         # Its canaries were not looked for, so the record above says nothing of them, and a
         # session whose withhold failed could have read that tier. The same walk, so a list
         # that can no longer be taken whole, or has gone, refuses here as before the session.
-        _require_none_came(root, canaries, NOT_POOLED)
+        _require_none_came(plan.store, canaries, NOT_POOLED)
         staging = plan.work / "staging"
         refused = stage(plan.work / "worktree", staging)
         staged = sum(1 for p in staging.iterdir() if p.is_dir())
@@ -1267,10 +1150,11 @@ def blind_check(
     """Run the blind check on a version's held-out tier; counts and the flagged tasks' digests.
 
     The version is read as every reader reads it, its manifest held to the bytes on disk
-    (:func:`.tiers.manifest.read_version`). The check is held to the canaries under the
-    role's root, as an author is (:func:`root_canaries`): it runs only looking for every one
-    of them, and its answer is taken only when its record says none showed in its stream and
-    none came under the root while it ran. Its stream is kept inside the role's root.
+    (:func:`.tiers.manifest.read_version`). The check is held to the canaries under every
+    role's root in the store, as an author is (:func:`.tiers.canaries.store_canaries`): it runs
+    only looking for every one of them, and its answer is taken only when its record says none
+    showed in its stream and none came under any of them while it ran. Its stream is kept
+    inside the role's root.
 
     Its session withholds what a run on the role's root withholds but the work root: the
     role's withheld root and every version's validation and held-out tiers, spelt as on disk.
@@ -1330,7 +1214,7 @@ def blind_check(
     _require_no_work_left(root)
     _require_nothing_left(store)
     read_version(version_dir(store, role, version))
-    canaries = root_canaries(root)
+    canaries = store_canaries(store)
     _require_looking(canaries, setup)
     tasks = bundle(tier)
     files = {"tasks.json": json.dumps(tasks, sort_keys=True, indent=1).encode()}
@@ -1346,7 +1230,7 @@ def blind_check(
                 CHECK_BRIEF.format(count=len(tasks)), setup, work, cap=cap, files=files
             )
             _require_unseen(record, canaries, "its answer is not taken")
-            _require_none_came(root, canaries, "its answer is not taken")
+            _require_none_came(store, canaries, "its answer is not taken")
             answers = read_answers(work / "worktree" / "answers.json", list(tasks))
         except AuthoringError as exc:
             refused = raised = exc
