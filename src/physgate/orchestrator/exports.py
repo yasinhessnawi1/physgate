@@ -33,8 +33,10 @@ from pathlib import PurePosixPath
 EXPORTS_DIR = "exports"
 #: What an export's name ends in, compared without regard to case.
 EXPORT_SUFFIXES: tuple[str, ...] = (".step", ".stl")
-#: The largest export, in bytes, whose bytes may leave a review's diff.
+#: The largest export a commit may hold, in bytes; past it the attempt is refused.
 MAX_EXPORT_BYTES = 2_000_000
+#: The most bytes a module's exports may hold together after an attempt.
+MAX_MODULE_EXPORT_BYTES = 16_000_000
 #: The longest text taken from inside an export into its summary, in characters.
 MAX_FIELD_CHARS = 80
 

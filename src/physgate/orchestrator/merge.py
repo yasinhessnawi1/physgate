@@ -45,6 +45,14 @@ from pathlib import Path, PurePosixPath
 from physgate.orchestrator.declaration import DECLARATION_PATH
 from physgate.orchestrator.dispute import DISPUTES_DIR
 from physgate.orchestrator.exceptions import GitError, MergeConflictError, MergeRefusedError
+from physgate.orchestrator.exports import (
+    EXPORT_SUFFIXES,
+    EXPORTS_DIR,
+    MAX_EXPORT_BYTES,
+    MAX_MODULE_EXPORT_BYTES,
+    is_export,
+    summary,
+)
 from physgate.orchestrator.git import (
     GitDir,
     add_worktree,
@@ -86,6 +94,17 @@ BUILD_DIRECTORY = (
 )
 #: The most built files named one by one; past it the rest are counted.
 MAX_ARTEFACTS_NAMED = 20
+#: What an attempt is told about a misplaced or malformed export (``exports``).
+EXPORT_OUTSIDE = (
+    f"an export outside the module's {EXPORTS_DIR} folder: the design helper writes each export "
+    f"into {EXPORTS_DIR}/, and nowhere else"
+)
+NOT_AN_EXPORT = (
+    f"a file in the module's {EXPORTS_DIR} folder that is no export: only files ending in "
+    f"{' or '.join(EXPORT_SUFFIXES)}, directly in it, with names that print, belong there"
+)
+EXPORT_TOO_BIG = f"an export over {MAX_EXPORT_BYTES} bytes"
+EXPORT_INVALID = "an export whose bytes are not what its suffix says"
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 #: Where a run's interface contract files are: ``decompose.INTERFACES_DIR``, spelled here as well
@@ -214,6 +233,15 @@ def write_scope_violations(
     with the number of files; a built file elsewhere (:data:`BUILD_SUFFIXES`) is named by its
     path, the first :data:`MAX_ARTEFACTS_NAMED` of them. Names are matched in any case.
     Removing one is in scope: that is the repair.
+
+    So is a misplaced or malformed export (``exports``): a file with an export suffix anywhere
+    in the module but directly in its exports folder, anything in that folder that is no export,
+    an export over :data:`~physgate.orchestrator.exports.MAX_EXPORT_BYTES` or whose bytes are not
+    what its suffix says, and exports holding more than
+    :data:`~physgate.orchestrator.exports.MAX_MODULE_EXPORT_BYTES` together in the module after
+    the attempt. Misplaced files are named in git's order, then the exports' bytes, read from
+    the commit. An attempt that passes holds only exports the review packet may show by size,
+    sha256 and summary.
     """
     module = PurePosixPath(module_dir)
     if module.is_absolute() or ".." in module.parts or not module.parts:
@@ -222,6 +250,8 @@ def write_scope_violations(
     found: list[str] = []
     trees: dict[str, int] = {}
     built: list[str] = []
+    exports_dir = module / EXPORTS_DIR
+    exported: list[str] = []
     for change in changes_between(repo, base, commit, git_dir=git_dir):
         escaped = utf8_name(change.path)
         if escaped is not None:
@@ -240,6 +270,10 @@ def write_scope_violations(
                     trees[tree] = trees.get(tree, 0) + 1
                 elif path.name.casefold().endswith(BUILD_SUFFIXES):
                     built.append(change.path)
+                elif (misplaced := _misplaced_export(path, exports_dir)) is not None:
+                    found.append(f"{change.path} ({misplaced})")
+                elif path.parent == exports_dir:
+                    exported.append(change.path)
             continue
         if _PROPOSAL.fullmatch(change.path) and change.new_mode in (_REGULAR, _ABSENT):
             continue
@@ -254,6 +288,51 @@ def write_scope_violations(
     if len(built) > MAX_ARTEFACTS_NAMED:
         rest = len(built) - MAX_ARTEFACTS_NAMED
         found.append(f"{module_dir} ({rest} more built files, not named)")
+    if exported:
+        found += _export_bytes_problems(repo, commit, exported, exports_dir, git_dir)
+    return found
+
+
+def _misplaced_export(path: PurePosixPath, exports_dir: PurePosixPath) -> str | None:
+    """Why a file the attempt wrote in its module is no admissible export, if it is not."""
+    if exports_dir not in path.parents:
+        return EXPORT_OUTSIDE if path.name.casefold().endswith(EXPORT_SUFFIXES) else None
+    if path.parent != exports_dir or not is_export(str(path)):
+        return NOT_AN_EXPORT
+    return None
+
+
+def _export_bytes_problems(
+    repo: Path, commit: str, paths: list[str], exports_dir: PurePosixPath, git_dir: GitDir | None
+) -> list[str]:
+    """Each export of ``paths`` too big or not its kind; then the module's total, if over.
+
+    Sizes come from git's objects first, so a file far over the cap is never read whole.
+    """
+    found = []
+    for path in paths:
+        size = int(
+            git(repo, "cat-file", "-s", f"{commit}:{path}", objects_only=True, git_dir=git_dir)
+        )
+        if size > MAX_EXPORT_BYTES:
+            found.append(f"{path} ({EXPORT_TOO_BIG})")
+            continue
+        body = git(
+            repo, "cat-file", "blob", f"{commit}:{path}",
+            objects_only=True, git_dir=git_dir, errors="surrogateescape",
+        ).encode("utf-8", "surrogateescape")  # fmt: skip
+        if summary(path, body) is None:
+            found.append(f"{path} ({EXPORT_INVALID})")
+    listed = git(
+        repo, "ls-tree", "-r", "-l", "-z", commit, "--", f"{exports_dir}/",
+        objects_only=True, git_dir=git_dir, errors="surrogateescape",
+    )  # fmt: skip
+    total = sum(int(entry.split()[3]) for entry in listed.split("\0") if entry)
+    if total > MAX_MODULE_EXPORT_BYTES:
+        found.append(
+            f"{exports_dir}/ (the module's exports hold {total} bytes, over "
+            f"{MAX_MODULE_EXPORT_BYTES})"
+        )
     return found
 
 
