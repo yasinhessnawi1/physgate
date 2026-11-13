@@ -249,6 +249,17 @@ class SubtaskState:
     #: The follow-up sizing's closing pass owed the subtask, once taken.
     followed_up: SubtaskReopened | None = None
 
+    def judged(self) -> set[int]:
+        """The attempts whose streams a review judged: its own, and the earlier ones it was given.
+
+        An attempt refused before review, or left without a verdict, is in it only once a later
+        review was given its scan hits and answered every one (ARCH-133). A review line that
+        names none judged its own attempt alone, as every line written before did.
+        """
+        return {r.attempt for r in self.reviews} | {
+            n for r in self.reviews for n in r.judged_earlier
+        }
+
 
 @dataclass(frozen=True)
 class Step:
@@ -752,6 +763,7 @@ class RunState:
         elif isinstance(event, ReviewRan):
             done = now.cursor == "review" and now.review is None
             self._expect(done and now.unavailable_final is None, "a review line")
+            self._judged_earlier(sub, now, event)
             now.review = event
             sub.reviews.append(event)
             self._ledger(sub.plan.subtask_id, review_result=event.result.verdict)
@@ -1921,6 +1933,16 @@ class RunState:
             if event.reason == "nothing_planned" and order:
                 _refuse("integration skipped as nothing planned in a run that planned subtasks")
         self.integration = event
+
+    def _judged_earlier(self, sub: SubtaskState, now: AttemptState, event: ReviewRan) -> None:
+        """A review names only earlier attempts of its subtask no review had judged, in order."""
+        named = list(event.judged_earlier)
+        earlier = {a.number for a in sub.attempts if a.number < now.number} - sub.judged()
+        if named != sorted(set(named)) or not set(named) <= earlier:
+            _refuse(
+                "a review line names as judged only earlier attempts of its subtask that no "
+                "review had judged, each once and in order"
+            )
 
     def _expect(self, condition: bool, what: str) -> None:
         if not condition:

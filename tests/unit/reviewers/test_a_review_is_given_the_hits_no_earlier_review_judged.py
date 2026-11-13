@@ -81,18 +81,22 @@ def _with_earlier(tmp_path: Path, attempt: Attempt) -> Artefact:
             ],
         }
     ]
-    plain = artefact_of(attempt, attempt=2).model_dump(mode="json")
-    return Artefact.model_validate_json(json.dumps({**plain, "unjudged": unjudged}))
+    plain = artefact_of(attempt).model_dump(mode="json")
+    return Artefact.model_validate_json(json.dumps({**plain, "attempt": 2, "unjudged": unjudged}))
 
 
-def _build(tmp_path: Path, artefact: Artefact | None = None) -> tuple[Packet, Path, Attempt]:
+def _build(
+    tmp_path: Path, artefact: Artefact | None = None, *, earlier: bool = True
+) -> tuple[Packet, Path, Attempt]:
     attempt = make_attempt(tmp_path, stream(with_checks_off=False))
+    if artefact is None:
+        artefact = _with_earlier(tmp_path, attempt) if earlier else artefact_of(attempt)
     library = tmp_path / "harness"
     write_fixture(library, ("cross", "control"))
     review = tmp_path / "reviews" / "r0123456789ab"
     packet = build_packet(
         review,
-        artefact if artefact is not None else _with_earlier(tmp_path, attempt),
+        artefact,
         repo=attempt.worktree,
         base_commit=attempt.spec_commit,
         rubric=RUBRIC,
@@ -149,14 +153,23 @@ def test_an_earlier_stream_that_is_not_what_was_sealed_refuses_the_packet(tmp_pa
     artefact = _with_earlier(tmp_path, attempt)
     first = tmp_path / "earlier" / "sess-1" / "stdout.jsonl"
     first.write_text(first.read_text().replace("# noqa", "# fine"))
-    with pytest.raises(PacketError):
-        _build(tmp_path / "again", artefact)
+    library = tmp_path / "harness"
+    write_fixture(library, ("cross", "control"))
+    with pytest.raises(PacketError) as refused:
+        build_packet(
+            tmp_path / "reviews" / "r0123456789ab",
+            artefact,
+            repo=attempt.worktree,
+            base_commit=attempt.spec_commit,
+            rubric=RUBRIC,
+            library=library,
+            spec=None,
+        )
+    assert refused.value.context.get("attempt") == "1"
 
 
 def test_a_packet_with_no_earlier_attempt_is_written_as_before(tmp_path: Path) -> None:
-    attempt = make_attempt(tmp_path / "a", stream(with_checks_off=False))
-    plain = artefact_of(attempt)
-    packet, _, _ = _build(tmp_path / "b", plain)
+    packet, _, _ = _build(tmp_path, earlier=False)
     data = _dumped(packet)
     assert not any(key in data for key in EARLIER_KEYS)
     assert "unjudged" not in data["artefact"]

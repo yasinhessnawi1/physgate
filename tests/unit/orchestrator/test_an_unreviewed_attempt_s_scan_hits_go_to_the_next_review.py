@@ -434,3 +434,19 @@ def test_an_approve_written_while_a_session_ran_without_the_layer_is_still_held(
         ("s1", False, "held_os_layer_off")
     ]
     assert [m[0] for m in rig.merger.merges] == ["s2"]
+
+
+def test_a_run_that_records_decisions_is_reviewed_as_it_always_was(tmp_path: Path) -> None:
+    # There an approve acts on nothing, and the scan before review never runs: the next review is
+    # given no earlier attempt, and its line names none, so what such a run measures is unchanged.
+    run_dir = tmp_path / "run"
+    both = (judged(hit("sess-1")), judged(hit("sess-2")))
+    rig = _rig(
+        run_dir,
+        reviewer=FakeReviewer(results={1: result("blocked", 1, *both)}),
+        config_overrides={"os_layer": PRESENT},
+    )
+    _run(rig, "s1")
+    assert "unjudged" not in rig.reviewer.seen[0].model_dump()
+    assert _review_judged(run_dir) == [(2, ())]
+    assert _item(run_dir).consequence is None

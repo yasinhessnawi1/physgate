@@ -125,6 +125,7 @@ from physgate.reviewers.rubric import (
     load_rubric,
     not_evaluable_needs,
 )
+from physgate.reviewers.scan import ScanHit
 from physgate.reviewers.transcript import SYNTHETIC_MODEL as SYNTHETIC_MODEL
 from physgate.reviewers.verdict import Unavailable, judge, to_result
 
@@ -149,6 +150,16 @@ def _parts(read: Path, parts: tuple[Part, ...]) -> str:
     if len(parts) == 1:
         return str(read / parts[0].name)
     return f"{read / parts[0].name} to {read / parts[-1].name} ({len(parts)} parts)"
+
+
+def to_answer(packet: Packet | PlanPacket) -> tuple[ScanHit, ...]:
+    """Every marker the verdict must answer: the attempt's own, then each earlier unjudged one's.
+
+    The earlier attempts' are answered exactly as the attempt's own are (ARCH-133): an indicator
+    naming the same evidence, confirmed or dismissed with its reason, or the answer is no verdict.
+    """
+    earlier = packet.earlier_indicators if isinstance(packet, Packet) else ()
+    return (*packet.indicators, *earlier)
 
 
 #: What a reviewer is told about the marker scan: what it found, that it found none of its
@@ -606,7 +617,7 @@ class ClaudeReviewer:
         schema = verdict_schema(
             items,
             criteria=criteria,
-            scan_hits=packet.indicators,
+            scan_hits=to_answer(packet),
             not_evaluable=needs,
             issued=was_issued,
         )
@@ -749,7 +760,7 @@ class ClaudeReviewer:
         structured = (result or {}).get("structured_output")
         judged = judge(
             structured,
-            packet.indicators,
+            to_answer(packet),
             items,
             criteria=criteria,
             not_evaluable=needs,

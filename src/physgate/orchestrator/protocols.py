@@ -206,6 +206,20 @@ class PersonOrder(_Frozen):
         return data
 
 
+class UnjudgedAttempt(_Frozen):
+    """An earlier attempt of the subtask that no review judged, whose streams the scan flags.
+
+    Refused before review (by its change check, its gate, its reading) or left without a
+    verdict, it was never reviewed itself, and its work is in the commit the attempt under review
+    carries. Its sealed streams go to that attempt's reviewer, who judges each hit the scan finds
+    in them as it judges one of its own attempt's (ARCH-133).
+    """
+
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
+    #: Every session of that attempt that left a sealed stream, in order.
+    sessions: Annotated[tuple[SessionTrajectory, ...], Field(min_length=1)]
+
+
 class Artefact(_Frozen):
     """What an attempt produced, as the gate and the reviewer receive it."""
 
@@ -254,6 +268,10 @@ class Artefact(_Frozen):
     #: which its reviewer is shown quantity by quantity. Left out of a dump when empty, so every
     #: other attempt is recorded as before.
     followed: tuple[FollowedInterface, ...] = ()
+    #: The earlier attempts of the subtask no review judged whose streams the scan flags, in
+    #: order, for this attempt's reviewer to judge their hits. Left out of a dump when empty, so
+    #: every other attempt is recorded as before.
+    unjudged: tuple[UnjudgedAttempt, ...] = ()
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -266,12 +284,18 @@ class Artefact(_Frozen):
             data.pop("integration_state", None)
         if not self.followed:
             data.pop("followed", None)
+        if not self.unjudged:
+            data.pop("unjudged", None)
         return data
 
     @model_validator(mode="after")
     def _own_nodes_always(self) -> Artefact:
         if "subtask" not in self.scopes or len(set(self.scopes)) != len(self.scopes):
             msg = "an attempt is always checked at subtask scope, and each scope once"
+            raise ValueError(msg)
+        earlier = [u.attempt for u in self.unjudged]
+        if earlier != sorted(set(earlier)) or any(n >= self.attempt for n in earlier):
+            msg = "an attempt carries earlier attempts only, each once and in order"
             raise ValueError(msg)
         return self
 

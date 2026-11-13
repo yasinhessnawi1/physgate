@@ -404,6 +404,30 @@ class ReviewRan(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     result: ReviewResult
+    #: The earlier attempts of the subtask no review had judged whose scan hits this review was
+    #: given and answered, every one (ARCH-133), in order. A line without it judged its own
+    #: attempt's streams alone, as every line written before did; it is left out when empty, so
+    #: those lines keep their bytes, and a line that holds it holds at least one attempt.
+    judged_earlier: tuple[Attempt, ...] = ()
+
+    @field_validator("judged_earlier", mode="before")
+    @classmethod
+    def _some_when_present(cls, value: object) -> object:
+        # Present on a line, the list names an attempt: an empty one re-serialises to bytes no
+        # writer wrote. The writer's own empty tuple is the field left out.
+        if isinstance(value, list):
+            if not value:
+                msg = "a review line names the earlier attempts it judged, or leaves the field out"
+                raise ValueError(msg)
+            return tuple(value)
+        return value
+
+    @model_serializer(mode="wrap")
+    def _omit_none_judged(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.judged_earlier:
+            data.pop("judged_earlier", None)
+        return data
 
 
 class ReviewUnavailable(_Event):

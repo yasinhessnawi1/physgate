@@ -32,7 +32,14 @@ import re
 import unicodedata
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    StringConstraints,
+    model_serializer,
+)
 
 from physgate.orchestrator.protocols import IndicatorKind
 from physgate.reviewers.transcript import parse_event
@@ -86,6 +93,21 @@ class ScanHit(BaseModel):
     #: The tool call that wrote or ran it, by its id in the trajectory.
     evidence: Annotated[str, StringConstraints(min_length=1)]
     what: Annotated[str, StringConstraints(min_length=1)]
+    #: The attempt whose stream shows it, where the hit is told apart from another attempt's: on
+    #: a queue item, and among an earlier attempt's hits put before a later review. Left out of a
+    #: line when absent, so every hit recorded before reads and writes back as it was.
+    attempt: Annotated[int, Field(ge=1)] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_no_attempt(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.attempt is None:
+            data.pop("attempt", None)
+        return data
+
+    def of_attempt(self, attempt: int) -> ScanHit:
+        """This hit, marked as one ``attempt``'s stream shows."""
+        return self.model_copy(update={"attempt": attempt})
 
 
 def _written(name: str, tool_input: dict[str, Any]) -> list[str]:
