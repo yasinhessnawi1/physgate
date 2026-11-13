@@ -412,9 +412,13 @@ def test_a_run_recorded_against_another_endpoint_is_refused_before_any_credentia
             score=_score,
             prices=load_price_sheet(PRICES),
             arm=arm,
-            sleep=[].append,
+            sleep=_no_sleep,
         )
     assert asked == [] and arm.calls == []
+
+
+def _no_sleep(_seconds: float) -> None:
+    return None
 
 
 @pytest.mark.parametrize(

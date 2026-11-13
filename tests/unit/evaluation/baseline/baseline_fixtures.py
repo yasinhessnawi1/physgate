@@ -181,6 +181,7 @@ def setup_for(config: RunConfig, role: Role) -> RawSetup:
         install_bin=Path("/nowhere/bin/physgate"),
         os_layer=LAYER,
         role_python=None,
+        base_url=None,
     )
 
 

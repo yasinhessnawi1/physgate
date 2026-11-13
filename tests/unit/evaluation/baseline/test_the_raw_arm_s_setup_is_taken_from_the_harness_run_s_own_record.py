@@ -41,7 +41,7 @@ def _config(**changes: object) -> RunConfig:
     return RunConfig.model_validate_json(json.dumps(params))
 
 
-def _setup(config: RunConfig) -> object:
+def _setup(config: RunConfig, base_url: str | None = None) -> object:
     return setup_from_run(
         config,
         "control",
@@ -50,6 +50,7 @@ def _setup(config: RunConfig) -> object:
         install_bin=Path("/i/bin/physgate"),
         os_layer=LAYER,
         role_python=None,
+        base_url=base_url,
     )
 
 
@@ -66,9 +67,12 @@ def test_every_pin_the_run_recorded_is_the_raw_arm_s() -> None:
     assert setup.network == "none" and setup.base_url is None  # type: ignore[attr-defined]
 
 
-def test_a_run_recorded_against_another_endpoint_is_answered_there() -> None:
-    setup = _setup(_config(endpoint="http://127.0.0.1:8080"))
-    assert setup.base_url == "http://127.0.0.1:8080"  # type: ignore[attr-defined]
+def test_the_endpoint_is_the_operator_s_never_the_record_s() -> None:
+    """A credential goes where the operator says; the record's endpoint is only compared."""
+    recorded = _setup(_config(endpoint="http://127.0.0.1:8080"))
+    assert recorded.base_url is None  # type: ignore[attr-defined]
+    given = _setup(_config(endpoint="http://127.0.0.1:8080"), "http://127.0.0.1:8080")
+    assert given.base_url == "http://127.0.0.1:8080"  # type: ignore[attr-defined]
 
 
 def test_a_run_that_pinned_no_model_for_the_role_is_refused() -> None:

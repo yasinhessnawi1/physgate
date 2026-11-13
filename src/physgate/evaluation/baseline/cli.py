@@ -6,10 +6,10 @@ finds each run's task in the version ``V`` of the store ``S`` by the brief the r
 and runs the raw arm on it under the run's own recorded pins, capped at the run's total. It
 writes the round's records under the new directory ``O`` and prints the round's record: counts
 and digests only. ``--development`` holds the round to harness runs that need not be
-reportable; the record says so. The credential is read from the environment variable the
-harness run's auth mode names, and the endpoint is the one the run recorded: a run recorded
-against a scripted endpoint is answered by it, one recorded against the default calls a
-model. It exits 1, naming no task, if the round is refused or stopped.
+reportable; the record says so. The endpoint is ``ANTHROPIC_BASE_URL``, or the binary's
+default, as for every other command, and every harness run must have recorded it; the
+credential is read from the environment variable the run's auth mode names, after every
+entry has been checked. It exits 1, naming no task, if the round is refused or stopped.
 
 The scorer's numerical libraries are the evaluation group's; they are imported only when the
 command runs.
@@ -62,6 +62,9 @@ def _run(args: argparse.Namespace) -> int:
             os.chmod(path, 0o700)
         function(path)
 
+    # The endpoint is the operator's, as every other command's: a run's record names one only
+    # to be compared with it, and a credential is never sent where a record says.
+    base_url = os.environ.get("ANTHROPIC_BASE_URL")
     try:
         runs = RunSet.model_validate_json(args.runs.read_bytes())
         install_bin = prepare_install(install / "hooks", CHECKOUT)
@@ -71,7 +74,8 @@ def _run(args: argparse.Namespace) -> int:
             version=args.version,
             runs=runs,
             out=out,
-            setup_for=_setup_for(install_bin),
+            setup_for=_setup_for(install_bin, base_url),
+            base_url=base_url,
             score=score,
             prices=load_price_sheet(args.prices),
             development=args.development,
@@ -86,7 +90,7 @@ def _run(args: argparse.Namespace) -> int:
     return 0
 
 
-def _setup_for(install_bin: Path) -> Any:  # noqa: ANN401 - the runner's SetupFor
+def _setup_for(install_bin: Path, base_url: str | None) -> Any:  # noqa: ANN401 - a SetupFor
     """The raw arm's setup for a harness run, from what this machine has and the run recorded."""
     import os
 
@@ -118,6 +122,7 @@ def _setup_for(install_bin: Path) -> Any:  # noqa: ANN401 - the runner's SetupFo
                 if python is None
                 else measure(python.path, probe=probe_interpreter, harness=CHECKOUT)
             ),
+            base_url=base_url,
         )
 
     return setup_for

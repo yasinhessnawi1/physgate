@@ -6,12 +6,16 @@ harness run recorded the digest of the brief it was given, and the round finds t
 as the one task of the version, in any of its three tiers, with that brief. So the run set,
 which a person writes and keeps anywhere, holds no held-out or validation id.
 
-**Everything is refused before any session starts** (:func:`plan`): a store a split or a
-session's work has not left clean; a version that is not what its manifest says, or two of
-whose tasks share a brief; an entry whose run no task of the version was given, that is
-listed twice, or whose run's token account cannot give a cap (:func:`.arms.compare.harness_total`);
-and, unless the round is a development one, a harness run that is not reportable or not from
-a clean checkout.
+**Everything is refused before any session starts** (:func:`plan`), and before any
+credential is read: a store a split or a session's work has not left clean; a version that
+is not what its manifest says, or two of whose tasks share a brief; an entry whose run no
+task of the version was given, that is listed twice, whose run recorded another endpoint
+than the operator's (the record's endpoint is compared, never a destination for the
+credential), whose run does not withhold the store's protected places or did not look for
+the version's protected canaries (the raw session withholds exactly what its run did), or
+whose run's token account cannot give a cap (:func:`.arms.compare.harness_total`); and,
+unless the round is a development one, a harness run that is not reportable or not from a
+clean checkout.
 
 **Each trial** runs the raw arm once (:func:`.arms.raw.run_raw`) under a setup derived from
 the harness run's own record (:func:`setup_from_run`), capped at that run's total, every class
@@ -79,14 +83,23 @@ from physgate.evaluation.tiers.store import (
     WORKING,
     leftover_refusal,
     make_role_root,
+    protected_tier_refusal,
     role_root,
+    spelling_refusal,
     version_dir,
+    withheld_refusal,
     withheld_root,
+    work_refusal,
 )
 from physgate.evaluation.tiers.task import PROTECTED_TIERS, Role, Task, canonical_json, parse_task
 from physgate.orchestrator.credentials import Credential
+from physgate.orchestrator.exceptions import RunConfigError
 from physgate.orchestrator.role_python import RolePython
-from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.orchestrator.run_config import (
+    RunConfig,
+    load_run_config,
+    require_endpoint,
+)
 from physgate.oslayer.probe import Absent, Present
 
 #: Where a round's protected trials lie, beneath the role's withheld root.
@@ -149,14 +162,17 @@ def setup_from_run(
     install_bin: Path,
     os_layer: Present | Absent,
     role_python: RolePython | None,
+    base_url: str | None,
 ) -> RawSetup:
     """The raw arm's setup, every pin taken from the harness run's own record.
 
     What the record names, the raw session is given: the binary's version, the role's model,
-    effort, output-token limit, reasoning display, bounds, endpoint, held-out roots and
-    canaries and network. What this machine supplies (the binary, the credential, the
-    installation, the OS layer and the interpreter as measured now) is compared with the
-    record afterwards, never assumed equal.
+    effort, output-token limit, reasoning display, bounds, held-out roots and canaries and
+    network. What this machine supplies (the binary, the credential, the installation, the
+    OS layer and the interpreter as measured now) is compared with the record afterwards,
+    never assumed equal. The endpoint is the operator's, ``base_url``, never the record's:
+    the credential goes where the operator says, and the record's endpoint is only held
+    against it (:func:`plan`).
 
     Raises:
         BaselineError: the run pinned no model for the role.
@@ -174,7 +190,7 @@ def setup_from_run(
         thinking_display=config.thinking_display,
         bounds=config.bounds,
         credential=credential,
-        base_url=None if config.endpoint == "default" else config.endpoint,
+        base_url=base_url,
         install_bin=install_bin,
         role_python=role_python,
         held_out=tuple(config.held_out),
@@ -209,7 +225,13 @@ def _tasks(directory: Path) -> dict[str, tuple[TierName, Task]]:
 
 
 def plan(
-    store: Path, role: Role, version: str, runs: RunSet, *, development: bool = False
+    store: Path,
+    role: Role,
+    version: str,
+    runs: RunSet,
+    *,
+    base_url: str | None,
+    development: bool = False,
 ) -> tuple[TierSet, list[Planned]]:
     """Every harness trial of ``runs``, read and found, or the round refused before it starts.
 
@@ -223,6 +245,7 @@ def plan(
     directory = version_dir(store, role, version)
     manifest = read_version(directory)
     tasks = _tasks(directory)
+    canaries = {task.canary for _, task in tasks.values() if task.canary is not None}
     planned: list[Planned] = []
     seen: set[tuple[str, int]] = set()
     for index, entry in enumerate(runs.trials):
@@ -234,6 +257,15 @@ def plan(
         seen.add(key)
         run_dir = Path(entry.run_dir)
         config = load_run_config(run_dir / "run.json")
+        try:
+            require_endpoint(config, base_url)
+        except RunConfigError as exc:
+            msg = (
+                "the harness run recorded another endpoint than the one given here; the "
+                "record names a place to compare with, never one a credential is sent to"
+            )
+            raise BaselineError(msg, **where, **exc.context) from None
+        _require_withheld(store, role, config, canaries, where)
         found = tasks.get(config.brief_sha256)
         if found is None:
             msg = "the harness run was given no task of this version"
@@ -252,6 +284,39 @@ def plan(
             raise BaselineError(msg, **where) from None
         planned.append(Planned(index, entry, config, task, tier, cap))
     return manifest, planned
+
+
+def _require_withheld(
+    store: Path, role: Role, config: RunConfig, canaries: set[str], where: dict[str, str]
+) -> None:
+    """Refuse a harness run that does not withhold the store as every run on it must.
+
+    The raw session withholds exactly what the harness run withheld and looks for exactly its
+    canaries, since the two are held equal; so a run that left a protected place of the store
+    open, or did not look for a protected task's canary, would leave it open to the raw
+    session too. Every run on the store withholds the role's withheld root and work root and
+    the validation and held-out tiers of every version, each spelt as on disk, and looks for
+    every canary of the version's protected tasks.
+
+    Raises:
+        BaselineError: a place or a canary is missing; places by path, canaries by count.
+    """
+    also = [(store, role)]
+    for refusal in (
+        spelling_refusal(config.held_out, also=also),
+        withheld_refusal(config.held_out, also=also),
+        work_refusal(config.held_out),
+        protected_tier_refusal(config.held_out, also=also),
+    ):
+        if refusal is not None:
+            msg = (
+                f"the harness run does not withhold the store as every run on it must: {refusal[1]}"
+            )
+            raise BaselineError(msg, refused_because=refusal[0], **where)
+    missing = canaries - set(config.held_out_canaries)
+    if missing:
+        msg = "the harness run did not look for every canary of the version's protected tasks"
+        raise BaselineError(msg, missing=str(len(missing)), **where)
 
 
 @dataclass
@@ -315,10 +380,13 @@ def run_baseline(
     arm: Arm = run_raw,
     sleep: Callable[[float], None] = time.sleep,
     development: bool = False,
+    base_url: str | None = None,
 ) -> BaselineRecord:
     """Run the raw arm on every trial of ``runs``, and write the round's records under ``out``.
 
     ``out`` is new: a round gets a directory of its own, and its records are never replaced.
+    ``base_url`` is the operator's endpoint, ``None`` for the binary's default; every harness
+    run must have recorded it, and ``setup_for`` must send the credential there.
 
     Raises:
         BaselineError: the round was refused before it started, or stopped by a pair that
@@ -327,7 +395,7 @@ def run_baseline(
     if out.exists():
         msg = "the round's directory exists; each round gets a directory of its own"
         raise BaselineError(msg, out=str(out))
-    manifest, planned = plan(store, role, version, runs, development=development)
+    manifest, planned = plan(store, role, version, runs, base_url=base_url, development=development)
     out.mkdir(mode=0o700, parents=True)
     round_id = secrets.token_hex(8)
     protected_root = withheld_root(store, role) / BASELINE_DIR / round_id
