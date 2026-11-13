@@ -162,8 +162,12 @@ def _judge(
     scenario = _scenario_module().WholeDesignScenario(
         _task(specs), plant if plant is not None else _plant(), root=root
     )
-    record: dict[str, Any] = scenario.record(path)
-    assert scenario.score(path) == record["outcome"]
+    try:
+        record: dict[str, Any] = scenario.record(path)
+        outcome = scenario.score(path)
+    except Exception as exc:  # a scorer never crashes on an answer: a crash is a failed row
+        pytest.fail(f"the scenario raised on an answer: {exc!r}")
+    assert outcome == record["outcome"]
     return record
 
 

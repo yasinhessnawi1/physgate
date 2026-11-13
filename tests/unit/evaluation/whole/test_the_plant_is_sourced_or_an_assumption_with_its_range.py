@@ -239,13 +239,21 @@ def test_each_derivation_reads_only_the_inputs_it_declares(function: str, inputs
     plant = _plant()
     names = getattr(plant, inputs)
     only = {k: v for k, v in _values().items() if k in names}
-    assert getattr(plant, function)(only) == getattr(plant, function)(_values())
+    try:
+        from_declared = getattr(plant, function)(only)
+    except KeyError as exc:
+        pytest.fail(f"{function} reads {exc}, which {inputs} does not declare")
+    assert from_declared == getattr(plant, function)(_values())
 
 
 def test_the_stall_current_reads_only_its_declared_inputs() -> None:
     plant = _plant()
     only = {k: v for k, v in _values().items() if k in plant.STALL_INPUTS}
-    assert plant.stall_current(only, 0.75) == plant.stall_current(_values(), 0.75)
+    try:
+        from_declared = plant.stall_current(only, 0.75)
+    except KeyError as exc:
+        pytest.fail(f"the stall current reads {exc}, which STALL_INPUTS does not declare")
+    assert from_declared == plant.stall_current(_values(), 0.75)
 
 
 def test_the_loop_reads_every_parameter_but_the_gearbox_friction() -> None:
