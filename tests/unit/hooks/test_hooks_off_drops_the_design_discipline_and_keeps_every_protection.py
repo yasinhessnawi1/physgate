@@ -437,3 +437,43 @@ def test_the_harness_the_run_s_records_the_held_out_places_and_the_secrets_are_h
         for rule in ("denyWrite", "denyRead"):
             assert (kept[what] in sandbox_off[rule]) == (kept[what] in sandbox_on[rule]), what
         assert kept[what] in sandbox_off["denyWrite"], what
+
+
+def test_a_tier_store_s_protected_root_and_its_one_exception_are_held_alike(
+    outside_tmp: Path,
+) -> None:
+    # A role's root of a tier-set store is protected except the one directory a session writes
+    # under it; the withheld roots are held too. Under off every one of these is held as under
+    # on, in the hooks' roots and the sandbox's rules, and the stray exception is refused alike.
+    store, run = outside_tmp / "tierset", outside_tmp / "run"
+    exception = store / "blind" / "work"
+    more: dict[str, Any] = {
+        "extra_protected": (str(run / "decomposition"), str(store)),
+        "extra_protected_exceptions": (str(exception),),
+        "withheld": (str(run / "run.json"), str(store / "withheld")),
+    }
+    on, off = _config(outside_tmp, hooks="on", **more), _config(outside_tmp, hooks="off", **more)
+    assert isinstance(on, SessionConfig), on
+    assert isinstance(off, SessionConfig), off
+    assert _roots(off)[str(store)] == _roots(on)[str(store)]
+    assert _roots(off)[str(store)].exceptions == (str(exception),)
+    assert str(store / "withheld") in _roots(off) or off.withheld == on.withheld
+    stray = {"extra_protected_exceptions": (str(outside_tmp / "elsewhere"),)}
+    for hooks in ("on", "off"):
+        refused = _config(outside_tmp, hooks=hooks, **stray)
+        assert "beneath no root" in str(refused), hooks
+    on_fs = _installed_with_the_layer_more(outside_tmp, "on", more)["sandbox"]["filesystem"]
+    off_fs = _installed_with_the_layer_more(outside_tmp, "off", more)["sandbox"]["filesystem"]
+    assert json.dumps(off_fs, sort_keys=True) == json.dumps(on_fs, sort_keys=True)
+    assert str(store) in off_fs["denyWrite"]
+
+
+def _installed_with_the_layer_more(
+    root: Path, hooks: Hooks, more: dict[str, Any]
+) -> dict[str, Any]:
+    fields = _fields(root) | {"temp_dir": None, "os_layer_temp_dir": OWN_TEMP} | more
+    fields |= {"session_temps": "/var/tmp/pgs", "spawns_with_canary": True, "hooks": hooks}
+    request = outcome_of(lambda: InstallRequest(**fields))
+    assert isinstance(request, InstallRequest), request
+    settings: dict[str, Any] = json.loads(install(request, REGISTRY).settings_path.read_text())
+    return settings
