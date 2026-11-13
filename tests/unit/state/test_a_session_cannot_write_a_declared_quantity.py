@@ -145,3 +145,29 @@ def test_the_followed_interface_path_is_not_changed_by_the_guard(tmp_path: Path)
     plain = _node({"mass": _plain(0.5, "kg")})
     assert store.write_node(plain, "control").accepted
     assert store.write_node({**plain, "updated": "later"}, "control").accepted
+
+
+@pytest.mark.parametrize(
+    "source", [RESERVED, "Declared", "user-declared", "Declared By The Person"]
+)
+def test_the_reserved_source_without_the_record_is_declared_forged_not_a_missing_unit(
+    tmp_path: Path, source: str
+) -> None:
+    store = Store(tmp_path / "store")
+    try:
+        bare = {"value": 1.0, "unit": "A", "source": source, "written_by": "control"}
+        result = store.write_node(_node({"stall_current": bare}), "control")
+        assert (result.accepted, result.reason) == (False, FORGED)
+    finally:
+        store.close()
+
+
+def test_a_bare_number_keeps_the_missing_unit_reason_beside_a_declared_one(
+    tmp_path: Path,
+) -> None:
+    store = Store(tmp_path / "store")
+    try:
+        result = store.write_node(_node({"stall_current": {"value": 1.0}}), "control")
+        assert (result.accepted, result.reason) == (False, REJECT_MISSING_UNIT)
+    finally:
+        store.close()
