@@ -737,9 +737,12 @@ def test_the_operator_s_word_does_not_override_a_reset_that_was_read(
 def no_zone_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """This machine as one with no time-zone database: no zone files and no tzdata package.
 
-    On a machine that has none, this changes nothing.
+    On a machine that has none, this changes nothing. Where the tzdata package was imported
+    already, its submodules are held too, so no lookup reaches them.
     """
-    monkeypatch.setitem(sys.modules, "tzdata", None)
+    held = {name for name in sys.modules if name == "tzdata" or name.startswith("tzdata.")}
+    for name in {"tzdata", "tzdata.zoneinfo"} | held:
+        monkeypatch.setitem(sys.modules, name, None)
     zoneinfo.reset_tzpath(to=[])
     ZoneInfo.clear_cache()
     try:
