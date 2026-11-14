@@ -14,6 +14,7 @@ from physgate.orchestrator.repair import Finding
 
 PARAMS = {
     "auth": "api_key",
+    "account": "a-test-account",
     "gate_mode": "on",
     "models": {
         "decomposition": "claude-sonnet-5",
@@ -280,6 +281,10 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
                     "network_enforced": None,
                     # Taken from the register, and null for a run naming no tool environment.
                     "tool_servers": None,
+                    # Measured by the command, never taken from the parameters: the
+                    # parameters name the account, the command adds its fingerprint.
+                    "binary": None,
+                    "account": {"name": params["account"], "token_sha256_prefix": "0" * 12},
                 }
             )
         )

@@ -11,6 +11,10 @@ The register is data (:data:`REGISTER_FILE`), one entry per server:
   the entry says whether a relative path is read from the worktree or refused;
 - **what it is never asked:** every other tool the server offers, by name.
 
+Apart from any server, the register names the tools that reach a board (an upload, a flash, a
+monitor, a serial port, a debug probe, a test run on the device): no entry may admit one under
+any server's name, and the hooks refuse a call to one whatever server it names.
+
 The closed list a session runs on names exactly ``mcp__<server>__<tool>`` for the admitted tools
 of the servers it is offered (:func:`server_tools`), and the hooks judge each call's arguments
 against the same file (:mod:`physgate.hooks.server_arguments`), read there without this module so
@@ -141,11 +145,23 @@ class ServerEntry(BaseModel):
 
 
 class Register(BaseModel):
-    """Every server a session may be offered."""
+    """Every server a session may be offered, and the tools no server may be asked for."""
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     servers: dict[ServerName, ServerEntry]
+    #: The tools that reach a board, by name: refused whatever server offers them.
+    refused_tools: tuple[ToolName, ...]
+
+    @model_validator(mode="after")
+    def _none_admitted(self) -> Register:
+        refused = set(self.refused_tools)
+        for server, entry in sorted(self.servers.items()):
+            both = sorted(set(entry.tools) & refused)
+            if both:
+                msg = f"the server {server!r} admits a tool that reaches a board: {both[0]}"
+                raise ValueError(msg)
+        return self
 
 
 def load_register(path: Path = REGISTER_FILE) -> Register:

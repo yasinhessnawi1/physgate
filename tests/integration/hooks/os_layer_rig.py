@@ -14,14 +14,14 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 from fake_messages_api import DUMMY_KEY, Script, serving, text
-from hook_session import claude_binary
+from hook_session import claude_binary, pinned_version, session_switches
 
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import InstallRequest, install
@@ -120,6 +120,7 @@ def run_session(
     network: Literal["open", "none"] = "open",
     reaper: bool = True,
     tool_environment: tuple[str, ...] = (),
+    switches: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
     """Install a role session for ``layout``, with or without the OS layer, and run it.
 
@@ -132,6 +133,8 @@ def run_session(
     reaper's canary. ``reaper`` off leaves the reaper out of the session's environment: the
     red control of the test that it stops what a command left running. ``tool_environment``
     names the roots of a run's tool environment, as the dispatcher gives them to the installer.
+    ``switches`` replaces the pin's own environment switches, for a row that measures what
+    one of them does.
     """
     request = InstallRequest(
         profile="role",
@@ -164,10 +167,9 @@ def run_session(
             "TERM": "dumb",
             "ANTHROPIC_BASE_URL": url,
             "ANTHROPIC_API_KEY": DUMMY_KEY,
-            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-            "DISABLE_AUTOUPDATER": "1",
-            "DISABLE_TELEMETRY": "1",
-            "DISABLE_ERROR_REPORTING": "1",
+            # Each pin's own switches, as the hook harness spawns it: on 2.1.301 what every
+            # result on it was measured under. A measurement may name others, to compare.
+            **(session_switches(pinned_version()) if switches is None else switches),
             "CLAUDE_CODE_MAX_RETRIES": "0",
             **installed.spawn_env,
         }

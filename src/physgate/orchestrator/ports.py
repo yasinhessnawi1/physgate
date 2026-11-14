@@ -23,6 +23,7 @@ from physgate.orchestrator.declaration import Declaration
 from physgate.orchestrator.dispute import Dispute
 from physgate.orchestrator.followed import FollowedInterface
 from physgate.orchestrator.install import InstallFacts
+from physgate.orchestrator.managed import FlagCache, ObservedTraffic
 from physgate.orchestrator.protocols import AdmittedExport, IssuedState, MessageUsage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.trajectory import Seal
@@ -100,6 +101,12 @@ class SessionReport(_Frozen):
     trajectory_tampered: NonEmptyStr | None = None
     #: The digest of the policy limits the invocation received, if it received any.
     policy_limits_sha256: NonEmptyStr | None = None
+    #: The served catalog and feature flags the session's own debug log showed, on a pin whose
+    #: sessions carry that traffic; ``None`` on the earlier pins, whose sessions write no log.
+    observed_traffic: ObservedTraffic | None = None
+    #: The remote feature flags the session's binary held when it ended, counted and
+    #: digested, on a pin whose sessions fetch them; ``None`` otherwise.
+    flag_cache: FlagCache | None = None
     #: Whether a model answered the session at least once (:func:`managed.model_answered`).
     #: A report that does not say is taken as answered, so its limits are judged.
     model_answered: bool = True

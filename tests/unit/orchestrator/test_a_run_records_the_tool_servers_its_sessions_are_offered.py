@@ -21,18 +21,15 @@ from physgate.orchestrator.tool_environment import recorded_servers, server_laun
 from physgate.toolenv.record import ToolEnvironment
 from physgate.toolenv.register import load_register, register_sha256
 
-EVERY = ("control", "mujoco", "platformio")
+EVERY = ("control", "mujoco")
 
 
 def _environment(tmp_path: Path) -> ToolEnvironment:
     root = tmp_path.resolve() / "env"
     for relative in (
         "venv/bin/python",
-        "node/bin/node",
         "servers/control_server.py",
         "servers/mujoco_server.py",
-        "platformio-server/node_modules/platformio-mcp/build/cli.js",
-        "platformio-server/policy.yaml",
     ):
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
         (root / relative).write_text("")
@@ -105,12 +102,12 @@ def test_a_run_whose_role_set_names_a_server_the_register_cannot_start_is_refuse
     tmp_path: Path,
 ) -> None:
     environment = _environment(tmp_path)
-    (Path(environment.roots[0]) / "node" / "bin" / "node").unlink()
+    (Path(environment.roots[0]) / "venv" / "bin" / "python").unlink()
     config = make_config(
         tool_environment=environment,
         tool_servers=recorded_servers(),
     )
-    with pytest.raises(RunConfigError, match="platformio"):
+    with pytest.raises(RunConfigError, match="control"):
         server_launches(config)
 
 

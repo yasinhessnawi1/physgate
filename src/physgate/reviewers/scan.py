@@ -34,6 +34,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
+from physgate.lines import split_lines
 from physgate.orchestrator.protocols import IndicatorKind
 from physgate.reviewers.transcript import parse_event
 
@@ -111,7 +112,7 @@ def scan(stream: str) -> tuple[ScanHit, ...]:
         ScanUnreadableError: a line or a record the scan cannot read.
     """
     hits: list[ScanHit] = []
-    for number, line in enumerate(stream.splitlines(), start=1):
+    for number, line in enumerate(split_lines(stream), start=1):
         if not line.strip():
             continue
         event = parse_event(line)

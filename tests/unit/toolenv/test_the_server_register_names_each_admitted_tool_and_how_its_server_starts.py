@@ -1,16 +1,16 @@
 """The tool-server register: the closed list, the denied set, and each server's start.
 
-The register names three servers and, for each, the tools a session may call and every
-argument each may be given. A session's closed list names exactly ``mcp__<server>__<tool>`` for
-the admitted tools of the servers it is offered; a role session and the raw agent may be offered
-the identical set, a reviewer and the orchestrator none. Each server starts from the run's
-recorded environment by absolute path, reading and running its roots.
+The register names two servers, our own control and MuJoCo servers, and, for each, the tools a
+session may call and every argument each may be given. A session's closed list names exactly
+``mcp__<server>__<tool>`` for the admitted tools of the servers it is offered; a role session
+and the raw agent may be offered the identical set, a reviewer and the orchestrator none. Each
+server starts from the run's recorded environment by absolute path, reading and running its
+roots. The tools that reach a board are refused by name, apart from any server.
 """
 
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -37,66 +37,24 @@ from physgate.toolenv.register import (
     tool_name,
 )
 
-REPO = Path(__file__).resolve().parents[3]
-POLICY = REPO / "toolenv" / "platformio-server" / "policy.yaml"
 OWN = "pgs-0123456789abcdef"
 
 CONTROL = {"frequency_response", "margins", "poles_zeros", "step_response"}
 MUJOCO = {"load_model", "model_info", "reset", "state", "step"}
-#: The ten build-only tools first chosen, less the two that reach the package registry.
-PLATFORMIO = {
-    "agent_build_diagnose",
-    "build_project",
-    "check_project",
-    "decode_backtrace",
-    "get_project_config",
-    "project_envs",
-    "size_report",
-    "system_info",
-}
-#: The server's own policy action each admitted tool is judged under, where it is another's.
-POLICY_ACTION = {
-    "size_report": "build_project",
-    "decode_backtrace": "build_project",
-    "project_envs": "get_project_config",
-}
+STORES = ("platforms", "packages", "lib")
 
 
 # ---- the register ----------------------------------------------------------------------------
 
 
-def test_the_register_admits_exactly_the_ruled_tools_of_three_servers() -> None:
+def test_the_register_admits_exactly_the_ruled_tools_of_two_servers() -> None:
     register = load_register()
-    assert set(register.servers) == {"control", "mujoco", "platformio"}
+    assert set(register.servers) == {"control", "mujoco"}
     assert set(register.servers["control"].tools) == CONTROL
     assert set(register.servers["mujoco"].tools) == MUJOCO
-    assert set(register.servers["platformio"].tools) == PLATFORMIO
 
 
-def test_the_denied_set_names_every_upload_serial_debug_package_and_dashboard_tool() -> None:
-    denied = set(load_register().servers["platformio"].denied)
-    for name in (
-        "upload_firmware",
-        "upload_filesystem",
-        "upload_ota",
-        "flash_verification",
-        "serial_session_start",
-        "capture_serial_window",
-        "start_monitor",
-        "debug_cmd",
-        "debug_start",
-        "pkg_install",
-        "pkg_update",
-        "install_library",
-        "get_dashboard_url",
-        "list_boards",
-        "get_board_info",
-    ):
-        assert name in denied, name
-    assert not denied & PLATFORMIO
-
-
-#: Words of a PlatformIO tool's name (its parts between underscores, without a plural ``s``)
+#: Words of a build server's tool's name (its parts between underscores, without a plural ``s``)
 #: that say it reaches a board, a port or a probe.
 HARDWARE_WORDS = frozenset({
     "upload", "flash", "monitor", "serial", "device", "debug", "port", "ota", "target",
@@ -108,23 +66,19 @@ def _words(name: str) -> set[str]:
     return {part.removesuffix("s") for part in name.split("_")}
 
 
-def test_no_platformio_tool_that_reaches_a_board_is_admitted() -> None:
-    entry = load_register().servers["platformio"]
-    # Every tool of the server, admitted or denied, is named in one of the two sets.
-    every = set(entry.tools) | set(entry.denied)
-    reaching = {name for name in every if _words(name) & HARDWARE_WORDS}
-    assert reaching, "no tool of the server is named as reaching a board"
-    assert not reaching & set(entry.tools), reaching & set(entry.tools)
-    assert reaching <= set(entry.denied)
-    # And the eight admitted ones build, check, read sizes and configuration only.
-    assert set(entry.tools) == PLATFORMIO
+def test_every_refused_tool_is_named_as_reaching_a_board_and_no_admitted_tool_is() -> None:
+    register = load_register()
+    refused = set(register.refused_tools)
+    assert refused, "the register refuses no tool by name"
+    assert {name for name in refused if not _words(name) & HARDWARE_WORDS} == set()
+    admitted = {tool for entry in register.servers.values() for tool in entry.tools}
+    assert {name for name in admitted if _words(name) & HARDWARE_WORDS} == set()
 
 
 def test_only_our_own_mujoco_server_reads_a_relative_path_from_the_worktree() -> None:
     register = load_register()
     assert register.servers["mujoco"].relative_paths == "worktree"
     assert "{worktree}" in register.servers["mujoco"].args
-    assert register.servers["platformio"].relative_paths == "refused"
     assert register.servers["control"].relative_paths == "refused"
     kinds = {
         (server, tool, arg): kind
@@ -133,11 +87,8 @@ def test_only_our_own_mujoco_server_reads_a_relative_path_from_the_worktree() ->
         for arg, kind in args.items()
     }
     paths = {key for key, kind in kinds.items() if kind.endswith("_path")}
-    # Our own servers take no path but MuJoCo's model; PlatformIO's is its project directory.
-    assert {(s, t, a) for s, t, a in paths if s != "platformio"} == {
-        ("mujoco", "load_model", "path")
-    }
-    assert {a for s, _, a in paths if s == "platformio"} == {"projectDir"}
+    # Our own servers take no path but MuJoCo's model.
+    assert paths == {("mujoco", "load_model", "path")}
 
 
 def _entry(**changes: Any) -> dict[str, Any]:  # noqa: ANN401
@@ -189,28 +140,15 @@ def test_a_register_that_is_not_one_is_refused(tmp_path: Path) -> None:
         load_register(bad)
 
 
-def test_the_platformio_server_s_own_policy_allows_only_what_the_register_admits() -> None:
-    # The server's build_only policy file, narrowed to the register's tools: a second layer under
-    # the closed list, which the server applies as a ceiling over any project's own policy.
-    text = POLICY.read_text(encoding="utf-8")
-    assert re.search(r"^profile: build_only$", text, re.MULTILINE), text
-    found = re.search(r"^  allow: \[([a-z_, ]+)\]$", text, re.MULTILINE)
-    assert found is not None, text
-    allowed = {name.strip() for name in found.group(1).split(",")}
-    assert allowed == {POLICY_ACTION.get(tool, tool) for tool in PLATFORMIO}
-    # Nothing but the allow list is overridden: the profile's own denials stand whole.
-    assert "deny" not in text and "approval_required" not in text
-
-
 # ---- the closed list -------------------------------------------------------------------------
 
 
 def test_a_server_s_tools_are_named_as_the_closed_list_names_them() -> None:
     register = load_register()
     assert tool_name("control", "margins") == "mcp__control__margins"
-    named = server_tools(register, ["control", "platformio"])
+    named = server_tools(register, ["control", "mujoco"])
     assert set(named) == {tool_name("control", t) for t in CONTROL} | {
-        tool_name("platformio", t) for t in PLATFORMIO
+        tool_name("mujoco", t) for t in MUJOCO
     }
     assert server_tools(register, []) == ()
     with pytest.raises(ToolEnvironmentError, match="register"):
@@ -271,9 +209,7 @@ def test_a_session_offered_servers_runs_on_its_base_list_and_their_admitted_tool
     config = build_config(_request(root, profile, every), installation())
     expected = set(PROFILE_TOOLS[profile]) | set(server_tools(register, every))
     assert set(config.tools_allowed) == expected
-    assert len(config.tools_allowed) == len(PROFILE_TOOLS[profile]) + len(CONTROL) + len(
-        MUJOCO
-    ) + len(PLATFORMIO)
+    assert len(config.tools_allowed) == len(PROFILE_TOOLS[profile]) + len(CONTROL) + len(MUJOCO)
     # Every server tool on the list is one the register admits.
     admitted = {tool_name(s, t) for s, e in register.servers.items() for t in e.tools}
     assert {t for t in config.tools_allowed if t.startswith("mcp__")} <= admitted
@@ -288,7 +224,8 @@ def test_a_session_offered_servers_runs_on_its_base_list_and_their_admitted_tool
         ("role", ("nosuch",)),
         ("role", ("control", "control")),
         ("reviewer", ("control",)),
-        ("orchestrator", ("platformio",)),
+        ("orchestrator", ("control",)),
+        ("role", ("platformio",)),
     ],
 )
 def test_a_server_the_profile_may_not_be_offered_is_refused_at_install(
@@ -301,19 +238,44 @@ def test_a_server_the_profile_may_not_be_offered_is_refused_at_install(
 # ---- how each server starts ------------------------------------------------------------------
 
 
-def _environment(tmp_path: Path, *, with_node: bool = True) -> tuple[Path, ToolEnvironment]:
+#: A build server's entry, shaped as a firmware build server's would be: its own core directory
+#: linked into the environment's read-only store, its build tool found by name in the environment.
+BUILDER = ServerEntry.model_validate_json(
+    json.dumps({
+        "command": "{root}/builder/bin/builder",
+        "args": ["{root}/builder/server.js"],
+        "relative_paths": "refused",
+        "environment": {
+            "BUILDER_POLICY": "{root}/builder/policy.yaml",
+            "BUILDER_CORE_DIR": "{server_dir}/core",
+            "BUILDER_TELEMETRY": "no",
+        },
+        "search_path": ["{root}/venv/bin"],
+        "directories": ["core", "state"],
+        "links": {f"core/{store}": f"{{root}}/platformio/{store}" for store in STORES},
+        "tools": {"build": {"projectDir": "write_path"}},
+    })
+)  # fmt: skip
+
+
+def _with_builder() -> Register:
+    real = load_register()
+    return Register(servers={**real.servers, "builder": BUILDER}, refused_tools=real.refused_tools)
+
+
+def _environment(tmp_path: Path, *, with_builder: bool = True) -> tuple[Path, ToolEnvironment]:
     root = tmp_path.resolve() / "env"
     for relative in (
         "venv/bin/python",
         "servers/control_server.py",
         "servers/mujoco_server.py",
-        "platformio-server/node_modules/platformio-mcp/build/cli.js",
-        "platformio-server/policy.yaml",
-        *(("node/bin/node",) if with_node else ()),
+        "builder/server.js",
+        "builder/policy.yaml",
+        *(("builder/bin/builder",) if with_builder else ()),
     ):
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
         (root / relative).write_text("")
-    for store in ("platforms", "packages", "lib"):
+    for store in STORES:
         (root / "platformio" / store).mkdir(parents=True)
     other = tmp_path.resolve() / "other"
     other.mkdir()
@@ -338,9 +300,9 @@ def test_each_server_starts_by_absolute_path_from_the_root_that_holds_its_progra
     root, recorded = _environment(tmp_path)
     found = {
         launch.name: launch
-        for launch in launches(load_register(), ["control", "mujoco", "platformio"], recorded)
+        for launch in launches(_with_builder(), ["control", "mujoco", "builder"], recorded)
     }
-    assert set(found) == {"control", "mujoco", "platformio"}
+    assert set(found) == {"control", "mujoco", "builder"}
     control = found["control"]
     assert control.command == str(root / "venv" / "bin" / "python")
     assert control.args == ("-I", str(root / "servers" / "control_server.py"))
@@ -350,31 +312,26 @@ def test_each_server_starts_by_absolute_path_from_the_root_that_holds_its_progra
     assert control.environment == {"MPLBACKEND": "Agg"}
     mujoco = found["mujoco"]
     assert mujoco.args == ("-I", str(root / "servers" / "mujoco_server.py"), "--root", "{worktree}")
-    platformio = found["platformio"]
-    assert platformio.command == str(root / "node" / "bin" / "node")
-    assert platformio.environment["PIO_MCP_POLICY_FILE"] == str(
-        root / "platformio-server" / "policy.yaml"
-    )
-    assert platformio.environment["PLATFORMIO_CORE_DIR"] == "{server_dir}/pio-core"
-    assert platformio.environment["PIO_MCP_DISABLE_DASHBOARD"] == "1"
-    assert platformio.environment["PLATFORMIO_SETTING_ENABLE_TELEMETRY"] == "no"
-    assert platformio.directories == ("pio-core", "pio-mcp")
+    builder = found["builder"]
+    assert builder.command == str(root / "builder" / "bin" / "builder")
+    assert builder.args == (str(root / "builder" / "server.js"),)
+    assert builder.environment["BUILDER_POLICY"] == str(root / "builder" / "policy.yaml")
+    assert builder.environment["BUILDER_CORE_DIR"] == "{server_dir}/core"
+    assert builder.environment["BUILDER_TELEMETRY"] == "no"
+    assert builder.directories == ("core", "state")
     # It runs its build tool by name, from the environment and nowhere else.
-    assert platformio.search_path == (str(root / "venv" / "bin"),)
+    assert builder.search_path == (str(root / "venv" / "bin"),)
     assert control.search_path == ()
-    assert platformio.links == {
-        f"pio-core/{store}": str(root / "platformio" / store)
-        for store in ("platforms", "packages", "lib")
-    }
-    assert not any("{root}" in value for value in json.dumps(platformio.model_dump()).split('"'))
+    assert builder.links == {f"core/{store}": str(root / "platformio" / store) for store in STORES}
+    assert not any("{root}" in value for value in json.dumps(builder.model_dump()).split('"'))
     # Only the servers asked for.
     assert [launch.name for launch in launches(load_register(), ["mujoco"], recorded)] == ["mujoco"]
 
 
 def test_a_server_whose_program_no_root_holds_is_refused(tmp_path: Path) -> None:
-    _, recorded = _environment(tmp_path, with_node=False)
-    with pytest.raises(ToolEnvironmentError, match="platformio"):
-        launches(load_register(), ["platformio"], recorded)
+    _, recorded = _environment(tmp_path, with_builder=False)
+    with pytest.raises(ToolEnvironmentError, match="builder"):
+        launches(_with_builder(), ["builder"], recorded)
     with pytest.raises(ToolEnvironmentError, match="register"):
         launches(load_register(), ["nosuch"], recorded)
 
