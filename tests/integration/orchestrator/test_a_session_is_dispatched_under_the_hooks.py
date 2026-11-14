@@ -900,7 +900,7 @@ def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
         "read_captured",
         "review_material_seen",
         "require_matching_totals",
-        "classify_session_end",
+        "session_end",
         "commit_attempt",
         "drift",
         "policy_limits_digest",
