@@ -1,7 +1,7 @@
 """A parameter range narrowed by stability evidence keeps both ranges and says why, in plain words.
 
-The owner ruled on 13.11.2026 that "the real kit balances with the published controller" may
-bound the plant, as stability evidence only (never as margin evidence). A parameter so
+"The real kit balances with the published controller" may bound the plant, as stability
+evidence only (never as margin evidence): the real robot is one point of the ranges. A parameter so
 narrowed keeps its range as sourced or assumed (``low``, ``high``) and gains a ``bounded``
 range beside it, with an evidence line that says so and names the recorded report the bound
 was computed in. The scorer's corners then run over the bounded range; a reader still sees

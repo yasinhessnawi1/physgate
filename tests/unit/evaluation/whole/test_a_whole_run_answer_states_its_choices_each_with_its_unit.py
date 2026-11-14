@@ -735,7 +735,7 @@ def test_bytes_that_are_not_an_answer_are_a_refused_answer_never_another_error(
     assert isinstance(caught, TaskFormatError), repr(caught)
 
 
-# The amendment of 13.11: the code's own integer form, the angle's leak, delays as a time.
+# The amendment: the code's own integer form, the angle's leak, delays as a time.
 
 
 def test_the_native_structure_is_read_with_every_field_in_its_own_unit() -> None:

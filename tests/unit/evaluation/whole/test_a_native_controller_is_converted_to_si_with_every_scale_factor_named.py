@@ -4,7 +4,7 @@ The numbers below are this test's own statement of the conversion, written from 
 balancing code apart from the module: the angle in millidegrees, the rate in deg/s as the
 firmware believes it (raw counts over its divisor), the two wheels' counts summed, the command
 in PWM counts, and the change divided by the response divisor times the gear-ratio coefficient.
-The published figures the independent check of 13.11 computed are held beside the formula.
+The published figures an independent check computed are held beside the formula.
 """
 
 from __future__ import annotations

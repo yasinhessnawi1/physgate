@@ -1,7 +1,7 @@
 """The plant's parameters are each sourced or an assumption with a range, and derive as checked.
 
-The derived figures are the independent parameter check's of 11.11 (D1-D11) and the fall
-figures the independent semantics-and-fall check's of 13.11, to the digits each gave; this
+The derived figures are the independent parameter check's (D1-D11) and the fall figures the
+independent semantics-and-fall check's, to the digits each gave; this
 test holds the module to them, not to its own arithmetic.
 """
 
@@ -102,7 +102,7 @@ def test_every_sourced_parameter_says_where_in_its_source_the_number_is_read() -
         assert getattr(p, "locator", None), f"{name} names no locator"
 
 
-#: The sourced or bounded values, as the sourcing of 13.11.2026 gives them: (value, low, high).
+#: The sourced or bounded values, as the sourcing gives them: (value, low, high).
 SOURCED = {
     "rotor_inertia": (1e-8, 3e-9, 2e-8),
     "gearbox_friction": (0.0173, 0.009, 0.036),

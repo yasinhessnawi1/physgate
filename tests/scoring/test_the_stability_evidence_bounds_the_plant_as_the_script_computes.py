@@ -1,7 +1,7 @@
 """The stability evidence bounds the plant as the recorded script computes it, never by hand.
 
-The owner ruled on 13.11.2026 that "the real kit balances with the published controller" may
-bound the plant's ranges, as stability evidence only. ``scripts/whole_design_corners.py
+"The real kit balances with the published controller" may bound the plant's ranges, as
+stability evidence only. ``scripts/whole_design_corners.py
 --bound`` computes the bound: a grid over the loop's parameters no source gives, each grid
 point judged with the kit's published controller (its constants as Balance.h and Balance.cpp
 write them) at the other ranged parameters' values and at every corner of their ranges as
