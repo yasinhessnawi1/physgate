@@ -248,6 +248,64 @@ def test_a_development_run_is_refused_but_to_a_development_round(
     assert record.development and record.counts["visible"].passed == 1
 
 
+@pytest.mark.parametrize(
+    "development", [False, True], ids=["reportable round", "development round"]
+)
+def test_an_ablation_run_is_never_taken_as_a_baseline_trial(
+    tmp_path: Path, store: StandInStore, development: bool
+) -> None:
+    """An ablation run is refused before any session, in a development round too.
+
+    It is never reportable, which a development round forgives; its own kind is not forgiven,
+    since its numbers are of a harness with a part taken away, and no baseline is held to it.
+    """
+    run = harness_run(
+        tmp_path / "runs", store.tasks["visible"][0], store, ablation=True, reportable=False
+    )
+    _refused(store, run_set((run, 0)), tmp_path / "round", "ablation run", development=development)
+
+
+def test_trials_of_runs_on_different_binary_builds_are_refused_before_any_session(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """Master's comparison rule: the binary's bytes must match where both runs recorded them."""
+    one = harness_run(
+        tmp_path / "runs",
+        store.tasks["visible"][0],
+        store,
+        binary={"sha256": "d" * 64, "platform": "linux-x64"},
+    )
+    two = harness_run(
+        tmp_path / "runs",
+        store.tasks["visible"][1],
+        store,
+        binary={"sha256": "e" * 64, "platform": "linux-x64"},
+    )
+    _refused(store, run_set((one, 0), (two, 0)), tmp_path / "round", "binary", {"entry": "1"})
+
+
+def test_a_run_that_recorded_no_binary_is_not_held_against_one_that_did_and_accounts_are_not(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """Only where both recorded it is the binary compared; the account is never compared."""
+    one = harness_run(
+        tmp_path / "runs",
+        store.tasks["visible"][0],
+        store,
+        binary={"sha256": "d" * 64, "platform": "linux-x64"},
+        account={"name": "run-seat-1", "token_sha256_prefix": "a" * 12},
+    )
+    two = harness_run(
+        tmp_path / "runs",
+        store.tasks["visible"][1],
+        store,
+        binary=None,
+        account={"name": "run-seat-2", "token_sha256_prefix": "b" * 12},
+    )
+    record = _round(store, run_set((one, 0), (two, 0)), tmp_path / "round", StandInArm())
+    assert record.counts["visible"].trials == 2
+
+
 def test_a_round_into_a_directory_that_exists_is_refused(
     tmp_path: Path, store: StandInStore
 ) -> None:

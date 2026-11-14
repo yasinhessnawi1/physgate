@@ -27,6 +27,8 @@ def _config(**changes: object) -> RunConfig:
         endpoint="default",
         harness={"commit": None, "clean": False, "uncommitted_sha256": None},
         git_binary=None,
+        binary={"sha256": "d" * 64, "platform": "linux-x64"},
+        account={"name": params["account"], "token_sha256_prefix": "e" * 12},
         os_layer=LAYER.model_dump(),
         network="none",
         network_enforced=True,

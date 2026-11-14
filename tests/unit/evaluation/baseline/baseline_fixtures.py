@@ -157,6 +157,10 @@ def config(task: Task, made: StandInStore, **changes: Any) -> RunConfig:  # noqa
         reportable=True,
         harness={"commit": "c" * 40, "clean": True, "uncommitted_sha256": None},
         git_binary=None,
+        # As the command records them: the bytes it measured, and the account by its name and
+        # the fingerprint of the credential it was given.
+        binary={"sha256": "d" * 64, "platform": "linux-x64"},
+        account={"name": params["account"], "token_sha256_prefix": "e" * 12},
         os_layer=LAYER.model_dump(),
         network="none",
         network_enforced=True,

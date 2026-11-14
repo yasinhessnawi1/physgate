@@ -495,6 +495,7 @@ def test_a_harness_log_that_ends_in_a_cut_off_line_is_refused(tmp_path: Path) ->
     ("changes", "named"),
     [
         ({"reportable": False}, ["reportable"]),
+        ({"reportable": False, "ablation": True}, ["ablation", "reportable"]),
         (
             {
                 "reportable": False,
@@ -510,7 +511,7 @@ def test_a_harness_log_that_ends_in_a_cut_off_line_is_refused(tmp_path: Path) ->
             ["harness", "reportable"],
         ),
     ],
-    ids=["not reportable", "dirty checkout", "no checkout"],
+    ids=["not reportable", "ablation", "dirty checkout", "no checkout"],
 )
 def test_a_harness_run_that_is_not_clean_or_not_reportable_is_named(
     tmp_path: Path, changes: dict[str, Any], named: list[str]
