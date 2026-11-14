@@ -22,6 +22,10 @@ def test_the_register_is_not_empty_and_names_the_gate_mode() -> None:
         "os_layer_absent",
         "design_review",
         "parts_on_hand",
+        "reviewers",
+        "skills",
+        "hooks",
+        "escalation_backend",
     ]
     assert GATE_MODE.architecture == "ARCH-140"
     assert QUEUE_DECISIONS.architecture == "ARCH-133"
@@ -42,6 +46,10 @@ def test_every_flag_is_a_required_field_of_the_run_configuration_with_no_default
 ) -> None:
     field = RunConfig.model_fields[flag.name]
     assert field.is_required(), f"{flag.name} has a default"
+    if flag.name == "escalation_backend":
+        # Held to the backend register by name when a run is configured, not by its type:
+        # the flag's values are that register's names, which their own test holds equal.
+        return
     assert typing.get_args(field.annotation) == flag.values
 
 

@@ -45,7 +45,7 @@ from physgate.orchestrator.exceptions import (
     RunConfigError,
     RunStateError,
 )
-from physgate.orchestrator.managed import ObservedTraffic
+from physgate.orchestrator.managed import FlagCache, ObservedTraffic
 from physgate.orchestrator.plan import (
     Component,
     CriterionWords,
@@ -109,6 +109,7 @@ class DecompositionSummary(BaseModel):
     head_revision: int
     policy_limits_sha256: str | None = None
     observed_traffic: ObservedTraffic | None = None
+    flag_cache: FlagCache | None = None
     #: The plan's digest, taken from the plan itself; ``None`` for a run started without one.
     plan_sha256: str | None = None
     #: The two lists the integration role checks; ``None`` in a run without that role.
@@ -546,6 +547,11 @@ class RunRecord:
             queue_decisions=self._said()[0],
             design_review=self._said()[1],
             parts_on_hand=self._said()[2],
+            # Each named only where the run differs from what every run before the switch did.
+            reviewers=None if self.config.reviewers == "paired" else self.config.reviewers,
+            skills=None if self.config.skills == "on" else self.config.skills,
+            hooks=None if self.config.hooks == "on" else self.config.hooks,
+            ablation=True if self.config.ablation else None,
         )
         calls = [*(one.call for one in earlier), *((call,) if call is not None else ())]
         if calls:
@@ -737,6 +743,7 @@ class RunRecord:
                 head_revision=decomposed.head_revision,
                 policy_limits_sha256=decomposed.policy_limits_sha256,
                 observed_traffic=decomposed.observed_traffic,
+                flag_cache=decomposed.flag_cache,
                 plan_sha256=decomposed.plan_sha256,
                 interface_consumers=decomposed.interface_consumers,
                 system_requirements=decomposed.system_requirements,

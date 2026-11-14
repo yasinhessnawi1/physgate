@@ -60,8 +60,16 @@ REFUSAL = (
 STRICT_MODE = "strict mode"
 
 
-#: Versions that resend a refused request once without one beta flag.
-REFUSED_THEN_RESENT = frozenset({"2.1.301"})
+#: What each version does after the API refuses a request, outside its retry count: for each
+#: copy it sends again, the beta flags that copy leaves out of the first's (measured at this
+#: endpoint: 2.1.301 on 16.10.2026, 2.1.322 on 11.11.2026). Earlier versions send it once.
+RESENT_WITHOUT: dict[str, list[list[str]]] = {
+    "2.1.301": [["thinking-display-updates-2026-08-18"]],
+    "2.1.322": [
+        ["thinking-token-count-2026-05-13"],
+        ["thinking-display-updates-2026-08-18", "thinking-token-count-2026-05-13"],
+    ],
+}
 
 
 @pytest.fixture(scope="module")
@@ -111,8 +119,15 @@ def _review(
         except ReviewUnavailableError as exc:
             outcome = exc
         refused = list(api.refusals)
+        betas = list(api.refused_betas)
     (stderr,) = [p.read_text() for p in (tmp_path / "rs").glob("*/session/stderr.txt")]
+    first = set(betas[0]) if betas else set()
+    _RESENT[binary] = [sorted(first - set(b)) for b in betas[1:]]
     return outcome, refused, stderr
+
+
+#: Per binary, what the last review's resent copies left out of the first copy's beta flags.
+_RESENT: dict[str, list[list[str]]] = {}
 
 
 @pytest.mark.parametrize("role", ["control", "firmware"])
@@ -127,10 +142,11 @@ def test_the_second_real_run_s_schema_is_refused_on_the_first_request(
     monkeypatch.setattr(claude, "verdict_schema", lambda *a, **k: sent)
     outcome, refused, stderr = _review(tmp_path, install, binary, role)
     # One request, refused as the API refused it. 2.1.301 then sends the same request
-    # once more without its thinking-display beta flag, outside its retry count
-    # (measured at this endpoint, 16.10.2026), and that is refused the same way.
-    sent_twice = binary_version(binary) in REFUSED_THEN_RESENT
-    assert refused == [REFUSAL] * (2 if sent_twice else 1)
+    # once more without its thinking-display beta flag, outside its retry count, and
+    # 2.1.322 sends it again as well; each copy is refused the same way.
+    resent = RESENT_WITHOUT.get(binary_version(binary), [])
+    assert refused == [REFUSAL] * (1 + len(_RESENT[binary])), _RESENT[binary]
+    assert _RESENT[binary] == resent
     assert isinstance(outcome, ReviewUnavailableError) and outcome.cause == "infrastructure"
     assert STRICT_MODE in stderr  # and the binary warned as it compiled it
 

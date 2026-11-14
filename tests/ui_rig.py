@@ -79,6 +79,10 @@ def run_config(run_id: str) -> RunConfig:
         queue_decisions="record",
         # A development rig: its loops run with no OS-layer line recorded.
         os_layer_absent="allow",
+        reviewers="paired",
+        skills="on",
+        hooks="on",
+        ablation=False,
         design_review="off",
         parts_on_hand="off",
         held_out=(),
@@ -86,6 +90,8 @@ def run_config(run_id: str) -> RunConfig:
         held_out_sha256=(),
         network="open",
         network_enforced=None,
+        binary=None,
+        account=None,
         os_layer=None,
     )
 

@@ -60,6 +60,15 @@ class Recorded:
     offered_tools: tuple[str, ...]
     last_user: str
     served: dict[str, Any] | None
+    #: Each offered tool's input schema (or its whole definition, for a server tool), by name.
+    tool_schemas: dict[str, Any] = field(default_factory=dict)
+    #: The request's effort, wherever the body carries it, and its beta flags.
+    output_config: Any = None
+    anthropic_beta: tuple[str, ...] = ()
+    #: The whole request body as JSON text, for a search of what the session was given.
+    body_text: str = ""
+    #: The system prompt and the tool definitions only: what the session itself was given.
+    given_text: str = ""
 
 
 def _text_of(content: Any) -> str:  # noqa: ANN401 - the Messages API's own content shape
@@ -165,6 +174,15 @@ class FakeMessagesApi:
                     offered_tools=offered,
                     last_user=_text_of(messages[-1]["content"]) if messages else "",
                     served=step,
+                    tool_schemas={
+                        t.get("name", ""): t.get("input_schema", t) for t in body.get("tools") or []
+                    },
+                    output_config=body.get("output_config"),
+                    anthropic_beta=tuple(
+                        sorted(b for b in (headers.get("anthropic-beta") or "").split(",") if b)
+                    ),
+                    body_text=json.dumps(body),
+                    given_text=json.dumps([body.get("system"), body.get("tools")]),
                 )
             )
         return _events(reply, body.get("model", "fake"), n), "text/event-stream"

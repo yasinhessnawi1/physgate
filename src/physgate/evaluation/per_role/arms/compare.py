@@ -97,6 +97,12 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "design_review": "harness",
     # Whether a person is asked which parts they have; the raw arm has no plan to ask about.
     "parts_on_hand": "harness",
+    # Who reviews a role's work, whether a role session is given its skill file, and whether
+    # its hooks enforce the design discipline: the raw arm has no reviewer, library or hooks
+    # of the harness's.
+    "reviewers": "harness",
+    "skills": "harness",
+    "hooks": "harness",
     # The binary's retries and the infrastructure retry delays must be equal: retries in
     # the binary hide requests from the raw arm's cap. The turn and wall-clock bounds are
     # compared at the harness's times its repair budget, so neither binds before the cap.
@@ -119,6 +125,8 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "harness.uncommitted_sha256": "required",
     "harness.commit": "identity",
     "reportable": "required",
+    # An ablation run is never reportable, and a run that is not reportable is named already.
+    "ablation": "not_compared",
     # The git the harness's own commands ran; the raw arm runs none of them.
     "git_binary": "not_compared",
     "git_binary.path": "not_compared",
@@ -131,6 +139,15 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     # Whether the run may go on where the OS layer is absent; the layer each arm ran
     # with is compared (``os_layer``), and a reportable run allows no absence.
     "os_layer_absent": "not_compared",
+    # The bytes the harness run executed, by digest and platform build. The raw arm records
+    # its binary's version, which is compared, and not the digest of its bytes.
+    "binary": "not_compared",
+    "binary.sha256": "not_compared",
+    "binary.platform": "not_compared",
+    # The account the harness run's calls drew on; the raw arm records none.
+    "account": "not_compared",
+    "account.name": "not_compared",
+    "account.token_sha256_prefix": "not_compared",
 }
 
 #: Every pin the raw arm's record carries. Each is compared below; one the record lacks,

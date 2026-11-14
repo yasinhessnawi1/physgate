@@ -263,6 +263,10 @@ def _config() -> RunConfig:
         escalation_backend="rules",
         queue_decisions="record",
         os_layer_absent="allow",
+        reviewers="paired",
+        skills="on",
+        hooks="on",
+        ablation=False,
         design_review="off",
         parts_on_hand="off",
         held_out=(),
@@ -270,6 +274,8 @@ def _config() -> RunConfig:
         held_out_sha256=(),
         network="open",
         network_enforced=None,
+        binary=None,
+        account=None,
         os_layer=None,
     )
 

@@ -1,5 +1,6 @@
 {
  "auth": "subscription",
+ "account": "run-seat-1",
  "gate_mode": "on",
  "models": {
   "decomposition": "claude-opus-5-5",
@@ -35,6 +36,10 @@
  "escalation_backend": "rules",
  "queue_decisions": "record",
  "os_layer_absent": "refuse",
+ "reviewers": "paired",
+ "skills": "on",
+ "hooks": "on",
+ "ablation": false,
  "design_review": "on",
  "parts_on_hand": "off",
  "held_out": [],

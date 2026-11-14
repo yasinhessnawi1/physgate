@@ -19,6 +19,7 @@ from physgate.orchestrator.dispute import Dispute
 from physgate.orchestrator.escalation import EscalationInterface, bind
 from physgate.orchestrator.exceptions import ReviewUnavailableError, WorktreeMisplacedError
 from physgate.orchestrator.loop import Loop
+from physgate.orchestrator.managed import FlagCache, ObservedTraffic
 from physgate.orchestrator.ports import (
     ChangeCheck,
     Leftover,
@@ -76,6 +77,10 @@ class FakeDispatcher:
     tampered: dict[int, str] = field(default_factory=dict)
     #: Per call: the digest of the policy limits the session's invocation received.
     policy: dict[int, str] = field(default_factory=dict)
+    #: Per call: the served catalog and feature flags the session's debug log showed.
+    traffic: dict[int, ObservedTraffic] = field(default_factory=dict)
+    #: Per call: the remote feature flags the session's binary held when it ended.
+    flag_caches: dict[int, FlagCache] = field(default_factory=dict)
     #: The calls no model answered before the session ended: the binary wrote only its own
     #: messages, as a connection dropped before the first request does.
     unanswered: set[int] = field(default_factory=set)
@@ -160,6 +165,8 @@ class FakeDispatcher:
             node_files_halted=call in self.halted,
             managed_drift=self.drift.get(call),
             policy_limits_sha256=self.policy.get(call),
+            observed_traffic=self.traffic.get(call),
+            flag_cache=self.flag_caches.get(call),
             review_material_seen=self.material.get(call),
             held_out_seen=self.held_out.get(call),
             series=self.series.get(call, SessionSeries()),

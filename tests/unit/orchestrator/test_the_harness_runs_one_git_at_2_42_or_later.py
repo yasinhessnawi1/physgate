@@ -173,8 +173,14 @@ def test_a_run_recorded_before_the_field_loads_and_keeps_its_bytes(tmp_path: Pat
         "network_enforced",
         "queue_decisions",
         "os_layer_absent",
+        "binary",
+        "account",
         "design_review",
         "parts_on_hand",
+        "reviewers",
+        "skills",
+        "hooks",
+        "ablation",
     ):  # recorded before these too
         del legacy[later]
     legacy_bytes = json.dumps(legacy, separators=(",", ":")).encode() + b"\n"
@@ -234,6 +240,7 @@ def _refusing_claude(tmp_path: Path) -> Path:
 def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
     params = {
         "auth": "api_key",
+        "account": "a-test-account",
         "gate_mode": "on",
         "models": {
             "decomposition": "claude-sonnet-5",
@@ -256,6 +263,10 @@ def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
         "queue_decisions": "record",
         # The stand-in binary predates the layer's pin: allowed absent, for development.
         "os_layer_absent": "allow",
+        "reviewers": "paired",
+        "skills": "on",
+        "hooks": "on",
+        "ablation": False,
         "design_review": "off",
         "parts_on_hand": "off",
         "held_out": [],

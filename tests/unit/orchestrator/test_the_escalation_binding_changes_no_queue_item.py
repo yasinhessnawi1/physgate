@@ -55,6 +55,10 @@ ADDED_FIELDS: dict[str, dict[str, Any]] = {
         # The rig's loops run over fakes with no OS-layer line recorded, so its runs allow
         # the layer's absence, as every run the golden file recorded went on without it.
         "os_layer_absent": "allow",
+        "reviewers": "paired",
+        "skills": "on",
+        "hooks": "on",
+        "ablation": False,
         "design_review": "off",
         "parts_on_hand": "off",
     },

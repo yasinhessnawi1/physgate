@@ -37,13 +37,15 @@ from physgate.gate.units import UnitRefusedError
 from physgate.gate.units import parse as read_by_registry
 from physgate.hooks.settings import WEB_TOOLS, protected_in_a_worktree
 from physgate.knowledge.library import LibraryError, put_into, read_library
+from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import classify_session_end
+from physgate.orchestrator.budget import classify_session_end, writes_lost
 from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.common import GateMode, NonEmptyStr, first_problem
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
+    remove_debug_logs,
     remove_secrets,
     write_login,
 )
@@ -59,6 +61,7 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.git import commit_all, common_dir, git, init_repo
 from physgate.orchestrator.invocation import (
+    TRAFFIC_ALLOWED_VERSIONS,
     claude_binary,
     decomposition_argv,
     isolated_env,
@@ -66,8 +69,10 @@ from physgate.orchestrator.invocation import (
     version_argv,
 )
 from physgate.orchestrator.managed import (
+    FlagCache,
     ObservedTraffic,
     drift,
+    flag_cache,
     flags_off_by_setting,
     observe_traffic,
     policy_limits_digest,
@@ -179,6 +184,7 @@ FailureCause = Literal[
     "turn_limit",
     "no_result",
     "unexpected_exit",
+    "writes_lost",
     "refused",
     "malformed_output",
     "context_exceeded",
@@ -281,7 +287,7 @@ def schema_refusal(stdout: str) -> str | None:
     is the cause, and it is read from the stream's tool result, since the result
     object says only that the turns ran out.
     """
-    for line in stdout.splitlines():
+    for line in split_lines(stdout):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -987,6 +993,8 @@ class Outcome(_Frozen):
     policy_limits_sha256: str | None = None
     #: The served catalog and feature flags as the call's debug log showed them.
     observed_traffic: ObservedTraffic | None = None
+    #: The flag cache the call left, on a pin whose sessions fetch the flags.
+    flag_cache: FlagCache | None = None
     #: The seal of the stream as the call wrote it, taken over exactly those bytes; ``None`` for
     #: an outcome no call wrote a stream for.
     stream_seal: Seal | None = None
@@ -1018,7 +1026,7 @@ def read_stream(
     raw_usage: dict[str, dict[str, Any]] = {}
     current: dict[str | None, str] = {}  # the open message per thread
     models: set[str] = set()
-    for line in stdout.splitlines():
+    for line in split_lines(stdout):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -1073,6 +1081,7 @@ def judge(
     refused: str | None = None,
     declined: bool = False,
     parts: bool = False,
+    lost: str | None = None,
 ) -> tuple[FailureCause | None, str, Plan | None, str | None, int]:
     """Decide from the result object whether the call produced a usable plan.
 
@@ -1082,6 +1091,9 @@ def judge(
     of turns after one is ``schema_refused``, not ``turn_limit``. ``declined`` is a model
     refusal the stream showed: the plan's refusal (``refused``), as a result whose stop
     reason is a refusal is.
+    ``lost`` is what the binary said in the stream it could not save, if anything
+    (:func:`~physgate.orchestrator.budget.writes_lost`): a call that ended as a finished
+    one and said so gives no plan, under its own cause.
     """
     end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
     turns = int((result or {}).get("num_turns") or 0)
@@ -1103,8 +1115,19 @@ def judge(
             return "refused", "the model declined to plan", None, seen_model, turns
     if refused is not None and end.cause == "turn_limit":
         return "schema_refused", refused, None, seen_model, turns
+    if (
+        end.cause == "disk_full"
+        or end.cause == "prompt_too_long"
+        or end.cause == "structured_output_retry_exhausted"
+    ):
+        # A role session's names, given only where a caller names its pin or a measured full
+        # volume: this call names neither, and reads the binary's reasons from its own table.
+        return "unexpected_exit", f"the call ended with {end.cause}", None, seen_model, turns
     if end.cause is not None:
         return end.cause, f"the call ended with {end.cause}", None, seen_model, turns
+    if lost is not None:
+        detail = f"the binary could not save its own {lost}"
+        return "writes_lost", detail, None, seen_model, turns
     if echoed != [model]:
         return "model_mismatch", f"asked for {model}, answered by {echoed}", None, seen_model, turns
     answer = (result or {}).get("structured_output")
@@ -1201,7 +1224,7 @@ def _registry_reads(unit: str) -> bool:
 
 def model_declined(stdout: str) -> bool:
     """Whether the stream shows the model declining: a ``model_refusal`` system event."""
-    for line in stdout.splitlines():
+    for line in split_lines(stdout):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -1285,6 +1308,10 @@ def call(
     system_before = system_managed_facts()
     if credential.mode == "subscription":
         write_login(workdir / "config", credential.secret)
+    # Read only after the call ended on its own: one stopped at its clock may have left a
+    # process that writes the log again, so nothing of it is read then.
+    observed: ObservedTraffic | None = None
+    ended = False
     try:
         done = subprocess.run(
             argv,
@@ -1298,15 +1325,26 @@ def call(
             timeout=config.bounds.session_wall_clock_s,
         )
         stdout, exit_code, timed_out = done.stdout, done.returncode, False
+        ended = True
     except subprocess.TimeoutExpired as exc:
         raw = exc.stdout or b""
         stdout = raw.decode(errors="replace") if isinstance(raw, bytes) else raw
         exit_code, timed_out = None, True
     finally:
-        remove_secrets(workdir / "state", workdir / "config")
-        observed = read_debug_log(
-            workdir / DEBUG_LOG, flags_off_by_setting=flags_off_by_setting(reported, env)
-        )
+        # The credential, and every file named like the log (which may hold it), are removed
+        # whichever way the call ended, a failure to start included; each step runs whatever
+        # the one before it did.
+        try:
+            remove_secrets(workdir / "state", workdir / "config")
+        finally:
+            try:
+                if ended:
+                    observed = read_debug_log(
+                        workdir / DEBUG_LOG,
+                        flags_off_by_setting=flags_off_by_setting(reported, env),
+                    )
+            finally:
+                remove_debug_logs(workdir)
     # Sealed here, over the bytes written: a seal taken by a later reader would seal whatever
     # the file held by then, and the plan's review reads the stream only as this seal holds it.
     written = stdout.replace(credential.secret, REDACTED_TEXT).encode("utf-8")
@@ -1325,13 +1363,11 @@ def call(
         refused=schema_refusal(stdout),
         declined=model_declined(stdout),
         parts=parts,
+        lost=writes_lost(stdout),
     )
     changed = drift(workdir / "config", system_before)
-    if not observed.all_off():
-        seen = (
-            f"the binary's served model catalog is {observed.served_catalog} and its remote "
-            f"feature flags are {observed.feature_flags}"
-        )
+    seen = traffic_refusal(observed, reported) if observed is not None else None
+    if seen is not None:
         changed = f"{changed}; {seen}" if changed else seen
     if changed is not None:
         cause, detail, plan = "managed_settings_changed", changed, None
@@ -1346,7 +1382,27 @@ def call(
         num_turns=turns,
         policy_limits_sha256=policy_limits_digest(workdir / "config"),
         observed_traffic=observed,
+        # The run's first reading, on a pin whose sessions fetch the flags.
+        flag_cache=(
+            flag_cache(workdir / "config") if reported in TRAFFIC_ALLOWED_VERSIONS else None
+        ),
         stream_seal=stream_seal,
+    )
+
+
+def traffic_refusal(observed: ObservedTraffic, claude_version: str) -> str | None:
+    """Why the decomposition call's catalog and flags state refuses the run, or ``None``.
+
+    On the earlier pins the run proceeds only under a served catalog seen off and feature flags
+    off, observed or off by the documented setting on a version that never reports them. On a
+    pin whose sessions carry the traffic the advisor needs, by the owner's choice, the state is
+    recorded with the run instead: it is what that pin's environment gives, not a drift.
+    """
+    if observed.all_off() or claude_version in TRAFFIC_ALLOWED_VERSIONS:
+        return None
+    return (
+        f"the binary's served model catalog is {observed.served_catalog} and its remote "
+        f"feature flags are {observed.feature_flags}"
     )
 
 
@@ -1900,6 +1956,7 @@ def start_run(
             head_revision=head,
             policy_limits_sha256=outcome.policy_limits_sha256,
             observed_traffic=outcome.observed_traffic,
+            flag_cache=outcome.flag_cache,
             plan_sha256=plan_sha256(plan),
             interface_consumers=consumers,
             system_requirements=requirements,

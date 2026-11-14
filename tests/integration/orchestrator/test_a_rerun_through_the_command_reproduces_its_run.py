@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 from gate_run import INTERFACE, PayingReviewer, build_install, seed_knowledge, session
-from git_rig import PARAMS, config, target_repo
+from git_rig import config, run_params, target_repo
 from scripted_endpoint import DUMMY_KEY, FakeMessagesApi, Script, serving, tool
 from stand_in_drive_plan import DRIVE_MODULE, STAND_IN_BRIEF
 
@@ -55,8 +55,20 @@ def install(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return build_install(tmp_path_factory)
 
 
+#: The evaluation's model strings: a run's manifest carries its binary's request defaults, which
+#: are measured per version and model, and these are the ones measured on every pin.
+REVIEWER = "claude-sonnet-5"
+MODELS = {
+    "decomposition": "claude-opus-5-5",
+    "roles": {"electrical": "claude-opus-5-5"},
+    "reviewers": {"electrical": REVIEWER},
+}
+
+
 def registrations() -> Registrations:
-    return Registrations(gate=PhysicsGate(), reviewers={"electrical": PayingReviewer()})
+    return Registrations(
+        gate=PhysicsGate(), reviewers={"electrical": PayingReviewer(model=REVIEWER)}
+    )
 
 
 def one_script(payloads: tuple[dict[str, Any], ...]) -> tuple[Script, Callable[..., Any]]:
@@ -74,8 +86,9 @@ def serve(api: FakeMessagesApi, payloads: tuple[dict[str, Any], ...]) -> None:
 
 
 def record_a_run(tmp_path: Path, repo: Path, install: Path, api: FakeMessagesApi) -> Path:
-    params = config().model_dump(include=PARAMS)
+    params = run_params(config())
     params["gate_mode"] = "observe"
+    params["models"] = MODELS
     (tmp_path / "params.json").write_text(json.dumps(params))
     run_dir = tmp_path / "run-a"
     serve(api, DRIVE_MODULE)

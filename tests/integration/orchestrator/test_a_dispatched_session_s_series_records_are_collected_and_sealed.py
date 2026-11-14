@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 from gate_run import INTERFACE, PayingReviewer, build_install, seed_knowledge
-from git_rig import PARAMS, config, target_repo
+from git_rig import config, run_params, target_repo
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
 from physgate.cli import main
@@ -80,7 +80,7 @@ def test_a_record_a_session_writes_is_sealed_on_its_end_and_never_committed(
     repo = target_repo(tmp_path)
     seed_knowledge(repo)
     run_dir = tmp_path / "run"
-    (tmp_path / "params.json").write_text(json.dumps(config().model_dump(include=PARAMS)))
+    (tmp_path / "params.json").write_text(json.dumps(run_params(config())))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot; start with its power.\n")
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
     plan = {
