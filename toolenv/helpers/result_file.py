@@ -37,6 +37,21 @@ FIELDS: dict[str, frozenset[str]] = {
     "load_case": frozenset(
         {"schema", "kind", "case", "model", "formulas", "assumptions", "inputs", "values"}
     ),
+    "solve": frozenset(
+        {
+            "schema",
+            "kind",
+            "case",
+            "part",
+            "model",
+            "mesh",
+            "inputs",
+            "assumptions",
+            "values",
+            "closed_form",
+            "libraries",
+        }
+    ),
     "reference_measurement": frozenset(
         {
             "schema",

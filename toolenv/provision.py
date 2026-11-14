@@ -124,7 +124,8 @@ print(json.dumps({"versions": {n: m.version(n) for n in names},
 
 
 #: What the self-check asks the design libraries: a fixture plate built, exported, measured and
-#: hashed through the helpers, a closed-form load case, and which files the loader mapped.
+#: hashed through the helpers, a closed-form load case, the same case solved by finite elements,
+#: and which files the loader mapped.
 DESIGN_CHECK = """
 import json, os, sys
 sys.path.insert(0, sys.argv[1])
@@ -143,11 +144,18 @@ beam = structure.cantilever_end_load(
     "self-check", length={"value": 60, "unit": "mm"}, width={"value": 10, "unit": "mm"},
     thickness={"value": 3, "unit": "mm"}, modulus={"value": 2.3, "unit": "GPa"},
     force={"value": 1, "unit": "N"})
+solved = structure.solve(
+    "self-check", load_case="cantilever_end_load", part="self-check bar",
+    length={"value": 60, "unit": "mm"}, width={"value": 10, "unit": "mm"},
+    thickness={"value": 3, "unit": "mm"}, modulus={"value": 2.3, "unit": "GPa"},
+    poisson={"value": 0.35, "unit": "1"}, force={"value": 1, "unit": "N"})
 maps = "/proc/self/maps"
 lines = open(maps).read().splitlines() if os.path.exists(maps) else []
 mapped = sorted({line.split()[-1] for line in lines if "/" in line})
-print(json.dumps({"part": part, "load_case": beam, "mapped": mapped}))
+print(json.dumps({"part": part, "load_case": beam, "solve": solved, "mapped": mapped}))
 """
+#: The libraries a solve names, each of which must be the pinned version.
+SOLVER_LIBRARIES = ("scikit-fem", "numpy", "scipy")
 
 
 class ProvisionError(Exception):
@@ -491,13 +499,18 @@ def _check_design(
     out = run([python, "-I", "-c", DESIGN_CHECK, str(dest / "helpers"), str(module)], env)
     found = json.loads(out.strip().splitlines()[-1])
     project = (dest / "project" / "pyproject.toml").read_text(encoding="utf-8")
-    for name, version in found["part"]["libraries"].items():
+    solved = found.get("solve")
+    if not isinstance(solved, dict) or sorted(solved.get("libraries", {})) != sorted(
+        SOLVER_LIBRARIES
+    ):
+        raise ProvisionError(f"the design check did not solve a block on {list(SOLVER_LIBRARIES)}")
+    for name, version in [*found["part"]["libraries"].items(), *solved["libraries"].items()]:
         if f'"{name}=={version}"' not in project:
             raise ProvisionError(f"{name} {version} is not the pinned version")
     wrong = mapped_outside(found["mapped"], packages, dest)
     if wrong:
         raise ProvisionError(f"the kernel's display libraries are not the environment's: {wrong}")
-    return {"part": found["part"], "load_case": found["load_case"]}
+    return {"part": found["part"], "load_case": found["load_case"], "solve": solved}
 
 
 # ---- the commands, and the settings they run with --------------------------------------------
