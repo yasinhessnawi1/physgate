@@ -113,7 +113,7 @@ class Tampering(FakeDispatcher):
             first = self.journal.lines[0]
             self.journal.lines[0] = JournalLine(
                 rev=first.rev, op=first.op, node_id=first.node_id, version=first.version,
-                payload=FORGED,  # type: ignore[arg-type]
+                payload=FORGED,
             )  # fmt: skip
         return report
 
