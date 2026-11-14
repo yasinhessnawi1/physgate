@@ -91,8 +91,21 @@ def _round(store: StandInStore, base: Path, arm: Any, *tiers: str) -> BaselineRe
 def _outcome(call: Any) -> Any:  # noqa: ANN401
     try:
         return call()
-    except Exception as exc:  # noqa: BLE001 - the row asserts on what it was
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 - the row asserts on what it was
         return exc
+
+
+def _completed(store: StandInStore, base: Path, arm: Any, *tiers: str) -> BaselineRecord:  # noqa: ANN401
+    """The round's record; the row fails on its assertion if the round stopped."""
+    record = _outcome(lambda: _round(store, base, arm, *tiers))
+    assert isinstance(record, BaselineRecord), f"the round stopped: {record!r}"
+    return record
+
+
+def _one(found: Any, what: str) -> Path:  # noqa: ANN401
+    listed = list(found)
+    assert len(listed) == 1, f"{what}: {listed}"
+    return Path(listed[0])
 
 
 def _installed(setup: RawSetup, place: Path, monkeypatch: pytest.MonkeyPatch) -> SessionConfig:
@@ -118,7 +131,8 @@ def _installed(setup: RawSetup, place: Path, monkeypatch: pytest.MonkeyPatch) ->
     args = parser.parse_args(seen[0][1:])
     printed = io.StringIO()
     with contextlib.redirect_stdout(printed):
-        assert args.func(args) == 0, "the installer refused the session"
+        code = _outcome(lambda: args.func(args))
+    assert code == 0, f"the installer refused the session: {code!r}"
     written = json.loads(printed.getvalue())
     return SessionConfig.model_validate_json(Path(written["config"]).read_text())
 
@@ -135,16 +149,18 @@ def test_a_visible_session_reaches_neither_a_sibling_trial_nor_the_round_s_direc
     store = copied(made, outside_tmp / "store")
     out = outside_tmp / "round"
     arm = StandInArm()
-    judged: list[tuple[Path, SessionConfig]] = []
+    judged: list[tuple[Path, Any]] = []
 
     def second_judged(task: Task, setup: RawSetup, work: Path, **kw: Any) -> dict[str, Any]:  # noqa: ANN401
         record = arm(task, setup, work, **kw)
         if len(arm.calls) == 2:
-            judged.append((work, _installed(setup, work, monkeypatch)))
+            judged.append((work, _outcome(lambda: _installed(setup, work, monkeypatch))))
         return record
 
-    _round(store, outside_tmp, second_judged, "visible", "visible")
+    _completed(store, outside_tmp, second_judged, "visible", "visible")
+    assert len(judged) == 1, "the second session was not installed"
     ((place, config),) = judged
+    assert isinstance(config, SessionConfig), f"the installer refused the session: {config!r}"
     cwd = str(place / "worktree")
     sibling = out / "work" / "0000-1"
     assert (sibling / HARNESS / SCORE).is_file(), "the first trial is not where it was moved"
@@ -179,7 +195,7 @@ def test_every_session_works_in_the_work_root_given_its_place_alone_and_withheld
         given.append((setup, work))
         return arm(task, setup, work, **kw)
 
-    _round(store, tmp_path, seen, "visible", "held_out", "visible")
+    _completed(store, tmp_path, seen, "visible", "held_out", "visible")
     assert len(given) == 3
     out = os.path.realpath(tmp_path / "round")
     for setup, work in given:
@@ -196,7 +212,7 @@ def test_a_finished_visible_trial_lies_beneath_the_round_and_nothing_of_it_in_th
     """Its place and the harness's files are moved whole; its record of work is cleared."""
     store = copied(made, tmp_path / "store")
     arm = StandInArm()
-    record = _round(store, tmp_path, arm, "visible")
+    record = _completed(store, tmp_path, arm, "visible")
     assert record.counts["visible"].passed == 1
     ((_, _, work),) = arm.calls
     assert work.is_relative_to(work_root(store.store, "control")), "it ran outside the work root"
@@ -212,8 +228,9 @@ def test_a_protected_trial_is_not_moved_out_and_the_round_holds_nothing_of_it(
     tmp_path: Path, made: StandInStore
 ) -> None:
     store = copied(made, tmp_path / "store")
-    _round(store, tmp_path, StandInArm(), "held_out", "visible")
-    moved = sorted(p.name for p in (tmp_path / "round" / "work").iterdir())
+    _completed(store, tmp_path, StandInArm(), "held_out", "visible")
+    work = tmp_path / "round" / "work"
+    moved = sorted(p.name for p in work.iterdir()) if work.is_dir() else []
     assert moved == ["0001-1"], moved
     assert not list(work_root(store.store, "control").iterdir())
 
@@ -286,10 +303,10 @@ def test_a_move_that_fails_leaves_nothing_half_made_and_the_trial_in_the_work_ro
     assert str(tmp_path) not in f"{outcome} {getattr(outcome, 'context', {})}"
     work = tmp_path / "round" / "work"
     assert not os.path.lexists(work / "0000-1"), "a half-made trial is left beneath the round"
-    (left,) = work_root(store.store, "control").iterdir()
+    left = _one(work_root(store.store, "control").iterdir(), "the trial left in the work root")
     assert (left / PLACE / "worktree" / "first.txt").is_file(), "the source was removed"
     assert (left / HARNESS / "raw.json").is_file()
-    (working,) = role_root(store.store, "control").glob(f"*{WORKING}")
+    working = _one(role_root(store.store, "control").glob(f"*{WORKING}"), "its record of work")
     assert json.loads(working.read_text())["work"] == str(left)
 
 
@@ -306,6 +323,6 @@ def test_a_visible_trial_s_destination_already_there_refuses_the_move(
     outcome = _outcome(lambda: _round(store, tmp_path, StandInArm(left=leave), "visible"))
     assert isinstance(outcome, Exception), "a trial was moved onto a directory already there"
     assert taken.is_dir() and not list(taken.iterdir()), "what lay at the destination changed"
-    (left,) = work_root(store.store, "control").iterdir()
+    left = _one(work_root(store.store, "control").iterdir(), "the trial left in the work root")
     assert (left / HARNESS / "raw.json").is_file()
     assert list(role_root(store.store, "control").glob(f"*{WORKING}"))
