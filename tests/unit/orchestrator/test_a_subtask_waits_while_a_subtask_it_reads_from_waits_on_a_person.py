@@ -21,7 +21,12 @@ from typing import Any
 import pytest
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
 from loop_fakes import FakeDispatcher, KilledError, Rig
-from test_a_choice_on_a_failed_contract_reopens_the_other_module import of, requests_of
+from test_a_choice_on_a_failed_contract_reopens_the_other_module import (
+    choose,
+    mend,
+    of,
+    requests_of,
+)
 from test_a_failed_contract_is_ruled_by_clause_and_goes_to_a_person_as_one_item import (
     lines,
     refusal,
@@ -34,6 +39,7 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
     IFACE_DRIVE,
     IFACE_TILT,
     INTEG,
+    P_BUDGET,
     P_FW,
     comparable,
     entry,
@@ -786,3 +792,149 @@ def test_a_producer_that_halts_holds_nothing_and_its_reader_is_never_dispatched(
     assert requests_of(rig, FW) == []
     assert of(rows, "dispatch_held") == of(rows, "dispatch_released") == []
     assert refusal(rows) is None
+
+
+# --- every dispatch: a reader's next attempt waits while a producer reopened after it waits ------
+
+#: drive, fw and budget; fw and budget each read drive's ``iface.drive``.
+REOPENED = planned((DRIVE, FW, BUDGET), (P_BUDGET, P_FW))
+#: drive and fw's contract item: their pair is the run's second.
+CONTRACT_ITEM = "run-1-contract-2"
+
+
+def reopenable(tmp_path: Path) -> Rig:
+    """A contract that fails, a reader that fails its first review, and a reopen that fails.
+
+    drive merges off the interface's ``v`` and fw merges on it: their contract fails, and its item
+    goes to a person. budget, which reads drive, fails its first review. Reopened, drive writes the
+    interface's value but fails two reviews, its last attempts: it goes to a person.
+    """
+    rig = rigged(tmp_path)
+    rig.diff.writes[DRIVE] = [node("drive.motor", "control", "iface.drive", v=11)]  # type: ignore[attr-defined]
+    mend(rig, {DRIVE: node("drive.motor", "control", "iface.drive", v=12)})
+    rig.reviewer.verdicts[:] = ["pass", "pass", "fail", "fail", "fail", "pass"]
+    return rig
+
+
+def _budget_again(event: Any, written: list[Any]) -> bool:  # noqa: ANN401 - any line
+    return bool(
+        event.kind == "stage_entered"
+        and event.subtask_id == BUDGET
+        and event.attempt == 2  # noqa: PLR2004 - budget's second attempt
+        and event.stage == "resolve"
+    )
+
+
+def reopened(
+    rig: Rig,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    kill: Callable[[Any, list[Any]], bool] | None = None,
+) -> str:
+    """Stopped where budget's second attempt starts, a person keeps fw's work: drive reopens.
+
+    The choice is taken at that boundary, and drive runs before budget's next attempt.
+    """
+    assert first_run(rig, monkeypatch, budget=True, plan=REOPENED, kill=_budget_again) == "killed"
+    choose(rig.run_dir, "consumer", item_id=CONTRACT_ITEM)
+    return resumed(rig, monkeypatch, budget=True, kill=kill)
+
+
+def second_dispatch(rows: Sequence[dict[str, Any]], subtask: str) -> int:
+    return first_line(rows, "stage_entered", subtask_id=subtask, stage="resolve", attempt=2)
+
+
+def test_a_readers_next_attempt_is_held_while_a_producer_reopened_after_it_waits_on_a_person(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = reopenable(tmp_path)
+    step = reopened(rig, monkeypatch)
+    rows = lines(rig)
+    (taken,) = of(rows, "decision_taken")
+    assert taken.get("reopens") == DRIVE
+    assert [r.attempt for r in requests_of(rig, DRIVE)] == [1, 2, 3]
+    item = drive_item(rows)
+    assert [r.attempt for r in requests_of(rig, BUDGET)] == [1]
+    assert step == "wait"
+    assert _held_on(rows) == [(BUDGET, DRIVE, item, ["iface.drive"])]
+    (held,) = of(rows, "dispatch_held")
+    assert first_line(rows, "escalated", subtask_id=DRIVE) < rows.index(held)
+    assert refusal(rows) is None
+    # Rebuilt from the log alone, the hold keeps budget back on an item a person can still act on.
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    step_now = state.next_step()
+    assert (step_now.kind, step_now.subtask_id) == ("wait", BUDGET)
+    assert state.undecided(item)
+
+
+def test_the_reopened_producer_approved_merges_and_the_readers_next_attempt_runs_on_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = reopenable(tmp_path)
+    assert reopened(rig, monkeypatch) == "wait"
+    decide(rig.run_dir, "approve", item_id=drive_item(lines(rig)))
+    assert resumed(rig, monkeypatch, budget=True) == "done"
+    rows = lines(rig)
+    (released,) = of(rows, "dispatch_released")
+    assert (released["subtask_id"], released["producer"], released["outcome"]) == (
+        BUDGET,
+        DRIVE,
+        "merged",
+    )
+    merges = of(rows, "merged", subtask_id=DRIVE)
+    assert len(merges) == 2  # noqa: PLR2004 - its first merge, then the reopened one
+    assert rows.index(merges[1]) < rows.index(released) < second_dispatch(rows, BUDGET)
+    assert [r.attempt for r in requests_of(rig, BUDGET)] == [1, 2]
+    assert refusal(rows) is None
+
+
+def _reopened_reference(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Rig:
+    rig = reopenable(tmp_path / "reference")
+    assert reopened(rig, monkeypatch) == "wait"
+    decide(rig.run_dir, "approve", item_id=drive_item(lines(rig)))
+    assert resumed(rig, monkeypatch, budget=True) == "done"
+    return rig
+
+
+def test_a_kill_at_a_later_hold_resumes_to_the_lines_of_the_uninterrupted_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference = _reopened_reference(tmp_path, monkeypatch)
+    rig = reopenable(tmp_path / "cut")
+    assert reopened(rig, monkeypatch, kill=_at("dispatch_held")) == "killed"
+    assert of(lines(rig), "dispatch_held") == []
+    assert of(lines(rig), "escalated", subtask_id=DRIVE) != []
+    assert resumed(rig, monkeypatch, budget=True) == "wait"
+    assert [h[0] for h in _held_on(lines(rig))] == [BUDGET]
+    assert [r.attempt for r in requests_of(rig, BUDGET)] == [1]
+    decide(rig.run_dir, "approve", item_id=drive_item(lines(rig)))
+    assert resumed(rig, monkeypatch, budget=True) == "done"
+    same_lines(rig, reference)
+    assert refusal(lines(rig)) is None
+
+
+def test_replay_refuses_a_readers_next_attempt_under_its_hold_or_in_place_of_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = reopenable(tmp_path)
+    assert reopened(rig, monkeypatch) == "wait"
+    rows = lines(rig)
+    (held,) = of(rows, "dispatch_held")
+    at = rows.index(held)
+    envelope = {k: rows[-1][k] for k in ("ts", "run_id", "gate_mode")}
+    dispatch = {
+        **envelope,
+        "kind": "stage_entered",
+        "subtask_id": BUDGET,
+        "attempt": 2,
+        "stage": "resolve",
+    }
+    said = refusal([*rows, dispatch])
+    assert said is not None
+    assert "is held while" in said, said
+    # In place of the hold: refused in a run started under it, and as before in a log without it.
+    said = refusal([*rows[:at], dispatch])
+    assert said is not None
+    assert "with no hold line" in said, said
+    unmarked = {k: v for k, v in rows[0].items() if k != "producer_wait"}
+    assert refusal([unmarked, *rows[1:at], dispatch]) is None
