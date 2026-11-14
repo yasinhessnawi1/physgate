@@ -38,6 +38,13 @@ def _of(log: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
     return [one for one in log if one["kind"] == kind]
 
 
+def one(found: Any) -> Any:  # noqa: ANN401
+    """The one thing ``found`` holds, or a failing assertion saying how many it holds."""
+    held = list(found)
+    assert len(held) == 1, f"one expected, {len(held)} found"
+    return held[0]
+
+
 def _decided(tmp_path: Path, *, gate_mode: str = "on", results: tuple[Any, ...] = ()) -> Any:  # noqa: ANN401
     """A run whose parts are decided as have, make and find, its release's answers scripted."""
     the_rig = started(tmp_path / "run", gate_mode=gate_mode)
@@ -64,7 +71,7 @@ def test_the_release_is_judged_once_from_the_head_before_the_first_parts_write(
 ) -> None:
     the_rig = _decided(tmp_path)
     assert again(the_rig) == "done"
-    (artefact,) = the_rig.gate.releases
+    artefact = one(the_rig.gate.releases)
     assert artefact.base_revision == 1
     assert artefact.scopes == ("subtask",)
     assert artefact.graph_root == str(the_rig.diff.root)
@@ -72,7 +79,7 @@ def test_the_release_is_judged_once_from_the_head_before_the_first_parts_write(
     assert order.count("parts_gate_ran") == 1
     last_write = max(i for i, k in enumerate(order) if k == "parts_write_done")
     assert last_write < order.index("parts_gate_ran") < order.index("parts_released")
-    (ran,) = _of(log_of(the_rig.run_dir), "parts_gate_ran")
+    ran = one(_of(log_of(the_rig.run_dir), "parts_gate_ran"))
     assert (ran["gate_mode"], ran["base_revision"], ran["result"]["verdict"]) == ("on", 1, "pass")
 
 
@@ -82,16 +89,16 @@ def test_a_blocking_release_raises_the_named_part_again_and_nothing_is_dispatche
     the_rig = _decided(tmp_path, results=(_blocked_at(MOTOR),))
     assert again(the_rig) == "wait"
     log = log_of(the_rig.run_dir)
-    (ran,) = _of(log, "parts_gate_ran")
+    ran = one(_of(log, "parts_gate_ran"))
     assert ran["result"]["verdict"] == "fail"
-    (raised,) = _of(log, "parts_raised_again")
+    raised = one(_of(log, "parts_raised_again"))
     assert raised["cause"] == "gate"
     assert [(p["item_id"], p["node"]) for p in raised["parts"]] == [(IDS[0] + "-r2", MOTOR)]
     assert "efficiency 1.5 on control.motor_left" in raised["parts"][0]["why"]
     assert _of(log, "parts_released") == []
     assert dispatched(the_rig.run_dir) == []
     assert the_rig.reviewer.seen == []
-    again_item = next(i for i in parts_items(the_rig.run_dir) if i.item_id == IDS[0] + "-r2")
+    again_item = one(i for i in parts_items(the_rig.run_dir) if i.item_id == IDS[0] + "-r2")
     assert "efficiency 1.5 on control.motor_left" in again_item.decision_required
     assert IDS[0] + "-r2" in {i.item_id for i in _open(the_rig.run_dir)}
 
@@ -105,7 +112,7 @@ def _open(run_dir: Path) -> list[Any]:
 def test_a_blocking_record_on_a_part_s_cross_node_raises_that_part_again(tmp_path: Path) -> None:
     the_rig = _decided(tmp_path, results=(_blocked_at(SIZING_NODE),))
     assert again(the_rig) == "wait"
-    (raised,) = _of(log_of(the_rig.run_dir), "parts_raised_again")
+    raised = one(_of(log_of(the_rig.run_dir), "parts_raised_again"))
     assert [p["item_id"] for p in raised["parts"]] == [IDS[0] + "-r2"]
 
 
@@ -126,7 +133,7 @@ def test_a_later_round_judges_every_declared_node_again_from_the_same_base(
     assert [p["node_id"] for p in round_two] == [MOTOR, SIZING_NODE]
     assert "control.imu" not in {p["node_id"] for p in round_two}
     assert len(_of(log, "parts_gate_ran")) == 2
-    (released,) = _of(log, "parts_released")
+    released = one(_of(log, "parts_released"))
     assert released["components"][0]["item_id"] == IDS[0] + "-r2"
     assert "stage_entered" in kinds(the_rig.run_dir)
 
@@ -135,7 +142,7 @@ def test_under_observe_a_failing_release_is_recorded_and_the_run_released(tmp_pa
     the_rig = _decided(tmp_path, gate_mode="observe", results=(_blocked_at(MOTOR),))
     assert again(the_rig) == "done"
     log = log_of(the_rig.run_dir)
-    (ran,) = _of(log, "parts_gate_ran")
+    ran = one(_of(log, "parts_gate_ran"))
     assert (ran["gate_mode"], ran["result"]["verdict"]) == ("observe", "fail")
     assert _of(log, "parts_raised_again") == []
     assert len(_of(log, "parts_released")) == 1
@@ -145,7 +152,7 @@ def test_under_off_the_release_s_gate_is_skipped_and_the_skip_recorded(tmp_path:
     the_rig = _decided(tmp_path, gate_mode="off")
     assert again(the_rig) == "done"
     log = log_of(the_rig.run_dir)
-    (ran,) = _of(log, "parts_gate_ran")
+    ran = one(_of(log, "parts_gate_ran"))
     assert (ran["gate_mode"], ran["result"]) == ("off", None)
     assert the_rig.gate.releases == []
     assert len(_of(log, "parts_released")) == 1
@@ -158,6 +165,7 @@ def test_a_run_that_declares_nothing_calls_no_gate_at_its_release(tmp_path: Path
         assert isinstance(decide(the_rig.run_dir, item_id, "find"), QueueResolution)
     assert again(the_rig) == "done"
     assert _of(log_of(the_rig.run_dir), "parts_gate_ran") == []
+    assert the_rig.gate is not None
     assert the_rig.gate.releases == []
 
 
@@ -167,7 +175,7 @@ def test_a_run_that_declares_nothing_calls_no_gate_at_its_release(tmp_path: Path
 def _raised(tmp_path: Path) -> Path:
     the_rig = _decided(tmp_path, results=(_blocked_at(MOTOR),))
     assert again(the_rig) == "wait"
-    return the_rig.run_dir
+    return Path(the_rig.run_dir)
 
 
 def test_a_part_raised_again_cannot_be_found_instead(tmp_path: Path) -> None:
@@ -219,7 +227,7 @@ def test_replay_refuses_a_release_after_a_blocking_gate_line(tmp_path: Path) -> 
 def _released(tmp_path: Path) -> Path:
     the_rig = _decided(tmp_path)
     assert again(the_rig) == "done"
-    return the_rig.run_dir
+    return Path(the_rig.run_dir)
 
 
 # --- the gate itself, over a real store ---------------------------------------------------------
@@ -276,3 +284,27 @@ def test_the_same_efficiency_within_its_envelope_passes_at_the_release(tmp_path:
         graph_root=str(root), base_revision=head, run_dir=tmp_path, commit="0" * 40
     )
     assert PhysicsGate().check(artefact, mode="on").verdict == "pass"
+
+
+# --- which parts a blocking release names ---------------------------------------------------
+
+
+HOLDERS = {MOTOR: MOTOR, SIZING_NODE: MOTOR, "control.imu": "control.imu"}
+
+
+@pytest.mark.parametrize(
+    ("records", "expected"),
+    [
+        ([("magnitude", SIZING_NODE)], (MOTOR,)),
+        ([("magnitude", "control.imu")], ("control.imu",)),
+        ([("magnitude", "control.imu"), ("magnitude", MOTOR)], (MOTOR, "control.imu")),
+        ([("magnitude", None)], (MOTOR, "control.imu")),
+    ],
+    ids=["a-cross-node-names-its-part", "one-part", "two-parts-in-plan-order", "no-node-names-all"],
+)
+def test_a_blocking_release_names_the_parts_its_records_are_at(
+    records: list[tuple[str, str | None]], expected: tuple[str, ...]
+) -> None:
+    from physgate.orchestrator.parts_write import blocked_parts
+
+    assert blocked_parts(failing("on", records), HOLDERS) == expected

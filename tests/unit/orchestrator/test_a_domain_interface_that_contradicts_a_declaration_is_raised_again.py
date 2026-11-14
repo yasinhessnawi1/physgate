@@ -28,6 +28,13 @@ def _of(log: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
     return [one for one in log if one["kind"] == kind]
 
 
+def one(found: Any) -> Any:  # noqa: ANN401
+    """The one thing ``found`` holds, or a failing assertion saying how many it holds."""
+    held = list(found)
+    assert len(held) == 1, f"one expected, {len(held)} found"
+    return held[0]
+
+
 def interface(
     value: float, unit: str, *, owner: str = "control", joined: bool = True
 ) -> dict[str, Any]:
@@ -57,9 +64,9 @@ def test_a_joined_domain_interface_with_another_value_raises_the_part_again(
     step, the_rig = _released_with(tmp_path, interface(0.5, "kg"))
     assert step == "wait"
     log = log_of(the_rig.run_dir)
-    (raised,) = _of(log, "parts_raised_again")
+    raised = one(_of(log, "parts_raised_again"))
     assert raised["cause"] == "interface"
-    (part,) = raised["parts"]
+    part = one(raised["parts"])
     assert (part["item_id"], part["node"]) == (IDS[0] + "-r2", MOTOR)
     for said in (IFACE, "mass", "0.5 kg", "0.4 kg"):
         assert said in part["why"]

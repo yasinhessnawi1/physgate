@@ -196,7 +196,9 @@ def source_of(sub: SubtaskState) -> QueueSource:
         return "review_unavailable"
     if now.rejected is not None:
         decided = now.decided
-        if decided is not None and not decided.decision.forced:
+        # A forced route with attempts left is the gate's rejection for declared values alone:
+        # sent to a person as the decision's own item, as an early answer is.
+        if decided is not None and (not decided.decision.forced or now.number < REPAIR_BUDGET):
             return "escalation_decision"
         return "repair_budget_exhausted"
     msg = "the subtask's last attempt did not end in a way that reaches the queue"

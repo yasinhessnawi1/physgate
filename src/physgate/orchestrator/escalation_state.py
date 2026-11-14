@@ -17,7 +17,6 @@ says happened.
 from __future__ import annotations
 
 import re
-from collections.abc import Collection
 from typing import TYPE_CHECKING, Annotated, Any, Final, Literal
 
 from pydantic import (
@@ -252,7 +251,7 @@ class EscalationState(_Frozen):
 RECORDED_QUANTITIES: Final = 3
 
 
-def all_declared(result: GateResult | None, declared: Collection[tuple[str, str]]) -> bool:
+def all_declared(result: GateResult | None, declared: frozenset[tuple[str, str]]) -> bool:
     """Whether a blocking gate result is about values a person declared and nothing else.
 
     ``declared`` is each ``(node, name)`` declared at the journal's head. The line records only

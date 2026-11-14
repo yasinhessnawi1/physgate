@@ -749,15 +749,20 @@ def decided_item(
 ) -> QueueItem:
     """The item for a rejected subtask the escalation decision sent to a person, attempts left.
 
-    Only a decision that was not forced makes one: a backend that answered yes, or one whose
-    confidence fell below the floor. The finding and the quantities are chosen as for an
-    exhausted budget, from the attempts made so far, each of which links its trajectory.
+    A decision that was not forced makes one: a backend that answered yes, or one whose
+    confidence fell below the floor. So does the forced route of a gate rejection for values a
+    person declared and nothing else, which names those values. The finding and the quantities
+    are chosen as for an exhausted budget, from the attempts made so far, each of which links
+    its trajectory.
 
     Raises:
         QueueError: the decision was forced or does not route, or the attempts made so far
             are not each given with a finding and a trajectory.
     """
-    if decision.forced or decision.basis not in ("answer", "floor"):
+    # A forced route with attempts left is the gate's rejection for values a person declared
+    # and nothing else (ARCH-122): no role can repair one, so no repair attempt was spent.
+    declared = decision.forced and decision.basis == "forced"
+    if not declared and (decision.forced or decision.basis not in ("answer", "floor")):
         msg = "only a decision that routed by its answer or its confidence makes this item"
         raise QueueError(msg, basis=str(decision.basis), forced=str(decision.forced))
     # An attempt a person rejected from the queue has a trajectory and no finding, so there may
@@ -777,6 +782,14 @@ def decided_item(
         else f"its confidence, {decision.confidence}, is below {CONFIDENCE_FLOOR}"
     )
     with_quantities = [f for f in findings if f.quantities]
+    sent = f"and the escalation backend {decision.backend_id} sent it to a person because {why}. "
+    if declared:
+        named = with_quantities[-1].quantities if with_quantities else ()
+        values = ", ".join(f"{q.node_id} {q.name} = {q.value:g} {q.unit}" for q in named)
+        sent = (
+            f"by the gate, for values a person declared and nothing else ({values}): no role "
+            "can change a declared value, so no repair attempt was spent. "
+        )
     return QueueItem(
         item_id=item_id,
         ts=ts,
@@ -785,8 +798,8 @@ def decided_item(
         source="escalation_decision",
         decision_required=(
             f"Subtask {subtask_id} was rejected on attempt {number} of {REPAIR_BUDGET}, "
-            f"and the escalation backend {decision.backend_id} sent it to a person because {why}. "
-            "Decide whether to accept the last attempt as it stands, rewrite the subtask's "
+            + sent
+            + "Decide whether to accept the last attempt as it stands, rewrite the subtask's "
             "specification, or split the subtask."
         ),
         artefact_diff=artefact_diff,

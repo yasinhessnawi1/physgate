@@ -25,7 +25,9 @@ from physgate.orchestrator.queue import QueueResolution
 
 MOTOR = "control.motor_left"
 IMU = "control.imu"
-DECLARED = {(MOTOR, "mass"), (IMU, "mass"), ("sizing.control_motor_left", "stall_current")}
+DECLARED = frozenset(
+    {(MOTOR, "mass"), (IMU, "mass"), ("sizing.control_motor_left", "stall_current")}
+)
 
 
 def all_declared(result: Any, declared: Any) -> bool:  # noqa: ANN401
@@ -102,6 +104,7 @@ def _released(tmp_path: Path, attempt_one: Any) -> Any:  # noqa: ANN401
     """A run whose motor's mass is declared, released; its first attempt's gate answer set."""
     the_rig = started(tmp_path / "run")
     assert again(the_rig) == "wait"
+    assert the_rig.gate is not None
     the_rig.gate.results = {1: attempt_one}
     run_dir = the_rig.run_dir
     stated = body({"mass": (0.4, "kg"), "stall_current": (2.4, "A")})
@@ -130,6 +133,12 @@ def test_an_all_declared_finding_goes_to_the_queue_after_the_first_attempt(
     assert first["state"]["gate"]["all_declared"] is True
     s1 = [r for r in the_rig.dispatcher.requests if r.subtask_id == "s1"]
     assert [r.attempt for r in s1] == [1]
+    from physgate.orchestrator.queue import read_queue
+
+    item = next(i for i in read_queue(the_rig.run_dir).items if i.subtask_id == "s1")
+    assert "declared" in item.decision_required
+    assert f"{MOTOR} mass = 0.4 kg" in item.decision_required
+    assert "no repair attempt was spent" in item.decision_required
 
 
 def test_a_mixed_finding_goes_back_to_the_role_marking_the_declared_value_fixed(
@@ -145,7 +154,9 @@ def test_a_mixed_finding_goes_back_to_the_role_marking_the_declared_value_fixed(
     s1 = [r for r in the_rig.dispatcher.requests if r.subtask_id == "s1"]
     assert [r.attempt for r in s1][:2] == [1, 2]
     repair = s1[1].repair_instruction or ""
-    mass_line = next(line for line in repair.splitlines() if f"{MOTOR} mass" in line)
+    mass_lines = [line for line in repair.splitlines() if f"{MOTOR} mass" in line]
+    assert len(mass_lines) == 1, repair
+    mass_line = mass_lines[0]
     assert "declared by the person" in mass_line and "fixed" in mass_line
     # An undeclared quantity is named from the second repair on, as before, and never as fixed.
     torque_lines = [line for line in repair.splitlines() if f"{MOTOR} torque" in line]
@@ -164,3 +175,20 @@ def test_a_finding_on_an_undeclared_value_routes_as_it_always_did(tmp_path: Path
     s1 = [r for r in the_rig.dispatcher.requests if r.subtask_id == "s1"]
     assert [r.attempt for r in s1][:2] == [1, 2]
     assert "declared" not in (s1[1].repair_instruction or "")
+
+
+@pytest.mark.parametrize(
+    ("kind", "by", "expected"),
+    [("rejected", "gate", True), ("rejected", "review", False), ("review_blocked", None, False)],
+    ids=["the-gate-rejected-it", "a-review-rejected-it", "a-blocked-review"],
+)
+def test_the_mark_forces_only_an_attempt_the_gate_rejected(
+    kind: str, by: str | None, expected: bool
+) -> None:
+    from physgate.orchestrator.escalation_state import EndPart, EscalationState
+
+    state = EscalationState.model_construct(
+        ended=EndPart.model_construct(kind=kind, rejected_by=by),
+        gate=GatePart.model_construct(all_declared=True),
+    )
+    assert state.all_declared is expected
