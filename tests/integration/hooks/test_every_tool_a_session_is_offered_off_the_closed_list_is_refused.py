@@ -31,13 +31,15 @@ INPUT_REFUSED = "<tool_use_error>"
 #: Measured on CI (linux-x64, 12.11.2026): what each pin offers a role session beyond its list,
 #: under the pin's own switches, and under the traffic-off switches 2.1.301's sessions carry.
 #: The two web tools are no longer among them on either pin: a session's settings now deny
-#: both, and a tool the settings deny is not offered.
+#: both, and a tool the settings deny is not offered. The settings deny the binary's search tool
+#: too (14.11.2026), so 2.1.322 no longer offers it or its placeholder for deferred tools, and
+#: sends every tool's schema with the request (measured on macOS, to be confirmed on CI).
 _BEYOND_2_1_301 = [
     "Agent", "CronCreate", "CronDelete", "CronList", "EnterWorktree", "ExitWorktree",
     "ListAgents", "ReportFindings", "ScheduleWakeup", "SendMessage", "Skill", "Task",
     "TaskStop", "Workflow",
 ]  # fmt: skip
-_NEW_SINCE_2_1_301 = ["DeferredToolPlaceholder", "Monitor", "ToolSearch"]
+_NEW_SINCE_2_1_301 = ["Monitor"]
 _ONLY_WITH_TRAFFIC = ["DesignSync", "PushNotification"]
 OFFERED_BEYOND: dict[str, list[str]] = {
     "2.1.301": _BEYOND_2_1_301,
@@ -55,9 +57,8 @@ REFUSED_BY_INPUT_CHECK: dict[str, list[str]] = {
         "WebSearch", "Workflow",
     ],
     "2.1.322": [
-        "CronCreate", "CronDelete", "DeferredToolPlaceholder", "DesignSync", "ExitWorktree",
-        "Monitor", "PushNotification", "SendMessage", "Skill", "Task", "TaskStop", "WebFetch",
-        "WebSearch", "Workflow",
+        "CronCreate", "CronDelete", "ExitWorktree", "Monitor", "Skill", "Task", "TaskStop",
+        "Workflow",
     ],
 }  # fmt: skip
 
@@ -137,8 +138,8 @@ def test_every_tool_offered_beyond_the_list_is_refused_by_the_closed_list_hook(
 
 
 #: A valid input for each tool new since 2.1.301, so the call passes the binary's own check and
-#: reaches the hooks. These tools are deferred on 2.1.322 (their schemas are not sent with the
-#: request); the fields are the ones the binary's own check named as required (CI, 11.11.2026).
+#: reaches the hooks. The fields are the ones the binary's own check named as required (CI,
+#: 11.11.2026, when 2.1.322 still deferred these tools and sent no schema for them).
 VALID_INPUT: dict[str, dict[str, Any]] = {
     "Monitor": {"command": "true", "description": "x"},
     "DesignSync": {"method": "list_projects"},
