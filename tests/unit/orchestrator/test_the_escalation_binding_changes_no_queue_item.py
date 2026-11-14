@@ -55,7 +55,14 @@ ADDED_FIELDS: dict[str, dict[str, Any]] = {
         # The rig's loops run over fakes with no OS-layer line recorded, so its runs allow
         # the layer's absence, as every run the golden file recorded went on without it.
         "os_layer_absent": "allow",
+        "reviewers": "paired",
+        "skills": "on",
+        "hooks": "on",
+        "ablation": False,
         "design_review": "off",
+        # The rig's runs record what a run records today, the search tool denied; the golden
+        # file's sessions were fakes, which no search tool reaches, and the queue reads none.
+        "tool_search": "denied",
     },
     "run_started": {"escalation_backend": "rules"},
     # The series records a session left: none, in every session the golden file recorded.

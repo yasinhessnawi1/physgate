@@ -34,6 +34,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.protocols import ReviewResult
 from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.usage_limit import UsageLimit
 
 TASK = parse_task(json.dumps(own_task()).encode())
 ENV = {"run_id": "r", "gate_mode": "on"}
@@ -56,6 +57,7 @@ def _config(**changes: Any) -> RunConfig:
         os_layer=None,
         network_enforced=None,
         tool_servers=None,
+        tool_search="denied",
         # As the command records them: the bytes it measured, and the account by its name
         # and the fingerprint of the credential it was given.
         binary={"sha256": "d" * 64, "platform": "linux-x64"},
@@ -93,7 +95,9 @@ def _run(tmp_path: Path, *events: Event, config: RunConfig | None = None) -> Pat
 def _halt(
     reason: str, detail: str = "x", seq: int = 1, ts: str = "2026-10-19T10:30:00.000000Z"
 ) -> Halted:
-    return Halted(seq=seq, ts=ts, reason=reason, detail=detail, **ENV)  # type: ignore[arg-type]
+    # A halt on the account's usage limit carries the limit, as the loop writes it.
+    limit = UsageLimit(resets="1:20pm (Europe/Oslo)") if reason == "usage_limit" else None
+    return Halted(seq=seq, ts=ts, reason=reason, detail=detail, usage_limit=limit, **ENV)  # type: ignore[arg-type]
 
 
 def _review(seq: int, ts: str) -> ReviewRan:
@@ -115,8 +119,10 @@ def _review(seq: int, ts: str) -> ReviewRan:
         ("infrastructure_exhausted", "x", True),
         ("credential_refused", "x", True),
         ("os_layer_unavailable", "x", True),
+        ("usage_limit", "x", True),
         ("decomposition_failed", "api_error: 529 overloaded", True),
         ("decomposition_failed", "sandbox_unavailable: no bubblewrap", True),
+        ("decomposition_failed", "usage_limit: limit reached", True),
         ("decomposition_failed", "invalid_plan: no module", False),
         ("incident", "merge_conflict", False),
     ],

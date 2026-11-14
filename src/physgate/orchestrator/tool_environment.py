@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 from collections.abc import Collection, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -254,8 +254,24 @@ def server_launches(config: RunConfig) -> tuple[ServerLaunch, ...]:
         RunConfigError: the register or the token bound differs from the one the run recorded,
             or the register cannot start a recorded server from the recorded environment.
     """
-    recorded = config.tool_servers
-    if recorded is None or config.tool_environment is None:
+    return profile_launches(config.tool_servers, config.tool_environment, "role")
+
+
+def profile_launches(
+    recorded: ToolServers | None,
+    environment: ToolEnvironment | None,
+    profile: Literal["role", "baseline"],
+) -> tuple[ServerLaunch, ...]:
+    """How one profile's tool servers start, from a tool-server record and its environment.
+
+    The role sessions of a run and the raw arm held to it start theirs from the same records:
+    each the servers its own profile names. None without a record or an environment.
+
+    Raises:
+        RunConfigError: the register or the token bound differs from the one recorded, or the
+            register cannot start a recorded server from the recorded environment.
+    """
+    if recorded is None or environment is None:
         return ()
     if recorded.register_sha256 != register_sha256():
         msg = (
@@ -270,6 +286,6 @@ def server_launches(config: RunConfig) -> tuple[ServerLaunch, ...]:
         )
         raise RunConfigError(msg, recorded=str(recorded.max_output_tokens))
     try:
-        return launches(load_register(), recorded.profiles.get("role", ()), config.tool_environment)
+        return launches(load_register(), recorded.profiles.get(profile, ()), environment)
     except ToolEnvironmentError as exc:
         raise RunConfigError(str(exc), **exc.context) from exc

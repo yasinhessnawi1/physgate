@@ -115,9 +115,14 @@ def test_a_configuration_that_names_none_records_what_it_did_before() -> None:
         "account": None,
         "queue_decisions": "record",
         "os_layer_absent": "refuse",
+        "reviewers": "paired",
+        "skills": "on",
+        "hooks": "on",
+        "ablation": False,
         "design_review": "off",
         "tool_environment": None,
         "tool_servers": None,
+        "tool_search": "denied",
     }
     assert RunConfig.model_validate_json(json.dumps(recorded)).role_python == named.role_python
     assert isinstance(named.role_python, RolePython)
@@ -143,10 +148,15 @@ def _params(tmp_path: Path, role_python: object) -> object:
         "role_python": role_python,
         "tool_environment": None,
         "tool_servers": None,
+        "tool_search": "denied",
         "escalation_backend": "rules",
         "queue_decisions": "record",
         # The machine's layer is not this test's subject: allowed absent, for development.
         "os_layer_absent": "allow",
+        "reviewers": "paired",
+        "skills": "on",
+        "hooks": "on",
+        "ablation": False,
         "design_review": "off",
         "held_out": [],
         "held_out_canaries": [],

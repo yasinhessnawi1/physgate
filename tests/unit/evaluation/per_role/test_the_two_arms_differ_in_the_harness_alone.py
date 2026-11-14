@@ -82,6 +82,7 @@ def _config(**changes: Any) -> RunConfig:
         network="none",
         network_enforced=True,
         tool_servers=None,
+        tool_search="denied",
         # As the command records them: the bytes it measured, and the account by its name
         # and the fingerprint of the credential it was given.
         binary={"sha256": "d" * 64, "platform": "linux-x64"},
@@ -176,6 +177,9 @@ def _pins(**changes: Any) -> dict[str, Any]:
         "os_layer": LAYER.model_dump(mode="json"),
         "role_python": None,
         "thinking_display": config.thinking_display,
+        "tool_environment": None,
+        "tool_servers": None,
+        "tool_search": "denied",
     }
     pins.update(changes)
     return pins
@@ -262,8 +266,8 @@ def test_a_harness_run_given_another_brief_is_named(tmp_path: Path) -> None:
 
 def test_a_pin_the_comparison_does_not_know_is_named(tmp_path: Path) -> None:
     """A pin added to the raw arm without a decision here is a difference, not a pass."""
-    assert _found(tmp_path, pins=_pins(tool_servers="none")) == [
-        "tool_servers: the raw arm recorded a pin no comparison knows"
+    assert _found(tmp_path, pins=_pins(reviewers="paired")) == [
+        "reviewers: the raw arm recorded a pin no comparison knows"
     ]
 
 
@@ -513,38 +517,129 @@ def test_a_harness_run_that_is_not_clean_or_not_reportable_is_named(
     assert sorted(f.split(":", 1)[0] for f in found) == named
 
 
-def test_a_harness_run_that_named_a_tool_environment_is_named(tmp_path: Path) -> None:
-    """The raw arm is given no tool environment, so a run that had one is no arm to pair it with."""
-    environment = ToolEnvironment(
-        interpreter="/opt/tools/env/bin/python3",
-        resolved="/opt/tools/env/bin/python3.12",
-        python_version="3.12.9",
-        prefix="/opt/tools/env",
-        distributions=(Distribution(name="control", version="0.10.1"),),
-        native_tools=(),
-        roots=("/opt/tools/env",),
-        manifest_digest="a" * 64,
-        entries=1,
-        total_bytes=0,
+ENVIRONMENT = ToolEnvironment(
+    interpreter="/opt/tools/env/bin/python3",
+    resolved="/opt/tools/env/bin/python3.12",
+    python_version="3.12.9",
+    prefix="/opt/tools/env",
+    distributions=(Distribution(name="control", version="0.10.1"),),
+    native_tools=(),
+    roots=("/opt/tools/env",),
+    manifest_digest="a" * 64,
+    entries=1,
+    total_bytes=0,
+).model_dump(mode="json")
+SERVERS = {
+    "profiles": {"role": ["control"], "baseline": ["control"]},
+    "max_output_tokens": 25000,
+    "register_sha256": "b" * 64,
+}
+#: The run fields of the tool layer: what the sessions computed and built with, the servers
+#: they were offered, and whether the binary's search tool held those servers back.
+TOOL_FIELDS = ("tool_environment", "tool_servers", "tool_search")
+
+
+def _tooled(tmp_path: Path, config: dict[str, Any] | None = None, **pins: Any) -> list[str]:
+    """A harness run that named a tool environment and servers, against a raw arm's pins."""
+    given = {"tool_environment": ENVIRONMENT, "tool_servers": SERVERS}
+    run = _harness_run(tmp_path, config=_config(**{**given, **(config or {})}))
+    raw = _raw_dir(tmp_path, pins=_pins(**{**given, **pins}))
+    return differences(run, raw, role="control", task=TASK)
+
+
+def test_arms_given_the_same_tool_environment_and_servers_differ_in_nothing(
+    tmp_path: Path,
+) -> None:
+    """Both arms computed and built with the same tools and were offered the same servers."""
+    assert _tooled(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "pin",
+    [
+        {"tool_environment": None},
+        {"tool_environment": {**ENVIRONMENT, "manifest_digest": "c" * 64}},
+        {"tool_environment": {**ENVIRONMENT, "roots": ["/opt/tools/other"]}},
+        {"tool_environment": {**ENVIRONMENT, "native_tools": [], "entries": 2}},
+        {"tool_servers": None},
+        {"tool_servers": {**SERVERS, "register_sha256": "d" * 64}},
+        {"tool_servers": {**SERVERS, "profiles": {"role": ["control"], "baseline": []}}},
+        {"tool_servers": {**SERVERS, "max_output_tokens": 1000}},
+        {"tool_search": "offered"},
+    ],
+    ids=[
+        "no environment",
+        "other digest",
+        "other roots",
+        "other entries",
+        "no servers",
+        "other register",
+        "other servers",
+        "other bound",
+        "search tool offered",
+    ],
+)
+def test_a_raw_arm_given_other_tools_than_the_harness_run_is_named(
+    tmp_path: Path, pin: dict[str, Any]
+) -> None:
+    name = next(iter(pin))
+    assert [f.split(":", 1)[0] for f in _tooled(tmp_path, **pin)] == [name]
+
+
+def test_a_raw_arm_given_tools_the_harness_run_did_not_name_is_named(tmp_path: Path) -> None:
+    found = differences(
+        _harness_run(tmp_path),
+        _raw_dir(tmp_path, pins=_pins(tool_environment=ENVIRONMENT, tool_servers=SERVERS)),
+        role="control",
+        task=TASK,
     )
-    run = _harness_run(
-        tmp_path, config=_config(tool_environment=environment.model_dump(mode="json"))
-    )
-    found = differences(run, _raw_dir(tmp_path), role="control", task=TASK)
-    assert [f.split(":", 1)[0] for f in found] == ["tool_environment"]
-    # Its sessions offered tool servers: named as well, the raw arm being offered none.
-    (tmp_path / "servers").mkdir()
-    servers = {
-        "profiles": {"role": ["control"], "baseline": ["control"]},
-        "max_output_tokens": 25000,
-        "register_sha256": "b" * 64,
-    }
-    run = _harness_run(
-        tmp_path / "servers",
-        config=_config(tool_environment=environment.model_dump(mode="json"), tool_servers=servers),
-    )
-    found = differences(run, _raw_dir(tmp_path / "servers"), role="control", task=TASK)
     assert [f.split(":", 1)[0] for f in found] == ["tool_environment", "tool_servers"]
+
+
+def test_sessions_offered_the_search_tool_are_no_pair_for_sessions_denied_it(
+    tmp_path: Path,
+) -> None:
+    """A harness run recorded while the search tool was offered held its servers' tools back."""
+    run = _harness_run(tmp_path, config=_config(tool_search="offered"))
+    found = differences(run, _raw_dir(tmp_path), role="control", task=TASK)
+    assert found == ["tool_search: the harness ran with 'offered', the raw arm with 'denied'"]
+
+
+def _before_the_tool_pins() -> dict[str, Any]:
+    pins = _pins()
+    for name in TOOL_FIELDS:
+        del pins[name]
+    return pins
+
+
+@pytest.mark.parametrize(
+    ("config", "named"),
+    [
+        ({"tool_search": "offered"}, []),
+        ({"tool_search": "denied"}, ["tool_search"]),
+        (
+            {"tool_search": "offered", "tool_environment": ENVIRONMENT, "tool_servers": SERVERS},
+            ["tool_environment", "tool_servers"],
+        ),
+    ],
+    ids=["a run of its time", "a run that denied the search tool", "a run with tools"],
+)
+def test_a_raw_record_written_before_the_tool_pins_reads_as_given_none_and_offered_search(
+    tmp_path: Path, config: dict[str, Any], named: list[str]
+) -> None:
+    """A raw arm recorded before these pins was given no tools and offered the search tool."""
+    run = _harness_run(tmp_path, config=_config(**config))
+    found = differences(
+        run, _raw_dir(tmp_path, pins=_before_the_tool_pins()), role="control", task=TASK
+    )
+    assert [f.split(":", 1)[0] for f in found] == named
+
+
+def test_the_tool_layer_s_records_are_compared_field_by_field() -> None:
+    """Both arms must have had the same tools: no field of the tool layer's records is left out."""
+    classes = {name: kind for name, kind in RUN_FIELDS.items() if name.split(".")[0] in TOOL_FIELDS}
+    assert classes and set(classes.values()) == {"compared"}
+    assert set(TOOL_FIELDS) <= RAW_PINS
 
 
 def test_both_arms_canaries_are_compared_as_digests(tmp_path: Path) -> None:

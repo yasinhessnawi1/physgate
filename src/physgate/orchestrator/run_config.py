@@ -27,7 +27,15 @@ from pydantic import (
 )
 
 import physgate
-from physgate.flags import DesignReview, OsLayerAbsent, QueueDecisions, replans
+from physgate.flags import (
+    DesignReview,
+    Hooks,
+    OsLayerAbsent,
+    QueueDecisions,
+    Reviewers,
+    Skills,
+    replans,
+)
 from physgate.orchestrator.binaries import ClaudeBinary
 from physgate.orchestrator.common import (
     AuthMode,
@@ -311,6 +319,29 @@ class ToolServers(_Frozen):
     register_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+#: What a run recorded before each of these fields existed reads as, and what a run at that
+#: value leaves out of its recorded form, so every earlier run's digest still names it.
+BEFORE_THE_SWITCH: dict[str, str | bool] = {
+    "reviewers": "paired",
+    "skills": "on",
+    "hooks": "on",
+    "ablation": False,
+}
+
+#: The values of each switch that something implements, by the flag's name: the rest of what
+#: the register names is refused at a run's configuration. Each reads as the first for a run
+#: recorded before the switch existed.
+BUILT: dict[str, tuple[str, ...]] = {
+    "reviewers": ("paired",),
+    "skills": ("on",),
+    "hooks": ("on", "off"),
+}
+
+#: The values a run takes only as an ablation run, by the flag's name: each removes a component
+#: of the harness, so the product never sets one and no reportable number is measured under one.
+ABLATION_ONLY: dict[str, tuple[str, ...]] = {"hooks": ("off",)}
+
+
 class RunConfig(_Frozen):
     """Everything a run is reproduced from."""
 
@@ -371,6 +402,23 @@ class RunConfig(_Frozen):
     #: recorded before the field existed reviewed none, and reads as ``off``.
     design_review: DesignReview
 
+    #: Who reviews a role's work (ARCH-140), a flag of the register. Required, never taken from
+    #: the environment. A run recorded before the field existed was reviewed by the paired
+    #: specialists, and reads as ``paired``.
+    reviewers: Reviewers
+    #: Whether a role session is given its role's skill file (ARCH-140), a flag of the register.
+    #: Required, never taken from the environment. A run recorded before the field existed gave
+    #: it, and reads as ``on``.
+    skills: Skills
+    #: Whether a role session's hooks enforce the design discipline (ARCH-140), a flag of the
+    #: register. Required, never taken from the environment. A run recorded before the field
+    #: existed enforced it, and reads as ``on``.
+    hooks: Hooks
+    #: Whether this is an ablation run: a recorded run kind beside the reportable run, held to
+    #: every rule a reportable run is held to and never reportable (ARCH-140). Required. A run
+    #: recorded before the field existed was none, and reads as ``False``.
+    ablation: bool
+
     #: The OS layer's state where the run was configured: present, with its mechanism,
     #: or absent, with the reason. Measured, never taken from the parameters; every run
     #: and resume measures it again and records whether it still holds. ``None`` only on
@@ -413,6 +461,12 @@ class RunConfig(_Frozen):
     #: environment and taken from the register, never from the parameters. ``None`` for a run
     #: that names none, which is what a run recorded before the field existed did.
     tool_servers: ToolServers | None
+    #: Whether the sessions' settings deny the binary's search tool, read from the harness's
+    #: deny lists when the run is configured, never from the parameters. Denied, the binary
+    #: offers every tool directly; offered, it holds tools back behind the search step and, on
+    #: 2.1.322, sends that step's beta flag, so the defaults a run's manifest carries follow it.
+    #: ``offered`` for a run recorded before the field existed, which is what its sessions had.
+    tool_search: Literal["offered", "denied"]
     #: The Claude Code binary the run executes, measured when it is configured and again each
     #: time it is driven: the same version string can name other bytes on another platform, or
     #: after a replacement. ``None`` only on a run recorded before the field existed.
@@ -508,9 +562,41 @@ class RunConfig(_Frozen):
         return self
 
     @model_validator(mode="after")
-    def _reportable_needs_a_clean_commit(self) -> RunConfig:
-        if self.reportable and (self.harness.commit is None or not self.harness.clean):
-            msg = "a reportable run starts only from a clean checkout with a commit"
+    def _a_run_is_one_kind(self) -> RunConfig:
+        if self.ablation and self.reportable:
+            msg = "an ablation run is never reportable: a run names one kind or neither"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _an_arm_that_is_not_built_is_refused(self) -> RunConfig:
+        # The register names every value of a switch; a run takes one only once something
+        # implements it, so no run records an arm that changed nothing it did.
+        for name, built in BUILT.items():
+            value = getattr(self, name)
+            if value not in built:
+                msg = f"{name}: {value} is not built; this run takes {name}: {' or '.join(built)}"
+                raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _an_ablation_arm_is_taken_only_by_an_ablation_run(self) -> RunConfig:
+        for name, arms in ABLATION_ONLY.items():
+            value = getattr(self, name)
+            if value in arms and not self.ablation:
+                msg = (
+                    f"{name}: {value} is an ablation arm: only an ablation run takes it, and this "
+                    "run is not one (ablation: false)"
+                )
+                raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _a_measured_run_needs_a_clean_commit(self) -> RunConfig:
+        kind = "a reportable run" if self.reportable else "an ablation run"
+        measured = self.reportable or self.ablation
+        if measured and (self.harness.commit is None or not self.harness.clean):
+            msg = f"{kind} starts only from a clean checkout with a commit"
             raise ValueError(msg)
         return self
 
@@ -522,9 +608,11 @@ class RunConfig(_Frozen):
         ``escalation_backend`` and ``os_layer`` when they are ``None``, ``held_out``,
         ``held_out_canaries`` and ``held_out_sha256`` when empty, ``network`` when ``open``,
         ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``,
-        ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off``,
-        ``tool_environment`` and ``tool_servers`` when ``None``, and ``binary`` and ``account``
-        when ``None``, so their recorded digests still name them. A run that names a binding
+        ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off``, ``reviewers`` when
+        ``paired``, ``skills`` and ``hooks`` when ``on``, ``ablation`` when ``False``,
+        ``tool_environment`` and ``tool_servers`` when ``None``, ``tool_search`` when
+        ``offered``, and ``binary`` and ``account`` when ``None``, so their recorded digests
+        still name them. A run that names a binding
         always records it, so the binding is part of its manifest id.
         """
         exclude = set()
@@ -562,6 +650,11 @@ class RunConfig(_Frozen):
             exclude.add("tool_environment")
         if self.tool_servers is None:
             exclude.add("tool_servers")
+        if self.tool_search == "offered":
+            exclude.add("tool_search")
+        exclude |= {
+            name for name, before in BEFORE_THE_SWITCH.items() if getattr(self, name) == before
+        }
         return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
 
     def sha256(self) -> str:
@@ -694,6 +787,11 @@ def load_run_config(path: Path) -> RunConfig:
         ("tool_environment", None),
         # Recorded before the field existed: no session was offered a tool server.
         ("tool_servers", None),
+        # Recorded before the field existed: the sessions' settings left the search tool offered.
+        ("tool_search", "offered"),
+        # Recorded before the switches existed: paired reviewers, the skill file and the design
+        # discipline were all there, and no run was an ablation.
+        *BEFORE_THE_SWITCH.items(),
     ):
         if isinstance(recorded, dict) and name not in recorded:
             # Recorded before the field existed: nothing was held out, the network was open

@@ -2,7 +2,8 @@
 
 The arm the harness is measured against (ARCH-143). It is invoked exactly as a role
 session is (the same binary, model, effort, output-token limit, reasoning display, tools,
-interpreter and OS layer, the same isolated environment), with two differences only: its
+interpreter, tool environment, tool servers and OS layer, the same isolated environment), with
+two differences only: its
 prompt is the task's brief, byte for byte, and its hooks are the ``baseline`` profile,
 which keeps the held-out tier and the frozen experiments from it and nothing else of the
 harness. It may use git in its own work area.
@@ -15,6 +16,11 @@ message, so the session can pass the cap by at most the message in flight; the c
 reached is recorded, never trimmed. Its turn and wall-clock bounds are a role session's,
 times the harness's repair budget, so neither bound binds before the token cap would.
 
+**Its tools** are the harness run's: the tool environment the run recorded, held before the
+session and scanned again after it as a role session's is, with its programs first on the
+session's search path and its roots read and run but written by no tool; and the servers the
+run recorded for the raw agent's profile, offered only where the OS layer contains them.
+
 What the session left is kept as sealed evidence: its stream, its answer, its end and a
 record of every pin the comparison with the harness arm is held to.
 """
@@ -25,6 +31,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -36,6 +43,8 @@ from typing import Any
 from physgate.evaluation.per_role.answer import MAX_ANSWER_BYTES
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.task import Task
+from physgate.hooks.config import SessionConfig
+from physgate.hooks.settings import session_tool_search
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.credentials import (
     Credential,
@@ -56,7 +65,8 @@ from physgate.orchestrator.dispatch import (
     spawn_held,
     write_record,
 )
-from physgate.orchestrator.invocation import isolated_env, role_argv
+from physgate.orchestrator.exceptions import InvocationError, RunConfigError
+from physgate.orchestrator.invocation import NO_TOOL_SERVERS, isolated_env, role_argv
 from physgate.orchestrator.processes import kill_own, stop_tree
 from physgate.orchestrator.role_python import RolePython, session_bin
 from physgate.orchestrator.run_config import (
@@ -64,11 +74,29 @@ from physgate.orchestrator.run_config import (
     Network,
     RunBounds,
     ThinkingDisplay,
+    ToolServers,
     endpoint_of,
+    harness_root,
+)
+from physgate.orchestrator.tool_environment import (
+    changed_while_running,
+    forbidden_places,
+    hold_before_session,
+    profile_launches,
+    series_environment,
+    session_environment,
+    wire_session,
+)
+from physgate.oslayer.containment import (
+    ContainmentError,
+    ServerLaunch,
+    contained_servers,
+    wrappers,
 )
 from physgate.oslayer.probe import Absent, Present
 from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SessionEnd, await_session
+from physgate.toolenv.record import ToolEnvironment
 
 #: How often the watcher reads the stream.
 WATCH_S = 0.5
@@ -129,6 +157,108 @@ class RawSetup:
     #: own directory there. Empty for the raw arm.
     write_protected: tuple[str, ...] = ()
     writable_within: tuple[str, ...] = ()
+    #: The tool environment the harness run recorded: the session reads and runs it, writes
+    #: none of it, and finds its programs first on its search path. ``None`` where the run
+    #: named none.
+    tool_environment: ToolEnvironment | None = None
+    #: The tool servers the harness run recorded. The session is offered those of the raw
+    #: agent's profile (``baseline``), started from :attr:`tool_environment`, and only where
+    #: the OS layer contains them, as a role session is offered the role profile's.
+    tool_servers: ToolServers | None = None
+
+    def __post_init__(self) -> None:
+        """Refuse servers without the environment they start from, as a run's record does."""
+        if self.tool_servers is not None and self.tool_environment is None:
+            msg = "tool servers start from a tool environment, and the raw arm is given none"
+            raise RawArmError(msg)
+
+
+def server_launches_for(setup: RawSetup) -> tuple[ServerLaunch, ...]:
+    """How the raw agent's tool servers start, from the setup's records and the register.
+
+    The role sessions' come from the same records by the same code, each its own profile's.
+
+    Raises:
+        RawArmError: the register or the bound on an answer is not the one recorded, or a
+            server cannot be started from the recorded environment.
+    """
+    try:
+        return profile_launches(setup.tool_servers, setup.tool_environment, "baseline")
+    except RunConfigError as exc:
+        raise RawArmError(str(exc)) from exc
+
+
+def offered_servers(setup: RawSetup, temp: Path | None) -> tuple[str, ...]:
+    """The servers the raw session is offered by name: none without the OS layer (``temp``)."""
+    if setup.tool_servers is None or setup.tool_environment is None or temp is None:
+        return ()
+    return tuple(setup.tool_servers.profiles.get("baseline", ()))
+
+
+def contained_servers_for(
+    setup: RawSetup,
+    launches: tuple[ServerLaunch, ...],
+    config_file: Path,
+    sdir: Path,
+    own_temp: Path | None,
+    env: dict[str, str],
+) -> tuple[str, tuple[str, ...]]:
+    """The session's tool-server configuration, and the wrappers its servers may name.
+
+    As a role session's: none without the OS layer, which alone contains a server the binary
+    starts; each server's rules come from the session's own configuration, as installed.
+
+    Raises:
+        RawArmError: a server cannot be contained here, so the session is not started.
+    """
+    if not launches or not isinstance(setup.os_layer, Present):
+        return NO_TOOL_SERVERS, ()
+    if own_temp is None:
+        msg = "a session offered tool servers needs a temporary directory of its own for them"
+        raise RawArmError(msg)
+    platform = sys.platform
+    bwrap = shutil.which("bwrap", path=env["PATH"]) if platform.startswith("linux") else None
+    config = SessionConfig.model_validate_json(config_file.read_bytes())
+    try:
+        servers = contained_servers(
+            config,
+            launches,
+            platform=platform,
+            temp_dir=own_temp,
+            profiles_dir=sdir / "servers",
+            bwrap=bwrap,
+        )
+    except ContainmentError as exc:
+        msg = "a tool server cannot be contained here, so the session is not started"
+        raise RawArmError(msg, error=str(exc)) from exc
+    return servers, wrappers(platform, bwrap)
+
+
+def hold_tools(setup: RawSetup, work: Path) -> str | None:
+    """Hold the setup's tool environment to its record; the scan to hold it to after the session.
+
+    Measured in full, as a run's first session's is, before anything of the session exists, in
+    none of the places a run's environment may not lie in (the raw arm's own directory among
+    them). ``None`` with no environment.
+
+    Raises:
+        RawArmError: the environment is not the recorded one, or lies where it may not.
+    """
+    if setup.tool_environment is None:
+        return None
+    try:
+        return hold_before_session(
+            setup.tool_environment,
+            None,
+            forbidden=forbidden_places(
+                harness=harness_root(),
+                install=setup.install_bin.parent.parent,
+                run_dir=work,
+                target=None,
+            ),
+        )
+    except InvocationError as exc:
+        raise RawArmError(str(exc)) from exc
 
 
 def stream_total(stream: Path) -> int:
@@ -397,7 +527,17 @@ def _install(
         *(arg for root in setup.withheld_reads for arg in ("--review-material", root)),
         *(arg for root in setup.write_protected for arg in ("--protect", root)),
         *(arg for place in setup.writable_within for arg in ("--protect-except", place)),
+        # The harness run's tool environment: read and run by the session's commands, written
+        # by none, as a role session's.
+        *(
+            arg
+            for root in (setup.tool_environment.roots if setup.tool_environment else ())
+            for arg in ("--tool-environment-root", root)
+        ),
         *(["--os-layer-temp", str(temp)] if temp is not None else []),
+        # The raw agent's tool servers: their admitted tools join its closed list. None
+        # without the OS layer, which alone contains them.
+        *(arg for name in offered_servers(setup, temp) for arg in ("--tool-server", name)),
         # Without the layer the session still keeps its temporary files in a directory of its
         # own, never in the one every session of the user shares.
         *(["--temp", str(own_temp)] if temp is None and own_temp is not None else []),
@@ -409,9 +549,12 @@ def _install(
             if temp is not None and setup.network != "open"
             else []
         ),
+        # The named interpreter, and the programs of the tool environment, are linked in the
+        # session's own directory, which the OS layer keeps from shell commands; it is opened.
         *(
             ["--os-layer-readable", str(sdir / "bin")]
-            if temp is not None and setup.role_python is not None
+            if temp is not None
+            and (setup.role_python is not None or setup.tool_environment is not None)
             else []
         ),
     ]
@@ -460,12 +603,16 @@ def run_session(
     canary showed in its stream.
 
     Raises:
-        RawArmError: ``work`` exists, the session could not be set up, or its credential
-            could not be removed.
+        RawArmError: ``work`` exists, the session could not be set up, its credential could
+            not be removed, or its tool environment is not the recorded one before it or
+            changed while it ran.
     """
     if work.exists():
         msg = f"{work} exists; each session gets a directory of its own"
         raise RawArmError(msg, work=str(work))
+    # Before anything of the session exists: a refusal here leaves nothing behind.
+    launches = server_launches_for(setup)
+    at_start = hold_tools(setup, work)
     worktree, sdir = work / "worktree", work / "session"
     # Private from the start: the session's credential is written beneath ``sdir``.
     work.mkdir(mode=0o700, parents=True)
@@ -487,11 +634,28 @@ def run_session(
         raise RawArmError(msg, error=str(exc)) from exc
     temp = own_temp if isinstance(setup.os_layer, Present) else None
     try:
-        return _run(
-            prompt, setup, work, worktree, sdir, session_id, temp, cap, check, own_temp=own_temp
+        record = _run(
+            prompt,
+            setup,
+            work,
+            worktree,
+            sdir,
+            session_id,
+            temp,
+            cap,
+            check,
+            own_temp=own_temp,
+            launches=launches,
         )
     finally:
         shutil.rmtree(own_temp, ignore_errors=True)
+    if setup.tool_environment is not None and at_start is not None:
+        # Scanned once more: a change now was made while the session ran, by a write no layer
+        # refused, and what the session made was not made on the recorded environment.
+        changed = changed_while_running(setup.tool_environment, at_start)
+        if changed is not None:
+            raise RawArmError(changed, work=str(work))
+    return record
 
 
 def run_raw(task: Task, setup: RawSetup, work: Path, *, cap: int) -> dict[str, Any]:
@@ -525,13 +689,23 @@ def _run(
     check: Checkpoint | None = None,
     *,
     own_temp: Path | None = None,
+    launches: tuple[ServerLaunch, ...] = (),
 ) -> dict[str, Any]:
     stdout, stderr = sdir / "stdout.jsonl", sdir / "stderr.txt"
     # One boundary from the first write of the credential to its removal: whatever ends
     # the session (an error, a refusal, the clock, the cap, a kill), the cleanup runs.
     try:
         ended, watch, seconds, after = _session(
-            prompt, setup, worktree, sdir, session_id, temp, cap, check, own_temp=own_temp
+            prompt,
+            setup,
+            worktree,
+            sdir,
+            session_id,
+            temp,
+            cap,
+            check,
+            own_temp=own_temp,
+            launches=launches,
         )
     finally:
         _clean(work, sdir, setup.credential.secret, (stdout, stderr))
@@ -563,6 +737,7 @@ def _session(
     checkpoint: Checkpoint | None = None,
     *,
     own_temp: Path | None = None,
+    launches: tuple[ServerLaunch, ...] = (),
 ) -> tuple[SessionEnd, BudgetWatch, float, dict[str, Any]]:
     """Install, spawn, watch and end the raw session; the credential's removal is the caller's."""
     # As a role session's: what the runtime makes is made first, so it is in the record.
@@ -570,7 +745,6 @@ def _session(
     runtime_paths(worktree, sdir / "home")
     # And what this pin's runtime makes in the work area's own git directory, per platform.
     runtime_git_paths(worktree / ".git", setup.claude_version)
-    installed = _install(setup, worktree, sdir, temp, own_temp=own_temp)
     env = isolated_env(
         home=sdir / "home",
         config_dir=sdir / "config",
@@ -581,9 +755,41 @@ def _session(
         base_url=setup.base_url,
         api_key=None,
     )
+    recorded_tools = setup.tool_environment
+    wired: dict[str, str] = {}
+    if recorded_tools is not None:
+        # Before the installation, so the OS layer's rules name the directory of the session's
+        # programs as it will stand, as a role session's are.
+        tools_temp = own_temp if own_temp is not None else temp
+        if tools_temp is None:
+            msg = "a session on a tool environment needs a temporary directory of its own"
+            raise RawArmError(msg)
+        try:
+            wired = wire_session(
+                recorded_tools, bin_dir=sdir / "bin", temp=tools_temp, taken=tuple(env)
+            )
+        except InvocationError as exc:
+            raise RawArmError(str(exc)) from exc
+    installed = _install(setup, worktree, sdir, temp, own_temp=own_temp)
     env.update(installed["spawn_env"])
-    if setup.role_python is not None:
+    if recorded_tools is not None:
+        try:
+            # The environment's interpreter is the session's ``python3``, its programs first.
+            env = session_environment(env, wired, sdir / "bin")
+            # Its scripts' records name the environment's code by the run's roots and digest.
+            env = series_environment(env, recorded_tools)
+        except InvocationError as exc:
+            raise RawArmError(str(exc)) from exc
+    elif setup.role_python is not None:
         env["PATH"] = f"{session_bin(sdir, setup.role_python)}:{env['PATH']}"
+    tool_servers, contained_by = contained_servers_for(
+        setup,
+        launches,
+        Path(installed["config"]),
+        sdir,
+        own_temp if own_temp is not None else temp,
+        env,
+    )
     max_turns, wall_clock = raw_bounds(setup.bounds)
     argv = role_argv(
         setup.binary,
@@ -594,6 +800,8 @@ def _session(
         max_turns=max_turns,
         effort=setup.effort,
         thinking_display=setup.thinking_display,
+        tool_servers=tool_servers,
+        wrappers=contained_by,
     )
     check = session_end_command(Path(installed["settings"]))
     stdout, stderr = sdir / "stdout.jsonl", sdir / "stderr.txt"
@@ -689,6 +897,18 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
         "role_python": None if setup.role_python is None else setup.role_python.model_dump(),
         "network": setup.network,
         "os_layer": setup.os_layer.model_dump(),
+        # The tools it computed and built with, and the servers it was offered from them, as
+        # the harness run recorded both; whether its settings denied the binary's search tool,
+        # read from the deny lists it was installed from, as a run records it.
+        "tool_environment": (
+            None
+            if setup.tool_environment is None
+            else setup.tool_environment.model_dump(mode="json")
+        ),
+        "tool_servers": (
+            None if setup.tool_servers is None else setup.tool_servers.model_dump(mode="json")
+        ),
+        "tool_search": session_tool_search(),
         "brief_sha256": hashlib.sha256(task.brief.encode()).hexdigest(),
         "answer": task.answer.model_dump(),
     }

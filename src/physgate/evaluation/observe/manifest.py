@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
@@ -437,6 +437,43 @@ def read_run_events(run_dir: Path) -> list[Event]:
         raise ManifestError(str(exc), **exc.context) from None
 
 
+#: The tool-search beta flag: sent by a role session whose search tool is offered (2.1.322).
+_SEARCH_BETA = "advanced-tool-use-2025-11-20"
+_DENIED_ON_2_1_322 = BINARY_DEFAULTS[("2.1.322", "claude-opus-5-5")]
+
+#: Where a pin sends something else once the sessions' settings deny the binary's search tool,
+#: the defaults measured for that setting, keyed like :data:`BINARY_DEFAULTS`. Elsewhere the
+#: deny moves nothing at the scripted endpoint: 2.1.301 there sends no search tool or flag
+#: either way (measured on CI, linux-x64, 14.11.2026), and the earlier versions offer none. A
+#: run reads the entry for the setting it recorded, so a run recorded with the search tool
+#: offered keeps the list it was measured with.
+TOOL_SEARCH_DENIED: dict[tuple[str, str], BinaryDefaults] = {
+    ("2.1.322", "claude-opus-5-5"): _DENIED_ON_2_1_322.model_copy(
+        update={
+            "anthropic_beta": tuple(
+                b for b in _DENIED_ON_2_1_322.anthropic_beta if b != _SEARCH_BETA
+            ),
+            "measured": (
+                "request bodies at the scripted endpoint, Claude Code 2.1.322 (linux-x64), "
+                "14.11.2026, on claude-opus-5-5, with every profile's settings denying the "
+                "search tool, through "
+                "tests/integration/orchestrator/"
+                "test_each_pin_sends_the_defaults_recorded_for_it.py: the role session's "
+                "beta flags lose advanced-tool-use and nothing else moves"
+            ),
+        }
+    ),
+}
+
+
+def binary_defaults(
+    version: str, model: str, tool_search: Literal["offered", "denied"]
+) -> BinaryDefaults | None:
+    """The defaults measured for ``version`` on ``model`` with the search tool as recorded."""
+    denied = TOOL_SEARCH_DENIED.get((version, model)) if tool_search == "denied" else None
+    return denied or BINARY_DEFAULTS.get((version, model))
+
+
 def run_binary_defaults(config: RunConfig) -> tuple[BinaryDefaults, ...]:
     """The measured defaults for every model the run's decomposition and role sessions ran on.
 
@@ -446,7 +483,7 @@ def run_binary_defaults(config: RunConfig) -> tuple[BinaryDefaults, ...]:
     models = sorted({config.models.decomposition, *config.models.roles.values()})
     found = []
     for model in models:
-        defaults = BINARY_DEFAULTS.get((config.claude_version, model))
+        defaults = binary_defaults(config.claude_version, model, config.tool_search)
         if defaults is None:
             msg = "no measured defaults are recorded for this binary version on this model"
             raise ManifestError(msg, claude_version=config.claude_version, model=model)

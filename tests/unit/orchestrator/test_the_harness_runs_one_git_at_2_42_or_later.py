@@ -178,6 +178,10 @@ def test_a_run_recorded_before_the_field_loads_and_keeps_its_bytes(tmp_path: Pat
         "design_review",
         "tool_environment",
         "tool_servers",
+        "reviewers",
+        "skills",
+        "hooks",
+        "ablation",
     ):  # recorded before these too
         del legacy[later]
     legacy_bytes = json.dumps(legacy, separators=(",", ":")).encode() + b"\n"
@@ -258,10 +262,15 @@ def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
         "role_python": None,
         "tool_environment": None,
         "tool_servers": None,
+        "tool_search": "denied",
         "escalation_backend": "rules",
         "queue_decisions": "record",
         # The stand-in binary predates the layer's pin: allowed absent, for development.
         "os_layer_absent": "allow",
+        "reviewers": "paired",
+        "skills": "on",
+        "hooks": "on",
+        "ablation": False,
         "design_review": "off",
         "held_out": [],
         "held_out_canaries": [],

@@ -214,6 +214,20 @@ class AdmittedExport(_Frozen):
     sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
+class UnjudgedAttempt(_Frozen):
+    """An earlier attempt of the subtask that no review judged, whose streams the scan flags.
+
+    Refused before review (by its change check, its gate, its reading) or left without a
+    verdict, it was never reviewed itself, and its work is in the commit the attempt under review
+    carries. Its sealed streams go to that attempt's reviewer, who judges each hit the scan finds
+    in them as it judges one of its own attempt's (ARCH-133).
+    """
+
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
+    #: Every session of that attempt that left a sealed stream, in order.
+    sessions: Annotated[tuple[SessionTrajectory, ...], Field(min_length=1)]
+
+
 class Artefact(_Frozen):
     """What an attempt produced, as the gate and the reviewer receive it."""
 
@@ -266,6 +280,10 @@ class Artefact(_Frozen):
     #: its path and sha256: what the review packet may show as one line in place of its bytes.
     #: Left out of a dump when empty, so every other attempt is recorded as before.
     exports: tuple[AdmittedExport, ...] = ()
+    #: The earlier attempts of the subtask no review judged whose streams the scan flags, in
+    #: order, for this attempt's reviewer to judge their hits. Left out of a dump when empty, so
+    #: every other attempt is recorded as before.
+    unjudged: tuple[UnjudgedAttempt, ...] = ()
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -280,12 +298,18 @@ class Artefact(_Frozen):
             data.pop("followed", None)
         if not self.exports:
             data.pop("exports", None)
+        if not self.unjudged:
+            data.pop("unjudged", None)
         return data
 
     @model_validator(mode="after")
     def _own_nodes_always(self) -> Artefact:
         if "subtask" not in self.scopes or len(set(self.scopes)) != len(self.scopes):
             msg = "an attempt is always checked at subtask scope, and each scope once"
+            raise ValueError(msg)
+        earlier = [u.attempt for u in self.unjudged]
+        if earlier != sorted(set(earlier)) or any(n >= self.attempt for n in earlier):
+            msg = "an attempt carries earlier attempts only, each once and in order"
             raise ValueError(msg)
         return self
 
@@ -627,6 +651,19 @@ class IndicatorReport(_Frozen):
     evidence: NonEmptyStr
     disposition: IndicatorDisposition
     reason: NonEmptyStr
+    #: The earlier attempt whose hit this answers, where a review was given an earlier attempt
+    #: no review judged: two attempts' streams can hold a call of one id, and an answer to one is
+    #: not an answer to the other. Absent on an answer to the attempt's own hit, or an indicator
+    #: the review raised, and left out of a line then, so every answer recorded before reads
+    #: and writes back as it was.
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_no_attempt(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.attempt is None:
+            data.pop("attempt", None)
+        return data
 
 
 class SpecDefect(_Frozen):

@@ -126,6 +126,7 @@ from physgate.orchestrator.exceptions import (
     GateNotRegisteredError,
     GitError,
     HeldOutExposedError,
+    LimitNotResetError,
     MergeConflictError,
     MergeRefusedError,
     QueueError,
@@ -169,6 +170,7 @@ from physgate.orchestrator.ports import (
     SessionReport,
     SessionRequest,
 )
+from physgate.orchestrator.producer_wait import owed_line
 from physgate.orchestrator.protocols import (
     REJECTING_RESULTS,
     Artefact,
@@ -183,6 +185,7 @@ from physgate.orchestrator.protocols import (
     Reviewer,
     ReviewResult,
     SessionTrajectory,
+    UnjudgedAttempt,
     require_mode,
     require_separate_models,
 )
@@ -227,8 +230,22 @@ from physgate.orchestrator.replay import (
 )
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
 from physgate.orchestrator.trajectory import read_sealed
-from physgate.reviewers.packet import fits_one_read, person_order_text
-from physgate.reviewers.scan import ScanHit, ScanUnreadableError
+from physgate.orchestrator.usage_limit import (
+    UsageLimit,
+    bounded,
+    resume_after,
+    resume_refusal,
+    stamped,
+    with_instant,
+)
+from physgate.reviewers.packet import fits_one_read, indicator_scan_runs, person_order_text
+from physgate.reviewers.scan import (
+    REFUSED_NAMES,
+    REFUSED_WRITE,
+    ScanHit,
+    ScanUnreadableError,
+    judged_attempts,
+)
 from physgate.roles import dispatchable, owners_of, require_registered
 from physgate.series.reader import attempt_records
 from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
@@ -399,6 +416,29 @@ def _listed(values: list[str]) -> str:
     return ", ".join(values[:LISTED_AT_MOST]) + (f", and {left} more left out" if left > 0 else "")
 
 
+def _as_listed(scan: tuple[ScanHit, ...], item: QueueItem) -> tuple[ScanHit, ...]:
+    """The scan's hits in the form the item lists them: unmarked on an item listed before marks.
+
+    An item listed before hits named their attempt was written with every hit unmarked. The hits
+    themselves are compared whole all the same; only the mark an item written before could not
+    carry is left off, so such an item is taken as it was listed. An item with some hits marked
+    and some not is not one any writer wrote, and is rebuilt marked.
+    """
+    listed = item.consequence.scan_hits if item.consequence is not None else ()
+    if listed and all(hit.attempt is None for hit in listed):
+        # Written before, too, every refused call was named a write, whatever the call was.
+        return tuple(
+            hit.model_copy(
+                update={
+                    "attempt": None,
+                    "what": REFUSED_WRITE if hit.what in REFUSED_NAMES else hit.what,
+                }
+            )
+            for hit in scan
+        )
+    return scan
+
+
 def _account(told: list[str]) -> str:
     """Each module's account, in order, as long as the whole stays within its cap; then a count."""
     kept = [one for k, one in enumerate(told) if len("; ".join(told[: k + 1])) <= TOLD_AT_MOST]
@@ -440,6 +480,19 @@ def _follow_up_end(now: AttemptState | None) -> str:
         said += [f"failing items {_listed(failing)}"] if failing else []
         said += [f"blocking {_listed(blocking)}"] if blocking else []
     return "; ".join(said)
+
+
+def _reset_from(limit: UsageLimit | None, ts: str) -> UsageLimit | None:
+    """``limit`` with its reset read as the next instant after the line stamped ``ts``.
+
+    A reset the stream gave further out than any window after ``ts`` is not taken (:func:`bounded`).
+    """
+    if limit is None:
+        return None
+    limit = bounded(limit, read_at=stamped(ts))
+    if limit.resets_at is not None:
+        return limit
+    return with_instant(limit, after=stamped(ts))
 
 
 class Loop:
@@ -491,6 +544,7 @@ class Loop:
         self._escalation = escalation
         self._material = material
         self._sleep = sleep
+        self._clock = clock
         self._appends: tuple[str, ...] = ()
         #: The items the operator confirms on this resume, and who; none on a plain run.
         self._confirm: tuple[frozenset[str], str | None] = (frozenset(), None)
@@ -558,26 +612,41 @@ class Loop:
         self._stop_leftovers()
         return owed
 
-    def resume(self, *, confirm: Sequence[str] = (), confirmed_by: str | None = None) -> Step:
+    def resume(
+        self,
+        *,
+        confirm: Sequence[str] = (),
+        confirmed_by: str | None = None,
+        limit_reset_by: str | None = None,
+    ) -> Step:
         """Take over a run a previous process left, then drive it.
 
         The interrupted attempt restarts at its checkpoint with a fresh session,
         never the binary's own resume, and keeps its attempt number. A run halted
         because its infrastructure retries ran out continues the same attempt with
-        a fresh schedule.
+        a fresh schedule. A run halted on the account's usage limit goes on only after its
+        reset (:meth:`_limit_reset`), exactly where it stopped: the same attempt, and the
+        review it owed still owed.
 
         Every leftover session is stopped and its stream read before anything else, so no
         decision is taken before every stream a previous process left has been read. ``confirm``
         names items whose decision is held because it was written while a session ran without
         the OS layer; ``confirmed_by`` is the operator who confirms them on the command line
-        (ARCH-133). Only then does such a decision act.
+        (ARCH-133). Only then does such a decision act. ``limit_reset_by`` is the operator who
+        says on the command line that the account's usage limit has reset, where its reset could
+        not be read. It is recorded on the ``Resumed`` that follows; a resume that stops early
+        for another reason resumes nothing, so nothing is recorded, and the word is given again
+        on the resume that goes on.
 
         Raises:
+            LimitNotResetError: the run waits for the account's usage limit and may not go on
+                yet; nothing is stopped, written or started.
             RunStateError: the run halted for an incident, which a person resolves; or an item
                 to confirm has no held decision, or the run acts on no decision at all; or this
                 process recorded no OS layer, and the run acts on queue decisions or does not
                 allow the layer's absence.
         """
+        limit_word = self._limit_reset(limit_reset_by)
         self._require_os_layer()
         if self._took_an_owed_halt():
             return self._drive()
@@ -613,9 +682,34 @@ class Loop:
                     subtask_id=sub.plan.subtask_id,
                     attempt=now.number,
                     point=self.state.resume_point(now),
+                    limit_reset_by=limit_word,
                 )
             )
         return self._drive()
+
+    def _limit_reset(self, limit_reset_by: str | None) -> str | None:
+        """Refuse a resume of a run waiting for the usage limit before it may go on.
+
+        Before anything is stopped, written or started. Returns the operator's word to record
+        on the resume, for a run halted on the limit; ``None`` for any other run.
+
+        Raises:
+            LimitNotResetError: the run waits, and its reset has not come (see
+                :func:`~physgate.orchestrator.usage_limit.resume_refusal`).
+        """
+        halted = self.state.halted
+        if halted is None or halted.reason != "usage_limit":
+            return None
+        why = resume_refusal(
+            halted.ts, halted.usage_limit, self._clock(), limit_reset=limit_reset_by is not None
+        )
+        if why is not None:
+            raise LimitNotResetError(
+                why,
+                run_dir=str(self.run_dir),
+                resume_after=resume_after(halted.ts, halted.usage_limit),
+            )
+        return limit_reset_by
 
     def _require_os_layer(self) -> None:
         """Refuse to drive a run whose role sessions would run without the OS layer here.
@@ -987,6 +1081,8 @@ class Loop:
             "wait",
             "reopen",
             "follow_up_ended",
+            "hold",
+            "release",
         ):
             self._record_environment()
         while True:
@@ -1022,6 +1118,9 @@ class Loop:
                 continue
             if step.kind == "reopen":
                 self._reopen()
+                continue
+            if step.kind in ("hold", "release"):
+                self._emit(owed_line(self.state, step.subtask_id or "", self._env()))
                 continue
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"
@@ -1239,7 +1338,7 @@ class Loop:
                 found = self._scan_hits(subtask_id, where=None)
                 if found is None:
                     return False
-                scan = found
+                scan = _as_listed(found, item)
             if sub.status == "escalated" and sub.queue_item == item.item_id:
                 commit = item_consequence(
                     self.state, subtask_id, source=source_of(sub), scan_hits=()
@@ -1344,14 +1443,29 @@ class Loop:
     def _scan_hits(self, subtask_id: str, *, where: str | None) -> tuple[ScanHit, ...] | None:
         """What the scan before review finds in the unjudged attempts' streams; None if it halted.
 
-        Each stream is held to its seal first. A stream that is not what was sealed, or that
-        the scan cannot read, is an incident: it is never a stream that showed nothing.
+        Each hit is marked with the attempt whose stream shows it. Each stream is held to its seal
+        first. A stream that is not what was sealed, or that the scan cannot read, is an incident:
+        it is never a stream that showed nothing.
         """
         # Every attempt no review judged, not only the last: an earlier attempt's work is in the
-        # commit an approve would merge, and no reviewer weighed what its streams show.
+        # commit an approve would merge, and no reviewer weighed what its streams show. One a
+        # later review was given and answered whole is judged (``SubtaskState.judged``).
         sub = self.state.subtasks[subtask_id]
-        judged = {review.attempt for review in sub.reviews}
-        sessions = [s for a in sub.attempts if a.number not in judged for s in a.ended]
+        judged = sub.judged()
+        hits: list[ScanHit] = []
+        for attempt in sub.attempts:
+            if attempt.number in judged:
+                continue
+            found = self._hits_in(subtask_id, attempt.ended, where=where)
+            if found is None:
+                return None
+            hits.extend(hit.of_attempt(attempt.number) for hit in found)
+        return tuple(hits)
+
+    def _hits_in(
+        self, subtask_id: str, sessions: list[SessionEnded], *, where: str | None
+    ) -> tuple[ScanHit, ...] | None:
+        """What the scan finds in the sessions' streams, each held to its seal; None on a halt."""
         streams: list[bytes] = []
         for session in sessions:
             if session.trajectory is None:
@@ -1373,6 +1487,41 @@ class Loop:
             detail = f"subtask {subtask_id}: the scan cannot read its stream: {exc}"
             self._incident(where, "trajectory_tampered", detail)
             return None
+
+    def _unjudged_earlier(
+        self, subtask_id: str, attempt: int
+    ) -> list[tuple[UnjudgedAttempt, tuple[ScanHit, ...]]] | None:
+        """The earlier attempts no review judged that the scan flags, with hits; None on a halt.
+
+        They go to ``attempt``'s reviewer, to judge each hit as it judges its own (ARCH-133).
+        Their work is in the commit ``attempt`` is reviewed on, and no review has weighed what
+        their streams show; one whose streams the scan flags nothing in is left out, as there is
+        nothing in it for a review to answer.
+        """
+        sub = self.state.subtasks[subtask_id]
+        judged = sub.judged()
+        found: list[tuple[UnjudgedAttempt, tuple[ScanHit, ...]]] = []
+        for earlier in sub.attempts:
+            if earlier.number >= attempt or earlier.number in judged:
+                continue
+            hits = self._hits_in(subtask_id, earlier.ended, where=subtask_id)
+            if hits is None:
+                return None
+            if not hits:
+                continue
+            sessions = tuple(
+                SessionTrajectory(
+                    session_id=s.session_id,
+                    trajectory=s.trajectory,
+                    trajectory_sha256=s.trajectory_seal.sha256,
+                    trajectory_length=s.trajectory_seal.length,
+                )
+                for s in earlier.ended
+                if s.trajectory is not None and s.trajectory_seal is not None
+            )
+            marked = tuple(hit.of_attempt(earlier.number) for hit in hits)
+            found.append((UnjudgedAttempt(attempt=earlier.number, sessions=sessions), marked))
+        return found
 
     def _consequence(
         self, subtask_id: str, source: QueueSource, scan_hits: tuple[ScanHit, ...] = ()
@@ -1728,9 +1877,10 @@ class Loop:
                     usage=message.usage,
                 )
             )
+        env = self._env()
         self._emit(
             SessionEnded(
-                **self._env(),
+                **env,
                 subtask_id=subtask_id,
                 attempt=attempt,
                 session_id=report.session_id,
@@ -1748,6 +1898,8 @@ class Loop:
                 policy_limits_unjudged=_unjudged(report),
                 issued_spec_sha256=report.issued_spec_sha256,
                 series=report.series,
+                usage_limit=_reset_from(report.usage_limit, env["ts"]),
+                account_windows=report.account_windows,
             )
         )
         if found is not None:
@@ -2338,6 +2490,15 @@ class Loop:
         # The reviewer reads the trajectory: it must still be what was sealed.
         if not self._trajectories_hold(subtask_id, [session]):
             return False
+        # And the earlier attempts' no review judged, whose work is in this commit: their scan
+        # hits go to this review, each to be confirmed or dismissed as its own are (ARCH-133).
+        # Only in a run that acts on decisions, where those hits decide what an approve does, as
+        # the scan before review runs only there; a run that records is reviewed as it always was.
+        earlier = self._unjudged_earlier(subtask_id, attempt) if self._acts() else []
+        if earlier is None:
+            return False
+        if earlier:
+            artefact = artefact.model_copy(update={"unjudged": tuple(u for u, _ in earlier)})
         if subtask_id == self.state.completion_subtask:
             # And the issued state its session read: still what the record gives.
             held = self._state_holds(subtask_id)
@@ -2368,7 +2529,26 @@ class Loop:
                     usage=message.usage,
                 )
             )
-        self._emit(ReviewRan(**self._env(), subtask_id=subtask_id, attempt=attempt, result=review))
+        # An earlier attempt is judged only where the verdict confirmed or dismissed every one of
+        # its hits, by answers naming it: a reviewer that left one unanswered or only noted it
+        # judged none of that attempt, which stays unjudged. The line records what it was shown.
+        # Only the hits its packet carried: where the attempt is a written account the scan is not
+        # run, the packet shows no earlier hit, and a review cannot have judged one.
+        shown = (
+            tuple(hit for _, hits in earlier for hit in hits)
+            if indicator_scan_runs(artefact)
+            else ()
+        )
+        self._emit(
+            ReviewRan(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                result=review,
+                judged_earlier=judged_attempts(shown, review.indicators),
+                earlier_hits=shown,
+            )
+        )
         if review.verdict == "blocked":
             return False  # a person decides; the issued specification lacks an input
         if review.verdict == "fail":
@@ -2599,6 +2779,10 @@ class Loop:
                     )
                 if self._review_held(subtask_id, exc.session_id, exc.managed):
                     return None  # it ran under other conditions: neither recorded nor retried
+                if exc.usage_limit is not None:
+                    who = f"review session {exc.session_id or 'none'}"
+                    self._wait_for_limit(subtask_id, attempt, exc.usage_limit, who, review=True)
+                    return None
                 retry = exc.cause == "infrastructure" and not retried
                 self._emit(
                     ReviewUnavailable(
@@ -3275,6 +3459,10 @@ class Loop:
         now = self.state.subtasks[subtask_id].attempts[-1]
         delay = infra_retry_delay(self.config.bounds.infra_retry_delays_s, now.retries_done)
         cause = now.session.cause if now.session else "unknown"
+        if now.session is not None and now.session.usage_limit is not None:
+            who = f"session {now.session.session_id}"
+            self._wait_for_limit(subtask_id, attempt, now.session.usage_limit, who, review=False)
+            return
         if cause == "credential_refused":
             variable = SECRET_VARIABLE[self.config.auth]
             detail = (
@@ -3320,6 +3508,37 @@ class Loop:
             )
         )
         self._sleep(delay)
+
+    def _wait_for_limit(
+        self, subtask_id: str, attempt: int, limit: UsageLimit, who: str, *, review: bool
+    ) -> None:
+        """Halt the run waiting for the account's usage limit to reset.
+
+        No retry is spent and nothing goes to a person: a role session that ended on the limit
+        does not move the attempt count, and a review that could not run leaves the attempt
+        waiting for it. A resume after the reset goes on exactly there (:meth:`resume`). What a
+        role session wrote before the limit is not committed: its worktree is kept as it was,
+        the session after the reset runs in it, and the attempt's completed end commits it.
+        """
+        env = self._env()
+        held = _reset_from(limit, env["ts"])
+        waits = (
+            "its review is still owed"
+            if review
+            else "the attempt count does not move; its worktree is kept as it was"
+        )
+        kind = f"a {limit.limit_type} limit, " if limit.limit_type else ""
+        far = (
+            f"; the stream's reset {held.out_of_range_reset} is out of range, not taken"
+            if held is not None and held.out_of_range_reset is not None
+            else ""
+        )
+        detail = (
+            f"subtask {subtask_id} attempt {attempt}: {who} ended on the account's usage limit "
+            f"({kind}resets {limit.resets or 'not given'}){far}; {waits}; resume after "
+            f"{resume_after(env['ts'], held)}"
+        )
+        self._emit(Halted(**env, reason="usage_limit", detail=detail, usage_limit=held))
 
     def _earlier_sessions(self, subtask_id: str, attempt: int) -> tuple[SessionTrajectory, ...]:
         """The attempt's sessions before the one that completed it, each with its stream.

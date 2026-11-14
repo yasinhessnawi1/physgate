@@ -70,6 +70,8 @@ from physgate.orchestrator.events import (
     DecompositionRetried,
     DesignReviewRan,
     DiffChecked,
+    DispatchHeld,
+    DispatchReleased,
     DisputeRecorded,
     EnvironmentRecorded,
     Escalated,
@@ -128,10 +130,19 @@ from physgate.orchestrator.exceptions import (
 from physgate.orchestrator.follow import rederived
 from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR, CriterionWords, SystemRequirement
+from physgate.orchestrator.producer_wait import (
+    Waits,
+    dispatch_due,
+    gated,
+    held_dispatch,
+    held_subtask,
+    take,
+)
 from physgate.orchestrator.protocols import ChosenValue, QuantityRef
 from physgate.orchestrator.queue import DECOMPOSITION_NAME, PLAN, contract_item_id, item_id_for
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
+from physgate.reviewers.scan import judged_attempts
 from physgate.state.store import payload_digest
 from physgate.state.task_ledger import Outcome, TaskLedger, TaskLine, read_ledger
 
@@ -249,6 +260,17 @@ class SubtaskState:
     #: The follow-up sizing's closing pass owed the subtask, once taken.
     followed_up: SubtaskReopened | None = None
 
+    def judged(self) -> set[int]:
+        """The attempts whose streams a review judged: its own, and the earlier ones it was given.
+
+        An attempt refused before review, or left without a verdict, is in it only once a later
+        review was given its scan hits and answered every one (ARCH-133). A review line that
+        names none judged its own attempt alone, as every line written before did.
+        """
+        return {r.attempt for r in self.reviews} | {
+            n for r in self.reviews for n in r.judged_earlier
+        }
+
 
 @dataclass(frozen=True)
 class Step:
@@ -270,6 +292,8 @@ class Step:
         "return",
         "reopen",
         "follow_up_ended",
+        "hold",
+        "release",
         "done",
     ]
     subtask_id: str | None = None
@@ -281,9 +305,10 @@ def at_a_boundary(step: Step) -> bool:
     """Where a person's decision may be taken: no attempt in progress, none half judged.
 
     Between subtasks, at the integration call, or at the end of the run (ARCH-133). The loop
-    takes decisions only where this holds, and the replay refuses one taken anywhere else.
+    takes decisions only where this holds, and the replay refuses one taken anywhere else. A hold
+    or release line stands where its subtask's dispatch would: a boundary as that is.
     """
-    if step.kind in ("integrate", "done", "escalated", "wait"):
+    if step.kind in ("integrate", "done", "escalated", "wait", "hold", "release"):
         return True
     return step.kind == "attempt" and step.point == "resolve"
 
@@ -387,6 +412,8 @@ class RunState:
         #: resolved, and the escalation a blocking failure there led to.
         self.integration: IntegrationGateRan | IntegrationGateSkipped | None = None
         self.integration_escalated: IntegrationEscalated | None = None
+        #: The holds on dispatches while a subtask read from waits on a person.
+        self.producer_waits = Waits()
         #: Integration's subtask, if the plan has one: the one subtask whose planning line marks
         #: it as the completion owner's, read from that line and never from the role register or
         #: a role's name. It reads the system-scope result, so it runs after the integration
@@ -500,6 +527,7 @@ class RunState:
             self.gate_mode = event.gate_mode
             self.escalation_backend = event.escalation_backend
             self.acts = event.queue_decisions == "act"
+            self.producer_waits.strict = event.producer_wait == "hold"
             self.reviews_plan = event.design_review is not None
             self.holds_plan = self.reviews_plan and event.design_review != "observe"
             self.replans = replans(event.design_review or "off")
@@ -690,6 +718,11 @@ class RunState:
         if isinstance(event, DecisionTaken):
             self._take(event)
             return
+        if isinstance(event, DispatchHeld | DispatchReleased):
+            why = take(self, event)
+            if why is not None:
+                _refuse(why)
+            return
         if isinstance(event, ModuleCompleted):
             self._complete(event)
             return
@@ -752,6 +785,7 @@ class RunState:
         elif isinstance(event, ReviewRan):
             done = now.cursor == "review" and now.review is None
             self._expect(done and now.unavailable_final is None, "a review line")
+            self._judged_earlier(sub, now, event)
             now.review = event
             sub.reviews.append(event)
             self._ledger(sub.plan.subtask_id, review_result=event.result.verdict)
@@ -1922,6 +1956,27 @@ class RunState:
                 _refuse("integration skipped as nothing planned in a run that planned subtasks")
         self.integration = event
 
+    def _judged_earlier(self, sub: SubtaskState, now: AttemptState, event: ReviewRan) -> None:
+        """A review names only earlier attempts of its subtask no review had judged, in order.
+
+        And only those its own answers bear out: every hit it was shown of such an attempt
+        confirmed or dismissed by an answer naming the attempt, and no answer naming it to a
+        hit it was not shown. A line written before records neither, and names none.
+        """
+        named = list(event.judged_earlier)
+        earlier = {a.number for a in sub.attempts if a.number < now.number} - sub.judged()
+        shown = {hit.attempt for hit in event.earlier_hits}
+        if named != sorted(set(named)) or not set(named) | shown <= earlier:
+            _refuse(
+                "a review line names as judged only earlier attempts of its subtask that no "
+                "review had judged, each once and in order"
+            )
+        if tuple(named) != judged_attempts(event.earlier_hits, event.result.indicators):
+            _refuse(
+                "a review line names as judged exactly the earlier attempts whose hits it was "
+                "shown its answers confirmed or dismissed, and no other"
+            )
+
     def _expect(self, condition: bool, what: str) -> None:
         if not condition:
             _refuse(f"{what} cannot come at this point of the attempt")
@@ -1938,6 +1993,9 @@ class RunState:
             _refuse(
                 "sizing's closing pass waits while a dispute's or a contract's item is undecided"
             )
+        due = dispatch_due(self, sub.plan.subtask_id)
+        if due and (held := held_dispatch(self, sub.plan.subtask_id)):
+            _refuse(held)
         if not sub.attempts or sub.attempts[-1].number != attempt:
             if any(a.fix for a in sub.attempts):
                 _refuse("the fix a person ordered is a subtask's last attempt")
@@ -2172,8 +2230,15 @@ class RunState:
             return Step(kind="contract")
         for subtask_id in self.integrated():
             step = self._step_of(subtask_id)
-            if step is not None:
+            # A dispatch held while a subtask it reads from waits on a person is passed over.
+            gate = gated(self, subtask_id) if step is not None and step.kind == "attempt" else None
+            if gate == "hold" or gate == "release":
+                return Step(gate, subtask_id)
+            if step is not None and gate is None:
                 return step
+        held = held_subtask(self)
+        if held is not None:
+            return Step(kind="wait", subtask_id=held)
         ran = self.integration
         if ran is None:
             return Step(kind="wait") if self._contract_item_open() else Step(kind="integrate")

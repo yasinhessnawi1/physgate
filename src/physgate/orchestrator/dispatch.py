@@ -54,11 +54,7 @@ from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import (
-    DISK_FULL_BELOW_BYTES,
-    WRITES_LOST_VERSIONS,
-    classify_session_end,
-)
+from physgate.orchestrator.budget import DISK_FULL_BELOW_BYTES, WRITES_LOST_VERSIONS
 from physgate.orchestrator.canaries import canary_seen, redact_text
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.credentials import (
@@ -157,6 +153,7 @@ from physgate.orchestrator.trajectory import (
     seal,
     through_first_result,
 )
+from physgate.orchestrator.usage_limit import account_windows, session_end
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.containment import (
@@ -1758,9 +1755,17 @@ class ClaudeDispatcher:
             # Without the layer the session still keeps its temporary files in a directory of
             # its own, never in the one every session of the user shares.
             *(["--temp", str(own_temp)] if temp is None and own_temp is not None else []),
+            # Whether the session is held to the design discipline, as the run recorded it.
+            "--hooks",
+            self._config.hooks,
             # Without the layer the installer writes the settings only for a run whose recorded
-            # configuration allows that, and reads it there.
-            *(["--run-config", str(self._run.run_dir / "run.json")] if temp is None else []),
+            # configuration allows that, and reads it there; with hooks off, only for a run that
+            # recorded the arm, read there too.
+            *(
+                ["--run-config", str(self._run.run_dir / "run.json")]
+                if temp is None or self._config.hooks == "off"
+                else []
+            ),
             # The held spawn exports the session's pid as the survivor reaper's canary.
             "--spawns-with-canary",
             # No remote host where the run asks for it; only the OS layer can enforce that.
@@ -2202,7 +2207,10 @@ class ClaudeDispatcher:
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
         require_matching_totals(result, usage)
-        end = classify_session_end(
+        # An API error the stream names as the account's usage limit is that limit, its own cause.
+        streamed = read_stream_file(stdout)
+        end, usage_limit = session_end(
+            streamed,
             result,
             exit_code=exit_code,
             stopped_at_wall_clock=timed_out,
@@ -2307,6 +2315,8 @@ class ClaudeDispatcher:
             withheld_problems=withheld_problems,
             os_layer_aborted=aborted,
             reaper_unverified=unverified,
+            usage_limit=usage_limit,
+            account_windows=account_windows(streamed),
         )
 
     @staticmethod

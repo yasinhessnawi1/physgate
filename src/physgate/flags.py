@@ -167,5 +167,111 @@ def replans(value: DesignReview) -> int:
     return int(value.removeprefix("repair:")) if value.startswith("repair:") else 0
 
 
+#: Who reviews a role's work. Spelled out for the type checker, as the others are; a test holds
+#: it equal to the register's entry.
+Reviewers = Literal["paired", "generalist", "off"]
+
+REVIEWERS = Flag(
+    name="reviewers",
+    values=("paired", "generalist", "off"),
+    meanings={
+        "paired": (
+            "each role's work is reviewed by its paired specialist, on a model other than the "
+            "role's, with the role's rubric and library files; every run recorded before the "
+            "switch existed reads as this"
+        ),
+        "generalist": (
+            "an ablation run's arm: each role's work is reviewed on the same reviewer pin with "
+            "its paired rubric less the domain sections and without the role's library files; "
+            "refused at the run's configuration until the arm is built"
+        ),
+        "off": (
+            "an ablation run's arm: no role reviewer is invoked, each attempt the gate lets "
+            "reach review records that its review was skipped and merges on the gate's result "
+            "alone, and every role still names a pinned reviewer; refused at the run's "
+            "configuration until the arm is built"
+        ),
+    },
+    architecture="ARCH-140",
+)
+
+#: Whether a role session is given its role's skill file. Spelled out for the type checker, as
+#: the others are; a test holds it equal to the register's entry.
+Skills = Literal["on", "off"]
+
+SKILLS = Flag(
+    name="skills",
+    values=("on", "off"),
+    meanings={
+        "on": (
+            "a role session reads its role's skill file with the standards files before it "
+            "acts; every run recorded before the switch existed reads as this"
+        ),
+        "off": (
+            "an ablation run's arm: the role's skill file is withheld from every role session "
+            "and leaves what it must read, and the standards files stay; refused at the run's "
+            "configuration until the arm is built"
+        ),
+    },
+    architecture="ARCH-140",
+)
+
+#: Whether the hooks hold a role session to the harness's design discipline. Spelled out for the
+#: type checker, as the others are; a test holds it equal to the register's entry.
+Hooks = Literal["on", "off"]
+
+HOOKS = Flag(
+    name="hooks",
+    values=("on", "off"),
+    meanings={
+        "on": (
+            "a role session's hooks enforce the design discipline (required reading, the "
+            "always-loaded ceiling, the checks on a proposal) beside every protection; every "
+            "run recorded before the switch existed reads as this"
+        ),
+        "off": (
+            "an ablation run's arm: a role session runs without the design discipline (no "
+            "required reading, no always-loaded ceiling, no check of a proposal before it is "
+            "written, its worktree's own gate, hook and knowledge sources writable), and keeps "
+            "every protection of what the run is measured by and of its own records; only an "
+            "ablation run takes it"
+        ),
+    },
+    architecture="ARCH-140",
+)
+
+#: The backend that answers whether a subtask goes to the approval queue: the backend register's
+#: names, in its order. Spelled out for the type checker, as the others are; a test holds it
+#: equal to this entry and to that register.
+EscalationBackend = Literal["rules", "llm", "tsetlin", "laya"]
+
+ESCALATION_BACKEND = Flag(
+    name="escalation_backend",
+    values=("rules", "llm", "tsetlin", "laya"),
+    meanings={
+        "rules": (
+            "ships: the deterministic conditions of the loop, answered at confidence 1.0; the "
+            "queue receives exactly what it receives with no interface at all"
+        ),
+        "llm": (
+            "listed, off and refused: it spends a model call on each decision, which the "
+            "interface's admission rule forbids"
+        ),
+        "tsetlin": "parked, and refused: its experiment's accuracy and legibility did not pass",
+        "laya": "parked, and refused: it did not become less confident off distribution",
+    },
+    architecture="ARCH-132",
+)
+
+
 #: Every ablation flag, in the order the architecture lists the switches.
-REGISTER: tuple[Flag, ...] = (GATE_MODE, QUEUE_DECISIONS, OS_LAYER_ABSENT, DESIGN_REVIEW)
+REGISTER: tuple[Flag, ...] = (
+    GATE_MODE,
+    QUEUE_DECISIONS,
+    OS_LAYER_ABSENT,
+    DESIGN_REVIEW,
+    REVIEWERS,
+    SKILLS,
+    HOOKS,
+    ESCALATION_BACKEND,
+)

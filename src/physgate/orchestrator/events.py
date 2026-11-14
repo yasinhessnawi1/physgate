@@ -90,7 +90,9 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
+from physgate.orchestrator.usage_limit import AccountWindow, UsageLimit
 from physgate.oslayer.probe import OsLayerState
+from physgate.reviewers.scan import ScanHit
 from physgate.roles import owner_of, owners_of
 from physgate.series.seal import SeriesCheck, SessionSeries
 from physgate.state.held_file import HeldFile
@@ -157,15 +159,17 @@ HaltReason = Literal[
     "os_layer_unavailable",
     "disk_full",
     "role_not_built",
+    "usage_limit",
 ]
 
 #: Halts a resume continues from, the same attempt with a fresh schedule: the
 #: infrastructure schedule ran out, the credential was refused and has since been
-#: replaced, or the OS layer would not start and has since been repaired. Any other
-#: halt is resolved by a person first; ``disk_full`` is one of those, since a session
-#: whose records a full disk lost is looked at before the run goes on.
+#: replaced, the OS layer would not start and has since been repaired, or the account's
+#: usage limit was reached (a resume goes on only after its reset: the loop's to hold).
+#: Any other halt is resolved by a person first; ``disk_full`` is one of those, since a
+#: session whose records a full disk lost is looked at before the run goes on.
 RESUMABLE_HALTS: frozenset[str] = frozenset(
-    {"infrastructure_exhausted", "credential_refused", "os_layer_unavailable"}
+    {"infrastructure_exhausted", "credential_refused", "os_layer_unavailable", "usage_limit"}
 )
 
 #: Who spent a token: ``<what>:<invocation id>``. The invocation id is the Claude Code
@@ -214,11 +218,33 @@ class RunStarted(_Event):
     #: hold every dispatch to the review's line, and but under ``observe`` to the person's decision
     #: on a plan it did not pass; left out of a run that does not, so its line keeps its bytes.
     design_review: Literal["observe", "on", "repair:1", "repair:2", "repair:3"] | None = None
+    #: ``generalist`` or ``off`` in a run whose role work is not reviewed by the paired
+    #: specialists; left out of a run reviewed by them, so its line keeps its bytes.
+    reviewers: Literal["generalist", "off"] | None = None
+    #: ``off`` in a run whose role sessions are not given their skill file; left out otherwise.
+    skills: Literal["off"] | None = None
+    #: ``off`` in a run whose role sessions run without the design discipline; left out otherwise.
+    hooks: Literal["off"] | None = None
+    #: ``True`` in an ablation run, which is never reportable; left out of every other run.
+    ablation: Literal[True] | None = None
+    #: ``hold`` in a run that acts on decisions and was started under the rule that every
+    #: dispatch of a subtask waits while a subtask it reads from waits on a person; replay refuses
+    #: such a dispatch with no hold or release line before it. Left out of every other run, so a
+    #: line written before the rule keeps its bytes and replays as it did.
+    producer_wait: Literal["hold"] | None = None
 
     @model_serializer(mode="wrap")
     def _omit_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for absent in ("queue_decisions", "design_review"):
+        for absent in (
+            "queue_decisions",
+            "design_review",
+            "reviewers",
+            "skills",
+            "hooks",
+            "ablation",
+            "producer_wait",
+        ):
             if getattr(self, absent) is None:
                 data.pop(absent, None)
         return data
@@ -348,6 +374,24 @@ class Halted(_Event):
     kind: Literal["halted"] = "halted"
     reason: HaltReason
     detail: NonEmptyStr
+    #: For a halt on the account's usage limit: the reset as the stream gave it, and as an
+    #: instant where it parses.
+    usage_limit: UsageLimit | None = None
+
+    @model_validator(mode="after")
+    def _a_limit_halt_names_its_reset(self) -> Halted:
+        if (self.reason == "usage_limit") != (self.usage_limit is not None):
+            msg = "a halt on the usage limit carries the limit, and no other halt does"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_no_limit(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # A halt of any other reason is written byte for byte as before the limit was a cause.
+        data: dict[str, Any] = handler(self)
+        if self.usage_limit is None:
+            data.pop("usage_limit", None)
+        return data
 
 
 class GateRan(_Event):
@@ -412,6 +456,43 @@ class ReviewRan(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     result: ReviewResult
+    #: The earlier attempts of the subtask no review had judged whose scan hits this review was
+    #: given and answered, every one (ARCH-133), in order. A line without it judged its own
+    #: attempt's streams alone, as every line written before did; it is left out when empty, so
+    #: those lines keep their bytes, and a line that holds it holds at least one attempt.
+    judged_earlier: tuple[Attempt, ...] = ()
+    #: The hits of those earlier attempts this review was given to judge, each marked with its
+    #: attempt, as the scan found them: what :attr:`judged_earlier` is held to, with the answers
+    #: in :attr:`result`. Left out when empty, as :attr:`judged_earlier` is.
+    earlier_hits: tuple[ScanHit, ...] = ()
+
+    @field_validator("judged_earlier", "earlier_hits", mode="before")
+    @classmethod
+    def _some_when_present(cls, value: object) -> object:
+        # Present on a line, the list names an attempt: an empty one re-serialises to bytes no
+        # writer wrote. The writer's own empty tuple is the field left out.
+        if isinstance(value, list):
+            if not value:
+                msg = "a review line names the earlier attempts it judged, or leaves the field out"
+                raise ValueError(msg)
+            return tuple(value)
+        return value
+
+    @model_serializer(mode="wrap")
+    def _omit_none_judged(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.judged_earlier:
+            data.pop("judged_earlier", None)
+        if not self.earlier_hits:
+            data.pop("earlier_hits", None)
+        return data
+
+    @model_validator(mode="after")
+    def _earlier_hits_marked(self) -> ReviewRan:
+        if any(hit.attempt is None or hit.attempt >= self.attempt for hit in self.earlier_hits):
+            msg = "a review line's earlier hits are each marked with an attempt before its own"
+            raise ValueError(msg)
+        return self
 
 
 class ReviewUnavailable(_Event):
@@ -505,6 +586,12 @@ class SessionEnded(_Event):
     #: The series records the session left, each sealed by digest and length, and what was
     #: refused or discarded instead. Every later reader holds a record to its seal here.
     series: SessionSeries = SessionSeries()
+    #: For an end on the account's usage limit: the reset as the stream gave it, and as an
+    #: instant where it parses.
+    usage_limit: UsageLimit | None = None
+    #: How full the account's usage windows were at the last rate-limit event the session's
+    #: stream gave, so a run's analysis can say how near the limit each session ended.
+    account_windows: tuple[AccountWindow, ...] = ()
 
     @model_validator(mode="after")
     def _completed_names_its_work(self) -> SessionEnded:
@@ -520,7 +607,21 @@ class SessionEnded(_Event):
         ):
             msg = "only an infrastructure end that left no policy limits has them unjudged"
             raise ValueError(msg)
+        if (self.cause == "usage_limit") != (self.usage_limit is not None):
+            msg = "an end on the usage limit carries the limit, and no other end does"
+            raise ValueError(msg)
         return self
+
+    @model_serializer(mode="wrap")
+    def _omit_no_limit(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Every other end is written byte for byte as before the limit was a cause.
+        data: dict[str, Any] = handler(self)
+        if self.usage_limit is None:
+            data.pop("usage_limit", None)
+        # And an end whose stream gave no rate-limit state, as before the windows were read.
+        if not self.account_windows:
+            data.pop("account_windows", None)
+        return data
 
 
 class InfraRetryScheduled(_Event):
@@ -864,6 +965,47 @@ class FollowUpEnded(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     why: FollowUpWhy
+
+
+class DispatchHeld(_Event):
+    """A subtask's dispatch is held: a subtask it reads from waits on a person, unmerged.
+
+    "Reads from" is the run's recorded contract pairs: ``producer`` is a pair's producing subtask
+    whose consumer is ``subtask_id``, over ``interfaces``. The producer is escalated with its item
+    ``item_id`` undecided, or is held itself through a chain whose root waits on ``item_id``.
+    Written once per held producer, in a run that acts on decisions; the run goes on with what
+    does not read from it, and otherwise waits on the queue.
+    """
+
+    kind: Literal["dispatch_held"] = "dispatch_held"
+    subtask_id: NonEmptyStr
+    producer: NonEmptyStr
+    item_id: NonEmptyStr
+    interfaces: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
+
+
+#: How a held dispatch was let go, or why one was never held.
+#:
+#: ``merged``: the producer merged. ``ended_unmerged``: it ended without a merge (rejected,
+#: removed, or a decision that acted on nothing), so the subtask runs without its work.
+#: ``waits_for_closing_pass``: a person chose the producer's value in a dispute, and its attempt
+#: waits for sizing's closing pass, which comes after the subtask. ``mutual_readers``: the two
+#: read from each other, so the subtask is dispatched with the producer waiting, and never held.
+ReleasedHow = Literal["merged", "ended_unmerged", "waits_for_closing_pass", "mutual_readers"]
+
+
+class DispatchReleased(_Event):
+    """A held dispatch let go, or a dispatch not held although its producer waits on a person.
+
+    ``item_id`` is the item the hold named, or for ``mutual_readers`` the item the producer waits
+    on. Every outcome but ``mutual_readers`` closes the one hold of ``subtask_id`` on ``producer``.
+    """
+
+    kind: Literal["dispatch_released"] = "dispatch_released"
+    subtask_id: NonEmptyStr
+    producer: NonEmptyStr
+    item_id: NonEmptyStr
+    outcome: ReleasedHow
 
 
 class Incident(_Event):
@@ -1556,6 +1698,17 @@ class Resumed(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     point: Literal["resolve", "verify_reading", "diff"]
+    #: The operator who said on the command line that the account's usage limit has reset, for a
+    #: resume of a run waiting on a limit whose reset could not be read.
+    limit_reset_by: NonEmptyStr | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_no_word(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Every other resume is written byte for byte as before.
+        data: dict[str, Any] = handler(self)
+        if self.limit_reset_by is None:
+            data.pop("limit_reset_by", None)
+        return data
 
 
 Event = Annotated[
@@ -1585,6 +1738,8 @@ Event = Annotated[
     | SubtaskReopened
     | AttemptReturned
     | FollowUpEnded
+    | DispatchHeld
+    | DispatchReleased
     | FindingsRecorded
     | Incident
     | IncidentResolved

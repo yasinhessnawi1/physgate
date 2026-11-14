@@ -138,7 +138,17 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     p.add_argument(
         "--run-config",
         help="the run's recorded configuration (run.json): a role session's settings without "
-        "the OS layer (no --os-layer-temp) are written only where it allows the layer's absence",
+        "the OS layer (no --os-layer-temp) are written only where it allows the layer's absence, "
+        "and settings with --hooks off only where it recorded hooks: off",
+    )
+    p.add_argument(
+        "--hooks",
+        choices=["on", "off"],
+        default="on",
+        help="'off', an ablation run's arm: a role session without the design discipline (no "
+        "required reading, no always-loaded ceiling, no proposal checks, its worktree's own gate, "
+        "hook and knowledge sources writable); taken only with --run-config naming a run that "
+        "recorded hooks: off, and the run's recorded value is held to whenever one is named",
     )
     p.add_argument(
         "--os-layer-network",
@@ -190,8 +200,38 @@ def _os_layer_refusal(args: argparse.Namespace) -> str | None:
     return os_layer_refusal(config, absent)
 
 
+def _hooks_refusal(args: argparse.Namespace) -> str | None:
+    """Why the session may not be installed with ``--hooks`` as asked, or ``None``.
+
+    The discipline is dropped only for a run whose recorded configuration says so, so a word on
+    this command line cannot install an arm the run did not record; and a run's recorded value,
+    whenever one is named, is the one installed.
+    """
+    if args.run_config is None:
+        if args.hooks == "off":
+            return (
+                "a session is installed with --hooks off only for a run whose recorded "
+                "configuration (--run-config) says hooks: off"
+            )
+        return None
+    # Only here: the hook layer's own modules import nothing of the orchestrator.
+    from physgate.orchestrator.exceptions import RunConfigError  # noqa: PLC0415
+    from physgate.orchestrator.run_config import load_run_config  # noqa: PLC0415
+
+    try:
+        config = load_run_config(Path(args.run_config))
+    except (RunConfigError, OSError) as exc:
+        return f"the run configuration named cannot be read, so nothing is written: {exc}"
+    if config.hooks != args.hooks:
+        return (
+            f"the run recorded hooks: {config.hooks}, and the session was asked for hooks: "
+            f"{args.hooks}; nothing is written"
+        )
+    return None
+
+
 def _install(args: argparse.Namespace) -> int:
-    refused = _os_layer_refusal(args)
+    refused = _hooks_refusal(args) or _os_layer_refusal(args)
     if refused is not None:
         print(json.dumps({"error": refused}), file=sys.stderr)
         return 2
@@ -228,6 +268,7 @@ def _install(args: argparse.Namespace) -> int:
         os_layer_readable=tuple(_abs(p) for p in args.os_layer_readable),
         os_layer_network=args.os_layer_network,
         spawns_with_canary=args.spawns_with_canary,
+        hooks=args.hooks,
     )
     done = install(request, REGISTRY)
     printed: dict[str, object] = {

@@ -27,6 +27,7 @@ from physgate.orchestrator.managed import FlagCache, ObservedTraffic
 from physgate.orchestrator.protocols import AdmittedExport, IssuedState, MessageUsage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.trajectory import Seal
+from physgate.orchestrator.usage_limit import AccountWindow, UsageLimit
 from physgate.series.seal import SeriesCheck, SessionSeries
 from physgate.state.divergence import Divergence
 from physgate.state.store import JournalLine, Payload
@@ -137,6 +138,12 @@ class SessionReport(_Frozen):
     #: end of the output, where its ``done`` line stands (``reaper_unverified`` in the hook
     #: layer's log). What the command started may have lived on, so it is an incident.
     reaper_unverified: tuple[NonEmptyStr, ...] = ()
+    #: The account's usage limit the session ended on, as its stream named it, for an end whose
+    #: cause is ``usage_limit``; ``None`` for every other end.
+    usage_limit: UsageLimit | None = None
+    #: How full the account's usage windows were at the last rate-limit event the session's
+    #: stream gave; empty where it gave none.
+    account_windows: tuple[AccountWindow, ...] = ()
 
 
 #: How a reason a hook layer's log says nothing of a session's reaping begins, where it stands
