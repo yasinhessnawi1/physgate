@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Sequence
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +55,12 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
 )
 from test_a_person_chooses_a_position_only_on_an_arbitration_item import chose
 from test_a_queue_decision_acts_at_a_boundary import NO_VERDICT, _layer, decide
+from test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset import (
+    NOON,
+    RESETS,
+    LimitDispatcher,
+    clock,  # noqa: F401 - the rig's clock, a fixture
+)
 
 from physgate import roles
 from physgate.contracts.pairs import ContractPair, Side
@@ -64,6 +71,7 @@ from physgate.orchestrator.ports import ChangeCheck
 from physgate.orchestrator.record import DecompositionSummary
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import ModelStrings
+from physgate.orchestrator.usage_limit import UsageLimit
 from physgate.oslayer.probe import Present
 from physgate.series.seal import SessionSeries
 from physgate.state.store import journal_records_after
@@ -1068,3 +1076,41 @@ def test_a_reader_is_let_go_when_its_producer_waits_for_the_closing_pass_and_run
     assert state.subtasks[BUS].status == "waiting"
     step = state.next_step()
     assert (step.kind, step.subtask_id) == ("attempt", "zc")
+
+
+# --- a usage-limit halt and a hold are independent -----------------------------------------------
+
+
+def test_a_run_halted_on_the_usage_limit_resumes_after_the_reset_and_still_holds_the_reader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    clock: list[datetime],  # noqa: F811 - the imported fixture, by its name
+) -> None:
+    # drive goes to a person and fw is held; budget's session, the fourth, meets the limit.
+    rig = rigged(tmp_path)
+    rig.dispatcher = LimitDispatcher(
+        trajectories=tmp_path / "run" / "sessions",
+        infra={4: "usage_limit"},
+        limits={4: UsageLimit(resets=RESETS)},
+    )
+    assert first_run(rig, monkeypatch, budget=True) == "halted"
+    rows = lines(rig)
+    item = drive_item(rows)
+    assert [r["reason"] for r in of(rows, "halted")] == ["usage_limit"]
+    assert _held_on(rows) == [(FW, DRIVE, item, ["iface.drive"])]
+    # Past the reset, budget's attempt goes on where the limit cut it; fw is still held.
+    clock[0] = NOON + timedelta(hours=1, minutes=21)
+    assert resumed(rig, monkeypatch, budget=True) == "wait"
+    rows = lines(rig)
+    assert of(rows, "merged", subtask_id=BUDGET) != []
+    assert [r.attempt for r in requests_of(rig, BUDGET)] == [1, 1]
+    assert requests_of(rig, FW) == []
+    assert len(of(rows, "dispatch_held")) == 1
+    assert of(rows, "dispatch_released") == []
+    assert refusal(rows) is None
+    decide(rig.run_dir, "approve", item_id=item)
+    assert resumed(rig, monkeypatch, budget=True) == "done"
+    rows = lines(rig)
+    assert [r["outcome"] for r in of(rows, "dispatch_released")] == ["merged"]
+    assert [r.attempt for r in requests_of(rig, FW)] == [1]
+    assert refusal(rows) is None
