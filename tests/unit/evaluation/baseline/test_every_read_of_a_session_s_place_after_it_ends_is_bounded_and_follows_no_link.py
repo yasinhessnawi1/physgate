@@ -69,8 +69,11 @@ def _release(fifo: Path) -> None:
         os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
 
 
-def _within(call: Callable[[], Any], fifo: Path | None) -> Any:  # noqa: ANN401
-    """What ``call`` returned or raised; the row fails on its assertion past the bound."""
+def _within(call: Callable[[], Any], fifo: Callable[[], Path] | None) -> Any:  # noqa: ANN401
+    """What ``call`` returned or raised; the row fails on its assertion past the bound.
+
+    ``fifo`` gives the pipe a hung read waits on, once the session has left it.
+    """
     box: dict[str, Any] = {}
 
     def run() -> None:
@@ -84,7 +87,7 @@ def _within(call: Callable[[], Any], fifo: Path | None) -> Any:  # noqa: ANN401
     thread.join(WITHIN_S)
     hung = thread.is_alive()
     while thread.is_alive() and fifo is not None:
-        _release(fifo)
+        _release(fifo())
         thread.join(1.0)
     assert not hung, "the harness waited on a named pipe the session left"
     return box["value"]
@@ -155,7 +158,10 @@ def test_the_session_s_configuration_is_read_as_a_bounded_regular_file_or_refuse
     a forged tool list never reaches the comparison.
     """
     arm = StandInArm(left=_left_at_config(kind, tmp_path))
-    config = tmp_path / "round" / "work" / "0000-1" / "place" / "session" / "session" / CONFIG_NAME
+
+    def config() -> Path:
+        return arm.calls[-1][2] / "session" / "session" / CONFIG_NAME
+
     outcome = _within(
         lambda: _round(store, tmp_path, arm), config if kind == "named pipe" else None
     )
@@ -183,7 +189,10 @@ def test_the_session_s_stream_is_read_as_a_regular_file_or_refused_after_the_ses
             os.link(outside, stream)
 
     arm = StandInArm(left=leave)
-    stream = tmp_path / "round" / "work" / "0000-1" / "place" / "session" / "stdout.jsonl"
+
+    def stream() -> Path:
+        return arm.calls[-1][2] / "session" / "stdout.jsonl"
+
     outcome = _within(
         lambda: _round(store, tmp_path, arm), stream if kind == "named pipe" else None
     )
@@ -344,13 +353,21 @@ def test_an_answer_held_to_an_identity_list_that_is_not_whole_is_not_taken(
 def test_a_visible_session_is_withheld_the_harness_s_directory_beside_its_place(
     tmp_path: Path, store: StandInStore
 ) -> None:
-    """No root of the run's holds a visible trial's directory: the harness's is withheld besides."""
+    """The harness's directory beside a visible trial's place is withheld from its session.
+
+    The trial lies in the store's work root, which the run's roots hold; the session is given
+    its own place out of them and nothing else, so the harness's directory beside it, as it is
+    while the session runs, is among what it withholds.
+    """
     task = store.tasks["visible"][0]
-    given: list[RawSetup] = []
+    withheld: list[tuple[Path, tuple[str, ...]]] = []
     arm = StandInArm()
 
     def seen(task_: Any, setup: RawSetup, work: Path, *, cap: int, harness: Path) -> Any:  # noqa: ANN401
-        given.append(setup)
+        carved = setup.held_out_carved
+        held = raw.held_out_but(setup.held_out, Path(carved)) if carved else setup.held_out
+        withheld.append((harness, (*held, *vars(setup).get("held_out_also", ()))))
+        assert setup.held_out == store.held_out, "the run's own roots are given as recorded"
         return arm(task_, setup, work, cap=cap, harness=harness)
 
     run_baseline(
@@ -365,6 +382,6 @@ def test_a_visible_session_is_withheld_the_harness_s_directory_beside_its_place(
         arm=seen,
         sleep=lambda _s: None,
     )
-    ((setup,),) = [given]
-    assert setup.held_out_beside == str(tmp_path / "round" / "work" / "0000-1" / "harness")
-    assert setup.held_out == store.held_out, "the run's own roots are given as recorded"
+    ((harness, held),) = withheld
+    assert os.path.realpath(harness) in {os.path.realpath(p) for p in held}
+    assert os.path.realpath(tmp_path / "round") in held, "the round's directory is not withheld"

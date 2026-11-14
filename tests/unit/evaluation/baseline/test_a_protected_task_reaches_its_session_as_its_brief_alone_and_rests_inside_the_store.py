@@ -12,6 +12,7 @@ record names where it lies, and the store refuses the next round until a person 
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import shutil
 import traceback
@@ -196,16 +197,15 @@ def test_a_protected_task_s_other_fields_reach_neither_its_session_nor_a_visible
     forbidden = _forbidden(store)
     briefs = {t.brief for t in tasks}
     assert len(session.given) == len(tasks) == 24
-    protected_briefs = {t.brief for t in _protected(store)}
     for (prompt, setup), work in zip(session.given, session.works, strict=True):
-        # A protected trial's session works in the store's work root, given that directory
-        # alone out of the run's held-out roots; a visible one in the round's directory.
-        if prompt in protected_briefs:
-            assert work.name == runner.PLACE
-            assert work.parent.parent == work_root(store.store, "control")
-            assert setup.held_out_carved == str(work)
-        else:
-            assert work.is_relative_to(out) and setup.held_out_carved is None
+        # Every trial's session, protected or visible, works in the store's work root, given
+        # that directory alone out of the run's held-out roots; the round's directory, where
+        # visible trials are moved once they end, is withheld from it besides.
+        assert work.name == runner.PLACE
+        assert work.parent.parent == work_root(store.store, "control")
+        assert setup.held_out_carved == str(work)
+        assert not work.is_relative_to(out)
+        assert os.path.realpath(out) in vars(setup).get("held_out_also", ())
         assert setup.held_out == tuple(store.held_out)
         assert prompt in briefs
         assert not [m for m in forbidden if m in prompt]
