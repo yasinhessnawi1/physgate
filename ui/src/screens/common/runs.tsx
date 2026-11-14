@@ -45,6 +45,21 @@ export function haltOwedWords(status: RunStatus): string | null {
   return status.owedHalt === null ? null : `Halt owed · ${status.owedHalt.cause}`;
 }
 
+/**
+ * A halt taken, in plain words where the reason has them: a run halted on the account's usage
+ * limit waits for it to reset, and a resume after the reset goes on. Any other reason is shown as
+ * recorded, never guessed at.
+ */
+const HALT_WORDS: Readonly<Record<string, string>> = {
+  usage_limit: "Waiting for the usage limit to reset",
+};
+
+/** A run's halt, in words: "Waiting for the usage limit to reset", or "Halted · <reason>". */
+export function haltedWords(status: RunStatus): string | null {
+  if (status.halted === null) return null;
+  return HALT_WORDS[status.halted.reason] ?? `Halted · ${status.halted.reason}`;
+}
+
 /** Whether the run is still going: its next step is neither done, nor a halt taken or owed. */
 export function inProgress(status: RunStatus): boolean {
   return (

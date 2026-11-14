@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from physgate.orchestrator.managed import SessionManaged
     from physgate.orchestrator.protocols import MessageUsage, SpecDefect, UnavailableCause
+    from physgate.orchestrator.usage_limit import UsageLimit
 
 
 class OrchestratorError(Exception):
@@ -102,6 +103,14 @@ class RunStateError(OrchestratorError):
     """The run is not in a state that allows what was asked: started twice, or interrupted."""
 
 
+class LimitNotResetError(RunStateError):
+    """A resume of a run waiting for the account's usage limit, asked before it may go on.
+
+    Carries the instant after which a resume goes on (``resume_after``), so a script can wait
+    and try again. No session is started and nothing is written.
+    """
+
+
 class GitError(OrchestratorError):
     """A git command failed. The step stops; nothing retries it."""
 
@@ -177,6 +186,7 @@ class ReviewUnavailableError(OrchestratorError):
         reviewer_model: str | None = None,
         usage: tuple[MessageUsage, ...] = (),
         spec_defects: tuple[SpecDefect, ...] = (),
+        usage_limit: UsageLimit | None = None,
         managed: tuple[SessionManaged, ...] = (),
         **context: str,
     ) -> None:
@@ -187,6 +197,9 @@ class ReviewUnavailableError(OrchestratorError):
         self.reviewer_model = reviewer_model
         self.usage = usage
         self.spec_defects = spec_defects
+        #: The account's usage limit the review session ended on, if its stream named one: the
+        #: review could not run, and the attempt waits for it (the cause stays ``infrastructure``).
+        self.usage_limit = usage_limit
         #: Per invocation of the review's session, the conditions it ran under (see
         #: ``ReviewResult.managed``); empty on a pin whose sessions carry no such traffic.
         self.managed = managed

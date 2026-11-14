@@ -4,7 +4,7 @@
  * no cause, no advice, no comparison the record lacks. Lines that say nothing a person reads
  * (stage markers, token counts, worktree clean-ups) make no row.
  */
-import type { RunEvent } from "../../api/events";
+import type { RELEASED_HOW, RunEvent } from "../../api/events";
 import type { GateCheck } from "../../api/run";
 import type { GateMode } from "../../design/components/verdict/GateMode";
 import type { Verdict } from "../../design/components/verdict/verdict";
@@ -201,6 +201,7 @@ export function rowOf(
         subtask: event.subtask,
       };
     case "session_ended": {
+      // An infrastructure end names its cause as recorded, the account's usage limit among them.
       const sentence =
         event.outcome === "completed"
           ? `Attempt ${String(event.attempt)}: the agent's session ended`
@@ -444,8 +445,46 @@ export function rowOf(
         subtask: event.subtask,
       };
     }
+    case "dispatch_held":
+      return {
+        ...base,
+        depth: 1,
+        sentence: `${subtaskName(event.subtask)} is waiting for ${subtaskName(event.producer)}, which is with a person (${event.itemId})`,
+        meta: `${event.subtask} · reads ${event.interfaces.join(", ")}`,
+        subtask: event.subtask,
+      };
+    case "dispatch_released":
+      return {
+        ...base,
+        depth: 1,
+        sentence: releasedWords(
+          subtaskName(event.subtask),
+          subtaskName(event.producer),
+          event.outcome,
+        ),
+        meta: `${event.subtask} · ${event.itemId}`,
+        subtask: event.subtask,
+      };
     default:
       return null;
+  }
+}
+
+/** Why a held dispatch was let go, or why it was never held, in a sentence. */
+function releasedWords(
+  subtask: string,
+  producer: string,
+  outcome: (typeof RELEASED_HOW)[number],
+): string {
+  switch (outcome) {
+    case "merged":
+      return `${subtask} released: ${producer} merged`;
+    case "ended_unmerged":
+      return `${subtask} released: ${producer} ended without merging`;
+    case "waits_for_closing_pass":
+      return `${subtask} released: ${producer} waits for sizing's closing pass, which comes after it`;
+    case "mutual_readers":
+      return `${subtask} is not held: it and ${producer} read from each other, so it runs while ${producer} is with a person`;
   }
 }
 
