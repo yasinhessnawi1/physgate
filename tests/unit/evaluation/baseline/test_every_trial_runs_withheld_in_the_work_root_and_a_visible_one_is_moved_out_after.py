@@ -248,8 +248,9 @@ def test_a_visible_trial_on_another_filesystem_is_copied_whole_and_its_source_re
         (place / "worktree" / "pointer").symlink_to(decoy)
 
     tried = _cross_filesystem(monkeypatch, store)
-    record = _round(store, tmp_path, StandInArm(left=leave), "visible")
+    record = _outcome(lambda: _round(store, tmp_path, StandInArm(left=leave), "visible"))
     assert tried, "no move across filesystems was tried"
+    assert not isinstance(record, Exception), f"the copy was refused: {record!r}"
     assert record.counts["visible"].passed == 1
     trial = tmp_path / "round" / "work" / "0000-1"
     worktree = trial / PLACE / "worktree"
