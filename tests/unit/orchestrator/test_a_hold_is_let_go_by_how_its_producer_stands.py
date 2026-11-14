@@ -30,6 +30,12 @@ class _Sub:
     status: str
     queue_item: str | None = ITEM
     next_resolve: int | None = None
+    attempts: list[_Attempt] = field(default_factory=list)
+
+
+@dataclass
+class _Attempt:
+    number: int
 
 
 @dataclass
@@ -131,3 +137,12 @@ def test_a_reader_of_a_reader_waits_on_the_root_while_the_middle_ones_next_dispa
     assert gated(state, "budget") == gate  # type: ignore[arg-type]
     if gate == "hold":
         assert root_item(state, "fw") == ITEM  # type: ignore[arg-type]
+
+
+def test_an_attempt_restarted_after_an_infrastructure_failure_or_a_kill_is_not_held() -> None:
+    # Its attempt 2 is on the record and may restart: the attempt is under way, not a dispatch.
+    restarting = _Sub("active", None, 2, [_Attempt(1), _Attempt(2)])
+    state = _Run({"drive": _Sub("escalated"), "budget": restarting}, (_pair("drive", "budget"),))
+    assert gated(state, "budget") is None  # type: ignore[arg-type]
+    restarting.attempts.pop()
+    assert gated(state, "budget") == "hold"  # type: ignore[arg-type]

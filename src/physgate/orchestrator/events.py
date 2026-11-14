@@ -223,8 +223,8 @@ class RunStarted(_Event):
     hooks: Literal["off"] | None = None
     #: ``True`` in an ablation run, which is never reportable; left out of every other run.
     ablation: Literal[True] | None = None
-    #: ``hold`` in a run that acts on decisions and was started under the rule that a subtask's
-    #: first dispatch waits while a subtask it reads from waits on a person; replay then refuses
+    #: ``hold`` in a run that acts on decisions and was started under the rule that every
+    #: dispatch of a subtask waits while a subtask it reads from waits on a person; replay refuses
     #: such a dispatch with no hold or release line before it. Left out of every other run, so a
     #: line written before the rule keeps its bytes and replays as it did.
     producer_wait: Literal["hold"] | None = None
@@ -889,7 +889,7 @@ class FollowUpEnded(_Event):
 
 
 class DispatchHeld(_Event):
-    """A subtask's first dispatch is held: a subtask it reads from waits on a person, unmerged.
+    """A subtask's dispatch is held: a subtask it reads from waits on a person, unmerged.
 
     "Reads from" is the run's recorded contract pairs: ``producer`` is a pair's producing subtask
     whose consumer is ``subtask_id``, over ``interfaces``. The producer is escalated with its item

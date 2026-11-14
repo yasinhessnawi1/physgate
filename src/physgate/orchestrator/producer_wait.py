@@ -2,14 +2,16 @@
 
 "Reads from" is the strongest relation the record holds: the run's contract pairs, recorded
 from the plan before any module runs, each naming a producing and a consuming subtask and the
-interfaces between them. A subtask's first dispatch is held while a pair's producer is escalated
-with its item undecided, or is itself held, at any depth: the hold names the undecided item at the
-chain's root, so every hold pairs with something a person can act on. The run goes on with every
-subtask that does not read from it, and waits on the queue when nothing else can run. The hold
-is let go once the producer merged, ended without a merge, or waits for sizing's closing pass,
-which comes after the subtask; the release line says which, so a reader tells "waited, then ran
-without it" from "ran before it". Two subtasks that read from each other are never held, and a
-line says so.
+interfaces between them. Every dispatch of a subtask, its first or a later attempt's, is held while
+a pair's producer is escalated with its item undecided, or would itself be held at its own next
+dispatch, at any depth: the hold names the undecided item at the chain's root, so every hold pairs
+with something a person can act on. A later dispatch meets a waiting producer once a merged one is
+reopened, runs again and goes to a person. An attempt under way is let finish: only the next
+dispatch is held. The run goes on with every subtask that does not read from it, and waits on the
+queue when nothing else can run. The hold is let go once the producer merged, ended without a
+merge, or waits for sizing's closing pass, which comes after the subtask; the release line says
+which, so a reader tells "waited, then ran without it" from "ran before it". Two subtasks that read
+from each other are never held, and a line says so.
 
 Only in a run that acts on decisions and records its pairs: a run that records only never takes
 a decision, so a producer in the queue has ended there, and a run without pairs has no recorded
@@ -30,7 +32,7 @@ if TYPE_CHECKING:
     from physgate.orchestrator.events import Envelope
     from physgate.orchestrator.replay import RunState
 
-#: What a subtask's first dispatch is turned into: a line to write first, or passed over.
+#: What a subtask's dispatch is turned into: a line to write first, or passed over.
 Gated = Literal["hold", "release", "held"]
 
 
@@ -61,6 +63,19 @@ def _applies(state: RunState) -> bool:
     return state.acts and state.contract_pairs is not None
 
 
+def dispatch_due(state: RunState, subtask_id: str) -> bool:
+    """Whether ``subtask_id``'s next line starts an attempt not yet on the record: a dispatch.
+
+    Its first attempt, or a later one: the next after a rejection, a fix a person ordered, or a
+    reopen. An attempt under way is not, nor one restarted after an infrastructure failure or a
+    kill: it is let finish.
+    """
+    sub = state.subtasks[subtask_id]
+    if sub.status not in ("planned", "active") or sub.next_resolve is None:
+        return False
+    return not sub.attempts or sub.attempts[-1].number != sub.next_resolve
+
+
 def _reads_from(state: RunState, subtask_id: str) -> list[ContractPair]:
     """The pairs whose consumer is ``subtask_id``, in the recorded order."""
     return [p for p in state.contract_pairs or () if p.consumer.subtask_id == subtask_id]
@@ -84,7 +99,7 @@ def waiting_item(state: RunState, producer: str) -> str | None:
 def root_item(state: RunState, producer: str, seen: frozenset[str] = frozenset()) -> str | None:
     """The undecided item ``producer`` waits on, directly or through a chain; ``None`` if none.
 
-    Directly: it is escalated and its item undecided. Through a chain: it has not been dispatched
+    Directly: it is escalated and its item undecided. Through a chain: its next dispatch is due
     and a subtask it reads from waits so, at any depth, so it would be held itself; the item is
     the one at the chain's root, which a person can act on. Two subtasks that read from each other
     are never held, so a link between them is not followed, and no subtask is visited twice.
@@ -92,7 +107,7 @@ def root_item(state: RunState, producer: str, seen: frozenset[str] = frozenset()
     item = waiting_item(state, producer)
     if item is not None:
         return item
-    if state.subtasks[producer].status != "planned" or producer in seen:
+    if not dispatch_due(state, producer) or producer in seen:
         return None
     for pair in _reads_from(state, producer):
         upstream = pair.producer.subtask_id
@@ -107,8 +122,8 @@ def root_item(state: RunState, producer: str, seen: frozenset[str] = frozenset()
 def released_how(state: RunState, producer: str) -> ReleasedHow | None:
     """How a hold on ``producer`` is let go now; ``None`` while it waits on a person or runs.
 
-    A producer not yet dispatched, held itself or about to run, keeps its readers held: they are
-    let go only by how it ends, link by link along a chain.
+    A producer not yet dispatched, held itself, about to run or running again after a reopen,
+    keeps its readers held: they are let go only by how it ends, link by link along a chain.
     """
     sub = state.subtasks[producer]
     if sub.status == "done":
@@ -123,7 +138,7 @@ def released_how(state: RunState, producer: str) -> ReleasedHow | None:
 
 
 def _owed(state: RunState, subtask_id: str) -> _Owed | Literal["held"] | None:
-    """The line the record owes before ``subtask_id``'s first dispatch, ``held``, or nothing.
+    """The line the record owes before ``subtask_id``'s next dispatch, ``held``, or nothing.
 
     Every open hold is let go first, in the order written; while one stays open the subtask is
     passed over. A further hold is looked for only once none is open.
@@ -149,8 +164,8 @@ def _owed(state: RunState, subtask_id: str) -> _Owed | Literal["held"] | None:
 
 
 def gated(state: RunState, subtask_id: str) -> Gated | None:
-    """What becomes of ``subtask_id``'s first dispatch; ``None`` when it goes ahead as planned."""
-    if not _applies(state) or state.subtasks[subtask_id].status != "planned":
+    """What becomes of ``subtask_id``'s next dispatch; ``None`` when it goes ahead as planned."""
+    if not _applies(state) or not dispatch_due(state, subtask_id):
         return None
     owed = _owed(state, subtask_id)
     if owed is None:
@@ -159,11 +174,11 @@ def gated(state: RunState, subtask_id: str) -> Gated | None:
 
 
 def held_subtask(state: RunState) -> str | None:
-    """The first planned subtask a hold on the record keeps back, in plan order."""
+    """The first subtask due a dispatch that a hold on the record keeps back, in plan order."""
     if not _applies(state):
         return None
     for subtask_id in state.order:
-        if state.subtasks[subtask_id].status != "planned":
+        if not dispatch_due(state, subtask_id):
             continue
         if any(d == subtask_id for d, _ in state.producer_waits.open):
             return subtask_id
@@ -207,7 +222,7 @@ def take(state: RunState, event: DispatchHeld | DispatchReleased) -> str | None:
         return "a hold or release in a run that does not act on decisions by its recorded pairs"
     kind = "hold" if isinstance(event, DispatchHeld) else "release"
     step = state.next_step()
-    owed = _owed(state, subtask_id) if state.subtasks[subtask_id].status == "planned" else None
+    owed = _owed(state, subtask_id) if dispatch_due(state, subtask_id) else None
     if (step.kind, step.subtask_id) != (kind, subtask_id) or not isinstance(owed, _Owed):
         return f"no {type(event).__name__} is owed for {subtask_id!r} now"
     if isinstance(event, DispatchHeld):

@@ -229,7 +229,7 @@ class _Mark(TypedDict, total=False):
 _UNWRITTEN_TS = utc_stamp(datetime(1970, 1, 1, tzinfo=UTC))
 
 #: What a run that acts on decisions writes on its first line of the rule it starts under: a
-#: subtask's first dispatch waits while a subtask it reads from waits on a person.
+#: every dispatch of a subtask waits while a subtask it reads from waits on a person.
 PRODUCER_WAIT: Literal["hold"] | None = "hold"
 
 

@@ -1,13 +1,14 @@
 """A subtask is not dispatched while a subtask it reads from waits, unmerged, on a person.
 
 "Reads from" is the run's recorded contract pairs. In a run that acts on decisions, a pair's
-consumer is held at its first dispatch while the pair's producer is escalated and its item
-undecided; the hold is a line of its own. The run goes on with every subtask that does not read
-from the producer, and waits on the queue when nothing else can run. Once the producer merged the
-consumer runs on the merged work; once it ended without a merge the consumer runs without it, and
-the release line says which. Two subtasks that read from each other are never held, and a line
-says so. A kill anywhere around the wait resumes to the lines of the uninterrupted run, and a run
-recorded before the hold existed, or one that records decisions only, runs and replays as before.
+consumer is held at every dispatch, its first or a later attempt's, while the pair's producer is
+escalated and its item undecided; the hold is a line of its own. The run goes on with every
+subtask that does not read from the producer, and waits on the queue when nothing else can run.
+Once the producer merged the consumer runs on the merged work; once it ended without a merge the
+consumer runs without it, and the release line says which. Two subtasks that read from each other
+are never held, and a line says so. A kill anywhere around the wait resumes to the lines of the
+uninterrupted run, and a run recorded before the hold existed, or one that records decisions only,
+runs and replays as before.
 """
 
 from __future__ import annotations

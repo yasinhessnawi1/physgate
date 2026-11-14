@@ -130,7 +130,14 @@ from physgate.orchestrator.exceptions import (
 from physgate.orchestrator.follow import rederived
 from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR, CriterionWords, SystemRequirement
-from physgate.orchestrator.producer_wait import Waits, gated, held_dispatch, held_subtask, take
+from physgate.orchestrator.producer_wait import (
+    Waits,
+    dispatch_due,
+    gated,
+    held_dispatch,
+    held_subtask,
+    take,
+)
 from physgate.orchestrator.protocols import ChosenValue, QuantityRef
 from physgate.orchestrator.queue import DECOMPOSITION_NAME, PLAN, contract_item_id, item_id_for
 from physgate.orchestrator.repair import FindingSource
@@ -287,7 +294,7 @@ def at_a_boundary(step: Step) -> bool:
 
     Between subtasks, at the integration call, or at the end of the run (ARCH-133). The loop
     takes decisions only where this holds, and the replay refuses one taken anywhere else. A hold
-    or release line stands where its subtask's first dispatch would: a boundary as that is.
+    or release line stands where its subtask's dispatch would: a boundary as that is.
     """
     if step.kind in ("integrate", "done", "escalated", "wait", "hold", "release"):
         return True
@@ -393,7 +400,7 @@ class RunState:
         #: resolved, and the escalation a blocking failure there led to.
         self.integration: IntegrationGateRan | IntegrationGateSkipped | None = None
         self.integration_escalated: IntegrationEscalated | None = None
-        #: The holds on first dispatches while a subtask read from waits on a person.
+        #: The holds on dispatches while a subtask read from waits on a person.
         self.producer_waits = Waits()
         #: Integration's subtask, if the plan has one: the one subtask whose planning line marks
         #: it as the completion owner's, read from that line and never from the role register or
@@ -1952,7 +1959,8 @@ class RunState:
             _refuse(
                 "sizing's closing pass waits while a dispute's or a contract's item is undecided"
             )
-        if sub.status == "planned" and (held := held_dispatch(self, sub.plan.subtask_id)):
+        due = dispatch_due(self, sub.plan.subtask_id)
+        if due and (held := held_dispatch(self, sub.plan.subtask_id)):
             _refuse(held)
         if not sub.attempts or sub.attempts[-1].number != attempt:
             if any(a.fix for a in sub.attempts):
@@ -2188,7 +2196,7 @@ class RunState:
             return Step(kind="contract")
         for subtask_id in self.integrated():
             step = self._step_of(subtask_id)
-            # A first dispatch held while a subtask it reads from waits on a person is passed over.
+            # A dispatch held while a subtask it reads from waits on a person is passed over.
             gate = gated(self, subtask_id) if step is not None and step.kind == "attempt" else None
             if gate == "hold" or gate == "release":
                 return Step(gate, subtask_id)
