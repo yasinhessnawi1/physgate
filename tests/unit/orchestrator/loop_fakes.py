@@ -399,8 +399,13 @@ class FakeGraph:
         return [one for one in self._ledgered() if one.rev > revision]
 
     def _ledgered(self) -> list[Any]:
-        """The nodes declared by earlier processes, as a journal would hold them."""
-        if self.ledger is None or not self.ledger.exists():
+        """The nodes declared, as a journal would hold them: by earlier processes too, if kept."""
+        if self.ledger is None:
+            return [
+                SimpleNamespace(rev=self.head + n, op="create", node_id=one["id"], payload=one)
+                for n, one in enumerate(self.declared, start=1)
+            ]
+        if not self.ledger.exists():
             return []
         found = [json.loads(raw) for raw in self.ledger.read_text().splitlines()]
         return [

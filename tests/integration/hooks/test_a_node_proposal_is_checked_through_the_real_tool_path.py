@@ -225,3 +225,72 @@ def test_either_written_through_the_shell_is_refused(
     assert _graph_refusals(run) == [graph.SHELL_WRITE]
     assert not (run.worktree / graph.PROPOSALS_DIR).exists()
     _unchanged(tmp_path, store)
+
+
+# --- a declared quantity, through the real tool path ----------------------------------------
+# Only the parts writer declares a quantity. A session that writes one is told so by the hook,
+# and a command that would land one in the proposals, in any shell form, is refused for naming
+# them: the store, a real one built before the session, is byte-identical afterwards.
+
+DECLARED_SOURCE = "declared by the person"
+FORGED = _node(
+    "electrical.driver",
+    "electrical",
+    quantities={
+        "mass": {
+            "value": 0.4,
+            "unit": "kg",
+            "source": DECLARED_SOURCE,
+            "written_by": "electrical",
+            "declared": {
+                "item_id": "run-1-parts-1",
+                "decision_sha256": "a" * 64,
+                "operator": "yasin",
+            },
+        }
+    },
+)
+NO_RECORD = _node(
+    "electrical.driver",
+    "electrical",
+    quantities={
+        "mass": {"value": 0.4, "unit": "kg", "source": DECLARED_SOURCE, "written_by": "electrical"}
+    },
+)
+
+
+@pytest.mark.parametrize("payload", [FORGED, NO_RECORD], ids=["with-a-record", "without-one"])
+def test_a_declared_quantity_a_session_writes_is_refused_as_forged(
+    tmp_path: Path, payload: dict[str, Any]
+) -> None:
+    run, store = _run(tmp_path, _proposal("electrical.driver.json", payload))
+    (reason,) = _graph_refusals(run)
+    assert "declared_forged" in reason and "mass" in reason
+    assert "declared_forged" in run.told_after(1)
+    assert not (run.worktree / graph.PROPOSALS_DIR / "electrical.driver.json").exists()
+    _unchanged(tmp_path, store)
+
+
+def _declared_by_shell(form: str) -> str:
+    target = f"{graph.PROPOSALS_DIR}/electrical.driver.json"
+    data = json.dumps(FORGED)
+    if form == "heredoc":
+        return f"mkdir -p {graph.PROPOSALS_DIR} && cat > {target} <<'EOF'\n{data}\nEOF\n"
+    if form == "redirect":
+        return f"mkdir -p {graph.PROPOSALS_DIR} && echo '{data}' > {target}"
+    program = (
+        "import os, sys; "
+        f"os.makedirs({graph.PROPOSALS_DIR!r}, exist_ok=True); "
+        f"open({target!r}, 'w').write(sys.argv[1])"
+    )
+    return f"python3 -c \"{program}\" '{data}'"
+
+
+@pytest.mark.parametrize("form", ["heredoc", "redirect", "in-language"])
+def test_a_declared_quantity_written_through_the_shell_is_refused(
+    tmp_path: Path, form: str
+) -> None:
+    run, store = _run(tmp_path, tool("Bash", command=_declared_by_shell(form), description="x"))
+    assert _graph_refusals(run) == [graph.SHELL_WRITE]
+    assert not (run.worktree / graph.PROPOSALS_DIR).exists()
+    _unchanged(tmp_path, store)
