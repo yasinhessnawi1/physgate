@@ -452,7 +452,11 @@ def test_the_record_carries_the_plant_s_digest_and_status_and_every_scale_factor
 ) -> None:
     plant = _plant()
     record = _judge(tmp_path, _answer(_native()), STATIC_SPECS[:1], plant)
-    assert record["plant"] == {"status": "draft", "sha256": hashlib.sha256(plant).hexdigest()}
+    assert record["plant"] == {
+        "version": None,
+        "status": "draft",
+        "sha256": hashlib.sha256(plant).hexdigest(),
+    }
     factors = {f["name"]: f for f in record["scale_factors"]}
     assert len(factors) == 9
     assert factors["wheel_radius"]["value"] == 0.040

@@ -46,6 +46,14 @@ def test_the_frozen_plant_is_the_candidate_with_its_status_frozen() -> None:
     assert hashlib.sha256(as_candidate).hexdigest() == CANDIDATE_SHA256
 
 
+def test_the_scorer_knows_this_digest_as_the_frozen_plant_v0() -> None:
+    from physgate.evaluation.whole import plant as plant_module
+
+    frozen = getattr(plant_module, "FROZEN_PLANTS", None)
+    assert frozen is not None, "the plant module names no frozen plant"
+    assert frozen == {FROZEN_SHA256: "v0"}
+
+
 def test_the_frozen_plant_is_taken_as_frozen() -> None:
     from physgate.evaluation.whole.plant import PlantError, parse_plant
 
