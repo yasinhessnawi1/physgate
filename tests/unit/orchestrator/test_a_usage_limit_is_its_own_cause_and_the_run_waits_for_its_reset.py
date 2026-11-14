@@ -187,7 +187,13 @@ def test_a_session_that_ended_on_the_limit_is_read_with_the_event_s_instant_kind
     None
 ):
     stream, result = _limited()
-    read = UsageLimit(resets=RESETS, resets_at=RESET_STAMP, limit_type="five_hour", windows=WINDOWS)
+    read = UsageLimit(
+        resets=RESETS,
+        resets_at=RESET_STAMP,
+        limit_type="five_hour",
+        windows=WINDOWS,
+        rejected_windows=("five_hour",),
+    )
     assert usage_limit_of(stream, result) == read
     assert usage_limit_of(stream.encode(), result) == read
     end, limit = session_end(stream, result, exit_code=1, stopped_at_wall_clock=False)
@@ -418,7 +424,11 @@ def test_a_503_on_the_way_and_the_limit_at_the_end_is_the_limit_with_its_event_s
     )
     assert end == SessionEnd(outcome="infrastructure", cause="usage_limit")
     assert limit == UsageLimit(
-        resets=RESETS, resets_at=RESET_STAMP, limit_type="five_hour", windows=WINDOWS
+        resets=RESETS,
+        resets_at=RESET_STAMP,
+        limit_type="five_hour",
+        windows=WINDOWS,
+        rejected_windows=("five_hour",),
     )
 
 
@@ -837,7 +847,11 @@ def test_without_a_zone_database_the_event_s_epoch_is_still_the_exact_instant(
     end, limit = session_end(stream, result, exit_code=1, stopped_at_wall_clock=False)
     assert end.cause == "usage_limit"
     assert limit == UsageLimit(
-        resets=RESETS, resets_at=RESET_STAMP, limit_type="five_hour", windows=WINDOWS
+        resets=RESETS,
+        resets_at=RESET_STAMP,
+        limit_type="five_hour",
+        windows=WINDOWS,
+        rejected_windows=("five_hour",),
     )
 
 

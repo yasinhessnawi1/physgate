@@ -40,10 +40,16 @@ import math
 import re
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from physgate.orchestrator.budget import SessionEnd, classify_session_end
 from physgate.orchestrator.common import NonEmptyStr, Timestamp, utc_stamp
@@ -52,6 +58,9 @@ from physgate.reviewers.transcript import parse_event
 #: How long a run waits after a halt whose reset could not be read, before a resume is allowed
 #: without the operator's word that the limit has reset: the account's session window.
 UNREAD_RESET_WAIT = timedelta(hours=5)
+#: The furthest a read reset may lie after the moment it is read. The longest window is seven
+#: days; a reset further out is a malformed field, not a limit, and is taken as not read.
+MAX_RESET_AHEAD = timedelta(days=8)
 
 #: The state a ``rate_limit_event`` gives when the account may not spend any more.
 REJECTED = "rejected"
@@ -100,6 +109,22 @@ class UsageLimit(BaseModel):
     limit_type: NonEmptyStr | None = None
     #: How full each of the account's windows was when the limit refused the session.
     windows: tuple[AccountWindow, ...] = ()
+    #: Every window that refused the session: the refusal's own kind, and each other window the
+    #: refusal gave as spent. The wait is for the latest of their resets.
+    rejected_windows: tuple[NonEmptyStr, ...] = ()
+    #: A reset the stream gave further out than :data:`MAX_RESET_AHEAD` after it was read: not
+    #: taken, so the reset is as if not read; ``None`` where none was out of range.
+    out_of_range_reset: Timestamp | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # A limit that has neither is written as before they were read.
+        data: dict[str, Any] = handler(self)
+        if not self.rejected_windows:
+            data.pop("rejected_windows", None)
+        if self.out_of_range_reset is None:
+            data.pop("out_of_range_reset", None)
+        return data
 
 
 def _events(data: bytes | str) -> list[dict[str, object]]:
@@ -163,9 +188,13 @@ def account_windows(data: bytes | str) -> tuple[AccountWindow, ...]:
 
 
 def _last_error(events: list[dict[str, object]]) -> object:
-    """The error the session's last assistant message that gave one gave; ``None`` if none did."""
+    """The error the session's last assistant message gave; ``None`` if it gave none.
+
+    Only the last assistant message belongs to the session's end: an error an earlier one gave,
+    with messages after it that gave none, is one the session went on from.
+    """
     for event in reversed(events):
-        if event.get("type") == "assistant" and event.get("error") is not None:
+        if event.get("type") == "assistant":
             return event.get("error")
     return None
 
@@ -175,17 +204,30 @@ def _from_refusal(limit: UsageLimit, events: list[dict[str, object]]) -> UsageLi
 
     Its instant, kind and windows. A last state that is not a refusal, or none, adds nothing:
     the limit is then as the session's last words gave it.
+
+    The refusal names one kind and its reset; it gives every window's share beside it. Each
+    other window it gives as spent (a share of 1 or more) refuses the session too, so the reset
+    is the latest among the refusal's own and theirs, and each is named. Where the refusal's own
+    reset is not an instant, none is taken from the windows either: the text is the fallback.
     """
     states = [state for event in events if (state := _limit_state(event)) is not None]
     if not states or states[-1].get("status") != REJECTED:
         return limit
     refusal = states[-1]
-    kind = refusal.get("rateLimitType")
+    given = refusal.get("rateLimitType")
+    kind = given if isinstance(given, str) and given else None
+    windows = _windows(refusal)
+    spent = [window for window in windows if window.used_fraction >= 1]
+    resets_at = _instant(refusal.get("resetsAt"))
+    if resets_at is not None:
+        resets_at = max([resets_at, *(window.resets_at for window in spent)], key=stamped)
+    named = ([kind] if kind is not None else []) + [window.window for window in spent]
     return limit.model_copy(
         update={
-            "resets_at": _instant(refusal.get("resetsAt")),
-            "limit_type": kind if isinstance(kind, str) and kind else None,
-            "windows": _windows(refusal),
+            "resets_at": resets_at,
+            "limit_type": kind,
+            "windows": windows,
+            "rejected_windows": tuple(dict.fromkeys(named)),
         }
     )
 
@@ -283,6 +325,18 @@ def session_end(
 def stamped(stamp: str) -> datetime:
     """A record's timestamp as an instant."""
     return datetime.strptime(stamp, _STAMP).replace(tzinfo=UTC)
+
+
+def bounded(limit: UsageLimit, *, read_at: datetime) -> UsageLimit:
+    """``limit`` with a reset further out than :data:`MAX_RESET_AHEAD` after ``read_at`` not taken.
+
+    Such a reset is recorded as out of range and the limit's reset is as if not read: the text,
+    where it parses, and otherwise the operator's word or the default wait. A reset at the bound
+    or before it, a past one included, is kept as read.
+    """
+    if limit.resets_at is None or stamped(limit.resets_at) <= read_at + MAX_RESET_AHEAD:
+        return limit
+    return limit.model_copy(update={"resets_at": None, "out_of_range_reset": limit.resets_at})
 
 
 def resume_after(halted_at: str, limit: UsageLimit | None) -> str:

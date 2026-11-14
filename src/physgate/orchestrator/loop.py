@@ -230,6 +230,7 @@ from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.orchestrator.usage_limit import (
     UsageLimit,
+    bounded,
     resume_after,
     resume_refusal,
     stamped,
@@ -451,8 +452,14 @@ def _follow_up_end(now: AttemptState | None) -> str:
 
 
 def _reset_from(limit: UsageLimit | None, ts: str) -> UsageLimit | None:
-    """``limit`` with its reset read as the next instant after the line stamped ``ts``."""
-    if limit is None or limit.resets_at is not None:
+    """``limit`` with its reset read as the next instant after the line stamped ``ts``.
+
+    A reset the stream gave further out than any window after ``ts`` is not taken (:func:`bounded`).
+    """
+    if limit is None:
+        return None
+    limit = bounded(limit, read_at=stamped(ts))
+    if limit.resets_at is not None:
         return limit
     return with_instant(limit, after=stamped(ts))
 
@@ -3406,9 +3413,14 @@ class Loop:
             else "the attempt count does not move; its worktree is kept as it was"
         )
         kind = f"a {limit.limit_type} limit, " if limit.limit_type else ""
+        far = (
+            f"; the stream's reset {held.out_of_range_reset} is out of range, not taken"
+            if held is not None and held.out_of_range_reset is not None
+            else ""
+        )
         detail = (
             f"subtask {subtask_id} attempt {attempt}: {who} ended on the account's usage limit "
-            f"({kind}resets {limit.resets or 'not given'}); {waits}; resume after "
+            f"({kind}resets {limit.resets or 'not given'}){far}; {waits}; resume after "
             f"{resume_after(env['ts'], held)}"
         )
         self._emit(Halted(**env, reason="usage_limit", detail=detail, usage_limit=held))
