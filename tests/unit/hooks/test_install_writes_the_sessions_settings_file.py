@@ -230,7 +230,7 @@ def test_the_settings_as_rendered_deny_the_web_tools_to_every_profile(
     # deny: the rule is in the settings from the start, not put there by a later step.
     config = build_config(_request(tmp_path, profile=profile), current_installation())
     settings = render_settings(config, "/outside/config.json", "0" * 64, REGISTRY)
-    assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch"]}
+    assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch", "ToolSearch"]}
 
 
 @pytest.mark.parametrize("profile", get_args(Profile))

@@ -111,11 +111,20 @@ WEB_TOOLS = ("WebFetch", "WebSearch")
 #: hook was their only layer, and ``network: none`` binds a session's shell but not its WebFetch
 #: tool. Every profile denies them. A profile made to read the web (a researcher's) would be the
 #: one exception, and would be listed here without them, with its own test.
+#:
+#: The binary's search tool is denied to every profile too. With it on (2.1.322 by default, and
+#: 2.1.301 against the live API host) the binary leaves a tool server's tools out of the request
+#: and tells the model to load them through that tool, which no closed list names; with it
+#: denied the binary offers every server tool directly, on both pins, whatever the environment
+#: says of tool search (measured, 14.11.2026). Nothing is widened: a session reaches no tool it
+#: could not, and each call still reaches the tools hook by its own name.
+TOOL_SEARCH = "ToolSearch"
+_DENIED = (*WEB_TOOLS, TOOL_SEARCH)
 PROFILE_DENIED: Mapping[Profile, tuple[str, ...]] = {
-    "role": WEB_TOOLS,
-    "reviewer": WEB_TOOLS,
-    "orchestrator": WEB_TOOLS,
-    "baseline": WEB_TOOLS,
+    "role": _DENIED,
+    "reviewer": _DENIED,
+    "orchestrator": _DENIED,
+    "baseline": _DENIED,
 }
 
 #: The events on which Claude Code applies a tool matcher.
