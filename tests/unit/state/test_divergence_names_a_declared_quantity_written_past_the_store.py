@@ -89,6 +89,7 @@ def test_a_declared_value_changed_past_the_store_is_named_declared_fixed(tmp_pat
     assert found[0].node_id == "control.motor_left" and found[0].revision == rev
     assert "mass" in found[0].detail
     assert "mass" in str(found[0]) and FIXED in str(found[0])
+    assert "declared quantity" in str(found[0]) and "breaks a duty" not in str(found[0])
 
 
 def test_a_declared_quantity_dropped_past_the_store_is_named_declared_fixed(
