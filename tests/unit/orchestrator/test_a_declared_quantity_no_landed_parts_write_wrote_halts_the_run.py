@@ -187,7 +187,7 @@ def test_the_log_alone_rebuilds_the_halted_state_and_no_process_names_it_twice(
     assert replayed.next_step().kind == "halted"
     assert refusal(events(tmp_path)) is None
     again = rig.open()
-    with pytest.raises(Exception, match="foreign_journal_line"):
+    with pytest.raises(Exception, match="halted for incident"):
         again.resume()
     again.close()
     assert len(incidents(tmp_path)) == 1

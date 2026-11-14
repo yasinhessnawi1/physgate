@@ -12,19 +12,23 @@ derives the same bytes from the log.
 
 The record (``parts.json``) is the decisions as a role reads them: each component, its choice,
 the values and the texts. It is a function of the plan and the released decisions too.
+
+What landed is held to the journal (:func:`unlanded_declared`): every declared quantity at the
+journal's head is one a landed parts write wrote, so a declared value that reached the journal
+any other way, or a landed line changed afterwards, is found and never taken as the person's.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from physgate.orchestrator.plan import Component, shared_node_id
 from physgate.orchestrator.queue import PartsBody, parts_sha256
 from physgate.state.schema import DECLARED_SOURCE
-from physgate.state.store import payload_digest
+from physgate.state.store import JournalLine, payload_digest
 
 Payload = dict[str, Any]
 Choice = Literal["have", "make", "find"]
@@ -176,3 +180,55 @@ def parts_record(components: Sequence[Component], taken: Sequence[TakenPart]) ->
             }
         )
     return json.dumps({"components": entries}, sort_keys=True, separators=(",", ":")).encode()
+
+
+def _declared_of(payload: object) -> dict[str, object]:
+    """The quantities of ``payload`` that carry a decision's record, by name."""
+    quantities = payload.get("quantities") if isinstance(payload, dict) else None
+    if not isinstance(quantities, dict):
+        return {}
+    return {
+        str(name): entry
+        for name, entry in quantities.items()
+        if isinstance(entry, dict) and entry.get("declared") is not None
+    }
+
+
+def unlanded_declared(
+    lines: Iterable[JournalLine], landed: Sequence[tuple[str, str, int]]
+) -> str | None:
+    """Why the journal's declared quantities are not what the landed parts writes wrote, or None.
+
+    ``lines`` is the whole canonical journal; ``landed`` is each parts write the record says
+    landed, as ``(node, payload digest, revision)`` in the order it landed. Each landed line is
+    held to its digest, whole. Then every declared quantity at the head, node by node, must be
+    one the node's latest landed write holds, field for field (value, unit, source, record and
+    the rest), and each of those must still stand at the head.
+    """
+    journal = sorted(lines, key=lambda line: line.rev)
+    by_rev = {line.rev: line for line in journal}
+    owed: dict[str, dict[str, object]] = {}
+    for node_id, digest, revision in landed:
+        line = by_rev.get(revision)
+        holds = (
+            line is not None
+            and line.node_id == node_id
+            and isinstance(line.payload, dict)
+            and payload_digest(line.payload) == digest
+        )
+        if not holds:
+            return (
+                f"the parts write of {node_id} that landed at journal revision {revision} is not "
+                "in the journal as it landed"
+            )
+        owed[node_id] = _declared_of(line.payload if line is not None else None)
+    head = {line.node_id: line.payload for line in journal}
+    for node_id in sorted(set(head) | set(owed)):
+        held, wanted = _declared_of(head.get(node_id)), owed.get(node_id, {})
+        for name in sorted(set(held) | set(wanted)):
+            if held.get(name) != wanted.get(name):
+                return (
+                    f"the declared quantity {name} of {node_id} at the journal's head is not what "
+                    "a landed parts write wrote; only a person's recorded decision declares a value"
+                )
+    return None

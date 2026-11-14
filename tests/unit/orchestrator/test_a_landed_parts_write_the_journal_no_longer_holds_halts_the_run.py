@@ -79,7 +79,7 @@ def _tampering(the_rig: Any, tamper: Any, *, kill: bool = False) -> None:  # noq
     """Each write lands; after the last one, the first landed line is changed in the journal."""
     diff: Any = the_rig.diff
     real = diff.declare
-    owed = 4  # each component with a value: its own node, then its cross node
+    owed = 3  # the motor's node and its cross node, then the IMU's node
 
     def declare(payload: dict[str, Any], item_ids: tuple[str, ...]) -> int:
         revision: int = real(payload, item_ids)

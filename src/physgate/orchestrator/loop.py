@@ -161,7 +161,12 @@ from physgate.orchestrator.managed import (
     traffic_change,
 )
 from physgate.orchestrator.merge import merge_message
-from physgate.orchestrator.parts_write import TakenPart, parts_record, parts_writes
+from physgate.orchestrator.parts_write import (
+    TakenPart,
+    parts_record,
+    parts_writes,
+    unlanded_declared,
+)
 from physgate.orchestrator.ports import (
     HOOK_LOG_UNREAD,
     ChangeCheck,
@@ -243,7 +248,7 @@ from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
 from physgate.state.exceptions import DesignStateError, StoreStaleError
 from physgate.state.held_file import HeldFile
 from physgate.state.protocol import REJECT_CROSS_ROLE
-from physgate.state.schema import Node, validate_node
+from physgate.state.schema import REJECT_DECLARED_FIXED, REJECT_DECLARED_FORGED, Node, validate_node
 from physgate.state.store import JournalLine, payload_digest
 
 UNREAD = (
@@ -2174,7 +2179,29 @@ class Loop:
             self._incident(subtask_id, "foreign_journal_line", detail)
             return False
         self._graph.hold()
-        return True
+        return self._declared_hold(subtask_id)
+
+    def _declared_hold(self, subtask_id: str | None) -> bool:
+        """Every declared quantity at the journal's head is one a landed parts write wrote.
+
+        Only the parts writer declares, and the record names each write that landed with the
+        digest of its whole payload. A declared quantity the landed writes do not account for,
+        or a landed line the journal no longer holds as it landed, reached the journal past the
+        store's guard: an integrity fault, an incident and a halt, never a repair. Taken after an
+        attempt's journal step, after the parts writes, and whenever the journal is accounted for,
+        so a process killed between a landed write and this check makes it when it next starts.
+        Nothing is recorded when it holds.
+        """
+        try:
+            lines = self._graph.records_after(0)
+        except DesignStateError as exc:
+            self._incident(subtask_id, "foreign_journal_line", str(exc))
+            return False
+        problem = unlanded_declared(lines, self.state.parts_landed)
+        if problem is None:
+            return True
+        self._incident(subtask_id, "foreign_journal_line", problem)
+        return False
 
     @staticmethod
     def _own_parts_line(line: JournalLine, owed: PartsWriteIntended) -> bool:
@@ -2258,6 +2285,8 @@ class Loop:
                 self._incident(None, "foreign_journal_line", f"revision {revision}, not {expected}")
                 return
             self._emit(PartsWriteDone(**self._env(), node_id=write.node_id, revision=revision))
+        if not self._declared_hold(None):
+            return
         if owed:
             self._graph.commit("Parts the person declared\n")
         record = parts_record(components, taken)
@@ -2333,6 +2362,8 @@ class Loop:
             )
         followed = now.changes.followed if now.changes is not None else ()
         if not self._apply_followed(subtask_id, attempt, role, followed):
+            return False
+        if not self._declared_hold(subtask_id):
             return False
         if proposals or followed:
             self._graph.commit(f"Nodes of subtask {subtask_id}, attempt {attempt}\n")
@@ -3442,8 +3473,19 @@ class Loop:
         if named:
             # A write past the store's own guard is the graver of the two, and the cause a
             # step that made one was always recorded under; duty breaches alone are a breach.
+            # A declared quantity touched past the store's guard is the journal's integrity, as
+            # the head check names it, not a role's duty.
             foreign = any(d.reason == REJECT_CROSS_ROLE for d in found)
-            cause: IncidentCause = "cross_role_write" if foreign else "duty_breach"
+            declared = any(
+                d.reason in (REJECT_DECLARED_FIXED, REJECT_DECLARED_FORGED) for d in found
+            )
+            cause: IncidentCause = (
+                "cross_role_write"
+                if foreign
+                else "foreign_journal_line"
+                if declared
+                else "duty_breach"
+            )
             self._incident(subtask_id, cause, "; ".join(named))
 
     # -- what is not an attempt ---------------------------------------------------------
