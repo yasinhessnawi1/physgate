@@ -1,8 +1,9 @@
 """Mutation driver: each mutant's change applied to a fresh copy of HEAD, its named rows run.
 
 Run with ``python -u scripts/mutation/run_mutants.py <list.json>`` from a clean checkout's root.
-The list is a JSON array of ``{name, file, old, new, tests: [paths]}``; a mutant named
-``baseline`` applies no change, and the list starts and ends with one. ``MUT_VENV`` names the
+The list is a JSON array of ``{name, file, old, new, tests: [paths]}``; a mutant whose
+name starts with ``baseline`` (``baseline_first``, ``baseline_last``) applies no change,
+and the list starts and ends with one, each named once. ``MUT_VENV`` names the
 environment whose Python runs the rows (default ``.venv``; ``.venv-evaluation`` for
 ``tests/scoring``).
 
@@ -67,7 +68,7 @@ def _run(m: dict[str, Any], python: Path, helpers: list[str]) -> tuple[str, list
             check=True,
         ).stdout
         subprocess.run(["tar", "-x", "-C", str(tree)], input=archive, check=True)
-        if m["name"] != "baseline":
+        if not m["name"].startswith("baseline"):
             target = tree / m["file"]
             text = target.read_text()
             count = text.count(m["old"])
@@ -115,7 +116,7 @@ def _run(m: dict[str, Any], python: Path, helpers: list[str]) -> tuple[str, list
         failing, errors, total = _verdicts(junit)
         out = run.stdout.strip()
         tail = out.splitlines()[-1] if out else run.stderr[-200:]
-        if m["name"] == "baseline":
+        if m["name"].startswith("baseline"):
             clean = run.returncode == 0 and total > 0 and not failing and not errors
             verdict = "green" if clean else "NOT GREEN"
         elif failing:
@@ -145,7 +146,7 @@ def main(argv: list[str]) -> int:
     for i, m in enumerate(mutants):
         verdict, _ = _run(m, python, helpers)
         tally[verdict] = tally.get(verdict, 0) + 1
-        if i == 0 and m["name"] == "baseline" and verdict != "green":
+        if i == 0 and m["name"].startswith("baseline") and verdict != "green":
             print("[mut] the first baseline is not green; no mutant is run against it")
             return 1
     print("[mut] tally:", json.dumps(tally, sort_keys=True))

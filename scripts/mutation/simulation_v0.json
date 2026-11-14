@@ -1,6 +1,6 @@
 [
  {
-  "name": "baseline",
+  "name": "baseline_first",
   "file": "src/physgate/evaluation/whole/plant.py",
   "old": "",
   "new": "",
@@ -264,7 +264,7 @@
   ]
  },
  {
-  "name": "baseline",
+  "name": "baseline_last",
   "file": "src/physgate/evaluation/whole/plant.py",
   "old": "",
   "new": "",
