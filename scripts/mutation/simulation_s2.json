@@ -1,0 +1,964 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "plant_range_off",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "        if not 0 < p.low <= p.value <= p.high:",
+    "new": "        if not 0 < p.low:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "plant_measure_by_off",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "        if p.measure_by is None:",
+    "new": "        if False:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "plant_assumption_case",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "        if p.source.strip().lower() != ASSUMPTION:",
+    "new": "        if p.source != ASSUMPTION:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "plant_unit_off",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "        if p.unit != PLANT_UNITS[name]:",
+    "new": "        if False:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "plant_names_off",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "    if names != set(PLANT_UNITS):",
+    "new": "    if names - set(PLANT_UNITS):",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "corners_all_names",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "    varied = ranged(plant, names)\n",
+    "new": "    varied = names\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "ranged_points_too",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "(s := span(plant.parameters[n]))[0] < s[1])",
+    "new": "(s := span(plant.parameters[n]))[0] <= s[1])",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "kt_no_load_ignored",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "    kt = v[\"motor_stall_torque\"] / (v[\"motor_stall_current\"] - v[\"motor_no_load_current\"]) * stage",
+    "new": "    kt = v[\"motor_stall_torque\"] / v[\"motor_stall_current\"] * stage",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "ke_drop_ignored",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "        (v[\"motor_rated_voltage\"] - v[\"motor_no_load_current\"] * resistance)\n        / v[\"motor_no_load_speed\"]",
+    "new": "        v[\"motor_rated_voltage\"]\n        / v[\"motor_no_load_speed\"]",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "body_mass_wheels_added",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "    m = v[\"kit_mass\"] - wheels_mass + v[\"cell_count\"] * v[\"cell_mass\"]",
+    "new": "    m = v[\"kit_mass\"] + wheels_mass + v[\"cell_count\"] * v[\"cell_mass\"]",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "rotors_one_motor",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "        j=2.0 * v[\"gear_ratio\"] ** 2 * v[\"rotor_inertia\"],",
+    "new": "        j=v[\"gear_ratio\"] ** 2 * v[\"rotor_inertia\"],",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "wheel_factor_ignored",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "    wheels_inertia = v[\"wheel_inertia_factor\"] * wheels_mass * r**2",
+    "new": "    wheels_inertia = 0.5 * wheels_mass * r**2",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "geared_no_rotor",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "        geared=tau(geared(c.j)),",
+    "new": "        geared=tau(geared(0.0)),",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "lock_one_wheel",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "        lock_angle=2.0 * values[\"gearbox_friction\"] / per_rad,",
+    "new": "        lock_angle=values[\"gearbox_friction\"] / per_rad,",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "lock_static_torque",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "    per_rad = (c.a + c.b) * c.mgh / i_locked",
+    "new": "    per_rad = c.mgh",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "stall_rated_voltage",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "    return duty * values[\"pack_voltage\"] / resistance",
+    "new": "    return duty * values[\"motor_rated_voltage\"] / resistance",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "mechanical_drops_rotor",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "    \"wheel_inertia_factor\",\n    \"rotor_inertia\",\n)",
+    "new": "    \"wheel_inertia_factor\",\n)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_gamma1_dropped",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    gamma1 = after @ during\n",
+    "new": "    gamma1 = np.zeros_like(during)\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_fraction_ignored",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    if fraction < FRACTION_EPSILON * period:\n        fraction = 0.0",
+    "new": "    if True:\n        fraction = 0.0",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_whole_off_by_one",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "        ap[:n, n + whole - 1 : n + whole] = gamma0",
+    "new": "        ap[:n, n + whole : n + whole + 1] = gamma0",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_decay_ignored",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    d, t = loop.decay, loop.period\n",
+    "new": "    d, t = 1.0, loop.period\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_angle_on_measured",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    direct = np.array([[0.0, loop.rate, loop.distance, loop.speed]]) + loop.angle * rate_in",
+    "new": "    direct = np.array([[loop.angle, loop.rate, loop.distance, loop.speed]]) + loop.angle * rate_in",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_gain_on_state_only",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    top = np.hstack([s.ap + gain * s.bp @ s.dc @ s.cp, gain * s.bp @ s.cc])",
+    "new": "    top = np.hstack([s.ap + s.bp @ s.dc @ s.cp, gain * s.bp @ s.cc])",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_margins_swapped",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    return _edge(system, 1.0 / GAIN_STEP), _edge(system, GAIN_STEP)",
+    "new": "    return _edge(system, GAIN_STEP), _edge(system, 1.0 / GAIN_STEP)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_pm_no_180",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "        margins.append(_wrap(math.degrees(float(np.angle(at))) + 180.0))",
+    "new": "        margins.append(_wrap(math.degrees(float(np.angle(at)))))",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_pm_max",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    return min(margins), True",
+    "new": "    return max(margins), True",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_damping_sign",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    force_phi = np.array([0.0, damping, 0.0, -damping / r, drive])",
+    "new": "    force_phi = np.array([0.0, -damping, 0.0, damping / r, drive])",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_rotor_ignored",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    inverse = np.linalg.inv(np.array([[c.b + c.j, c.a - c.j], [c.a - c.j, c.i_p + c.j]]))",
+    "new": "    inverse = np.linalg.inv(np.array([[c.b, c.a], [c.a, c.i_p]]))",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_response_sign",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    out = -command[:, 0, 0]",
+    "new": "    out = command[:, 0, 0]",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "loop_stable_edge",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    return radius < 1.0 - STABILITY_EPSILON",
+    "new": "    return radius < 1.01",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_holds_strict",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        \"<=\": value <= limits[0],",
+    "new": "        \"<=\": value < limits[0],",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_mixed_is_fail",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        elif not any(held) and not _holds(spec, at_nominal):",
+    "new": "        elif True:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_unscored_precedence",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        \"fail\" if \"fail\" in headline else \"unscored\" if \"unscored\" in headline else \"pass\"",
+    "new": "        \"unscored\" if \"unscored\" in headline else \"fail\" if \"fail\" in headline else \"pass\"",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_dynamic_fails",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "            row.update(verdict=\"unscored\", measured=None, reason=DYNAMIC_REASON)",
+    "new": "            row.update(verdict=\"fail\", measured=None, reason=DYNAMIC_REASON)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_structure_check_off",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "    if type(analysed) is not type(c):",
+    "new": "    if False:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_nominal_only",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        values = [self._computed(spec.metric, read, c) for c in sets[\",\".join(inputs)]]",
+    "new": "        values = [at_nominal]",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_margin_inputs_stall",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "    \"phase_margin\": LOOP_INPUTS,",
+    "new": "    \"phase_margin\": STALL_INPUTS,",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_secondary_counts",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        headline = [row[\"verdict\"] for row in rows if row[\"counts\"] == \"headline\"]",
+    "new": "        headline = [row[\"verdict\"] for row in rows]",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_bad_answer_unscored",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "            record.update(answer_valid=False, reason=str(exc), specs=[], outcome=\"fail\")",
+    "new": "            record.update(answer_valid=False, reason=str(exc), specs=[], outcome=\"unscored\")",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_nominal_radius",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "            values[\"wheel_radius\"],",
+    "new": "            self._plant.parameters[\"wheel_radius\"].value,",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_bound_unit_off",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "            if any(b.unit != known[0] for b in bounds):",
+    "new": "            if False:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_composes_off",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        if len(set(task.requirements)) < COMPOSES_AT_LEAST:",
+    "new": "        if False:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "sc_relative_exact",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "    if a == b:\n        return 0.0",
+    "new": "    if abs(a - b) <= 1e-9 * abs(b):\n        return 0.0",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "neutral_never",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    if not loop.incremental or not leak_free(loop) or loop.distance == 0.0:\n        return None",
+    "new": "    if True:\n        return None",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "neutral_leaky_too",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "not leak_free(loop) or loop.distance",
+    "new": "loop.decay > 1.0 or loop.distance",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "neutral_travel_zero",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    mode[2, 0] = -loop.angle / loop.distance",
+    "new": "    mode[2, 0] = 0.0 * loop.angle / loop.distance",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "neutral_travel_sign",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    mode[2, 0] = -loop.angle / loop.distance",
+    "new": "    mode[2, 0] = loop.angle / loop.distance",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "stable_no_set_aside",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    if system.neutral is not None:\n        at",
+    "new": "    if False:\n        at",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "stable_mode_kept",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "        matrix = np.delete(np.delete(held, at, axis=0), at, axis=1)",
+    "new": "        matrix = held",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "encoder_ground",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    cp = measurement(values) @ held",
+    "new": "    cp = held",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "encoder_travel_only",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    read[3, 1] = -r",
+    "new": "    read[3, 1] = 0.0",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "encoder_sign",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    read[2, 0] = -r",
+    "new": "    read[2, 0] = r",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "c19_structures_fail",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "row.update(verdict=\"unscored\", measured=None, reason=reason)",
+    "new": "row.update(verdict=\"fail\", measured=None, reason=reason)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "counts_unit_one",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "\"pwm_full_scale\": (\"count\", \"static\"),",
+    "new": "\"pwm_full_scale\": (\"1\", \"static\"),",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "script_no_one_at_a_time",
+    "file": "scripts/whole_design_corners.py",
+    "old": "    for name in ranged(parsed, LOOP_INPUTS):",
+    "new": "    for name in ranged(parsed, ()):",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "script_corner_keys",
+    "file": "scripts/whole_design_corners.py",
+    "old": "else {k: corners[k] for k in (\"count\", \"passing\", \"unstable\", \"ranged\")},",
+    "new": "else {k: corners[k] for k in (\"count\", \"passing\", \"unstable\")},",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "plant_blank_source_off",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "        if not p.source.strip():",
+    "new": "        if False:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "plant_locator_off",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "            if p.locator is None or not p.locator.strip():",
+    "new": "            if False:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "plant_locator_blank",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "            if p.locator is None or not p.locator.strip():",
+    "new": "            if p.locator is None:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "plant_frozen_point_off",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "        if plant.status == \"frozen\" and low == high:",
+    "new": "        if False:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "plant_frozen_point_any_status",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "        if plant.status == \"frozen\" and low == high:",
+    "new": "        if low == high:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "script_extremes_sense",
+    "file": "scripts/whole_design_corners.py",
+    "old": "        worst, best = (low, high) if larger_is_better else (high, low)",
+    "new": "        worst, best = (low, high)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "script_meets_lower",
+    "file": "scripts/whole_design_corners.py",
+    "old": "        if larger_is_better and value < BOUNDS[metric]:",
+    "new": "        if larger_is_better and value < 0:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "script_meets_upper",
+    "file": "scripts/whole_design_corners.py",
+    "old": "        if not larger_is_better and value > BOUNDS[metric]:",
+    "new": "        if not larger_is_better and value > 1e9:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "script_corner_stable_and",
+    "file": "scripts/whole_design_corners.py",
+    "old": "            stable = stable and bool(c[\"stable\"])",
+    "new": "            stable = bool(c[\"stable\"])",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "script_corner_meets_and",
+    "file": "scripts/whole_design_corners.py",
+    "old": "            meets = meets and _meets(c)",
+    "new": "            meets = _meets(c)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "script_axis_check_off",
+    "file": "scripts/whole_design_corners.py",
+    "old": "        if name not in LOOP_INPUTS:\n            msg = f\"{name} is not a parameter the balance loop reads\"\n            raise ValueError(msg)\n    parsed = parse_plant(plant)\n    others = [n for n in ranged(parsed, LOOP_INPUTS) if n not in axes]",
+    "new": "        if False:\n            msg = f\"{name} is not a parameter the balance loop reads\"\n            raise ValueError(msg)\n    parsed = parse_plant(plant)\n    others = [n for n in ranged(parsed, LOOP_INPUTS) if n not in axes]",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "script_others_include_axes",
+    "file": "scripts/whole_design_corners.py",
+    "old": "    others = [n for n in ranged(parsed, LOOP_INPUTS) if n not in axes]",
+    "new": "    others = list(ranged(parsed, LOOP_INPUTS))",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "cap_parse_off",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "    _check_cap(ranged(plant, tuple(PLANT_UNITS)))\n    return plant\n",
+    "new": "    return plant\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "cap_corners_off",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "    varied = ranged(plant, names)\n    _check_cap(varied)\n",
+    "new": "    varied = ranged(plant, names)\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "cap_one_more",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "MAX_RANGED = 12\n",
+    "new": "MAX_RANGED = 13\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "cap_at_or_above",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "    if len(varied) > MAX_RANGED:",
+    "new": "    if len(varied) >= MAX_RANGED:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+    ]
+  }
+]
