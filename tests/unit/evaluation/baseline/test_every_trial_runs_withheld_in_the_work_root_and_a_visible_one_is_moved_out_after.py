@@ -124,7 +124,7 @@ def _installed(setup: RawSetup, place: Path, monkeypatch: pytest.MonkeyPatch) ->
         return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
 
     with monkeypatch.context() as patched:
-        patched.setattr(raw.subprocess, "run", fake_run)
+        patched.setattr(subprocess, "run", fake_run)
         raw._install(setup, place / "worktree", probe, None, own_temp=OWN_TEMP)
     parser = argparse.ArgumentParser()
     add_parser(parser.add_subparsers(dest="command"))

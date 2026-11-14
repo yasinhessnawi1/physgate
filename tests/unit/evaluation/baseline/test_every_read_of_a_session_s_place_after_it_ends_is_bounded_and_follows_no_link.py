@@ -222,7 +222,7 @@ def test_a_session_s_own_file_is_read_as_a_bounded_regular_file_or_refused(
     else:
         monkeypatch.setattr(dispatch, "MAX_SESSION_FILE_BYTES", 64, raising=False)
         path.write_bytes(b"x" * 65)
-    outcome = _within(lambda: dispatch.read_session_file(path), path)
+    outcome = _within(lambda: dispatch.read_session_file(path), lambda: path)
     assert isinstance(outcome, InvocationError), outcome
 
 
@@ -254,7 +254,7 @@ def test_a_named_pipe_left_at_the_stream_does_not_hold_the_credential_s_removal(
     """The scrub of the credential from a session's stream refuses a pipe; it never waits on one."""
     path = _session_file(tmp_path)
     os.mkfifo(path)
-    outcome = _within(lambda: dispatch.redact(path, "a-secret"), path)
+    outcome = _within(lambda: dispatch.redact(path, "a-secret"), lambda: path)
     assert isinstance(outcome, InvocationError), outcome
 
 
@@ -282,7 +282,7 @@ def test_the_token_watch_reads_the_stream_as_a_session_s_own_file(
         path.symlink_to(tmp_path / "outside")
     else:
         os.mkfifo(path)
-    outcome = _within(lambda: raw.stream_total(path), path)
+    outcome = _within(lambda: raw.stream_total(path), lambda: path)
     assert isinstance(outcome, InvocationError), outcome
 
 
