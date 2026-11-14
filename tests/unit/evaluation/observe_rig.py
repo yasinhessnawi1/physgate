@@ -121,6 +121,10 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         "queue_decisions": "record",
         # A development rig: its loops run with no OS-layer line recorded.
         "os_layer_absent": "allow",
+        "reviewers": "paired",
+        "skills": "on",
+        "hooks": "on",
+        "ablation": False,
         "design_review": "off",
         "held_out": (),
         "held_out_canaries": (),

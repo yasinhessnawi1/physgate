@@ -1,5 +1,6 @@
 {
   "config": {
+    "ablation": false,
     "auth": "api_key",
     "bounds": {
       "binary_max_retries": 0,
@@ -20,6 +21,7 @@
       "commit": null,
       "uncommitted_sha256": null
     },
+    "hooks": "on",
     "max_output_tokens": 64000,
     "models": {
       "decomposition": "claude-sonnet-5",
@@ -36,9 +38,11 @@
     "os_layer_absent": "allow",
     "queue_decisions": "record",
     "reportable": false,
+    "reviewers": "paired",
     "role_python": null,
     "run_id": "run-7",
     "seed": 1,
+    "skills": "on",
     "target_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "thinking_display": "summarized",
     "token_ceiling": 100000

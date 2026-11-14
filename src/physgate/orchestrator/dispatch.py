@@ -1758,9 +1758,17 @@ class ClaudeDispatcher:
             # Without the layer the session still keeps its temporary files in a directory of
             # its own, never in the one every session of the user shares.
             *(["--temp", str(own_temp)] if temp is None and own_temp is not None else []),
+            # Whether the session is held to the design discipline, as the run recorded it.
+            "--hooks",
+            self._config.hooks,
             # Without the layer the installer writes the settings only for a run whose recorded
-            # configuration allows that, and reads it there.
-            *(["--run-config", str(self._run.run_dir / "run.json")] if temp is None else []),
+            # configuration allows that, and reads it there; with hooks off, only for a run that
+            # recorded the arm, read there too.
+            *(
+                ["--run-config", str(self._run.run_dir / "run.json")]
+                if temp is None or self._config.hooks == "off"
+                else []
+            ),
             # The held spawn exports the session's pid as the survivor reaper's canary.
             "--spawns-with-canary",
             # No remote host where the run asks for it; only the OS layer can enforce that.
