@@ -48,7 +48,7 @@ def test_a_review_cut_by_the_usage_limit_judges_no_earlier_hit_and_is_shown_them
     assert [e for e in events if isinstance(e, ReviewRan)] == [], "the cut review judged nothing"
     assert [u.attempt for u in reviewer.seen[0].unjudged] == [1]
 
-    clock[0] = NOON + timedelta(hours=2)
+    clock[0] = NOON + timedelta(hours=8)
     loop = rig.open()
     _layer(loop)
     loop.resume()
