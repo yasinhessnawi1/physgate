@@ -275,6 +275,43 @@ const REJECT_WORDS: Readonly<Record<Consequence["onReject"], string>> = {
   record_only: "Reject: the decision is recorded, and nothing in the run acts on it.",
 };
 
+/** "1", "1 and 2", "1, 2 and 3". */
+function joined(values: readonly string[]): string {
+  if (values.length <= 1) return values.join("");
+  return `${values.slice(0, -1).join(", ")} and ${values[values.length - 1] ?? ""}`;
+}
+
+/**
+ * Why approve records only for the scan's hits, naming the attempt each is from; the item's own
+ * sentence for an item listed before hits named their attempt.
+ */
+function scanHitWords(c: Consequence): string {
+  const attempts = c.scanHitAttempts;
+  if (attempts.length === 0 || attempts.some((a) => a === null))
+    return WHY_RECORD_ONLY_WORDS.scan_hit;
+  const counts = new Map<number, number>();
+  for (const a of attempts) if (a !== null) counts.set(a, (counts.get(a) ?? 0) + 1);
+  const order = [...counts.keys()].sort((x, y) => x - y);
+  if (attempts.length === 1)
+    return `${WHY_RECORD_ONLY_WORDS.scan_hit}, in attempt ${String(order[0])}`;
+  const each = order.map((a) => `${String(counts.get(a))} in attempt ${String(a)}`);
+  return (
+    `the scan before review found ${String(attempts.length)} reward-hacking indicators that no ` +
+    `review judged: ${joined(each)}`
+  );
+}
+
+/** Which review judged each earlier attempt's hits, where no review judged the attempt itself. */
+function judgedEarlierWords(c: Consequence): string {
+  return c.judgedEarlier
+    .map(
+      (j) =>
+        ` No review judged attempt ${String(j.attempt)} itself; the review of attempt ` +
+        `${String(j.judgedBy)} judged what the scan found in it.`,
+    )
+    .join("");
+}
+
 /** What approve and reject will do to an item, made from the consequence the run listed. */
 export function consequenceWords(c: Consequence): ChoiceWords {
   const reject = REJECT_WORDS[c.onReject];
@@ -290,17 +327,20 @@ export function consequenceWords(c: Consequence): ChoiceWords {
       approveLabel: "Approve…",
       approve:
         `Approve: attempt ${String(c.attempt ?? "")}${commit} is merged into the run exactly as ` +
-        "shown, by the run's own merge, and the whole-design gate then judges it with the rest.",
+        "shown, by the run's own merge, and the whole-design gate then judges it with the rest." +
+        judgedEarlierWords(c),
       reject,
     };
   }
   const why =
     c.whyRecordOnly === "indicator_in_history" && c.confirmedIndicators.length > 0
       ? indicatorWords(c)
-      : WHY_RECORD_ONLY_WORDS[c.whyRecordOnly ?? "source"];
+      : c.whyRecordOnly === "scan_hit"
+        ? scanHitWords(c)
+        : WHY_RECORD_ONLY_WORDS[c.whyRecordOnly ?? "source"];
   return {
     approveLabel: APPROVE_RECORDS_ONLY,
-    approve: `Approve records only: ${why}.`,
+    approve: `Approve records only: ${why}.${judgedEarlierWords(c)}`,
     reject,
   };
 }

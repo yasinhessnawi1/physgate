@@ -9,6 +9,12 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
   only after its bytes are held to the seal taken when that session ended, and is
   rendered whole (``transcript.render``) under its own data marker. An artefact no
   session produced carries a written account instead, which is used as it is.
+- ``earlier-NN-of-MM.md``: for an attempt that follows earlier attempts of its subtask no
+  review judged (refused before review, or left without a verdict) whose streams the scan flags,
+  those attempts' sealed streams, rendered as the transcript is, each session under its own data
+  marker. Their work is in the commit under review, so the reviewer answers the markers the scan
+  finds in them as it answers this attempt's own (ARCH-133). A stream that cannot be shown
+  refuses the packet; none is left out. Absent for every other attempt.
 - ``worktree/``: the attempt's commit, exported. Not the implementing session's
   worktree: an export holds exactly what was committed, and no ``.git`` that points
   back into the target repository. A symbolic link in the commit is written as a
@@ -126,6 +132,8 @@ WORKTREE_NAME = "worktree"
 DIFF_NAME = "diff.patch"
 #: The names of the parts the transcript and the diff are issued in.
 TRANSCRIPT_PART = "transcript-{n:02d}-of-{total:02d}.md"
+#: The names of the parts the earlier attempts no review judged are issued in.
+EARLIER_PART = "earlier-{n:02d}-of-{total:02d}.md"
 DIFF_PART = "diff-{n:02d}-of-{total:02d}.patch"
 #: The names of the parts the listing of the read directory is issued in.
 FILES_PART = "files-{n:02d}-of-{total:02d}.md"
@@ -236,7 +244,7 @@ class PacketError(ReviewError):
     """A review cannot be prepared as specified, so it does not run."""
 
 
-_PART_NAME = r"^(transcript|diff|series|files)-[0-9]{2,}-of-[0-9]{2,}\.(md|patch)$"
+_PART_NAME = r"^(transcript|earlier|diff|series|files)-[0-9]{2,}-of-[0-9]{2,}\.(md|patch)$"
 
 
 class Part(BaseModel):
@@ -300,6 +308,14 @@ class Packet(BaseModel):
     #: whose decisions named parts. Left out of the record when empty, so every other packet
     #: reads and hashes as before.
     parts_record_sha256: dict[str, Sha256] = Field(default_factory=dict)
+    #: The earlier attempts no review judged (``Artefact.unjudged``): their streams' rendering's
+    #: digest, its parts and data-fence nonces, and the markers the scan finds in them, each
+    #: marked with its attempt, which the reviewer answers as it answers this attempt's own.
+    #: Left out of the record when absent, so every other packet reads and hashes as before.
+    earlier_sha256: Sha256 | None = None
+    earlier_parts: tuple[Part, ...] = ()
+    earlier_nonces: tuple[Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")], ...] = ()
+    earlier_indicators: tuple[ScanHit, ...] = ()
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -316,6 +332,11 @@ class Packet(BaseModel):
             data.pop("followed_sha256", None)
         if not self.parts_record_sha256:
             data.pop("parts_record_sha256", None)
+        if self.earlier_sha256 is None:
+            data.pop("earlier_sha256", None)
+        for empty in ("earlier_parts", "earlier_nonces", "earlier_indicators"):
+            if not data.get(empty):
+                data.pop(empty, None)
         return data
 
     def sha256(self) -> str:
@@ -561,6 +582,78 @@ def _rendered(
     if len(streams) > 1:
         pieces.insert(0, SESSIONS_PREFACE.format(total=len(streams)))
     return "\n".join(pieces).encode("utf-8"), tuple(indicators), tuple(chosen)
+
+
+#: Before the earlier attempts' streams, the harness's own lines.
+EARLIER_PREFACE = (
+    "Earlier attempts of this subtask that no review judged: each was refused before its\n"
+    "review, or its review reached no verdict. Their work is in the commit under review, and\n"
+    "the search for the markers of a check switched off found markers in their streams. Each\n"
+    "attempt's sessions are shown in order, each under its own data marker.\n"
+)
+
+
+def _sealed_earlier(artefact: Artefact) -> list[tuple[int, str, bytes]]:
+    """Every session of every earlier unjudged attempt, in order, each held to its seal.
+
+    Raises:
+        PacketError: a stream is not what was sealed: it is never left out of what is shown.
+    """
+    found = []
+    for earlier in artefact.unjudged:
+        for session in earlier.sessions:
+            expected = Seal(sha256=session.trajectory_sha256, length=session.trajectory_length)
+            try:
+                data = read_sealed(Path(session.trajectory), expected)
+            except TrajectoryTamperedError as exc:
+                raise PacketError(str(exc), attempt=str(earlier.attempt), **exc.context) from None
+            found.append((earlier.attempt, session.trajectory, data))
+    return found
+
+
+def _rendered_earlier(
+    artefact: Artefact, avoid: tuple[str, ...], nonces: tuple[str, ...] = ()
+) -> tuple[bytes, tuple[ScanHit, ...], tuple[str, ...]]:
+    """The earlier unjudged attempts' streams as one rendering, their marked hits, their nonces.
+
+    Empty for an attempt that carries none. Each session gets a nonce of its own, held apart
+    from ``avoid`` (this attempt's own) and from every stream; given ``nonces`` (the ones a
+    packet recorded), it renders with them, so the same sealed streams give the same bytes.
+
+    Raises:
+        PacketError: a stream is not what was sealed, is not UTF-8, or the scan cannot read it.
+    """
+    if not artefact.unjudged or not indicator_scan_runs(artefact):
+        return b"", (), ()
+    sessions = _sealed_earlier(artefact)
+    streams = [_decoded(path, data) for _, path, data in sessions]
+    if nonces and len(nonces) != len(streams):
+        msg = "the packet's nonces do not match the earlier attempts' sessions"
+        raise PacketError(msg, subtask=artefact.subtask_id)
+    chosen: list[str] = list(nonces)
+    while len(chosen) < len(streams):
+        candidate = secrets.token_hex(8)
+        taken = candidate in chosen or candidate in avoid
+        if not taken and not any(candidate in stream for stream in streams):
+            chosen.append(candidate)
+    totals = {n: sum(1 for a, _, _ in sessions if a == n) for n, _, _ in sessions}
+    hits: list[ScanHit] = []
+    pieces = [EARLIER_PREFACE]
+    seen: dict[int, int] = {}
+    for (attempt, path, _), stream, nonce in zip(sessions, streams, chosen, strict=True):
+        try:
+            hits.extend(hit.of_attempt(attempt) for hit in scan(stream))
+        except ScanUnreadableError as exc:
+            raise PacketError(str(exc), trajectory=path) from None
+        text, used = render(stream, nonce=nonce)
+        if used != nonce:
+            msg = "an earlier session's transcript could not use its recorded nonce"
+            raise PacketError(msg, trajectory=path)
+        seen[attempt] = seen.get(attempt, 0) + 1
+        pieces.append(
+            f"# Attempt {attempt}, session {seen[attempt]} of {totals[attempt]}\n\n{text}"
+        )
+    return "\n".join(pieces).encode("utf-8"), tuple(hits), tuple(chosen)
 
 
 def split_parts(data: bytes, pattern: str) -> list[tuple[str, bytes]]:
@@ -869,6 +962,10 @@ def build_packet(
     read.mkdir(parents=True)
     transcript, indicators, nonces = _rendered(artefact, sessions)
     transcript_parts = _write_parts(read, split_parts(transcript, TRANSCRIPT_PART))
+    # The earlier attempts no review judged, whose work is in this commit: shown whole, or the
+    # packet is refused; never left out (ARCH-133).
+    earlier, earlier_hits, earlier_nonces = _rendered_earlier(artefact, nonces)
+    earlier_parts = _write_parts(read, split_parts(earlier, EARLIER_PART)) if earlier else ()
     # Verified once, and every read below goes through the directory that check confirmed.
     where = _git_dir(Path(repo))
     files = _export(where, artefact.attempt_commit, read / WORKTREE_NAME)
@@ -878,6 +975,7 @@ def build_packet(
     series_parts = _write_parts(read, split_parts(series, SERIES_PART)) if series else ()
     reading = [
         *(read / part.name for part in transcript_parts),
+        *(read / part.name for part in earlier_parts),
         *(read / part.name for part in diff_parts),
         *(read / part.name for part in series_parts),
         read / RUBRIC_NAME,
@@ -970,6 +1068,10 @@ def build_packet(
         integration_state_sha256=state_digest,
         followed_sha256=followed_digest,
         parts_record_sha256=parts_digests,
+        earlier_sha256=_digest(earlier) if earlier else None,
+        earlier_parts=earlier_parts,
+        earlier_nonces=earlier_nonces,
+        earlier_indicators=earlier_hits,
     )
     (Path(review) / RECORD_NAME).write_text(packet.model_dump_json(indent=1) + "\n")
     return packet
@@ -1050,6 +1152,7 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
     if joined["transcript"] != transcript or _digest(transcript) != packet.transcript_sha256:
         msg = "the transcript's parts joined are not the sealed trajectory's rendering"
         raise PacketError(msg, read=str(read))
+    _check_earlier(packet, artefact, read)
     diff = _diff(Path(repo), base_commit, artefact.attempt_commit)
     if joined["diff"] != diff or _digest(diff) != packet.diff_sha256:
         msg = "the diff's parts joined are not the attempt's diff"
@@ -1063,6 +1166,36 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
     # The listing names every file under ``read/`` as it stands now, and nothing else.
     if joined["listing"] != file_listing(read, {part.name for part in packet.files_parts}):
         msg = "the listing's parts joined are not the files under the read directory"
+        raise PacketError(msg, read=str(read))
+
+
+def _check_earlier(packet: Packet, artefact: Artefact, read: Path) -> None:
+    """Hold the earlier attempts' parts to their sealed streams, rendered again with their nonces.
+
+    Raises:
+        PacketError: a part is missing or changed, the parts joined are not the rendering, or the
+            packet's earlier attempts are not the attempt's.
+    """
+    earlier, hits, _ = _rendered_earlier(artefact, packet.transcript_nonces, packet.earlier_nonces)
+    if not earlier:
+        if packet.earlier_parts or packet.earlier_sha256 is not None or packet.earlier_indicators:
+            msg = "the packet issued earlier attempts the attempt does not carry"
+            raise PacketError(msg, read=str(read))
+        return
+    bodies = []
+    for part in packet.earlier_parts:
+        path = read / part.name
+        body = path.read_bytes() if path.is_file() else None
+        if body is None or _digest(body) != part.sha256:
+            msg = "an earlier attempt's part is missing or is not what was issued"
+            raise PacketError(msg, part=part.name)
+        bodies.append(body)
+    joined = b"".join(bodies)
+    if joined != earlier or _digest(earlier) != packet.earlier_sha256:
+        msg = "the earlier attempts' parts joined are not their sealed streams' rendering"
+        raise PacketError(msg, read=str(read))
+    if hits != packet.earlier_indicators:
+        msg = "the earlier attempts' markers are not the ones their sealed streams show"
         raise PacketError(msg, read=str(read))
 
 

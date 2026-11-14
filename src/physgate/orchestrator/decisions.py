@@ -59,6 +59,7 @@ from physgate.orchestrator.queue import (
     ConfirmedIndicator,
     ContractChoice,
     ItemConsequence,
+    JudgedEarlier,
     OnChoose,
     OnReject,
     QueueItem,
@@ -91,8 +92,9 @@ if TYPE_CHECKING:
 #: The sources whose approve can merge, and so whose scan before review counts: every one of
 #: them may carry an earlier attempt that ended at the gate or the change check unreviewed, whose
 #: work is in the commit an approve merges. Each attempt no review judged is scanned (a review
-#: that blocked judged its own attempt's streams, not an earlier one's); a hit makes approve
-#: record only. The same holds for each: the automated block, the indicator history, the scan.
+#: judged its own attempt's streams, and an earlier attempt's only where it was given that
+#: attempt's hits and answered every one: ``SubtaskState.judged``); a hit makes approve record
+#: only. The same holds for each: the automated block, the indicator history, the scan.
 SCANNED_SOURCES: frozenset[QueueSource] = frozenset(
     {"review_unavailable", "review_blocked", "repair_budget_exhausted", "escalation_decision"}
 )
@@ -137,6 +139,24 @@ def confirmed_indicators(sub: SubtaskState) -> tuple[ConfirmedIndicator, ...]:
         for review in sub.reviews
         for indicator in review.result.indicators
         if indicator.disposition == "confirmed"
+    )
+
+
+def judged_earlier(sub: SubtaskState) -> tuple[JudgedEarlier, ...]:
+    """Each earlier attempt no review judged itself whose scan hits a later review judged.
+
+    Read from the review lines alone, in the attempts' order: what the item says of them is what
+    the log says, and the take-time rebuild reads the same.
+    """
+    return tuple(
+        sorted(
+            (
+                JudgedEarlier(attempt=n, judged_by=r.attempt)
+                for r in sub.reviews
+                for n in r.judged_earlier
+            ),
+            key=lambda j: j.attempt,
+        )
     )
 
 
@@ -441,6 +461,7 @@ def item_consequence(
         why_record_only=why_not,
         confirmed_indicators=indicators,
         scan_hits=hits,
+        judged_earlier=judged_earlier(sub) if source in SCANNED_SOURCES else (),
     )
 
 
