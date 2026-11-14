@@ -14,6 +14,7 @@ import hashlib
 import json
 import shutil
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -236,8 +237,13 @@ class StandInArm:
     #: Per call: an error the arm raises.
     raises: dict[int, Exception] = field(default_factory=dict)
     calls: list[tuple[str, int, Path]] = field(default_factory=list)
+    #: Called with the session's place and the harness's directory once the session has
+    #: ended and before the arm writes its own files: what a session could have left.
+    left: Callable[[Path, Path], None] | None = None
 
-    def __call__(self, task: Task, setup: RawSetup, work: Path, *, cap: int) -> dict[str, Any]:
+    def __call__(
+        self, task: Task, setup: RawSetup, work: Path, *, cap: int, harness: Path | None = None
+    ) -> dict[str, Any]:
         self.calls.append((task.id, cap, work))
         n = len(self.calls)
         if n in self.raises:
@@ -264,10 +270,13 @@ class StandInArm:
         ]
         stream = session / "stdout.jsonl"
         stream.write_text("".join(json.dumps(line) + "\n" for line in lines))
+        kept = work if harness is None else harness
+        if self.left is not None:
+            self.left(work, kept)
         answered = n not in self.ended
         if answered:
-            (work / "answer").mkdir()
-            (work / "answer" / task.answer.path).write_text(json.dumps(controller()))
+            (kept / "answer").mkdir()
+            (kept / "answer" / task.answer.path).write_text(json.dumps(controller()))
         record: dict[str, Any] = {
             "session_id": f"s-{n}",
             "end": "ended",
@@ -284,5 +293,5 @@ class StandInArm:
             "answer": "found" if answered else "no_answer",
             "pins": pins(task, setup),
         }
-        (work / "raw.json").write_text(json.dumps(record))
+        (kept / "raw.json").write_text(json.dumps(record))
         return record

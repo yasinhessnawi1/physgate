@@ -352,11 +352,19 @@ def _held(name: str, value: Any) -> Any:  # noqa: ANN401 - a pin as either arm r
     }
 
 
-def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[str]:
+def differences(
+    run_dir: Path,
+    raw_dir: Path,
+    *,
+    role: str,
+    task: Task,
+    record_dir: Path | None = None,
+) -> list[str]:
     """Each way the raw arm differs from the harness run on ``task`` but the harness itself.
 
     ``run_dir`` is the harness run's directory; ``raw_dir`` is where the raw arm ran on
-    the same task and trial (its ``raw.json``, its stream and its generated settings).
+    the same task and trial (its stream and its generated settings, and its ``raw.json`` unless
+    ``record_dir`` names the directory the harness wrote that in).
     An empty list is the only fair pair.
 
     Raises:
@@ -365,7 +373,9 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
     """
     config = load_run_config(run_dir / "run.json")
     try:
-        record: dict[str, Any] = json.loads((raw_dir / "raw.json").read_bytes())
+        record: dict[str, Any] = json.loads(
+            ((raw_dir if record_dir is None else record_dir) / "raw.json").read_bytes()
+        )
         pins: dict[str, Any] = record["pins"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
         msg = "the raw arm's record could not be read"

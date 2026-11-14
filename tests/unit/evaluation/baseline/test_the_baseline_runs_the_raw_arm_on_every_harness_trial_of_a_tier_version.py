@@ -149,8 +149,8 @@ def test_a_protected_task_s_trial_lies_beneath_the_withheld_root_and_nowhere_els
     out = tmp_path / "round"
     record = _round(store, _all_runs(tmp_path, store), out, StandInArm())
     beneath = withheld_root(store.store, "control") / BASELINE_DIR / record.id
-    assert len(list((beneath).glob("*/raw.json"))) == 16
-    assert len(list((beneath).glob("*/score.json"))) == 16
+    assert len(list((beneath).glob("*/harness/raw.json"))) == 16
+    assert len(list((beneath).glob("*/harness/score.json"))) == 16
     assert len((beneath / TRIALS).read_text().splitlines()) == 16
     assert len((out / TRIALS).read_text().splitlines()) == 8
     assert not list(role_root(store.store, "control").glob("*.working"))

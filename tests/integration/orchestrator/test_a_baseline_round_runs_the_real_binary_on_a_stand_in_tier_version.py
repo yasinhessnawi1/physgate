@@ -228,7 +228,7 @@ def test_a_round_on_the_real_binary_tells_each_session_its_brief_alone_and_keeps
     # Protected trials, whole, beneath the withheld root; their sessions' own files hold nothing
     # of their tasks but the sentinel's snapshot; the visible one in the round's directory.
     beneath = withheld_root(made.store, "control") / BASELINE_DIR / record.id
-    assert len(list(beneath.glob("*/raw.json"))) == 2
+    assert len(list(beneath.glob("*/harness/raw.json"))) == 2
     sessions = [
         p
         for trial in beneath.iterdir()
@@ -248,7 +248,7 @@ def test_a_round_on_the_real_binary_tells_each_session_its_brief_alone_and_keeps
     # The round's directory holds the visible trial alone: a protected one was never made there.
     (visible,) = list((out / "work").iterdir())
     visible_ids = {t.id for t in round_.tasks if t.tier == "visible"}
-    assert json.loads((visible / "raw.json").read_text())["task"] in visible_ids
+    assert json.loads((visible / "harness" / "raw.json").read_text())["task"] in visible_ids
     assert not list((role_root(made.store, "control") / "work").iterdir())
     assert not list(role_root(made.store, "control").glob("*.working"))
     assert {out / TRIALS, out / BASELINE_RECORD, out / TIERS_RECORD} <= set(round_.written)

@@ -198,7 +198,8 @@ def test_a_protected_task_s_other_fields_reach_neither_its_session_nor_a_visible
         # A protected trial's session works in the store's work root, given that directory
         # alone out of the run's held-out roots; a visible one in the round's directory.
         if prompt in protected_briefs:
-            assert work.parent == work_root(store.store, "control")
+            assert work.name == runner.PLACE
+            assert work.parent.parent == work_root(store.store, "control")
             assert setup.held_out_carved == str(work)
         else:
             assert work.is_relative_to(out) and setup.held_out_carved is None

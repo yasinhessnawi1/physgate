@@ -146,6 +146,9 @@ BASELINE_DIR = "baseline"
 DEVELOPMENT_DIFFERENCES = frozenset({"reportable", "harness"})
 TRIALS = "trials.jsonl"
 SCORE = "score.json"
+#: Inside a trial's directory: the session's own place, and the harness's (never the session's).
+PLACE = "place"
+HARNESS = "harness"
 
 #: A trial's tier: one of a version's three, or ``external`` for an external set's.
 TierName = SourceTier
@@ -641,22 +644,28 @@ def _one_trial(
     for attempt in (1, 2):
         name = f"{trial.index:04d}-{attempt}"
         working: Path | None = None
+        # Two directories, never one: the session's own place, which its session is given and
+        # may leave anything in, and the harness's, which it never had access to and where the
+        # copied answer, the session's record and the score are written.
         if protected_root is None:
-            work, given = out / "work" / name, setup
+            trial_dir, given = out / "work" / name, setup
         else:
             # Made in the work root, which every run on the store withholds, and moved from
             # there beneath the withheld root alone: never in a visible place. Its session is
-            # given this one directory out of the run's held-out roots, and nothing else there.
-            work = work_root(store, role) / f"{BASELINE_DIR}-{protected_root.name}-{name}"
-            working = _working(role_root(store, role), f"{BASELINE_DIR}-{name}", work)
-            given = replace(setup, held_out_carved=str(work))
-        record = arm(task, given, work, cap=trial.cap)
+            # given its own place out of the run's held-out roots, and nothing else there.
+            trial_dir = work_root(store, role) / f"{BASELINE_DIR}-{protected_root.name}-{name}"
+            working = _working(role_root(store, role), f"{BASELINE_DIR}-{name}", trial_dir)
+            given = replace(setup, held_out_carved=str(trial_dir / PLACE))
+        trial_dir.mkdir(mode=0o700, parents=True)
+        work, harness = trial_dir / PLACE, trial_dir / HARNESS
+        harness.mkdir(mode=0o700)
+        record = arm(task, given, work, cap=trial.cap, harness=harness)
         stream = work / "session" / "stdout.jsonl"
-        answer = work / "answer" / task.answer.path
+        answer = harness / "answer" / task.answer.path
         scored: Mapping[str, Any] | None = None
         if record.get("answer") == "found":
             scored = score(task, answer)
-            write_new(work / SCORE, canonical_json(dict(scored)))
+            write_new(harness / SCORE, canonical_json(dict(scored)))
         machine = False
         if scored is None:
             try:
@@ -664,14 +673,14 @@ def _one_trial(
             except TrialExcludedError:
                 machine = False  # assembled as excluded below, with its reason
         if machine and attempt == 1:
-            _finish(work, working, protected_root, name)
+            _finish(trial_dir, working, protected_root, name)
             sleep(delays[0] if delays else 0.0)
             continue
-        found = differences(run_dir, work, role=role, task=task)
+        found = differences(run_dir, work, role=role, task=task, record_dir=harness)
         allowed = DEVELOPMENT_DIFFERENCES if development else frozenset()
         named = sorted({f.split(":", 1)[0] for f in found} - allowed)
         if named:
-            _finish(work, working, protected_root, name)
+            _finish(trial_dir, working, protected_root, name)
             msg = "the raw arm differs from the harness run in more than the harness: "
             raise BaselineError(msg + ", ".join(named), entry=str(trial.index))
         line = raw_trial(
@@ -684,7 +693,7 @@ def _one_trial(
             score=scored,
             unscored=machine,
         )
-        _finish(work, working, protected_root, name)
+        _finish(trial_dir, working, protected_root, name)
         return record, line
     msg = "a trial ran past its one re-run"  # unreachable: the second attempt always returns
     raise BaselineError(msg, entry=str(trial.index))

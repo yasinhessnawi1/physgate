@@ -31,6 +31,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import threading
 import time
@@ -494,16 +495,37 @@ def _install(
 
 
 def _take_answer(worktree: Path, task: Task, out: Path) -> str:
-    """The raw session's answer, copied for the scorer: the file the brief names, as it is."""
-    answer = worktree / task.answer.path
-    if not answer.exists() and not answer.is_symlink():
+    """The raw session's answer, copied for the scorer: the file the brief names, as it is.
+
+    The file is opened once, without following a link, and judged from that descriptor (a
+    regular file, no larger than any answer) and read from it: nothing the session does
+    between a look and a read can change what is taken. ``out`` is in a directory the
+    session never had access to, and is created new there, never through a link.
+    """
+    try:
+        fd = os.open(worktree / task.answer.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
         return "no_answer"
-    if answer.is_symlink() or not answer.is_file():
-        return "not_a_file"
-    if answer.stat().st_size > MAX_ANSWER_BYTES:
+    except OSError:
+        return "not_a_file"  # a link (ELOOP), or anything else that cannot be opened as a file
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            return "not_a_file"
+        if info.st_size > MAX_ANSWER_BYTES:
+            return "too_large"
+        with os.fdopen(os.dup(fd), "rb") as handle:
+            data = handle.read(MAX_ANSWER_BYTES + 1)
+    finally:
+        os.close(fd)
+    if len(data) > MAX_ANSWER_BYTES:
         return "too_large"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(answer, out, follow_symlinks=False)
+    out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    made = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(made, data)
+    finally:
+        os.close(made)
     return "found"
 
 
@@ -562,22 +584,28 @@ def run_session(
         shutil.rmtree(own_temp, ignore_errors=True)
 
 
-def run_raw(task: Task, setup: RawSetup, work: Path, *, cap: int) -> dict[str, Any]:
+def run_raw(
+    task: Task, setup: RawSetup, work: Path, *, cap: int, harness: Path | None = None
+) -> dict[str, Any]:
     """Run the raw arm once on ``task`` in the new directory ``work``; its record.
 
-    ``cap`` is the harness arm's token total on the same task and trial.
+    ``cap`` is the harness arm's token total on the same task and trial. ``harness`` is an
+    existing directory the session was never given: the copied answer (``answer/``) and the
+    record (``raw.json``) are written there, so nothing the session leaves in its own place
+    can stand where the harness writes. Left out, they are written in ``work``.
 
     Raises:
         RawArmError: ``work`` exists, the session could not be set up, or its credential
             could not be removed.
     """
+    kept = work if harness is None else harness
     record = run_session(task.brief, setup, work, cap=cap)
     record.update(
         task=task.id,
-        answer=_take_answer(work / "worktree", task, work / "answer" / task.answer.path),
+        answer=_take_answer(work / "worktree", task, kept / "answer" / task.answer.path),
         pins=pins(task, setup),
     )
-    write_record(work.parent, work.name, record, "raw.json")
+    write_record(kept.parent, kept.name, record, "raw.json")
     return record
 
 
