@@ -33,7 +33,12 @@ def good() -> dict[str, Any]:
         ],
         "acceptance_criteria": [{"criterion": "1", "result": "met", "evidence": "x:1"}],
         "indicators": [
-            {"kind": "disabled_checks", "evidence": "t2", "disposition": "dismissed", "reason": "r"}
+            {
+                "kind": "disabled_checks",
+                "evidence": "t2",
+                "disposition": "dismissed",
+                "reason": "a fixed rule",
+            }
         ],
         "spec_defects": [],
     }

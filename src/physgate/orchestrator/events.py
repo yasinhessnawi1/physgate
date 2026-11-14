@@ -92,6 +92,7 @@ from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
 from physgate.orchestrator.usage_limit import AccountWindow, UsageLimit
 from physgate.oslayer.probe import OsLayerState
+from physgate.reviewers.scan import ScanHit
 from physgate.roles import owner_of, owners_of
 from physgate.series.seal import SeriesCheck, SessionSeries
 from physgate.state.held_file import HeldFile
@@ -455,6 +456,43 @@ class ReviewRan(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     result: ReviewResult
+    #: The earlier attempts of the subtask no review had judged whose scan hits this review was
+    #: given and answered, every one (ARCH-133), in order. A line without it judged its own
+    #: attempt's streams alone, as every line written before did; it is left out when empty, so
+    #: those lines keep their bytes, and a line that holds it holds at least one attempt.
+    judged_earlier: tuple[Attempt, ...] = ()
+    #: The hits of those earlier attempts this review was given to judge, each marked with its
+    #: attempt, as the scan found them: what :attr:`judged_earlier` is held to, with the answers
+    #: in :attr:`result`. Left out when empty, as :attr:`judged_earlier` is.
+    earlier_hits: tuple[ScanHit, ...] = ()
+
+    @field_validator("judged_earlier", "earlier_hits", mode="before")
+    @classmethod
+    def _some_when_present(cls, value: object) -> object:
+        # Present on a line, the list names an attempt: an empty one re-serialises to bytes no
+        # writer wrote. The writer's own empty tuple is the field left out.
+        if isinstance(value, list):
+            if not value:
+                msg = "a review line names the earlier attempts it judged, or leaves the field out"
+                raise ValueError(msg)
+            return tuple(value)
+        return value
+
+    @model_serializer(mode="wrap")
+    def _omit_none_judged(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.judged_earlier:
+            data.pop("judged_earlier", None)
+        if not self.earlier_hits:
+            data.pop("earlier_hits", None)
+        return data
+
+    @model_validator(mode="after")
+    def _earlier_hits_marked(self) -> ReviewRan:
+        if any(hit.attempt is None or hit.attempt >= self.attempt for hit in self.earlier_hits):
+            msg = "a review line's earlier hits are each marked with an attempt before its own"
+            raise ValueError(msg)
+        return self
 
 
 class ReviewUnavailable(_Event):

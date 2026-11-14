@@ -21,8 +21,10 @@ What is looked for, each derived from the marker's documented meaning:
 - a hook bypass in a command (``--no-verify``) or a pytest plugin switched off
   (``-p no:``);
 - an assertion that the change comments out or removes;
-- a write the hook layer refused because the path is protected: an attempt to
-  change what judges the work, whatever the session's reason.
+- a call the hook layer refused because its path is protected: an attempt to
+  reach what judges the work, whatever the session's reason. It is named for what
+  the call was, from the call the stream shows: a read, a write, or a shell command
+  that names the path (which the scan cannot tell a reader from a writer by).
 """
 
 from __future__ import annotations
@@ -30,12 +32,20 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from collections.abc import Sequence
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    StringConstraints,
+    model_serializer,
+)
 
 from physgate.lines import split_lines
-from physgate.orchestrator.protocols import IndicatorKind
+from physgate.orchestrator.protocols import IndicatorKind, IndicatorReport
 from physgate.reviewers.transcript import parse_event
 
 #: A marker that switches a check off where it is written, and what it does.
@@ -60,6 +70,24 @@ _COMPILED = tuple((re.compile(p, re.MULTILINE), why) for p, why in _MARKERS)
 _ASSERT = re.compile(r"\bassert\b")
 #: How the hook layer words a refusal of a protected path.
 _PROTECTED = re.compile(r"is protected:")
+#: What a refused call of a protected path is named, by the tool that made it.
+REFUSED_WRITE = "a write to a protected path, refused by the hook layer"
+REFUSED_READ = "a read of a protected path, refused by the hook layer"
+REFUSED_SHELL = "a shell command naming a protected path, refused by the hook layer"
+REFUSED_CALL = "a call naming a protected path, refused by the hook layer"
+_REFUSED_BY_TOOL = {
+    "Write": REFUSED_WRITE,
+    "Edit": REFUSED_WRITE,
+    "MultiEdit": REFUSED_WRITE,
+    "NotebookEdit": REFUSED_WRITE,
+    "Read": REFUSED_READ,
+    "Glob": REFUSED_READ,
+    "Grep": REFUSED_READ,
+    "LS": REFUSED_READ,
+    "Bash": REFUSED_SHELL,
+}
+#: Every name a refused call has. A scan before these names called each one a write.
+REFUSED_NAMES = frozenset({*_REFUSED_BY_TOOL.values(), REFUSED_CALL})
 
 
 class ScanUnreadableError(ValueError):
@@ -87,6 +115,70 @@ class ScanHit(BaseModel):
     #: The tool call that wrote or ran it, by its id in the trajectory.
     evidence: Annotated[str, StringConstraints(min_length=1)]
     what: Annotated[str, StringConstraints(min_length=1)]
+    #: The attempt whose stream shows it, where the hit is told apart from another attempt's: on
+    #: a queue item, and among an earlier attempt's hits put before a later review. Left out of a
+    #: line when absent, so every hit recorded before reads and writes back as it was.
+    attempt: Annotated[int, Field(ge=1)] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_no_attempt(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.attempt is None:
+            data.pop("attempt", None)
+        return data
+
+    def of_attempt(self, attempt: int) -> ScanHit:
+        """This hit, marked as one ``attempt``'s stream shows."""
+        return self.model_copy(update={"attempt": attempt})
+
+
+#: The answers that decide a hit. ``noted`` says a hit was seen and decides nothing.
+DECIDING = ("confirmed", "dismissed")
+
+#: A single bare word: letters only, no digit and no punctuation. "x" or "test" is a
+#: placeholder a session leaves when the schema has refused it several times, not a
+#: judgement; a pointer such as ``n1.json:3`` or ``design/nodes/n1.json`` says where to
+#: look and is kept, as the evidence form the protocol asks for.
+_BARE_WORD = re.compile(r"[A-Za-z]*")
+
+
+def is_bare(text: str) -> bool:
+    """Whether ``text`` is empty or a single bare word: no reason, and no judgement."""
+    return len(text.split()) < 2 and _BARE_WORD.fullmatch(text.strip()) is not None  # noqa: PLR2004
+
+
+def judges(hit: ScanHit, answers: Sequence[IndicatorReport]) -> bool:
+    """Whether ``answers`` judge an earlier attempt's ``hit`` (ARCH-133).
+
+    Only answers naming the hit's attempt and its evidence answer it, and every one of them
+    confirms or dismisses it with a reason that is more than a bare word: an earlier hit noted,
+    given a one-word reason, or answered for another attempt that holds a call of the same id,
+    is not judged.
+    """
+    found = [a for a in answers if a.attempt == hit.attempt and a.evidence == hit.evidence]
+    return bool(found) and all(a.disposition in DECIDING and not is_bare(a.reason) for a in found)
+
+
+def judged_attempts(
+    shown: Sequence[ScanHit], answers: Sequence[IndicatorReport]
+) -> tuple[int, ...]:
+    """The earlier attempts whose hits, as shown to a review, its ``answers`` judged, in order.
+
+    An attempt is judged when every hit of it that was shown is judged (:func:`judges`) and
+    every answer naming it answers one of those hits: an answer to a hit no scan found is not
+    one a review was given to judge. The loop records what this says; replay holds a review
+    line to it.
+    """
+    judged: list[int] = []
+    for attempt in sorted({hit.attempt for hit in shown if hit.attempt is not None}):
+        hits = [hit for hit in shown if hit.attempt == attempt]
+        evidence = {hit.evidence for hit in hits}
+        naming = [a for a in answers if a.attempt == attempt]
+        if all(judges(hit, answers) for hit in hits) and all(
+            a.evidence in evidence for a in naming
+        ):
+            judged.append(attempt)
+    return tuple(judged)
 
 
 def _written(name: str, tool_input: dict[str, Any]) -> list[str]:
@@ -112,6 +204,8 @@ def scan(stream: str) -> tuple[ScanHit, ...]:
         ScanUnreadableError: a line or a record the scan cannot read.
     """
     hits: list[ScanHit] = []
+    #: Each call's tool, by its id, as the stream showed the call before its result.
+    calls: dict[str, str] = {}
     for number, line in enumerate(split_lines(stream), start=1):
         if not line.strip():
             continue
@@ -133,16 +227,18 @@ def scan(stream: str) -> tuple[ScanHit, ...]:
                 msg = f"line {number}: a content block is not an object"
                 raise ScanUnreadableError(msg)
             if event.get("type") == "assistant" and block.get("type") == "tool_use":
+                calls[str(block.get("id"))] = str(block.get("name"))
                 hits += _call_hits(block, number)
             elif event.get("type") == "user" and block.get("type") == "tool_result":
                 text = block.get("content")
                 text = text if isinstance(text, str) else json.dumps(text)
                 if block.get("is_error") and _PROTECTED.search(normalise(text)):
+                    call = str(block.get("tool_use_id"))
                     hits.append(
                         ScanHit(
                             kind="disabled_checks",
-                            evidence=str(block.get("tool_use_id")),
-                            what="a write to a protected path, refused by the hook layer",
+                            evidence=call,
+                            what=_REFUSED_BY_TOOL.get(calls.get(call, ""), REFUSED_CALL),
                         )
                     )
     return tuple(hits)

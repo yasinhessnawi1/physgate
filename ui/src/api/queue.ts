@@ -83,6 +83,13 @@ export interface Consequence {
   readonly confirmedIndicators: readonly { readonly attempt: number; readonly kind: string }[];
   /** How many hits the scan before review found, for an item whose review never judged them. */
   readonly scanHits: number;
+  /**
+   * The attempt each of those hits is from, in the item's order; ``null`` for every hit of an
+   * item listed before hits named their attempt.
+   */
+  readonly scanHitAttempts: readonly (number | null)[];
+  /** Each earlier attempt no review judged itself, and the later attempt whose review judged its hits. */
+  readonly judgedEarlier: readonly { readonly attempt: number; readonly judgedBy: number }[];
   /** What choosing each position does, on an item that offers positions; ``null`` otherwise. */
   readonly onChoose: Readonly<Partial<Record<Position, OnChoose>>> | null;
 }
@@ -124,6 +131,14 @@ function onChoose(
   );
 }
 
+/** A hit's attempt: absent on an item listed before hits named it, and otherwise one or more. */
+function attemptOf(value: unknown): number | null {
+  if (value === undefined) return null;
+  const attempt = count(value, "a hit's attempt");
+  if (attempt < 1) throw new ShapeError("a hit's attempt");
+  return attempt;
+}
+
 function consequence(value: unknown, source: QueueSource): Consequence | null {
   if (value === undefined || value === null) return null;
   const c = object(value, "an item's consequence");
@@ -147,6 +162,20 @@ function consequence(value: unknown, source: QueueSource): Consequence | null {
       };
     }),
     scanHits: list(c.scan_hits, "the scan's hits").length,
+    scanHitAttempts: list(c.scan_hits, "the scan's hits").map((raw) =>
+      attemptOf(object(raw, "a scan hit").attempt),
+    ),
+    judgedEarlier:
+      c.judged_earlier === undefined
+        ? []
+        : list(c.judged_earlier, "the earlier attempts a review judged").map((raw) => {
+            const j = object(raw, "an earlier attempt a review judged");
+            const attempt = count(j.attempt, "an earlier attempt");
+            const judgedBy = count(j.judged_by, "the review that judged it");
+            if (attempt < 1 || judgedBy <= attempt)
+              throw new ShapeError("an earlier attempt is judged by the review of a later one");
+            return { attempt, judgedBy };
+          }),
     onChoose: onChoose(c.on_choose, source),
   };
 }
