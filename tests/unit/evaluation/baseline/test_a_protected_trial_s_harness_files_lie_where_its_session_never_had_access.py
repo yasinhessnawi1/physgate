@@ -10,9 +10,12 @@ trial is in a visible place afterwards.
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import json
 import os
 import shutil
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -227,8 +230,26 @@ def test_an_answer_that_is_a_link_out_of_the_session_s_place_is_not_taken(
         worktree.mkdir()
         make(worktree)
         out = tmp_path / f"out{id(make)}" / "answer.json"
-        assert raw._take_answer(worktree, task, out) == "not_a_file"
+        taken = _bounded(functools.partial(raw._take_answer, worktree, task, out), worktree)
+        assert taken == "not_a_file"
         assert not out.exists()
+
+
+def _bounded(call: Callable[[], str], worktree: Path) -> str | None:
+    """What ``call`` returned; the row fails on its assertion if it waited on a named pipe."""
+    box: dict[str, str] = {}
+    thread = threading.Thread(target=lambda: box.update(value=call()), daemon=True)
+    thread.start()
+    thread.join(20.0)
+    hung = thread.is_alive()
+    while thread.is_alive():
+        # Let a reader waiting on a pipe go on: a writer opens each and closes it at once.
+        for each in worktree.iterdir():
+            with contextlib.suppress(OSError):
+                os.close(os.open(each, os.O_WRONLY | os.O_NONBLOCK))
+        thread.join(1.0)
+    assert not hung, "the answer's read waited on a named pipe the session left"
+    return box.get("value")
 
 
 def _swapped(swap: str, place: Path, outside: Path) -> None:

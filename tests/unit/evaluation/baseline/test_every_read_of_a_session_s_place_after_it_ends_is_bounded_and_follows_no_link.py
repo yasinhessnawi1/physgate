@@ -308,8 +308,12 @@ def test_the_raw_arm_s_record_in_its_place_is_not_read_through_a_link(
     record = tmp_path / "elsewhere.json"
     record.write_text(json.dumps({"pins": {}, "task": task.id}))
     (place / "raw.json").symlink_to(record)
-    with pytest.raises(ComparisonError, match="record could not be read"):
-        differences(run, place, role="control", task=task)
+    try:
+        outcome: object = differences(run, place, role="control", task=task)
+    except Exception as exc:  # noqa: BLE001 - the row asserts on what it was
+        outcome = exc
+    assert isinstance(outcome, ComparisonError), f"the linked record was read: {outcome!r}"
+    assert "record could not be read" in str(outcome)
 
 
 def test_a_raw_session_whose_binary_cannot_be_measured_is_refused_before_it_starts(

@@ -308,8 +308,10 @@ def test_a_run_that_recorded_no_binary_is_refused_beside_one_that_did_and_accoun
         account={"name": "run-seat-2", "token_sha256_prefix": "b" * 12},
     )
     _refused(store, run_set((one, 0), (two, 0)), tmp_path / "round", "binary", {"entry": "1"})
-    _refused(store, run_set((two, 0)), tmp_path / "alone", "binary", {"entry": "0"})
-    _refused(store, run_set((two, 0)), tmp_path / "dev", "binary", {"entry": "0"}, development=True)
+    # Alone, it is refused as recording none, in the plan, before any setup reads a credential.
+    alone = "recorded no build"
+    _refused(store, run_set((two, 0)), tmp_path / "alone", alone, {"entry": "0"})
+    _refused(store, run_set((two, 0)), tmp_path / "dev", alone, {"entry": "0"}, development=True)
     three = harness_run(
         tmp_path / "runs",
         store.tasks["visible"][1],
