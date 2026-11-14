@@ -178,7 +178,7 @@ export type RunEvent = Line &
         readonly by: (typeof REJECTED_BY)[number];
         readonly itemId: string | null;
       }
-    /** A subtask's first dispatch held while a subtask it reads from is with a person. */
+    /** A subtask's dispatch held while a subtask it reads from is with a person. */
     | {
         readonly kind: "dispatch_held";
         readonly subtask: string;

@@ -228,7 +228,7 @@ class _Mark(TypedDict, total=False):
 #: asked for it, so the lines that are written keep the times they always had.
 _UNWRITTEN_TS = utc_stamp(datetime(1970, 1, 1, tzinfo=UTC))
 
-#: What a run that acts on decisions writes on its first line of the rule it starts under: a
+#: The mark a run that acts on decisions writes on its first line: it started under the rule that
 #: every dispatch of a subtask waits while a subtask it reads from waits on a person.
 PRODUCER_WAIT: Literal["hold"] | None = "hold"
 
