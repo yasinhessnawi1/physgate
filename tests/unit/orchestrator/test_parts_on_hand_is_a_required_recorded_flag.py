@@ -48,7 +48,8 @@ def test_the_register_names_the_flag_with_on_and_off() -> None:
     assert flag.name == "parts_on_hand"
     assert flag.values == ("on", "off")
     assert flag.architecture == "ARCH-122"
-    assert flag in flags.REGISTER and flags.REGISTER[-1] is flag
+    position = flags.REGISTER.index(flag)
+    assert flags.REGISTER[position - 1] is flags.DESIGN_REVIEW
     assert typing.get_args(getattr(flags, "PartsOnHand", None)) == flag.values
     # Each meaning says what a reader of a run's record needs: what is asked, and of whom.
     assert "have" in flag.meanings["on"] and "queue_decisions: act" in flag.meanings["on"]

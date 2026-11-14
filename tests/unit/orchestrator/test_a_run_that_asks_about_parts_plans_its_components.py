@@ -698,7 +698,9 @@ def test_the_command_s_one_retry_asks_as_its_run_does(
     monkeypatch.setattr(
         orchestrator_cli,
         "_config",
-        lambda given: configured(given).model_copy(update={"parts_on_hand": "on"}),
+        lambda given, credential: configured(given, credential).model_copy(
+            update={"parts_on_hand": "on"}
+        ),
     )
     asking = replan_rig.decompose(tmp_path / "asking", design_review, script)
     assert len(asking.script.calls) == 2, asking.code

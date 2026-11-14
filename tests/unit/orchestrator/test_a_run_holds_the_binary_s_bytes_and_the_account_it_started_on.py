@@ -101,6 +101,7 @@ def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
         "held_out_sha256": [],
         "network": "open",
         "design_review": "off",
+        "parts_on_hand": "off",
         "ablation": False,
         "reviewers": "paired",
         "skills": "on",
