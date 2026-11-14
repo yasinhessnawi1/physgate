@@ -43,6 +43,7 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.orchestrator.session_files import FileRefused, read_beneath
 
 #: How each field of a harness run's recorded configuration bears on the raw arm, by its
 #: path: every field of a model nested in the configuration has a decision of its own, so a
@@ -277,14 +278,35 @@ def harness_total(run_dir: Path) -> int:
     return TokenAccount.from_events(events).total().total()
 
 
-def _tools(config_file: Path) -> tuple[str, str | None, list[str]]:
+#: The most a generated session configuration or a raw arm's record is read to: far past what
+#: the installer or the arm writes.
+MAX_RECORD_BYTES = 1 << 20
+
+
+def _read(anchor: Path, names: tuple[str, ...]) -> bytes:
+    """A file a session could have reached, as the harness reads every one (``read_beneath``).
+
+    Raises:
+        OSError: the file is absent, not a regular file of its own, or larger than the bound.
+    """
+    try:
+        return read_beneath(anchor, names, limit=MAX_RECORD_BYTES)
+    except FileRefused as refused:
+        raise OSError(str(refused)) from None
+
+
+def _tools(anchor: Path, names: tuple[str, ...]) -> tuple[str, str | None, list[str]]:
     """A generated session configuration's profile, role and tool list, as it was installed.
+
+    The file is ``anchor/names...``, read from the harness's own ``anchor`` with no link
+    followed below it (:func:`_read`).
 
     Raises:
         ComparisonError: the file cannot be read, or does not have the installer's shape.
     """
+    config_file = anchor.joinpath(*names)
     try:
-        config = json.loads(config_file.read_bytes())
+        config = json.loads(_read(anchor, names))
         profile, role, tools = config["profile"], config["role"], config["tools_allowed"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
         msg = "a session's generated configuration could not be read"
@@ -303,8 +325,10 @@ def _tools(config_file: Path) -> tuple[str, str | None, list[str]]:
 def _harness_tools(run_dir: Path, role: str) -> list[list[str]]:
     """The tool list of every role session of ``role`` the run installed, one per session."""
     lists = []
-    for config_file in sorted((run_dir / "sessions").glob(f"*/session/{CONFIG_NAME}")):
-        profile, session_role, tools = _tools(config_file)
+    sessions = run_dir / "sessions"
+    for config_file in sorted(sessions.glob(f"*/session/{CONFIG_NAME}")):
+        names = (config_file.parent.parent.name, "session", CONFIG_NAME)
+        profile, session_role, tools = _tools(sessions, names)
         if profile == "role" and session_role == role:
             lists.append(tools)
     return lists
@@ -372,10 +396,9 @@ def differences(
             account is not complete (:func:`harness_total`).
     """
     config = load_run_config(run_dir / "run.json")
+    kept = raw_dir if record_dir is None else record_dir
     try:
-        record: dict[str, Any] = json.loads(
-            ((raw_dir if record_dir is None else record_dir) / "raw.json").read_bytes()
-        )
+        record: dict[str, Any] = json.loads(_read(kept.parent, (kept.name, "raw.json")))
         pins: dict[str, Any] = record["pins"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
         msg = "the raw arm's record could not be read"
@@ -415,7 +438,9 @@ def differences(
         found.append(
             f"answered_by: the harness pinned {pinned!r}, the raw arm was answered by {answered!r}"
         )
-    raw_profile, _, raw_tools = _tools(raw_dir / "session" / "session" / CONFIG_NAME)
+    raw_profile, _, raw_tools = _tools(
+        raw_dir.parent, (raw_dir.name, "session", "session", CONFIG_NAME)
+    )
     if raw_profile != "baseline":
         found.append(f"profile: the raw arm was installed as {raw_profile!r}, not 'baseline'")
     harness_lists = _harness_tools(run_dir, role)

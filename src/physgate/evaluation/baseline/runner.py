@@ -128,9 +128,9 @@ from physgate.evaluation.tiers.task import (
     canonical_json,
     parse_task,
 )
-from physgate.orchestrator.binaries import ClaudeBinary
+from physgate.orchestrator.binaries import ClaudeBinary, measure
 from physgate.orchestrator.credentials import Credential
-from physgate.orchestrator.exceptions import RunConfigError
+from physgate.orchestrator.exceptions import InvocationError, RunConfigError
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.run_config import (
     RunConfig,
@@ -389,13 +389,15 @@ def plan(
         except ComparisonError as exc:
             msg = f"the harness run's token account gives no cap: {exc}"
             raise BaselineError(msg, **where) from None
-        if config.binary is not None:
-            if binary_seen is not None and binary_seen != config.binary:
-                # Master's comparison rule: the binary's bytes and platform are held equal
-                # where both runs recorded them; one that recorded none is not held to it.
-                msg = "the harness runs executed different builds of the session binary"
-                raise BaselineError(msg, **where, refused_because="binary")
-            binary_seen = config.binary
+        # The binary is held as the build it is, its bytes and platform, never as a version
+        # string: a run that recorded no build cannot be held to the raw session's.
+        if config.binary is None:
+            msg = "the harness run recorded no build of the session binary to hold a baseline to"
+            raise BaselineError(msg, **where, refused_because="binary")
+        if binary_seen is not None and binary_seen != config.binary:
+            msg = "the harness runs executed different builds of the session binary"
+            raise BaselineError(msg, **where, refused_because="binary")
+        binary_seen = config.binary
         planned.append(Planned(index, entry, config, task, tier, cap))
     return source, planned
 
@@ -641,6 +643,13 @@ def _one_trial(
     # Before any record of work: a setup refused here (no credential, another binary) leaves
     # nothing behind for the next round to refuse.
     setup = setup_for(trial.config, role)
+    try:
+        built = measure(setup.binary)
+    except InvocationError as exc:
+        raise BaselineError(str(exc), entry=str(trial.index), refused_because="binary") from None
+    if built != trial.config.binary:
+        msg = "the binary here is not the build the harness run executed"
+        raise BaselineError(msg, entry=str(trial.index), refused_because="binary")
     for attempt in (1, 2):
         name = f"{trial.index:04d}-{attempt}"
         working: Path | None = None

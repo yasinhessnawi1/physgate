@@ -43,6 +43,7 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.protocols import Usage
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig
+from physgate.orchestrator.usage_limit import UsageLimit
 from physgate.oslayer.probe import Absent, Present
 
 TASK = parse_task(json.dumps(own_task()).encode())
@@ -608,9 +609,13 @@ def test_a_harness_total_of_a_run_halted_for_a_resume_is_refused(
     tmp_path: Path, reason: str
 ) -> None:
     """A resume continues the same attempt and spends more: the halt is no end of its spending."""
+    # A halt on the usage limit carries the limit it met, and no other halt does.
+    limit = UsageLimit(resets="1:20pm (Europe/Oslo)") if reason == "usage_limit" else None
 
     def halted(log: EventLog) -> None:
-        log.append(Halted(**log.envelope(), reason=reason, detail="x"))  # type: ignore[arg-type]
+        log.append(
+            Halted(**log.envelope(), reason=reason, detail="x", usage_limit=limit)  # type: ignore[arg-type]
+        )
 
     run = _harness_run(tmp_path, end=halted)
     with pytest.raises(ComparisonError, match="halted for a resume"):

@@ -61,7 +61,6 @@ from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
     debug_logs_removed_on_failure,
-    open_in_session,
     remove_secrets,
     write_key_helper,
     write_login,
@@ -136,6 +135,12 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root, os_layer_refusal
+from physgate.orchestrator.session_files import (
+    FileRefused,
+    open_beneath,
+    read_beneath,
+    read_bounded,
+)
 from physgate.orchestrator.trajectory import (
     Seal,
     forged_tail,
@@ -244,38 +249,50 @@ def spawn_held(
     return process, started
 
 
+#: The most a session's own file (a stream, a hook log, an end record) is read to: far past any
+#: a session writes in its bounds, and short of what would exhaust the harness's memory.
+MAX_SESSION_FILE_BYTES = 1 << 30
+
+
+def _beneath(path: Path) -> tuple[Path, tuple[str, str, str]]:
+    """``path`` as the harness's own directory and the names below it a session could reach.
+
+    ``path`` is ``<session dir>/<name>/<file>`` or ``<session dir>/<file>``, the session
+    directory's parent the orchestrator's own (:func:`open_in_session`).
+    """
+    return path.parent.parent.parent, (path.parent.parent.name, path.parent.name, path.name)
+
+
 def read_session_file(path: Path) -> bytes:
     """The bytes of a session's own file, read without following a link (``b""`` if absent).
 
-    The file is reached as :func:`open_in_session` reaches its directory, and opened without
-    following a link: a link a session's process planted there is never read through.
+    The file is reached as :func:`open_in_session` reaches its directory, opened once without
+    following a link and without waiting on a named pipe, and read only as a regular file with
+    no other link, up to :data:`MAX_SESSION_FILE_BYTES`
+    (:func:`~physgate.orchestrator.session_files.read_beneath`).
 
     Raises:
-        InvocationError: the file, or a directory on the way, is a link or not a regular file.
+        InvocationError: the file, or a directory on the way, is a link, is not a regular file
+            with one link, or is larger than the bound.
     """
-    directory = open_in_session(path.parent)
-    if directory is None:
-        return b""
+    anchor, names = _beneath(path)
     try:
-        try:
-            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
-        except FileNotFoundError:
+        return read_beneath(anchor, names, limit=MAX_SESSION_FILE_BYTES)
+    except FileRefused as refused:
+        if refused.kind == "absent":
             return b""
-        except OSError as exc:
-            msg = "a session's file is a link or cannot be opened; it is not read through"
-            raise InvocationError(msg, path=str(path), error=repr(exc)) from exc
-    finally:
-        os.close(directory)
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            msg = "a session's file is not a regular file; it is not read"
-            raise InvocationError(msg, path=str(path))
-        chunks = []
-        while chunk := os.read(fd, 1 << 20):
-            chunks.append(chunk)
-        return b"".join(chunks)
-    finally:
-        os.close(fd)
+        raise InvocationError(
+            _refused_text(refused, "a link, not a regular file of its own, or too large", "read"),
+            path=str(path),
+            error=str(refused),
+        ) from None
+
+
+def _refused_text(refused: FileRefused, what: str, done: str) -> str:
+    """What a refusal of a session's file says: its directory's, or the file's own."""
+    if refused.directory:
+        return "a session's directory is a link or not a directory; it is not followed"
+    return f"a session's file is {what}; it is not {done} through"
 
 
 #: The run's recorded configuration, withheld from every role session's reads.
@@ -1428,39 +1445,32 @@ class Installed(BaseModel):
 def redact(path: Path, secret: str | None) -> None:
     """Replace every occurrence of ``secret`` in the file at ``path``, a session's own file.
 
-    The file is reached through its directory without following a link, and opened without
-    following one (:func:`open_in_session`): a link planted at its name is never written
-    through.
+    The file is reached and judged as :func:`read_session_file` reaches one, opened to write:
+    a link planted at its name, or a second link to a file elsewhere, is never written through.
 
     Raises:
-        InvocationError: the file, or a directory on the way, is a link.
+        InvocationError: the file, or a directory on the way, is a link, is not a regular file
+            with one link, or is larger than :data:`MAX_SESSION_FILE_BYTES`.
     """
     if not secret:
         return
-    directory = open_in_session(path.parent)
-    if directory is None:
-        return
+    anchor, names = _beneath(path)
+    try:
+        fd = open_beneath(anchor, names, write=True)
+    except FileRefused as refused:
+        if refused.kind == "absent":
+            return
+        raise InvocationError(
+            _refused_text(refused, "a link or not a regular file of its own", "written"),
+            path=str(path),
+            error=str(refused),
+        ) from None
     try:
         try:
-            fd = os.open(path.name, os.O_RDWR | os.O_NOFOLLOW, dir_fd=directory)
-        except FileNotFoundError:
-            return
-        except OSError as exc:
-            msg = "a session's file is a link or cannot be opened; it is not written through"
-            raise InvocationError(msg, path=str(path), error=repr(exc)) from exc
-    finally:
-        os.close(directory)
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            msg = "a session's file is not a regular file; it is not written"
-            raise InvocationError(msg, path=str(path))
-        chunks = []
-        while chunk := os.read(fd, 1 << 20):
-            chunks.append(chunk)
-        data = b"".join(chunks)
-        # The stream as the canary scan reads it (each line decoded strictly, every code point
-        # that shows nothing removed, the lines joined): a credential split by such a character,
-        # across a line's strings or across lines, is still one. What cannot be read goes whole.
+            data = read_bounded(fd, MAX_SESSION_FILE_BYTES)
+        except FileRefused as refused:
+            msg = "a session's file is too large to scrub; it is not written"
+            raise InvocationError(msg, path=str(path), error=str(refused)) from None
         redacted = redact_text(data, secret, REDACTED_TEXT)
         if redacted != data:
             os.ftruncate(fd, 0)

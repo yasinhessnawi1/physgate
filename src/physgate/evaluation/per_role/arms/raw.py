@@ -31,7 +31,6 @@ import hashlib
 import json
 import os
 import shutil
-import stat
 import subprocess
 import threading
 import time
@@ -56,6 +55,7 @@ from physgate.orchestrator.dispatch import (
     check_after_stop,
     harness_protection,
     read_captured,
+    read_session_file,
     redact,
     review_material_seen,
     runtime_git_paths,
@@ -74,6 +74,7 @@ from physgate.orchestrator.run_config import (
     ThinkingDisplay,
     endpoint_of,
 )
+from physgate.orchestrator.session_files import FileRefused, read_beneath
 from physgate.oslayer.probe import Absent, Present
 from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SessionEnd, await_session
@@ -146,11 +147,12 @@ class RawSetup:
 
 
 def stream_total(stream: Path) -> int:
-    """Every token the stream's messages were charged for so far, each message once."""
-    try:
-        text = stream.read_bytes().decode("utf-8", errors="replace")
-    except FileNotFoundError:
-        return 0
+    """Every token the stream's messages were charged for so far, each message once.
+
+    Read as every session file is (:func:`read_session_file`): a link, a pipe or a file with
+    another link at the stream's name raises, and the watch stops the session for it.
+    """
+    text = read_session_file(stream).decode("utf-8", errors="replace")
     _, usages, _ = read_stream(text)
     return sum(m.usage.total() for m in usages)
 
@@ -506,45 +508,22 @@ def _take_answer(
     following a link and, where ``identity`` says what was made, are the very directories
     the runner made (device and inode); the answer's name (one plain component, by the
     task's own pattern) is opened from the worktree's descriptor without following a link,
-    judged from that descriptor (a regular file, no larger than any answer) and read from it.
+    judged from that descriptor (a regular file with no other link, no larger than any answer)
+    and read from it (:func:`~physgate.orchestrator.session_files.read_beneath`).
     ``out`` is in a directory the session never had access to, created new there.
     """
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-    held: list[int] = []
+    if identity is not None and len(identity) != 2:
+        return "not_a_file"  # nothing to hold the directories to: refused, never taken
+    place = worktree.parent
     try:
-        try:
-            place = os.open(worktree.parent, flags)
-            held.append(place)
-            top = os.open(worktree.name, flags, dir_fd=place)
-            held.append(top)
-        except FileNotFoundError:
-            return "no_answer"
-        except OSError:
-            return "not_a_file"  # a link in place of a directory, or no directory at all
-        if (
-            identity is not None
-            and [(i.st_dev, i.st_ino) for i in (os.fstat(place), os.fstat(top))] != identity
-        ):
-            return "not_a_file"  # not the directories the runner made
-        try:
-            fd = os.open(task.answer.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=top)
-        except FileNotFoundError:
-            return "no_answer"
-        except OSError:
-            return "not_a_file"  # a link (ELOOP), or anything else that cannot be opened as a file
-        held.append(fd)
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode):
-            return "not_a_file"
-        if info.st_size > MAX_ANSWER_BYTES:
-            return "too_large"
-        with os.fdopen(os.dup(fd), "rb") as handle:
-            data = handle.read(MAX_ANSWER_BYTES + 1)
-    finally:
-        for each in held:
-            os.close(each)
-    if len(data) > MAX_ANSWER_BYTES:
-        return "too_large"
+        data = read_beneath(
+            place.parent,
+            (place.name, worktree.name, task.answer.path),
+            limit=MAX_ANSWER_BYTES,
+            identity=() if identity is None else (None, *identity),
+        )
+    except FileRefused as refused:
+        return {"absent": "no_answer", "too_large": "too_large"}.get(refused.kind, "not_a_file")
     out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     made = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
