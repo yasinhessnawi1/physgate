@@ -66,9 +66,12 @@ def test_every_root_that_existed_is_unchanged_and_only_two_are_added(base: Path)
     now = table(base)
     added = [r for r in now if r not in before]
     # Since then the home's shell startup files were added too, each a root of its own.
-    startup = sorted(str(r["path"]) for r in added if str(r["path"]).startswith("<base>/home/."))
-    assert startup == sorted(f"<base>/home/{name}" for name in STARTUP_FILES)
+    names = {f"<base>/home/{name}" for name in STARTUP_FILES}
+    startup = sorted(str(r["path"]) for r in added if str(r["path"]) in names)
+    assert startup == sorted(names)
     assert sorted(str(r["path"]) for r in added if str(r["path"]) not in startup) == [
+        # Added since, by its own rule: Claude Code's directory in the session's scratch home.
+        "<base>/home/.claude",
         "<base>/run/worktrees/control-1/.physgate/lib",
         "<base>/run/worktrees/control-1/.physgate/series",
     ]

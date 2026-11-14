@@ -42,7 +42,13 @@ def test_a_run_recorded_before_the_field_reads_as_omitted_with_its_digest_unchan
         "network_enforced",
         "queue_decisions",
         "os_layer_absent",
+        "binary",
+        "account",
         "design_review",
+        "reviewers",
+        "skills",
+        "hooks",
+        "ablation",
     ):
         del legacy[later]
     legacy_bytes = json.dumps(legacy, separators=(",", ":")).encode() + b"\n"

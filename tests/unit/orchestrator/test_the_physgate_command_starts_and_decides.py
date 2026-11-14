@@ -14,6 +14,7 @@ from physgate.orchestrator.repair import Finding
 
 PARAMS = {
     "auth": "api_key",
+    "account": "a-test-account",
     "gate_mode": "on",
     "models": {
         "decomposition": "claude-sonnet-5",
@@ -36,6 +37,10 @@ PARAMS = {
     "queue_decisions": "record",
     # The stand-in binary predates the OS layer's pin, so the layer is absent here.
     "os_layer_absent": "allow",
+    "reviewers": "paired",
+    "skills": "on",
+    "hooks": "on",
+    "ablation": False,
     "design_review": "off",
     "held_out": [],
     "held_out_canaries": [],
@@ -277,6 +282,10 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
                     "git_binary": {"path": "/usr/local/bin/git", "version": "2.54.0"},
                     "os_layer": None,
                     "network_enforced": None,
+                    # Measured by the command, never taken from the parameters: the
+                    # parameters name the account, the command adds its fingerprint.
+                    "binary": None,
+                    "account": {"name": params["account"], "token_sha256_prefix": "0" * 12},
                 }
             )
         )

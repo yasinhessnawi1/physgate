@@ -55,16 +55,24 @@ from pathlib import Path
 from typing import Any
 
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
+from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import classify_session_end
+from physgate.orchestrator.budget import (
+    PROMPT_TOO_LONG,
+    STRUCTURED_OUTPUT_EXHAUSTED,
+    classify_session_end,
+    writes_lost,
+)
 from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.credentials import (
     Credential,
+    debug_logs_removed_on_failure,
+    remove_debug_logs,
     remove_secrets,
     write_key_helper,
     write_login,
 )
-from physgate.orchestrator.decompose import OUTPUT_CAP, binary_version, schema_refusal
+from physgate.orchestrator.decompose import DEBUG_LOG, OUTPUT_CAP, binary_version, schema_refusal
 from physgate.orchestrator.dispatch import (
     OWNER_NAME,
     Installed,
@@ -73,7 +81,9 @@ from physgate.orchestrator.dispatch import (
     read_in_full,
     read_stream_file,
     redact,
+    settle_debug_log,
     spawn_held,
+    still_running,
     write_record,
 )
 from physgate.orchestrator.exceptions import (
@@ -82,7 +92,20 @@ from physgate.orchestrator.exceptions import (
     ReviewerNotRegisteredError,
     ReviewUnavailableError,
 )
-from physgate.orchestrator.invocation import REVIEWER_ENV, isolated_env, reviewer_argv
+from physgate.orchestrator.invocation import (
+    REVIEWER_ENV,
+    TRAFFIC_ALLOWED_VERSIONS,
+    isolated_env,
+    reviewer_argv,
+)
+from physgate.orchestrator.managed import (
+    SessionManaged,
+    SystemManagedFile,
+    drift,
+    flag_cache,
+    policy_limits_digest,
+    system_managed_facts,
+)
 from physgate.orchestrator.ports import SpawnHook
 from physgate.orchestrator.processes import kill_own
 from physgate.orchestrator.protocols import (
@@ -97,7 +120,7 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.run_config import DESIGN_REVIEWER, Effort, RunBounds, RunConfig
 from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.contract import WRAPPER, contract_text, issued_criteria, verdict_schema
-from physgate.reviewers.ending import await_session
+from physgate.reviewers.ending import SessionEnd, await_session
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.packet import (
     KNOWLEDGE_NAME,
@@ -130,18 +153,12 @@ from physgate.reviewers.verdict import Unavailable, judge, to_result
 
 #: How the binary marks a compaction in the stream (measured on both binaries).
 COMPACT_BOUNDARY = "compact_boundary"
-#: The result's ``terminal_reason`` when a request outgrew the window (measured).
-PROMPT_TOO_LONG = "prompt_too_long"
 #: The binary's context limits, which it groups as one: a request too long for the window, its own
 #: check before sending one, and its stop on a compaction that cannot keep up. Reviewer sessions
 #: do not compact, so a review that outgrows its window ends at the binary's own check.
 CONTEXT_LIMITS = frozenset({PROMPT_TOO_LONG, "blocking_limit", "rapid_refill_breaker"})
 #: The binary's end when a tool call it could not parse was retried until it stopped.
 MALFORMED_TOOL_USE = "malformed_tool_use_exhausted"
-#: The result's ``terminal_reason`` when the binary's own cap on refused structured
-#: answers (five, on both binaries) ended the session: every refusal before it was told
-#: to the reviewer, so a fresh session would repeat it (measured on both binaries).
-STRUCTURED_OUTPUT_EXHAUSTED = "structured_output_retry_exhausted"
 
 
 def _parts(read: Path, parts: tuple[Part, ...]) -> str:
@@ -345,7 +362,7 @@ def context_window(result: dict[str, Any] | None, model: str) -> int | None:
 
 def _events(stream: str) -> list[dict[str, Any]]:
     events = []
-    for line in stream.splitlines():
+    for line in split_lines(stream):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -371,7 +388,8 @@ def unavailable_end(
     tool call it could not parse or on refused structured answers (an invalid verdict,
     with the last refusal); then the session's end as every session's is classified,
     where running out of turns is no verdict (a schema refusal before it, an invalid
-    one) and anything else is infrastructure.
+    one) and anything else is infrastructure. A session that ended as a finished one and
+    said a full disk lost its own records is infrastructure too, with the loss named.
     """
     events = _events(stream)
     if any(e.get("type") == "system" and e.get("subtype") == COMPACT_BOUNDARY for e in events):
@@ -395,6 +413,9 @@ def unavailable_end(
         return "invalid_verdict", f"the binary's cap on refused verdicts ended it: {last}"[:300]
     end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
     if end.outcome == "completed":
+        lost = writes_lost(stream)
+        if lost is not None:
+            return "infrastructure", f"the binary could not save the session's own {lost}"
         return None
     if end.cause == "turn_limit":
         refused = schema_refusal(stream)
@@ -458,6 +479,8 @@ class ClaudeReviewer:
         self._root = review_root_path(setup.review_root)
         #: Told each review session's spawn before it runs anything (:meth:`record_spawns`).
         self._on_spawn: SpawnHook | None = None
+        #: The current review's invocations, each with the conditions it ran under.
+        self._seen: list[SessionManaged] = []
 
     def record_spawns(self, hook: SpawnHook) -> None:
         """Tell ``hook`` each review session's id, pid and start time, as the loop records them."""
@@ -487,6 +510,8 @@ class ClaudeReviewer:
             raise ReviewError(msg, role=self._role)
         self._require_binary()
         session_id = str(uuid.uuid4())
+        # What this review's invocations see, each in turn; none of an earlier review's.
+        self._seen = []
         review = review_dir(self._root, session_id)
         packet = self._prepare(review, artefact, session_id)
         # The answer contract, from the rubric and the specification as issued.
@@ -641,7 +666,10 @@ class ClaudeReviewer:
             )
             if isinstance(outcome, ReviewResult):
                 return outcome.model_copy(
-                    update={"repair_resumes": resumes if self._setup.repair_resumes else None}
+                    update={
+                        "repair_resumes": resumes if self._setup.repair_resumes else None,
+                        "managed": tuple(self._seen),
+                    }
                 )
             if outcome.cause != "invalid_verdict" or resumes >= self._setup.repair_resumes:
                 after = f" (after {resumes} repair resume)" if resumes else ""
@@ -652,6 +680,7 @@ class ClaudeReviewer:
                     reviewer_model=self._model,
                     usage=outcome.usage,
                     spec_defects=outcome.spec_defects,
+                    managed=tuple(self._seen),
                 )
             # The same session, resumed once with the check's own reason in plain words,
             # so the reviewer can answer what it has already read. It is the same review.
@@ -882,6 +911,14 @@ class ClaudeReviewer:
         )
         env.update(installed.spawn_env)
         env.update(REVIEWER_ENV)
+        config = sdir / "config"
+        # On a pin whose sessions carry the catalog and flag traffic, the review session is held
+        # to the conditions its run began with, as a role session is: its own debug log says
+        # what it saw, written beside its login and read and removed with it. Earlier pins'
+        # review sessions get the argv they always had, and nothing of this is read.
+        held = self._setup.claude_version in TRAFFIC_ALLOWED_VERSIONS
+        debug_file = config / DEBUG_LOG if held else None
+        system_before = system_managed_facts() if held else ()
         argv = reviewer_argv(
             self._setup.binary,
             prompt=prompt,
@@ -892,6 +929,7 @@ class ClaudeReviewer:
             max_turns=bounds.session_max_turns,
             effort=self._setup.effort,
             resume=resume,
+            debug_file=debug_file,
         )
         stdout = sdir / stream_name
 
@@ -908,7 +946,11 @@ class ClaudeReviewer:
             }
             write_record(sdir.parent, sdir.name, record, "process.json")
 
-        with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:
+        with (
+            debug_logs_removed_on_failure(config),
+            stdout.open("wb") as out,
+            (sdir / "stderr.txt").open("wb") as err,
+        ):
             # Held until its spawn is on the run's record and its process record written: a
             # table that cannot be read stops it there, before it has run anything.
             process, started = spawn_held(
@@ -928,6 +970,8 @@ class ClaudeReviewer:
             except OSError:
                 _stop_own(process)
                 raise
+        if held:
+            self._seen.append(self._settle(process, started, ended, config, system_before))
         write_record(
             sdir.parent,
             sdir.name,
@@ -939,6 +983,34 @@ class ClaudeReviewer:
             "ended.json",
         )
         return stdout, ended.exit_code, ended.timed_out
+
+    def _settle(
+        self,
+        process: subprocess.Popen[bytes],
+        started: str | None,
+        ended: SessionEnd,
+        config: Path,
+        system_before: tuple[SystemManagedFile, ...],
+    ) -> SessionManaged:
+        """What one invocation ran under; its debug log is removed whatever was read.
+
+        The log is read only once the process table, read afresh, shows the session's tree
+        and group gone, so nothing can write it again after it is read. Otherwise nothing of
+        it is read, and the reading says so: the run holds that against the session.
+        """
+        try:
+            unconfirmed = still_running(process.pid, started, ended.left_running, time.time())
+            observed = settle_debug_log(
+                process, confirmed=unconfirmed is None, debug_file=config / DEBUG_LOG
+            )
+        finally:
+            remove_debug_logs(config)
+        return SessionManaged(
+            observed_traffic=observed,
+            managed_drift=drift(config, system_before),
+            policy_limits_sha256=policy_limits_digest(config),
+            flag_cache=flag_cache(config),
+        )
 
 
 def _stop_own(process: subprocess.Popen[bytes]) -> None:

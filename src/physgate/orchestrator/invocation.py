@@ -30,8 +30,10 @@ from physgate.orchestrator.managed import FLAGS_SETTING, FLAGS_SILENT_VERSIONS, 
 #: the first that keeps a denied path denied when it is reached through a
 #: symbolic link on macOS, and it holds a sandbox started from the settings flag
 #: against a repository's settings. The two older versions stay pinned so that
-#: runs recorded on them can still be resumed and reproduced.
-PINNED_VERSIONS = frozenset({"2.1.272", "2.1.283", "2.1.301"})
+#: runs recorded on them can still be resumed and reproduced. 2.1.322 is a second, independent
+#: pin beside 2.1.301, the first version that serves Claude Fable 5.2; nothing measured on
+#: 2.1.301 is assumed of it, and a run never mixes the two.
+PINNED_VERSIONS = frozenset({"2.1.272", "2.1.283", "2.1.301", "2.1.322"})
 _BINARY = "claude"
 
 
@@ -123,6 +125,44 @@ def session_search_path(binary: str) -> str:
     return f"{Path(binary).parent}:/usr/bin:/bin:/usr/sbin:/sbin"
 
 
+#: Pins whose sessions carry the traffic the advisor needs, by the owner's choice: every variable
+#: the provider documents as stopping feature-flag fetching is left unset. Earlier pins keep the
+#: switches below, because runs recorded and frozen on them were measured with them.
+TRAFFIC_ALLOWED_VERSIONS = frozenset({"2.1.322"})
+
+#: What a session on a traffic-allowed pin still carries, each because a pinned binary must not
+#: do it: update itself (nothing else stops that once the umbrella switch is gone), send error or
+#: bug reports, move a command into the background where no hook sees it (including a command at
+#: its timeout), answer a flagged request with another model, or reload a mod a session wrote.
+_TRAFFIC_ALLOWED_SWITCHES = (
+    ("DISABLE_AUTOUPDATER", "1"),
+    ("DISABLE_ERROR_REPORTING", "1"),
+    ("DISABLE_BUG_COMMAND", "1"),
+    ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
+    ("CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK", "1"),
+    ("CLAUDE_CODE_PLUGIN_DIR_WATCH", "0"),
+)
+
+
+def session_env_settings(claude_version: str) -> dict[str, str]:
+    """The switches every session on ``claude_version`` carries, as a run records them.
+
+    Only switches: nothing about the machine, the session's paths or its credential.
+    """
+    if claude_version in TRAFFIC_ALLOWED_VERSIONS:
+        return dict(_TRAFFIC_ALLOWED_SWITCHES)
+    switches = {
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        "DISABLE_AUTOUPDATER": "1",
+        "DISABLE_TELEMETRY": "1",
+        "DISABLE_ERROR_REPORTING": "1",
+    }
+    if claude_version in FLAGS_SILENT_VERSIONS:
+        name, value = FLAGS_SETTING
+        switches[name] = value
+    return switches
+
+
 def isolated_env(
     *,
     home: Path,
@@ -137,9 +177,11 @@ def isolated_env(
     """An environment built from nothing for one session.
 
     The output-token limit is the run's: left unset, the binary takes the
-    request's ``max_tokens`` from its model catalog, like the effort level. A
-    version whose debug log never reports its feature flags also carries the
-    documented setting that turns their fetch off, since nothing can be observed.
+    request's ``max_tokens`` from its model catalog, like the effort level. The
+    switches are the pin's own (``session_env_settings``): on the earlier pins,
+    traffic is off and a version whose debug log never reports its feature flags
+    also carries the documented setting that turns their fetch off; on a
+    traffic-allowed pin, the flag fetch is left on.
     """
     env = {
         "HOME": str(home),
@@ -148,14 +190,8 @@ def isolated_env(
         "CLAUDE_CONFIG_DIR": str(config_dir),
         "CLAUDE_CODE_MAX_RETRIES": str(max_retries),
         "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(max_output_tokens),
-        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-        "DISABLE_AUTOUPDATER": "1",
-        "DISABLE_TELEMETRY": "1",
-        "DISABLE_ERROR_REPORTING": "1",
+        **session_env_settings(claude_version),
     }
-    if claude_version in FLAGS_SILENT_VERSIONS:
-        name, value = FLAGS_SETTING
-        env[name] = value
     if base_url:
         env["ANTHROPIC_BASE_URL"] = base_url
     if api_key:
@@ -163,24 +199,31 @@ def isolated_env(
     return env
 
 
-def traffic_settings() -> TrafficSettings:
-    """The traffic settings every invocation's environment carries, read from that environment."""
-    env = isolated_env(
-        home=Path("/"),
-        config_dir=Path("/"),
-        binary="claude",
-        claude_version="",
-        max_retries=0,
-        max_output_tokens=1,
-        base_url=None,
-        api_key=None,
-    )
-    nonessential = env.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC") == "1"
-    telemetry = env.get("DISABLE_TELEMETRY") == "1"
-    return TrafficSettings(
+def traffic_settings(claude_version: str) -> TrafficSettings:
+    """What every session on ``claude_version`` carries about the catalog and flags, as recorded.
+
+    Read from that pin's own switches, which the record also lists whole. On a traffic-allowed
+    pin the catalog and flag traffic is on by the owner's choice, and what each session saw is
+    recorded with it instead of being measured off.
+    """
+    switches = session_env_settings(claude_version)
+    nonessential = switches.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC") == "1"
+    telemetry = switches.get("DISABLE_TELEMETRY") == "1"
+    recorded = TrafficSettings(
         nonessential_traffic="disabled" if nonessential else "enabled",
         telemetry="disabled" if telemetry else "enabled",
+        switches=tuple(switches.items()),
     )
+    if claude_version in TRAFFIC_ALLOWED_VERSIONS:
+        return recorded.model_copy(update={"measured": _TRAFFIC_ALLOWED_MEASURED})
+    return recorded
+
+
+#: What a traffic-allowed pin's record says in place of the earlier pins' measurement of "off".
+_TRAFFIC_ALLOWED_MEASURED = (
+    "feature-flag and non-essential traffic left on by the owner's choice on this pin; the "
+    "catalog and flags the decomposition call and each role session saw are recorded with them"
+)
 
 
 def role_argv(
@@ -193,6 +236,7 @@ def role_argv(
     max_turns: int,
     effort: str,
     thinking_display: str,
+    debug_file: Path | None = None,
 ) -> list[str]:
     """A role session: the hook layer's spawn arguments, the stream the trajectory is.
 
@@ -224,6 +268,10 @@ def role_argv(
         str(max_turns),
         "--permission-mode",
         "bypassPermissions",
+        # Only on a pin whose sessions carry the catalog and flag traffic: its log says what
+        # the session saw. It may hold the session's credential, so it is read and removed
+        # with it. Earlier pins' sessions get the argv they always had.
+        *(() if debug_file is None else ("--debug-file", str(debug_file))),
     ]
 
 
@@ -246,6 +294,7 @@ def reviewer_argv(
     max_turns: int,
     effort: str,
     resume: bool = False,
+    debug_file: Path | None = None,
 ) -> list[str]:
     """A reviewer session: reading only, then one structured verdict.
 
@@ -282,4 +331,7 @@ def reviewer_argv(
         str(max_turns),
         "--permission-mode",
         "bypassPermissions",
+        # Only on a pin whose sessions carry the catalog and flag traffic, as for a role
+        # session: earlier pins' review sessions get the argv they always had.
+        *(() if debug_file is None else ("--debug-file", str(debug_file))),
     ]

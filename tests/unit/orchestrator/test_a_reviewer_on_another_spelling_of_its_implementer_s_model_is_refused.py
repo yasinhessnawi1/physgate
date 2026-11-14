@@ -76,6 +76,10 @@ def test_the_call_time_check_refuses_a_reviewer_on_a_dated_spelling_of_the_recor
     recorded = loop.config.models.roles["electrical"]
     loop.config = make_config(
         os_layer_absent="allow",
+        reviewers="paired",
+        skills="on",
+        hooks="on",
+        ablation=False,
         design_review="off",
         models=ModelStrings(
             decomposition="claude-fable-5",

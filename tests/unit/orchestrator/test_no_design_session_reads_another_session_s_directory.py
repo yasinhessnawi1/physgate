@@ -108,6 +108,8 @@ def _installed(base: Path, monkeypatch: pytest.MonkeyPatch, profile: str) -> Ses
     # The installer is run in this process; whether the OS layer may be absent is its own
     # question, not this row's.
     monkeypatch.setattr(hooks_cli, "_os_layer_refusal", lambda _args: None)
+    # The run.json named here is never written; the recorded-hooks rule has its own rows.
+    monkeypatch.setattr(hooks_cli, "_hooks_refusal", lambda _args: None)
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         assert hooks_cli.main(argv[1:]) == 0

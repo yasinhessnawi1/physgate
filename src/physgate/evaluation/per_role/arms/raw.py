@@ -57,6 +57,7 @@ from physgate.orchestrator.dispatch import (
     read_captured,
     redact,
     review_material_seen,
+    runtime_git_paths,
     runtime_paths,
     session_end_command,
     spawn_held,
@@ -635,6 +636,8 @@ def _session(
     # As a role session's: what the runtime makes is made first, so it is in the record.
     (sdir / "home").mkdir(mode=0o700, exist_ok=True)
     runtime_paths(worktree, sdir / "home")
+    # And what this pin's runtime makes in the work area's own git directory, per platform.
+    runtime_git_paths(worktree / ".git", setup.claude_version)
     installed = _install(setup, worktree, sdir, temp, own_temp=own_temp)
     env = isolated_env(
         home=sdir / "home",
