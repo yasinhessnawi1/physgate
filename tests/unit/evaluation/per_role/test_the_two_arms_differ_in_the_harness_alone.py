@@ -18,6 +18,7 @@ import pytest
 from pydantic import BaseModel
 from task_fixtures import own_task
 
+from physgate.evaluation.observe.compare import drift
 from physgate.evaluation.per_role.arms.compare import (
     RAW_PINS,
     RUN_FIELDS,
@@ -594,6 +595,79 @@ def test_a_raw_arm_given_tools_the_harness_run_did_not_name_is_named(tmp_path: P
         task=TASK,
     )
     assert [f.split(":", 1)[0] for f in found] == ["tool_environment", "tool_servers"]
+
+
+def _placed(root: str, **changes: Any) -> dict[str, Any]:
+    """One tool environment as measured where it lies at ``root``: its paths move with it."""
+    environment = {
+        "interpreter": f"{root}/bin/python3",
+        "resolved": f"{root}/bin/python3.12",
+        "python_version": "3.12.9",
+        "prefix": root,
+        "distributions": [{"name": "control", "version": "0.10.1"}],
+        "native_tools": [_pio(root, "6.1.18")],
+        "roots": [root],
+        "manifest_digest": "a" * 64,
+        "entries": 2,
+        "total_bytes": 10,
+    }
+    environment.update(changes)
+    return ToolEnvironment.model_validate_json(json.dumps(environment)).model_dump(mode="json")
+
+
+def _pio(root: str, version: str) -> dict[str, str]:
+    return {
+        "name": "pio",
+        "path": f"{root}/bin/pio",
+        "resolved": f"{root}/lib/platformio/pio",
+        "version": version,
+    }
+
+
+HERE, THERE = "/opt/tools/env", "/home/runner/work/tools"
+
+#: Each way the raw arm's environment, at another root, is not the harness run's environment.
+NOT_THE_SAME = {
+    "other digest": _placed(THERE, manifest_digest="c" * 64),
+    "other entries": _placed(THERE, entries=3),
+    "other bytes": _placed(THERE, total_bytes=11),
+    "other interpreter version": _placed(THERE, python_version="3.12.8"),
+    "other distribution": _placed(THERE, distributions=[{"name": "control", "version": "0.10.2"}]),
+    "other tool version": _placed(THERE, native_tools=[_pio(THERE, "6.1.17")]),
+    "interpreter elsewhere in the root": _placed(THERE, interpreter=f"{THERE}/bin/python"),
+    "interpreter outside the root": _placed(THERE, resolved="/usr/bin/python3.12"),
+    "a second root": _placed(THERE, roots=[THERE, "/home/runner/work/more"]),
+}
+
+
+def test_the_same_environment_at_another_root_is_the_same_environment(tmp_path: Path) -> None:
+    """Absolute paths are not identity: the arms ran the same environment at two roots."""
+    found = _tooled(tmp_path, {"tool_environment": _placed(HERE)}, tool_environment=_placed(THERE))
+    assert found == []
+
+
+@pytest.mark.parametrize("other", NOT_THE_SAME.values(), ids=NOT_THE_SAME.keys())
+def test_another_environment_at_another_root_is_named(
+    tmp_path: Path, other: dict[str, Any]
+) -> None:
+    found = _tooled(tmp_path, {"tool_environment": _placed(HERE)}, tool_environment=other)
+    assert [f.split(":", 1)[0] for f in found] == ["tool_environment"]
+
+
+@pytest.mark.parametrize(
+    "other",
+    [_placed(HERE), _placed(THERE), *NOT_THE_SAME.values()],
+    ids=["same root", "another root", *NOT_THE_SAME.keys()],
+)
+def test_the_arms_and_two_runs_hold_an_environment_to_the_same_normal_form(
+    tmp_path: Path, other: dict[str, Any]
+) -> None:
+    """Two arms are the same environment exactly where two runs do not drift on it."""
+    harness = _config(tool_environment=_placed(HERE), tool_servers=SERVERS)
+    candidate = _config(tool_environment=other, tool_servers=SERVERS)
+    drifted = "tool_environment" in drift(harness, candidate)
+    found = _tooled(tmp_path, {"tool_environment": _placed(HERE)}, tool_environment=other)
+    assert ("tool_environment" in [f.split(":", 1)[0] for f in found]) == drifted
 
 
 def test_sessions_offered_the_search_tool_are_no_pair_for_sessions_denied_it(
