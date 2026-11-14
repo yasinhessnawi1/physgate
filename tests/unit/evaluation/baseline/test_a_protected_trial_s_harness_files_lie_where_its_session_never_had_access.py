@@ -282,3 +282,24 @@ def test_an_answer_is_not_taken_from_a_directory_the_session_swapped_for_another
     record = raw.run_raw(task, setup, place, cap=1, harness=harness)
     assert record["answer"] == "not_a_file"
     assert not (harness / "answer").exists(), "something read from outside was copied"
+
+
+@pytest.mark.parametrize("link", ["worktree", "place"])
+def test_a_link_for_the_worktree_or_its_holder_is_refused_even_with_no_identity_to_check(
+    tmp_path: Path, link: str
+) -> None:
+    """Each directory on the way down is opened without following a link, by itself."""
+    task = parse_task(json.dumps(own_task()).encode())
+    real = tmp_path / "real" / "worktree"
+    real.mkdir(parents=True)
+    (real / task.answer.path).write_text("{}")
+    if link == "worktree":
+        place = tmp_path / "place"
+        place.mkdir()
+        (place / "worktree").symlink_to(real)
+    else:
+        place = tmp_path / "place"
+        place.symlink_to(real.parent)
+    out = tmp_path / "out" / "answer.json"
+    assert raw._take_answer(place / "worktree", task, out) == "not_a_file"
+    assert not out.exists()

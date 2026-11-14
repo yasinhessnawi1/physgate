@@ -132,12 +132,15 @@ class RecordingSession:
         cap: int,
         files: Any = None,  # noqa: ANN401
         check: Any = None,  # noqa: ANN401
+        identity: list[tuple[int, int]] | None = None,
     ) -> dict[str, Any]:
         self.given.append((prompt, setup))
         self.works.append(work)
         assert files is None and check is None
         (work / "worktree").mkdir(parents=True)
         (work / "worktree" / "answer.json").write_text(json.dumps(controller()))
+        if identity is not None:
+            identity.extend((i.st_dev, i.st_ino) for i in (work.stat(), (work / "worktree").stat()))
         (work / "session" / "session").mkdir(parents=True)
         installed = {"profile": "baseline", "role": None}
         installed["tools_allowed"] = list(PROFILE_TOOLS["baseline"])  # type: ignore[assignment]
