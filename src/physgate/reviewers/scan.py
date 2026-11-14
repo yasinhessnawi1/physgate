@@ -135,16 +135,28 @@ class ScanHit(BaseModel):
 #: The answers that decide a hit. ``noted`` says a hit was seen and decides nothing.
 DECIDING = ("confirmed", "dismissed")
 
+#: A single bare word: letters only, no digit and no punctuation. "x" or "test" is a
+#: placeholder a session leaves when the schema has refused it several times, not a
+#: judgement; a pointer such as ``n1.json:3`` or ``design/nodes/n1.json`` says where to
+#: look and is kept, as the evidence form the protocol asks for.
+_BARE_WORD = re.compile(r"[A-Za-z]*")
+
+
+def is_bare(text: str) -> bool:
+    """Whether ``text`` is empty or a single bare word: no reason, and no judgement."""
+    return len(text.split()) < 2 and _BARE_WORD.fullmatch(text.strip()) is not None  # noqa: PLR2004
+
 
 def judges(hit: ScanHit, answers: Sequence[IndicatorReport]) -> bool:
     """Whether ``answers`` judge an earlier attempt's ``hit`` (ARCH-133).
 
     Only answers naming the hit's attempt and its evidence answer it, and every one of them
-    confirms or dismisses it with a reason that is not blank: an earlier hit noted, or answered
-    for another attempt that holds a call of the same id, is not judged.
+    confirms or dismisses it with a reason that is more than a bare word: an earlier hit noted,
+    given a one-word reason, or answered for another attempt that holds a call of the same id,
+    is not judged.
     """
     found = [a for a in answers if a.attempt == hit.attempt and a.evidence == hit.evidence]
-    return bool(found) and all(a.disposition in DECIDING and a.reason.strip() for a in found)
+    return bool(found) and all(a.disposition in DECIDING and not is_bare(a.reason) for a in found)
 
 
 def judged_attempts(

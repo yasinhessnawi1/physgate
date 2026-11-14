@@ -187,6 +187,13 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
     ("replay-trusts-judged", "8", REP,
      "if tuple(named) != judged_attempts(event.earlier_hits, event.result.indicators):",
      "if False:"),
+    ("one-word-dismissal-judges", "10", SCAN,
+     "a.disposition in DECIDING and not is_bare(a.reason)",
+     "a.disposition in DECIDING and a.reason.strip()"),
+    ("dismissed-reason-unheld", "10", VER,
+     '(f"the reason of the {r.kind} indicator", r.reason) for r in answer.indicators]',
+     '(f"the reason of the {r.kind} indicator", r.reason) for r in answer.indicators\n'
+     '        if r.disposition != "dismissed"]'),
     ("shown-without-scan", "9", LOOP,
      "            if indicator_scan_runs(artefact)\n            else ()\n",
      "            if True\n            else ()\n"),
