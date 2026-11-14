@@ -172,6 +172,9 @@ RAW_PINS = frozenset(
         # run ended, and taken out of the held-out roots for the raw session alone: the
         # harness run has none to hold it against, and ``held_out`` is compared whole.
         "held_out_carved",
+        # The harness's own directory beside a visible trial's place, made after the harness run
+        # ended and withheld from the raw session alone, for the same reason.
+        "held_out_beside",
         "held_out_canaries_sha256",
         "max_output_tokens",
         "model",

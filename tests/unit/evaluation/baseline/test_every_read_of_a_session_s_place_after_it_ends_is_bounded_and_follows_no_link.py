@@ -14,6 +14,7 @@ import json
 import os
 import threading
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -31,13 +32,16 @@ from baseline_fixtures import (
 )
 from task_fixtures import own_task
 
-from physgate.evaluation.baseline.runner import run_baseline
+from physgate.evaluation.baseline.runner import BaselineError, run_baseline
 from physgate.evaluation.observe.cost import load_price_sheet
 from physgate.evaluation.per_role.arms import raw
-from physgate.evaluation.tiers.task import parse_task
+from physgate.evaluation.per_role.arms.compare import ComparisonError, differences
+from physgate.evaluation.per_role.arms.raw import RawSetup
+from physgate.evaluation.tiers.task import Role, parse_task
 from physgate.hooks.settings import CONFIG_NAME, PROFILE_TOOLS
 from physgate.orchestrator import dispatch
 from physgate.orchestrator.exceptions import InvocationError
+from physgate.orchestrator.run_config import RunConfig
 
 #: Long enough for any refusal on this machine; a read waiting on a pipe never ends by itself.
 WITHIN_S = 20.0
@@ -256,3 +260,111 @@ def test_a_hard_link_left_at_the_stream_is_not_written_through_by_the_scrub(
     outcome = _within(lambda: dispatch.redact(path, "a-secret"), None)
     assert isinstance(outcome, InvocationError), outcome
     assert outside.read_text() == "before a-secret after"
+
+
+@pytest.mark.parametrize("kind", ["link", "named pipe"])
+def test_the_token_watch_reads_the_stream_as_a_session_s_own_file(
+    tmp_path: Path, kind: str
+) -> None:
+    """The watch refuses a link or a pipe at the stream, so the watch stops the session."""
+    path = _session_file(tmp_path)
+    if kind == "link":
+        (tmp_path / "outside").write_text("")
+        path.symlink_to(tmp_path / "outside")
+    else:
+        os.mkfifo(path)
+    outcome = _within(lambda: raw.stream_total(path), path)
+    assert isinstance(outcome, InvocationError), outcome
+
+
+def test_the_scrub_refuses_a_stream_past_the_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _session_file(tmp_path)
+    monkeypatch.setattr(dispatch, "MAX_SESSION_FILE_BYTES", 64)
+    path.write_bytes(b"a-secret" + b"x" * 64)
+    with pytest.raises(InvocationError, match="too large"):
+        dispatch.redact(path, "a-secret")
+    assert path.read_bytes().startswith(b"a-secret"), "a file past the bound was rewritten"
+
+
+def test_the_raw_arm_s_record_in_its_place_is_not_read_through_a_link(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """Where the arm's record lies in the session's place, a link at its name is refused."""
+    task = store.tasks["visible"][0]
+    run = harness_run(tmp_path / "runs", task, store)
+    place = tmp_path / "trial" / "place"
+    place.mkdir(parents=True)
+    record = tmp_path / "elsewhere.json"
+    record.write_text(json.dumps({"pins": {}, "task": task.id}))
+    (place / "raw.json").symlink_to(record)
+    with pytest.raises(ComparisonError, match="record could not be read"):
+        differences(run, place, role="control", task=task)
+
+
+def test_a_raw_session_whose_binary_cannot_be_measured_is_refused_before_it_starts(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
+    arm = StandInArm()
+
+    def given_none(config: RunConfig, role: Role) -> RawSetup:
+        return replace(setup_for(config, role), binary=str(tmp_path / "no-such-binary"))
+
+    with pytest.raises(BaselineError) as raised:
+        run_baseline(
+            store=store.store,
+            role="control",
+            version=store.version,
+            runs=run_set((run, 0)),
+            out=tmp_path / "round",
+            setup_for=given_none,
+            score=_score,
+            prices=load_price_sheet(PRICES),
+            arm=arm,
+            sleep=lambda _s: None,
+        )
+    assert raised.value.context.get("refused_because") == "binary"
+    assert arm.calls == []
+
+
+def test_an_answer_held_to_an_identity_list_that_is_not_whole_is_not_taken(
+    tmp_path: Path,
+) -> None:
+    task = parse_task(json.dumps(own_task()).encode())
+    worktree = tmp_path / "place" / "worktree"
+    worktree.mkdir(parents=True)
+    (worktree / task.answer.path).write_text("{}")
+    out = tmp_path / "harness" / "answer" / task.answer.path
+    assert raw._take_answer(worktree, task, out, []) == "not_a_file"
+    assert not out.exists()
+
+
+def test_a_visible_session_is_withheld_the_harness_s_directory_beside_its_place(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """No root of the run's holds a visible trial's directory: the harness's is withheld besides."""
+    task = store.tasks["visible"][0]
+    given: list[RawSetup] = []
+    arm = StandInArm()
+
+    def seen(task_: Any, setup: RawSetup, work: Path, *, cap: int, harness: Path) -> Any:  # noqa: ANN401
+        given.append(setup)
+        return arm(task_, setup, work, cap=cap, harness=harness)
+
+    run_baseline(
+        store=store.store,
+        role="control",
+        version=store.version,
+        runs=run_set((harness_run(tmp_path / "runs", task, store), 0)),
+        out=tmp_path / "round",
+        setup_for=setup_for,
+        score=_score,
+        prices=load_price_sheet(PRICES),
+        arm=seen,
+        sleep=lambda _s: None,
+    )
+    ((setup,),) = [given]
+    assert setup.held_out_beside == str(tmp_path / "round" / "work" / "0000-1" / "harness")
+    assert setup.held_out == store.held_out, "the run's own roots are given as recorded"

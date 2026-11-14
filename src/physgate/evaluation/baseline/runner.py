@@ -657,7 +657,10 @@ def _one_trial(
         # may leave anything in, and the harness's, which it never had access to and where the
         # copied answer, the session's record and the score are written.
         if protected_root is None:
-            trial_dir, given = out / "work" / name, setup
+            # In the round's own directory, which no root of the run's holds: the harness's
+            # directory beside the place is withheld from the session in addition.
+            trial_dir = out / "work" / name
+            given = replace(setup, held_out_beside=str(trial_dir / HARNESS))
         else:
             # Made in the work root, which every run on the store withholds, and moved from
             # there beneath the withheld root alone: never in a visible place. Its session is

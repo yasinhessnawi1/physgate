@@ -41,8 +41,9 @@ from physgate.evaluation.tiers.task import Role, Sha256, canonical_json
 
 #: The pins that name the task a session ran on, not the conditions it ran under.
 PER_TASK_PINS = frozenset({"brief_sha256", "answer"})
-#: The pins that name the trial's own place: a protected trial's directory, new for each.
-PER_TRIAL_PINS = frozenset({"held_out_carved"})
+#: The pins that name the trial's own places, new for each: a protected trial's directory, and
+#: the harness's directory withheld beside a visible trial's place.
+PER_TRIAL_PINS = frozenset({"held_out_carved", "held_out_beside"})
 TIERS_RECORD = Path("evaluation") / "tiers.json"
 EXTERNAL_RECORD = Path("evaluation") / "external.json"
 BASELINE_RECORD = "baseline.json"

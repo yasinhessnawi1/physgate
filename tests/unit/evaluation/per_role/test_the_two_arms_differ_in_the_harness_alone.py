@@ -178,6 +178,7 @@ def _pins(**changes: Any) -> dict[str, Any]:
         "endpoint": "default",
         "held_out": [],
         "held_out_carved": None,
+        "held_out_beside": None,
         "held_out_canaries_sha256": _digest([]),
         "max_output_tokens": config.max_output_tokens,
         "model": MODEL,

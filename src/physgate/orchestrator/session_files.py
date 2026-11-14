@@ -100,10 +100,11 @@ def open_beneath(
         if not stat.S_ISREG(info.st_mode):
             raise FileRefused("not_a_file", "not a regular file")
         # A second name for the file: a session that can make a hard link to a file outside
-        # its place (link(2) asks for no read of the file it names, and the OS layer's rules
-        # are written about paths it may read and write) would hand the harness that file's
-        # bytes under a name in its own place. The sandbox is not shown to forbid it on
-        # every platform, so a file with another link is never taken as the session's own.
+        # its place (link(2) asks for no read of the file it names) would hand the harness
+        # that file's bytes under a name in its own place. Measured with the real binary, the
+        # macOS layer refuses a link to a withheld file; the Linux layer is not shown to, and
+        # without the OS layer nothing stops a session's shell. So a file with another link
+        # is never taken as the session's own.
         if info.st_nlink != 1:
             raise FileRefused("not_a_file", "the file has another link")
     except BaseException:
