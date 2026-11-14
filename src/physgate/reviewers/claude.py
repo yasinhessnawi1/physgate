@@ -118,6 +118,7 @@ from physgate.orchestrator.protocols import (
     require_separate_models,
 )
 from physgate.orchestrator.run_config import DESIGN_REVIEWER, Effort, RunBounds, RunConfig
+from physgate.orchestrator.usage_limit import UsageLimit, usage_limit_of
 from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.contract import WRAPPER, contract_text, issued_criteria, verdict_schema
 from physgate.reviewers.ending import SessionEnd, await_session
@@ -452,6 +453,8 @@ class _Ended(Exception):  # noqa: N818 - a session's end, carried to the loop th
         super().__init__(detail)
         self.cause, self.usage = cause, usage
         self.spec_defects, self.refusals = spec_defects, refusals
+        #: The account's usage limit the session ended on, if its stream named one.
+        self.usage_limit: UsageLimit | None = None
 
 
 class ClaudeReviewer:
@@ -680,6 +683,7 @@ class ClaudeReviewer:
                     reviewer_model=self._model,
                     usage=outcome.usage,
                     spec_defects=outcome.spec_defects,
+                    usage_limit=outcome.usage_limit,
                     managed=tuple(self._seen),
                 )
             # The same session, resumed once with the check's own reason in plain words,
@@ -766,7 +770,11 @@ class ClaudeReviewer:
 
         cut = unavailable_end(text, result, exit_code=exit_code, timed_out=timed_out)
         if cut is not None:
-            return ended(*cut)
+            stop = ended(*cut)
+            if cut[0] == "infrastructure":
+                # No verdict, as any infrastructure end; the loop is told the limit beside it.
+                stop.usage_limit = usage_limit_of(text, result)
+            return stop
         if captured.tampered is not None:
             return ended(
                 "infrastructure", f"the stream is not the runtime's alone: {captured.tampered}"
