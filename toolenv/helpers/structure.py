@@ -407,10 +407,10 @@ def _block(  # noqa: PLR0913, PLR0915 - one solve, its numbers read in one place
         found["moment_about"] = [float(c) for c in centre]
     else:
         lifted = held[axis[held] == THROUGH]
-        found["supports"] = [
-            float(residual[lifted][at(where[ALONG][lifted], place_x)].sum())
-            for place_x in (0.0, length)
-        ]
+        edges = [lifted[at(where[ALONG][lifted], edge)] for edge in (0.0, length)]
+        found["supports"] = [float(residual[on].sum()) for on in edges]
+        # Where each share was summed, read off its own nodes.
+        found["supports_at"] = [float(where[ALONG][on].mean()) for on in edges]
     return found
 
 
@@ -547,7 +547,7 @@ def solve(
         )
     else:
         values["reaction_force_at_each_support"] = quantity(
-            fine["supports"], "N", direction="through", at=quantity([0.0, length], "m")
+            fine["supports"], "N", direction="through", at=quantity(fine["supports_at"], "m")
         )
     from importlib.metadata import version
 
