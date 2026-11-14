@@ -163,11 +163,11 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
     # 8. Only a confirmed or dismissed answer naming its attempt judges an earlier hit, and replay
     # holds a review line's judged attempts to the hits it was shown and its answers.
     ("noted-judges", "8", SCAN,
-     "all(a.disposition in DECIDING and a.reason.strip() for a in found)",
-     "all(a.reason.strip() for a in found)"),
+     "a.disposition in DECIDING and not is_bare(a.reason)",
+     "not is_bare(a.reason)"),
     ("blank-reason-judges", "8", SCAN,
-     "all(a.disposition in DECIDING and a.reason.strip() for a in found)",
-     "all(a.disposition in DECIDING for a in found)"),
+     "a.disposition in DECIDING and not is_bare(a.reason)",
+     "a.disposition in DECIDING"),
     ("answer-any-attempt", "8", SCAN,
      "[a for a in answers if a.attempt == hit.attempt and a.evidence == hit.evidence]",
      "[a for a in answers if a.evidence == hit.evidence]"),
