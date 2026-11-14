@@ -75,8 +75,8 @@ def answer(
 
 @pytest.mark.parametrize(
     ("disposition", "reason"),
-    [("noted", REASON), ("dismissed", "   ")],
-    ids=["noted", "dismissed with a blank reason"],
+    [("noted", REASON), ("dismissed", "   "), ("dismissed", "ok")],
+    ids=["noted", "dismissed with a blank reason", "dismissed with a one-word reason"],
 )
 def test_an_earlier_hit_noted_or_dismissed_without_a_reason_stays_unjudged(
     tmp_path: Path, disposition: str, reason: str

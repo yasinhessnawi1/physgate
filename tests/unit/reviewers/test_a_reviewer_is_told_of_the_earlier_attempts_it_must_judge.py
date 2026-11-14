@@ -41,3 +41,19 @@ def test_a_prompt_with_no_earlier_attempt_is_the_prompt_it_was(tmp_path: Path) -
     prompt = review_prompt("control", packet).replace(str(read), "<read>")
     assert "earlier" not in prompt.lower()
     assert hashlib.sha256(prompt.encode()).hexdigest() == BEFORE_SHA256
+
+
+REASON_SENTENCE = (
+    "The reason of every indicator you answer, confirmed or dismissed, is written the same way: "
+    "in words, never a single word."
+)
+
+
+def test_every_review_prompt_tells_the_reason_of_an_indicator_is_never_a_single_word(
+    tmp_path: Path,
+) -> None:
+    for earlier in (True, False):
+        packet, _, _ = _build(tmp_path / str(earlier), earlier=earlier)
+        prompt = review_prompt("control", packet)
+        assert prompt.count(REASON_SENTENCE) == 1
+        assert "is refused and asked for again. " + REASON_SENTENCE in prompt

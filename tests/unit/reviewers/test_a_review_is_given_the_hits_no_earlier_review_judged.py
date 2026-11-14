@@ -324,10 +324,20 @@ def _outcome(
         ({"attempt": 1}, "pass"),
         ({"attempt": 1, "disposition": "noted"}, "invalid_verdict"),
         ({"attempt": 1, "reason": "   "}, "invalid_verdict"),
+        ({"attempt": 1, "reason": "ok"}, "invalid_verdict"),
+        ({"attempt": 1, "reason": "too minor"}, "pass"),
         ({}, "invalid_verdict"),
         ({"attempt": 2}, "invalid_verdict"),
     ],
-    ids=["dismissed naming it", "noted", "a blank reason", "naming no attempt", "naming another"],
+    ids=[
+        "dismissed naming it",
+        "noted",
+        "a blank reason",
+        "a one-word reason",
+        "a two-word reason",
+        "naming no attempt",
+        "naming another",
+    ],
 )
 def test_an_earlier_hit_is_answered_only_confirmed_or_dismissed_naming_its_attempt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answered: dict[str, Any], outcome: str
@@ -365,3 +375,11 @@ def test_an_own_hit_noted_is_answered_as_it_was() -> None:
     items = load_rubric(REPO / "knowledge", ROLE).items
     noted = {**DISMISSED, "evidence": "toolu_own", "disposition": "noted"}
     assert isinstance(judge(_answer([noted]), own, items), Answered)
+
+
+def test_a_dismissal_of_an_own_hit_needs_a_reason_of_more_than_a_bare_word() -> None:
+    own = (ScanHit(kind="disabled_checks", evidence="toolu_own", what="a test skipped"),)
+    items = load_rubric(REPO / "knowledge", ROLE).items
+    dismissed = {**DISMISSED, "evidence": "toolu_own"}
+    assert isinstance(judge(_answer([{**dismissed, "reason": "ok"}]), own, items), Unavailable)
+    assert isinstance(judge(_answer([{**dismissed, "reason": "too minor"}]), own, items), Answered)
