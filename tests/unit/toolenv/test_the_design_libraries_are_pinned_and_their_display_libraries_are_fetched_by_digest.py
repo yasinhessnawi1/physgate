@@ -35,6 +35,9 @@ TOOLENV = REPO / "toolenv"
 
 #: The CAD library and the kernel wheel it is used with, each an exact pin.
 DESIGN = {"build123d": "0.13.0", "cadquery-ocp-novtk": "8.0.1.1.0"}
+#: The finite-element library a part's strength is solved with: pure Python on the pinned numpy
+#: and scipy, an exact pin in the same group.
+SOLVER = {"scikit-fem": "12.0.2"}
 #: The library each pinned distribution package provides to the kernel.
 PROVIDED = {
     "libgl1": "libGL.so.1",
@@ -91,21 +94,22 @@ def _package(name: str = "libgl1", **changed: object) -> dict[str, object]:
 def test_the_design_libraries_are_a_group_of_exact_pins_installed_by_default() -> None:
     project = tomllib.loads((TOOLENV / "pyproject.toml").read_text(encoding="utf-8"))
     group = project.get("dependency-groups", {}).get("design", [])
-    assert sorted(group) == sorted(f"{name}=={version}" for name, version in DESIGN.items())
+    pinned = DESIGN | SOLVER
+    assert sorted(group) == sorted(f"{name}=={version}" for name, version in pinned.items())
     assert project["tool"]["uv"].get("default-groups") == ["design"]
 
 
 def test_the_lock_holds_the_design_libraries_with_a_hashed_wheel_for_each_platform() -> None:
     lock = tomllib.loads((TOOLENV / "uv.lock").read_text(encoding="utf-8"))
     found = {package["name"]: package for package in lock["package"]}
-    for name, version in DESIGN.items():
+    for name, version in (DESIGN | SOLVER).items():
         assert found.get(name, {}).get("version") == version, name
     kernel = [wheel["url"].rsplit("/", 1)[-1] for wheel in found["cadquery-ocp-novtk"]["wheels"]]
     for tag in ("cp312-cp312-macosx_11_0_arm64", "cp312-cp312-manylinux_2_28_x86_64"):
         assert any(tag in name for name in kernel), tag
     # No design library is built from source at provisioning: each one the two pins bring in
     # comes as a wheel, by hash.
-    waiting, added = list(DESIGN), set()
+    waiting, added = list(DESIGN | SOLVER), set()
     while waiting:
         name = waiting.pop()
         if name not in added:
@@ -138,8 +142,21 @@ def test_nine_display_library_packages_are_pinned_each_by_file_version_and_diges
 
 def test_the_script_names_the_licence_of_what_the_design_libraries_add() -> None:
     licences = getattr(_provision(), "DESIGN_LICENCES", {})
-    assert set(DESIGN) | {"system libraries"} <= set(licences)
+    assert set(DESIGN) | set(SOLVER) | {"system libraries"} <= set(licences)
     assert "LGPL" in licences["cadquery-ocp-novtk"]
+    assert licences.get("scikit-fem") == "BSD-3-Clause"
+
+
+def test_the_solver_brings_in_nothing_but_the_pinned_numpy_and_scipy() -> None:
+    lock = tomllib.loads((TOOLENV / "uv.lock").read_text(encoding="utf-8"))
+    found = {package["name"]: package for package in lock["package"]}
+    solver = found.get("scikit-fem", {})
+    assert sorted(dep["name"] for dep in solver.get("dependencies", [])) == ["numpy", "scipy"]
+    assert found["numpy"]["version"] == "2.1.2"
+    assert found["scipy"]["version"] == "1.14.1"
+    # Pure Python: one wheel for every platform, by hash.
+    wheels = [wheel["url"].rsplit("/", 1)[-1] for wheel in solver.get("wheels", [])]
+    assert wheels == ["scikit_fem-12.0.2-py3-none-any.whl"]
 
 
 # ---- which machine gets which packages --------------------------------------------------------
