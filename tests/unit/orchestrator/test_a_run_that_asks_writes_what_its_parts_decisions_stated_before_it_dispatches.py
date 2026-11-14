@@ -161,9 +161,10 @@ def test_the_release_names_the_record_a_role_reads(tmp_path: Path) -> None:
 
 
 def test_the_run_is_released_once_and_a_resume_writes_nothing_again(tmp_path: Path) -> None:
-    run_dir, _ = _run(tmp_path)
+    run_dir, the_rig = _run(tmp_path)
     before = log_of(run_dir)
-    assert again(rig(run_dir)) == "done"
+    # The next process reads the same journal: the store outlives the process that wrote it.
+    assert again(the_rig) == "done"
     after = log_of(run_dir)
     for kind in ("parts_write_intended", "parts_write_done", "parts_released"):
         assert len(_of(after, kind)) == len(_of(before, kind))
