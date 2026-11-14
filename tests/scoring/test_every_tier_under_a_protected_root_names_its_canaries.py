@@ -42,9 +42,9 @@ from physgate.evaluation.per_role.author_session import (
     QUESTIONS,
     author,
     blind_check,
-    root_canaries,
 )
 from physgate.evaluation.tiers.authoring import AuthoringError
+from physgate.evaluation.tiers.canaries import root_canaries
 from physgate.evaluation.tiers.store import SESSION_FOLDERS, pool_dir
 from physgate.evaluation.tiers.task import load_task
 

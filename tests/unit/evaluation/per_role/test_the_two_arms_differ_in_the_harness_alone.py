@@ -22,6 +22,7 @@ from physgate.evaluation.per_role.arms.compare import (
     RAW_PINS,
     RUN_FIELDS,
     ComparisonError,
+    _expected,
     differences,
     harness_total,
 )
@@ -29,6 +30,7 @@ from physgate.evaluation.tiers.task import parse_task
 from physgate.hooks.settings import CONFIG_NAME, PROFILE_TOOLS
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.events import (
+    RESUMABLE_HALTS,
     EventLog,
     Halted,
     IntegrationGateSkipped,
@@ -41,7 +43,8 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.protocols import Usage
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig
-from physgate.oslayer.probe import Present
+from physgate.orchestrator.usage_limit import UsageLimit
+from physgate.oslayer.probe import Absent, Present
 
 TASK = parse_task(json.dumps(own_task()).encode())
 MODEL = "claude-opus-5-5"
@@ -49,6 +52,13 @@ LAYER = Present(mechanism="bubblewrap", claude_version="2.1.301")
 EXAMPLES = Path(__file__).parents[4] / "src/physgate/orchestrator/examples"
 #: A fixture canary, built here; it stands for no real task.
 CANARY = hashlib.sha256(b"a fixture task's canary").hexdigest()[:32]
+_PYTHON = RolePython(
+    path="/opt/py/bin/python3",
+    resolved="/opt/py/bin/python3.12",
+    version="3.12.9",
+    prefix="/opt/py",
+    distributions=(),
+)
 
 
 def _digest(canaries: list[str]) -> str:
@@ -167,6 +177,8 @@ def _pins(**changes: Any) -> dict[str, Any]:
         "effort": config.effort,
         "endpoint": "default",
         "held_out": [],
+        "held_out_carved": None,
+        "held_out_also": [],
         "held_out_canaries_sha256": _digest([]),
         "max_output_tokens": config.max_output_tokens,
         "model": MODEL,
@@ -485,6 +497,7 @@ def test_a_harness_log_that_ends_in_a_cut_off_line_is_refused(tmp_path: Path) ->
     ("changes", "named"),
     [
         ({"reportable": False}, ["reportable"]),
+        ({"reportable": False, "ablation": True}, ["ablation", "reportable"]),
         (
             {
                 "reportable": False,
@@ -500,7 +513,7 @@ def test_a_harness_log_that_ends_in_a_cut_off_line_is_refused(tmp_path: Path) ->
             ["harness", "reportable"],
         ),
     ],
-    ids=["not reportable", "dirty checkout", "no checkout"],
+    ids=["not reportable", "ablation", "dirty checkout", "no checkout"],
 )
 def test_a_harness_run_that_is_not_clean_or_not_reportable_is_named(
     tmp_path: Path, changes: dict[str, Any], named: list[str]
@@ -529,13 +542,11 @@ def test_both_arms_canaries_are_compared_as_digests(tmp_path: Path) -> None:
     "bounds",
     [
         _bounds(binary_max_retries=2),
-        _bounds(infra_retry_delays_s=[60.0]),
         _bounds(session_max_turns=_config().bounds.session_max_turns),
         _bounds(session_wall_clock_s=_config().bounds.session_wall_clock_s),
     ],
     ids=[
         "the binary's retries",
-        "the retry delays",
         "turns not multiplied",
         "clock not multiplied",
     ],
@@ -592,3 +603,132 @@ def test_a_harness_total_of_an_empty_log_is_refused(tmp_path: Path) -> None:
     (run / "events.jsonl").write_bytes(b"")
     with pytest.raises(ComparisonError, match="empty"):
         harness_total(run)
+
+
+@pytest.mark.parametrize("reason", sorted(RESUMABLE_HALTS))
+def test_a_harness_total_of_a_run_halted_for_a_resume_is_refused(
+    tmp_path: Path, reason: str
+) -> None:
+    """A resume continues the same attempt and spends more: the halt is no end of its spending."""
+    # A halt on the usage limit carries the limit it met, and no other halt does.
+    limit = UsageLimit(resets="1:20pm (Europe/Oslo)") if reason == "usage_limit" else None
+
+    def halted(log: EventLog) -> None:
+        log.append(
+            Halted(**log.envelope(), reason=reason, detail="x", usage_limit=limit)  # type: ignore[arg-type]
+        )
+
+    run = _harness_run(tmp_path, end=halted)
+    with pytest.raises(ComparisonError, match="halted for a resume"):
+        harness_total(run)
+
+
+def test_the_retry_delays_are_not_held_against_the_raw_arm(tmp_path: Path) -> None:
+    """The raw session makes no infrastructure retry; its delays decide nothing it does."""
+    assert RUN_FIELDS["bounds.infra_retry_delays_s"] == "not_compared"
+    assert _found(tmp_path, pins=_pins(bounds=_bounds(infra_retry_delays_s=[60.0]))) == []
+
+
+def _schema_paths(schema: dict[str, Any], node: dict[str, Any], prefix: str = "") -> set[str]:
+    """Every field's path, read from the model's JSON schema: another reading than the code's.
+
+    The schema is pydantic's own description of the model, so a field the comparison's walk of
+    the model's annotations would miss (in a union, a container, an optional) is still here.
+    """
+    found: set[str] = set()
+    for name, prop in node.get("properties", {}).items():
+        found.add(prefix + name)
+        for ref in _refs(prop):
+            target = schema["$defs"][ref.rsplit("/", 1)[-1]]
+            found |= _schema_paths(schema, target, f"{prefix}{name}.")
+    return found
+
+
+def _refs(node: Any) -> list[str]:  # noqa: ANN401 - any part of a JSON schema
+    if isinstance(node, dict):
+        own = [node["$ref"]] if "$ref" in node else []
+        return own + [r for key, value in node.items() if key != "$ref" for r in _refs(value)]
+    if isinstance(node, list):
+        return [r for item in node for r in _refs(item)]
+    return []
+
+
+def test_the_census_is_every_field_the_run_s_schema_names() -> None:
+    """The census is held to the schema of the record, not to a copy of the code's own walk."""
+    schema = RunConfig.model_json_schema()
+    assert set(RUN_FIELDS) == _schema_paths(schema, schema)
+
+
+def test_every_required_field_is_one_the_comparison_checks() -> None:
+    """A field classed as required has a check behind it, named by a row above."""
+    assert {name for name, kind in RUN_FIELDS.items() if kind == "required"} == {
+        "harness",
+        "harness.clean",
+        "reportable",
+    }
+
+
+@pytest.mark.parametrize(
+    "parent",
+    sorted(
+        {
+            p.split(".")[0]
+            for p in RUN_FIELDS
+            if "." in p and RUN_FIELDS[p.split(".")[0]] == "compared"
+        }
+    ),
+)
+def test_each_compared_nested_field_is_in_what_the_raw_arm_is_held_to(parent: str) -> None:
+    """A nested field classed compared is a key of the expected pin, so it is compared in fact.
+
+    Read over a run with each form a nested model may take (the OS layer present and absent),
+    so every member of a union is seen.
+    """
+    configs = [
+        _config(role_python=_PYTHON.model_dump(mode="json")),
+        _config(
+            os_layer=Absent(reason="none here", no_os_protection=False).model_dump(),
+            network_enforced=False,
+            reportable=False,
+        ),
+    ]
+    keys = {key for config in configs for key in _expected(config, "control", TASK)[parent] or {}}
+    compared = {
+        p.split(".", 1)[1]
+        for p, kind in RUN_FIELDS.items()
+        if p.startswith(f"{parent}.") and kind == "compared"
+    }
+    assert compared and compared <= keys, (parent, compared, keys)
+
+
+class _HeldBoundsCompared(RunBounds):
+    session_max_tools: int = 9
+
+
+class _HeldCompared(RunConfig):
+    bounds: _HeldBoundsCompared
+
+
+def test_a_new_bound_classed_compared_is_compared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Built from the bounds' own fields: a bound added and classed is held, never skipped."""
+    from physgate.evaluation.per_role.arms import compare
+
+    monkeypatch.setattr(compare, "RunConfig", _HeldCompared)
+    # The run's record read as one whose bounds hold the new field, at its default.
+    monkeypatch.setattr(
+        compare,
+        "load_run_config",
+        lambda path: _HeldCompared.model_validate_json(path.read_bytes()),
+    )
+    monkeypatch.setattr(
+        compare, "RUN_FIELDS", {**compare.RUN_FIELDS, "bounds.session_max_tools": "compared"}
+    )
+    assert [f.split(":", 1)[0] for f in _found(tmp_path)] == ["bounds"]
+
+
+def test_a_nested_pin_no_decision_names_is_a_difference(tmp_path: Path) -> None:
+    """A bound the raw arm recorded that no run field classes is kept, so it is named."""
+    found = _found(tmp_path, pins=_pins(bounds=_bounds(session_max_tools=9)))
+    assert [f.split(":", 1)[0] for f in found] == ["bounds"]
