@@ -654,6 +654,18 @@ def test_another_environment_at_another_root_is_named(
     assert [f.split(":", 1)[0] for f in found] == ["tool_environment"]
 
 
+def test_a_path_under_another_of_its_roots_is_another_environment(tmp_path: Path) -> None:
+    """Of two roots, which one holds a path is part of where the path lies."""
+    mine = _placed(HERE, roots=[HERE, f"{HERE}-more"])
+    theirs = _placed(THERE, roots=[THERE, f"{THERE}-more"], interpreter=f"{THERE}-more/bin/python3")
+    found = _tooled(tmp_path, {"tool_environment": mine}, tool_environment=theirs)
+    assert [f.split(":", 1)[0] for f in found] == ["tool_environment"]
+    harness = _config(tool_environment=mine, tool_servers=SERVERS)
+    assert "tool_environment" in drift(
+        harness, _config(tool_environment=theirs, tool_servers=SERVERS)
+    )
+
+
 def test_a_raw_record_that_does_not_read_as_an_environment_is_named(tmp_path: Path) -> None:
     """The normal form itself, written as the raw arm's pin, is no environment the arm ran."""
     normal = normal_tool_environment(ToolEnvironment.model_validate_json(json.dumps(ENVIRONMENT)))
