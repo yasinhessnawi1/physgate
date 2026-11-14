@@ -23,8 +23,9 @@ import json
 from pathlib import Path
 from typing import Any, Literal, get_args
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
+from physgate.evaluation.observe.compare import normal_tool_environment
 from physgate.evaluation.per_role.arms.raw import canaries_sha256
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.task import Task
@@ -42,6 +43,7 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.toolenv.record import ToolEnvironment
 
 #: How each field of a harness run's recorded configuration bears on the raw arm, by its
 #: path: every field of a model nested in the configuration has a decision of its own, so a
@@ -139,9 +141,12 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "os_layer_absent": "not_compared",
     # Both arms compute and build with the same tools and are offered the same servers: the
     # raw arm is given the tool environment and the tool-server record the harness run
-    # recorded, and records both as it ran them. Compared as whole records, so equal records
-    # are equal digests (the environment's manifest, the register's) and nothing beside them
-    # differs; each arm's sessions are offered the servers of their own profile.
+    # recorded, and records both as it ran them. The environment is compared in the normal
+    # form two runs are held to (paths relative to the root that holds them, the manifest's
+    # digest, the counts, the interpreter's and every tool's version): the same environment
+    # at another root is the same environment, since absolute paths are not identity. The
+    # server record names no path and is compared whole: the register's digest and the names
+    # each profile's sessions are offered.
     "tool_environment": "compared",
     "tool_environment.interpreter": "compared",
     "tool_environment.resolved": "compared",
@@ -362,6 +367,22 @@ def _expected(config: RunConfig, role: str, task: Task) -> dict[str, Any]:
     }
 
 
+def _same(name: str, want: Any, got: Any) -> bool:  # noqa: ANN401 - each pin's own type
+    """Whether the raw arm's pin ``got`` is the harness run's ``want``.
+
+    A tool environment is held to the form two runs are (:func:`normal_tool_environment`); a
+    raw record that does not read as an environment is no environment the harness ran.
+    """
+    if name != "tool_environment" or want is None or got is None:
+        return bool(want == got)
+    try:
+        theirs = ToolEnvironment.model_validate_json(json.dumps(got))
+    except (ValidationError, TypeError, ValueError):
+        return False
+    mine = ToolEnvironment.model_validate_json(json.dumps(want))
+    return normal_tool_environment(mine) == normal_tool_environment(theirs)
+
+
 def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[str]:
     """Each way the raw arm differs from the harness run on ``task`` but the harness itself.
 
@@ -395,7 +416,7 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
     found += [
         f"{name}: the harness ran with {want!r}, the raw arm with {pins[name]!r}"
         for name, want in _expected(config, role, task).items()
-        if name in pins and pins[name] != want
+        if name in pins and not _same(name, want, pins[name])
     ]
     if not config.reportable:
         found.append("reportable: the harness run is not reportable; no baseline is held to it")

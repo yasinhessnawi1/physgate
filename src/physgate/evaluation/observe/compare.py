@@ -184,13 +184,14 @@ class SideBySide(_Frozen):
     differs_in: tuple[str, ...]
 
 
-def _normal(environment: ToolEnvironment | None) -> dict[str, Any] | None:
+def normal_tool_environment(environment: ToolEnvironment | None) -> dict[str, Any] | None:
     """A tool environment's record with each path relative to the root that holds it.
 
     Two machines running the same environment place it at other roots, so absolute paths are
     not identity: what is compared is the digest over every file, the counts, the
     interpreter's version, every distribution and every tool's version, and where each path
     lies inside the environment. A path outside every root is another program, kept as named.
+    Two runs (:func:`drift`) and the two arms of a per-role pair are held to this one form.
     """
     if environment is None:
         return None
@@ -229,7 +230,7 @@ def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
     for path in DRIFT:
         mine, theirs = _at(baseline, path), _at(candidate, path)
         if path == "tool_environment":
-            mine, theirs = _normal(mine), _normal(theirs)
+            mine, theirs = normal_tool_environment(mine), normal_tool_environment(theirs)
             if mine != theirs:
                 drifted.append(path)
         elif isinstance(mine, dict) and isinstance(theirs, dict):

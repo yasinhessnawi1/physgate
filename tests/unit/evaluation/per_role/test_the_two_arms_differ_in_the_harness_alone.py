@@ -18,7 +18,7 @@ import pytest
 from pydantic import BaseModel
 from task_fixtures import own_task
 
-from physgate.evaluation.observe.compare import drift
+from physgate.evaluation.observe.compare import drift, normal_tool_environment
 from physgate.evaluation.per_role.arms.compare import (
     RAW_PINS,
     RUN_FIELDS,
@@ -651,6 +651,13 @@ def test_another_environment_at_another_root_is_named(
     tmp_path: Path, other: dict[str, Any]
 ) -> None:
     found = _tooled(tmp_path, {"tool_environment": _placed(HERE)}, tool_environment=other)
+    assert [f.split(":", 1)[0] for f in found] == ["tool_environment"]
+
+
+def test_a_raw_record_that_does_not_read_as_an_environment_is_named(tmp_path: Path) -> None:
+    """The normal form itself, written as the raw arm's pin, is no environment the arm ran."""
+    normal = normal_tool_environment(ToolEnvironment.model_validate_json(json.dumps(ENVIRONMENT)))
+    found = _tooled(tmp_path, tool_environment=normal)
     assert [f.split(":", 1)[0] for f in found] == ["tool_environment"]
 
 
