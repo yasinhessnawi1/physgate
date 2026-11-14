@@ -21,7 +21,9 @@ from typing import Any
 
 import pytest
 from accounted import forged_account_before_each_open  # noqa: F401 - the rig's forger
-from loop_fakes import FakeDispatcher, KilledError, Rig
+from arbitration_runs import CLOSING_PASS, Scripted, rig_of
+from arbitration_runs import entry as sized_entry
+from loop_fakes import FakeChanges, FakeDispatcher, KilledError, Rig
 from test_a_choice_on_a_failed_contract_reopens_the_other_module import (
     choose,
     mend,
@@ -50,16 +52,20 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
     side,
     start,
 )
+from test_a_person_chooses_a_position_only_on_an_arbitration_item import chose
 from test_a_queue_decision_acts_at_a_boundary import NO_VERDICT, _layer, decide
 
 from physgate import roles
-from physgate.contracts.pairs import ContractPair
+from physgate.contracts.pairs import ContractPair, Side
 from physgate.orchestrator.events import read_events
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
+from physgate.orchestrator.ports import ChangeCheck
 from physgate.orchestrator.record import DecompositionSummary
 from physgate.orchestrator.replay import replay
+from physgate.orchestrator.run_config import ModelStrings
 from physgate.oslayer.probe import Present
+from physgate.series.seal import SessionSeries
 from physgate.state.store import journal_records_after
 
 ACTS = {
@@ -939,3 +945,126 @@ def test_replay_refuses_a_readers_next_attempt_under_its_hold_or_in_place_of_it(
     assert "with no hold line" in said, said
     unmarked = {k: v for k, v in rows[0].items() if k != "producer_wait"}
     assert refusal([unmarked, *rows[1:at], dispatch]) is None
+
+
+# --- the producer waits for sizing's closing pass ------------------------------------------------
+
+#: The domain subtask whose disputes go to a person, and the subtask that reads its interface.
+BUS = "bus-0a1b2c"
+P_BUS = ContractPair(
+    producer=Side(module="bus", subtask_id=BUS, role="electrical"),
+    consumer=side(FW, "firmware"),
+    interfaces=("iface.bus",),
+)
+BUS_REQUIREMENT = '{"requirement": "1", "contributing": [{"module": "bus", "criterion": "1"}]}'
+#: Sizing's opening pass, the domain, its reader, and sizing's closing pass.
+SIZED = [
+    sized_entry("z0", "sizing"),
+    sized_entry(BUS, "electrical", "modules/bus"),
+    sized_entry(FW, "firmware", "modules/fw"),
+    CLOSING_PASS,
+]
+
+
+class _Disputed(Scripted):
+    """The arbitration rig's disputes, raised by the domain subtask of this plan."""
+
+    def check(
+        self,
+        subtask_id: str,
+        attempt_commit: str,
+        role: str,
+        *,
+        series: SessionSeries | None = None,
+        follows: int | None = None,
+    ) -> ChangeCheck:
+        if subtask_id == BUS:
+            self.disputes[BUS] = self.script[min(self.checked, len(self.script) - 1)]
+            self.checked += 1
+        return FakeChanges.check(self, subtask_id, attempt_commit, role, series=series)
+
+
+def sized(tmp_path: Path) -> Rig:
+    """The domain's second attempt repeats its disputes and goes to a person; fw reads it."""
+    rig = rig_of(tmp_path / "run")
+    rig.changes = _Disputed(script=list(rig.changes.script))  # type: ignore[attr-defined]
+    roles_of = ("electrical", "firmware", "sizing")
+    rig.config_overrides["models"] = ModelStrings(
+        decomposition="claude-sonnet-5",
+        roles=dict.fromkeys(roles_of, "claude-sonnet-5"),
+        reviewers=dict.fromkeys(roles_of, "claude-opus-5-5"),
+    )
+    return rig
+
+
+def sized_run(
+    rig: Rig,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    resume: bool = False,
+    kill: Callable[[Any, list[Any]], bool] | None = None,
+) -> str:
+    """One process of the sized run: the step it stopped at, ``killed``, or what escaped."""
+    loop = rig.open()
+    hooked(monkeypatch, loop, kill=kill)
+    if not resume:
+        summary = DecompositionSummary(
+            session_id="decomp-1",
+            model="claude-sonnet-5",
+            num_turns=1,
+            subtasks=len(SIZED),
+            interface_nodes=("iface.bus",),
+            spec_commit="a" * 40,
+            head_revision=1,
+            interface_consumers=(InterfaceConsumers(interface="iface.bus", consumers=("fw",)),),
+            system_requirements=(SystemRequirement.model_validate_json(BUS_REQUIREMENT),),
+            contract_pairs=(P_BUS,),
+        )
+        loop.record.start(SIZED, decomposed=summary)
+    _layer(loop)
+    try:
+        return (loop.resume() if resume else loop.run()).kind
+    except KilledError:
+        return "killed"
+    except Exception as exc:  # noqa: BLE001 - what escaped is the finding, asserted as a step
+        return f"raised {exc!r}"
+    finally:
+        loop.close()
+
+
+def _closing_pass_dispatched(event: Any, written: list[Any]) -> bool:  # noqa: ANN401 - any line
+    return bool(
+        event.kind == "stage_entered" and event.subtask_id == "zc" and event.stage == "resolve"
+    )
+
+
+def test_a_reader_is_let_go_when_its_producer_waits_for_the_closing_pass_and_runs_before_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The arbitration rig's graph keeps no canonical store for the pair's contract to read once
+    # both modules merged, so the row stops where the closing pass is dispatched.
+    rig = sized(tmp_path)
+    assert sized_run(rig, monkeypatch) == "wait"
+    rows = lines(rig)
+    (escalated,) = of(rows, "escalated", subtask_id=BUS)
+    item = str(escalated["item_id"])
+    assert _held_on(rows) == [(FW, BUS, item, ["iface.bus"])]
+    assert requests_of(rig, FW) == []
+    chose(rig.run_dir, "domain")
+    stopped = sized_run(rig, monkeypatch, resume=True, kill=_closing_pass_dispatched)
+    assert stopped == "killed", stopped
+    rows = lines(rig)
+    (released,) = of(rows, "dispatch_released")
+    assert (released["subtask_id"], released["producer"], released["item_id"]) == (FW, BUS, item)
+    assert released["outcome"] == "waits_for_closing_pass"
+    # The person's choice, the release, then fw's dispatch and merge, all before the closing pass.
+    taken = first_line(rows, "decision_taken")
+    assert taken < rows.index(released) < dispatched_at(rows, FW)
+    assert of(rows, "merged", subtask_id=FW) != []
+    assert of(rows, "stage_entered", subtask_id="zc") == []
+    assert [r.attempt for r in requests_of(rig, FW)] == [1]
+    assert refusal(rows) is None
+    state = replay(read_events(rig.run_dir / "events.jsonl"))
+    assert state.subtasks[BUS].status == "waiting"
+    step = state.next_step()
+    assert (step.kind, step.subtask_id) == ("attempt", "zc")
