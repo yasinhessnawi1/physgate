@@ -46,6 +46,7 @@ REFUSED = {
     "held_out_sha256",
     "tool_environment",
     "tool_servers",
+    "tool_search",
 }
 REPORTED = {
     "gate_mode",

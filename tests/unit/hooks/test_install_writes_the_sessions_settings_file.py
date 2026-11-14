@@ -250,6 +250,19 @@ def test_the_settings_deny_the_binary_s_tool_search_to_every_profile(
     assert "ToolSearch" in installed["deny"], installed
 
 
+def test_a_run_records_the_search_tool_s_setting_from_the_profiles_deny(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # What the run's configuration records is read from the deny the sessions get, never taken
+    # from the parameters: denied while every profile denies it, offered otherwise.
+    from physgate.hooks import settings as module
+
+    recorded = getattr(module, "session_tool_search", lambda: None)
+    assert recorded() == "denied"
+    monkeypatch.setitem(module.PROFILE_DENIED, "baseline", ("WebFetch", "WebSearch"))  # type: ignore[index]
+    assert recorded() == "offered"
+
+
 def _allowing_run(tmp_path: Path) -> str:
     """A run configuration that allows role sessions without the OS layer, for development."""
     from physgate.orchestrator.run_config import write_run_config  # noqa: PLC0415
