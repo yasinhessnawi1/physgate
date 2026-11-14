@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ShapeError } from "../../api/client";
 import { itemView, queueListing } from "../../api/queue";
+import type { Consequence } from "../../api/queue";
 import {
   APPROVE_RECORDS_ONLY,
   bannedIn,
@@ -171,6 +172,138 @@ describe("an item that says what each verb will do", () => {
       }),
     );
     for (const sentence of all) expect(bannedIn(sentence), sentence).toEqual([]);
+  });
+});
+
+function stated(c: Consequence | null): Consequence {
+  if (c === null) throw new Error("the item says nothing of what a verb does");
+  return c;
+}
+
+describe("an item whose scan hits come from attempts no review judged", () => {
+  const hitOf = (evidence: string, attempt?: number): Record<string, unknown> => ({
+    kind: "disabled_checks",
+    evidence,
+    what: "a lint rule suppressed",
+    ...(attempt === undefined ? {} : { attempt }),
+  });
+
+  it("names the attempt each hit is from before approve is clicked", () => {
+    const view = itemView(
+      raw(
+        consequence({
+          attempt: 3,
+          on_approve: "record_only",
+          why_record_only: "scan_hit",
+          scan_hits: [hitOf("t1", 1), hitOf("t2", 1), hitOf("t3", 3)],
+        }),
+      ),
+    );
+    const c = stated(view.item.consequence);
+    expect(c.scanHits).toBe(3);
+    const words = consequenceWords(c);
+    expect(words.approve).toBe(
+      "Approve records only: the scan before review found 3 reward-hacking indicators that no " +
+        "review judged: 2 in attempt 1 and 1 in attempt 3.",
+    );
+    const host = decide(view);
+    expect(host.textContent).toContain(words.approve);
+    expect(bannedIn(words.approve)).toEqual([]);
+  });
+
+  it("says one hit is one, and from which attempt", () => {
+    const c = stated(
+      itemView(
+        raw(
+          consequence({
+            on_approve: "record_only",
+            why_record_only: "scan_hit",
+            scan_hits: [hitOf("t1", 1)],
+          }),
+        ),
+      ).item.consequence,
+    );
+    expect(consequenceWords(c).approve).toBe(
+      "Approve records only: the scan before review found a reward-hacking indicator that no " +
+        "review judged, in attempt 1.",
+    );
+  });
+
+  it("says which review judged an earlier attempt's hits, where an approve now merges", () => {
+    const c = stated(
+      itemView(
+        raw(
+          consequence({
+            attempt: 3,
+            judged_earlier: [
+              { attempt: 1, judged_by: 2 },
+              { attempt: 2, judged_by: 3 },
+            ],
+          }),
+        ),
+      ).item.consequence,
+    );
+    const words = consequenceWords(c);
+    expect(words.approve).toContain(`attempt 3 (commit ${COMMIT.slice(0, 12)}) is merged`);
+    expect(words.approve).toContain(
+      "No review judged attempt 1 itself; the review of attempt 2 judged what the scan found " +
+        "in it.",
+    );
+    expect(words.approve).toContain(
+      "No review judged attempt 2 itself; the review of attempt 3 judged what the scan found " +
+        "in it.",
+    );
+    expect(bannedIn(words.approve)).toEqual([]);
+  });
+
+  it("says it beside a confirmed indicator too", () => {
+    const c = stated(
+      itemView(
+        raw(
+          consequence({
+            attempt: 3,
+            on_approve: "record_only",
+            why_record_only: "indicator_in_history",
+            confirmed_indicators: [{ attempt: 2, kind: "disabled_checks" }],
+            judged_earlier: [{ attempt: 1, judged_by: 2 }],
+          }),
+        ),
+      ).item.consequence,
+    );
+    expect(consequenceWords(c).approve).toBe(
+      "Approve records only: the review of attempt 2 (disabled_checks) confirmed a " +
+        "reward-hacking indicator. No review judged attempt 1 itself; the review of attempt 2 " +
+        "judged what the scan found in it.",
+    );
+  });
+
+  it("an item listed before hits named their attempt reads as it did", () => {
+    const c = stated(
+      itemView(
+        raw(
+          consequence({
+            on_approve: "record_only",
+            why_record_only: "scan_hit",
+            scan_hits: [hitOf("t1"), hitOf("t2")],
+          }),
+        ),
+      ).item.consequence,
+    );
+    expect(c.scanHits).toBe(2);
+    expect(consequenceWords(c).approve).toBe(
+      "Approve records only: the scan before review found a reward-hacking indicator that no " +
+        "review judged.",
+    );
+  });
+
+  it("refuses a hit's attempt or a judging review of another shape, whole", () => {
+    expect(() => itemView(raw(consequence({ scan_hits: [hitOf("t1", 0)] })))).toThrow(ShapeError);
+    expect(() =>
+      itemView(raw(consequence({ judged_earlier: [{ attempt: 2, judged_by: 2 }] }))),
+    ).toThrow(ShapeError);
+    expect(() => itemView(raw(consequence({ judged_earlier: [{ attempt: 1 }] })))).toThrow(
+      ShapeError,
+    );
   });
 });
 

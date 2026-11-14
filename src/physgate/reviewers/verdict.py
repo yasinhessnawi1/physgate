@@ -40,7 +40,6 @@ comes with its unit, never bare.
 from __future__ import annotations
 
 import json
-import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -60,7 +59,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.reviewers.contract import CONSISTENCY, UNISSUED_RESULTS, as_answer
 from physgate.reviewers.rubric import NotEvaluableNeeds, RubricItem
-from physgate.reviewers.scan import ScanHit
+from physgate.reviewers.scan import ScanHit, is_bare, judges
 
 #: The model's words for its verdict. ``accept`` and ``reject`` become the review's
 #: pass and fail; ``blocked`` stays blocked, a verdict that is neither.
@@ -175,20 +174,13 @@ def _judge(
     return Answered(answer=answer)
 
 
-#: A single bare word: letters only, no digit and no punctuation. "x" or "test" is a
-#: placeholder a session leaves when the schema has refused it several times, not a
-#: judgement; a pointer such as ``n1.json:3`` or ``design/nodes/n1.json`` says where to
-#: look and is kept, as the evidence form the protocol asks for.
-_BARE_WORD = re.compile(r"[A-Za-z]*")
-
-
 def _degenerate(answer: ModelVerdict) -> str | None:
     """A finding that is empty or a single bare word, named, so the session writes it.
 
     Held: the verdict's own finding; the evidence of every item that rejects; the
     evidence of every criterion not met; every specification defect's finding; the reason
-    of every indicator noted or confirmed. A placeholder in any of them would otherwise be
-    recorded as a verdict, and a reject at that. An item not evaluable may leave its
+    of every indicator answered, whatever its disposition. A placeholder in any of them would
+    otherwise be recorded as a verdict, and a reject at that. An item not evaluable may leave its
     evidence empty: the blocking defect that names it carries the words, and is held.
     """
     places: list[tuple[str, str]] = [("the finding", answer.finding)]
@@ -205,16 +197,8 @@ def _degenerate(answer: ModelVerdict) -> str | None:
     places += [
         (f"the defect on {d.item or 'the specification'}", d.finding) for d in answer.spec_defects
     ]
-    places += [
-        (f"the reason of the {r.kind} indicator", r.reason)
-        for r in answer.indicators
-        if r.disposition in ("noted", "confirmed")
-    ]
-    thin = [
-        where
-        for where, text in places
-        if len(text.split()) < 2 and _BARE_WORD.fullmatch(text.strip()) is not None  # noqa: PLR2004
-    ]
+    places += [(f"the reason of the {r.kind} indicator", r.reason) for r in answer.indicators]
+    thin = [where for where, text in places if is_bare(text)]
     if thin:
         return "a finding is empty or one word and says nothing; write it out: " + ", ".join(
             thin[:5]
@@ -314,10 +298,22 @@ def _inconsistency(
         missing = ", ".join(sorted(unevaluated - named))
         kind = "a blocking specification defect" if not_evaluable == "blocking" else "a defect"
         return f"an item not evaluable is named by {kind}: " + missing
-    answered = {r.evidence for r in answer.indicators}
-    unanswered = sorted({h.evidence for h in scan_hits} - answered)
+    # The attempt's own hits are answered as they always were, by an answer to the same evidence.
+    answered = {r.evidence for r in answer.indicators if r.attempt is None}
+    unanswered = sorted({h.evidence for h in scan_hits if h.attempt is None} - answered)
     if unanswered:
         return "a check the trajectory shows switched off is not answered: " + ", ".join(unanswered)
+    # An earlier attempt's, by an answer naming its attempt that confirms or dismisses it.
+    undecided = sorted(
+        f"{h.evidence} (attempt {h.attempt})"
+        for h in scan_hits
+        if h.attempt is not None and not judges(h, answer.indicators)
+    )
+    if undecided:
+        return (
+            "a check an earlier attempt's trajectory shows switched off is not confirmed or "
+            "dismissed, with a reason, by an answer naming its attempt: " + ", ".join(undecided)
+        )
     return None
 
 
