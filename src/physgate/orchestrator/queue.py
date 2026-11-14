@@ -1097,6 +1097,58 @@ def parts_item_id(run_id: str, number: int, round_: int) -> str:
     return item_id_for(run_id, f"{PARTS}-{number}", round_)
 
 
+#: A part's item id: the run and the part's number, then its round from the second on.
+_PARTS_ID = re.compile(rf"^(?P<base>.+-{PARTS}-[0-9]+)(?:-r(?P<round>[0-9]+))?$")
+
+
+def parts_round(item_id: str) -> tuple[str, int] | None:
+    """A part's item id as the id of its first round and its round; ``None`` if it is not one."""
+    found = _PARTS_ID.fullmatch(item_id)
+    if found is None:
+        return None
+    return found["base"], int(found["round"] or 1)
+
+
+def raised_again_id(item_id: str) -> str | None:
+    """The id of the round after a part's ``item_id``; ``None`` if it is not a part's item."""
+    held = parts_round(item_id)
+    return None if held is None else f"{held[0]}-r{held[1] + 1}"
+
+
+def _earlier_round(item_id: str) -> str | None:
+    held = parts_round(item_id)
+    if held is None or held[1] < 2:
+        return None
+    base, round_ = held
+    return base if round_ == 2 else f"{base}-r{round_ - 1}"
+
+
+def raised_again_problem(
+    earlier: QueueResolution | None, position: Position | None, parts: PartsBody | None
+) -> str | None:
+    """Why a decision on a part raised again cannot stand, or ``None``.
+
+    The values the earlier round declared are on the part's nodes, and a declared value is never
+    taken off a node: the part is had or made again, stating every name it stated before, each
+    with the value and unit a person now gives it.
+    """
+    if earlier is None or earlier.position not in ("have", "make") or earlier.parts is None:
+        return None
+    if position == "find":
+        return (
+            "this part was raised again after its values were written: it is had or made, "
+            "stating every name it stated before, and choosing find is refused"
+        )
+    stated = set(parts.declared) if parts is not None else set()
+    missing = [name for name in earlier.parts.declared if name not in stated]
+    if missing:
+        return (
+            "this part was raised again after its values were written: it states every name it "
+            "stated before, and this decision leaves out " + ", ".join(missing)
+        )
+    return None
+
+
 def parts_consequence() -> ItemConsequence:
     """What each choice does to a part's item, and that approve and reject do nothing to it."""
     return ItemConsequence(
@@ -1122,12 +1174,14 @@ def parts_item(
     spec_commit: str,
     stream: str,
     ts: str,
+    again: str | None = None,
 ) -> QueueItem:
     """The item a run that asks which parts a person has lists for one component of its plan.
 
     The plan's words for the part are the plan's, not the harness's: its label is quoted as a
     JSON string, so a line break or a control character in it cannot start a line of the
-    item. Nothing is a value yet: the person states each one by choosing have or make.
+    item. Nothing is a value yet: the person states each one by choosing have or make. A part
+    raised again at the release (``again``, why in plain words) is had or made again.
     """
     names = (*component.own, *component.shared)
     stated = (
@@ -1135,6 +1189,18 @@ def parts_item(
         if not names
         else "lists " + ", ".join(names) + " as the quantities a part on hand states"
     )
+    choices = (
+        "Choose have to state the values of a part you already own, each with its unit; "
+        "choose make to state what a part you will make must meet; choose find to have it "
+        "sourced and sized as before. Approve and reject decide no part."
+    )
+    if again is not None:
+        choices = (
+            f"It is raised again at the release: {again}. Choose have or make again, stating "
+            "every name you stated before, each with the value and unit it now has; find is "
+            "refused, since the values are already on the part's nodes. Approve and reject "
+            "decide no part."
+        )
     return QueueItem(
         item_id=item_id,
         ts=ts,
@@ -1144,9 +1210,7 @@ def parts_item(
         decision_required=(
             f"Part {number} of {of} in the plan: {json.dumps(component.label)} "
             f"(node {component.node}), which the plan {stated}. Nothing has been dispatched. "
-            "Choose have to state the values of a part you already own, each with its unit; "
-            "choose make to state what a part you will make must meet; choose find to have it "
-            "sourced and sized as before. Approve and reject decide no part."
+            + choices
         ),
         artefact_diff=(
             f"The plan of digest {plan_sha256}, as the run recorded it: see {stream} and the "
@@ -1155,6 +1219,8 @@ def parts_item(
         triggering_finding=(
             f"The run asks which parts a person has; component {component.node} is "
             f"{number} of {of} the plan lists."
+            if again is None
+            else f"At the release, component {component.node}: {again}"
         ),
         quantities=(),
         trajectories=(stream,),
@@ -2196,6 +2262,15 @@ def _decide(dir_fd: int, run_dir: Path, record: QueueResolution, shown: ShownIte
             # any of them would close the item the run is held on.
             msg = "a part's item is decided by choosing have, make or find, and by nothing else"
             raise QueueError(msg, item=record.item_id)
+        if records.items[record.item_id].source == "parts":
+            before = _earlier_round(record.item_id)
+            problem = raised_again_problem(
+                records.resolved.get(before) if before is not None else None,
+                record.position,
+                record.parts,
+            )
+            if problem is not None:
+                raise QueueError(problem, item=record.item_id)
         if record.verb is not None and shown is not None:
             _require_bindable(records.items[record.item_id], record, shown)
         if good_end != len(decided):

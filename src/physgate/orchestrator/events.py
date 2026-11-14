@@ -1680,6 +1680,54 @@ class PartsReleased(_Event):
     record_length: Annotated[int, Field(ge=1)]
 
 
+class PartsGateRan(_Event):
+    """The gate judged the parts' declared values at the release, before any session.
+
+    Belongs to no attempt, as :class:`IntegrationGateRan` does. ``base_revision`` is the
+    journal's head before the first parts write, so the view's own nodes are exactly the
+    declared ones; every round of the release is judged from it. It runs in the run's gate mode,
+    the one the line's envelope names; under ``off`` the call is skipped and this line records
+    the skip, with no result.
+    """
+
+    kind: Literal["parts_gate_ran"] = "parts_gate_ran"
+    base_revision: Annotated[int, Field(ge=0)]
+    result: GateResult | None
+
+    @model_validator(mode="after")
+    def _a_result_exactly_when_the_gate_runs(self) -> PartsGateRan:
+        if (self.result is None) != (self.gate_mode == "off"):
+            msg = "the release's gate line holds a result exactly when the gate runs"
+            raise ValueError(msg)
+        if self.result is not None and self.result.mode != self.gate_mode:
+            msg = "the release's gate result carries the mode the line names"
+            raise ValueError(msg)
+        return self
+
+
+class RaisedPart(BaseModel):
+    """One part raised again: its new item, the component's node, and why, in plain words."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    item_id: NonEmptyStr
+    node: NodeIdKey
+    why: NonEmptyStr
+
+
+class PartsRaisedAgain(_Event):
+    """Parts the release cannot take as decided, each raised again as a new round of its item.
+
+    ``gate``: the release's gate call blocked on the part's declared values. ``interface``: an
+    interface a domain produced, joined to a declared node, holds one of its names with another
+    value. The hold continues until each new item is decided.
+    """
+
+    kind: Literal["parts_raised_again"] = "parts_raised_again"
+    cause: Literal["gate", "interface"]
+    parts: Annotated[tuple[RaisedPart, ...], Field(min_length=1)]
+
+
 class NodeFilesRepaired(_Event):
     """Node files changed behind the journal were repaired before anything read the graph.
 
@@ -1881,6 +1929,8 @@ Event = Annotated[
     | PartsWriteIntended
     | PartsWriteDone
     | PartsReleased
+    | PartsGateRan
+    | PartsRaisedAgain
     | ContractPairsPlanned
     | ContractTested
     | IntegrationStateIssued

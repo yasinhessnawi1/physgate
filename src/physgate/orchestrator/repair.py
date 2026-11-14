@@ -13,7 +13,7 @@ from the process that built this harness.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -217,8 +217,17 @@ def _number(output: NumericOutput) -> str:
     return f"{output.value:g} {output.unit}"
 
 
-def repair_instruction(attempt: int, finding: Finding) -> str:
+#: How a quantity a person declared is marked where a repair names it.
+DECLARED_MARK = "(declared by the person: fixed, and no role changes it)"
+
+
+def repair_instruction(
+    attempt: int, finding: Finding, declared: Collection[tuple[str, str]] = ()
+) -> str:
     """The instruction the next attempt starts from, after ``attempt`` was rejected.
+
+    A quantity the finding names that a person declared (``declared``, each ``(node, name)``)
+    is named as fixed at every attempt, so the repair goes to what the role can change.
 
     Raises:
         RepairBudgetExhaustedError: ``attempt`` was the last one; it escalates and
@@ -242,9 +251,11 @@ def repair_instruction(attempt: int, finding: Finding) -> str:
             else "none; the check reported no number"
         )
         lines.append(f"Computed value: {number}")
-        lines += [
-            f"Quantity: {q.node_id} {q.name} = {q.value:g} {q.unit}" for q in finding.quantities
-        ]
+    for q in finding.quantities:
+        fixed = (q.node_id, q.name) in declared
+        if attempt >= 2 or fixed:
+            mark = f" {DECLARED_MARK}" if fixed else ""
+            lines.append(f"Quantity: {q.node_id} {q.name} = {q.value:g} {q.unit}{mark}")
     remaining = REPAIR_BUDGET - attempt
     lines += [
         "",

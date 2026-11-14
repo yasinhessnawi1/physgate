@@ -17,15 +17,25 @@ says happened.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Annotated, Final, Literal
+from collections.abc import Collection
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    StringConstraints,
+    model_serializer,
+    model_validator,
+)
 
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.exceptions import RunStateError
 from physgate.orchestrator.protocols import (
     CheckName,
     CriterionResult,
+    GateResult,
     IndicatorDisposition,
     IndicatorKind,
     ItemResult,
@@ -132,6 +142,17 @@ class GatePart(_Frozen):
     verdict: Verdict | None
     failing_check: CheckName | None
     checks: tuple[GateCheck, ...]
+    #: Whether every value the blocking result names is one a person declared
+    #: (:func:`all_declared`), read from the gate line and the declared values at the head. Left
+    #: out of the record when false, so every other state reads and hashes as before.
+    all_declared: bool = False
+
+    @model_serializer(mode="wrap")
+    def _omit_unmarked(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.all_declared:
+            data.pop("all_declared", None)
+        return data
 
     @model_validator(mode="after")
     def _a_skipped_gate_has_no_result(self) -> GatePart:
@@ -214,6 +235,42 @@ class EscalationState(_Frozen):
     def attempt_count(self) -> int:
         """Which attempt it was, from the ledger line."""
         return self.ledger.attempt_count
+
+    @property
+    def all_declared(self) -> bool:
+        """Whether the gate rejected the attempt for values a person declared, and those alone."""
+        return (
+            self.ended.kind == "rejected"
+            and self.ended.rejected_by == "gate"
+            and self.gate is not None
+            and self.gate.all_declared
+        )
+
+
+#: How many blocking quantities a gate line keeps (``GateResult.quantities``): the first ones
+#: of the whole call, not each observation's.
+RECORDED_QUANTITIES: Final = 3
+
+
+def all_declared(result: GateResult | None, declared: Collection[tuple[str, str]]) -> bool:
+    """Whether a blocking gate result is about values a person declared and nothing else.
+
+    ``declared`` is each ``(node, name)`` declared at the journal's head. The line records only
+    the first three quantities the blocking observations name, not which observation named
+    which, so the answer is yes only where the record can say so: fewer than three named (three
+    may be three of more, cut), every one declared, and no blocking failure of the units check,
+    whose observations name no quantity. In every other case the answer is no, and the attempt
+    routes as any other does.
+    """
+    if result is None or result.verdict != "fail":
+        return False
+    named = result.quantities
+    if not named or len(named) >= RECORDED_QUANTITIES:
+        return False
+    blocking = [r for r in result.checks if r.outcome == "fail" and r.blocking]
+    if any(r.name == "units" for r in blocking):
+        return False
+    return all((q.node_id, q.name) in declared for q in named)
 
 
 #: Each part of the state and the record it is copied from.
@@ -309,18 +366,19 @@ def _gate(state: RunState, subtask_id: str) -> GatePart | None:
     result = gate.result
     # The gate names its failing check by the check's name; validating the part holds the
     # field to that vocabulary, so a result carrying anything else is refused, not passed on.
-    return GatePart.model_validate(
-        {
-            "ran": True,
-            "mode": result.mode,
-            "verdict": result.verdict,
-            "failing_check": result.failing_check,
-            "checks": tuple(
-                GateCheck(check=r.name, scope=r.scope, outcome=r.outcome, blocking=r.blocking)
-                for r in result.checks
-            ),
-        }
-    )
+    fields: dict[str, object] = {
+        "ran": True,
+        "mode": result.mode,
+        "verdict": result.verdict,
+        "failing_check": result.failing_check,
+        "checks": tuple(
+            GateCheck(check=r.name, scope=r.scope, outcome=r.outcome, blocking=r.blocking)
+            for r in result.checks
+        ),
+    }
+    if all_declared(result, state.declared_heads()):
+        fields["all_declared"] = True
+    return GatePart.model_validate(fields)
 
 
 def _review(state: RunState, subtask_id: str) -> ReviewPart | None:

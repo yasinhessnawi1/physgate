@@ -20,7 +20,7 @@ import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Literal, NoReturn
+from typing import Any, Literal, NoReturn
 
 from pydantic import ValidationError
 
@@ -99,6 +99,8 @@ from physgate.orchestrator.events import (
     ModuleCompleted,
     NodeFilesRepaired,
     OsLayerChecked,
+    PartsGateRan,
+    PartsRaisedAgain,
     PartsReleased,
     PartsWriteDone,
     PartsWriteIntended,
@@ -137,6 +139,7 @@ from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.parts_write import (
     PartsWrite,
     TakenPart,
+    blocked_parts,
     parts_payload,
     parts_record,
     parts_writes,
@@ -164,6 +167,7 @@ from physgate.orchestrator.queue import (
     item_id_for,
     parts_item_id,
     parts_sha256,
+    raised_again_id,
 )
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
@@ -425,6 +429,16 @@ class RunState:
         self.parts_places: list[tuple[int, bool]] = []
         self._parts_place = (0, False)
         self.parts_released: PartsReleased | None = None
+        #: The journal's head before the first parts write (what every round of the release is
+        #: judged from), the release's gate line of this round, each part raised again with why
+        #: and when, each declared node's names and the component it holds values of, and the
+        #: payload of the intended write.
+        self.parts_base: int | None = None
+        self.parts_gate: PartsGateRan | None = None
+        self.parts_again: dict[str, tuple[str, str]] = {}
+        self.parts_declared: dict[str, frozenset[str]] = {}
+        self.parts_holder: dict[str, str] = {}
+        self._parts_payload: dict[str, Any] | None = None
         self.order: list[str] = []
         self.subtasks: dict[str, SubtaskState] = {}
         self.halted: Halted | None = None
@@ -741,7 +755,10 @@ class RunState:
                 _refuse("a plan is rejected once, after a person's reject of the plan's item")
             self.plan_rejected = event
             return
-        if isinstance(event, PartsWriteIntended | PartsWriteDone | PartsReleased):
+        if isinstance(
+            event,
+            PartsWriteIntended | PartsWriteDone | PartsReleased | PartsGateRan | PartsRaisedAgain,
+        ):
             self._parts_line(event)
             return
         if dispatch and self.plan_hold() is not None:
@@ -1136,7 +1153,23 @@ class RunState:
         owners = _cross_owners("cross_nodes")
         return owners[0] if len(owners) == 1 else None
 
-    def _parts_line(self, event: PartsWriteIntended | PartsWriteDone | PartsReleased) -> None:
+    def declared_heads(self) -> frozenset[tuple[str, str]]:
+        """Each ``(node, name)`` a landed parts write declared: the declared values at the head.
+
+        The head check holds the journal to the landed writes, so these are the head's.
+        """
+        return frozenset(
+            (node, name) for node, names in self.parts_declared.items() for name in names
+        )
+
+    def _parts_line(
+        self,
+        event: PartsWriteIntended
+        | PartsWriteDone
+        | PartsReleased
+        | PartsGateRan
+        | PartsRaisedAgain,
+    ) -> None:
         """Hold a line of the parts' release to the derivation the plan and the decisions give.
 
         A value is written only once every part is decided, as the payload those decisions and
@@ -1157,6 +1190,16 @@ class RunState:
             self.parts_places.append(self._parts_place)
             self.journal_head = event.revision
             self.parts_pending = None
+            quantities = (self._parts_payload or {}).get("quantities") or {}
+            self.parts_declared[event.node_id] = frozenset(quantities)
+            self.parts_holder[event.node_id] = components[self._parts_place[0]].node
+            self.parts_gate = None
+            return
+        if isinstance(event, PartsGateRan):
+            self._parts_gate_ran(event)
+            return
+        if isinstance(event, PartsRaisedAgain):
+            self._parts_raised_again(event)
             return
         if isinstance(event, PartsWriteIntended):
             held = self.parts_pending
@@ -1199,6 +1242,9 @@ class RunState:
                 _refuse("the parts are written in the plan's order, each node once")
             self._parts_place = (index, shared)
             self.parts_pending = event
+            self._parts_payload = payload
+            if self.parts_base is None:
+                self.parts_base = self.journal_head
             return
         self._parts_released(event)
 
@@ -1237,10 +1283,15 @@ class RunState:
             )
         except ValueError as exc:
             _refuse(str(exc))
+        latest = {node: digest for node, digest, _ in self.parts_landed}
         if [(w.node_id, w.payload_sha256) for w in owed] != [
-            (node, digest) for node, digest, _ in self.parts_landed
-        ]:
+            (w.node_id, latest.get(w.node_id)) for w in owed
+        ] or not set(latest) <= {w.node_id for w in owed}:
             _refuse("the release comes before every write the decisions owe has landed")
+        if self.parts_base is not None and (
+            self.parts_gate is None or self._parts_blocked(self.parts_gate)
+        ):
+            _refuse("the parts are released only after the release's gate passed their values")
         record = parts_record(components, stated)
         if (event.record_sha256, event.record_length) != (
             hashlib.sha256(record).hexdigest(),
@@ -1248,6 +1299,51 @@ class RunState:
         ):
             _refuse("the release's record is not the record the decisions give")
         self.parts_released = event
+
+    @staticmethod
+    def _parts_blocked(ran: PartsGateRan) -> bool:
+        """Whether the release's gate line holds the run: a failing result under ``on``."""
+        return ran.result is not None and ran.result.verdict == "fail" and ran.gate_mode == "on"
+
+    def _parts_gate_ran(self, event: PartsGateRan) -> None:
+        """Hold the release's gate line to the run's mode and to the base of the first write."""
+        if self.parts_pending is not None or self.parts_base is None:
+            _refuse("the release's gate judges the parts' values once their writes have landed")
+        if event.base_revision != self.parts_base:
+            _refuse("the release's gate judges from the head before the first parts write")
+        if event.gate_mode != self.gate_mode:
+            _refuse("the release's gate runs in the run's gate mode")
+        self.parts_gate = event
+
+    def _parts_raised_again(self, event: PartsRaisedAgain) -> None:
+        """Hold a part raised again to what raised it, and take its new round's item."""
+        components = self.components or ()
+        if self.parts_pending is not None or self.parts_base is None:
+            _refuse("a part is raised again only at the release, after its values were written")
+        gate = self.parts_gate
+        if event.cause == "gate":
+            if gate is None or gate.result is None or not self._parts_blocked(gate):
+                _refuse("a part is raised again for the gate only after the gate blocked it")
+            named = blocked_parts(gate.result, self.parts_holder)
+        else:
+            if gate is not None:
+                _refuse("a part is raised again for an interface before the release's gate runs")
+            named = tuple(dict.fromkeys(p.node for p in event.parts))
+        if tuple(p.node for p in event.parts) != named:
+            _refuse("the parts raised again are not the ones the release's gate named")
+        ids = list(self.parts_ids)
+        nodes = [c.node for c in components]
+        for part in event.parts:
+            index = nodes.index(part.node) if part.node in nodes else None
+            now = ids[index] if index is not None else None
+            if now is None or now not in self.taken or raised_again_id(now) != part.item_id:
+                _refuse(f"{part.item_id} is not the next round of a decided part raised again")
+            ids[nodes.index(part.node)] = part.item_id
+            self.parts_again[part.item_id] = (part.why, event.ts)
+        self.parts_ids = tuple(ids)
+        self.parts_places = []
+        self._parts_place = (0, False)
+        self.parts_gate = None
 
     def planned(self) -> tuple[str, ...]:
         """Every planned subtask not yet dispatched or removed, in plan order."""

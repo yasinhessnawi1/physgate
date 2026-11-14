@@ -101,11 +101,14 @@ from physgate.orchestrator.events import (
     NodeFilesRepaired,
     OsLayerChecked,
     OwedEdge,
+    PartsGateRan,
+    PartsRaisedAgain,
     PartsReleased,
     PartsWriteDone,
     PartsWriteIntended,
     PlanRejected,
     ProposalsChecked,
+    RaisedPart,
     ReleasedPart,
     Resumed,
     ReviewRan,
@@ -164,8 +167,11 @@ from physgate.orchestrator.managed import (
 from physgate.orchestrator.merge import merge_message
 from physgate.orchestrator.parts_write import (
     TakenPart,
+    blocked_parts,
+    contradictions,
     parts_record,
     parts_writes,
+    release_artefact,
     unlanded_declared,
 )
 from physgate.orchestrator.ports import (
@@ -217,6 +223,7 @@ from physgate.orchestrator.queue import (
     integration_item,
     item_id_for,
     parts_sha256,
+    raised_again_id,
     read_queue,
     round_stream,
     stream_parts,
@@ -1690,7 +1697,11 @@ class Loop:
             msg = "the run-event log does not replay as a run"
             why = "a rejection whose finding is not the one its rulings give"
             raise CorruptEventLogError(msg, seq=str(before.seq), reason=why)
-        return (repair_instruction(previous.number, before.finding) if before else None), None
+        declared = self.state.declared_heads()
+        instruction = (
+            repair_instruction(previous.number, before.finding, declared) if before else None
+        )
+        return instruction, None
 
     def _screened(self, subtask_id: str, order: PersonOrder) -> str:
         """What a person's order is held to the canaries by, before its session is spawned.
@@ -2407,9 +2418,10 @@ class Loop:
             {part.item_id: part for part in taken},
             owners[0] if len(owners) == 1 else None,
         )
-        landed = {node for node, _, _ in state.parts_landed}
+        # A write is owed again where the node's last landed payload is not this round's.
+        latest = {node: digest for node, digest, _ in state.parts_landed}
         for write in owed:
-            if write.node_id in landed:
+            if latest.get(write.node_id) == write.payload_sha256:
                 continue
             expected = state.journal_head + 1
             self._emit(
@@ -2439,6 +2451,8 @@ class Loop:
             self._emit(PartsWriteDone(**self._env(), node_id=write.node_id, revision=revision))
         if not self._declared_hold(None):
             return
+        if not self._release_gated():
+            return
         if owed:
             self._graph.commit("Parts the person declared\n")
         record = parts_record(components, taken)
@@ -2460,6 +2474,96 @@ class Loop:
                 record_length=len(record),
             )
         )
+
+    def _release_gated(self) -> bool:
+        """Whether the declared values may be released: no interface contradicts, the gate passed.
+
+        Taken once the writes of a round have landed. An interface a domain produced that holds
+        a declared name with another value raises its part again, and the gate is not called.
+        Otherwise one gate call at subtask scope judges the view above the head before the first
+        parts write (every round from the same base, so every declared node is judged again), in
+        the run's mode; under ``off`` the skip is recorded. A blocking result under ``on`` raises
+        every part it names again. A run that wrote no declared value calls no gate. A process
+        killed after the gate's line acts on that line and does not call the gate again.
+        """
+        state = self.state
+        base = state.parts_base
+        if base is None:
+            return True
+        ran = state.parts_gate
+        if ran is None:
+            contradicted = self._contradicted()
+            if contradicted is None:
+                return False
+            if contradicted:
+                self._emit(PartsRaisedAgain(**self._env(), cause="interface", parts=contradicted))
+                return False
+            mode = self.config.gate_mode
+            result: GateResult | None = None
+            if mode != "off":
+                if self._gate is None:
+                    msg = f"the release's gate cannot pass: gate mode {mode!r}, no gate registered"
+                    raise GateNotRegisteredError(msg, gate_mode=mode)
+                decomposed = next(e for e in self.log.events if isinstance(e, Decomposed))
+                artefact = release_artefact(
+                    graph_root=str(self._graph.root),
+                    base_revision=base,
+                    run_dir=self.run_dir,
+                    commit=decomposed.spec_commit,
+                )
+                result = require_mode(self._gate.check(artefact, mode=mode), mode)
+            self._emit(PartsGateRan(**self._env(), base_revision=base, result=result))
+            ran = self.state.parts_gate
+        if (
+            ran is None
+            or ran.result is None
+            or ran.result.verdict != "fail"
+            or ran.gate_mode != "on"
+        ):
+            return True
+        holder = self.state.parts_holder
+        blocking = [r for r in ran.result.checks if r.outcome == "fail" and r.blocking]
+        raised: list[RaisedPart] = []
+        for component in blocked_parts(ran.result, holder):
+            said = [r.message for r in blocking if holder.get(r.node or "") == component]
+            raised.append(
+                self._raised(
+                    component,
+                    "the gate blocked its declared values: "
+                    + ("; ".join(said) or ran.result.finding),
+                )
+            )
+        self._emit(PartsRaisedAgain(**self._env(), cause="gate", parts=tuple(raised)))
+        return False
+
+    def _raised(self, component: str, why: str) -> RaisedPart:
+        """The next round of ``component``'s item, and why it is raised again."""
+        state = self.state
+        nodes = [c.node for c in state.components or ()]
+        now = state.parts_ids[nodes.index(component)]
+        return RaisedPart(item_id=raised_again_id(now) or now, node=component, why=why)
+
+    def _contradicted(self) -> tuple[RaisedPart, ...] | None:
+        """Each part an interface a domain produced contradicts, or ``None`` if the run halted."""
+        state = self.state
+        try:
+            lines = self._graph.records_after(0)
+        except DesignStateError as exc:
+            self._incident(None, "foreign_journal_line", str(exc))
+            return None
+        head = {line.node_id: line.payload for line in sorted(lines, key=lambda one: one.rev)}
+        owners = owners_of("cross_nodes")
+        found = contradictions(
+            head, list(state.parts_holder), owners[0] if len(owners) == 1 else None
+        )
+        said: dict[str, list[str]] = {}
+        for one in found:
+            said.setdefault(state.parts_holder[one.node_id], []).append(
+                f"interface {one.interface} holds {one.name} as {one.held}, and the part was "
+                f"declared with {one.declared} on {one.node_id}"
+            )
+        ordered = dict.fromkeys(state.parts_holder.values())
+        return tuple(self._raised(c, "; ".join(said[c])) for c in ordered if c in said)
 
     def _apply(self, subtask_id: str, attempt: int, commit: str, role: str) -> bool:
         """Write the attempt's proposals into the canonical store, each behind an intent."""

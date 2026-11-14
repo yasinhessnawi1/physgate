@@ -696,6 +696,7 @@ class RunRecord:
             return None
         decomposed = next(e for e in self.log.events if isinstance(e, Decomposed))
         number = state.parts_ids.index(item_id) + 1
+        why, raised_ts = state.parts_again.get(item_id, (None, decomposed.ts))
         return parts_item(
             item_id=item_id,
             run_id=self.config.run_id,
@@ -706,7 +707,8 @@ class RunRecord:
             spec_commit=decomposed.spec_commit,
             # Relative to the run, as the plan's item is: the stream of the round the plan is of.
             stream=round_stream(len(state.earlier_reviews) + 1),
-            ts=decomposed.ts,
+            ts=raised_ts,
+            again=why,
         )
 
     def hold_parts(self) -> None:

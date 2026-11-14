@@ -146,9 +146,10 @@ def test_a_mixed_finding_goes_back_to_the_role_marking_the_declared_value_fixed(
     assert [r.attempt for r in s1][:2] == [1, 2]
     repair = s1[1].repair_instruction or ""
     mass_line = next(line for line in repair.splitlines() if f"{MOTOR} mass" in line)
-    torque_line = next(line for line in repair.splitlines() if f"{MOTOR} torque" in line)
     assert "declared by the person" in mass_line and "fixed" in mass_line
-    assert "declared" not in torque_line
+    # An undeclared quantity is named from the second repair on, as before, and never as fixed.
+    torque_lines = [line for line in repair.splitlines() if f"{MOTOR} torque" in line]
+    assert all("declared" not in line for line in torque_lines)
 
 
 def test_a_finding_on_an_undeclared_value_routes_as_it_always_did(tmp_path: Path) -> None:
