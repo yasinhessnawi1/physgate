@@ -42,7 +42,7 @@ from orch_helpers import ticking_clock
 from pydantic import ValidationError
 
 import physgate.orchestrator.cli as cli
-from physgate.orchestrator.budget import SessionEnd
+from physgate.orchestrator.budget import SessionEnd, classify_session_end
 from physgate.orchestrator.events import (
     AttemptRejected,
     Escalated,
@@ -66,6 +66,7 @@ from physgate.orchestrator.usage_limit import (
     UsageLimit,
     account_windows,
     reset_instant,
+    resume_after,
     session_end,
     usage_limit_of,
     with_instant,
@@ -430,6 +431,64 @@ def test_a_refusal_the_account_s_state_moved_on_from_gives_no_instant_kind_or_wi
     )
     assert end.cause == "usage_limit"
     assert limit == UsageLimit(resets=RESETS)
+
+
+def test_a_stale_rate_limit_error_then_an_end_with_no_status_or_limit_text_is_not_the_limit() -> (
+    None
+):
+    # The limit's message early on, the session went on, and it ended on a connection error
+    # whose result gives no status and does not name the limit.
+    result = _result("API Error: Connection error.")
+    stream = _stream(
+        INIT,
+        _said("API Error: 429", "rate_limit"),
+        _said("going on", None),
+        _said("still going", None),
+        json.dumps(result),
+    )
+    assert usage_limit_of(stream, result) is None
+    as_before = classify_session_end(result, exit_code=1, stopped_at_wall_clock=False)
+    assert session_end(stream, result, exit_code=1, stopped_at_wall_clock=False) == (
+        as_before,
+        None,
+    )
+    assert as_before == API_ERROR[0]
+
+
+@pytest.mark.parametrize(
+    "refusals",
+    [
+        (_rate_limit("rejected", five_hour=1, seven_day=1),),
+        (
+            _rate_limit(
+                "rejected", kind="seven_day", resets_at=WEEK_EPOCH, five_hour=0, seven_day=1
+            ),
+            _rate_limit("rejected", five_hour=1, seven_day=1),
+        ),
+    ],
+    ids=["one-refusal-both-windows-spent", "the-weekly-refusal-then-the-session-one"],
+)
+def test_both_windows_refused_waits_for_the_later_reset_and_names_both(
+    refusals: tuple[str, ...],
+) -> None:
+    end, limit = _ended(
+        *refusals,
+        _said(SESSION_LIMIT, "rate_limit"),
+        result=_result(SESSION_LIMIT, status=429),
+    )
+    assert end.cause == "usage_limit"
+    assert limit is not None
+    assert limit.resets_at == WEEK_STAMP, "the wait is the seven-day window's, which resets later"
+    assert getattr(limit, "rejected_windows", None) == ("five_hour", "seven_day")
+    assert resume_after("2026-11-13T11:30:00.000000Z", limit) == WEEK_STAMP
+
+
+def test_one_window_refused_names_that_window_alone() -> None:
+    stream, result = _limited()
+    limit = usage_limit_of(stream, result)
+    assert limit is not None
+    assert limit.resets_at == RESET_STAMP
+    assert getattr(limit, "rejected_windows", None) == ("five_hour",)
 
 
 def test_an_allowed_rate_limit_state_in_a_completed_session_is_no_limit() -> None:
@@ -883,6 +942,84 @@ def test_a_kind_of_limit_not_known_here_halts_waiting_all_the_same(
     assert rig.slept == []
     printed, status = printed_step("halted", _state(rig))
     assert (printed.get("limit_type"), status) == ("opus_monthly", EXIT_WAITING_FOR_LIMIT)
+
+
+# -- a reset read further out than any window ---------------------------------------------------
+
+#: The furthest a read reset may lie after the moment it is read: the longest window is seven days.
+BOUND = timedelta(days=8)
+#: The instant a malformed event can give that still converts: the last second of the year 9999.
+YEAR_9999 = "9999-12-31T23:59:59.000000Z"
+
+
+def _stamp(at: datetime) -> str:
+    return at.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+@pytest.fixture
+def still_clock(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[datetime]]:
+    """A clock that stands at the instant set, so a line's stamp is exactly that instant."""
+    now = [NOON]
+    monkeypatch.setattr(loop_fakes, "ticking_clock", lambda: lambda: now[0])
+    yield now
+
+
+def _far_rig(tmp_path: Path, resets_at: str) -> Rig:
+    far = UsageLimit(resets=UNREAD, resets_at=resets_at, limit_type="seven_day")
+    dispatcher = LimitDispatcher(infra={1: "usage_limit"}, limits={1: far})
+    return Rig(tmp_path, dispatcher=dispatcher, delays=(60.0,))
+
+
+def test_a_reset_read_in_the_year_9999_is_taken_as_unread_and_the_operator_s_word_resumes(
+    tmp_path: Path, still_clock: list[datetime]
+) -> None:
+    rig = _far_rig(tmp_path, YEAR_9999)
+    halt = _halted_on_the_limit(tmp_path, rig)
+    assert halt.usage_limit is not None
+    assert halt.usage_limit.resets_at is None
+    assert halt.usage_limit.model_dump().get("out_of_range_reset") == YEAR_9999
+    assert "out of range" in halt.detail and YEAR_9999 in halt.detail
+    (ended,) = [e for e in _events(tmp_path) if isinstance(e, SessionEnded)]
+    assert ended.usage_limit is not None and ended.usage_limit.resets_at is None
+    assert ended.usage_limit.model_dump().get("out_of_range_reset") == YEAR_9999
+    default_wait = _stamp(NOON + UNREAD_RESET_WAIT)
+    printed, status = printed_step("halted", _state(rig))
+    assert (printed["resets_at"], printed["resume_after"], status) == (
+        None,
+        default_wait,
+        EXIT_WAITING_FOR_LIMIT,
+    )
+    still_clock[0] = NOON + timedelta(hours=1)
+    refused = _resume(rig.open())
+    assert isinstance(refused, LimitNotResetError)
+    assert refused.context["resume_after"] == default_wait
+    assert _resume(rig.open(), limit_reset_by="operator") == "done"
+    (resumed,) = [e for e in _events(tmp_path) if isinstance(e, Resumed)]
+    assert resumed.limit_reset_by == "operator"
+    assert [r.attempt for r in rig.dispatcher.requests] == [1, 1]
+
+
+@pytest.mark.parametrize(
+    ("ahead", "taken"),
+    [(BOUND, True), (BOUND + timedelta(seconds=1), False)],
+    ids=["exactly-at-the-bound", "a-second-past-the-bound"],
+)
+def test_a_reset_read_more_than_eight_days_ahead_is_not_taken(
+    tmp_path: Path, still_clock: list[datetime], ahead: timedelta, *, taken: bool
+) -> None:
+    at = _stamp(NOON + ahead)
+    rig = _far_rig(tmp_path, at)
+    halt = _halted_on_the_limit(tmp_path, rig)
+    assert halt.usage_limit is not None
+    assert halt.usage_limit.resets_at == (at if taken else None)
+    assert halt.usage_limit.model_dump().get("out_of_range_reset") == (None if taken else at)
+    still_clock[0] = NOON + timedelta(hours=1)
+    outcome = _resume(rig.open(), limit_reset_by="operator")
+    if taken:
+        assert isinstance(outcome, LimitNotResetError), "a reset that was read is waited for"
+        assert outcome.context["resume_after"] == at
+    else:
+        assert outcome == "done", "an unread reset goes on by the operator's word"
 
 
 @dataclass
