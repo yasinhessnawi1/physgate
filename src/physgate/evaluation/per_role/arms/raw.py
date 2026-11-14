@@ -494,21 +494,44 @@ def _install(
     return installed
 
 
-def _take_answer(worktree: Path, task: Task, out: Path) -> str:
+def _take_answer(
+    worktree: Path, task: Task, out: Path, identity: list[tuple[int, int]] | None = None
+) -> str:
     """The raw session's answer, copied for the scorer: the file the brief names, as it is.
 
-    The file is opened once, without following a link, and judged from that descriptor (a
-    regular file, no larger than any answer) and read from it: nothing the session does
-    between a look and a read can change what is taken. ``out`` is in a directory the
-    session never had access to, and is created new there, never through a link.
+    The session may be able to rename or replace the directories it works in (the sandbox
+    makes its worktree writable and, with it, the directory that holds the worktree; without
+    the OS layer nothing stops its shell), so no component of the way down is followed as a
+    path: the session's place and the worktree are each opened as a directory without
+    following a link and, where ``identity`` says what was made, are the very directories
+    the runner made (device and inode); the answer's name (one plain component, by the
+    task's own pattern) is opened from the worktree's descriptor without following a link,
+    judged from that descriptor (a regular file, no larger than any answer) and read from it.
+    ``out`` is in a directory the session never had access to, created new there.
     """
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    held: list[int] = []
     try:
-        fd = os.open(worktree / task.answer.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    except FileNotFoundError:
-        return "no_answer"
-    except OSError:
-        return "not_a_file"  # a link (ELOOP), or anything else that cannot be opened as a file
-    try:
+        try:
+            place = os.open(worktree.parent, flags)
+            held.append(place)
+            top = os.open(worktree.name, flags, dir_fd=place)
+            held.append(top)
+        except FileNotFoundError:
+            return "no_answer"
+        except OSError:
+            return "not_a_file"  # a link in place of a directory, or no directory at all
+        if identity is not None and [
+            (i.st_dev, i.st_ino) for i in (os.fstat(place), os.fstat(top))
+        ] != identity:
+            return "not_a_file"  # not the directories the runner made
+        try:
+            fd = os.open(task.answer.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=top)
+        except FileNotFoundError:
+            return "no_answer"
+        except OSError:
+            return "not_a_file"  # a link (ELOOP), or anything else that cannot be opened as a file
+        held.append(fd)
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             return "not_a_file"
@@ -517,7 +540,8 @@ def _take_answer(worktree: Path, task: Task, out: Path) -> str:
         with os.fdopen(os.dup(fd), "rb") as handle:
             data = handle.read(MAX_ANSWER_BYTES + 1)
     finally:
-        os.close(fd)
+        for each in held:
+            os.close(each)
     if len(data) > MAX_ANSWER_BYTES:
         return "too_large"
     out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -537,6 +561,7 @@ def run_session(
     cap: int,
     files: Mapping[str, bytes] | None = None,
     check: Checkpoint | None = None,
+    identity: list[tuple[int, int]] | None = None,
 ) -> dict[str, Any]:
     """One session on ``prompt``, as the raw arm runs one, in the new directory ``work``.
 
@@ -545,7 +570,8 @@ def run_session(
     session given material to read finds it there, never in its prompt, which any process
     of the same user can list. ``check`` is asked at each reading of the stream, with the
     tokens spent so far, and the session is stopped for any reason it returns; that
-    reason is then the record's ``end``.
+    reason is then the record's ``end``. ``identity``, given, receives the device and inode of
+    ``work`` and of its worktree as they were made, for :func:`_take_answer`.
     Returns the session's record: how it ended, what it spent, and whether a held-out
     canary showed in its stream.
 
@@ -561,6 +587,8 @@ def run_session(
     work.mkdir(mode=0o700, parents=True)
     worktree.mkdir(mode=0o700)
     sdir.mkdir(mode=0o700)
+    if identity is not None:
+        identity.extend((i.st_dev, i.st_ino) for i in (work.stat(), worktree.stat()))
     subprocess.run(["git", "init", "-q"], cwd=worktree, check=True, capture_output=True)
     for name, data in (files or {}).items():
         if "/" in name or name.startswith("."):
@@ -599,10 +627,13 @@ def run_raw(
             could not be removed.
     """
     kept = work if harness is None else harness
-    record = run_session(task.brief, setup, work, cap=cap)
+    made: list[tuple[int, int]] = []
+    record = run_session(task.brief, setup, work, cap=cap, identity=made)
     record.update(
         task=task.id,
-        answer=_take_answer(work / "worktree", task, kept / "answer" / task.answer.path),
+        answer=_take_answer(
+            work / "worktree", task, kept / "answer" / task.answer.path, made
+        ),
         pins=pins(task, setup),
     )
     write_record(kept.parent, kept.name, record, "raw.json")

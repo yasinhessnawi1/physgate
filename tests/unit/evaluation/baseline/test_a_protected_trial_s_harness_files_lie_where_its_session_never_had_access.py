@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -179,10 +180,18 @@ def test_the_real_raw_arm_writes_the_copied_answer_and_its_record_beside_the_ses
     place, harness = tmp_path / "trial" / PLACE, tmp_path / "trial" / HARNESS
     harness.mkdir(parents=True)
 
-    def session(_prompt: str, _setup: Any, work: Path, *, cap: int) -> dict[str, Any]:  # noqa: ANN401
+    def session(
+        _prompt: str,
+        _setup: Any,  # noqa: ANN401
+        work: Path,
+        *,
+        cap: int,
+        identity: list[tuple[int, int]],
+    ) -> dict[str, Any]:
         assert cap == 1
         work.mkdir()
         (work / "worktree").mkdir()
+        identity.extend((i.st_dev, i.st_ino) for i in (work.stat(), (work / "worktree").stat()))
         (work / "worktree" / task.answer.path).write_text(json.dumps(controller()))
         for name in ("answer", "raw.json"):
             _plant(kind, name, decoy)(work, work)
@@ -190,7 +199,10 @@ def test_the_real_raw_arm_writes_the_copied_answer_and_its_record_beside_the_ses
 
     monkeypatch.setattr(raw, "run_session", session)
     setup = setup_for(config(task, store), "control")
-    record = raw.run_raw(task, setup, place, cap=1, harness=harness)
+    try:
+        record = raw.run_raw(task, setup, place, cap=1, harness=harness)
+    except Exception as exc:  # noqa: BLE001 - a refusal here is a failed row, asserted
+        pytest.fail(f"the arm stopped on what the session left: {exc!r}")
     assert record["answer"] == "found"
     assert decoy.read_text() == "decoy", "a write went through a planted link"
     copied_answer = harness / "answer" / task.answer.path
@@ -217,3 +229,56 @@ def test_an_answer_that_is_a_link_out_of_the_session_s_place_is_not_taken(
         out = tmp_path / f"out{id(make)}" / "answer.json"
         assert raw._take_answer(worktree, task, out) == "not_a_file"
         assert not out.exists()
+
+
+def _swapped(swap: str, place: Path, outside: Path) -> None:
+    """What a session able to write the directories it works in could do to them."""
+    worktree = place / "worktree"
+    if swap == "worktree to a link":
+        worktree.rename(place / "moved")
+        worktree.symlink_to(outside)
+    elif swap == "worktree to another directory":
+        worktree.rename(place / "moved")
+        shutil.copytree(outside, worktree)
+    else:  # the directory holding the worktree
+        place.rename(place.with_name("moved"))
+        place.symlink_to(outside.parent)
+
+
+@pytest.mark.parametrize(
+    "swap", ["worktree to a link", "worktree to another directory", "place to a link"]
+)
+def test_an_answer_is_not_taken_from_a_directory_the_session_swapped_for_another(
+    tmp_path: Path, store: StandInStore, monkeypatch: pytest.MonkeyPatch, swap: str
+) -> None:
+    """A link, or another directory, where the worktree or its holder was: nothing is read.
+
+    What stands there afterwards holds a well-formed answer; it is refused, and nothing of
+    it is copied to the harness's directory.
+    """
+    task = store.tasks["held_out"][0]
+    outside = tmp_path / "outside" / "worktree"
+    outside.mkdir(parents=True)
+    (outside / task.answer.path).write_text(json.dumps(controller()))
+    place, harness = tmp_path / "trial" / PLACE, tmp_path / "trial" / HARNESS
+    harness.mkdir(parents=True)
+
+    def session(
+        _prompt: str,
+        _setup: Any,  # noqa: ANN401
+        work: Path,
+        *,
+        cap: int,  # noqa: ARG001
+        identity: list[tuple[int, int]],
+    ) -> dict[str, Any]:
+        work.mkdir()
+        (work / "worktree").mkdir()
+        identity.extend((i.st_dev, i.st_ino) for i in (work.stat(), (work / "worktree").stat()))
+        _swapped(swap, work, outside)
+        return {"end": "ended"}
+
+    monkeypatch.setattr(raw, "run_session", session)
+    setup = setup_for(config(task, store), "control")
+    record = raw.run_raw(task, setup, place, cap=1, harness=harness)
+    assert record["answer"] == "not_a_file"
+    assert not (harness / "answer").exists(), "something read from outside was copied"
