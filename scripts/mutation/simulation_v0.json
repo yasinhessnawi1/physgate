@@ -1,0 +1,278 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/evaluation/whole/plant.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "span_ignores_bound",
+  "file": "src/physgate/evaluation/whole/plant.py",
+  "old": "    if p.bounded is not None:\n        return (p.bounded.low, p.bounded.high)\n    return (p.low, p.high)",
+  "new": "    return (p.low, p.high)",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "evidence_blank_taken",
+  "file": "src/physgate/evaluation/whole/plant.py",
+  "old": "    if not b.evidence.strip():\n        msg = f\"{name} is bounded and names no evidence for it\"",
+  "new": "    if False:\n        msg = f\"{name} is bounded and names no evidence for it\"",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "evidence_without_report_taken",
+  "file": "src/physgate/evaluation/whole/plant.py",
+  "old": "    if b.report not in b.evidence:",
+  "new": "    if False:",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "bound_outside_range_taken",
+  "file": "src/physgate/evaluation/whole/plant.py",
+  "old": "    if not p.low <= b.low <= p.value <= b.high <= p.high:",
+  "new": "    if not b.low <= p.value <= b.high:",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "bound_without_value_taken",
+  "file": "src/physgate/evaluation/whole/plant.py",
+  "old": "    if not p.low <= b.low <= p.value <= b.high <= p.high:",
+  "new": "    if not p.low <= b.low <= b.high <= p.high:",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "frozen_point_reads_stated",
+  "file": "src/physgate/evaluation/whole/plant.py",
+  "old": "        low, high = span(p)\n        if plant.status == \"frozen\" and low == high:",
+  "new": "        low, high = p.low, p.high\n        if plant.status == \"frozen\" and low == high:",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "ranged_reads_stated",
+  "file": "src/physgate/evaluation/whole/plant.py",
+  "old": "    return tuple(n for n in names if (s := span(plant.parameters[n]))[0] < s[1])",
+  "new": "    return tuple(n for n in names if plant.parameters[n].low < plant.parameters[n].high)",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "corners_read_stated",
+  "file": "src/physgate/evaluation/whole/plant.py",
+  "old": "            low, high = span(plant.parameters[name])\n            corner[name] = high if end else low",
+  "new": "            corner[name] = plant.parameters[name].high if end else plant.parameters[name].low",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "interval_low_not_widened",
+  "file": "scripts/whole_design_corners.py",
+  "old": "axis[max(found[0] - 1, 0)]",
+  "new": "axis[found[0]]",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "interval_high_not_widened",
+  "file": "scripts/whole_design_corners.py",
+  "old": "axis[min(found[-1] + 1, len(axis) - 1)]",
+  "new": "axis[found[-1]]",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "interval_none_taken",
+  "file": "scripts/whole_design_corners.py",
+  "old": "    if not found:\n        msg = \"no grid value is admitted",
+  "new": "    if not found:\n        return (axis[0], axis[-1])\n        msg = \"no grid value is admitted",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "wider_is_the_first",
+  "file": "scripts/whole_design_corners.py",
+  "old": "    return (min(b[0] for b in found), max(b[1] for b in found))",
+  "new": "    return found[0]",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "wider_is_narrower",
+  "file": "scripts/whole_design_corners.py",
+  "old": "    return (min(b[0] for b in found), max(b[1] for b in found))",
+  "new": "    return (max(b[0] for b in found), min(b[1] for b in found))",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "admitted_is_every",
+  "file": "scripts/whole_design_corners.py",
+  "old": "    return (any(stable), all(stable))",
+  "new": "    return (all(stable), all(stable))",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "point_nominal_only",
+  "file": "scripts/whole_design_corners.py",
+  "old": "        if seen[True] and seen[False]:\n            break",
+  "new": "        break",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "used_is_assumed_only",
+  "file": "scripts/whole_design_corners.py",
+  "old": "        used = wider(None if b is None else (b[0], b[1]) for b in per.values())",
+  "new": "        used = wider([None if per[\"assumed\"] is None else (per[\"assumed\"][0], per[\"assumed\"][1])])",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "zero_variant_is_assumed",
+  "file": "scripts/whole_design_corners.py",
+  "old": "    return {\"assumed\": (own[0], own[1]), \"zero\": (0.0, 0.0)}",
+  "new": "    return {\"assumed\": (own[0], own[1]), \"zero\": (own[0], own[1])}",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "sourced_digest_reads_bound",
+  "file": "scripts/whole_design_corners.py",
+  "old": "    doc = {n: [p.value, p.low, p.high] for n, p in parsed.parameters.items()}",
+  "new": "    doc = {n: [p.value, *span(p)] for n, p in parsed.parameters.items()}",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "others_from_bound",
+  "file": "scripts/whole_design_corners.py",
+  "old": "        if n not in axes and parsed.parameters[n].low < parsed.parameters[n].high",
+  "new": "        if n not in axes and n in ranged(parsed, (n,))",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "one_at_a_time_stated",
+  "file": "scripts/whole_design_corners.py",
+  "old": "        for end, value in zip((\"low\", \"high\"), span(p), strict=True):",
+  "new": "        for end, value in zip((\"low\", \"high\"), (p.low, p.high), strict=True):",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "applies_every_axis",
+  "file": "scripts/whole_design_corners.py",
+  "old": "        \"applies\": [n for n, b in bounds.items() if b[\"used\"] != b[\"sourced\"]],",
+  "new": "        \"applies\": list(bounds),",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ },
+ {
+  "name": "baseline_last",
+  "file": "src/physgate/evaluation/whole/plant.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/whole/test_a_bounded_range_carries_its_stability_evidence.py",
+   "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
+   "tests/scoring/test_the_stability_evidence_bounds_the_plant_as_the_script_computes.py",
+   "tests/scoring/test_the_corner_script_records_every_predicate_at_every_corner.py"
+  ]
+ }
+]
