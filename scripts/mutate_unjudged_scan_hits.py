@@ -36,6 +36,7 @@ ROWS = (
     "tests/unit/orchestrator/test_an_earlier_hit_is_judged_only_by_a_confirmed_or_dismissed_answer_naming_its_attempt.py",
     "tests/unit/orchestrator/test_a_review_judges_only_the_earlier_hits_its_packet_showed.py",
     "tests/unit/orchestrator/test_a_review_that_ends_on_the_usage_limit_leaves_the_earlier_hits_unjudged.py",
+    "tests/unit/orchestrator/test_a_held_reader_and_an_earlier_attempt_s_unjudged_hits_do_not_interfere.py",
 )
 UI_ROWS = ("src/screens/queue/consequence.test.tsx",)
 PROMPT_ROWS = (
