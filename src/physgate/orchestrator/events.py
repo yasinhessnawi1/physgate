@@ -90,6 +90,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
+from physgate.orchestrator.usage_limit import AccountWindow, UsageLimit
 from physgate.oslayer.probe import OsLayerState
 from physgate.reviewers.scan import ScanHit
 from physgate.roles import owner_of, owners_of
@@ -158,15 +159,17 @@ HaltReason = Literal[
     "os_layer_unavailable",
     "disk_full",
     "role_not_built",
+    "usage_limit",
 ]
 
 #: Halts a resume continues from, the same attempt with a fresh schedule: the
 #: infrastructure schedule ran out, the credential was refused and has since been
-#: replaced, or the OS layer would not start and has since been repaired. Any other
-#: halt is resolved by a person first; ``disk_full`` is one of those, since a session
-#: whose records a full disk lost is looked at before the run goes on.
+#: replaced, the OS layer would not start and has since been repaired, or the account's
+#: usage limit was reached (a resume goes on only after its reset: the loop's to hold).
+#: Any other halt is resolved by a person first; ``disk_full`` is one of those, since a
+#: session whose records a full disk lost is looked at before the run goes on.
 RESUMABLE_HALTS: frozenset[str] = frozenset(
-    {"infrastructure_exhausted", "credential_refused", "os_layer_unavailable"}
+    {"infrastructure_exhausted", "credential_refused", "os_layer_unavailable", "usage_limit"}
 )
 
 #: Who spent a token: ``<what>:<invocation id>``. The invocation id is the Claude Code
@@ -365,6 +368,24 @@ class Halted(_Event):
     kind: Literal["halted"] = "halted"
     reason: HaltReason
     detail: NonEmptyStr
+    #: For a halt on the account's usage limit: the reset as the stream gave it, and as an
+    #: instant where it parses.
+    usage_limit: UsageLimit | None = None
+
+    @model_validator(mode="after")
+    def _a_limit_halt_names_its_reset(self) -> Halted:
+        if (self.reason == "usage_limit") != (self.usage_limit is not None):
+            msg = "a halt on the usage limit carries the limit, and no other halt does"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_no_limit(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # A halt of any other reason is written byte for byte as before the limit was a cause.
+        data: dict[str, Any] = handler(self)
+        if self.usage_limit is None:
+            data.pop("usage_limit", None)
+        return data
 
 
 class GateRan(_Event):
@@ -559,6 +580,12 @@ class SessionEnded(_Event):
     #: The series records the session left, each sealed by digest and length, and what was
     #: refused or discarded instead. Every later reader holds a record to its seal here.
     series: SessionSeries = SessionSeries()
+    #: For an end on the account's usage limit: the reset as the stream gave it, and as an
+    #: instant where it parses.
+    usage_limit: UsageLimit | None = None
+    #: How full the account's usage windows were at the last rate-limit event the session's
+    #: stream gave, so a run's analysis can say how near the limit each session ended.
+    account_windows: tuple[AccountWindow, ...] = ()
 
     @model_validator(mode="after")
     def _completed_names_its_work(self) -> SessionEnded:
@@ -574,7 +601,21 @@ class SessionEnded(_Event):
         ):
             msg = "only an infrastructure end that left no policy limits has them unjudged"
             raise ValueError(msg)
+        if (self.cause == "usage_limit") != (self.usage_limit is not None):
+            msg = "an end on the usage limit carries the limit, and no other end does"
+            raise ValueError(msg)
         return self
+
+    @model_serializer(mode="wrap")
+    def _omit_no_limit(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Every other end is written byte for byte as before the limit was a cause.
+        data: dict[str, Any] = handler(self)
+        if self.usage_limit is None:
+            data.pop("usage_limit", None)
+        # And an end whose stream gave no rate-limit state, as before the windows were read.
+        if not self.account_windows:
+            data.pop("account_windows", None)
+        return data
 
 
 class InfraRetryScheduled(_Event):
@@ -1610,6 +1651,17 @@ class Resumed(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     point: Literal["resolve", "verify_reading", "diff"]
+    #: The operator who said on the command line that the account's usage limit has reset, for a
+    #: resume of a run waiting on a limit whose reset could not be read.
+    limit_reset_by: NonEmptyStr | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_no_word(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Every other resume is written byte for byte as before.
+        data: dict[str, Any] = handler(self)
+        if self.limit_reset_by is None:
+            data.pop("limit_reset_by", None)
+        return data
 
 
 Event = Annotated[

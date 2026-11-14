@@ -126,6 +126,7 @@ from physgate.orchestrator.exceptions import (
     GateNotRegisteredError,
     GitError,
     HeldOutExposedError,
+    LimitNotResetError,
     MergeConflictError,
     MergeRefusedError,
     QueueError,
@@ -228,6 +229,7 @@ from physgate.orchestrator.replay import (
 )
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
 from physgate.orchestrator.trajectory import read_sealed
+<<<<<<< HEAD
 from physgate.reviewers.packet import fits_one_read, indicator_scan_runs, person_order_text
 from physgate.reviewers.scan import (
     REFUSED_NAMES,
@@ -236,6 +238,18 @@ from physgate.reviewers.scan import (
     ScanUnreadableError,
     judged_attempts,
 )
+=======
+from physgate.orchestrator.usage_limit import (
+    UsageLimit,
+    bounded,
+    resume_after,
+    resume_refusal,
+    stamped,
+    with_instant,
+)
+from physgate.reviewers.packet import fits_one_read, person_order_text
+from physgate.reviewers.scan import ScanHit, ScanUnreadableError
+>>>>>>> origin/master
 from physgate.roles import dispatchable, owners_of, require_registered
 from physgate.series.reader import attempt_records
 from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
@@ -472,6 +486,19 @@ def _follow_up_end(now: AttemptState | None) -> str:
     return "; ".join(said)
 
 
+def _reset_from(limit: UsageLimit | None, ts: str) -> UsageLimit | None:
+    """``limit`` with its reset read as the next instant after the line stamped ``ts``.
+
+    A reset the stream gave further out than any window after ``ts`` is not taken (:func:`bounded`).
+    """
+    if limit is None:
+        return None
+    limit = bounded(limit, read_at=stamped(ts))
+    if limit.resets_at is not None:
+        return limit
+    return with_instant(limit, after=stamped(ts))
+
+
 class Loop:
     """One run's loop, over the run directory's event log, ledger and queue."""
 
@@ -521,6 +548,7 @@ class Loop:
         self._escalation = escalation
         self._material = material
         self._sleep = sleep
+        self._clock = clock
         self._appends: tuple[str, ...] = ()
         #: The items the operator confirms on this resume, and who; none on a plain run.
         self._confirm: tuple[frozenset[str], str | None] = (frozenset(), None)
@@ -588,26 +616,41 @@ class Loop:
         self._stop_leftovers()
         return owed
 
-    def resume(self, *, confirm: Sequence[str] = (), confirmed_by: str | None = None) -> Step:
+    def resume(
+        self,
+        *,
+        confirm: Sequence[str] = (),
+        confirmed_by: str | None = None,
+        limit_reset_by: str | None = None,
+    ) -> Step:
         """Take over a run a previous process left, then drive it.
 
         The interrupted attempt restarts at its checkpoint with a fresh session,
         never the binary's own resume, and keeps its attempt number. A run halted
         because its infrastructure retries ran out continues the same attempt with
-        a fresh schedule.
+        a fresh schedule. A run halted on the account's usage limit goes on only after its
+        reset (:meth:`_limit_reset`), exactly where it stopped: the same attempt, and the
+        review it owed still owed.
 
         Every leftover session is stopped and its stream read before anything else, so no
         decision is taken before every stream a previous process left has been read. ``confirm``
         names items whose decision is held because it was written while a session ran without
         the OS layer; ``confirmed_by`` is the operator who confirms them on the command line
-        (ARCH-133). Only then does such a decision act.
+        (ARCH-133). Only then does such a decision act. ``limit_reset_by`` is the operator who
+        says on the command line that the account's usage limit has reset, where its reset could
+        not be read. It is recorded on the ``Resumed`` that follows; a resume that stops early
+        for another reason resumes nothing, so nothing is recorded, and the word is given again
+        on the resume that goes on.
 
         Raises:
+            LimitNotResetError: the run waits for the account's usage limit and may not go on
+                yet; nothing is stopped, written or started.
             RunStateError: the run halted for an incident, which a person resolves; or an item
                 to confirm has no held decision, or the run acts on no decision at all; or this
                 process recorded no OS layer, and the run acts on queue decisions or does not
                 allow the layer's absence.
         """
+        limit_word = self._limit_reset(limit_reset_by)
         self._require_os_layer()
         if self._took_an_owed_halt():
             return self._drive()
@@ -643,9 +686,34 @@ class Loop:
                     subtask_id=sub.plan.subtask_id,
                     attempt=now.number,
                     point=self.state.resume_point(now),
+                    limit_reset_by=limit_word,
                 )
             )
         return self._drive()
+
+    def _limit_reset(self, limit_reset_by: str | None) -> str | None:
+        """Refuse a resume of a run waiting for the usage limit before it may go on.
+
+        Before anything is stopped, written or started. Returns the operator's word to record
+        on the resume, for a run halted on the limit; ``None`` for any other run.
+
+        Raises:
+            LimitNotResetError: the run waits, and its reset has not come (see
+                :func:`~physgate.orchestrator.usage_limit.resume_refusal`).
+        """
+        halted = self.state.halted
+        if halted is None or halted.reason != "usage_limit":
+            return None
+        why = resume_refusal(
+            halted.ts, halted.usage_limit, self._clock(), limit_reset=limit_reset_by is not None
+        )
+        if why is not None:
+            raise LimitNotResetError(
+                why,
+                run_dir=str(self.run_dir),
+                resume_after=resume_after(halted.ts, halted.usage_limit),
+            )
+        return limit_reset_by
 
     def _require_os_layer(self) -> None:
         """Refuse to drive a run whose role sessions would run without the OS layer here.
@@ -1808,9 +1876,10 @@ class Loop:
                     usage=message.usage,
                 )
             )
+        env = self._env()
         self._emit(
             SessionEnded(
-                **self._env(),
+                **env,
                 subtask_id=subtask_id,
                 attempt=attempt,
                 session_id=report.session_id,
@@ -1828,6 +1897,8 @@ class Loop:
                 policy_limits_unjudged=_unjudged(report),
                 issued_spec_sha256=report.issued_spec_sha256,
                 series=report.series,
+                usage_limit=_reset_from(report.usage_limit, env["ts"]),
+                account_windows=report.account_windows,
             )
         )
         if found is not None:
@@ -2706,6 +2777,10 @@ class Loop:
                     )
                 if self._review_held(subtask_id, exc.session_id, exc.managed):
                     return None  # it ran under other conditions: neither recorded nor retried
+                if exc.usage_limit is not None:
+                    who = f"review session {exc.session_id or 'none'}"
+                    self._wait_for_limit(subtask_id, attempt, exc.usage_limit, who, review=True)
+                    return None
                 retry = exc.cause == "infrastructure" and not retried
                 self._emit(
                     ReviewUnavailable(
@@ -3382,6 +3457,10 @@ class Loop:
         now = self.state.subtasks[subtask_id].attempts[-1]
         delay = infra_retry_delay(self.config.bounds.infra_retry_delays_s, now.retries_done)
         cause = now.session.cause if now.session else "unknown"
+        if now.session is not None and now.session.usage_limit is not None:
+            who = f"session {now.session.session_id}"
+            self._wait_for_limit(subtask_id, attempt, now.session.usage_limit, who, review=False)
+            return
         if cause == "credential_refused":
             variable = SECRET_VARIABLE[self.config.auth]
             detail = (
@@ -3427,6 +3506,37 @@ class Loop:
             )
         )
         self._sleep(delay)
+
+    def _wait_for_limit(
+        self, subtask_id: str, attempt: int, limit: UsageLimit, who: str, *, review: bool
+    ) -> None:
+        """Halt the run waiting for the account's usage limit to reset.
+
+        No retry is spent and nothing goes to a person: a role session that ended on the limit
+        does not move the attempt count, and a review that could not run leaves the attempt
+        waiting for it. A resume after the reset goes on exactly there (:meth:`resume`). What a
+        role session wrote before the limit is not committed: its worktree is kept as it was,
+        the session after the reset runs in it, and the attempt's completed end commits it.
+        """
+        env = self._env()
+        held = _reset_from(limit, env["ts"])
+        waits = (
+            "its review is still owed"
+            if review
+            else "the attempt count does not move; its worktree is kept as it was"
+        )
+        kind = f"a {limit.limit_type} limit, " if limit.limit_type else ""
+        far = (
+            f"; the stream's reset {held.out_of_range_reset} is out of range, not taken"
+            if held is not None and held.out_of_range_reset is not None
+            else ""
+        )
+        detail = (
+            f"subtask {subtask_id} attempt {attempt}: {who} ended on the account's usage limit "
+            f"({kind}resets {limit.resets or 'not given'}){far}; {waits}; resume after "
+            f"{resume_after(env['ts'], held)}"
+        )
+        self._emit(Halted(**env, reason="usage_limit", detail=detail, usage_limit=held))
 
     def _earlier_sessions(self, subtask_id: str, attempt: int) -> tuple[SessionTrajectory, ...]:
         """The attempt's sessions before the one that completed it, each with its stream.
