@@ -893,8 +893,9 @@ class DispatchHeld(_Event):
 
     "Reads from" is the run's recorded contract pairs: ``producer`` is a pair's producing subtask
     whose consumer is ``subtask_id``, over ``interfaces``. The producer is escalated with its item
-    ``item_id`` undecided, or is held itself through a chain whose root waits on ``item_id``. Written once per held producer, in a run that acts on decisions;
-    the run goes on with what does not read from it, and otherwise waits on the queue.
+    ``item_id`` undecided, or is held itself through a chain whose root waits on ``item_id``.
+    Written once per held producer, in a run that acts on decisions; the run goes on with what
+    does not read from it, and otherwise waits on the queue.
     """
 
     kind: Literal["dispatch_held"] = "dispatch_held"

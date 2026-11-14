@@ -4,8 +4,8 @@
 from the plan before any module runs, each naming a producing and a consuming subtask and the
 interfaces between them. A subtask's first dispatch is held while a pair's producer is escalated
 with its item undecided, or is itself held, at any depth: the hold names the undecided item at the
-chain's root, so every hold pairs with something a person can act on. The run goes on with every subtask that does not read from it, and
-waits on the queue when nothing else can run. The hold is let go once the producer merged, ended
+chain's root, so every hold pairs with something a person can act on. The run goes on with every
+subtask that does not read from it, and waits on the queue when nothing else can run. The hold is let go once the producer merged, ended
 without a merge, or waits for sizing's closing pass, which comes after the subtask; the release
 line says which, so a reader tells "waited, then ran without it" from "ran before it". Two
 subtasks that read from each other are never held, and a line says so.
