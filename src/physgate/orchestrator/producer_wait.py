@@ -3,7 +3,8 @@
 "Reads from" is the strongest relation the record holds: the run's contract pairs, recorded
 from the plan before any module runs, each naming a producing and a consuming subtask and the
 interfaces between them. A subtask's first dispatch is held while a pair's producer is escalated
-with its item undecided. The run goes on with every subtask that does not read from it, and
+with its item undecided, or is itself held, at any depth: the hold names the undecided item at the
+chain's root, so every hold pairs with something a person can act on. The run goes on with every subtask that does not read from it, and
 waits on the queue when nothing else can run. The hold is let go once the producer merged, ended
 without a merge, or waits for sizing's closing pass, which comes after the subtask; the release
 line says which, so a reader tells "waited, then ran without it" from "ran before it". Two
@@ -79,8 +80,35 @@ def waiting_item(state: RunState, producer: str) -> str | None:
     return sub.queue_item if state.undecided(sub.queue_item) else None
 
 
+def root_item(state: RunState, producer: str, seen: frozenset[str] = frozenset()) -> str | None:
+    """The undecided item ``producer`` waits on, directly or through a chain; ``None`` if none.
+
+    Directly: it is escalated and its item undecided. Through a chain: it has not been dispatched
+    and a subtask it reads from waits so, at any depth, so it would be held itself; the item is
+    the one at the chain's root, which a person can act on. Two subtasks that read from each other
+    are never held, so a link between them is not followed, and no subtask is visited twice.
+    """
+    item = waiting_item(state, producer)
+    if item is not None:
+        return item
+    if state.subtasks[producer].status != "planned" or producer in seen:
+        return None
+    for pair in _reads_from(state, producer):
+        upstream = pair.producer.subtask_id
+        if _mutual(state, producer, upstream):
+            continue
+        found = root_item(state, upstream, seen | {producer})
+        if found is not None:
+            return found
+    return None
+
+
 def released_how(state: RunState, producer: str) -> ReleasedHow | None:
-    """How a hold on ``producer`` is let go now; ``None`` while it waits on a person or runs."""
+    """How a hold on ``producer`` is let go now; ``None`` while it waits on a person or runs.
+
+    A producer not yet dispatched, held itself or about to run, keeps its readers held: they are
+    let go only by how it ends, link by link along a chain.
+    """
     sub = state.subtasks[producer]
     if sub.status == "done":
         return "merged"
@@ -108,7 +136,7 @@ def _owed(state: RunState, subtask_id: str) -> _Owed | Literal["held"] | None:
         return "held"
     for pair in _reads_from(state, subtask_id):
         producer = pair.producer.subtask_id
-        item = waiting_item(state, producer)
+        item = root_item(state, producer, frozenset({subtask_id}))
         if item is None:
             continue
         if _mutual(state, subtask_id, producer):
