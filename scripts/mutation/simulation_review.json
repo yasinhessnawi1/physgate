@@ -306,10 +306,10 @@
     ]
   },
   {
-    "name": "bound_angle_decay_numerator_high",
+    "name": "bound_angle_decay_numerator_high_tight",
     "file": "src/physgate/evaluation/whole/answer.py",
     "old": "    \"angle_decay_numerator\": FieldBound(1, 32767, _LITERAL),\n",
-    "new": "    \"angle_decay_numerator\": FieldBound(1, 32768, _LITERAL),\n",
+    "new": "    \"angle_decay_numerator\": FieldBound(1, 32766, _LITERAL),\n",
     "tests": [
       "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
       "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
@@ -738,18 +738,6 @@
     "file": "src/physgate/evaluation/whole/loop.py",
     "old": "DECAY_TOLERANCE = 1e-9",
     "new": "DECAY_TOLERANCE = 0.0",
-    "tests": [
-      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
-      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
-      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
-      "tests/scoring/whole_loop_tolerance.py"
-    ]
-  },
-  {
-    "name": "loop_controller_leak_exact",
-    "file": "src/physgate/evaluation/whole/loop.py",
-    "old": "    d, t = (1.0 if leak_free(loop) else loop.decay), loop.period\n",
-    "new": "    d, t = loop.decay, loop.period\n",
     "tests": [
       "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
       "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",

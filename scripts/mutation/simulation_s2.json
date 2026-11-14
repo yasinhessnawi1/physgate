@@ -275,7 +275,7 @@
   {
     "name": "loop_decay_ignored",
     "file": "src/physgate/evaluation/whole/loop.py",
-    "old": "    d, t = (1.0 if leak_free(loop) else loop.decay), loop.period\n",
+    "old": "    d, t = loop.decay, loop.period\n",
     "new": "    d, t = 1.0, loop.period\n",
     "tests": [
       "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",

@@ -338,3 +338,14 @@ def test_nan_and_the_infinities_in_the_native_form_are_refused(where: str, token
     raw = json.dumps(doc).replace('"@@"', token).encode()
     with pytest.raises(TaskFormatError):
         parse_whole_run(raw)
+
+
+def test_a_delay_of_exactly_fifty_periods_is_taken_however_its_decimals_round() -> None:
+    # 0.65 s over 0.013 s is fifty periods, though the floats divide to 50.00000000000001.
+    doc = _answer("feedback")
+    _set(doc, "controller.period", 0.013)
+    _set(doc, "controller.sensor_delay", 0.4)
+    _set(doc, "controller.compute_delay", 0.25)
+    ratio = (0.4 + 0.25) / 0.013
+    assert ratio > DELAY_SAMPLES, "the row's spelling no longer rounds up"
+    assert _parses(doc)

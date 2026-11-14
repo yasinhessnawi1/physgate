@@ -100,10 +100,10 @@ METRIC_INPUTS: dict[str, tuple[str, ...]] = {
 #: The metrics read from the balance loop's analysis.
 LOOP_METRICS = frozenset(m for m, inputs in METRIC_INPUTS.items() if inputs == LOOP_INPUTS)
 #: The most work one score may do, in closed-loop state-evaluations (corners × steps ×
-#: states, :func:`_work`). A chosen bound: an ordinary design (a 10 ms loop, its delay under
-#: one period) on v0's 1,024 corners is about 24 million, some 30 s; this is four times that,
-#: so such a design is judged even on a plant ranging the most parameters allowed (4,096
-#: corners), and no score costs more than a few minutes.
+#: states, :meth:`WholeDesignScenario._work`). A chosen bound: an ordinary design (a 10 ms
+#: loop, its delay under one period) on v0's 1,024 corners is 17 to 24 million, well under a
+#: minute; this is four times the larger, so such a design is judged even on a plant ranging
+#: the most parameters allowed (4,096 corners), and no score costs more than a few minutes.
 MAX_WORK = 100_000_000
 #: What every dynamic metric's record says.
 DYNAMIC_REASON = "dynamic: judged only in the dynamic environment, which does not exist yet"

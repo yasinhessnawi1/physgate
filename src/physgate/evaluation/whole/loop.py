@@ -189,7 +189,7 @@ def controller(loop: SiLoop) -> tuple[Matrix, Matrix, Matrix, Matrix]:
     if not loop.incremental:
         return np.zeros((0, 0)), np.zeros((0, 4)), np.zeros((1, 0)), gains
     # The angle term acts on θ̂, never on the measured tilt: its column of the gains is 0.
-    d, t = (1.0 if leak_free(loop) else loop.decay), loop.period
+    d, t = loop.decay, loop.period
     rate_in = np.array([[0.0, d * t, 0.0, 0.0]])
     direct = np.array([[0.0, loop.rate, loop.distance, loop.speed]]) + loop.angle * rate_in
     ac = np.array([[d, 0.0], [loop.angle * d, 1.0]])

@@ -322,3 +322,36 @@ def test_the_command_limit_is_the_speed_limit_over_the_pwm_full_scale(
 ) -> None:
     loop = _si(_answer(_native(motor_speed_limit=counts)))
     assert loop.command_limit == full_scale_duty
+
+
+def test_each_scale_factor_is_the_answer_s_or_the_environment_s_never_the_kit_s() -> None:
+    # Off the kit's figures: a PWM full scale of 255, a gyro divisor of 31, a wheel of 0.05 m.
+    # Each gain is this test's own reading of the code with those factors; a converter that
+    # used the kit's 400, 29 or 0.040 m in place of any of them gives other numbers.
+    doc = {
+        "form": "whole_run",
+        "version": 2,
+        "controller": _native(gyro_divisor=31, motor_speed_limit=200),
+        "parameters": {
+            "update_rate": _m(100, "Hz"),
+            "gyro_output_data_rate": _m(208, "Hz"),
+            "gyro_full_scale": _m(1000, "deg/s"),
+            "pwm_frequency": _m(20000, "Hz"),
+            "pwm_full_scale": _m(255, "count"),
+            "encoder_counts_per_wheel_revolution": _m(1322.9, "count"),
+            "gyro_sensitivity": _m(28.571, "count*s/deg"),
+        },
+    }
+    read = parse_whole_run(json.dumps(doc).encode())
+    convert = _convert()
+    radius = convert.ScaleFactor(name="wheel_radius", value=0.05, unit="m", source="this test")
+    loop = convert.to_si(read.controller, read.parameters, wheel_radius=radius)
+    per_increment = 100 * 111 * 255.0
+    k_angle = 11 * (28.571 / 31) * (1000.0 * 180.0 / math.pi) / per_increment
+    counts_per_metre = 1322.9 / (2.0 * math.pi * 0.05)
+    assert loop.angle == pytest.approx(k_angle, rel=1e-12)
+    assert loop.distance == pytest.approx(73 * 2.0 * counts_per_metre / per_increment, rel=1e-12)
+    assert loop.speed == pytest.approx(
+        3300 * 2.0 * 0.010 * counts_per_metre / per_increment, rel=1e-12
+    )
+    assert loop.command_limit == pytest.approx(200 / 255.0, rel=1e-12)
