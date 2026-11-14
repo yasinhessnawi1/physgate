@@ -30,7 +30,9 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
     BUDGET,
     DRIVE,
     FW,
+    IFACE_BUDGET,
     IFACE_DRIVE,
+    IFACE_TILT,
     INTEG,
     P_FW,
     comparable,
@@ -38,11 +40,13 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
     hooked,
     node,
     rig_for,
+    side,
     start,
 )
-from test_a_queue_decision_acts_at_a_boundary import _layer, decide
+from test_a_queue_decision_acts_at_a_boundary import NO_VERDICT, _layer, decide
 
 from physgate import roles
+from physgate.contracts.pairs import ContractPair
 from physgate.orchestrator.events import read_events
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
@@ -88,10 +92,12 @@ def begin(loop: Loop, *, budget: bool) -> None:
     loop.record.start(plan, decomposed=summary)
 
 
-def rigged(tmp_path: Path, *, acts: bool = True) -> Rig:
+def rigged(
+    tmp_path: Path, *, acts: bool = True, interfaces: Sequence[dict[str, Any]] = (IFACE_DRIVE,)
+) -> Rig:
     rig = rig_for(
         tmp_path,
-        interfaces=(IFACE_DRIVE,),
+        interfaces=interfaces,
         dispatcher=FakeDispatcher(trajectories=tmp_path / "run" / "sessions"),
     )
     rig.diff.writes.update(  # type: ignore[attr-defined]
@@ -107,6 +113,80 @@ def rigged(tmp_path: Path, *, acts: bool = True) -> Rig:
     return rig
 
 
+#: A chain: fw reads drive's ``iface.drive``, and budget reads fw's ``iface.tilt``.
+P_TILT = ContractPair(
+    producer=side(FW, "firmware"), consumer=side(BUDGET, "sizing"), interfaces=("iface.tilt",)
+)
+#: A second producer of fw: budget's ``iface.budget``.
+P_SUPPLY = ContractPair(
+    producer=side(BUDGET, "sizing"), consumer=side(FW, "firmware"), interfaces=("iface.budget",)
+)
+ROLE_OF = {DRIVE: ("control", "drive"), FW: ("firmware", "fw"), BUDGET: ("sizing", "budget")}
+
+
+def planned(order: Sequence[str], pairs: Sequence[ContractPair]) -> Callable[[Loop], None]:
+    """A plan of ``order`` then integration, whose recorded pairs are ``pairs``."""
+
+    def begin_it(loop: Loop) -> None:
+        plan = [entry(s, *ROLE_OF[s]) for s in order]
+        plan.append(entry(INTEG, "integration", "integration"))
+        interfaces = tuple(dict.fromkeys(i for p in pairs for i in p.interfaces))
+        consumers = tuple(
+            InterfaceConsumers(
+                interface=i,
+                consumers=tuple(p.consumer.module for p in pairs if i in p.interfaces),
+            )
+            for i in interfaces
+        )
+        requirement = (
+            '{"requirement": "1", "contributing": [{"module": "drive", "criterion": "1"}]}'
+        )
+        head = journal_records_after(loop.run_dir.parent / "store", 0)[-1].rev
+        summary = DecompositionSummary(
+            session_id="decomposition",
+            model="claude-sonnet-5",
+            num_turns=1,
+            subtasks=len(plan),
+            interface_nodes=interfaces,
+            spec_commit="e" * 40,
+            head_revision=head,
+            interface_consumers=consumers,
+            system_requirements=(SystemRequirement.model_validate_json(requirement),),
+            contract_pairs=tuple(pairs),
+        )
+        loop.record.start(plan, decomposed=summary)
+
+    return begin_it
+
+
+CHAIN = planned((DRIVE, FW, BUDGET), (P_FW, P_TILT))
+TWO_PRODUCERS = planned((DRIVE, BUDGET, FW), (P_SUPPLY, P_FW))
+
+
+def chained(tmp_path: Path) -> Rig:
+    """Drive fails three reviews; fw reads drive, budget reads fw; every value agrees."""
+    rig = rigged(tmp_path, interfaces=(IFACE_DRIVE, IFACE_TILT))
+    rig.diff.writes.update(  # type: ignore[attr-defined]
+        {
+            FW: [node("fw.main", "firmware", "iface.drive", "iface.tilt", v=12, period=10)],
+            BUDGET: [node("budget.supply", "sizing", "iface.tilt", period=10)],
+        }
+    )
+    return rig
+
+
+def supplied(tmp_path: Path) -> Rig:
+    """Drive fails three reviews and budget passes; fw reads both."""
+    rig = rigged(tmp_path, interfaces=(IFACE_DRIVE, IFACE_BUDGET))
+    rig.diff.writes.update(  # type: ignore[attr-defined]
+        {
+            FW: [node("fw.main", "firmware", "iface.drive", "iface.budget", v=12)],
+            BUDGET: [node("budget.supply", "sizing", "iface.budget", v=12)],
+        }
+    )
+    return rig
+
+
 def first_run(
     rig: Rig,
     monkeypatch: pytest.MonkeyPatch,
@@ -114,11 +194,16 @@ def first_run(
     budget: bool,
     kill: Callable[[Any, list[Any]], bool] | None = None,
     mutual: bool = False,
+    plan: Callable[[Loop], None] | None = None,
+    declared: Sequence[str] | None = None,
 ) -> str:
     """The first process, until it stops: the step it stopped at, ``killed``, or what escaped."""
     loop = rig.open()
-    hooked(monkeypatch, loop, declared=WITH_BUDGET if budget else ALONE, kill=kill)
-    if mutual:
+    said = declared or (WITH_BUDGET if budget else ALONE)
+    hooked(monkeypatch, loop, declared=said, kill=kill)
+    if plan is not None:
+        plan(loop)
+    elif mutual:
         start(loop)
     else:
         begin(loop, budget=budget)
@@ -140,10 +225,12 @@ def resumed(
     *,
     budget: bool,
     kill: Callable[[Any, list[Any]], bool] | None = None,
+    declared: Sequence[str] | None = None,
 ) -> str:
     """A fresh process takes the run over; the step it stopped at, ``killed``, or what escaped."""
     loop = rig.open()
-    hooked(monkeypatch, loop, declared=WITH_BUDGET if budget else ALONE, kill=kill)
+    said = declared or (WITH_BUDGET if budget else ALONE)
+    hooked(monkeypatch, loop, declared=said, kill=kill)
     _layer(loop)
     try:
         return loop.resume().kind
@@ -544,3 +631,158 @@ def test_a_marked_run_whose_mutual_reader_was_dispatched_with_no_release_line_do
     said = refusal(_marked(rows))
     assert said is not None
     assert "with no release line" in said, said
+
+
+# --- a chain: a reader of a held reader waits on the item at the root --------------------------
+
+
+def _held_on(rows: Sequence[dict[str, Any]]) -> list[tuple[str, str, str, list[str]]]:
+    return [
+        (h["subtask_id"], h["producer"], h["item_id"], h["interfaces"])
+        for h in of(rows, "dispatch_held")
+    ]
+
+
+def test_a_reader_of_a_held_reader_is_held_on_the_item_at_the_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = chained(tmp_path)
+    assert first_run(rig, monkeypatch, budget=True, plan=CHAIN) == "wait"
+    rows = lines(rig)
+    item = drive_item(rows)
+    assert requests_of(rig, FW) == requests_of(rig, BUDGET) == []
+    assert _held_on(rows) == [
+        (FW, DRIVE, item, ["iface.drive"]),
+        (BUDGET, FW, item, ["iface.tilt"]),
+    ]
+    assert refusal(rows) is None
+    step = replay(read_events(rig.run_dir / "events.jsonl")).next_step()
+    assert step.kind == "wait"
+
+
+def test_a_chain_is_released_link_by_link_once_its_root_is_approved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = chained(tmp_path)
+    assert first_run(rig, monkeypatch, budget=True, plan=CHAIN) == "wait"
+    decide(rig.run_dir, "approve", item_id=drive_item(lines(rig)))
+    assert resumed(rig, monkeypatch, budget=True) == "done"
+    rows = lines(rig)
+    released = of(rows, "dispatch_released")
+    assert [(r["subtask_id"], r["producer"], r["outcome"]) for r in released] == [
+        (FW, DRIVE, "merged"),
+        (BUDGET, FW, "merged"),
+    ]
+    assert first_line(rows, "merged", subtask_id=DRIVE) < rows.index(released[0])
+    assert rows.index(released[0]) < dispatched_at(rows, FW)
+    assert first_line(rows, "merged", subtask_id=FW) < rows.index(released[1])
+    assert rows.index(released[1]) < dispatched_at(rows, BUDGET)
+    assert [r.subtask_id for r in rig.dispatcher.requests] == [DRIVE] * 3 + [FW, BUDGET, INTEG]
+    assert refusal(rows) is None
+
+
+def _chain_reference(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Rig:
+    rig = chained(tmp_path / "reference")
+    assert first_run(rig, monkeypatch, budget=True, plan=CHAIN) == "wait"
+    decide(rig.run_dir, "approve", item_id=drive_item(lines(rig)))
+    assert resumed(rig, monkeypatch, budget=True) == "done"
+    return rig
+
+
+def test_a_chain_cut_at_its_second_hold_resumes_to_the_uninterrupted_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference = _chain_reference(tmp_path, monkeypatch)
+    rig = chained(tmp_path / "cut")
+
+    def second_hold(event: Any, written: list[Any]) -> bool:  # noqa: ANN401 - any line
+        return bool(event.kind == "dispatch_held" and event.subtask_id == BUDGET)
+
+    assert first_run(rig, monkeypatch, budget=True, plan=CHAIN, kill=second_hold) == "killed"
+    assert [h[0] for h in _held_on(lines(rig))] == [FW]
+    assert resumed(rig, monkeypatch, budget=True) == "wait"
+    assert [h[0] for h in _held_on(lines(rig))] == [FW, BUDGET]
+    decide(rig.run_dir, "approve", item_id=drive_item(lines(rig)))
+    assert resumed(rig, monkeypatch, budget=True) == "done"
+    same_lines(rig, reference)
+    assert refusal(lines(rig)) is None
+
+
+def test_a_marked_chain_whose_second_reader_ran_with_no_hold_does_not_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = chained(tmp_path)
+    assert first_run(rig, monkeypatch, budget=True, plan=CHAIN) == "wait"
+    rows = lines(rig)
+    seconds = [h for h in of(rows, "dispatch_held") if h["subtask_id"] == BUDGET]
+    assert len(seconds) == 1, _held_on(rows)
+    at = rows.index(seconds[0])
+    resolve = {k: rows[-1][k] for k in ("ts", "run_id", "gate_mode")}
+    dispatch = {**resolve, "kind": "stage_entered", "subtask_id": BUDGET, "attempt": 1}
+    said = refusal([*rows[:at], {**dispatch, "stage": "resolve"}])
+    assert said is not None
+    assert "with no hold line" in said, said
+
+
+# --- two producers, two items, a halt -------------------------------------------------------------
+
+
+def test_a_reader_of_one_merged_and_one_waiting_producer_is_held_on_the_waiting_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = supplied(tmp_path)
+    order = (DRIVE, BUDGET, FW)
+    assert first_run(rig, monkeypatch, budget=True, plan=TWO_PRODUCERS, declared=order) == "wait"
+    rows = lines(rig)
+    item = drive_item(rows)
+    assert of(rows, "merged", subtask_id=BUDGET) != []
+    assert _held_on(rows) == [(FW, DRIVE, item, ["iface.drive"])]
+    assert requests_of(rig, FW) == []
+    decide(rig.run_dir, "approve", item_id=item)
+    assert resumed(rig, monkeypatch, budget=True, declared=order) == "done"
+    rows = lines(rig)
+    assert [(r["producer"], r["outcome"]) for r in of(rows, "dispatch_released")] == [
+        (DRIVE, "merged")
+    ]
+    assert [r.attempt for r in requests_of(rig, FW)] == [1]
+    assert refusal(rows) is None
+
+
+def test_a_reader_stays_held_until_both_of_its_producers_items_are_decided(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # drive's first review gives no verdict: it goes to a person. A reject orders one attempt,
+    # whose review gives none either: a second item. fw waits through both.
+    rig = rigged(tmp_path)
+    rig.reviewer.verdicts[:] = []
+    rig.reviewer.unavailable.update({1: NO_VERDICT, 2: NO_VERDICT})  # type: ignore[attr-defined]
+    assert first_run(rig, monkeypatch, budget=False) == "wait"
+    first = drive_item(lines(rig))
+    decide(rig.run_dir, "reject", "take the gain from the table", item_id=first)
+    assert resumed(rig, monkeypatch, budget=False) == "wait"
+    rows = lines(rig)
+    escalations = of(rows, "escalated", subtask_id=DRIVE)
+    assert len(escalations) == 2
+    assert requests_of(rig, FW) == []
+    assert len(of(rows, "dispatch_held")) == 1
+    assert of(rows, "dispatch_released") == []
+    decide(rig.run_dir, "approve", item_id=str(escalations[1]["item_id"]))
+    assert resumed(rig, monkeypatch, budget=False) == "done"
+    rows = lines(rig)
+    (released,) = of(rows, "dispatch_released")
+    assert (released["outcome"], released["item_id"]) == ("merged", first)
+    assert first_line(rows, "merged", subtask_id=DRIVE) < rows.index(released)
+    assert [r.attempt for r in requests_of(rig, FW)] == [1]
+    assert refusal(rows) is None
+
+
+def test_a_producer_that_halts_holds_nothing_and_its_reader_is_never_dispatched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = rigged(tmp_path)
+    rig.dispatcher.infra[1] = "disk_full"  # type: ignore[attr-defined]
+    assert first_run(rig, monkeypatch, budget=False) == "halted"
+    rows = lines(rig)
+    assert requests_of(rig, FW) == []
+    assert of(rows, "dispatch_held") == of(rows, "dispatch_released") == []
+    assert refusal(rows) is None
