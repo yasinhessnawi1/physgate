@@ -35,7 +35,7 @@ from test_the_raw_arm_s_credential_is_handled_as_a_role_session_s import (
 from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.tiers.task import parse_task
 from physgate.hooks.settings import session_tool_search
-from physgate.orchestrator.invocation import MAX_SERVER_OUTPUT_TOKENS, NO_TOOL_SERVERS
+from physgate.orchestrator.invocation import MAX_SERVER_OUTPUT_TOKENS, NO_TOOL_SERVERS, role_argv
 from physgate.orchestrator.run_config import ToolServers, harness_root
 from physgate.orchestrator.tool_environment import measure_named
 from physgate.oslayer.probe import Absent, Present
@@ -305,7 +305,7 @@ def test_the_raw_session_is_spawned_with_the_servers_it_was_offered(
 ) -> None:
     setup, _ = _tooled_setup(tmp_path, TELLS, monkeypatch, tool_servers=_servers())
     seen: list[dict[str, Any]] = []
-    real = raw.role_argv
+    real = role_argv
 
     def spy(*a: Any, **k: Any) -> list[str]:  # noqa: ANN401
         seen.append(k)
