@@ -270,8 +270,23 @@ class FakeGate:
             return failing_gate_result(mode)
         return passing_gate_result(mode)
 
+    #: The release's calls, kept apart from the attempts' so an attempt's verdicts keep their
+    #: places: each artefact the release was judged by, and what each call answers in turn.
+    releases: list[Artefact] = field(default_factory=list)
+    release_results: list[Callable[[RunningGateMode], GateResult]] = field(default_factory=list)
+    #: Per attempt call (counted from one), a whole result in place of the verdict's.
+    results: dict[int, Callable[[RunningGateMode], GateResult]] = field(default_factory=dict)
+
     def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
+        if artefact.subtask_id == "parts":
+            self.releases.append(artefact)
+            n = len(self.releases)
+            if n <= len(self.release_results):
+                return self.release_results[n - 1](mode)
+            return passing_gate_result(mode)
         self.seen.append(artefact)
+        if len(self.seen) in self.results:
+            return self.results[len(self.seen)](mode)
         verdict = (
             self.verdicts[len(self.seen) - 1] if len(self.seen) <= len(self.verdicts) else "pass"
         )
@@ -399,16 +414,24 @@ class FakeGraph:
         return [one for one in self._ledgered() if one.rev > revision]
 
     def _ledgered(self) -> list[Any]:
-        """The nodes declared, as a journal would hold them: by earlier processes too, if kept."""
+        """The nodes declared, as a journal would hold them: by earlier processes too, if kept.
+
+        The nodes the decomposition wrote, where a test names them (``before``), are the lines
+        up to the head.
+        """
+        written = [
+            SimpleNamespace(rev=n, op="create", node_id=one["id"], payload=one)
+            for n, one in enumerate(self.before, start=1)
+        ]
         if self.ledger is None:
-            return [
+            return written + [
                 SimpleNamespace(rev=self.head + n, op="create", node_id=one["id"], payload=one)
                 for n, one in enumerate(self.declared, start=1)
             ]
         if not self.ledger.exists():
             return []
         found = [json.loads(raw) for raw in self.ledger.read_text().splitlines()]
-        return [
+        return written + [
             SimpleNamespace(rev=one["rev"], op="create", node_id=one["id"], payload=one["payload"])
             for one in found
         ]
@@ -431,6 +454,8 @@ class FakeGraph:
     #: The journal's head as the decomposition recorded it, and the nodes declared since.
     head: int = 1
     declared: list[dict[str, Any]] = field(default_factory=list)
+    #: The nodes the decomposition wrote, at revisions 1 to the head, where a test names them.
+    before: list[dict[str, Any]] = field(default_factory=list)
 
     #: Where a rig that spans processes keeps what it declared, in place of the journal.
     ledger: Path | None = None

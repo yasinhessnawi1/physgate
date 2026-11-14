@@ -160,7 +160,9 @@ def decisions_bytes(run_dir: Path) -> bytes:
 # -- a loop over fakes ---------------------------------------------------------------------
 
 
-def rig(run_dir: Path, *, design_review: str = "off", parts: str = "on") -> Rig:
+def rig(
+    run_dir: Path, *, design_review: str = "off", parts: str = "on", gate_mode: str = "on"
+) -> Rig:
     """A rig over the run: acting where the OS layer runs, asking about parts unless told not."""
     run_dir.mkdir(parents=True, exist_ok=True)
     overrides: dict[str, Any] = {
@@ -172,6 +174,7 @@ def rig(run_dir: Path, *, design_review: str = "off", parts: str = "on") -> Rig:
     }
     return Rig(
         run_dir,
+        gate_mode=gate_mode,  # type: ignore[arg-type]  # a test names one of the three
         config_overrides=overrides,
         dispatcher=FakeDispatcher(trajectories=run_dir / "sessions"),
     )
@@ -221,9 +224,14 @@ def opened(the_rig: Rig, components: tuple[Component, ...] | None = COMPONENTS) 
     return loop
 
 
-def started(run_dir: Path, components: tuple[Component, ...] | None = COMPONENTS) -> Rig:
+def started(
+    run_dir: Path,
+    components: tuple[Component, ...] | None = COMPONENTS,
+    *,
+    gate_mode: str = "on",
+) -> Rig:
     """A run that asks, opened and closed: the next process drives it."""
-    the_rig = rig(run_dir)
+    the_rig = rig(run_dir, gate_mode=gate_mode)
     loop = plan_hold_rig.outcome_of(lambda: opened(the_rig, components))
     assert isinstance(loop, Loop), loop
     loop.close()
