@@ -114,10 +114,14 @@ def _session(
         script = root / "hook.sh"
         script.write_text(HOOK.format(log=asked))
         script.chmod(0o755)
-        command = {"type": "command", "command": str(script)}
-        settings["hooks"] = {"PreToolUse": [{"matcher": "*", "hooks": [command]}]}
+        asking = {"type": "command", "command": str(script)}
+        settings["hooks"] = {"PreToolUse": [{"matcher": "*", "hooks": [asking]}]}
     (root / "settings.json").write_text(json.dumps(settings))
-    command = {"type": "stdio", "command": sys.executable, "args": ["-I", str(server), str(calls)]}
+    command: dict[str, Any] = {
+        "type": "stdio",
+        "command": sys.executable,
+        "args": ["-I", str(server), str(calls)],
+    }
     argv = role_argv(
         binary,
         prompt="ok",

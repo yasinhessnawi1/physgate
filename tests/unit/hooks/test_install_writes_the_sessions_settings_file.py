@@ -242,10 +242,12 @@ def test_the_settings_deny_the_binary_s_tool_search_to_every_profile(
     # with tool search turned on as against the live host). Rendered, and as installed.
     config = build_config(_request(tmp_path, profile=profile), current_installation())
     rendered = render_settings(config, "/outside/config.json", "0" * 64, REGISTRY)
-    assert "ToolSearch" in rendered["permissions"]["deny"], rendered.get("permissions")
-    done = install(_request(tmp_path, profile=profile), REGISTRY)
-    permissions = json.loads(done.settings_path.read_text())["permissions"]
+    permissions = rendered.get("permissions")
+    assert isinstance(permissions, dict), rendered
     assert "ToolSearch" in permissions["deny"], permissions
+    done = install(_request(tmp_path, profile=profile), REGISTRY)
+    installed = json.loads(done.settings_path.read_text())["permissions"]
+    assert "ToolSearch" in installed["deny"], installed
 
 
 def _allowing_run(tmp_path: Path) -> str:
