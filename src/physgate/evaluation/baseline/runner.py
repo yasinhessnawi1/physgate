@@ -31,18 +31,31 @@ development round names (``reportable``, ``harness``) refuses the round, with th
 named and nothing of the task. The trial is assembled by the trial layer
 (:func:`.assemble.raw_trial`), excluded where its records say so.
 
-**Where a protected task's trial lies.** A validation or held-out task's trial is never in a
-visible place, at any step. Its directory is made in the role's work root, which every run on
-the store withholds, as a blind check's work is; its session alone is given that directory,
-taken out of the run's held-out roots, and every other place they hold stays withheld from it.
-A record in the role's root names the directory before the session starts. Once the trial is
-scored and compared, its whole directory (the session's record, stream, answer and score) is
-renamed beneath the role's withheld root, ``withheld/baseline/<round id>/``, and the record is
-removed. A round stopped at any step leaves the directory in one of the two and the record,
-and nothing starts on the store until a person has looked. A setup that cannot be made (no
-credential, another binary) is refused before the record is written, so it leaves nothing.
-Their trial records go beneath the withheld root too; the visible tier's lie in the round's
-own directory.
+**Where a trial lies.** Every trial, visible or protected, is made where a blind check's work
+is: in the role's work root, which every run on the store withholds. Its directory holds two:
+the session's own place, which alone is taken out of the run's held-out roots for its session,
+and the harness's, beside it, where the copied answer, the session's record and the score are
+written and which stays withheld with every other place those roots hold. The round's own
+directory, where its finished visible trials and its records lie, is withheld from every
+session besides. So a session reads and writes its own place and nothing else of the round. A
+record in the role's root names the trial's directory before the session starts.
+
+Once a trial is scored and compared, the harness moves it. A protected trial's whole directory
+is renamed beneath the role's withheld root, ``withheld/baseline/<round id>/``: a validation or
+held-out task's trial is never in a visible place, at any step. A visible trial's is moved
+beneath the round's directory, ``work/<name>``, the destination made new, so one already there
+refuses the move. Where the round's directory lies on another filesystem than the store, the
+move is a copy, file by file: each file read as every file a session could have reached is read
+(:func:`.orchestrator.session_files.open_beneath`: no link followed, a regular file with no
+other name, under a size bound) and written as a new file, never through a link; a link is
+copied as the link it is; anything else refuses the move; and the trial's directory is removed
+only once the copy is whole. A move that fails removes what it had made beneath the round's
+directory. The record is removed once the trial is moved. A round stopped at any step leaves the
+trial's directory where it was, in the work root or moved whole, and the record, and nothing
+starts on the store until a person has looked. A setup that cannot be made (no credential,
+another binary) is refused before the record is written, so it leaves nothing. A protected
+trial's records go beneath the withheld root too; the visible tier's lie in the round's own
+directory.
 
 **What it writes,** beside the visible trials: ``evaluation/tiers.json`` and ``baseline.json``
 (:mod:`.record`), each a new file, counts and digests only.
@@ -61,11 +74,13 @@ an external number may be reported waits on its audit, which is a person's readi
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import secrets
 import shutil
+import stat
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -130,6 +145,7 @@ from physgate.evaluation.tiers.task import (
 )
 from physgate.orchestrator.binaries import ClaudeBinary, measure
 from physgate.orchestrator.credentials import Credential
+from physgate.orchestrator.dispatch import MAX_SESSION_FILE_BYTES
 from physgate.orchestrator.exceptions import InvocationError, RunConfigError
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.run_config import (
@@ -137,10 +153,13 @@ from physgate.orchestrator.run_config import (
     load_run_config,
     require_endpoint,
 )
+from physgate.orchestrator.session_files import FileRefused, open_beneath, read_bounded
 from physgate.oslayer.probe import Absent, Present
 
 #: Where a round's protected trials lie, beneath the role's withheld root.
 BASELINE_DIR = "baseline"
+#: Where a round's finished visible trials lie, beneath the round's own directory.
+WORK = "work"
 #: The differences a development round is held to without refusing: the harness run's own
 #: state. Every other one refuses any round.
 DEVELOPMENT_DIFFERENCES = frozenset({"reportable", "harness"})
@@ -550,6 +569,8 @@ def run_baseline(
     )
     out.mkdir(mode=0o700, parents=True)
     round_id = secrets.token_hex(8)
+    # Withheld from every session of the round: its finished trials and its records lie there.
+    withheld_out = os.path.realpath(out)
     protected_root = withheld_root(store, role) / BASELINE_DIR / round_id
     counted = EXTERNAL_TIERS if isinstance(source, ExternalSetRecord) else VERSION_TIERS
     tallies = {tier: _Tally() for tier in counted}
@@ -560,6 +581,8 @@ def run_baseline(
             record, line = _one_trial(
                 trial,
                 out=out,
+                withheld_out=withheld_out,
+                round_id=round_id,
                 store=store,
                 role=role,
                 protected_root=protected_root if protected else None,
@@ -627,6 +650,8 @@ def _one_trial(
     trial: Planned,
     *,
     out: Path,
+    withheld_out: str,
+    round_id: str,
     store: Path,
     role: Role,
     protected_root: Path | None,
@@ -652,22 +677,16 @@ def _one_trial(
         raise BaselineError(msg, entry=str(trial.index), refused_because="binary")
     for attempt in (1, 2):
         name = f"{trial.index:04d}-{attempt}"
-        working: Path | None = None
-        # Two directories, never one: the session's own place, which its session is given and
-        # may leave anything in, and the harness's, which it never had access to and where the
-        # copied answer, the session's record and the score are written.
-        if protected_root is None:
-            # In the round's own directory, which no root of the run's holds: the harness's
-            # directory beside the place is withheld from the session in addition.
-            trial_dir = out / "work" / name
-            given = replace(setup, held_out_beside=str(trial_dir / HARNESS))
-        else:
-            # Made in the work root, which every run on the store withholds, and moved from
-            # there beneath the withheld root alone: never in a visible place. Its session is
-            # given its own place out of the run's held-out roots, and nothing else there.
-            trial_dir = work_root(store, role) / f"{BASELINE_DIR}-{protected_root.name}-{name}"
-            working = _working(role_root(store, role), f"{BASELINE_DIR}-{name}", trial_dir)
-            given = replace(setup, held_out_carved=str(trial_dir / PLACE))
+        # Made in the work root, which every run on the store withholds, whatever the trial's
+        # tier: its session is given its own place out of the run's held-out roots and nothing
+        # else there, and the round's own directory is withheld from it besides. Two
+        # directories, never one: the session's place, where it may leave anything, and the
+        # harness's, beside it, where the copied answer, the record and the score are written.
+        trial_dir = work_root(store, role) / f"{BASELINE_DIR}-{round_id}-{name}"
+        working = _working(role_root(store, role), f"{BASELINE_DIR}-{name}", trial_dir)
+        given = replace(
+            setup, held_out_carved=str(trial_dir / PLACE), held_out_also=(withheld_out,)
+        )
         trial_dir.mkdir(mode=0o700, parents=True)
         work, harness = trial_dir / PLACE, trial_dir / HARNESS
         harness.mkdir(mode=0o700)
@@ -685,14 +704,14 @@ def _one_trial(
             except TrialExcludedError:
                 machine = False  # assembled as excluded below, with its reason
         if machine and attempt == 1:
-            _finish(trial_dir, working, protected_root, name)
+            _finish(trial_dir, working, protected_root, out, name)
             sleep(delays[0] if delays else 0.0)
             continue
         found = differences(run_dir, work, role=role, task=task, record_dir=harness)
         allowed = DEVELOPMENT_DIFFERENCES if development else frozenset()
         named = sorted({f.split(":", 1)[0] for f in found} - allowed)
         if named:
-            _finish(trial_dir, working, protected_root, name)
+            _finish(trial_dir, working, protected_root, out, name)
             msg = "the raw arm differs from the harness run in more than the harness: "
             raise BaselineError(msg + ", ".join(named), entry=str(trial.index))
         line = raw_trial(
@@ -705,15 +724,138 @@ def _one_trial(
             score=scored,
             unscored=machine,
         )
-        _finish(trial_dir, working, protected_root, name)
+        _finish(trial_dir, working, protected_root, out, name)
         return record, line
     msg = "a trial ran past its one re-run"  # unreachable: the second attempt always returns
     raise BaselineError(msg, entry=str(trial.index))
 
 
-def _finish(work: Path, working: Path | None, protected_root: Path | None, name: str) -> None:
-    """Move a protected trial's directory beneath the withheld root, then clear its record."""
-    if protected_root is None or working is None:
-        return
-    _secure(work, protected_root / name)
+def _finish(
+    trial_dir: Path, working: Path, protected_root: Path | None, out: Path, name: str
+) -> None:
+    """Move a finished trial out of the work root, then clear its record of work.
+
+    A protected trial beneath the withheld root; a visible one beneath the round's directory.
+
+    Raises:
+        BaselineError: the move failed; the trial is where it ran, with its record.
+    """
+    if protected_root is not None:
+        _secure(trial_dir, protected_root / name)
+    else:
+        _move_out(trial_dir, out / WORK, name)
     working.unlink()
+
+
+def _move_out(trial_dir: Path, work: Path, name: str) -> None:
+    """Move a visible trial's whole directory to ``work/name``, made new, nothing followed.
+
+    The destination is made first, so one already there refuses the move; the directory is then
+    renamed over that empty one, which only an empty directory lets happen. Across filesystems
+    it is copied (:func:`_copy_tree`) and removed only once the copy is whole. What a failed
+    move made is removed, and the trial is left where it ran.
+
+    Raises:
+        BaselineError: the move failed or was refused; it names no path.
+    """
+    try:
+        os.mkdir(work, 0o700)
+    except FileExistsError:
+        pass
+    except OSError as exc:
+        msg = "the round's directory for its finished trials cannot be made"
+        raise BaselineError(msg, refused_because="move", error=str(exc.strerror)) from None
+    if not stat.S_ISDIR(os.lstat(work).st_mode):
+        msg = "the round's directory for its finished trials is not a directory"
+        raise BaselineError(msg, refused_because="move")
+    destination = work / name
+    try:
+        os.mkdir(destination, 0o700)
+    except OSError as exc:
+        msg = "a visible trial's place beneath the round's directory is taken or cannot be made"
+        raise BaselineError(msg, refused_because="move", error=str(exc.strerror)) from None
+    try:
+        try:
+            os.rename(trial_dir, destination)
+        except OSError as exc:
+            if exc.errno != errno.EXDEV:
+                raise
+            _copy_tree(trial_dir, destination)
+        else:
+            return
+    except (OSError, FileRefused) as exc:
+        shutil.rmtree(destination, ignore_errors=True)
+        why = exc.kind if isinstance(exc, FileRefused) else str(exc.strerror)
+        msg = "a visible trial could not be moved beneath the round's directory; it is left "
+        msg += "in the store's work root with its record"
+        raise BaselineError(msg, refused_because="move", error=why) from None
+    try:
+        shutil.rmtree(trial_dir)
+    except OSError as exc:
+        msg = "a visible trial was copied beneath the round's directory, but its directory in "
+        msg += "the store's work root could not be removed; it is left there with its record"
+        raise BaselineError(msg, refused_because="move", error=str(exc.strerror)) from None
+
+
+#: Opening a directory to walk it: never through a link.
+_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def _copy_tree(source: Path, destination: Path) -> None:
+    """Copy everything beneath ``source`` into the empty directory ``destination``.
+
+    Each directory is walked from a descriptor, opened without following a link; each regular
+    file is read as a session's files are read (:func:`.session_files.open_beneath`, under the
+    session file bound) and written as a new file; a link is made again as the link it is,
+    never followed; anything else is refused.
+
+    Raises:
+        FileRefused: an entry is neither a directory, a regular file with one name nor a link,
+            or a file is larger than the bound.
+        OSError: the filesystem refused a step.
+    """
+    source_fd = os.open(source, _DIRECTORY)
+    try:
+        destination_fd = os.open(destination, _DIRECTORY)
+        try:
+            _copy_into(source, (), source_fd, destination_fd)
+        finally:
+            os.close(destination_fd)
+    finally:
+        os.close(source_fd)
+
+
+def _copy_into(anchor: Path, names: tuple[str, ...], source_fd: int, destination_fd: int) -> None:
+    with os.scandir(source_fd) as entries:
+        listed = sorted((e.name, e.stat(follow_symlinks=False).st_mode) for e in entries)
+    for name, mode in listed:
+        if stat.S_ISDIR(mode):
+            os.mkdir(name, 0o700, dir_fd=destination_fd)
+            inner = os.open(name, _DIRECTORY, dir_fd=source_fd)
+            try:
+                made = os.open(name, _DIRECTORY, dir_fd=destination_fd)
+                try:
+                    _copy_into(anchor, (*names, name), inner, made)
+                finally:
+                    os.close(made)
+            finally:
+                os.close(inner)
+        elif stat.S_ISLNK(mode):
+            os.symlink(os.readlink(name, dir_fd=source_fd), name, dir_fd=destination_fd)
+        elif stat.S_ISREG(mode):
+            fd = open_beneath(anchor, (*names, name))
+            try:
+                data = read_bounded(fd, MAX_SESSION_FILE_BYTES)
+                kept = os.fstat(fd).st_mode & 0o700
+            finally:
+                os.close(fd)
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+            out = os.open(name, flags, kept | 0o600, dir_fd=destination_fd)
+            try:
+                view = memoryview(data)
+                while view:
+                    view = view[os.write(out, view) :]
+            finally:
+                os.close(out)
+        else:
+            raise FileRefused("not_a_file", "neither a directory, a regular file nor a link")

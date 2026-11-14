@@ -144,11 +144,10 @@ class RawSetup:
     #: every other place they hold stays withheld. ``None`` where the session works outside
     #: every held-out root. ``held_out`` stays the run's list, held equal to the harness's.
     held_out_carved: str | None = None
-    #: The harness's own directory beside the session's place (the copied answer, the record and
-    #: the score are written there), withheld from this session on top of the run's roots: no
-    #: root of the run's holds it where the trial is visible, and the session's tools would
-    #: otherwise reach it. ``None`` where the harness writes in a directory already withheld.
-    held_out_beside: str | None = None
+    #: Further places withheld from this session on top of the run's roots, made after the
+    #: harness run ended: a baseline round's own directory, where its finished trials and its
+    #: records lie. ``held_out`` stays the run's list, held equal to the harness's.
+    held_out_also: tuple[str, ...] = ()
 
 
 def stream_total(stream: Path) -> int:
@@ -435,8 +434,7 @@ def _install(
             msg = "the session works elsewhere than the directory taken out of its held-out roots"
             raise RawArmError(msg, carved=setup.held_out_carved)
         held = held_out_but(setup.held_out, Path(setup.held_out_carved))
-    if setup.held_out_beside is not None:
-        held = (*held, setup.held_out_beside)
+    held = (*held, *setup.held_out_also)
     state = sdir / "state"
     state.mkdir(mode=0o700, parents=True)
     (sdir / "config").mkdir(mode=0o700, exist_ok=True)
@@ -787,7 +785,8 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
         "held_out": sorted(setup.held_out),
         # The session's own directory, taken out of those roots for it alone; ``None`` if none.
         "held_out_carved": setup.held_out_carved,
-        "held_out_beside": setup.held_out_beside,
+        # The places withheld from it besides, made after the harness run; empty if none.
+        "held_out_also": sorted(setup.held_out_also),
         # The canaries its stream was scanned for, which the harness run's must equal.
         "held_out_canaries_sha256": canaries_sha256(setup.held_out_canaries),
         "model": setup.model,
