@@ -187,8 +187,12 @@ def test_the_mark_forces_only_an_attempt_the_gate_rejected(
 ) -> None:
     from physgate.orchestrator.escalation_state import EndPart, EscalationState
 
-    state = EscalationState.model_construct(
-        ended=EndPart.model_construct(kind=kind, rejected_by=by),
-        gate=GatePart.model_construct(all_declared=True),
-    )
+    # Built without validation, from the two parts the mark reads: the rest is not read.
+    ended: dict[str, Any] = {"kind": kind, "rejected_by": by}
+    gate: dict[str, Any] = {"all_declared": True}
+    parts: dict[str, Any] = {
+        "ended": EndPart.model_construct(**ended),
+        "gate": GatePart.model_construct(**gate),
+    }
+    state = EscalationState.model_construct(**parts)
     assert state.all_declared is expected

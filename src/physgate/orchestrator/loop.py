@@ -4066,6 +4066,7 @@ class Loop:
                 ts=ts,
                 attempt=now.number,
                 consequence=self._consequence(subtask_id, "escalation_decision", scan),
+                all_declared=decided.state.all_declared,
             )
         return escalation_item(
             item_id=item_id,

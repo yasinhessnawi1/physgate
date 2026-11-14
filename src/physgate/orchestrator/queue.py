@@ -746,12 +746,14 @@ def decided_item(
     ts: str,
     attempt: int | None = None,
     consequence: ItemConsequence | None = None,
+    all_declared: bool = False,
 ) -> QueueItem:
     """The item for a rejected subtask the escalation decision sent to a person, attempts left.
 
     A decision that was not forced makes one: a backend that answered yes, or one whose
     confidence fell below the floor. So does the forced route of a gate rejection for values a
-    person declared and nothing else, which names those values. The finding and the quantities
+    person declared and nothing else (``all_declared``, as the decision's state says), which
+    names those values. The finding and the quantities
     are chosen as for an exhausted budget, from the attempts made so far, each of which links
     its trajectory.
 
@@ -761,8 +763,10 @@ def decided_item(
     """
     # A forced route with attempts left is the gate's rejection for values a person declared
     # and nothing else (ARCH-122): no role can repair one, so no repair attempt was spent.
-    declared = decision.forced and decision.basis == "forced"
-    if not declared and (decision.forced or decision.basis not in ("answer", "floor")):
+    declared = all_declared and decision.forced and decision.basis == "forced"
+    if all_declared != declared or (
+        not declared and (decision.forced or decision.basis not in ("answer", "floor"))
+    ):
         msg = "only a decision that routed by its answer or its confidence makes this item"
         raise QueueError(msg, basis=str(decision.basis), forced=str(decision.forced))
     # An attempt a person rejected from the queue has a trajectory and no finding, so there may
