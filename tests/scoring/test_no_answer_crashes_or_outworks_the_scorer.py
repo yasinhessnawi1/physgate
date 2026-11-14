@@ -333,3 +333,27 @@ def test_each_margin_records_the_grid_its_search_used(tmp_path: Path) -> None:
         assert search["lowest_frequency"] == {"value": 1e-4, "unit": "rad/s"}
         assert search["highest_frequency"]["unit"] == "rad/s"
         assert search["highest_frequency"]["value"] == pytest.approx(math.pi / 0.01)
+
+
+def test_the_work_counts_the_controller_s_own_states(tmp_path: Path, no_margins: None) -> None:
+    # The kit's native loop: the plant's four states, one command (its delay is under one
+    # period), and the incremental controller's two, its angle and its last command.
+    record = _record(tmp_path, _answer(_native()), STATIC_SPECS[:1])
+    assert record["work"]["states"] == {"value": 4 + 1 + 2, "unit": "1"}
+
+
+def test_a_frequency_response_that_is_not_finite_is_a_simulation_error() -> None:
+    from physgate.evaluation.whole import loop
+
+    system = loop.System(
+        ap=np.full((4, 4), np.inf),
+        bp=np.ones((4, 1)),
+        cp=np.eye(4),
+        ac=np.zeros((0, 0)),
+        bc=np.zeros((0, 4)),
+        cc=np.zeros((1, 0)),
+        dc=np.ones((1, 4)),
+        period=0.01,
+    )
+    with pytest.raises(loop.SimulationError, match="not finite"):
+        loop.response(system, np.array([1.0, 10.0]))

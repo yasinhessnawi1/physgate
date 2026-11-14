@@ -255,9 +255,6 @@ def stable(system: System, gain: float) -> bool:
         held = np.linalg.solve(basis, matrix @ basis)
         matrix = np.delete(np.delete(held, at, axis=0), at, axis=1)
     radius = float(np.max(np.abs(np.linalg.eigvals(matrix))))
-    if not math.isfinite(radius):
-        msg = f"the closed loop's spectral radius at gain {gain:g} is not finite"
-        raise SimulationError(msg)
     return radius < 1.0 - STABILITY_EPSILON
 
 
