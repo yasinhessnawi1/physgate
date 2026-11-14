@@ -157,6 +157,27 @@ class ConfirmedIndicator(BaseModel):
     kind: IndicatorKind
 
 
+class JudgedEarlier(BaseModel):
+    """An earlier attempt no review judged itself, and the later attempt whose review judged it.
+
+    The scan's hits in that attempt's streams were put before that review, which answered every
+    one: a dismissed one no longer makes approve record only, a confirmed one is in the
+    subtask's confirmed indicators (ARCH-133).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    attempt: Annotated[int, Field(ge=1)]
+    judged_by: Annotated[int, Field(ge=1)]
+
+    @model_validator(mode="after")
+    def _a_later_review(self) -> JudgedEarlier:
+        if self.judged_by <= self.attempt:
+            msg = "an earlier attempt is judged by the review of a later one"
+            raise ValueError(msg)
+        return self
+
+
 class ItemConsequence(BaseModel):
     """What each verb will do to an item, and why approve records only when it does (ARCH-133).
 
@@ -183,12 +204,18 @@ class ItemConsequence(BaseModel):
     #: What choosing each position does, for an item whose kind offers positions; left out of
     #: every other item's line, so it is written exactly as before positions existed.
     on_choose: dict[Position, OnChoose] | None = None
+    #: Each earlier attempt no review judged itself whose scan hits a later review judged, and
+    #: which, on an item where the scan counts. Left out of the line when empty, so every item
+    #: listed before is written exactly as it was.
+    judged_earlier: tuple[JudgedEarlier, ...] = ()
 
     @model_serializer(mode="wrap")
     def _omit_absent_choice(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
         if self.on_choose is None:
             data.pop("on_choose", None)
+        if not self.judged_earlier:
+            data.pop("judged_earlier", None)
         return data
 
     @model_validator(mode="after")
