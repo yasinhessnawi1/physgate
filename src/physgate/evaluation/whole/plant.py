@@ -75,7 +75,7 @@ MAX_RANGED = 12
 #: on one of these, and names it; a frozen plant is never edited, so a change is a new version
 #: with a new entry here.
 FROZEN_PLANTS: dict[str, str] = {
-    "c45d089b5d6f8141b8bd15cbd798c27a3cff9df679bbc353ee123189118b05a2": "v0",
+    "cfa93bec3323af6ecc8f41916f63762bfc3ae0f1c35f60da3b44f91e7244b4a1": "v0",
 }
 
 #: The parameters the stall current reads (brief criterion 6).

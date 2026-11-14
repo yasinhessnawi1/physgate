@@ -83,7 +83,7 @@ def test_the_assumptions_are_exactly_the_unpublished_parameters_each_with_a_meas
     for name, p in assumed.items():
         assert p.measure_by, name
         assert p.low < p.high, name
-        assert "PROPOSED" in p.reason, name
+        assert p.reason.startswith("Assumed (accepted 14.11.2026): "), name
 
 
 def test_every_sourced_parameter_cites_its_source() -> None:

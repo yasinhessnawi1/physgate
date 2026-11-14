@@ -127,7 +127,7 @@
       "low": 0.005,
       "high": 0.078,
       "source": "assumption",
-      "reason": "PROPOSED, for the owner: no source publishes it (not the guide, the product page or the example code). The value is the body as a uniform box of the kit's 0.118 m height, its centre 0.059 m above ground, 0.019 m above the axle; the cells (45 % of the mass) sit in the chassis. The range runs from just above the axle to the envelope's top (0.118 m above ground; pololu.com/product/3575/specs, 118 x 112 x 80 mm)",
+      "reason": "Assumed (accepted 14.11.2026): no source publishes it (not the guide, the product page or the example code). The value is the body as a uniform box of the kit's 0.118 m height, its centre 0.059 m above ground, 0.019 m above the axle; the cells (45 % of the mass) sit in the chassis. The range runs from just above the axle to the envelope's top (0.118 m above ground; pololu.com/product/3575/specs, 118 x 112 x 80 mm)",
       "measure_by": "hang the assembled robot, cells in, from two points with a plumb line and photograph it (the lines cross at the centre of mass), or balance it on a knife edge at two orientations"
     },
     "body_inertia": {
@@ -136,7 +136,7 @@
       "low": 0.00027294341703377084,
       "high": 0.0008188302511013125,
       "source": "assumption",
-      "reason": "PROPOSED, for the owner: no source publishes it. The value is the body as a uniform box of the envelope, 0.118 m high and 0.080 m deep (pololu.com/product/3575/specs), about its centre, at the sourced body mass (0.3223 kg: the kit's 0.200 kg less two wheels plus six cells); half to one and a half times that",
+      "reason": "Assumed (accepted 14.11.2026): no source publishes it. The value is the body as a uniform box of the envelope, 0.118 m high and 0.080 m deep (pololu.com/product/3575/specs), about its centre, at the sourced body mass (0.3223 kg: the kit's 0.200 kg less two wheels plus six cells); half to one and a half times that",
       "measure_by": "swing the robot as a pendulum about its axle on two low-friction supports, time 20 small oscillations: I_axle = T^2 m g h / (4 pi^2), I_b = I_axle - m h^2"
     },
     "wheel_inertia_factor": {
@@ -145,7 +145,7 @@
       "low": 0.5,
       "high": 1.0,
       "source": "assumption",
-      "reason": "PROPOSED, for the owner: no source publishes the wheel's inertia. The value is the wheel as a uniform disc (1/2 m r^2), the documented default of the environment's first slice; a rim-heavy wheel lies towards a ring (m r^2)",
+      "reason": "Assumed (accepted 14.11.2026): no source publishes the wheel's inertia. The value is the wheel as a uniform disc (1/2 m r^2), the documented default of the environment's first slice; a rim-heavy wheel lies towards a ring (m r^2)",
       "measure_by": "a swing of one wheel about its axle, or the hub and tire masses separately"
     },
     "rotor_inertia": {
@@ -154,7 +154,7 @@
       "low": 3e-09,
       "high": 2e-08,
       "source": "assumption",
-      "reason": "PROPOSED, for the owner: Pololu publishes none (datasheet Rev 6.2 has no inertia; Pololu staff: 'We have not characterized the moment of inertia for our motors yet'). The range is a first-principles bound on a 12 x 10 mm can, armature 5.5 to 7 mm across, plus the encoder disc on the extended shaft (#3081, about 0.3 g). Coreless 10 to 12 mm motors that publish it lie inside or at its top: Maxon RE 10 1.05e-8, Faulhaber 1224 SR 1.8e-8, Orbray CMS12-20 2.1e-8. The value is the bound's middle case with the disc, 1.0e-8",
+      "reason": "Assumed (accepted 14.11.2026): Pololu publishes none (datasheet Rev 6.2 has no inertia; Pololu staff: 'We have not characterized the moment of inertia for our motors yet'). The range is a first-principles bound on a 12 x 10 mm can, armature 5.5 to 7 mm across, plus the encoder disc on the extended shaft (#3081, about 0.3 g). Coreless 10 to 12 mm motors that publish it lie inside or at its top: Maxon RE 10 1.05e-8, Faulhaber 1224 SR 1.8e-8, Orbray CMS12-20 2.1e-8. The value is the bound's middle case with the disc, 1.0e-8",
       "measure_by": "a 6 V step from rest on a spare gearmotor with its wheel, the encoder's 12 counts per revolution logged: tau_m = R (J_r + I_w/N^2 + J_gearbox)/(K_t K_e), with R and K_e measured; or the same on the bare motor with the gearbox off",
       "locator": "forum.pololu.com/t/dc-motor-20d/21711 post 2 (22 Jun 2021); pololu.com/product/3081/specs note 2 and item #2599 (7.65 mm disc); maxongroup.com product 118396; Faulhaber eshop series 1224 SR; orbray.com brushed_ca_cms12-20, row 'Rotor inertia'"
     },
@@ -164,7 +164,7 @@
       "low": 0.009,
       "high": 0.036,
       "source": "assumption",
-      "reason": "PROPOSED, for the owner: no breakaway or back-driving torque is published for either stage, and the plastic stage's friction is not published. The range is the running friction derived from the datasheet: N x K_t x I0 x efficiency, with I0 0.075 to 0.225 A (+- 50 %), K_t 1.46 to 1.63 mN*m/A (from R = 6 V / 1.5 A and K_e = (6 V - I0 R)/omega0), efficiency 0.68 to 1; the value at 0.15 A and 0.68. A running current includes brush and iron loss, so it overstates the gearbox's share and understates the breakaway",
+      "reason": "Assumed (accepted 14.11.2026): no breakaway or back-driving torque is published for either stage, and the plastic stage's friction is not published. The range is the running friction derived from the datasheet: N x K_t x I0 x efficiency, with I0 0.075 to 0.225 A (+- 50 %), K_t 1.46 to 1.63 mN*m/A (from R = 6 V / 1.5 A and K_e = (6 V - I0 R)/omega0), efficiency 0.68 to 1; the value at 0.15 A and 0.68. A running current includes brush and iron loss, so it overstates the gearbox's share and understates the breakaway",
       "measure_by": "motor terminals open, a thread round the wheel (r = 0.040 m) with a growing hung mass until the wheel turns, both directions: torque = m g r; with and without the plastic stage"
     }
   }

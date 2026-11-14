@@ -19,10 +19,12 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parents[4]
 FROZEN = _ROOT / "src/physgate/evaluation/whole/plant_v0.json"
-#: The digest recorded at the freeze.
-FROZEN_SHA256 = "c45d089b5d6f8141b8bd15cbd798c27a3cff9df679bbc353ee123189118b05a2"
+#: The digest recorded at the freeze. v0 was frozen once more, before any score cited it, when
+#: the five assumptions' reasons changed from a proposal to accepted assumptions; no value,
+#: range, source or measurement changed. The first freeze's digest was c45d089b...05a2.
+FROZEN_SHA256 = "cfa93bec3323af6ecc8f41916f63762bfc3ae0f1c35f60da3b44f91e7244b4a1"
 #: The candidate it was frozen from: the same bytes with the status a draft.
-CANDIDATE_SHA256 = "9d08ca83ab6e5f5d55d32a00bea8a0ca57edb339f3cf1628e28d9ad7c8da77ea"
+CANDIDATE_SHA256 = "bcfe01cea39cf13cc3fc89ebdc0d7c896aeaab04fc0e2af4441fd448eeb5c476"
 
 
 def _raw() -> bytes:
