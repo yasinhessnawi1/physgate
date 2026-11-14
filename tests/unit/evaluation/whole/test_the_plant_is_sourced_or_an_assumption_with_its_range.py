@@ -43,7 +43,11 @@ def _draft() -> dict[str, Any]:
 
 
 def _parse(doc: dict[str, Any]) -> Any:
-    return _plant().parse_plant(json.dumps(doc).encode())
+    plant = _plant()
+    try:
+        return plant.parse_plant(json.dumps(doc).encode())
+    except plant.PlantError as exc:
+        pytest.fail(f"the plant file was refused; it should be taken: {exc}")
 
 
 def _refused(doc: dict[str, Any], says: str) -> None:
@@ -53,6 +57,8 @@ def _refused(doc: dict[str, Any], says: str) -> None:
     except plant.PlantError as exc:
         assert says in str(exc), str(exc)
         return
+    except Exception as exc:  # a refusal is a PlantError with its reason, never a crash
+        pytest.fail(f"the plant file was refused by a crash, not a PlantError: {exc!r}")
     pytest.fail(f"the plant file was taken; it should be refused for {says!r}")
 
 
