@@ -1210,6 +1210,30 @@ def test_a_line_with_no_limit_is_written_byte_for_byte_as_before(
     assert [e.model_dump_json().encode() + b"\n" for e in events] == lines
 
 
+def test_the_halt_s_line_names_every_refused_window_and_a_limit_without_them_is_written_as_before(
+    tmp_path: Path, clock: list[datetime]
+) -> None:
+    both = UsageLimit(
+        resets=WEEKLY_TEXT,
+        resets_at=WEEKLY_INSTANT,
+        limit_type="five_hour",
+        rejected_windows=("five_hour", "seven_day"),
+    )
+    rig = Rig(
+        tmp_path / "both",
+        dispatcher=LimitDispatcher(infra={1: "usage_limit"}, limits={1: both}),
+        delays=(60.0,),
+    )
+    halt = _halted_on_the_limit(tmp_path / "both", rig)
+    assert halt.usage_limit == both
+    plain = tmp_path / "plain"
+    _halted_on_the_limit(plain, _limited_rig(plain))
+    data = (plain / "events.jsonl").read_bytes()
+    assert b'"usage_limit"' in data
+    assert b'"rejected_windows"' not in data
+    assert b'"out_of_range_reset"' not in data
+
+
 def _refused(build: Callable[[], object]) -> bool:
     try:
         build()
