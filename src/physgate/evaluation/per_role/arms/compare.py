@@ -137,35 +137,37 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     # Whether the run may go on where the OS layer is absent; the layer each arm ran
     # with is compared (``os_layer``), and a reportable run allows no absence.
     "os_layer_absent": "not_compared",
-    # The raw arm is given no tool environment and records none, so a harness run that
-    # named one computed and built with tools its baseline lacked: it must name none, and
-    # a pair whose harness run names one is named whatever the raw arm did.
-    "tool_environment": "required",
-    "tool_environment.interpreter": "required",
-    "tool_environment.resolved": "required",
-    "tool_environment.python_version": "required",
-    "tool_environment.prefix": "required",
-    "tool_environment.distributions": "required",
-    "tool_environment.distributions.name": "required",
-    "tool_environment.distributions.version": "required",
-    "tool_environment.native_tools": "required",
-    "tool_environment.native_tools.name": "required",
-    "tool_environment.native_tools.path": "required",
-    "tool_environment.native_tools.resolved": "required",
-    "tool_environment.native_tools.version": "required",
-    "tool_environment.roots": "required",
-    "tool_environment.manifest_digest": "required",
-    "tool_environment.entries": "required",
-    "tool_environment.total_bytes": "required",
-    # Recorded with a tool environment alone: the servers its role sessions were offered. The
-    # raw arm is offered none, so a harness run that records them is named.
-    # Read from the deny lists both arms' settings come from (the baseline profile denies the
-    # search tool as every profile does), never a parameter of either arm.
-    "tool_search": "not_compared",
-    "tool_servers": "required",
-    "tool_servers.profiles": "required",
-    "tool_servers.max_output_tokens": "required",
-    "tool_servers.register_sha256": "required",
+    # Both arms compute and build with the same tools and are offered the same servers: the
+    # raw arm is given the tool environment and the tool-server record the harness run
+    # recorded, and records both as it ran them. Compared as whole records, so equal records
+    # are equal digests (the environment's manifest, the register's) and nothing beside them
+    # differs; each arm's sessions are offered the servers of their own profile.
+    "tool_environment": "compared",
+    "tool_environment.interpreter": "compared",
+    "tool_environment.resolved": "compared",
+    "tool_environment.python_version": "compared",
+    "tool_environment.prefix": "compared",
+    "tool_environment.distributions": "compared",
+    "tool_environment.distributions.name": "compared",
+    "tool_environment.distributions.version": "compared",
+    "tool_environment.native_tools": "compared",
+    "tool_environment.native_tools.name": "compared",
+    "tool_environment.native_tools.path": "compared",
+    "tool_environment.native_tools.resolved": "compared",
+    "tool_environment.native_tools.version": "compared",
+    "tool_environment.roots": "compared",
+    "tool_environment.manifest_digest": "compared",
+    "tool_environment.entries": "compared",
+    "tool_environment.total_bytes": "compared",
+    "tool_servers": "compared",
+    "tool_servers.profiles": "compared",
+    "tool_servers.max_output_tokens": "compared",
+    "tool_servers.register_sha256": "compared",
+    # Whether the binary's search tool was denied, which decides whether a server's tools are
+    # offered up front or held back behind it. Each arm reads it from the deny lists it was
+    # installed from, at its own time: a harness run recorded while the tool was offered is no
+    # pair for a raw arm whose sessions were denied it.
+    "tool_search": "compared",
     # The bytes the harness run executed, by digest and platform build. The raw arm records
     # its binary's version, which is compared, and not the digest of its bytes.
     "binary": "not_compared",
@@ -197,8 +199,20 @@ RAW_PINS = frozenset(
         "os_layer",
         "role_python",
         "thinking_display",
+        "tool_environment",
+        "tool_search",
+        "tool_servers",
     }
 )
+
+#: What a raw arm's record written before each of these pins existed reads as: the raw arm
+#: was given no tool environment and no tool servers then, and its settings denied the
+#: binary's search tool to no profile. Read so, never rewritten.
+BEFORE_THE_PIN: dict[str, Any] = {
+    "tool_environment": None,
+    "tool_servers": None,
+    "tool_search": "offered",
+}
 
 
 def run_field_paths(model: type[BaseModel] = RunConfig, prefix: str = "") -> set[str]:
@@ -336,6 +350,15 @@ def _expected(config: RunConfig, role: str, task: Task) -> dict[str, Any]:
             None if config.role_python is None else config.role_python.model_dump(mode="json")
         ),
         "thinking_display": config.thinking_display,
+        "tool_environment": (
+            None
+            if config.tool_environment is None
+            else config.tool_environment.model_dump(mode="json")
+        ),
+        "tool_servers": (
+            None if config.tool_servers is None else config.tool_servers.model_dump(mode="json")
+        ),
+        "tool_search": config.tool_search,
     }
 
 
@@ -353,7 +376,7 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
     config = load_run_config(run_dir / "run.json")
     try:
         record: dict[str, Any] = json.loads((raw_dir / "raw.json").read_bytes())
-        pins: dict[str, Any] = record["pins"]
+        pins: dict[str, Any] = {**BEFORE_THE_PIN, **record["pins"]}
     except (OSError, ValueError, KeyError, TypeError) as exc:
         msg = "the raw arm's record could not be read"
         raise ComparisonError(msg, raw_dir=str(raw_dir), error=repr(exc)) from None
@@ -378,16 +401,6 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
         found.append("reportable: the harness run is not reportable; no baseline is held to it")
     if not config.harness.clean:
         found.append("harness: the harness run's checkout was not clean")
-    if config.tool_environment is not None:
-        found.append(
-            "tool_environment: the harness run named a tool environment, and the raw arm is "
-            "given none"
-        )
-    if config.tool_servers is not None:
-        found.append(
-            "tool_servers: the harness run offered its sessions tool servers, and the raw arm "
-            "is offered none"
-        )
     if hashlib.sha256(task.brief.encode()).hexdigest() != config.brief_sha256:
         found.append("brief: the harness run was not given this task's brief")
     if record.get("task") != task.id:

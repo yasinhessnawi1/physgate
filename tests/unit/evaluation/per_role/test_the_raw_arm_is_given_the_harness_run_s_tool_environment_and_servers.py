@@ -215,7 +215,7 @@ def test_the_session_finds_the_environment_s_programs_first_and_is_told_it_for_i
             "target": None,
         }
     ]
-    assert json.loads((tmp_path / "raw.json").read_text())["pins"]["tool_environment"] == (
+    assert json.loads((work / "raw.json").read_text())["pins"]["tool_environment"] == (
         recorded.model_dump(mode="json")
     )
 
@@ -243,7 +243,7 @@ def test_a_change_made_while_the_session_ran_refuses_its_result(
     with pytest.raises(raw.RawArmError, match="changed while the session ran"):
         raw.run_raw(TASK, setup, work, cap=10**9)
     assert (work / "worktree" / "env.txt").exists(), "the session did not run"
-    assert not (tmp_path / "raw.json").exists()
+    assert not (work / "raw.json").exists()
 
 
 def test_servers_from_a_register_other_than_the_recorded_one_start_no_session(
