@@ -229,16 +229,6 @@ from physgate.orchestrator.replay import (
 )
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
 from physgate.orchestrator.trajectory import read_sealed
-<<<<<<< HEAD
-from physgate.reviewers.packet import fits_one_read, indicator_scan_runs, person_order_text
-from physgate.reviewers.scan import (
-    REFUSED_NAMES,
-    REFUSED_WRITE,
-    ScanHit,
-    ScanUnreadableError,
-    judged_attempts,
-)
-=======
 from physgate.orchestrator.usage_limit import (
     UsageLimit,
     bounded,
@@ -247,9 +237,14 @@ from physgate.orchestrator.usage_limit import (
     stamped,
     with_instant,
 )
-from physgate.reviewers.packet import fits_one_read, person_order_text
-from physgate.reviewers.scan import ScanHit, ScanUnreadableError
->>>>>>> origin/master
+from physgate.reviewers.packet import fits_one_read, indicator_scan_runs, person_order_text
+from physgate.reviewers.scan import (
+    REFUSED_NAMES,
+    REFUSED_WRITE,
+    ScanHit,
+    ScanUnreadableError,
+    judged_attempts,
+)
 from physgate.roles import dispatchable, owners_of, require_registered
 from physgate.series.reader import attempt_records
 from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
