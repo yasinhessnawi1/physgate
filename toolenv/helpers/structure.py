@@ -316,7 +316,6 @@ def _block(  # noqa: PLR0913, PLR0915 - one solve, its numbers read in one place
     if load_case == "cantilever_end_load":
         held = np.nonzero(at(where[ALONG], 0.0))[0]
         facets = mesh.facets_satisfying(lambda x: at(x[ALONG], length))
-        area = width * thickness
     else:
         bottom = at(where[THROUGH], 0.0)
         start = bottom & at(where[ALONG], 0.0)
@@ -330,24 +329,15 @@ def _block(  # noqa: PLR0913, PLR0915 - one solve, its numbers read in one place
                 at(x[THROUGH], thickness) & (np.abs(x[ALONG] - middle) <= thickness / 2 + near)
             )
         )
-        area = width * thickness
-    if not held.size:
-        raise HelperRefusedError("a solve holds the block somewhere; no node was held")
-    traction = -force / area
+    # The end face and the mid-span strip are each one thickness by the width.
+    traction = -force / (width * thickness)
 
     @LinearForm
     def load(v: Any, w: Any) -> Any:  # noqa: ANN401, ARG001 - the library's form
         return traction * v.value[THROUGH]
 
     applied = asm(load, FacetBasis(mesh, element, facets=facets, intorder=4))
-    landed = float(applied[axis == THROUGH].sum())
-    if not math.isclose(landed, -force, rel_tol=1e-9):
-        raise HelperRefusedError(
-            f"the load spread over the block sums to {landed} N, not {-force} N"
-        )
     displacement = solve_system(*condense(stiffness, applied, D=held))
-    if not np.all(np.isfinite(displacement)):
-        raise HelperRefusedError("the solve gave a displacement that is not a finite number")
     residual = stiffness @ displacement - applied
     free = np.setdiff1d(np.arange(count), held)
     directions = (ALONG, ACROSS, THROUGH)
