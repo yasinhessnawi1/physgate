@@ -221,7 +221,8 @@ SHAPE = (
     "itself a JSON object with the fields the tool's schema names, never a string that "
     "holds JSON. Write every finding, every item's evidence and every defect out in words: "
     "a verdict in which one of them is empty or a single word is refused and asked for "
-    "again.\n"
+    "again. The reason of every indicator you give, confirmed or dismissed, is written the "
+    "same way: in words, never a single word.\n"
 )
 
 

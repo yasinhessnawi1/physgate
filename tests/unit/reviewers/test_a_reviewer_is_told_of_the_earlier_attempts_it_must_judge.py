@@ -21,6 +21,15 @@ from physgate.reviewers.rubric import evaluation_words
 BEFORE_SHA256 = "3d86da0ecf0711e36c34814e1c608efbbcf26d7a22907ac82ce6a5bded9fa1d7"
 
 
+REASON_SENTENCE = (
+    "The reason of every indicator you give, confirmed or dismissed, is written the same way: "
+    "in words, never a single word."
+)
+
+#: The same prompt with the sentence about an indicator's reason added to its shape paragraph.
+AFTER_SHA256 = "f59a02b457c470c2db09e8c0151452bc84a6e973437ba8a347f8de29e5194e21"
+
+
 def test_the_prompt_names_the_earlier_parts_and_each_earlier_marker_with_its_attempt(
     tmp_path: Path,
 ) -> None:
@@ -40,13 +49,11 @@ def test_a_prompt_with_no_earlier_attempt_is_the_prompt_it_was(tmp_path: Path) -
     packet, read, _ = _build(tmp_path, earlier=False)
     prompt = review_prompt("control", packet).replace(str(read), "<read>")
     assert "earlier" not in prompt.lower()
-    assert hashlib.sha256(prompt.encode()).hexdigest() == BEFORE_SHA256
-
-
-REASON_SENTENCE = (
-    "The reason of every indicator you answer, confirmed or dismissed, is written the same way: "
-    "in words, never a single word."
-)
+    # Nothing else changed: take the one sentence out and it is the prompt it was.
+    assert hashlib.sha256(prompt.replace(" " + REASON_SENTENCE, "").encode()).hexdigest() == (
+        BEFORE_SHA256
+    )
+    assert hashlib.sha256(prompt.encode()).hexdigest() == AFTER_SHA256
 
 
 def test_every_review_prompt_tells_the_reason_of_an_indicator_is_never_a_single_word(

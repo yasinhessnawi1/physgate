@@ -229,6 +229,10 @@ PROMPT_MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
     ("earlier-attempt-untold", "7", REV,
      '"indicator that names the same evidence and the same attempt, confirmed or dismissed with "',
      '"indicator that names the same evidence, confirmed or dismissed with "'),
+    ("reason-sentence-untold", "10", REV,
+     '    "again. The reason of every indicator you give, confirmed or dismissed, is written the "\n'
+     '    "same way: in words, never a single word.\\n"',
+     '    "again.\\n"'),
 )  # fmt: skip
 
 #: A failing row's line; a parametrised row's id may hold spaces.
