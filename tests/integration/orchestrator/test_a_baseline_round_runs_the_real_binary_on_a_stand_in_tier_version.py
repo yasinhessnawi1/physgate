@@ -233,8 +233,7 @@ def test_a_round_on_the_real_binary_tells_each_session_its_brief_alone_and_keeps
         p
         for trial in beneath.iterdir()
         if trial.is_dir()
-        for part in ("session", "worktree")
-        for p in (trial / part).rglob("*")
+        for p in (trial / "place").rglob("*")
         if p.is_file() and not p.is_symlink()
     ]
     assert any(p.name == "stdout.jsonl" for p in sessions)
