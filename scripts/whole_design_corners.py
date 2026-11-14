@@ -20,12 +20,12 @@ With ``--region`` it prints instead the region of the plant's parameters in whic
 answer's loop is stable and meets the brief's margins (:func:`region`): a grid over the
 parameters no source gives (the centre of mass's height, the body's inertia and the rotor's),
 each grid point judged with every other parameter at its value and at every corner of the
-other ranges. That is evidence for a question the owner rules on (whether a controller known
-to balance the real kit may bound those parameters); the script applies nothing.
+other ranges. That is evidence for the question whether a controller known to balance the real
+kit may bound those parameters; the script applies nothing.
 
-With ``--bound`` it prints the bound the owner's ruling of 13.11.2026 admits (:func:`bound`):
-"the real kit balances with the published controller" bounds the plant as stability evidence
-only, never as evidence of a margin. Over a grid of the parameters no source gives, each grid
+With ``--bound`` it prints the bound that stability evidence admits (:func:`bound`): "the real
+kit balances with the published controller" bounds the plant as stability evidence only, never
+as evidence of a margin. Over a grid of the parameters no source gives, each grid
 point is judged with the answer's loop at the other ranged parameters' values and at every
 corner of their ranges as sourced, with the answer's own delays and with none. A point is
 admitted when the loop is stable at any of those: the real robot is one point, so the evidence
@@ -309,7 +309,7 @@ def region(plant: bytes, answer: dict[str, Any], axes: dict[str, list[float]]) -
 BOUND_AXES: dict[str, int] = {"com_height": 37, "body_inertia": 7, "rotor_inertia": 9}
 #: What the bound report says it is, in plain words.
 BOUND_RULE = (
-    "Stability evidence only (owner, 13.11.2026): the real kit balances with the published "
+    "Stability evidence only: the real kit balances with the published "
     "controller, so a grid value is ruled out only where the loop is unstable at every "
     "combination the stated ranges allow (the other unsourced grid values, and the sourced "
     "parameters at their values and at every corner of their ranges). Each bound is the span "
@@ -535,7 +535,11 @@ def judge(plant: bytes, answer: dict[str, Any]) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(os.path.realpath(tmp))
         (root / "whole_run.json").write_bytes(raw_answer)
-        record = WholeDesignScenario(task, plant, root=root).record(root / "whole_run.json")
+        # The instrument measures drafts as well as frozen plants; a frozen one is held to its
+        # recorded digest by the scenario, and the report names what was judged.
+        draft = parse_plant(plant).status == "draft"
+        scenario = WholeDesignScenario(task, plant, root=root, draft=draft)
+        record = scenario.record(root / "whole_run.json")
     predicates = []
     for row in record["specs"]:
         corners = row.get("corners")

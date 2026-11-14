@@ -34,6 +34,18 @@ bisecting on the closed loop's poles (the spectral radius against 1): well defin
 open loop is unstable. The phase margin is the smallest, over every gain crossover of the
 loop's frequency response on the unit circle, of ``180° + ∠L``, ``L = -C·P`` the loop broken
 at the plant's input.
+
+**What the searches can miss.** The gain margins step out from 1 by :data:`GAIN_STEP` and take
+the first unstable gain, so an unstable band narrower than one step is skipped, and the stable
+gains are taken to be one interval. The phase-margin sweep has :data:`POINTS_PER_DECADE` points
+a decade from :data:`LOWEST_FREQUENCY` to the Nyquist frequency, and finds a crossover by a
+change of sign between two points, so two crossovers inside one step are missed. The phase
+margin is wrapped to ±180°, so a stable loop can report a negative one. Each score records
+this grid (:func:`search_grid`).
+
+**Numerical failure.** A plant, a delay line or a frequency response that is not finite is a
+:class:`SimulationError`, never a number judged; the scenario catches it, and every other
+numerical failure of the analysis (:data:`NUMERICAL_FAILURES`), in one place.
 """
 
 from __future__ import annotations
@@ -63,6 +75,27 @@ LOWEST_FREQUENCY = 1e-4
 STABILITY_EPSILON = 1e-12
 #: A fraction of a period below this is no fraction at all.
 FRACTION_EPSILON = 1e-12
+#: A leak this close to 1 is no leak: its time constant, ``period/(1 - d)``, is at least a
+#: billion periods (four months at 10 ms), past any time a criterion is judged over. Without it
+#: a leak just below 1 would leave a mode inside :data:`STABILITY_EPSILON` of the unit circle,
+#: judged unstable though it decays, while the leak-free loop sets that mode aside.
+DECAY_TOLERANCE = 1e-9
+#: The plant's own states, ``[θ, θ̇, x, v]``.
+PLANT_STATES = 4
+
+
+class SimulationError(ArithmeticError):
+    """The analysis met a number that is not finite: a plant, a delay line or a response."""
+
+
+#: Every numerical failure the analysis can raise, caught by the scenario in one place.
+NUMERICAL_FAILURES = (ArithmeticError, np.linalg.LinAlgError)
+
+
+def _finite(what: str, *arrays: Matrix) -> None:
+    if not all(np.all(np.isfinite(a)) for a in arrays):
+        msg = f"{what} is not finite"
+        raise SimulationError(msg)
 
 
 def continuous(values: dict[str, float]) -> tuple[Matrix, Matrix]:
@@ -109,16 +142,22 @@ def _held(a: Matrix, b: Matrix, span: float) -> tuple[Matrix, Matrix]:
     return e[:n, :n], e[:n, n:]
 
 
+def _split(delay: float, period: float) -> tuple[int, float]:
+    """``delay`` as whole periods and the fraction of one left, in s."""
+    whole = math.floor(delay / period + FRACTION_EPSILON)
+    fraction = delay - whole * period
+    if fraction < FRACTION_EPSILON * period:
+        fraction = 0.0
+    return whole, fraction
+
+
 def discretise(a: Matrix, b: Matrix, period: float, delay: float) -> tuple[Matrix, Matrix, Matrix]:
     """The plant held at ``period`` with its input delayed by ``delay``: ``(Ap, Bp, Cp)``.
 
     The state is the plant's, then the last ``d + 1`` commands, newest first; ``Cp`` reads
     the plant's own state at the sample.
     """
-    whole = math.floor(delay / period + FRACTION_EPSILON)
-    fraction = delay - whole * period
-    if fraction < FRACTION_EPSILON * period:
-        fraction = 0.0
+    whole, fraction = _split(delay, period)
     n = a.shape[0]
     phi, _ = _held(a, b, period)
     after, gamma0 = _held(a, b, period - fraction)
@@ -150,7 +189,7 @@ def controller(loop: SiLoop) -> tuple[Matrix, Matrix, Matrix, Matrix]:
     if not loop.incremental:
         return np.zeros((0, 0)), np.zeros((0, 4)), np.zeros((1, 0)), gains
     # The angle term acts on θ̂, never on the measured tilt: its column of the gains is 0.
-    d, t = loop.decay, loop.period
+    d, t = (1.0 if leak_free(loop) else loop.decay), loop.period
     rate_in = np.array([[0.0, d * t, 0.0, 0.0]])
     direct = np.array([[0.0, loop.rate, loop.distance, loop.speed]]) + loop.angle * rate_in
     ac = np.array([[d, 0.0], [loop.angle * d, 1.0]])
@@ -174,13 +213,18 @@ class System:
     neutral: Matrix | None = None
 
 
+def leak_free(loop: SiLoop) -> bool:
+    """Whether ``loop``'s angle has no leak: its decay is within :data:`DECAY_TOLERANCE` of 1."""
+    return loop.decay >= 1.0 - DECAY_TOLERANCE
+
+
 def _neutral(loop: SiLoop, plant_size: int, size: int) -> Matrix | None:
     """The leak-free angle's held offset as a closed-loop state, or ``None`` when it has none.
 
     The closed loop's state is the plant's (``plant_size``, the tilt first and the travel
     third), then the controller's ``[θ̂[k-1], u[k-1]]``.
     """
-    if not loop.incremental or loop.decay != 1.0 or loop.distance == 0.0:
+    if not loop.incremental or not leak_free(loop) or loop.distance == 0.0:
         return None
     mode = np.zeros((size, 1))
     mode[2, 0] = -loop.angle / loop.distance
@@ -211,6 +255,9 @@ def stable(system: System, gain: float) -> bool:
         held = np.linalg.solve(basis, matrix @ basis)
         matrix = np.delete(np.delete(held, at, axis=0), at, axis=1)
     radius = float(np.max(np.abs(np.linalg.eigvals(matrix))))
+    if not math.isfinite(radius):
+        msg = f"the closed loop's spectral radius at gain {gain:g} is not finite"
+        raise SimulationError(msg)
     return radius < 1.0 - STABILITY_EPSILON
 
 
@@ -265,7 +312,9 @@ def response(system: System, w: Matrix) -> Matrix:
         command = s.cc @ inner + s.dc @ measured
     else:
         command = s.dc @ measured
-    return -command[:, 0, 0]
+    out = -command[:, 0, 0]
+    _finite("the loop's frequency response", out)
+    return out
 
 
 def _wrap(degrees: float) -> float:
@@ -279,10 +328,7 @@ def phase_margin(system: System) -> tuple[float, bool]:
     False.
     """
     top = math.pi / system.period
-    decades = math.log10(top) - math.log10(LOWEST_FREQUENCY)
-    w = np.logspace(
-        math.log10(LOWEST_FREQUENCY), math.log10(top), int(decades * POINTS_PER_DECADE) + 1
-    )
+    w = np.logspace(math.log10(LOWEST_FREQUENCY), math.log10(top), sweep_points(system.period))
     excess = np.abs(response(system, w)) - 1.0
     crossings = np.nonzero(np.sign(excess[:-1]) != np.sign(excess[1:]))[0]
     if crossings.size == 0:
@@ -303,12 +349,53 @@ def phase_margin(system: System) -> tuple[float, bool]:
     return min(margins), True
 
 
+def sweep_points(period: float) -> int:
+    """The frequency points of the phase-margin sweep at ``period``: up to the Nyquist frequency."""
+    decades = math.log10(math.pi / period) - math.log10(LOWEST_FREQUENCY)
+    return int(decades * POINTS_PER_DECADE) + 1
+
+
+def states(loop: SiLoop) -> int:
+    """The closed loop's state count under ``loop``: plant, delay line and controller.
+
+    The delay line holds the last ``d + 1`` commands, ``d`` the whole periods of the delay.
+    """
+    whole, _ = _split(loop.sensor_delay + loop.compute_delay, loop.period)
+    return PLANT_STATES + whole + 1 + (2 if loop.incremental else 0)
+
+
+def steps(loop: SiLoop) -> int:
+    """The most closed-loop evaluations one analysis of ``loop`` makes, known before it runs.
+
+    The phase-margin sweep's points, the two stability checks at gain 1, and each gain margin's
+    stepping out to :data:`GAIN_SEARCH_LIMIT` and its bisection to :data:`GAIN_TOLERANCE`. The
+    refinement of each gain crossover the sweep finds (80 evaluations) is not counted: the
+    crossovers are not known before the sweep.
+    """
+    stepping = math.ceil(math.log(GAIN_SEARCH_LIMIT) / math.log(GAIN_STEP))
+    bisecting = math.ceil(math.log2(math.log(GAIN_STEP) / GAIN_TOLERANCE))
+    return sweep_points(loop.period) + 2 + 2 * (stepping + bisecting)
+
+
+def search_grid(period: float) -> dict[str, dict[str, float | int | str]]:
+    """The grid and resolution of the margin searches at ``period``, each a value and its unit."""
+    return {
+        "gain_step": {"value": GAIN_STEP, "unit": "1"},
+        "gain_limit": {"value": GAIN_SEARCH_LIMIT, "unit": "1"},
+        "gain_tolerance": {"value": GAIN_TOLERANCE, "unit": "1"},
+        "points_per_decade": {"value": POINTS_PER_DECADE, "unit": "1"},
+        "lowest_frequency": {"value": LOWEST_FREQUENCY, "unit": "rad/s"},
+        "highest_frequency": {"value": math.pi / period, "unit": "rad/s"},
+    }
+
+
 def system(values: dict[str, float], loop: SiLoop) -> System:
     """The pendulum of ``values`` under ``loop``, discretised as the module's docstring says."""
     a, b = continuous(values)
     ap, bp, held = discretise(a, b, loop.period, loop.sensor_delay + loop.compute_delay)
     cp = measurement(values) @ held
     ac, bc, cc, dc = controller(loop)
+    _finite("the plant held at the period, or the controller,", ap, bp, cp, ac, bc, cc, dc)
     neutral = _neutral(loop, ap.shape[0], ap.shape[0] + ac.shape[0])
     return System(
         ap=ap, bp=bp, cp=cp, ac=ac, bc=bc, cc=cc, dc=dc, period=loop.period, neutral=neutral

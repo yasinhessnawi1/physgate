@@ -71,6 +71,13 @@ PLANT_UNITS: dict[str, str] = {
 #: that at 4,096 per predicate. A plant ranging more is refused, and so is a corner set over more.
 MAX_RANGED = 12
 
+#: Every frozen plant, by the SHA-256 of its file's bytes, with its version. A score is judged
+#: on one of these, and names it; a frozen plant is never edited, so a change is a new version
+#: with a new entry here.
+FROZEN_PLANTS: dict[str, str] = {
+    "c45d089b5d6f8141b8bd15cbd798c27a3cff9df679bbc353ee123189118b05a2": "v0",
+}
+
 #: The parameters the stall current reads (brief criterion 6).
 STALL_INPUTS = ("pack_voltage", "motor_rated_voltage", "motor_stall_current")
 #: The parameters the rigid bodies read: geometry, masses and inertias.
@@ -112,8 +119,9 @@ class _Frozen(BaseModel):
 class Bound(_Frozen):
     """A range narrowed by stability evidence, kept beside the range as sourced or assumed.
 
-    The owner ruled (13.11.2026) that "the real kit balances with the published controller"
-    may bound the plant, as stability evidence only, never as evidence of a margin. The
+    "The real kit balances with the published controller" may bound the plant, as stability
+    evidence only, never as evidence of a margin: the real robot is one point of the ranges,
+    so the evidence rules out only what no combination the ranges allow keeps stable. The
     bound is computed by ``scripts/whole_design_corners.py --bound``, never typed in:
     ``report`` is the SHA-256 of the report it was read from, and ``evidence`` says in plain
     words what bounded the range and names that report.

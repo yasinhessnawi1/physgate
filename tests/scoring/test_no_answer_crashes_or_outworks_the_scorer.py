@@ -250,8 +250,9 @@ def test_a_draft_is_judged_only_when_the_scorer_is_told_so_and_says_draft(tmp_pa
     from physgate.evaluation.whole.plant import PlantError
 
     plant = _plant()
+    (tmp_path / "refused").mkdir()
     with pytest.raises(PlantError, match="not a frozen plant"):
-        _scenario(STATIC_SPECS, plant, _root(tmp_path), draft=False)
+        _scenario(STATIC_SPECS, plant, _root(tmp_path / "refused"), draft=False)
     record = _record(tmp_path, _answer(), STATIC_SPECS[:1], plant, draft=True)
     assert record["plant"]["version"] is None
     assert record["plant"]["status"] == "draft"

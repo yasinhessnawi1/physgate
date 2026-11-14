@@ -275,7 +275,7 @@
   {
     "name": "loop_decay_ignored",
     "file": "src/physgate/evaluation/whole/loop.py",
-    "old": "    d, t = loop.decay, loop.period\n",
+    "old": "    d, t = (1.0 if leak_free(loop) else loop.decay), loop.period\n",
     "new": "    d, t = 1.0, loop.period\n",
     "tests": [
       "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
@@ -379,8 +379,8 @@
   {
     "name": "loop_response_sign",
     "file": "src/physgate/evaluation/whole/loop.py",
-    "old": "    return -command[:, 0, 0]",
-    "new": "    return command[:, 0, 0]",
+    "old": "    out = -command[:, 0, 0]",
+    "new": "    out = command[:, 0, 0]",
     "tests": [
       "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
       "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
@@ -522,8 +522,8 @@
   {
     "name": "sc_nominal_radius",
     "file": "src/physgate/evaluation/whole/scenario.py",
-    "old": "                    corner.values[\"wheel_radius\"],",
-    "new": "                    self._plant.parameters[\"wheel_radius\"].value,",
+    "old": "            values[\"wheel_radius\"],",
+    "new": "            self._plant.parameters[\"wheel_radius\"].value,",
     "tests": [
       "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
       "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
@@ -574,7 +574,7 @@
   {
     "name": "neutral_never",
     "file": "src/physgate/evaluation/whole/loop.py",
-    "old": "    if not loop.incremental or loop.decay != 1.0 or loop.distance == 0.0:\n        return None",
+    "old": "    if not loop.incremental or not leak_free(loop) or loop.distance == 0.0:\n        return None",
     "new": "    if True:\n        return None",
     "tests": [
       "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",
@@ -587,7 +587,7 @@
   {
     "name": "neutral_leaky_too",
     "file": "src/physgate/evaluation/whole/loop.py",
-    "old": "loop.decay != 1.0 or loop.distance",
+    "old": "not leak_free(loop) or loop.distance",
     "new": "loop.decay > 1.0 or loop.distance",
     "tests": [
       "tests/unit/evaluation/whole/test_the_plant_is_sourced_or_an_assumption_with_its_range.py",

@@ -393,7 +393,10 @@ def test_a_delay_is_a_time_from_zero_to_its_bound(
 def test_a_delay_of_any_time_up_to_the_bound_is_taken_sub_sample_included(
     make: Callable[[], dict[str, Any]], field: str, value: float
 ) -> None:
-    read = _taken(_with(make(), ("controller", field), _m(value, "s")))
+    # The other delay is 0: at the bound, the two together are the delay line's fifty periods.
+    other = next(f for f in DELAY_UNITS if f != field)
+    doc = _with(make(), ("controller", other), _m(0, "s"))
+    read = _taken(_with(doc, ("controller", field), _m(value, "s")))
     assert getattr(read.controller, field) == Measure(value=value, unit="s")
 
 
@@ -684,8 +687,6 @@ def test_a_value_too_large_for_a_float_is_a_refused_answer_never_a_crash(
         ("controller", "angle_gain"),
         ("controller", "rate_ratio"),
         ("controller", "speed_gain"),
-        ("parameters", "pwm_frequency"),
-        ("parameters", "encoder_counts_per_wheel_revolution"),
     ],
 )
 def test_a_value_beyond_the_magnitude_bound_is_refused_and_the_bound_itself_is_taken(

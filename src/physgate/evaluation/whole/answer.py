@@ -51,6 +51,12 @@ that guessed what an unknown structure meant would be judging its own guess.
 unit below, and any other spelling, however equivalent, is refused, so no answer is judged
 through a conversion it did not ask for.
 
+**Every number is bounded**, below and above, each bound with its reason
+(:data:`FIELD_BOUNDS`): what the hardware, the reference code or the sample rate can be, or a
+chosen bound where no source fixes one. The two delays together span at most
+:data:`MAX_DELAY_SAMPLES` periods. A value past a bound is refused on reading, so the scorer
+never computes with a period of a day or a delay line of a million states.
+
 ``controller`` is the controller the firmware runs. ``analysed_controller``, when given, is
 the one the design's analysis is shown for; a brief can require the two to be the same, and
 the scorer compares them. ``files`` names module files the answer refers to, by path inside
@@ -63,6 +69,7 @@ from __future__ import annotations
 import os
 import re
 import stat
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -82,9 +89,12 @@ from physgate.evaluation.tiers.base import Measure
 
 #: The largest answer file read: a controller, six settings and a list of paths.
 MAX_ANSWER_BYTES = 64 * 1024
-#: The longest delay accepted, in s: far past any delay a balancing loop survives, and it
-#: keeps the scorer's delay line small.
+#: The longest delay accepted, in s: far past any delay a balancing loop survives.
 MAX_DELAY_SECONDS = 0.5
+#: The most whole periods the total delay may span. The scorer's delay line holds one command
+#: per whole period of the delay, so this caps its states at 51. A chosen bound: the first
+#: form of this answer gave a delay in whole updates, from 0 to this same 50.
+MAX_DELAY_SAMPLES = 50
 #: The largest magnitude any value may have. Far above any setting here (the largest the
 #: reference brief names is a 20 kHz PWM frequency), and small enough that the products and
 #: powers a scorer forms of them stay finite floats. A larger value is refused, as is an
@@ -95,6 +105,113 @@ MAX_MAGNITUDE = 1e12
 MAX_FILES = 64
 #: The longest path to a module file.
 MAX_PATH_LENGTH = 200
+
+
+@dataclass(frozen=True)
+class FieldBound:
+    """The range one numeric field may take, in its unit, and why.
+
+    ``low_open``: the low end itself is refused (a duty, a rate or a scale above 0).
+    """
+
+    low: float
+    high: float
+    reason: str
+    low_open: bool = False
+
+
+_GAIN = FieldBound(
+    -MAX_MAGNITUDE,
+    MAX_MAGNITUDE,
+    "chosen bound: a gain has no bound in the hardware (the linear analysis takes any), and "
+    "within this magnitude every product the scorer forms of it stays a finite float",
+)
+_INT16 = "the reference code declares it int16_t (Balance.h), so it is from -32768 to 32767"
+_LITERAL = (
+    "the reference code writes it as an int literal, 16 bits on the kit's AVR; chosen to that "
+    "range, at least 1 since the code divides by it"
+)
+_PERIOD = (
+    "low: the shortest update the reference code can state (its update time is a whole number "
+    "of ms, at least 1); high, a chosen bound: the body falls with a time constant near 0.14 s, "
+    "so no loop sampled once a second balances it"
+)
+
+#: Every numeric field of an answer, by name, with its bound and the bound's reason.
+FIELD_BOUNDS: dict[str, FieldBound] = {
+    "period": FieldBound(0.001, 1.0, _PERIOD),
+    "update_time": FieldBound(
+        1, 255, "the reference code holds its update time as uint8_t ms (Balance.h); 0 is none"
+    ),
+    "command_limit": FieldBound(0.0, 1.0, "a duty: above 0 and at most 1", low_open=True),
+    "sensor_delay": FieldBound(
+        0.0,
+        MAX_DELAY_SECONDS,
+        "chosen bound: a time, and far past any delay a balancing loop survives",
+    ),
+    "compute_delay": FieldBound(
+        0.0,
+        MAX_DELAY_SECONDS,
+        "chosen bound: a time, and far past any delay a balancing loop survives",
+    ),
+    "angle_gain": _GAIN,
+    "rate_gain": _GAIN,
+    "distance_gain": _GAIN,
+    "speed_gain": _GAIN,
+    "rate_ratio": _GAIN,
+    "angle_decay_per_update": FieldBound(
+        0.0, 1.0, "a leak: it never grows the angle, and 0 would erase it", low_open=True
+    ),
+    "motor_speed_limit": FieldBound(
+        1, 32767, _INT16 + "; at least 1, and at most the PWM full scale"
+    ),
+    "angle_rate_ratio": FieldBound(0, 32767, _INT16 + "; a lead time, never negative"),
+    "angle_response": FieldBound(-32768, 32767, _INT16),
+    "distance_response": FieldBound(-32768, 32767, _INT16),
+    "speed_response": FieldBound(-32768, 32767, _INT16),
+    "gear_ratio_coefficient": FieldBound(1, 32767, _INT16 + "; at least 1, a divisor"),
+    "response_divisor": FieldBound(1, 32767, _LITERAL),
+    "gyro_divisor": FieldBound(1, 32767, _LITERAL),
+    "angle_decay_numerator": FieldBound(1, 32767, _LITERAL),
+    "angle_decay_denominator": FieldBound(1, 32767, _LITERAL),
+    "update_rate": FieldBound(1.0, 1000.0, "the period's bounds, as a rate"),
+    "gyro_output_data_rate": FieldBound(
+        0.0,
+        10_000.0,
+        "chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read",
+        low_open=True,
+    ),
+    "gyro_full_scale": FieldBound(
+        0.0,
+        10_000.0,
+        "chosen bound: above 0, and past the full scale of any gyro offered on the kit",
+        low_open=True,
+    ),
+    "pwm_frequency": FieldBound(
+        0.0,
+        1e6,
+        "chosen bound: above 0, and fifty times the 20 kHz the reference brief names",
+        low_open=True,
+    ),
+    "pwm_full_scale": FieldBound(
+        1, 65535, "the PWM counter's top on the kit's ATmega32U4 Timer1, which counts in 16 bits"
+    ),
+    "encoder_counts_per_wheel_revolution": FieldBound(
+        0.0,
+        1e6,
+        "chosen bound: above 0, and past any encoder on any gear ratio offered for the kit "
+        "(about 1,323 counts on the kit's own)",
+        low_open=True,
+    ),
+    "gyro_sensitivity": FieldBound(
+        0.0,
+        1e4,
+        "chosen bound: above 0, and past the finest sensitivity of any gyro offered on the kit",
+        low_open=True,
+    ),
+}
+
+
 #: One part of a path: ASCII letters, digits, ``_``, ``.`` and ``-``, not starting with a dot,
 #: so neither ``..`` nor a hidden directory (a repository's own ``.git``) is ever a part.
 _PART = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}")
@@ -116,10 +233,20 @@ def _unit(measure: Measure, unit: str, what: str) -> float:
     return float(measure.value)
 
 
-def _positive(measure: Measure, unit: str, what: str) -> float:
+def _bounded(measure: Measure, unit: str, what: str, field: str) -> float:
+    """``measure`` in ``unit``, inside the bound :data:`FIELD_BOUNDS` states for ``field``."""
     value = _unit(measure, unit, what)
-    if not value > 0:
-        msg = f"{what} is {value} {unit}; it is positive"
+    bound = FIELD_BOUNDS[field]
+    above_low = value > bound.low if bound.low_open else value >= bound.low
+    if not (above_low and value <= bound.high):
+        low = "above" if bound.low_open else "from"
+        # A value at or below 0 where the bound is above 0 is named for what it is not.
+        excludes_zero = bound.low > 0 or (bound.low == 0 and bound.low_open)
+        kind = "positive, " if value <= 0 and excludes_zero else ""
+        msg = (
+            f"{what} is {value:g} {unit}; it is {kind}{low} {bound.low:g} to {bound.high:g} "
+            f"{unit} ({bound.reason})"
+        )
         raise ValueError(msg)
     return value
 
@@ -128,17 +255,25 @@ def _whole(value: float) -> bool:
     return value.is_integer()
 
 
-def _integer(measure: Measure, unit: str, what: str, *, least: int | None = None) -> int:
-    """``measure`` as the whole number it must be, in ``unit``, at least ``least`` if given."""
+def _integer(measure: Measure, unit: str, what: str, field: str) -> int:
+    """``measure`` as the whole number it must be, in ``unit``, inside its field's bound."""
     value = _unit(measure, unit, what)
     if not _whole(value):
         msg = f"{what} is {value}; the code holds it as a whole number"
         raise ValueError(msg)
-    if least is not None and value < least:
-        kind = "positive" if least == 1 else f"at least {least}"
-        msg = f"{what} is {value:g} {unit}; it is {kind}"
+    return int(_bounded(measure, unit, what, field))
+
+
+def _delay_line(delays: _Delays, period: float) -> None:
+    """The two delays' sum spans at most :data:`MAX_DELAY_SAMPLES` whole periods."""
+    total = float(delays.sensor_delay.value) + float(delays.compute_delay.value)
+    # A relative allowance for the decimal spelling of a delay that is exactly the cap.
+    if total / period > MAX_DELAY_SAMPLES * (1 + 1e-9):
+        msg = (
+            f"the delays sum to {total:g} s, {total / period:g} periods of {period:g} s; the "
+            f"scorer's delay line holds at most {MAX_DELAY_SAMPLES} periods"
+        )
         raise ValueError(msg)
-    return int(value)
 
 
 class _Delays(_Frozen):
@@ -149,14 +284,8 @@ class _Delays(_Frozen):
 
     @model_validator(mode="after")
     def _delays_are_times(self) -> _Delays:
-        for what, delay in (
-            ("the sensor delay", self.sensor_delay),
-            ("the compute delay", self.compute_delay),
-        ):
-            seconds = _unit(delay, "s", what)
-            if not 0 <= seconds <= MAX_DELAY_SECONDS:
-                msg = f"{what} is {seconds} s; it is a time from 0 to {MAX_DELAY_SECONDS} s"
-                raise ValueError(msg)
+        _bounded(self.sensor_delay, "s", "the sensor delay", "sensor_delay")
+        _bounded(self.compute_delay, "s", "the compute delay", "compute_delay")
         return self
 
 
@@ -168,11 +297,9 @@ class _Loop(_Delays):
 
     @model_validator(mode="after")
     def _timing_is_physical(self) -> _Loop:
-        _positive(self.period, "s", "the period")
-        limit = _unit(self.command_limit, "1", "the command limit")
-        if not 0 < limit <= 1:
-            msg = f"the command limit is {limit}; it is a duty above 0 and at most 1"
-            raise ValueError(msg)
+        period = _bounded(self.period, "s", "the period", "period")
+        _bounded(self.command_limit, "1", "the command limit", "command_limit")
+        _delay_line(self, period)
         return self
 
 
@@ -199,15 +326,17 @@ class IncrementalRisingOffset(_Loop):
 
     @model_validator(mode="after")
     def _gains_in_their_units(self) -> IncrementalRisingOffset:
-        _unit(self.rate_ratio, "s", "the rate ratio")
-        _unit(self.angle_gain, "1/rad", "the angle gain")
-        _unit(self.distance_gain, "1/m", "the distance gain")
-        _unit(self.speed_gain, "s/m", "the speed gain")
+        _bounded(self.rate_ratio, "s", "the rate ratio", "rate_ratio")
+        _bounded(self.angle_gain, "1/rad", "the angle gain", "angle_gain")
+        _bounded(self.distance_gain, "1/m", "the distance gain", "distance_gain")
+        _bounded(self.speed_gain, "s/m", "the speed gain", "speed_gain")
         if self.angle_decay_per_update is not None:
-            decay = _unit(self.angle_decay_per_update, "1", "the angle decay per update")
-            if not 0 < decay <= 1:
-                msg = f"the angle decay per update is {decay}; it is above 0 and at most 1"
-                raise ValueError(msg)
+            _bounded(
+                self.angle_decay_per_update,
+                "1",
+                "the angle decay per update",
+                "angle_decay_per_update",
+            )
         return self
 
 
@@ -222,10 +351,10 @@ class StateFeedback(_Loop):
 
     @model_validator(mode="after")
     def _gains_in_their_units(self) -> StateFeedback:
-        _unit(self.angle_gain, "1/rad", "the angle gain")
-        _unit(self.rate_gain, "s/rad", "the rate gain")
-        _unit(self.distance_gain, "1/m", "the distance gain")
-        _unit(self.speed_gain, "s/m", "the speed gain")
+        _bounded(self.angle_gain, "1/rad", "the angle gain", "angle_gain")
+        _bounded(self.rate_gain, "s/rad", "the rate gain", "rate_gain")
+        _bounded(self.distance_gain, "1/m", "the distance gain", "distance_gain")
+        _bounded(self.speed_gain, "s/m", "the speed gain", "speed_gain")
         return self
 
 
@@ -267,17 +396,27 @@ class NativeRisingOffset(_Delays):
 
     @model_validator(mode="after")
     def _integers_in_their_units(self) -> NativeRisingOffset:
-        _integer(self.update_time, "ms", "the update time", least=1)
-        _integer(self.motor_speed_limit, "count", "the motor speed limit", least=1)
-        _integer(self.angle_rate_ratio, "ms", "the angle rate ratio", least=0)
-        _integer(self.angle_response, "1", "the angle response")
-        _integer(self.distance_response, "1", "the distance response")
-        _integer(self.speed_response, "1", "the speed response")
-        _integer(self.response_divisor, "1", "the response divisor", least=1)
-        _integer(self.gear_ratio_coefficient, "1", "the gear ratio coefficient", least=1)
-        _integer(self.gyro_divisor, "count*s/deg", "the gyro divisor", least=1)
-        numerator = _integer(self.angle_decay_numerator, "1", "the decay numerator", least=1)
-        denominator = _integer(self.angle_decay_denominator, "1", "the decay denominator", least=1)
+        update_time = _integer(self.update_time, "ms", "the update time", "update_time")
+        _integer(self.motor_speed_limit, "count", "the motor speed limit", "motor_speed_limit")
+        _integer(self.angle_rate_ratio, "ms", "the angle rate ratio", "angle_rate_ratio")
+        _integer(self.angle_response, "1", "the angle response", "angle_response")
+        _integer(self.distance_response, "1", "the distance response", "distance_response")
+        _integer(self.speed_response, "1", "the speed response", "speed_response")
+        _integer(self.response_divisor, "1", "the response divisor", "response_divisor")
+        _integer(
+            self.gear_ratio_coefficient,
+            "1",
+            "the gear ratio coefficient",
+            "gear_ratio_coefficient",
+        )
+        _integer(self.gyro_divisor, "count*s/deg", "the gyro divisor", "gyro_divisor")
+        numerator = _integer(
+            self.angle_decay_numerator, "1", "the decay numerator", "angle_decay_numerator"
+        )
+        denominator = _integer(
+            self.angle_decay_denominator, "1", "the decay denominator", "angle_decay_denominator"
+        )
+        _delay_line(self, update_time / 1000.0)
         if numerator > denominator:
             msg = (
                 f"the angle decay is {numerator}/{denominator}; it never grows the angle, so "
@@ -314,23 +453,31 @@ class Parameters(_Frozen):
 
     @model_validator(mode="after")
     def _each_positive_in_its_unit(self) -> Parameters:
-        _positive(self.update_rate, "Hz", "the update rate")
-        _positive(self.gyro_output_data_rate, "Hz", "the gyro's output data rate")
-        _positive(self.gyro_full_scale, "deg/s", "the gyro's full scale")
-        _positive(self.pwm_frequency, "Hz", "the PWM frequency")
-        full_scale = _positive(self.pwm_full_scale, "count", "the PWM full scale")
+        _bounded(self.update_rate, "Hz", "the update rate", "update_rate")
+        _bounded(
+            self.gyro_output_data_rate,
+            "Hz",
+            "the gyro's output data rate",
+            "gyro_output_data_rate",
+        )
+        _bounded(self.gyro_full_scale, "deg/s", "the gyro's full scale", "gyro_full_scale")
+        _bounded(self.pwm_frequency, "Hz", "the PWM frequency", "pwm_frequency")
+        full_scale = _bounded(self.pwm_full_scale, "count", "the PWM full scale", "pwm_full_scale")
         if not _whole(full_scale):
             msg = f"the PWM full scale is {full_scale}; it is a whole number of counts"
             raise ValueError(msg)
         # Not a whole number: counting every edge of a 12-count encoder through a 110.24:1
         # drive gives 1322.9 counts per wheel revolution, and that is the true figure.
-        _positive(
+        _bounded(
             self.encoder_counts_per_wheel_revolution,
             "count",
             "the encoder counts per wheel revolution",
+            "encoder_counts_per_wheel_revolution",
         )
         if self.gyro_sensitivity is not None:
-            _positive(self.gyro_sensitivity, "count*s/deg", "the gyro's sensitivity")
+            _bounded(
+                self.gyro_sensitivity, "count*s/deg", "the gyro's sensitivity", "gyro_sensitivity"
+            )
         return self
 
 
@@ -347,8 +494,8 @@ ModulePath = Annotated[str, AfterValidator(_module_path)]
 class WholeRun(_Frozen):
     """One whole-run answer: the controller, the chosen settings and the files it names.
 
-    Version 2 (13.11.2026) gives the delays as times, adds the native structure and the
-    angle's leak. Version 1, with delays in whole updates, was never released.
+    Version 2 gives the delays as times, adds the native structure and the angle's leak.
+    Version 1, with delays in whole updates, was never released.
     """
 
     form: Literal["whole_run"]

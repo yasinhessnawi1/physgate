@@ -166,7 +166,7 @@ def _judge(
     path = root / "whole_run.json"
     path.write_text(json.dumps(doc))
     scenario = _scenario_module().WholeDesignScenario(
-        _task(specs), plant if plant is not None else _plant(), root=root
+        _task(specs), plant if plant is not None else _plant(), root=root, draft=True
     )
     try:
         record: dict[str, Any] = scenario.record(path)
@@ -377,7 +377,9 @@ def test_an_answer_that_is_not_one_fails_with_its_reason(tmp_path: Path, bad: st
     root = _root(tmp_path)
     path = root / "whole_run.json"
     path.write_text(bad)
-    scenario = _scenario_module().WholeDesignScenario(_task(STATIC_SPECS), _plant(), root=root)
+    scenario = _scenario_module().WholeDesignScenario(
+        _task(STATIC_SPECS), _plant(), root=root, draft=True
+    )
     record = scenario.record(path)
     assert record["answer_valid"] is False
     assert record["outcome"] == "fail"
@@ -388,7 +390,9 @@ def test_an_answer_outside_the_scenario_s_root_fails(tmp_path: Path) -> None:
     root = _root(tmp_path)
     outside = Path(os.path.realpath(tmp_path)) / "whole_run.json"
     outside.write_text(json.dumps(_answer()))
-    scenario = _scenario_module().WholeDesignScenario(_task(STATIC_SPECS), _plant(), root=root)
+    scenario = _scenario_module().WholeDesignScenario(
+        _task(STATIC_SPECS), _plant(), root=root, draft=True
+    )
     assert scenario.score(outside) == "fail"
 
 
@@ -408,7 +412,7 @@ def test_a_task_the_scenario_cannot_judge_is_refused_before_any_answer(
     from physgate.evaluation.tiers.scenario import ScenarioError
 
     with pytest.raises(ScenarioError):
-        module.WholeDesignScenario(_task([spec]), _plant(), root=_root(tmp_path))
+        module.WholeDesignScenario(_task([spec]), _plant(), root=_root(tmp_path), draft=True)
 
 
 def test_a_task_composing_one_requirement_is_refused(tmp_path: Path) -> None:
@@ -420,7 +424,10 @@ def test_a_task_composing_one_requirement_is_refused(tmp_path: Path) -> None:
         _task(STATIC_SPECS, requirements=("c5",))
     with pytest.raises(ScenarioError):
         _scenario_module().WholeDesignScenario(
-            _task(STATIC_SPECS, requirements=("c5", "c5")), _plant(), root=_root(tmp_path)
+            _task(STATIC_SPECS, requirements=("c5", "c5")),
+            _plant(),
+            root=_root(tmp_path),
+            draft=True,
         )
 
 
@@ -431,7 +438,7 @@ def test_a_plant_file_that_is_not_one_is_refused(tmp_path: Path) -> None:
     doc["parameters"].pop("rotor_inertia")
     with pytest.raises(PlantError):
         _scenario_module().WholeDesignScenario(
-            _task(STATIC_SPECS), json.dumps(doc).encode(), root=_root(tmp_path)
+            _task(STATIC_SPECS), json.dumps(doc).encode(), root=_root(tmp_path), draft=True
         )
 
 
@@ -439,7 +446,10 @@ def test_the_scenario_is_a_tier_scenario_composing_its_criteria(tmp_path: Path) 
     from physgate.evaluation.tiers.scenario import Scenario, require_composing
 
     scenario = _scenario_module().WholeDesignScenario(
-        _task(STATIC_SPECS, requirements=("c5", "c9", "c19")), _plant(), root=_root(tmp_path)
+        _task(STATIC_SPECS, requirements=("c5", "c9", "c19")),
+        _plant(),
+        root=_root(tmp_path),
+        draft=True,
     )
     assert isinstance(scenario, Scenario)
     assert require_composing(scenario) is scenario

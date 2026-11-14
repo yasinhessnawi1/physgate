@@ -14,12 +14,28 @@ Its metrics fall into three classes:
 plant's nominal values and at every corner of the ranges of the parameters it reads
 (:mod:`physgate.evaluation.whole.plant`). Where it passes at some and fails at others, it is
 ``unscored``, with the parameters that range and the count at each verdict, never pass or fail.
-A static metric reads no plant parameter, so no range can move it.
+A static metric reads no plant parameter, so no range can move it. **A computed "pass" means
+pass at the nominal values and at every corner of the ranges**; points inside the ranges are
+not searched, so a margin that dips between corners is not seen.
 
 **Outcomes.** ``fail`` when any headline spec fails; otherwise ``unscored`` when any headline
 spec could not be judged; ``pass`` only when every headline spec passes. ``unscored`` is never
 ``fail``. An answer that is not a whole-run answer fails, with its reason; it is never an
-error of the scorer.
+error of the scorer. Nor is an answer the analysis cannot compute with, or one whose analysis
+would cost more than :data:`MAX_WORK`: each fails as a named ``refusal``, the work bound
+decided before any of the work is done.
+
+**The plant judged on.** The scenario judges on a frozen plant (one of
+:data:`~physgate.evaluation.whole.plant.FROZEN_PLANTS`, by digest) unless it is told it judges a
+draft; every record names the plant's version (``None`` for a draft), status and digest.
+
+**What a record holds.** ``plant``; ``answer_valid`` and, when not, ``reason``; ``work``, the
+loop analyses' cost known before they run (``corners``: the parameter sets the loop is analysed
+at, every corner and the nominal set; ``steps``: the most closed-loop evaluations one analysis
+makes; ``states``: the closed loop's state count; ``total``, their product; ``bound``,
+:data:`MAX_WORK`), each a value and its unit; ``refusal``, when the answer was refused by name;
+``specs``, one row per spec, a margin's row with the ``search`` grid its searches used; and
+``outcome``.
 """
 
 from __future__ import annotations
@@ -41,8 +57,10 @@ from physgate.evaluation.whole import loop as loop_module
 from physgate.evaluation.whole.answer import WholeRun, read_whole_run
 from physgate.evaluation.whole.convert import ScaleFactor, SiLoop, coefficients, to_si
 from physgate.evaluation.whole.plant import (
+    FROZEN_PLANTS,
     LOOP_INPUTS,
     STALL_INPUTS,
+    PlantError,
     corners,
     nominal,
     parse_plant,
@@ -79,6 +97,14 @@ METRIC_INPUTS: dict[str, tuple[str, ...]] = {
     "gain_margin_upward": LOOP_INPUTS,
     "gain_margin_downward": LOOP_INPUTS,
 }
+#: The metrics read from the balance loop's analysis.
+LOOP_METRICS = frozenset(m for m, inputs in METRIC_INPUTS.items() if inputs == LOOP_INPUTS)
+#: The most work one score may do, in closed-loop state-evaluations (corners × steps ×
+#: states, :func:`_work`). A chosen bound: an ordinary design (a 10 ms loop, its delay under
+#: one period) on v0's 1,024 corners is about 24 million, some 30 s; this is four times that,
+#: so such a design is judged even on a plant ranging the most parameters allowed (4,096
+#: corners), and no score costs more than a few minutes.
+MAX_WORK = 100_000_000
 #: What every dynamic metric's record says.
 DYNAMIC_REASON = "dynamic: judged only in the dynamic environment, which does not exist yet"
 
@@ -167,11 +193,15 @@ class WholeDesignScenario:
         PlantError: the plant file is not one.
     """
 
-    def __init__(self, task: WholeDesignTask, plant: bytes, *, root: Path) -> None:
+    def __init__(
+        self, task: WholeDesignTask, plant: bytes, *, root: Path, draft: bool = False
+    ) -> None:
         """The scenario of ``task``, judged on the plant file ``plant``, answers in ``root``.
 
         The plant is parsed here from the bytes it is digested from, so the record's digest
-        is the plant's that judged.
+        is the plant's that judged. It is a frozen plant, held to its recorded digest, unless
+        ``draft`` says the caller judges a draft; a draft is then taken only with its status a
+        draft, so an edited frozen plant is never judged.
         """
         for spec in task.specs:
             known = METRICS.get(spec.metric)
@@ -189,6 +219,16 @@ class WholeDesignScenario:
         self._plant = parse_plant(plant)
         self._root = root
         self._plant_digest = hashlib.sha256(plant).hexdigest()
+        self._plant_version = FROZEN_PLANTS.get(self._plant_digest)
+        if draft and self._plant.status != "draft":
+            msg = "the plant is not a frozen plant's file, and its status says it is not a draft"
+            raise PlantError(msg)
+        if not draft and self._plant_version is None:
+            msg = (
+                f"the plant is not a frozen plant: its digest {self._plant_digest} is none of "
+                "the frozen plants', and the scenario was not told it judges a draft"
+            )
+            raise PlantError(msg)
 
     @property
     def id(self) -> str:
@@ -209,28 +249,72 @@ class WholeDesignScenario:
         """The full judgement of the answer at ``answer``, as a plain record."""
         record: dict[str, Any] = {
             "scenario": self.id,
-            "plant": {"status": self._plant.status, "sha256": self._plant_digest},
+            "plant": {
+                "version": self._plant_version,
+                "status": self._plant.status,
+                "sha256": self._plant_digest,
+            },
         }
         try:
             read = read_whole_run(answer, root=self._root)
         except TaskFormatError as exc:
             record.update(answer_valid=False, reason=str(exc), specs=[], outcome="fail")
             return record
-        corner_sets = self._corner_sets(read)
-        rows = [self._row(spec, read, corner_sets) for spec in self._task.specs]
+        record.update(answer_valid=True, structure=read.controller.structure)
+        work = self._work(read)
+        record["work"] = {name: _quantity(value, "1") for name, value in work.items()}
+        record["work"]["bound"] = _quantity(MAX_WORK, "1")
+        if work["total"] > MAX_WORK:
+            reason = (
+                f"the analysis would take {work['total']:,} state-evaluations ({work['corners']} "
+                f"parameter sets, {work['steps']} steps, {work['states']} states), past the "
+                f"bound of {MAX_WORK:,}; refused before any of it"
+            )
+            record.update(refusal={"name": "work_bound", "reason": reason})
+            record.update(specs=[], outcome="fail")
+            return record
+        try:
+            corner_sets = self._corner_sets(read)
+            rows = [self._row(spec, read, corner_sets) for spec in self._task.specs]
+        except loop_module.NUMERICAL_FAILURES as exc:
+            reason = f"the analysis could not compute with the answer: {type(exc).__name__}: {exc}"
+            record.update(refusal={"name": "numerical_failure", "reason": reason})
+            record.update(specs=[], outcome="fail")
+            return record
         headline = [row["verdict"] for row in rows if row["counts"] == "headline"]
         outcome: Outcome = (
             "fail" if "fail" in headline else "unscored" if "unscored" in headline else "pass"
         )
         nominal_corner = corner_sets["nominal"][0]
         record.update(
-            answer_valid=True,
-            structure=read.controller.structure,
             scale_factors=[f.__dict__ for f in nominal_corner.factors],
             specs=rows,
             outcome=outcome,
         )
         return record
+
+    def _radius(self, values: dict[str, float]) -> ScaleFactor:
+        return ScaleFactor(
+            "wheel_radius",
+            values["wheel_radius"],
+            "m",
+            "the plant's wheel_radius: " + self._plant.parameters["wheel_radius"].source,
+        )
+
+    def _work(self, read: WholeRun) -> dict[str, int]:
+        """The loop analyses' work, known before any is done: corners, steps, states, total."""
+        loop = to_si(
+            read.controller, read.parameters, wheel_radius=self._radius(nominal(self._plant))
+        )
+        reads_loop = any(s.metric in LOOP_METRICS for s in self._task.specs)
+        corners = 1 + 2 ** len(ranged(self._plant, LOOP_INPUTS)) if reads_loop else 0
+        steps, states = loop_module.steps(loop), loop_module.states(loop)
+        return {
+            "corners": corners,
+            "steps": steps,
+            "states": states,
+            "total": corners * steps * states,
+        }
 
     def _corner_sets(self, read: WholeRun) -> dict[str, list[_Corner]]:
         sets: dict[str, list[_Corner]] = {"nominal": [_Corner(nominal(self._plant))]}
@@ -240,12 +324,7 @@ class WholeDesignScenario:
             sets[",".join(inputs)] = [_Corner(c) for c in corners(self._plant, inputs)]
         for corner_list in sets.values():
             for corner in corner_list:
-                radius = ScaleFactor(
-                    "wheel_radius",
-                    corner.values["wheel_radius"],
-                    "m",
-                    "the plant's wheel_radius: " + self._plant.parameters["wheel_radius"].source,
-                )
+                radius = self._radius(corner.values)
                 corner.loop = to_si(read.controller, read.parameters, wheel_radius=radius)
                 corner.factors = corner.loop.factors
         return sets
@@ -293,7 +372,8 @@ class WholeDesignScenario:
             )
             return row
         inputs = METRIC_INPUTS[spec.metric]
-        at_nominal = self._computed(spec.metric, read, sets["nominal"][0])
+        nominal_corner = sets["nominal"][0]
+        at_nominal = self._computed(spec.metric, read, nominal_corner)
         values = [self._computed(spec.metric, read, c) for c in sets[",".join(inputs)]]
         held = [_holds(spec, v) for v in values]
         varied = ranged(self._plant, inputs)
@@ -308,10 +388,23 @@ class WholeDesignScenario:
                 "high": _measure(max(values), unit) if not any(map(math.isnan, values)) else None,
             },
         )
+        if spec.metric in LOOP_METRICS:
+            assert nominal_corner.loop is not None
+            row["search"] = loop_module.search_grid(nominal_corner.loop.period)
+        unstable = _unstable_reason(nominal_corner, at_nominal, values)
         if all(held) and _holds(spec, at_nominal):
-            row.update(verdict="pass", reason="passes at the nominal values and every corner")
+            row.update(
+                verdict="pass",
+                reason=(
+                    "passes at the nominal values and at every corner of the ranges; the "
+                    "ranges' interior is not searched"
+                ),
+            )
         elif not any(held) and not _holds(spec, at_nominal):
-            row.update(verdict="fail", reason="fails at the nominal values and every corner")
+            row.update(
+                verdict="fail",
+                reason="fails at the nominal values and at every corner of the ranges" + unstable,
+            )
         else:
             row.update(
                 verdict="unscored",
@@ -321,6 +414,28 @@ class WholeDesignScenario:
                 ),
             )
         return row
+
+
+def _unstable_reason(nominal_corner: _Corner, at_nominal: float, values: list[float]) -> str:
+    """Why a margin has no number, when the loop is unstable somewhere: a clause, or ``""``."""
+    count = sum(math.isnan(v) for v in values)
+    if count == 0 and not math.isnan(at_nominal):
+        return ""
+    where = f"at {count} of {len(values)} corners"
+    if math.isnan(at_nominal):
+        where += " and at the nominal values"
+    clause = f"; the closed loop is unstable {where}, and an unstable loop has no margin"
+    loop = nominal_corner.loop
+    if loop is not None and loop.distance == 0.0:
+        clause += (
+            "; with no distance gain nothing holds the travel, so the plant's travel stays a "
+            "pole at 1 and the loop is never strictly stable"
+        )
+    return clause
+
+
+def _quantity(value: float, unit: str) -> dict[str, Any]:
+    return {"value": value, "unit": unit}
 
 
 def _measure(value: float, unit: str) -> dict[str, Any] | None:
