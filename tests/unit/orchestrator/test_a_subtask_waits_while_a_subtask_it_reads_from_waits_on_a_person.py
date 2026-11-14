@@ -56,6 +56,7 @@ from test_a_pairs_contract_is_tested_once_both_its_modules_merged_and_blocks_not
 from test_a_person_chooses_a_position_only_on_an_arbitration_item import chose
 from test_a_queue_decision_acts_at_a_boundary import NO_VERDICT, _layer, decide
 from test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset import (
+    INSTANT,
     NOON,
     RESETS,
     LimitDispatcher,
@@ -1091,7 +1092,8 @@ def test_a_run_halted_on_the_usage_limit_resumes_after_the_reset_and_still_holds
     rig.dispatcher = LimitDispatcher(
         trajectories=tmp_path / "run" / "sessions",
         infra={4: "usage_limit"},
-        limits={4: UsageLimit(resets=RESETS)},
+        # The reset as the stream's event gives it, so no zone database is needed to read it.
+        limits={4: UsageLimit(resets=RESETS, resets_at=INSTANT)},
     )
     assert first_run(rig, monkeypatch, budget=True) == "halted"
     rows = lines(rig)
