@@ -20,6 +20,7 @@ from loop_fakes import FakeDispatcher, Rig, plan
 from test_a_declared_quantity_no_landed_parts_write_wrote_halts_the_run import (
     FORGED,
     HONEST,
+    RECORD,
     Journal,
     declared,
     events,
@@ -68,8 +69,23 @@ def test_a_later_line_that_keeps_the_declared_quantity_and_adds_its_own_holds() 
         node("control.motor", {"stall_current": q(1.0, "A")}),
         node("control.motor", {"mass": declared(0.9, "kg")}),
         node("control.motor", {"mass": q(0.4, "kg")}),
+        node("control.motor", {"mass": declared(0.4, "g")}),
+        node("control.motor", {"mass": declared(0.4, "kg") | {"source": "datasheet"}}),
+        node(
+            "control.motor",
+            {"mass": declared(0.4, "kg") | {"declared": {**RECORD, "operator": "another"}}},
+        ),
+        node("control.motor", {"mass": declared(0.4, "kg") | {"written_by": "mechanical"}}),
     ],
-    ids=["dropped", "value-changed", "record-dropped"],
+    ids=[
+        "dropped",
+        "value-changed",
+        "record-dropped",
+        "unit-changed-value-kept",
+        "source-changed-value-kept",
+        "record-changed-value-kept",
+        "writer-changed-value-kept",
+    ],
 )
 def test_a_later_line_that_changes_or_drops_the_declared_quantity_is_named(
     later: dict[str, Any],
