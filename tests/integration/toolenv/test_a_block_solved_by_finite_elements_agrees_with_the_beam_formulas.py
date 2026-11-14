@@ -195,6 +195,13 @@ def test_the_reactions_sum_to_the_applied_load_within_a_part_in_a_million(
     if case == "simply_supported":
         each = _value(result, "values", "reaction_force_at_each_support")
         assert sum(each) == pytest.approx(reaction[2], rel=1e-9)
+        # Each share is summed over its own support's edge: the start and the end of the span,
+        # read off the nodes it was summed over (the load is symmetric, so the shares alone
+        # cannot tell the two edges apart).
+        span = _value(result, "inputs", "span")
+        where = result["values"]["reaction_force_at_each_support"]["at"]
+        assert where["unit"] == "m"
+        assert where["value"] == pytest.approx([0.0, span], abs=1e-12)
         for share in each:
             assert abs(share - load / 2) <= REACTIONS_AGREE * load
     else:
