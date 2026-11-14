@@ -101,6 +101,10 @@ def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
         "held_out_sha256": [],
         "network": "open",
         "design_review": "off",
+        "ablation": False,
+        "reviewers": "paired",
+        "skills": "on",
+        "hooks": "on",
         **extra,
     }
     params = {k: v for k, v in params.items() if v is not _DROP}

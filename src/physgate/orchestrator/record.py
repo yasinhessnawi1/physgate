@@ -538,6 +538,11 @@ class RunRecord:
             escalation_backend=self.config.escalation_backend,
             queue_decisions=self._said()[0],
             design_review=self._said()[1],
+            # Each named only where the run differs from what every run before the switch did.
+            reviewers=None if self.config.reviewers == "paired" else self.config.reviewers,
+            skills=None if self.config.skills == "on" else self.config.skills,
+            hooks=None if self.config.hooks == "on" else self.config.hooks,
+            ablation=True if self.config.ablation else None,
             producer_wait=PRODUCER_WAIT if self._said()[0] == "act" else None,
         )
         calls = [*(one.call for one in earlier), *((call,) if call is not None else ())]

@@ -40,6 +40,10 @@ def test_a_reviewer_on_the_recorded_implementer_s_string_is_refused_whatever_the
     # reviewer has moved onto the string the record names.
     loop.config = make_config(
         os_layer_absent="allow",  # as the rig's own configuration allows
+        reviewers="paired",
+        skills="on",
+        hooks="on",
+        ablation=False,
         design_review="off",
         models=ModelStrings(
             decomposition=RECORDED,

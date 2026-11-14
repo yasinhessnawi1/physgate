@@ -214,6 +214,15 @@ class RunStarted(_Event):
     #: hold every dispatch to the review's line, and but under ``observe`` to the person's decision
     #: on a plan it did not pass; left out of a run that does not, so its line keeps its bytes.
     design_review: Literal["observe", "on", "repair:1", "repair:2", "repair:3"] | None = None
+    #: ``generalist`` or ``off`` in a run whose role work is not reviewed by the paired
+    #: specialists; left out of a run reviewed by them, so its line keeps its bytes.
+    reviewers: Literal["generalist", "off"] | None = None
+    #: ``off`` in a run whose role sessions are not given their skill file; left out otherwise.
+    skills: Literal["off"] | None = None
+    #: ``off`` in a run whose role sessions run without the design discipline; left out otherwise.
+    hooks: Literal["off"] | None = None
+    #: ``True`` in an ablation run, which is never reportable; left out of every other run.
+    ablation: Literal[True] | None = None
     #: ``hold`` in a run that acts on decisions and was started under the rule that a subtask's
     #: first dispatch waits while a subtask it reads from waits on a person; replay then refuses
     #: such a dispatch with no hold or release line before it. Left out of every other run, so a
@@ -223,7 +232,15 @@ class RunStarted(_Event):
     @model_serializer(mode="wrap")
     def _omit_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
-        for absent in ("queue_decisions", "design_review", "producer_wait"):
+        for absent in (
+            "queue_decisions",
+            "design_review",
+            "reviewers",
+            "skills",
+            "hooks",
+            "ablation",
+            "producer_wait",
+        ):
             if getattr(self, absent) is None:
                 data.pop(absent, None)
         return data
