@@ -36,6 +36,7 @@ from typing import Any
 from physgate.evaluation.per_role.answer import MAX_ANSWER_BYTES
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.task import Task
+from physgate.hooks.config import SessionConfig  # noqa: F401 - red scaffold
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.credentials import (
     Credential,
@@ -56,7 +57,7 @@ from physgate.orchestrator.dispatch import (
     spawn_held,
     write_record,
 )
-from physgate.orchestrator.invocation import isolated_env, role_argv
+from physgate.orchestrator.invocation import NO_TOOL_SERVERS, isolated_env, role_argv
 from physgate.orchestrator.processes import kill_own, stop_tree
 from physgate.orchestrator.role_python import RolePython, session_bin
 from physgate.orchestrator.run_config import (
@@ -64,11 +65,19 @@ from physgate.orchestrator.run_config import (
     Network,
     RunBounds,
     ThinkingDisplay,
+    ToolServers,
     endpoint_of,
+)
+from physgate.orchestrator.tool_environment import forbidden_places  # noqa: F401 - red scaffold
+from physgate.oslayer.containment import (  # noqa: F401 - red scaffold
+    ServerLaunch,
+    contained_servers,
+    wrappers,
 )
 from physgate.oslayer.probe import Absent, Present
 from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SessionEnd, await_session
+from physgate.toolenv.record import ToolEnvironment
 
 #: How often the watcher reads the stream.
 WATCH_S = 0.5
@@ -129,6 +138,25 @@ class RawSetup:
     #: own directory there. Empty for the raw arm.
     write_protected: tuple[str, ...] = ()
     writable_within: tuple[str, ...] = ()
+    tool_environment: ToolEnvironment | None = None
+    tool_servers: ToolServers | None = None
+
+
+def server_launches_for(setup: RawSetup) -> tuple[ServerLaunch, ...]:
+    """Red scaffold."""
+    return ()
+
+
+def contained_servers_for(
+    setup: RawSetup,
+    launches: tuple[ServerLaunch, ...],
+    config_file: Path,
+    sdir: Path,
+    own_temp: Path,
+    env: dict[str, str],
+) -> tuple[str, tuple[str, ...]]:
+    """Red scaffold."""
+    return NO_TOOL_SERVERS, ()
 
 
 def stream_total(stream: Path) -> int:
