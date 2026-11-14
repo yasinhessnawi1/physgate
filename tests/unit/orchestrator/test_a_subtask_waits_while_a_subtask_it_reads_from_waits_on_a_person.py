@@ -762,7 +762,7 @@ def test_a_reader_stays_held_until_both_of_its_producers_items_are_decided(
     # whose review gives none either: a second item. fw waits through both.
     rig = rigged(tmp_path)
     rig.reviewer.verdicts[:] = []
-    rig.reviewer.unavailable.update({1: NO_VERDICT, 2: NO_VERDICT})  # type: ignore[attr-defined]
+    rig.reviewer.unavailable.update({1: NO_VERDICT, 2: NO_VERDICT})
     assert first_run(rig, monkeypatch, budget=False) == "wait"
     first = drive_item(lines(rig))
     decide(rig.run_dir, "reject", "take the gain from the table", item_id=first)
@@ -787,7 +787,7 @@ def test_a_producer_that_halts_holds_nothing_and_its_reader_is_never_dispatched(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = rigged(tmp_path)
-    rig.dispatcher.infra[1] = "disk_full"  # type: ignore[attr-defined]
+    rig.dispatcher.infra[1] = "disk_full"
     assert first_run(rig, monkeypatch, budget=False) == "halted"
     rows = lines(rig)
     assert requests_of(rig, FW) == []
