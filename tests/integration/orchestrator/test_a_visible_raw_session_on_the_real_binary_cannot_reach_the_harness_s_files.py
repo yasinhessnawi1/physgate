@@ -84,7 +84,7 @@ class Attempts:
     first: Path
     marker: str
     score: bytes
-    #: What the second session's hidden shell listed and read into its own place.
+    #: What the second session's hidden shell listed and read, written into its own worktree.
     listed: str
     read: str
 
@@ -142,8 +142,8 @@ def _round(root: Path, install_bin: Path) -> Attempts:
         'cd "{cwd}/../.." && d=$(printf "har%s" ness) && echo planted > "$d/planted-by-shell"'
     )
     hidden_word = (
-        f'ls -a {_hidden(out)} {_hidden(out / "work")} > "{{cwd}}/../listed.txt" 2>&1; '
-        f'cat {_hidden(sibling_marker)} {_hidden(sibling_score)} > "{{cwd}}/../read.txt" 2>&1'
+        f'ls -a {_hidden(out)} {_hidden(out / "work")} > "{{cwd}}/listed.txt" 2>&1; '
+        f'cat {_hidden(sibling_marker)} {_hidden(sibling_score)} > "{{cwd}}/read.txt" 2>&1'
     )
     # The first session answers and leaves a marked file; it attempts nothing.
     answering = [
@@ -237,7 +237,8 @@ def _round(root: Path, install_bin: Path) -> Attempts:
     place = trial / PLACE
 
     def text_of(name: str) -> str:
-        return (place / name).read_text(errors="replace") if (place / name).is_file() else ""
+        made = place / "worktree" / name
+        return made.read_text(errors="replace") if made.is_file() else ""
 
     return Attempts(
         place=place,
@@ -307,6 +308,8 @@ def test_a_visible_session_reads_and_lists_nothing_of_a_finished_trial_or_the_ro
         assert attempts.score.decode() not in result, "the second session read the first's score"
     assert "0000-1" not in attempts.results[5], "the second session listed the round's work"
     assert "SIBLING-TRIED" in attempts.results[6]
+    # The shell ran and wrote what it met into its own worktree: the refusals, nothing else.
+    assert attempts.listed and attempts.read, "the hidden shell wrote nothing into its place"
     assert "0000-1" not in attempts.listed and "trials.jsonl" not in attempts.listed
     assert attempts.marker not in attempts.read
     assert attempts.score.decode() not in attempts.read
