@@ -34,6 +34,7 @@ ROWS = (
     "tests/unit/orchestrator/test_a_refused_call_is_named_for_what_it_was.py",
     "tests/unit/orchestrator/test_a_later_item_merges_once_an_earlier_refused_attempt_s_hits_are_judged.py",
     "tests/unit/orchestrator/test_an_earlier_hit_is_judged_only_by_a_confirmed_or_dismissed_answer_naming_its_attempt.py",
+    "tests/unit/orchestrator/test_a_review_judges_only_the_earlier_hits_its_packet_showed.py",
 )
 UI_ROWS = ("src/screens/queue/consequence.test.tsx",)
 PROMPT_ROWS = (
@@ -186,6 +187,9 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
     ("replay-trusts-judged", "8", REP,
      "if tuple(named) != judged_attempts(event.earlier_hits, event.result.indicators):",
      "if False:"),
+    ("shown-without-scan", "9", LOOP,
+     "            if indicator_scan_runs(artefact)\n            else ()\n",
+     "            if True\n            else ()\n"),
 )  # fmt: skip
 
 UI_MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (

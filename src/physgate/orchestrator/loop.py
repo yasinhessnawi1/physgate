@@ -228,7 +228,7 @@ from physgate.orchestrator.replay import (
 )
 from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
 from physgate.orchestrator.trajectory import read_sealed
-from physgate.reviewers.packet import fits_one_read, person_order_text
+from physgate.reviewers.packet import fits_one_read, indicator_scan_runs, person_order_text
 from physgate.reviewers.scan import (
     REFUSED_NAMES,
     REFUSED_WRITE,
@@ -2459,7 +2459,13 @@ class Loop:
         # An earlier attempt is judged only where the verdict confirmed or dismissed every one of
         # its hits, by answers naming it: a reviewer that left one unanswered or only noted it
         # judged none of that attempt, which stays unjudged. The line records what it was shown.
-        shown = tuple(hit for _, hits in earlier for hit in hits)
+        # Only the hits its packet carried: where the attempt is a written account the scan is not
+        # run, the packet shows no earlier hit, and a review cannot have judged one.
+        shown = (
+            tuple(hit for _, hits in earlier for hit in hits)
+            if indicator_scan_runs(artefact)
+            else ()
+        )
         self._emit(
             ReviewRan(
                 **self._env(),
