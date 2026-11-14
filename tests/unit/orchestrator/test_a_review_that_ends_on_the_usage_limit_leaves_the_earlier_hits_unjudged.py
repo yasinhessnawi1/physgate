@@ -12,11 +12,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from loop_fakes import FakeReviewer, plan
-from test_a_review_judges_only_the_earlier_hits_its_packet_showed import answer
 from test_a_usage_limit_is_its_own_cause_and_the_run_waits_for_its_reset import (
     NOON,
     _limited_review,
     clock,  # noqa: F401 - the fixture that sets the rig's clock
+)
+from test_an_earlier_hit_is_judged_only_by_a_confirmed_or_dismissed_answer_naming_its_attempt import (  # noqa: E501
+    answer,
 )
 from test_an_unreviewed_attempt_s_scan_hits_go_to_the_next_review import (
     _layer,
