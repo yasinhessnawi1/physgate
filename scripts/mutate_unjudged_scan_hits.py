@@ -32,7 +32,7 @@ ROWS = (
     "tests/unit/orchestrator/test_a_run_recorded_before_judged_earlier_hits_replays_as_it_did.py",
     "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
     "tests/unit/orchestrator/test_a_refused_call_is_named_for_what_it_was.py",
-    "tests/unit/orchestrator/test_run_10_s_control_item_merges_once_attempt_1_s_hits_are_judged.py",
+    "tests/unit/orchestrator/test_a_later_item_merges_once_an_earlier_refused_attempt_s_hits_are_judged.py",
     "tests/unit/orchestrator/test_an_earlier_hit_is_judged_only_by_a_confirmed_or_dismissed_answer_naming_its_attempt.py",
 )
 UI_ROWS = ("src/screens/queue/consequence.test.tsx",)

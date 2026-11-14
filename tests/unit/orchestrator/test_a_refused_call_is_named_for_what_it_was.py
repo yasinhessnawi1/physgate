@@ -1,13 +1,13 @@
 """A call the hook layer refused for a protected path is named for what the call was.
 
 The scan before review counts a call the hook layer refused because its path is protected: an
-attempt to reach what judges the work. It said "a write" of every one, and run 10's items said so
+attempt to reach what judges the work. It said "a write" of every one, and the items said so
 of a refused ``Read`` and of shell commands that only read or listed. A refused read is now
 named a read, a refused shell command a shell command naming the path, and a refused write a
 write, as before; the hit still counts exactly as it did. An item listed before, which named
 every refused call a write, is taken as it was listed.
 
-The streams below are run 10's control attempt 1 in shape: eleven hits, six lint suppressions
+The streams below are a refused attempt in shape: eleven hits, six lint suppressions
 (five ``# noqa: E402`` on the import that reaches the series writer, one ``# noqa: BLE001``) and
 five shell commands the hook refused for naming a protected path, four of them reads or listings.
 """
@@ -65,7 +65,7 @@ def _shell_refused(call: str, command: str, path: str) -> list[str]:
     return [_use(call, "Bash", command=command), _result(call, said, error=True)]
 
 
-def run10_attempt1() -> str:
+def eleven_hit_attempt() -> str:
     """Control attempt 1's tool calls that the scan flags, as its two sessions made them."""
     lines: list[str] = []
     for n in range(1, 5):
@@ -91,8 +91,8 @@ def run10_attempt1() -> str:
 # -- the scan --------------------------------------------------------------------------------------
 
 
-def test_run_10_s_attempt_1_shows_eleven_hits_each_named_for_what_it_was() -> None:
-    hits = scan(run10_attempt1())
+def test_an_attempt_with_eleven_hits_shows_them_each_named_for_what_it_was() -> None:
+    hits = scan(eleven_hit_attempt())
     assert len(hits) == 11
     assert Counter(h.what for h in hits) == {LINT: 6, SHELL: 5}
     assert {h.evidence for h in hits if h.what == SHELL} == {"r1", "r2", "r3", "r4", "r5"}
@@ -133,15 +133,15 @@ def test_a_refusal_of_a_call_the_stream_does_not_show_still_counts() -> None:
 
 
 @dataclass
-class Run10Dispatcher(SkippingDispatcher):
-    """Attempt 1's stream is run 10's control attempt 1; every other attempt's is as before."""
+class ElevenHitDispatcher(SkippingDispatcher):
+    """Attempt 1's stream is the refused attempt's; every other attempt's is as before."""
 
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         report = super().run(request, on_spawn)
         if request.attempt != 1 or report.trajectory is None:
             return report
         path = Path(report.trajectory)
-        path.write_bytes(run10_attempt1().encode() + path.read_bytes())
+        path.write_bytes(eleven_hit_attempt().encode() + path.read_bytes())
         return report.model_copy(update={"trajectory_seal": seal(path.read_bytes())})
 
 
@@ -149,7 +149,7 @@ def test_the_item_names_attempt_1_s_hits_for_what_each_call_was(tmp_path: Path) 
     run_dir = tmp_path / "run"
     rig = _rig(
         run_dir,
-        dispatcher=Run10Dispatcher(trajectories=run_dir / "sessions"),
+        dispatcher=ElevenHitDispatcher(trajectories=run_dir / "sessions"),
         reviewer=FakeReviewer(unavailable={1: NO_VERDICT}),
     )
     _run(rig, "s1")
@@ -165,7 +165,7 @@ def test_an_item_listed_before_that_named_every_refusal_a_write_is_taken_as_list
     run_dir = tmp_path / "run"
     rig = _rig(
         run_dir,
-        dispatcher=Run10Dispatcher(trajectories=run_dir / "sessions"),
+        dispatcher=ElevenHitDispatcher(trajectories=run_dir / "sessions"),
         reviewer=FakeReviewer(unavailable={1: NO_VERDICT}),
     )
     _run(rig, "s1")
