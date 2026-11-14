@@ -461,6 +461,12 @@ class RunConfig(_Frozen):
     #: environment and taken from the register, never from the parameters. ``None`` for a run
     #: that names none, which is what a run recorded before the field existed did.
     tool_servers: ToolServers | None
+    #: Whether the sessions' settings deny the binary's search tool, read from the harness's
+    #: deny lists when the run is configured, never from the parameters. Denied, the binary
+    #: offers every tool directly; offered, it holds tools back behind the search step and, on
+    #: 2.1.322, sends that step's beta flag, so the defaults a run's manifest carries follow it.
+    #: ``offered`` for a run recorded before the field existed, which is what its sessions had.
+    tool_search: Literal["offered", "denied"]
     #: The Claude Code binary the run executes, measured when it is configured and again each
     #: time it is driven: the same version string can name other bytes on another platform, or
     #: after a replacement. ``None`` only on a run recorded before the field existed.
@@ -604,8 +610,9 @@ class RunConfig(_Frozen):
         ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``,
         ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off``, ``reviewers`` when
         ``paired``, ``skills`` and ``hooks`` when ``on``, ``ablation`` when ``False``,
-        ``tool_environment`` and ``tool_servers`` when ``None``, and ``binary`` and ``account``
-        when ``None``, so their recorded digests still name them. A run that names a binding
+        ``tool_environment`` and ``tool_servers`` when ``None``, ``tool_search`` when
+        ``offered``, and ``binary`` and ``account`` when ``None``, so their recorded digests
+        still name them. A run that names a binding
         always records it, so the binding is part of its manifest id.
         """
         exclude = set()
@@ -643,6 +650,8 @@ class RunConfig(_Frozen):
             exclude.add("tool_environment")
         if self.tool_servers is None:
             exclude.add("tool_servers")
+        if self.tool_search == "offered":
+            exclude.add("tool_search")
         exclude |= {
             name for name, before in BEFORE_THE_SWITCH.items() if getattr(self, name) == before
         }
@@ -778,6 +787,8 @@ def load_run_config(path: Path) -> RunConfig:
         ("tool_environment", None),
         # Recorded before the field existed: no session was offered a tool server.
         ("tool_servers", None),
+        # Recorded before the field existed: the sessions' settings left the search tool offered.
+        ("tool_search", "offered"),
         # Recorded before the switches existed: paired reviewers, the skill file and the design
         # discipline were all there, and no run was an ablation.
         *BEFORE_THE_SWITCH.items(),

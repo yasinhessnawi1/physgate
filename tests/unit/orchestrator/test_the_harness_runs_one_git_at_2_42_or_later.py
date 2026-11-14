@@ -262,6 +262,7 @@ def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
         "role_python": None,
         "tool_environment": None,
         "tool_servers": None,
+        "tool_search": "denied",
         "escalation_backend": "rules",
         "queue_decisions": "record",
         # The stand-in binary predates the layer's pin: allowed absent, for development.

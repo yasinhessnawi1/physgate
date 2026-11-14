@@ -35,7 +35,7 @@ provider changing the model behind an unchanged string.
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -53,6 +53,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.toolenv.record import ToolEnvironment
 
 #: Refused when they differ, in the order they are named: what answered the run, then what it
 #: was asked and from where. Each kind of model string has its own entry.
@@ -79,6 +80,9 @@ DRIFT: tuple[str, ...] = (
     # run with tools and one without were not asked the same thing.
     "tool_environment",
     "tool_servers",
+    # Whether the sessions were denied the binary's search tool: denied, every tool is offered
+    # directly; offered, tools are held back behind the search step.
+    "tool_search",
 )
 
 #: Reported when they differ, never refused: what an ablation varies on purpose.
@@ -180,6 +184,41 @@ class SideBySide(_Frozen):
     differs_in: tuple[str, ...]
 
 
+def _normal(environment: ToolEnvironment | None) -> dict[str, Any] | None:
+    """A tool environment's record with each path relative to the root that holds it.
+
+    Two machines running the same environment place it at other roots, so absolute paths are
+    not identity: what is compared is the digest over every file, the counts, the
+    interpreter's version, every distribution and every tool's version, and where each path
+    lies inside the environment. A path outside every root is another program, kept as named.
+    """
+    if environment is None:
+        return None
+    roots = [PurePosixPath(root) for root in environment.roots]
+
+    def where(path: str) -> str:
+        for index, root in enumerate(roots):
+            if PurePosixPath(path).is_relative_to(root):
+                return f"{index}:{PurePosixPath(path).relative_to(root)}"
+        return path
+
+    return {
+        "interpreter": where(environment.interpreter),
+        "resolved": where(environment.resolved),
+        "python_version": environment.python_version,
+        "prefix": where(environment.prefix),
+        "distributions": [d.model_dump() for d in environment.distributions],
+        "native_tools": [
+            {**t.model_dump(), "path": where(t.path), "resolved": where(t.resolved)}
+            for t in environment.native_tools
+        ],
+        "roots": len(roots),
+        "manifest_digest": environment.manifest_digest,
+        "entries": environment.entries,
+        "total_bytes": environment.total_bytes,
+    }
+
+
 def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
     """Every field of :data:`DRIFT` the candidate does not share with the baseline, by path.
 
@@ -189,7 +228,11 @@ def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
     drifted = []
     for path in DRIFT:
         mine, theirs = _at(baseline, path), _at(candidate, path)
-        if isinstance(mine, dict) and isinstance(theirs, dict):
+        if path == "tool_environment":
+            mine, theirs = _normal(mine), _normal(theirs)
+            if mine != theirs:
+                drifted.append(path)
+        elif isinstance(mine, dict) and isinstance(theirs, dict):
             drifted += [
                 f"{path}.{key}"
                 for key in sorted(mine.keys() | theirs.keys())

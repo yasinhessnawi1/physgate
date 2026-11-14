@@ -159,6 +159,9 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "tool_environment.total_bytes": "required",
     # Recorded with a tool environment alone: the servers its role sessions were offered. The
     # raw arm is offered none, so a harness run that records them is named.
+    # Read from the deny lists both arms' settings come from (the baseline profile denies the
+    # search tool as every profile does), never a parameter of either arm.
+    "tool_search": "not_compared",
     "tool_servers": "required",
     "tool_servers.profiles": "required",
     "tool_servers.max_output_tokens": "required",

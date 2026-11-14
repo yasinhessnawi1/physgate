@@ -285,6 +285,7 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
                     "network_enforced": None,
                     # Taken from the register, and null for a run naming no tool environment.
                     "tool_servers": None,
+                    "tool_search": "denied",
                     # Measured by the command, never taken from the parameters: the
                     # parameters name the account, the command adds its fingerprint.
                     "binary": None,

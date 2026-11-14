@@ -125,6 +125,8 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         "skills": "on",
         "hooks": "on",
         "ablation": False,
+        # What the sessions' settings do today: the search tool is denied.
+        "tool_search": "denied",
         "design_review": "off",
         "held_out": (),
         "held_out_canaries": (),

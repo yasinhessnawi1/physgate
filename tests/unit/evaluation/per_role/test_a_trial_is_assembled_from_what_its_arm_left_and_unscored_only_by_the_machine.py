@@ -56,6 +56,7 @@ def _config(**changes: Any) -> RunConfig:
         os_layer=None,
         network_enforced=None,
         tool_servers=None,
+        tool_search="denied",
         # As the command records them: the bytes it measured, and the account by its name
         # and the fingerprint of the credential it was given.
         binary={"sha256": "d" * 64, "platform": "linux-x64"},

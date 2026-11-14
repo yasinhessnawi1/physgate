@@ -37,6 +37,7 @@ from physgate.evaluation.inject.runner import CONFIG_NAME as INSTRUMENT_CONFIG_N
 from physgate.evaluation.inject.runner import CONTROLS_DIRNAME as INSTRUMENT_CONTROLS_DIRNAME
 from physgate.evaluation.inject.runner import InstrumentConfig
 from physgate.gate.exceptions import GateError
+from physgate.hooks.settings import session_tool_search
 from physgate.knowledge.library import LibraryError, read_library
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.orchestrator import binaries
@@ -618,6 +619,8 @@ def _config(args: argparse.Namespace, credential: Credential | None) -> RunConfi
             else None
         ),
         "binary": binary.model_dump(),
+        # Read from the deny the sessions' settings carry, never from the parameters.
+        "tool_search": session_tool_search(),
     }
     if "account" in params:
         # Runs may be spread over several accounts: the parameters name the one this run draws

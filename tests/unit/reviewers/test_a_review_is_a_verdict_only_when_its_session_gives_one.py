@@ -261,6 +261,7 @@ def _config() -> RunConfig:
         role_python=None,
         tool_environment=None,
         tool_servers=None,
+        tool_search="denied",
         git_binary=None,
         escalation_backend="rules",
         queue_decisions="record",

@@ -128,6 +128,18 @@ PROFILE_DENIED: Mapping[Profile, tuple[str, ...]] = {
     "baseline": _DENIED,
 }
 
+
+def session_tool_search() -> Literal["offered", "denied"]:
+    """Whether the sessions' settings deny the binary's search tool, as a run records it.
+
+    Read from :data:`PROFILE_DENIED`, never from a run's parameters: ``denied`` while every
+    profile denies it. What a pin sends depends on it (the search tool's beta flag on 2.1.322),
+    so a run's manifest reads the defaults measured for the setting the run recorded.
+    """
+    every = all(TOOL_SEARCH in denied for denied in PROFILE_DENIED.values())
+    return "denied" if every else "offered"
+
+
 #: The events on which Claude Code applies a tool matcher.
 _TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure"}
 

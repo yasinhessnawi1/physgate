@@ -259,7 +259,7 @@ def test_a_run_records_the_search_tool_s_setting_from_the_profiles_deny(
 
     recorded = getattr(module, "session_tool_search", lambda: None)
     assert recorded() == "denied"
-    monkeypatch.setitem(module.PROFILE_DENIED, "baseline", ("WebFetch", "WebSearch"))  # type: ignore[index]
+    monkeypatch.setitem(module.PROFILE_DENIED, "baseline", ("WebFetch", "WebSearch"))
     assert recorded() == "offered"
 
 
