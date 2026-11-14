@@ -389,6 +389,8 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
     ]
     if not config.reportable:
         found.append("reportable: the harness run is not reportable; no baseline is held to it")
+    if config.ablation:
+        found.append("ablation: the harness run is an ablation run; no baseline is held to it")
     if not config.harness.clean:
         found.append("harness: the harness run's checkout was not clean")
     if hashlib.sha256(task.brief.encode()).hexdigest() != config.brief_sha256:

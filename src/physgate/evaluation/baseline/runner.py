@@ -15,9 +15,11 @@ credential), whose run does not withhold the protected places of every role's ro
 store or did not look for the version's protected canaries and those listed under every
 role's root in the store (the raw session withholds exactly what its run did, and looks
 for what it looked for), or
-whose run's token account cannot give a cap (:func:`.arms.compare.harness_total`); and,
-unless the round is a development one, a harness run that is not reportable or not from a
-clean checkout.
+whose run is an ablation run (never a baseline trial, in a development round too), whose
+run executed another build of the session binary than another run of the set that recorded
+one (the account is never compared), or whose run's token account cannot give a cap
+(:func:`.arms.compare.harness_total`); and, unless the round is a development one, a
+harness run that is not reportable or not from a clean checkout.
 
 **Each trial** runs the raw arm once (:func:`.arms.raw.run_raw`) under a setup derived from
 the harness run's own record (:func:`setup_from_run`), capped at that run's total, every class
@@ -126,6 +128,7 @@ from physgate.evaluation.tiers.task import (
     canonical_json,
     parse_task,
 )
+from physgate.orchestrator.binaries import ClaudeBinary
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.exceptions import RunConfigError
 from physgate.orchestrator.role_python import RolePython
@@ -343,6 +346,7 @@ def plan(
     of_what = "this version" if version is not None else "this external set"
     planned: list[Planned] = []
     seen: set[tuple[str, int]] = set()
+    binary_seen: ClaudeBinary | None = None
     for index, entry in enumerate(runs.trials):
         where = {"entry": str(index)}
         key = (os.path.realpath(entry.run_dir), entry.trial)
@@ -366,6 +370,11 @@ def plan(
             msg = f"the harness run was given no task of {of_what}"
             raise BaselineError(msg, **where)
         tier, task = found
+        if config.ablation:
+            # Never reportable, which a development round forgives; its own kind it does not:
+            # an ablation run's numbers are of a harness with a part taken away.
+            msg = "the harness run is an ablation run; no baseline is held to one"
+            raise BaselineError(msg, **where)
         if not development and not (config.reportable and config.harness.clean):
             msg = (
                 "the harness run is not reportable or not from a clean checkout; no baseline "
@@ -377,6 +386,13 @@ def plan(
         except ComparisonError as exc:
             msg = f"the harness run's token account gives no cap: {exc}"
             raise BaselineError(msg, **where) from None
+        if config.binary is not None:
+            if binary_seen is not None and binary_seen != config.binary:
+                # Master's comparison rule: the binary's bytes and platform are held equal
+                # where both runs recorded them; one that recorded none is not held to it.
+                msg = "the harness runs executed different builds of the session binary"
+                raise BaselineError(msg, **where, refused_because="binary")
+            binary_seen = config.binary
         planned.append(Planned(index, entry, config, task, tier, cap))
     return source, planned
 
