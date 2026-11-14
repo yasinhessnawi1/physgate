@@ -54,11 +54,7 @@ from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
-from physgate.orchestrator.budget import (
-    DISK_FULL_BELOW_BYTES,
-    WRITES_LOST_VERSIONS,
-    classify_session_end,
-)
+from physgate.orchestrator.budget import DISK_FULL_BELOW_BYTES, WRITES_LOST_VERSIONS
 from physgate.orchestrator.canaries import canary_seen, redact_text
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.credentials import (
@@ -147,6 +143,7 @@ from physgate.orchestrator.trajectory import (
     seal,
     through_first_result,
 )
+from physgate.orchestrator.usage_limit import account_windows, session_end
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.placement import machine_writable, placement_refusal
@@ -2091,7 +2088,10 @@ class ClaudeDispatcher:
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
         require_matching_totals(result, usage)
-        end = classify_session_end(
+        # An API error the stream names as the account's usage limit is that limit, its own cause.
+        streamed = read_stream_file(stdout)
+        end, usage_limit = session_end(
+            streamed,
             result,
             exit_code=exit_code,
             stopped_at_wall_clock=timed_out,
@@ -2188,6 +2188,8 @@ class ClaudeDispatcher:
             withheld_problems=withheld_problems,
             os_layer_aborted=aborted,
             reaper_unverified=unverified,
+            usage_limit=usage_limit,
+            account_windows=account_windows(streamed),
         )
 
     @staticmethod
