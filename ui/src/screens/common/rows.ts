@@ -201,6 +201,7 @@ export function rowOf(
         subtask: event.subtask,
       };
     case "session_ended": {
+      // An infrastructure end names its cause as recorded, the account's usage limit among them.
       const sentence =
         event.outcome === "completed"
           ? `Attempt ${String(event.attempt)}: the agent's session ended`

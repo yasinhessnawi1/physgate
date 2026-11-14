@@ -33,6 +33,7 @@ import { useJson, useLines } from "../common/read";
 import { RowView } from "../common/RowView";
 import { type Row, rowsOf } from "../common/rows";
 import {
+  haltedWords,
   haltOwedWords,
   inProgress,
   runBase,
@@ -128,8 +129,8 @@ export function statusWords(read: RunRead | undefined) {
   if (inProgress(read.status.value)) return <InProgressBadge />;
   const owed = haltOwedWords(read.status.value);
   if (owed !== null) return <span className="pg-status">{owed}</span>;
-  if (read.status.value.halted !== null)
-    return <span className="pg-status">Halted · {read.status.value.halted.reason}</span>;
+  const halted = haltedWords(read.status.value);
+  if (halted !== null) return <span className="pg-status">{halted}</span>;
   // A log that could not be read cannot show a run complete: it is not claimed.
   if (!read.events.ok) return <span className="pg-status">Ended · its log was not read</span>;
   const open = waitingFor(

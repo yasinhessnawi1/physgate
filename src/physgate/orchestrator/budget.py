@@ -37,6 +37,9 @@ ATTEMPT_LIMIT = REPAIR_BUDGET + 1
 #: can decide for itself how to count one (a turn limit may be an agent looping).
 #: ``credential_refused`` is an API error with HTTP 401 or 403: retrying cannot fix a
 #: refused credential, so the loop halts on it for a person to replace it.
+#: ``usage_limit`` is an API error the session's stream names as the account's usage limit
+#: (:mod:`physgate.orchestrator.usage_limit`): no retry inside the window can succeed, so the
+#: loop waits for its reset.
 #: ``sandbox_unavailable``: the session refused to start because the OS layer it was
 #: started with could not run; retrying cannot fix that either, so the loop halts.
 #: ``disk_full``: the session ended as a finished one, the binary then said a full disk,
@@ -45,6 +48,7 @@ ATTEMPT_LIMIT = REPAIR_BUDGET + 1
 InfraCause = Literal[
     "api_error",
     "credential_refused",
+    "usage_limit",
     "sandbox_unavailable",
     "disk_full",
     "prompt_too_long",
