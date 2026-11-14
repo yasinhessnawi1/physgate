@@ -302,7 +302,10 @@ def test_a_run_that_recorded_no_binary_is_not_held_against_one_that_did_and_acco
         binary=None,
         account={"name": "run-seat-2", "token_sha256_prefix": "b" * 12},
     )
-    record = _round(store, run_set((one, 0), (two, 0)), tmp_path / "round", StandInArm())
+    try:
+        record = _round(store, run_set((one, 0), (two, 0)), tmp_path / "round", StandInArm())
+    except BaselineError as exc:
+        pytest.fail(f"the round was refused: {exc}")
     assert record.counts["visible"].trials == 2
 
 

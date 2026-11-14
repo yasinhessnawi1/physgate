@@ -521,9 +521,10 @@ def _take_answer(
             return "no_answer"
         except OSError:
             return "not_a_file"  # a link in place of a directory, or no directory at all
-        if identity is not None and [
-            (i.st_dev, i.st_ino) for i in (os.fstat(place), os.fstat(top))
-        ] != identity:
+        if (
+            identity is not None
+            and [(i.st_dev, i.st_ino) for i in (os.fstat(place), os.fstat(top))] != identity
+        ):
             return "not_a_file"  # not the directories the runner made
         try:
             fd = os.open(task.answer.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=top)
@@ -631,9 +632,7 @@ def run_raw(
     record = run_session(task.brief, setup, work, cap=cap, identity=made)
     record.update(
         task=task.id,
-        answer=_take_answer(
-            work / "worktree", task, kept / "answer" / task.answer.path, made
-        ),
+        answer=_take_answer(work / "worktree", task, kept / "answer" / task.answer.path, made),
         pins=pins(task, setup),
     )
     write_record(kept.parent, kept.name, record, "raw.json")
