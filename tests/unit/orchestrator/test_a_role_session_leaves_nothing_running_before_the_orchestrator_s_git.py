@@ -486,10 +486,12 @@ def test_a_session_whose_stream_is_gone_halts_and_is_never_scanned_as_clean(
     dispatcher = session.dispatcher(monkeypatch, held_out_canaries=(CANARY,))
     original = dispatch.read_captured
 
-    def read_then_lose(stream: Path, data: bytes | None = None) -> Any:  # noqa: ANN401
+    def read_then_lose(
+        stream: Path, data: bytes | None = None, *, own_tail_of: str | None = None
+    ) -> Any:  # noqa: ANN401
         if gone_at == "before_the_read":
             stream.unlink()
-        captured = original(stream, data)
+        captured = original(stream, data, own_tail_of=own_tail_of)
         stream.unlink(missing_ok=True)
         return captured
 

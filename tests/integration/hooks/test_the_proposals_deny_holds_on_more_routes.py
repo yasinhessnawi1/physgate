@@ -1,10 +1,12 @@
-"""Through the real binary: inside the OS layer, the proposals deny holds on five more routes.
+"""Through the real binary: inside the OS layer, the proposals deny holds on six more routes.
 
 The routes measured first (copying or moving a staged directory into place, a path
 built in the shell or at run time, the directory above moved away, the directory
 removed and made again) reach the proposals by making or moving the directory. These
 reach the directory as it stands (the installer makes it before a sandboxed session
 starts, so that it can be denied), another way each: through a link to it made first,
+through a link to a folder above it (a write deny was once not applied through a linked
+folder on macOS; measured here on every pin),
 by hard-linking a staged file into it, by unpacking an archive or applying a patch whose
 own content names the path, and by a bare file name from inside it. Each command names
 nothing the hooks' text check can see, and each would land a cross node a domain role
@@ -55,6 +57,18 @@ ROUTES = {
                 "import os, shutil\n"
                 "os.symlink(os.path.join('.phys' + 'gate', 'propo' + 'sals'), 'door')\n"
                 f"shutil.copy('staged.txt', os.path.join('door', {LANDED!r}))"
+            ),
+        ),
+    ],
+    "a-link-to-a-folder-above-the-directory": lambda w: [
+        _staged_file(w),
+        tool(
+            "Bash",
+            command=python(
+                "import os, shutil\n"
+                "os.symlink(os.getcwd(), 'up')\n"
+                "d = os.path.join('up', '.phys' + 'gate', 'propo' + 'sals')\n"
+                f"shutil.copy('staged.txt', os.path.join(d, {LANDED!r}))"
             ),
         ),
     ],

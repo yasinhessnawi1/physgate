@@ -27,7 +27,16 @@ from pydantic import (
 )
 
 import physgate
-from physgate.flags import DesignReview, OsLayerAbsent, QueueDecisions, replans
+from physgate.flags import (
+    DesignReview,
+    Hooks,
+    OsLayerAbsent,
+    QueueDecisions,
+    Reviewers,
+    Skills,
+    replans,
+)
+from physgate.orchestrator.binaries import ClaudeBinary
 from physgate.orchestrator.common import (
     AuthMode,
     GateMode,
@@ -36,6 +45,7 @@ from physgate.orchestrator.common import (
     first_problem,
     model_named,
 )
+from physgate.orchestrator.credentials import Credential, fingerprint
 from physgate.orchestrator.escalation import REGISTER, BackendName
 from physgate.orchestrator.exceptions import EscalationBackendError, GitError, RunConfigError
 from physgate.orchestrator.git import GitBinary, git
@@ -197,6 +207,19 @@ def os_layer_refusal(config: RunConfig, layer: Present | Absent | None) -> str |
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
 
 
+class RunAccount(_Frozen):
+    """The account a run's model calls draw on: the name the run gives it, and a fingerprint.
+
+    Runs may be spread over several accounts, each with its own usage limits. The name is the
+    run's parameter; the fingerprint is measured from the credential the run was configured
+    with, so a run resumed on another account's credential is refused rather than continued on
+    limits it never recorded.
+    """
+
+    name: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")]
+    token_sha256_prefix: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{12}$")]
+
+
 class HarnessState(_Frozen):
     """The source checkout the orchestrator ran from, as it was when the run was recorded.
 
@@ -282,6 +305,29 @@ def harness_state(root: Path | None) -> HarnessState:
 ThinkingDisplay = Literal["summarized", "omitted"]
 
 
+#: What a run recorded before each of these fields existed reads as, and what a run at that
+#: value leaves out of its recorded form, so every earlier run's digest still names it.
+BEFORE_THE_SWITCH: dict[str, str | bool] = {
+    "reviewers": "paired",
+    "skills": "on",
+    "hooks": "on",
+    "ablation": False,
+}
+
+#: The values of each switch that something implements, by the flag's name: the rest of what
+#: the register names is refused at a run's configuration. Each reads as the first for a run
+#: recorded before the switch existed.
+BUILT: dict[str, tuple[str, ...]] = {
+    "reviewers": ("paired",),
+    "skills": ("on",),
+    "hooks": ("on", "off"),
+}
+
+#: The values a run takes only as an ablation run, by the flag's name: each removes a component
+#: of the harness, so the product never sets one and no reportable number is measured under one.
+ABLATION_ONLY: dict[str, tuple[str, ...]] = {"hooks": ("off",)}
+
+
 class RunConfig(_Frozen):
     """Everything a run is reproduced from."""
 
@@ -342,6 +388,23 @@ class RunConfig(_Frozen):
     #: recorded before the field existed reviewed none, and reads as ``off``.
     design_review: DesignReview
 
+    #: Who reviews a role's work (ARCH-140), a flag of the register. Required, never taken from
+    #: the environment. A run recorded before the field existed was reviewed by the paired
+    #: specialists, and reads as ``paired``.
+    reviewers: Reviewers
+    #: Whether a role session is given its role's skill file (ARCH-140), a flag of the register.
+    #: Required, never taken from the environment. A run recorded before the field existed gave
+    #: it, and reads as ``on``.
+    skills: Skills
+    #: Whether a role session's hooks enforce the design discipline (ARCH-140), a flag of the
+    #: register. Required, never taken from the environment. A run recorded before the field
+    #: existed enforced it, and reads as ``on``.
+    hooks: Hooks
+    #: Whether this is an ablation run: a recorded run kind beside the reportable run, held to
+    #: every rule a reportable run is held to and never reportable (ARCH-140). Required. A run
+    #: recorded before the field existed was none, and reads as ``False``.
+    ablation: bool
+
     #: The OS layer's state where the run was configured: present, with its mechanism,
     #: or absent, with the reason. Measured, never taken from the parameters; every run
     #: and resume measures it again and records whether it still holds. ``None`` only on
@@ -373,6 +436,14 @@ class RunConfig(_Frozen):
     #: enforceable here"). ``None`` for ``open``, and for a run recorded before the field
     #: existed or whose OS layer was not measured.
     network_enforced: bool | None
+    #: The Claude Code binary the run executes, measured when it is configured and again each
+    #: time it is driven: the same version string can name other bytes on another platform, or
+    #: after a replacement. ``None`` only on a run recorded before the field existed.
+    binary: ClaudeBinary | None
+    #: The account the run's model calls draw on, by its name and the fingerprint of the
+    #: credential it was configured with. ``None`` only on a run recorded before the field
+    #: existed.
+    account: RunAccount | None
 
     @model_validator(mode="after")
     def _the_binding_is_a_backend_that_ships(self) -> RunConfig:
@@ -437,9 +508,41 @@ class RunConfig(_Frozen):
         return self
 
     @model_validator(mode="after")
-    def _reportable_needs_a_clean_commit(self) -> RunConfig:
-        if self.reportable and (self.harness.commit is None or not self.harness.clean):
-            msg = "a reportable run starts only from a clean checkout with a commit"
+    def _a_run_is_one_kind(self) -> RunConfig:
+        if self.ablation and self.reportable:
+            msg = "an ablation run is never reportable: a run names one kind or neither"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _an_arm_that_is_not_built_is_refused(self) -> RunConfig:
+        # The register names every value of a switch; a run takes one only once something
+        # implements it, so no run records an arm that changed nothing it did.
+        for name, built in BUILT.items():
+            value = getattr(self, name)
+            if value not in built:
+                msg = f"{name}: {value} is not built; this run takes {name}: {' or '.join(built)}"
+                raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _an_ablation_arm_is_taken_only_by_an_ablation_run(self) -> RunConfig:
+        for name, arms in ABLATION_ONLY.items():
+            value = getattr(self, name)
+            if value in arms and not self.ablation:
+                msg = (
+                    f"{name}: {value} is an ablation arm: only an ablation run takes it, and this "
+                    "run is not one (ablation: false)"
+                )
+                raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _a_measured_run_needs_a_clean_commit(self) -> RunConfig:
+        kind = "a reportable run" if self.reportable else "an ablation run"
+        measured = self.reportable or self.ablation
+        if measured and (self.harness.commit is None or not self.harness.clean):
+            msg = f"{kind} starts only from a clean checkout with a commit"
             raise ValueError(msg)
         return self
 
@@ -451,8 +554,9 @@ class RunConfig(_Frozen):
         ``escalation_backend`` and ``os_layer`` when they are ``None``, ``held_out``,
         ``held_out_canaries`` and ``held_out_sha256`` when empty, ``network`` when ``open``,
         ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``,
-        ``os_layer_absent`` when ``refuse`` and ``design_review`` when ``off``, so their
-        recorded digests still name them. A
+        ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off``, ``reviewers`` when
+        ``paired``, ``skills`` and ``hooks`` when ``on``, ``ablation`` when ``False``, and
+        ``binary`` and ``account`` when ``None``, so their recorded digests still name them. A
         run that names a binding always records it, so the binding is part of its manifest id.
         """
         exclude = set()
@@ -480,8 +584,15 @@ class RunConfig(_Frozen):
             exclude.add("queue_decisions")
         if self.os_layer_absent == "refuse":
             exclude.add("os_layer_absent")
+        if self.binary is None:
+            exclude.add("binary")
+        if self.account is None:
+            exclude.add("account")
         if self.design_review == "off":
             exclude.add("design_review")
+        exclude |= {
+            name for name, before in BEFORE_THE_SWITCH.items() if getattr(self, name) == before
+        }
         return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
 
     def sha256(self) -> str:
@@ -519,6 +630,27 @@ def require_harness(config: RunConfig, now: HarnessState) -> None:
         changed = sorted(key for key in theirs if theirs[key] != mine[key])
         msg = "the harness checkout differs from the one this run recorded"
         raise RunConfigError(msg, changed=",".join(changed))
+
+
+def require_same_account(config: RunConfig, credential: Credential) -> None:
+    """Refuse to drive a run on a credential other than the one it was configured with.
+
+    A run recorded before the account was recorded has nothing to hold it to, and is driven.
+
+    Raises:
+        RunConfigError: the credential's fingerprint differs from the recorded one.
+    """
+    if config.account is None:
+        return
+    now = fingerprint(credential)
+    if now != config.account.token_sha256_prefix:
+        msg = (
+            f"the credential is not the one account {config.account.name!r} was recorded with; "
+            "a run continues on the account it started on"
+        )
+        raise RunConfigError(
+            msg, account=config.account.name, recorded=config.account.token_sha256_prefix, now=now
+        )
 
 
 def write_run_config(path: Path, config: RunConfig) -> None:
@@ -584,8 +716,14 @@ def load_run_config(path: Path) -> RunConfig:
         ("queue_decisions", "record"),
         # Recorded before the field existed: no allowance was named.
         ("os_layer_absent", "refuse"),
+        # Recorded before the fields existed: the binary's bytes and the account went unrecorded.
+        ("binary", None),
+        ("account", None),
         # Recorded before the field existed: no plan was reviewed.
         ("design_review", "off"),
+        # Recorded before the switches existed: paired reviewers, the skill file and the design
+        # discipline were all there, and no run was an ablation.
+        *BEFORE_THE_SWITCH.items(),
     ):
         if isinstance(recorded, dict) and name not in recorded:
             # Recorded before the field existed: nothing was held out, the network was open

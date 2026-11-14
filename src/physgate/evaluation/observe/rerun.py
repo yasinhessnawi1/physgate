@@ -71,8 +71,12 @@ MEASURED = frozenset(
         "harness",
         "git_binary",
         "os_layer",
+        "binary",
     }
 )
+
+#: The account a rerun names when the recorded run predates the field and named none.
+UNRECORDED_ACCOUNT = "not-recorded"
 
 
 #: How a comparison is judged: exactly; exactly up to where a second process took
@@ -190,6 +194,10 @@ class RerunPlan:
     def params(self) -> dict[str, Any]:
         """The parameters file ``decompose`` takes, as the recorded run had it."""
         dumped: dict[str, Any] = self.recorded.model_dump(mode="json", exclude=set(MEASURED))
+        # The account is a parameter by its name alone: its fingerprint is measured from the
+        # credential the rerun is given, as the binary's bytes are measured.
+        account = self.recorded.account
+        dumped["account"] = UNRECORDED_ACCOUNT if account is None else account.name
         return dumped
 
 

@@ -31,9 +31,10 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 import physgate
+from physgate.flags import Hooks
 from physgate.hooks import shell_startup
 from physgate.hooks.config import (
     AbsolutePath,
@@ -53,6 +54,7 @@ from physgate.hooks.reasons import GATE_REASON as GATE_REASON
 from physgate.hooks.reasons import GIT_USER_CONFIG_REASON as GIT_USER_CONFIG_REASON
 from physgate.hooks.reasons import HARNESS_REASON as HARNESS_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
+from physgate.hooks.reasons import HOME_CLAUDE_REASON as HOME_CLAUDE_REASON
 from physgate.hooks.reasons import HOOK_STATE_REASON as HOOK_STATE_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
@@ -206,6 +208,40 @@ class InstallRequest(BaseModel):
     #: spawn does. A session that gets the reaper is refused without it: its reaper could
     #: never prove its fence, and every command would be refused.
     spawns_with_canary: bool = False
+    #: Whether the session is held to the harness's design discipline: ``off`` is an ablation
+    #: run's arm (see :data:`DISCIPLINE_HOOKS` and :func:`build_config`), for a role session only.
+    #: The installer command takes it only for a run whose recorded configuration says so.
+    hooks: Hooks = "on"
+
+    @model_validator(mode="after")
+    def _only_a_role_session_drops_the_discipline(self) -> InstallRequest:
+        if self.hooks == "off" and self.profile != "role":
+            msg = (
+                "only a role session is installed with hooks: off; the discipline it drops is "
+                f"the harness's over design work, and a {self.profile} session does none"
+            )
+            raise ValueError(msg)
+        return self
+
+
+#: The hooks that hold a role session to the harness's design discipline: required reading
+#: (ARCH-024), the always-loaded ceiling (ARCH-023) and the checks on a proposal, a completion
+#: declaration and a dispute before each is written. ``hooks: off`` wires none of them. Each is
+#: checked again where it counts, so dropping the first check measures it without opening a
+#: route: a proposal by the change check and the store at apply, the declaration and a dispute
+#: by the change check and the loop, and every shell route to those files by the OS layer.
+DISCIPLINE_HOOKS = ("graph", "reading", "token_ceiling")
+
+
+def full_session(request: InstallRequest) -> InstallRequest:
+    """``request`` as a full role session's, the discipline on: what the OS layer is made of."""
+    return request.model_copy(update={"hooks": "on"})
+
+
+def wired_hooks(request: InstallRequest, registry: Mapping[str, HookSpec]) -> dict[str, HookSpec]:
+    """The hooks ``request``'s session runs: all of ``registry``, or all but the discipline's."""
+    dropped = DISCIPLINE_HOOKS if request.hooks == "off" else ()
+    return {name: spec for name, spec in registry.items() if name not in dropped}
 
 
 #: The longest temporary directory Claude Code takes for a sandboxed session. A longer
@@ -351,12 +387,35 @@ def _startup_watch(site_packages: Path) -> tuple[str, ...]:
     )
 
 
-def _design_discipline(worktree: Path) -> tuple[str, ...]:
-    """The roots that are the harness's discipline over a design worktree, not integrity."""
+def _is_the_installing_user_s_home(home: Path) -> bool:
+    """True where a session is given the home of the user installing it, not a scratch one.
+
+    That home's ``.claude`` is the user's own Claude Code directory, which their other
+    sessions read and write: it is left to the two named files, as before.
+    """
+    try:
+        return home.resolve() == Path.home().resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
+def _worktree_sources(worktree: Path) -> tuple[str, ...]:
+    """The worktree's own copies of the gate source, the hook source and the knowledge tree.
+
+    Protecting them is discipline, not integrity: the live gate and hooks run from the harness
+    checkout and the installation, and the library a run trusts is the harness checkout's.
+    """
     return (
         str(worktree / "src" / "physgate" / "gate"),
         str(worktree / "src" / "physgate" / "hooks"),
         _knowledge_root(worktree),
+    )
+
+
+def _design_discipline(worktree: Path) -> tuple[str, ...]:
+    """The roots that are the harness's discipline over a design worktree, not integrity."""
+    return (
+        *_worktree_sources(worktree),
         str(worktree / ".physgate" / "lib"),
         str(worktree / ".physgate" / "series"),
     )
@@ -444,6 +503,13 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         # is what it is measured without.
         for path in _design_discipline(worktree):
             protected.pop(path, None)
+    if request.hooks == "off":
+        # An ablation run's arm without the design discipline: the hooks leave the worktree's own
+        # sources to the file tools, and nothing else. The OS layer still denies them to every
+        # shell command (``install``). The series writer and its outbox are kept, unlike the raw
+        # agent's: the gate and the reviewers read the records sealed through them.
+        for path in _worktree_sources(worktree):
+            protected.pop(path, None)
     # The one root the OS layer leaves to scripts: a record arrives by a script's own write,
     # which no OS rule can tell from any other command's, and the collector judges it.
     outbox = str(worktree / ".physgate" / "series")
@@ -471,6 +537,21 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         request.state_dir: "denied",
         request.claude_config_dir: "shell_denied",
     }
+    if not _is_the_installing_user_s_home(home):
+        # A scratch home is the session's own to write, all but the one directory in it the
+        # binary treats as a user's own: skills, mods, commands and settings a user keeps are
+        # read from a directory of that name, and a file a session left there is a file a
+        # later version may load. Whole, both ways, for every tool and every command.
+        # Where the OS layer does not run, nothing stands behind the hooks: whatever appears
+        # there is put back, and the binary makes nothing there itself (measured on 2.1.301
+        # and 2.1.322). Where it runs, the layer denies the write, and the root is not put
+        # back, because the runtime then makes directories there before a shell command
+        # (measured on macOS, 12.11.2026: 2.1.301 makes ``.claude`` and ``bridge-spawn`` in
+        # it, 2.1.322 those and ``ssh``, with other modes), as it writes its configuration
+        # directory.
+        watched: Watch = "revert" if request.os_layer_temp_dir is None else "none"
+        protected[str(home / ".claude")] = (HOME_CLAUDE_REASON, watched)
+        reads[str(home / ".claude")] = "denied"
     reaper_on = request.os_layer_temp_dir is not None and reaper_install.wanted()
     if reaper_on:
         # The reaper's front tells a hook command from a sandboxed one by whether it can
@@ -630,8 +711,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
                 )
             )
         ),
-        required_reading=tuple(sorted(request.required_reading)),
-        always_loaded=tuple(sorted(request.always_loaded)),
+        # Under hooks: off nothing is required to be read and no ceiling is measured; what the
+        # session is given to read stays readable (its read exceptions above are the request's).
+        required_reading=() if request.hooks == "off" else tuple(sorted(request.required_reading)),
+        always_loaded=() if request.hooks == "off" else tuple(sorted(request.always_loaded)),
         token_ceiling=request.token_ceiling,
         tools_allowed=tuple(sorted(PROFILE_TOOLS[request.profile])),
         installation=installation,
@@ -968,7 +1051,8 @@ def install(
         misplaced = placement_refusal(Path(request.worktree), writable)
         if misplaced is not None:
             raise ValueError(misplaced)
-    config = build_config(request, installation or current_installation())
+    installation = installation or current_installation()
+    config = build_config(request, installation)
     target = Path(request.target_dir)
     target.mkdir(parents=True, exist_ok=True)
     config_path = target / CONFIG_NAME
@@ -981,7 +1065,11 @@ def install(
         raise ValueError(msg)
     config_path.write_bytes(config_bytes)
     settings = render_settings(
-        config, str(config_path), digest(config_bytes), registry, request.api_key_helper
+        config,
+        str(config_path),
+        digest(config_bytes),
+        wired_hooks(request, registry),
+        request.api_key_helper,
     )
     spawn_env = {"CLAUDE_CONFIG_DIR": request.claude_config_dir}
     if request.profile in OWN_TEMP_PROFILES:
@@ -1019,7 +1107,10 @@ def install(
             spawn_env.update(reaper_install.spawn_env(reaper_dir))
         _make_file_tool_dirs(request.worktree)
         policy = sandbox_policy(
-            config,
+            # Under hooks: off the hooks drop the discipline and the OS layer keeps every rule it
+            # gives a full role session: the arm switches off hooks, not the operating system's
+            # layer, so the layer is generated from the registry a full session's hooks read.
+            config if request.hooks == "on" else build_config(full_session(request), installation),
             home=request.user_home,
             temp_dir=temp,
             readable=readable,

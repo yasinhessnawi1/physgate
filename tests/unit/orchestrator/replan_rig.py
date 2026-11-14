@@ -30,6 +30,7 @@ from design_review_rig import outcome_of, target_repo
 from orch_helpers import CLEAN_HARNESS
 from test_the_physgate_command_starts_and_decides import PARAMS, fake_binary
 
+import physgate.orchestrator.binaries as binaries
 import physgate.orchestrator.cli as orchestrator_cli
 from physgate.cli import main
 from physgate.orchestrator.canaries import CanaryCheck
@@ -312,13 +313,16 @@ def decompose(
                 patch.setattr(loop, name, value)
         real = orchestrator_cli._config
 
-        def configured(given: Any) -> Any:  # noqa: ANN401
+        def configured(given: Any, credential: Any) -> Any:  # noqa: ANN401
             update: dict[str, Any] = {"design_review": design_review}
             if design_review.startswith("repair:"):
                 update |= {"reportable": True, "harness": CLEAN_HARNESS}
-            return real(given).model_copy(update=update)
+            return real(given, credential).model_copy(update=update)
 
         patch.setattr(orchestrator_cli, "_config", configured)
+        # A reportable run names a listed build of its binary; the stand-in is no build of any
+        # version, and which bytes ran is this machine's matter, not the arm's.
+        patch.setattr(binaries, "require_listed", lambda version, binary: None)
         try:
             code = outcome_of(lambda: main(args))
         except Stopped as stopped:

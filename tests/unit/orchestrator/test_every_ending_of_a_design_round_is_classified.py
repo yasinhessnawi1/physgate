@@ -72,6 +72,8 @@ PLAN_TABLE: dict[str, str] = {
     "usage_limit": "infrastructure",
     "harness_stopped": "infrastructure",
     "library_refused": "infrastructure",
+    # The binary said after its result that a full disk lost the call's own records.
+    "writes_lost": "infrastructure",
 }
 
 #: The review's side: a verdict, the review's own outcome, infrastructure, or an exposure.
