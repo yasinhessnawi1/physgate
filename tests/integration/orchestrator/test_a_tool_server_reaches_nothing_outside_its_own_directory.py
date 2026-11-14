@@ -6,7 +6,8 @@ outside its own directory (into the worktree), a read of a file no session may r
 session's directory), a TCP connection out, a name lookup, a serial device opened for writing, and
 a write into its own directory; and it says whether the session's credential is among its
 variables. It tells what got through in the names of the tools it lists,
-which the binary sends to the model, so the test reads them from the scripted endpoint.
+which the binary sends to the model, so the test reads them from the scripted endpoint: from the
+request's tools, or from the names it defers behind its search step, so neither is missed.
 
 Run unwrapped, the same server reaches what it tries (the control). Inside the OS layer the
 dispatcher starts it in its wrapper, and it reaches its own directory and nothing else. Without
@@ -119,7 +120,7 @@ def _told(api: Any) -> dict[str, str]:  # noqa: ANN401 - the scripted endpoint's
     """Each reach and its outcome, as the server's tool names told the model."""
     found: dict[str, str] = {}
     for request in api.requests:
-        for name in request.offered_tools:
+        for name in (*request.offered_tools, *request.deferred_tools):
             if name.startswith(f"mcp__{STAND_IN}__"):
                 reach, _, outcome = name.removeprefix(f"mcp__{STAND_IN}__").rpartition("_")
                 found[reach] = outcome
@@ -205,7 +206,9 @@ def test_without_the_os_layer_no_server_is_offered(
     assert report.end.outcome == "completed", report
     assert _told(api) == {}
     assert api.requests and not any(
-        name.startswith("mcp__") for r in api.requests for name in r.offered_tools
+        name.startswith("mcp__")
+        for r in api.requests
+        for name in (*r.offered_tools, *r.deferred_tools)
     )
     record = json.loads((Path(str(report.trajectory)).parent / "process.json").read_text())
     assert record["argv"][record["argv"].index("--mcp-config") + 1] == NO_TOOL_SERVERS

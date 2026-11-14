@@ -13,6 +13,9 @@ real binary is then run with the harness's arguments against the scripted endpoi
 - With both taken out, the probe starts and its tool is offered, which shows the probe
   sees a server that starts.
 
+A tool is offered when the request lists it or defers it behind the binary's search step
+(2.1.322 defers every server's tools by default), so a deferred tool is never missed.
+
 The binaries are named by ``PHYSGATE_PINNED_BINS`` (separated like ``PATH``), or else
 ``PHYSGATE_CLAUDE_BIN``.
 """
@@ -197,7 +200,11 @@ def _offered(binary: str, root: Path, argv: list[str]) -> tuple[list[str], set[s
     cwd, home, config, _ = _plant(root)
     with serving(Script(main=[text("ok")])) as (api, url):
         _run(argv, cwd, home, config, url)
-        offered = {name for request in api.requests for name in request.offered_tools}
+        offered = {
+            name
+            for request in api.requests
+            for name in (*request.offered_tools, *request.deferred_tools)
+        }
     return _started(root), offered
 
 

@@ -233,6 +233,21 @@ def test_the_settings_as_rendered_deny_the_web_tools_to_every_profile(
     assert settings.get("permissions") == {"deny": ["WebFetch", "WebSearch"]}
 
 
+@pytest.mark.parametrize("profile", get_args(Profile))
+def test_the_settings_deny_the_binary_s_tool_search_to_every_profile(
+    tmp_path: Path, profile: str
+) -> None:
+    # With its search tool denied the binary offers every tool server's tools directly instead
+    # of deferring them behind a search step the closed list refuses (measured on both pins,
+    # with tool search turned on as against the live host). Rendered, and as installed.
+    config = build_config(_request(tmp_path, profile=profile), current_installation())
+    rendered = render_settings(config, "/outside/config.json", "0" * 64, REGISTRY)
+    assert "ToolSearch" in rendered["permissions"]["deny"], rendered.get("permissions")
+    done = install(_request(tmp_path, profile=profile), REGISTRY)
+    permissions = json.loads(done.settings_path.read_text())["permissions"]
+    assert "ToolSearch" in permissions["deny"], permissions
+
+
 def _allowing_run(tmp_path: Path) -> str:
     """A run configuration that allows role sessions without the OS layer, for development."""
     from physgate.orchestrator.run_config import write_run_config  # noqa: PLC0415
