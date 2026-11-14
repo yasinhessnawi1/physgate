@@ -76,6 +76,7 @@ DESIGN_LICENCES = {
     "build123d": "Apache-2.0",
     "cadquery-ocp-novtk": "Apache-2.0 (the bindings); LGPL-2.1 with the Open CASCADE exception "
     "(the kernel inside the wheel)",
+    "scikit-fem": "BSD-3-Clause",
     "system libraries": "MIT, X11 and BSD families; see each package's copyright file",
 }
 #: The most a single download may hold.

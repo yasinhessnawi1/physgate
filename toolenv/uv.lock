@@ -686,6 +686,7 @@ dependencies = [
 design = [
     { name = "build123d" },
     { name = "cadquery-ocp-novtk" },
+    { name = "scikit-fem" },
 ]
 
 [package.metadata]
@@ -701,6 +702,7 @@ requires-dist = [
 design = [
     { name = "build123d", specifier = "==0.13.0" },
     { name = "cadquery-ocp-novtk", specifier = "==8.0.1.1.0" },
+    { name = "scikit-fem", specifier = "==12.0.2" },
 ]
 
 [[package]]
@@ -907,6 +909,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf/requests-2.34.2.tar.gz", hash = "sha256:f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed", size = 142856 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl", hash = "sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0", size = 73075 },
+]
+
+[[package]]
+name = "scikit-fem"
+version = "12.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a7/5f/77643ece20e33a770fdfb6cafb9b2a5a1dd51b8a1ee1d3dc5bac8c72bdfa/scikit_fem-12.0.2.tar.gz", hash = "sha256:0a38764cdb93411c5a994451c22c1da07808ebabf920f462c6253f78f5703f8a", size = 130353 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/13/d46cf943bd1b04b1b010094eb08493d6660c99c49652fa46cf7c3bf36ab5/scikit_fem-12.0.2-py3-none-any.whl", hash = "sha256:34cd891f80072c0c1eb759a2371e82f0eeec91ff7c08acab96d27b6edbbe1b05", size = 178478 },
 ]
 
 [[package]]
