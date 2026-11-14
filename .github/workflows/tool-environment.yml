@@ -335,6 +335,31 @@ jobs:
           sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 6 and passed == 6 else 1)
           PY
 
+      - name: A block solved by finite elements agrees with the beam formulas, offline
+        # scikit-fem on the environment's own interpreter: the agreement stated before the test
+        # (deflection 5 %, reactions a part in a million, axial stress clear of supports 10 %),
+        # the result's fields, the coarser mesh's change, the refusals, and the recorded Linux
+        # numbers. Counted as above: a skip here means the rows ran nowhere on Linux.
+        if: success() || failure()
+        env:
+          PHYSGATE_TOOL_ENVIRONMENT: /home/runner/pg-env/env
+        run: |
+          status=0
+          "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync pytest -q -rs -m integration \
+            --junitxml="$RUNNER_TEMP/solve-rows.xml" \
+            tests/integration/toolenv/test_a_block_solved_by_finite_elements_agrees_with_the_beam_formulas.py \
+            || status=$?
+          python3 - "$RUNNER_TEMP/solve-rows.xml" "$status" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suite = next(ET.parse(sys.argv[1]).getroot().iter("testsuite"))
+          rows = {name: int(suite.get(name, "0")) for name in ("tests", "failures", "errors", "skipped")}
+          print(f"rows: {rows}, pytest exit {sys.argv[2]}")
+          passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
+          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 16 and passed == 16 else 1)
+          PY
+
       - name: A dispatched session builds, measures and is reviewed with the design tools
         # Through the dispatcher inside bubblewrap, the run's network none: a mechanical session
         # finds the interpreter and its first-use places from the environment's own file, builds

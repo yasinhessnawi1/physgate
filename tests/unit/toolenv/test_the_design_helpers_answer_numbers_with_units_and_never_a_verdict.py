@@ -179,6 +179,21 @@ def test_the_kinds_of_result_and_their_fields_are_a_closed_list(result_file: Mod
         "load_case": sorted(
             ["schema", "kind", "case", "model", "formulas", "assumptions", "inputs", "values"]
         ),
+        "solve": sorted(
+            [
+                "schema",
+                "kind",
+                "case",
+                "part",
+                "model",
+                "mesh",
+                "inputs",
+                "assumptions",
+                "values",
+                "closed_form",
+                "libraries",
+            ]
+        ),
         "reference_measurement": sorted(
             [
                 "schema",
@@ -429,6 +444,163 @@ def test_a_load_case_takes_exactly_its_inputs_and_no_allowable(structure: Module
     for name in ("", "two\nlines"):
         with pytest.raises(structure.HelperRefusedError, match="name"):
             structure.cantilever_end_load(name, **BEAM)
+
+
+# ---- the finite-element solve: what it refuses before it meshes anything ------------------------
+
+BAR = BEAM | {"poisson": _q(0.35, "1")}
+
+
+def _solve(structure: ModuleType) -> Any:  # noqa: ANN401 - the helper's function
+    solve = getattr(structure, "solve", None)
+    assert callable(solve), "the structure helper has no solve"
+    return solve
+
+
+@pytest.mark.parametrize(
+    "load_case", [None, "", "free", "clamped_everywhere", "Cantilever_end_load"]
+)
+def test_a_solve_is_refused_a_load_case_that_names_no_supports(
+    structure: ModuleType, load_case: object
+) -> None:
+    solve = _solve(structure)
+    with pytest.raises(structure.HelperRefusedError, match="names no supports"):
+        solve("bar", load_case=load_case, part="bar", **BAR)
+
+
+@pytest.mark.parametrize(
+    ("change", "named"),
+    [
+        ({"thickness": _q(0, "mm")}, "the thickness"),
+        ({"thickness": _q(-3, "mm")}, "the thickness"),
+        ({"width": _q(0, "mm")}, "the width"),
+        ({"force": _q(math.inf, "N")}, "the force"),
+        ({"force": _q(-math.inf, "N")}, "the force"),
+        ({"force": _q(math.nan, "N")}, "the force"),
+        ({"force": 1}, "the force"),
+        ({"modulus": _q(2.3, "")}, "the modulus"),
+        ({"poisson": _q(0.35, "")}, "Poisson"),
+        ({"poisson": 0.35}, "Poisson"),
+        ({"poisson": _q(0, "1")}, "Poisson"),
+        ({"poisson": _q(0.5, "1")}, "below one half"),
+        ({"poisson": _q(0.7, "1")}, "below one half"),
+        ({"poisson": _q(math.nan, "1")}, "Poisson"),
+    ],
+)
+def test_a_solve_is_refused_an_input_that_is_not_a_finite_quantity_with_its_unit(
+    structure: ModuleType, change: dict[str, object], named: str
+) -> None:
+    solve = _solve(structure)
+    with pytest.raises(structure.HelperRefusedError, match=named):
+        solve("bar", load_case="cantilever_end_load", part="bar", **(BAR | change))
+
+
+def test_a_solve_takes_exactly_its_inputs_and_poisson_s_ratio(structure: ModuleType) -> None:
+    solve = _solve(structure)
+    with pytest.raises(structure.HelperRefusedError, match="Poisson"):
+        solve("bar", load_case="cantilever_end_load", part="bar", **BEAM)
+    for extra in ("allowable_stress", "yield_strength", "span"):
+        with pytest.raises(structure.HelperRefusedError, match="exactly"):
+            solve(
+                "bar", load_case="cantilever_end_load", part="bar", **(BAR | {extra: _q(4, "mm")})
+            )
+    with pytest.raises(structure.HelperRefusedError, match="exactly"):
+        solve("bar", load_case="simply_supported_centre_load", part="bar", **BAR)
+
+
+@pytest.mark.parametrize(
+    ("part", "geometry_hash"),
+    [
+        ("", None),
+        ("two\nlines", None),
+        ("p" * 201, None),
+        (7, None),
+        ("bar", "abc"),
+        ("bar", "sha256:" + "A" * 64),
+        ("bar", "sha256:" + "a" * 63),
+        ("bar", "sha256:" + "a" * 64 + "\n"),
+        ("bar", 5),
+    ],
+)
+def test_a_solve_is_refused_a_part_name_or_hash_not_written_as_one(
+    structure: ModuleType, part: object, geometry_hash: object
+) -> None:
+    solve = _solve(structure)
+    with pytest.raises(structure.HelperRefusedError, match="part is named|geometry hash"):
+        solve("bar", load_case="cantilever_end_load", part=part, geometry_hash=geometry_hash, **BAR)
+
+
+def test_a_block_too_short_for_a_band_clear_of_its_supports_and_load_is_refused(
+    structure: ModuleType,
+) -> None:
+    solve = _solve(structure)
+    with pytest.raises(structure.HelperRefusedError, match="3 thicknesses long"):
+        solve(
+            "bar", load_case="cantilever_end_load", part="bar", **(BAR | {"length": _q(8.9, "mm")})
+        )
+    beam = {k: v for k, v in BAR.items() if k != "length"}
+    with pytest.raises(structure.HelperRefusedError, match="6 thicknesses long"):
+        solve(
+            "bar",
+            load_case="simply_supported_centre_load",
+            part="bar",
+            **beam,
+            span=_q(17.9, "mm"),
+        )
+
+
+def test_a_mesh_over_the_cap_is_refused_before_it_is_built(structure: ModuleType) -> None:
+    solve = _solve(structure)
+    unknowns = getattr(structure, "unknowns", None)
+    assert callable(unknowns)
+    assert unknowns("cantilever_end_load", 0.195, 0.003, 4) == 3 * 261 * 81
+    assert unknowns("cantilever_end_load", 0.210, 0.003, 4) == 3 * 281 * 81
+    assert getattr(structure, "UNKNOWNS_CAP", None) == 65000
+    with pytest.raises(structure.HelperRefusedError, match="68283 unknowns.*at most 65000"):
+        solve(
+            "bar", load_case="cantilever_end_load", part="bar", **(BAR | {"length": _q(210, "mm")})
+        )
+
+
+def test_the_mesh_puts_a_boundary_on_every_support_and_load_edge_and_keeps_elements_short(
+    structure: ModuleType,
+) -> None:
+    along = getattr(structure, "along", None)
+    unknowns = getattr(structure, "unknowns", None)
+    assert callable(along) and callable(unknowns)
+    edges = along("cantilever_end_load", 0.060, 0.003, 4)
+    assert len(edges) == 41
+    assert edges[0] == 0.0 and edges[-1] == pytest.approx(0.060, abs=1e-15)
+    assert all(
+        b - a == pytest.approx(0.0015, rel=1e-9) for a, b in zip(edges, edges[1:], strict=False)
+    )
+    assert len(along("cantilever_end_load", 0.060, 0.003, 2)) == 21
+    assert unknowns("cantilever_end_load", 0.060, 0.003, 4) == 19683
+    assert unknowns("cantilever_end_load", 0.060, 0.003, 2) == 3075
+    for layers in (4, 2):
+        edges = along("simply_supported_centre_load", 0.060, 0.003, layers)
+        for mark in (0.0, 0.0285, 0.030, 0.0315, 0.060):
+            assert min(abs(edge - mark) for edge in edges) < 1e-15, (layers, mark)
+        longest = max(b - a for a, b in zip(edges, edges[1:], strict=False))
+        assert longest <= 2 * 0.003 / layers * (1 + 1e-9)
+        assert edges == sorted(edges)
+    assert len(along("simply_supported_centre_load", 0.060, 0.003, 4)) == 41
+    assert len(along("simply_supported_centre_load", 0.060, 0.003, 2)) == 23
+
+
+def test_nothing_a_solve_writes_of_its_own_says_converged_and_the_support_peak_is_marked(
+    structure: ModuleType,
+) -> None:
+    assumptions = getattr(structure, "SOLVE_ASSUMPTIONS", None)
+    solved = getattr(structure, "SOLVED", None)
+    assert isinstance(assumptions, list) and isinstance(solved, dict)
+    assert sorted(solved) == ["cantilever_end_load", "simply_supported_centre_load"]
+    source = (HELPERS / "structure.py").read_text(encoding="utf-8").lower()
+    assert "converg" not in source
+    joined = " ".join(assumptions)
+    assert "singular" in joined and "grows as the mesh is refined" in joined
+    assert "(this mesh - coarser mesh) / this mesh" in joined
+    assert "nothing compares it with the part's shape" in joined
 
 
 # ---- the description a geometry hash is taken over ---------------------------------------------
@@ -787,6 +959,8 @@ ALLOWED_IMPORTS = {
     "sys",
     "typing",
     "build123d",
+    "numpy",
+    "skfem",
     "result_file",
 }
 

@@ -38,6 +38,8 @@ DESIGN = {"build123d": "0.13.0", "cadquery-ocp-novtk": "8.0.1.1.0"}
 #: The finite-element library a part's strength is solved with: pure Python on the pinned numpy
 #: and scipy, an exact pin in the same group.
 SOLVER = {"scikit-fem": "12.0.2"}
+#: What a solve names as the libraries it ran on.
+SOLVED_ON = SOLVER | {"numpy": "2.1.2", "scipy": "1.14.1"}
 #: The library each pinned distribution package provides to the kernel.
 PROVIDED = {
     "libgl1": "libGL.so.1",
@@ -510,7 +512,9 @@ def test_the_design_check_is_given_no_network_and_no_inherited_setting(
     def run(argv: list[str], env: dict[str, str], **more: object) -> str:
         seen["argv"], seen["env"] = list(argv), dict(env)
         part = {"libraries": dict(DESIGN), "geometry_hash": "sha256:" + "a" * 64}
-        return json.dumps({"part": part, "load_case": {"kind": "load_case"}, "mapped": []})
+        solve = {"kind": "solve", "libraries": dict(SOLVED_ON)}
+        answer = {"part": part, "load_case": {"kind": "load_case"}, "solve": solve, "mapped": []}
+        return json.dumps(answer)
 
     monkeypatch.setattr(provision, "run", run)
     dest = tmp_path / "env"
@@ -534,7 +538,8 @@ def test_a_design_library_at_another_version_stops_provisioning(
 ) -> None:
     provision = _provision()
     part = {"libraries": DESIGN | {"cadquery-ocp-novtk": "8.0.1.1.1"}}
-    answer = json.dumps({"part": part, "load_case": {}, "mapped": []})
+    solve = {"libraries": SOLVED_ON}
+    answer = json.dumps({"part": part, "load_case": {}, "solve": solve, "mapped": []})
     monkeypatch.setattr(provision, "run", lambda argv, env, **more: answer)
     dest = tmp_path / "env"
     (dest / "project").mkdir(parents=True)
@@ -543,12 +548,56 @@ def test_a_design_library_at_another_version_stops_provisioning(
         provision._check_design(dest, [], tmp_path)
 
 
+def _design_check_answer(solve: object) -> str:
+    found = {"part": {"libraries": DESIGN}, "load_case": {}, "mapped": []}
+    return json.dumps(found if solve is None else found | {"solve": solve})
+
+
+def test_the_design_check_solves_a_block_and_records_the_solve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provision = _provision()
+    solve = {"kind": "solve", "libraries": SOLVED_ON, "values": {"deflection": 1}}
+    monkeypatch.setattr(provision, "run", lambda argv, env, **more: _design_check_answer(solve))
+    dest = tmp_path / "env"
+    (dest / "project").mkdir(parents=True)
+    (dest / "project" / "pyproject.toml").write_bytes((TOOLENV / "pyproject.toml").read_bytes())
+    found = provision._check_design(dest, [], tmp_path)
+    assert found.get("solve") == solve
+    assert "structure.solve(" in provision.DESIGN_CHECK
+    assert '"solve": solved' in provision.DESIGN_CHECK
+
+
+@pytest.mark.parametrize(
+    "solve",
+    [
+        None,
+        {"libraries": SOLVED_ON | {"scikit-fem": "12.0.3"}},
+        {"libraries": SOLVED_ON | {"scipy": "1.14.0"}},
+        {"libraries": {}},
+    ],
+)
+def test_a_design_check_without_a_solve_on_the_pinned_solver_stops_provisioning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, solve: object
+) -> None:
+    provision = _provision()
+    monkeypatch.setattr(provision, "run", lambda argv, env, **more: _design_check_answer(solve))
+    dest = tmp_path / "env"
+    (dest / "project").mkdir(parents=True)
+    (dest / "project" / "pyproject.toml").write_bytes((TOOLENV / "pyproject.toml").read_bytes())
+    raised = _raised(lambda: provision._check_design(dest, [], tmp_path))
+    assert isinstance(raised, provision.ProvisionError), raised
+    assert "solve" in str(raised) or "not the pinned version" in str(raised)
+
+
 def test_a_display_library_served_by_the_host_stops_provisioning(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     provision = _provision()
     mapped = ["/usr/lib/x86_64-linux-gnu/libGL.so.1.7.0"]
-    answer = json.dumps({"part": {"libraries": DESIGN}, "load_case": {}, "mapped": mapped})
+    solve = {"libraries": SOLVED_ON}
+    found = {"part": {"libraries": DESIGN}, "load_case": {}, "solve": solve, "mapped": mapped}
+    answer = json.dumps(found)
     monkeypatch.setattr(provision, "run", lambda argv, env, **more: answer)
     dest = tmp_path / "env"
     (dest / "project").mkdir(parents=True)
