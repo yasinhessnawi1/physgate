@@ -35,6 +35,7 @@ from physgate.evaluation.tiers.store import (  # noqa: E402
 )
 from physgate.evaluation.tiers.task import Role, Task, canonical_json, parse_task  # noqa: E402
 from physgate.hooks.settings import CONFIG_NAME, PROFILE_TOOLS  # noqa: E402
+from physgate.orchestrator.binaries import measure  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
     EventLog,
@@ -52,6 +53,10 @@ LAYER = Present(mechanism="bubblewrap", claude_version="2.1.301")
 TIERS = ("visible", "validation", "held_out")
 SCORED = {"passed": True, "flags": {"no_gain_crossover": True}, "specs": []}
 PRICES = "2026-10-16"
+#: The stand-in for the session binary: a file of the suite's own, measured as the command
+#: measures the binary it runs, so the harness runs record the build the raw session is given.
+BINARY = Path(__file__).resolve()
+BUILT = measure(str(BINARY))
 
 
 @dataclass(frozen=True)
@@ -160,7 +165,7 @@ def config(task: Task, made: StandInStore, **changes: Any) -> RunConfig:  # noqa
         git_binary=None,
         # As the command records them: the bytes it measured, and the account by its name and
         # the fingerprint of the credential it was given.
-        binary={"sha256": "d" * 64, "platform": "linux-x64"},
+        binary=BUILT.model_dump(),
         account={"name": params["account"], "token_sha256_prefix": "e" * 12},
         os_layer=LAYER.model_dump(),
         network="none",
@@ -215,7 +220,7 @@ def setup_for(config: RunConfig, role: Role) -> RawSetup:
     return setup_from_run(
         config,
         role,
-        binary="claude",
+        binary=str(BINARY),
         credential=Credential(mode="subscription", secret="not-a-token"),
         install_bin=Path("/nowhere/bin/physgate"),
         os_layer=LAYER,

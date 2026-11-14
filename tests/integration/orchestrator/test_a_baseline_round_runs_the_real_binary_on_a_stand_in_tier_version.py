@@ -59,6 +59,7 @@ from physgate.evaluation.observe.cost import load_price_sheet  # noqa: E402
 from physgate.evaluation.per_role.arms.raw import RawSetup  # noqa: E402
 from physgate.evaluation.tiers.store import role_root, version_dir, withheld_root  # noqa: E402
 from physgate.evaluation.tiers.task import Role, Task  # noqa: E402
+from physgate.orchestrator.binaries import measure  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
 from physgate.orchestrator.decompose import binary_version  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
@@ -167,6 +168,8 @@ def _round(root: Path, install_bin: Path) -> Round:
             "network_enforced": network_enforced("none", layer),
             "endpoint": endpoint_of(url),
             "auth": "api_key",
+            # The build the raw sessions run: the harness runs must have recorded it.
+            "binary": measure(binary).model_dump(),
         }
         runs = run_set(*((harness_run(root / "runs", t, made, **recorded), 0) for t in tasks))
 

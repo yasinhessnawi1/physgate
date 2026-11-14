@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -40,11 +41,13 @@ from physgate.evaluation.baseline.runner import (
     run_baseline,
 )
 from physgate.evaluation.observe.cost import load_price_sheet
+from physgate.evaluation.per_role.arms.raw import RawSetup
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.manifest import read_version
 from physgate.evaluation.tiers.store import role_root, version_dir, withheld_root
-from physgate.evaluation.tiers.task import Task, parse_task
+from physgate.evaluation.tiers.task import Role, Task, parse_task
 from physgate.orchestrator.budget import REPAIR_BUDGET
+from physgate.orchestrator.run_config import RunConfig
 
 API_ERROR = {"is_error": True, "terminal_reason": "api_error", "api_error_status": 529}
 
@@ -284,15 +287,17 @@ def test_trials_of_runs_on_different_binary_builds_are_refused_before_any_sessio
     _refused(store, run_set((one, 0), (two, 0)), tmp_path / "round", "binary", {"entry": "1"})
 
 
-def test_a_run_that_recorded_no_binary_is_not_held_against_one_that_did_and_accounts_are_not(
+def test_a_run_that_recorded_no_binary_is_refused_beside_one_that_did_and_accounts_are_not(
     tmp_path: Path, store: StandInStore
 ) -> None:
-    """Only where both recorded it is the binary compared; the account is never compared."""
+    """The binary is held as the build it is: a run that recorded none cannot be held to it.
+
+    The account is never compared: runs on two seats are both taken.
+    """
     one = harness_run(
         tmp_path / "runs",
         store.tasks["visible"][0],
         store,
-        binary={"sha256": "d" * 64, "platform": "linux-x64"},
         account={"name": "run-seat-1", "token_sha256_prefix": "a" * 12},
     )
     two = harness_run(
@@ -302,11 +307,56 @@ def test_a_run_that_recorded_no_binary_is_not_held_against_one_that_did_and_acco
         binary=None,
         account={"name": "run-seat-2", "token_sha256_prefix": "b" * 12},
     )
+    _refused(store, run_set((one, 0), (two, 0)), tmp_path / "round", "binary", {"entry": "1"})
+    _refused(store, run_set((two, 0)), tmp_path / "alone", "binary", {"entry": "0"})
+    _refused(store, run_set((two, 0)), tmp_path / "dev", "binary", {"entry": "0"}, development=True)
+    three = harness_run(
+        tmp_path / "runs",
+        store.tasks["visible"][1],
+        store,
+        account={"name": "run-seat-2", "token_sha256_prefix": "b" * 12},
+    )
     try:
-        record = _round(store, run_set((one, 0), (two, 0)), tmp_path / "round", StandInArm())
+        record = _round(store, run_set((one, 0), (three, 0)), tmp_path / "taken", StandInArm())
     except BaselineError as exc:
         pytest.fail(f"the round was refused: {exc}")
     assert record.counts["visible"].trials == 2
+
+
+@pytest.mark.parametrize("development", [False, True])
+def test_a_raw_session_given_another_build_than_the_harness_runs_executed_is_refused(
+    tmp_path: Path, store: StandInStore, development: bool
+) -> None:
+    """The raw session's own binary is measured and held to the build the harness runs recorded.
+
+    The same version string is not enough: another build is refused before its session starts.
+    """
+    other = tmp_path / "claude"
+    other.write_bytes(b"another build of the same version")
+    run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
+    arm = StandInArm()
+
+    def given_another(config: RunConfig, role: Role) -> RawSetup:
+        return replace(setup_for(config, role), binary=str(other))
+
+    outcome = _try(
+        lambda: run_baseline(
+            store=store.store,
+            role="control",
+            version=store.version,
+            runs=run_set((run, 0)),
+            out=tmp_path / "round",
+            setup_for=given_another,
+            score=_score,
+            prices=load_price_sheet(PRICES),
+            arm=arm,
+            sleep=lambda _s: None,
+            development=development,
+        )
+    )
+    assert isinstance(outcome, BaselineError), outcome
+    assert "build" in str(outcome) and outcome.context.get("refused_because") == "binary"
+    assert arm.calls == [], "a session started on another build"
 
 
 def test_a_round_into_a_directory_that_exists_is_refused(
