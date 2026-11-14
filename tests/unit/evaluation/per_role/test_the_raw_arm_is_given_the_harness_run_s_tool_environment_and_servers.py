@@ -198,11 +198,11 @@ def test_the_session_finds_the_environment_s_programs_first_and_is_told_it_for_i
     env = dict(line.split("=", 1) for line in lines if "=" in line)
     sdir = work / "session"
     assert env["PATH"].split(":")[0] == str(sdir / "bin")
-    assert (sdir / "bin" / "python3").read_text() == (
-        f'#!/bin/sh\nexec {recorded.interpreter} "$@"\n'
-    )
-    assert env["BUILD_QUIET"] == "yes"
-    assert json.loads(env[ENVIRONMENT_VARIABLE]) == {
+    python3 = sdir / "bin" / "python3"
+    assert python3.is_file(), "the environment's interpreter is not the session's python3"
+    assert python3.read_text() == f'#!/bin/sh\nexec {recorded.interpreter} "$@"\n'
+    assert env.get("BUILD_QUIET") == "yes"
+    assert json.loads(env.get(ENVIRONMENT_VARIABLE, "null")) == {
         "roots": list(recorded.roots),
         "sha256": recorded.manifest_digest,
     }
