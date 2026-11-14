@@ -1,0 +1,993 @@
+[
+  {
+    "name": "baseline_first",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py",
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_the_frozen_plant_v0_is_held_to_its_recorded_digest.py"
+    ]
+  },
+  {
+    "name": "bound_period_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"period\": FieldBound(0.001, 1.0, _PERIOD),\n",
+    "new": "    \"period\": FieldBound(0.0005, 1.0, _PERIOD),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_period_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"period\": FieldBound(0.001, 1.0, _PERIOD),\n",
+    "new": "    \"period\": FieldBound(0.001, 2.0, _PERIOD),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_update_time_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"update_time\": FieldBound(\n        1, 255, \"the reference code holds its update time as uint8_t ms (Balance.h); 0 is none\"\n    ),\n",
+    "new": "    \"update_time\": FieldBound(\n        0, 255, \"the reference code holds its update time as uint8_t ms (Balance.h); 0 is none\"\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_update_time_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"update_time\": FieldBound(\n        1, 255, \"the reference code holds its update time as uint8_t ms (Balance.h); 0 is none\"\n    ),\n",
+    "new": "    \"update_time\": FieldBound(\n        1, 256, \"the reference code holds its update time as uint8_t ms (Balance.h); 0 is none\"\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_command_limit_low_closed",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"command_limit\": FieldBound(0.0, 1.0, \"a duty: above 0 and at most 1\", low_open=True),\n",
+    "new": "    \"command_limit\": FieldBound(0.0, 1.0, \"a duty: above 0 and at most 1\", low_open=False),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_command_limit_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"command_limit\": FieldBound(0.0, 1.0, \"a duty: above 0 and at most 1\", low_open=True),\n",
+    "new": "    \"command_limit\": FieldBound(0.0, 2.0, \"a duty: above 0 and at most 1\", low_open=True),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_sensor_delay_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"sensor_delay\": FieldBound(\n        0.0,\n        MAX_DELAY_SECONDS,\n        \"chosen bound: a time, and far past any delay a balancing loop survives\",\n    ),\n",
+    "new": "    \"sensor_delay\": FieldBound(\n        -1.0,\n        MAX_DELAY_SECONDS,\n        \"chosen bound: a time, and far past any delay a balancing loop survives\",\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_sensor_delay_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"sensor_delay\": FieldBound(\n        0.0,\n        MAX_DELAY_SECONDS,\n        \"chosen bound: a time, and far past any delay a balancing loop survives\",\n    ),\n",
+    "new": "    \"sensor_delay\": FieldBound(\n        0.0,\n        MAX_DELAY_SECONDS + 1,\n        \"chosen bound: a time, and far past any delay a balancing loop survives\",\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_compute_delay_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"compute_delay\": FieldBound(\n        0.0,\n        MAX_DELAY_SECONDS,\n        \"chosen bound: a time, and far past any delay a balancing loop survives\",\n    ),\n",
+    "new": "    \"compute_delay\": FieldBound(\n        -1.0,\n        MAX_DELAY_SECONDS,\n        \"chosen bound: a time, and far past any delay a balancing loop survives\",\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_compute_delay_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"compute_delay\": FieldBound(\n        0.0,\n        MAX_DELAY_SECONDS,\n        \"chosen bound: a time, and far past any delay a balancing loop survives\",\n    ),\n",
+    "new": "    \"compute_delay\": FieldBound(\n        0.0,\n        MAX_DELAY_SECONDS + 1,\n        \"chosen bound: a time, and far past any delay a balancing loop survives\",\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_angle_decay_per_update_low_closed",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"angle_decay_per_update\": FieldBound(\n        0.0, 1.0, \"a leak: it never grows the angle, and 0 would erase it\", low_open=True\n    ),\n",
+    "new": "    \"angle_decay_per_update\": FieldBound(\n        0.0, 1.0, \"a leak: it never grows the angle, and 0 would erase it\", low_open=False\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_angle_decay_per_update_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"angle_decay_per_update\": FieldBound(\n        0.0, 1.0, \"a leak: it never grows the angle, and 0 would erase it\", low_open=True\n    ),\n",
+    "new": "    \"angle_decay_per_update\": FieldBound(\n        0.0, 2.0, \"a leak: it never grows the angle, and 0 would erase it\", low_open=True\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_motor_speed_limit_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"motor_speed_limit\": FieldBound(\n        1, 32767, _INT16 + \"; at least 1, and at most the PWM full scale\"\n    ),\n",
+    "new": "    \"motor_speed_limit\": FieldBound(\n        0, 32767, _INT16 + \"; at least 1, and at most the PWM full scale\"\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_motor_speed_limit_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"motor_speed_limit\": FieldBound(\n        1, 32767, _INT16 + \"; at least 1, and at most the PWM full scale\"\n    ),\n",
+    "new": "    \"motor_speed_limit\": FieldBound(\n        1, 32768, _INT16 + \"; at least 1, and at most the PWM full scale\"\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_angle_rate_ratio_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"angle_rate_ratio\": FieldBound(0, 32767, _INT16 + \"; a lead time, never negative\"),\n",
+    "new": "    \"angle_rate_ratio\": FieldBound(-1, 32767, _INT16 + \"; a lead time, never negative\"),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_angle_rate_ratio_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"angle_rate_ratio\": FieldBound(0, 32767, _INT16 + \"; a lead time, never negative\"),\n",
+    "new": "    \"angle_rate_ratio\": FieldBound(0, 32768, _INT16 + \"; a lead time, never negative\"),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_angle_response_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"angle_response\": FieldBound(-32768, 32767, _INT16),\n",
+    "new": "    \"angle_response\": FieldBound(-32769, 32767, _INT16),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_angle_response_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"angle_response\": FieldBound(-32768, 32767, _INT16),\n",
+    "new": "    \"angle_response\": FieldBound(-32768, 32768, _INT16),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_distance_response_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"distance_response\": FieldBound(-32768, 32767, _INT16),\n",
+    "new": "    \"distance_response\": FieldBound(-32769, 32767, _INT16),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_distance_response_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"distance_response\": FieldBound(-32768, 32767, _INT16),\n",
+    "new": "    \"distance_response\": FieldBound(-32768, 32768, _INT16),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_speed_response_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"speed_response\": FieldBound(-32768, 32767, _INT16),\n",
+    "new": "    \"speed_response\": FieldBound(-32769, 32767, _INT16),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_speed_response_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"speed_response\": FieldBound(-32768, 32767, _INT16),\n",
+    "new": "    \"speed_response\": FieldBound(-32768, 32768, _INT16),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_gear_ratio_coefficient_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"gear_ratio_coefficient\": FieldBound(1, 32767, _INT16 + \"; at least 1, a divisor\"),\n",
+    "new": "    \"gear_ratio_coefficient\": FieldBound(0, 32767, _INT16 + \"; at least 1, a divisor\"),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_gear_ratio_coefficient_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"gear_ratio_coefficient\": FieldBound(1, 32767, _INT16 + \"; at least 1, a divisor\"),\n",
+    "new": "    \"gear_ratio_coefficient\": FieldBound(1, 32768, _INT16 + \"; at least 1, a divisor\"),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_response_divisor_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"response_divisor\": FieldBound(1, 32767, _LITERAL),\n",
+    "new": "    \"response_divisor\": FieldBound(0, 32767, _LITERAL),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_response_divisor_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"response_divisor\": FieldBound(1, 32767, _LITERAL),\n",
+    "new": "    \"response_divisor\": FieldBound(1, 32768, _LITERAL),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_gyro_divisor_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"gyro_divisor\": FieldBound(1, 32767, _LITERAL),\n",
+    "new": "    \"gyro_divisor\": FieldBound(0, 32767, _LITERAL),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_gyro_divisor_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"gyro_divisor\": FieldBound(1, 32767, _LITERAL),\n",
+    "new": "    \"gyro_divisor\": FieldBound(1, 32768, _LITERAL),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_angle_decay_numerator_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"angle_decay_numerator\": FieldBound(1, 32767, _LITERAL),\n",
+    "new": "    \"angle_decay_numerator\": FieldBound(0, 32767, _LITERAL),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_angle_decay_numerator_high_tight",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"angle_decay_numerator\": FieldBound(1, 32767, _LITERAL),\n",
+    "new": "    \"angle_decay_numerator\": FieldBound(1, 32766, _LITERAL),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_angle_decay_denominator_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"angle_decay_denominator\": FieldBound(1, 32767, _LITERAL),\n",
+    "new": "    \"angle_decay_denominator\": FieldBound(0, 32767, _LITERAL),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_angle_decay_denominator_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"angle_decay_denominator\": FieldBound(1, 32767, _LITERAL),\n",
+    "new": "    \"angle_decay_denominator\": FieldBound(1, 32768, _LITERAL),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_update_rate_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"update_rate\": FieldBound(1.0, 1000.0, \"the period's bounds, as a rate\"),\n",
+    "new": "    \"update_rate\": FieldBound(0.5, 1000.0, \"the period's bounds, as a rate\"),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_update_rate_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"update_rate\": FieldBound(1.0, 1000.0, \"the period's bounds, as a rate\"),\n",
+    "new": "    \"update_rate\": FieldBound(1.0, 1001.0, \"the period's bounds, as a rate\"),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_gyro_output_data_rate_low_closed",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"gyro_output_data_rate\": FieldBound(\n        0.0,\n        10_000.0,\n        \"chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read\",\n        low_open=True,\n    ),\n",
+    "new": "    \"gyro_output_data_rate\": FieldBound(\n        0.0,\n        10_000.0,\n        \"chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read\",\n        low_open=False,\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_gyro_output_data_rate_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"gyro_output_data_rate\": FieldBound(\n        0.0,\n        10_000.0,\n        \"chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read\",\n        low_open=True,\n    ),\n",
+    "new": "    \"gyro_output_data_rate\": FieldBound(\n        0.0,\n        20_000.0,\n        \"chosen bound: above 0, and ten times a loop at its fastest 1 ms update can read\",\n        low_open=True,\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_gyro_full_scale_low_closed",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"gyro_full_scale\": FieldBound(\n        0.0,\n        10_000.0,\n        \"chosen bound: above 0, and past the full scale of any gyro offered on the kit\",\n        low_open=True,\n    ),\n",
+    "new": "    \"gyro_full_scale\": FieldBound(\n        0.0,\n        10_000.0,\n        \"chosen bound: above 0, and past the full scale of any gyro offered on the kit\",\n        low_open=False,\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_gyro_full_scale_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"gyro_full_scale\": FieldBound(\n        0.0,\n        10_000.0,\n        \"chosen bound: above 0, and past the full scale of any gyro offered on the kit\",\n        low_open=True,\n    ),\n",
+    "new": "    \"gyro_full_scale\": FieldBound(\n        0.0,\n        20_000.0,\n        \"chosen bound: above 0, and past the full scale of any gyro offered on the kit\",\n        low_open=True,\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_pwm_frequency_low_closed",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"pwm_frequency\": FieldBound(\n        0.0,\n        1e6,\n        \"chosen bound: above 0, and fifty times the 20 kHz the reference brief names\",\n        low_open=True,\n    ),\n",
+    "new": "    \"pwm_frequency\": FieldBound(\n        0.0,\n        1e6,\n        \"chosen bound: above 0, and fifty times the 20 kHz the reference brief names\",\n        low_open=False,\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_pwm_frequency_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"pwm_frequency\": FieldBound(\n        0.0,\n        1e6,\n        \"chosen bound: above 0, and fifty times the 20 kHz the reference brief names\",\n        low_open=True,\n    ),\n",
+    "new": "    \"pwm_frequency\": FieldBound(\n        0.0,\n        2e6,\n        \"chosen bound: above 0, and fifty times the 20 kHz the reference brief names\",\n        low_open=True,\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_pwm_full_scale_low",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"pwm_full_scale\": FieldBound(\n        1, 65535, \"the PWM counter's top on the kit's ATmega32U4 Timer1, which counts in 16 bits\"\n    ),\n",
+    "new": "    \"pwm_full_scale\": FieldBound(\n        0, 65535, \"the PWM counter's top on the kit's ATmega32U4 Timer1, which counts in 16 bits\"\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_pwm_full_scale_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"pwm_full_scale\": FieldBound(\n        1, 65535, \"the PWM counter's top on the kit's ATmega32U4 Timer1, which counts in 16 bits\"\n    ),\n",
+    "new": "    \"pwm_full_scale\": FieldBound(\n        1, 65536, \"the PWM counter's top on the kit's ATmega32U4 Timer1, which counts in 16 bits\"\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_encoder_counts_per_wheel_revolution_low_closed",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"encoder_counts_per_wheel_revolution\": FieldBound(\n        0.0,\n        1e6,\n        \"chosen bound: above 0, and past any encoder on any gear ratio offered for the kit \"\n        \"(about 1,323 counts on the kit's own)\",\n        low_open=True,\n    ),\n",
+    "new": "    \"encoder_counts_per_wheel_revolution\": FieldBound(\n        0.0,\n        1e6,\n        \"chosen bound: above 0, and past any encoder on any gear ratio offered for the kit \"\n        \"(about 1,323 counts on the kit's own)\",\n        low_open=False,\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_encoder_counts_per_wheel_revolution_high",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    \"encoder_counts_per_wheel_revolution\": FieldBound(\n        0.0,\n        1e6,\n        \"chosen bound: above 0, and past any encoder on any gear ratio offered for the kit \"\n        \"(about 1,323 counts on the kit's own)\",\n        low_open=True,\n    ),\n",
+    "new": "    \"encoder_counts_per_wheel_revolution\": FieldBound(\n        0.0,\n        2e6,\n        \"chosen bound: above 0, and past any encoder on any gear ratio offered for the kit \"\n        \"(about 1,323 counts on the kit's own)\",\n        low_open=True,\n    ),\n",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_gains_low_tight",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "_GAIN = FieldBound(\n    -MAX_MAGNITUDE,",
+    "new": "_GAIN = FieldBound(\n    -MAX_MAGNITUDE / 10,",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_gains_high_tight",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    -MAX_MAGNITUDE,\n    MAX_MAGNITUDE,",
+    "new": "    -MAX_MAGNITUDE,\n    MAX_MAGNITUDE / 10,",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_open_low_ignored",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    above_low = value > bound.low if bound.low_open else value >= bound.low",
+    "new": "    above_low = value >= bound.low",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "bound_high_ignored",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "    if not (above_low and value <= bound.high):",
+    "new": "    if not above_low:",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "delay_samples_51",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "MAX_DELAY_SAMPLES = 50",
+    "new": "MAX_DELAY_SAMPLES = 51",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "delay_line_si_off",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "        _delay_line(self, period)\n",
+    "new": "",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "delay_line_native_off",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "        _delay_line(self, update_time / 1000.0)",
+    "new": "        _delay_line(self, update_time / 100.0)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "delay_line_no_allowance",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "MAX_DELAY_SAMPLES * (1 + 1e-9)",
+    "new": "MAX_DELAY_SAMPLES",
+    "tests": [
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py"
+    ]
+  },
+  {
+    "name": "conv_millidegrees",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "MILLIDEGREES_PER_RADIAN = 1000.0 * 180.0 / math.pi",
+    "new": "MILLIDEGREES_PER_RADIAN = 180.0 / math.pi",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_wheels_summed",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "WHEELS_SUMMED = 2",
+    "new": "WHEELS_SUMMED = 1",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_increment_divisor",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "    divisor = int(controller.response_divisor.value) * int(controller.gear_ratio_coefficient.value)",
+    "new": "    divisor = int(controller.response_divisor.value)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_per_increment_full_scale",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "    per_increment = divisor * full_scale",
+    "new": "    per_increment = divisor * 400.0",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_believed_divisor",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "    believed = float(sensitivity.value) / int(controller.gyro_divisor.value)",
+    "new": "    believed = float(sensitivity.value) / 29",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_believed_sensitivity",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "    believed = float(sensitivity.value) / int(controller.gyro_divisor.value)",
+    "new": "    believed = 28.571 / int(controller.gyro_divisor.value)",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_period_ms",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "    period = int(controller.update_time.value) / 1000.0",
+    "new": "    period = int(controller.update_time.value) / 100.0",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_counts_per_metre",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "        2.0 * math.pi * wheel_radius.value",
+    "new": "        2.0 * math.pi * 0.040",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_counts_per_rev",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "    counts_per_metre = float(parameters.encoder_counts_per_wheel_revolution.value) / (",
+    "new": "    counts_per_metre = 1322.9 / (",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_rate_ratio_ms",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "        rate=angle * int(controller.angle_rate_ratio.value) / 1000.0,",
+    "new": "        rate=angle * int(controller.angle_rate_ratio.value) / 100.0,",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_speed_period",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "            * period\n            * counts_per_metre",
+    "new": "            * counts_per_metre",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_decay",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "        decay=int(controller.angle_decay_numerator.value)\n        / int(controller.angle_decay_denominator.value),",
+    "new": "        decay=1.0,",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_command_limit",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "        command_limit=int(controller.motor_speed_limit.value) / full_scale,",
+    "new": "        command_limit=int(controller.motor_speed_limit.value) / 400.0,",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_si_rate_ratio",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "            rate=angle * float(controller.rate_ratio.value),",
+    "new": "            rate=float(controller.rate_ratio.value),",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "conv_si_decay_default",
+    "file": "src/physgate/evaluation/whole/convert.py",
+    "old": "            decay=1.0 if decay is None else float(decay.value),",
+    "new": "            decay=0.999 if decay is None else float(decay.value),",
+    "tests": [
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py"
+    ]
+  },
+  {
+    "name": "loop_finite_off",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    _finite(\"the plant held at the period, or the controller,\", ap, bp, cp, ac, bc, cc, dc)\n",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "loop_response_finite_off",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    _finite(\"the loop's frequency response\", out)\n",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "loop_failures_no_linalg",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "NUMERICAL_FAILURES = (ArithmeticError, np.linalg.LinAlgError)",
+    "new": "NUMERICAL_FAILURES = (ArithmeticError,)",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "loop_failures_no_arith",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "NUMERICAL_FAILURES = (ArithmeticError, np.linalg.LinAlgError)",
+    "new": "NUMERICAL_FAILURES = (np.linalg.LinAlgError,)",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "loop_decay_tolerance_0",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "DECAY_TOLERANCE = 1e-9",
+    "new": "DECAY_TOLERANCE = 0.0",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "loop_states_no_controller",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    return PLANT_STATES + whole + 1 + (2 if loop.incremental else 0)",
+    "new": "    return PLANT_STATES + whole + 1",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "loop_states_no_delay_line",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    return PLANT_STATES + whole + 1 + (2 if loop.incremental else 0)",
+    "new": "    return PLANT_STATES + 1 + (2 if loop.incremental else 0)",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "loop_steps_no_gain",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    return sweep_points(loop.period) + 2 + 2 * (stepping + bisecting)",
+    "new": "    return sweep_points(loop.period) + 2",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "loop_steps_no_sweep",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "    return sweep_points(loop.period) + 2 + 2 * (stepping + bisecting)",
+    "new": "    return 2 + 2 * (stepping + bisecting)",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "loop_grid_step",
+    "file": "src/physgate/evaluation/whole/loop.py",
+    "old": "        \"gain_step\": {\"value\": GAIN_STEP, \"unit\": \"1\"},",
+    "new": "        \"gain_step\": {\"value\": GAIN_STEP, \"unit\": \"\"},",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_work_bound_off",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        if work[\"total\"] > MAX_WORK:",
+    "new": "        if False:",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_work_bound_loose",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "MAX_WORK = 100_000_000",
+    "new": "MAX_WORK = 1_000_000_000",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_work_bound_tight",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "MAX_WORK = 100_000_000",
+    "new": "MAX_WORK = 20_000_000",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_work_no_nominal",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        corners = 1 + 2 ** len(ranged(self._plant, LOOP_INPUTS)) if reads_loop else 0",
+    "new": "        corners = 2 ** len(ranged(self._plant, LOOP_INPUTS)) if reads_loop else 0",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_work_always_loop",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        corners = 1 + 2 ** len(ranged(self._plant, LOOP_INPUTS)) if reads_loop else 0",
+    "new": "        corners = 1 + 2 ** len(ranged(self._plant, LOOP_INPUTS))",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_numerical_not_caught",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        except loop_module.NUMERICAL_FAILURES as exc:",
+    "new": "        except SyntaxError as exc:",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_draft_unchecked",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        if draft and self._plant.status != \"draft\":",
+    "new": "        if False:",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_frozen_unchecked",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        if not draft and self._plant_version is None:",
+    "new": "        if False:",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_version_unnamed",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "                \"version\": self._plant_version,",
+    "new": "                \"version\": None,",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_pass_wording",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "                    \"passes at the nominal values and at every corner of the ranges; the \"\n                    \"ranges' interior is not searched\"",
+    "new": "                    \"passes at the nominal values and at every corner of the ranges\"",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_unstable_reason_off",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "    if count == 0 and not math.isnan(at_nominal):\n        return \"\"",
+    "new": "    if True:\n        return \"\"",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_no_distance_reason_off",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "    if loop is not None and loop.distance == 0.0:",
+    "new": "    if False:",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "sc_search_grid_off",
+    "file": "src/physgate/evaluation/whole/scenario.py",
+    "old": "        if spec.metric in LOOP_METRICS:\n",
+    "new": "        if False:\n",
+    "tests": [
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "plant_frozen_digest_off",
+    "file": "src/physgate/evaluation/whole/plant.py",
+    "old": "    \"cfa93bec3323af6ecc8f41916f63762bfc3ae0f1c35f60da3b44f91e7244b4a1\": \"v0\",",
+    "new": "    \"cfa93bec3323af6ecc8f41916f63762bfc3ae0f1c35f60da3b44f91e7244b4a0\": \"v0\",",
+    "tests": [
+      "tests/unit/evaluation/whole/test_the_frozen_plant_v0_is_held_to_its_recorded_digest.py",
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py"
+    ]
+  },
+  {
+    "name": "baseline_last",
+    "file": "src/physgate/evaluation/whole/answer.py",
+    "old": "",
+    "new": "",
+    "tests": [
+      "tests/scoring/test_a_whole_design_is_judged_never_on_an_unsourced_value.py",
+      "tests/scoring/test_no_answer_crashes_or_outworks_the_scorer.py",
+      "tests/scoring/test_the_balance_loop_is_judged_sampled_held_and_delayed.py",
+      "tests/scoring/whole_loop_tolerance.py",
+      "tests/unit/evaluation/whole/test_a_native_controller_is_converted_to_si_with_every_scale_factor_named.py",
+      "tests/unit/evaluation/whole/test_a_whole_run_answer_states_its_choices_each_with_its_unit.py",
+      "tests/unit/evaluation/whole/test_every_number_in_an_answer_is_bounded_with_its_reason.py",
+      "tests/unit/evaluation/whole/test_the_frozen_plant_v0_is_held_to_its_recorded_digest.py"
+    ]
+  }
+]
