@@ -62,6 +62,7 @@ from hook_helpers import make_store, node  # noqa: E402
 from loop_fakes import FakeChanges, Rig, plan  # noqa: E402
 
 from physgate.orchestrator import escalation_state, events, ports, repair  # noqa: E402
+from physgate.orchestrator import git as git_module  # noqa: E402
 from physgate.orchestrator.apply import GitChangeChecker  # noqa: E402
 from physgate.orchestrator.exceptions import GitError, InvocationError  # noqa: E402
 from physgate.orchestrator.merge import RunGit, commit_attempt  # noqa: E402
@@ -907,7 +908,7 @@ def test_a_git_read_that_fails_while_a_set_is_made_again_is_a_refusal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
-    real = derived.git
+    real = git_module.git
 
     def failing(repo: Path, *args: str, **given: Any) -> str:  # noqa: ANN401
         if "cat-file" in args:
@@ -1125,7 +1126,13 @@ def test_a_regeneration_that_writes_past_the_folder_s_bound_refuses(
     work = tmp_path / "work"
     (work / "deep").mkdir(parents=True)
     rest = "time.sleep(30)" if then == "sleeps" else "pass"
-    big = f"import time; open('deep/big', 'wb').write(b'x' * 200_000); {rest}"
+    # Three files, each under the size limit the system holds: the count of the folder refuses.
+    big = (
+        "import time\n"
+        "for name in ('a', 'b', 'c'):\n"
+        "    open('deep/' + name, 'wb').write(b'x' * 50_000)\n"
+        f"{rest}\n"
+    )
     started = time.monotonic()
     raised = _raised(
         lambda: regeneration._run([sys.executable, "-c", big], work, {}, 60.0)  # noqa: SLF001
@@ -1155,3 +1162,77 @@ def test_nothing_the_regeneration_started_outlives_it(tmp_path: Path, child: str
     regeneration._run([sys.executable, "-c", program], tmp_path, {}, 1.0)  # noqa: SLF001
     time.sleep(3.5)
     assert not marker.exists(), "a process the regeneration started went on after it ended"
+
+
+# ---- what leaves the group, and what the system itself bounds -------------------------------
+
+
+def _run_raised(argv: list[str], work: Path, timeout_s: float) -> BaseException | None:
+    """What the runner raises running ``argv`` in ``work``, or ``None``."""
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    run = regeneration._run  # noqa: SLF001 - the runner's own process handling, without a wrapper
+    return _raised(lambda: run(argv, work, {}, timeout_s))
+
+
+@pytest.mark.parametrize("said", ["keeps writing", "keeps quiet"])
+def test_a_descendant_that_leaves_the_group_holding_the_error_stream_is_refused_in_time(
+    tmp_path: Path, said: str
+) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    # It starts a session of its own, so no group kill reaches it; it ends by itself later.
+    loud = "for _ in range(400):\n    sys.stderr.write('x'); sys.stderr.flush(); time.sleep(0.05)"
+    body = loud if said == "keeps writing" else "time.sleep(6)"
+    grandchild = f"import os, sys, time\nos.setsid()\n{body}\n"
+    program = (
+        "import subprocess, sys; "
+        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}])"
+    )
+    started = time.monotonic()
+    raised = _run_raised([sys.executable, "-c", program], tmp_path, 30.0)
+    assert type(raised).__name__ == "RegenerationBoundError", raised
+    assert "error stream open" in str(raised), raised
+    assert time.monotonic() - started < 15.0, "the stream was waited for, not refused"
+
+
+def test_no_file_grows_past_the_size_limit_the_system_holds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    monkeypatch.setattr(regeneration, "MAX_WRITTEN_BYTES", 100_000)
+    work = tmp_path / "work"
+    work.mkdir()
+    # The program goes on past the error it is given, and ends as if all were well.
+    big = "try:\n    open('big', 'wb').write(b'x' * 200_000)\nexcept OSError:\n    pass\n"
+    raised = _raised(
+        lambda: regeneration._run([sys.executable, "-c", big], work, {}, 60.0)  # noqa: SLF001
+    )
+    assert type(raised).__name__ == "RegenerationBoundError", raised
+    assert (work / "big").stat().st_size <= 100_001, (work / "big").stat().st_size
+
+
+def test_a_file_written_after_it_was_deleted_is_stopped_at_the_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    monkeypatch.setattr(regeneration, "MAX_WRITTEN_BYTES", 100_000)
+    hidden = "exec 3>gone && rm gone && exec head -c 200000 /dev/zero >&3"
+    raised = _raised(
+        lambda: regeneration._run(["/bin/sh", "-c", hidden], tmp_path, {}, 60.0)  # noqa: SLF001
+    )
+    assert type(raised).__name__ == "RegenerationBoundError", raised
+    assert not (tmp_path / "gone").exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="a folder's mode does not bind the superuser")
+def test_a_folder_that_cannot_be_counted_refuses(tmp_path: Path) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    shut = (
+        "import os\nos.makedirs('d/e')\nopen('d/e/f', 'wb').write(b'x' * 1000)\nos.chmod('d', 0)\n"
+    )
+    try:
+        raised = _run_raised([sys.executable, "-c", shut], tmp_path, 60.0)
+    finally:
+        if (tmp_path / "d").exists():
+            (tmp_path / "d").chmod(0o700)
+    assert type(raised).__name__ == "RegenerationBoundError", raised
+    assert "cannot be counted" in str(raised), raised

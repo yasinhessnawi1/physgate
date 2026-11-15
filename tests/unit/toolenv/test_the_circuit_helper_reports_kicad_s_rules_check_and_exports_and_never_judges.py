@@ -441,19 +441,19 @@ UNREADABLE = {
     "a comment": "(kicad_sch\n# a comment\n (version 20250114))\n",
 }
 
-#: A schematic that names a sheet without drawing on one: its sheet instances, and words in a
-#: string, escaped quotes and a letter past ASCII among them.
+#: A schematic that names a sheet without drawing on one: its sheet instances, the word heading
+#: no list, and words in a string, escaped quotes and a letter past ASCII among them.
 NO_SUB_SHEET = (
     "(kicad_sch (version 20250114)\n"
+    "  (title_block (comment 1 sheet))\n"
     '  (text "(sheet (at 0 0)) and a \\"quoted\\" (sheet word, é" (at 0 0 0))\n'
     '  (sheet_instances (path "/" (page "1"))))\n'
 )
+_ROOT_SHEET = '  (sheet_instances (path "/" (page "1"))))\n'
 
 
 def _drawn(text: str) -> str:
-    return (
-        "(kicad_sch (version 20250114)\n" + text + '  (sheet_instances (path "/" (page "1"))))\n'
-    )
+    return "(kicad_sch (version 20250114)\n" + text + _ROOT_SHEET
 
 
 @pytest.mark.parametrize("form", sorted(SHEET_FORMS))

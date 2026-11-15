@@ -71,8 +71,9 @@ ADDED_FIELDS: dict[str, dict[str, Any]] = {
         "series": {"records": [], "refused": [], "discarded": []},
         "policy_limits_unjudged": None,
     },
-    # The proposed quantities held to the records they name: none, in every run recorded.
-    "proposals_checked": {"series_checks": []},
+    # The proposed quantities held to the records they name: none, in every run recorded. The
+    # sets of exports the check made again: none, as no run it recorded committed a source.
+    "proposals_checked": {"series_checks": [], "exports_regenerated": 0},
 }
 
 #: Fields added inside a record a line carries, after the golden file was written, per

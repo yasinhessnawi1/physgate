@@ -601,3 +601,23 @@ def test_a_schematic_that_draws_on_a_sub_sheet_is_refused_in_words_at_commit(
     refusal = _held(session, base, _commit(repo, "sub-sheet"))
     assert refusal is not None
     assert "sub-sheet" in refusal.reason  # type: ignore[attr-defined]
+
+
+@pytest.mark.skipif(not LINUX, reason="the wrapper that ends a whole tree is Linux's bubblewrap")
+def test_inside_the_wrapper_a_new_session_dies_with_the_regeneration(tmp_path: Path) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    wrapper = regeneration.wrapper_on(os.environ.get("PATH", ""))
+    assert wrapper is not None, "no bubblewrap on this Linux machine's search path"
+    run = regeneration.contained_runner(platform=sys.platform, bwrap=wrapper)
+    marker = tmp_path / "outlived"
+    # A grandchild in a session of its own: no group kill reaches it, and it keeps the error
+    # stream open. The wrapper's namespace ends it with the program (--unshare-pid and
+    # --die-with-parent), so the stream closes and the call ends as the program did.
+    left = f"sleep 2; echo x > {marker}; while :; do echo y >&2; sleep 0.05; done"
+    program = f"setsid sh -c '{left}' & sleep 0.3; exit 0"
+    started = time.monotonic()
+    code, _ = run(["/bin/sh", "-c", program], tmp_path, {"PATH": "/usr/bin:/bin"}, 30.0, ())
+    assert code == 0
+    assert time.monotonic() - started < 10.0
+    time.sleep(3.0)
+    assert not marker.exists(), "a process in a session of its own outlived the wrapper"
