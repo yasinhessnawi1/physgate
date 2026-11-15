@@ -70,11 +70,14 @@ _PROPOSAL = re.compile(r"^\.physgate/proposals/[a-z][a-z0-9_]*(\.[a-z0-9_]+)+\.j
 _REGULAR = "100644"
 _ABSENT = "000000"
 
-#: Directories a build tool makes for its own output, by name, wherever they lie in a module.
-BUILD_DIRECTORIES = frozenset({".pio"})
-#: What a built file's name ends in: an executable image, its hex, raw and EEPROM forms, an
-#: object file, an archive of them. A module's own binary data goes under another name.
-BUILD_SUFFIXES = (".elf", ".hex", ".bin", ".eep", ".o", ".a")
+#: Directories a build tool makes for its own output, by name, wherever they lie in a module:
+#: the build tool's own and its older name for its builds, and the name builds conventionally
+#: take. A module's own files go under another name.
+BUILD_DIRECTORIES = frozenset({".pio", ".pioenvs", "build"})
+#: What a built file's name ends in: an executable image (ELF, and ARM's AXF), its hex, raw,
+#: UF2 and EEPROM forms, an object file, an archive of them, the linker's map and a listing.
+#: A module's own binary data goes under another name.
+BUILD_SUFFIXES = (".elf", ".axf", ".hex", ".bin", ".uf2", ".eep", ".o", ".a", ".map", ".lst")
 #: What an attempt is told about each. A build writes into the session's temporary
 #: directory; what it left in the module is removed, not committed.
 BUILD_ARTEFACT = (

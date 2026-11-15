@@ -18,6 +18,10 @@ since the full manifest was taken (about 0.1 s for the same tree).
 - a symbolic link whose resolution, followed as the system follows it, passes through or ends
   anywhere outside the roots, or loops;
 - anything that is not a regular file, a directory or a link (a pipe, a socket, a device).
+
+**Refused when the walk cannot finish**: a directory it cannot read (its entries would be
+neither digested nor scanned), and an entry that vanishes or changes kind while it is walked.
+Each is the environment's own refusal, never a bare system error.
 """
 
 from __future__ import annotations
@@ -58,13 +62,24 @@ def _entries(roots: Sequence[Path]) -> Iterator[tuple[int, str, str, os.stat_res
             msg = "a root of the tool environment is not a directory"
             raise ToolEnvironmentError(msg, root=root)
         yield index, root, root, top
-        for directory, dirs, files in os.walk(root, followlinks=False):
+        for directory, dirs, files in os.walk(root, onerror=_unreadable, followlinks=False):
             dirs.sort()
             names = sorted(files) + [d for d in dirs if os.path.islink(os.path.join(directory, d))]
             dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(directory, d))]
             for name in sorted(names) + dirs:
                 path = os.path.join(directory, name)
                 yield index, root, path, os.lstat(path)
+
+
+def _unreadable(error: OSError) -> None:
+    """A directory the walk could not list: its entries would be left out, so it refuses."""
+    raise error
+
+
+def _not_walked(exc: OSError) -> ToolEnvironmentError:
+    """A system error met on the walk, as the environment's refusal."""
+    msg = "the tool environment could not be walked to its end: an entry is unreadable or changed"
+    return ToolEnvironmentError(msg, path=str(exc.filename), error=exc.strerror or "")
 
 
 def _check(path: str, found: os.stat_result, roots: Sequence[str]) -> None:
@@ -125,10 +140,22 @@ def _stays_inside(link: str, roots: Sequence[str]) -> bool:
     return any(_under(current, root) for root in roots)
 
 
-def _sha256(path: str) -> str:
+def _sha256(path: str, found: os.stat_result) -> str:
+    """The digest of the regular file ``found`` was taken of, refused if another is opened.
+
+    Opened without blocking, so a pipe put in its place cannot hold the walk, and held to the
+    entry the walk saw: the same file, still regular.
+    """
     digest = hashlib.sha256()
-    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags)
     with os.fdopen(fd, "rb") as handle:
+        opened = os.fstat(handle.fileno())
+        same = (opened.st_dev, opened.st_ino) == (found.st_dev, found.st_ino)
+        if not (stat.S_ISREG(opened.st_mode) and same):
+            msg = "a file of the tool environment changed while it was walked"
+            raise ToolEnvironmentError(msg, path=path)
         while chunk := handle.read(_CHUNK):
             digest.update(chunk)
     return digest.hexdigest()
@@ -156,8 +183,16 @@ def manifest(roots: Sequence[Path]) -> Manifest:
 
     Raises:
         ToolEnvironmentError: a root is missing, not a directory, reached through a link, or
-            inside another; or an entry is refused (the module docstring's list).
+            inside another; or an entry is refused, or the walk cannot finish (the module
+            docstring's lists).
     """
+    try:
+        return _manifest(roots)
+    except OSError as exc:
+        raise _not_walked(exc) from None
+
+
+def _manifest(roots: Sequence[Path]) -> Manifest:
     checked = _checked_roots(roots)
     names = [str(root) for root in checked]
     whole = hashlib.sha256()
@@ -168,7 +203,7 @@ def manifest(roots: Sequence[Path]) -> Manifest:
         relative = os.path.relpath(path, root)
         mode = stat.S_IMODE(found.st_mode)
         if stat.S_ISREG(found.st_mode):
-            line = [index, relative, "file", mode, found.st_size, _sha256(path)]
+            line = [index, relative, "file", mode, found.st_size, _sha256(path, found)]
             total += found.st_size
         elif stat.S_ISLNK(found.st_mode):
             line = [index, relative, "link", os.readlink(path)]
@@ -185,6 +220,13 @@ def scan(roots: Sequence[Path]) -> str:
     Raises:
         ToolEnvironmentError: as :func:`manifest`, for the roots and every entry.
     """
+    try:
+        return _scan(roots)
+    except OSError as exc:
+        raise _not_walked(exc) from None
+
+
+def _scan(roots: Sequence[Path]) -> str:
     checked = _checked_roots(roots)
     names = [str(root) for root in checked]
     whole = hashlib.sha256()
