@@ -48,7 +48,7 @@ SHOWN_CLAUSE = (
 )
 #: The prompt of the fixture's review with an earlier attempt, its read directory written
 #: ``<read>``: its first pin, taken with the excerpts.
-WITH_EARLIER_SHA256 = "0" * 64
+WITH_EARLIER_SHA256 = "3f2c60b576502229c2f806a7915afab6130e0f57bc761d5fafaaba98699a9213"
 
 
 def _named(read: Path, parts: tuple[Part, ...]) -> str:
