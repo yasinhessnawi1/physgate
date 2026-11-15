@@ -10,6 +10,7 @@ from physgate.evaluation import requirements as evaluation_requirements
 from physgate.evaluation.baseline import cli as baseline_cli
 from physgate.evaluation.inject import cli as inject_cli
 from physgate.evaluation.observe import cli as observe_cli
+from physgate.evaluation.observe import compare
 from physgate.evaluation.per_role import cli as per_role_cli
 from physgate.hooks import cli as hooks_cli
 from physgate.knowledge import cli as knowledge_cli
@@ -19,15 +20,21 @@ from physgate.ui import cli as ui_cli
 from physgate.ui import table
 
 
+#: What the comparison classes and how it compares, handed to the Evidence screen's routes.
+CENSUS = evidence.Census(drift=compare.DRIFT, reported=compare.REPORTED, compare=compare.compare)
+
+
 def compose() -> None:
     """Wire the evaluation into the core, here and nowhere else.
 
     The evaluation's conditions on a run: the core states none of its own, and runs without
     them where there is no evaluation. And the Evidence screen's reads over the evaluation's
-    records, served beside the UI's own routes: no module of the UI imports the evaluation.
+    records, served beside the UI's own routes: no module of the UI imports the evaluation, and
+    the routes are handed the comparison's own census and function here, since the server's
+    import fence does not admit the comparison's module.
     """
     requirements.register(evaluation_requirements.REQUIREMENTS)
-    table.register(evidence.ROUTES)
+    table.register(evidence.routes(CENSUS))
 
 
 def main(

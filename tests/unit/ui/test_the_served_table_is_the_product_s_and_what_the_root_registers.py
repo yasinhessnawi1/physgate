@@ -19,6 +19,7 @@ from ui_rig import fake_ui
 import physgate
 from physgate.cli import compose, main
 from physgate.evaluation import evidence
+from physgate.evaluation.observe import compare
 from physgate.ui import cli as ui_cli
 from physgate.ui import server as ui_server
 from physgate.ui import table
@@ -30,6 +31,11 @@ SRC = Path(physgate.__file__).parent
 
 #: The routes the Evidence screen reads, as this slice registers them.
 EVIDENCE_PATTERNS = {"/api/evidence/runs"}
+#: The Evidence screen's routes over the comparison's own census, built here from the comparison
+#: itself, so the root's registration equals them only if it hands in that census.
+EVIDENCE_ROUTES = evidence.routes(
+    evidence.Census(drift=compare.DRIFT, reported=compare.REPORTED, compare=compare.compare)
+)
 
 
 def _answer(context: Context, params: Mapping[str, str]) -> Response:
@@ -123,11 +129,36 @@ def test_the_table_takes_one_registration_and_the_same_again_changes_nothing() -
 @pytest.mark.usefixtures("nothing_registered")
 def test_the_composition_root_registers_exactly_the_evidence_routes() -> None:
     compose()
-    assert table.registered() == evidence.ROUTES
-    assert served() == (*ROUTES, *evidence.ROUTES)
-    assert {route.pattern for route in evidence.ROUTES} >= EVIDENCE_PATTERNS
-    assert {(route.method, route.kind) for route in evidence.ROUTES} == {("GET", "read")}
-    assert all(route.pattern.startswith("/api/evidence/") for route in evidence.ROUTES)
+    assert table.registered() == EVIDENCE_ROUTES
+    assert served() == (*ROUTES, *EVIDENCE_ROUTES)
+    assert {route.pattern for route in EVIDENCE_ROUTES} >= EVIDENCE_PATTERNS
+    assert {(route.method, route.kind) for route in EVIDENCE_ROUTES} == {("GET", "read")}
+    assert all(route.pattern.startswith("/api/evidence/") for route in EVIDENCE_ROUTES)
+
+
+@pytest.mark.usefixtures("nothing_registered")
+def test_the_routes_class_runs_by_the_comparison_s_own_lists_and_function() -> None:
+    compose()
+    handlers = {route.handler for route in table.registered()}
+    assert handlers, "the root registered nothing"
+    for handler in handlers:
+        census = getattr(handler, "census", None)
+        assert isinstance(census, evidence.Census), handler
+        # The comparison's own objects, not copies of them: the two cannot drift apart.
+        assert census.drift is compare.DRIFT
+        assert census.reported is compare.REPORTED
+        assert census.compare is compare.compare
+
+
+def test_the_evidence_module_imports_nothing_of_the_comparison() -> None:
+    tree = ast.parse(Path(str(evidence.__file__)).read_text())
+    imported = [
+        alias.name if isinstance(node, ast.Import) else f"{node.module}.{alias.name}"
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    ]
+    assert [name for name in imported if "compare" in name] == []
 
 
 @pytest.mark.usefixtures("nothing_registered")
@@ -135,7 +166,7 @@ def test_the_command_registers_them_before_it_reads_its_arguments() -> None:
     with pytest.raises(SystemExit):
         main(["--help"])
     assert table.registered(), "the command registered nothing"
-    assert table.registered() == evidence.ROUTES
+    assert table.registered() == EVIDENCE_ROUTES
 
 
 @pytest.mark.usefixtures("nothing_registered")
@@ -157,7 +188,7 @@ def test_the_ui_command_serves_the_served_table(
 
     monkeypatch.setattr(ui_server, "make_server", recorded)
     assert main(["ui", "--root", str(root), "--port", "0"]) == 2
-    assert handed == [(*ROUTES, *evidence.ROUTES)]
+    assert handed == [(*ROUTES, *EVIDENCE_ROUTES)]
 
 
 def _calls_register(tree: ast.AST) -> bool:

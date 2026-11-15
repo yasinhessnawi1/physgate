@@ -108,18 +108,6 @@
   ]
  },
  {
-  "name": "compose_registers_no_routes",
-  "file": "src/physgate/cli.py",
-  "old": "    table.register(evidence.ROUTES)\n",
-  "new": "    table.register(())\n",
-  "tests": [
-   "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",
-   "tests/unit/evaluation/evidence/test_the_evidence_runs_route_names_each_run_s_kind_flags_and_pins.py",
-   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
-  ]
- },
- {
   "name": "kind_reportable_as_ablation",
   "file": "src/physgate/evaluation/evidence.py",
   "old": "        return \"reportable\"\n",
@@ -136,30 +124,6 @@
   "file": "src/physgate/evaluation/evidence.py",
   "old": "    if config.ablation:\n",
   "new": "    if False:\n",
-  "tests": [
-   "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",
-   "tests/unit/evaluation/evidence/test_the_evidence_runs_route_names_each_run_s_kind_flags_and_pins.py",
-   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
-  ]
- },
- {
-  "name": "pins_keep_the_tier_s_digest",
-  "file": "src/physgate/evaluation/evidence.py",
-  "old": "PINS: tuple[str, ...] = tuple(path for path in DRIFT if path not in HELD_OUT_FIELDS)",
-  "new": "PINS: tuple[str, ...] = DRIFT",
-  "tests": [
-   "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",
-   "tests/unit/evaluation/evidence/test_the_evidence_runs_route_names_each_run_s_kind_flags_and_pins.py",
-   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
-  ]
- },
- {
-  "name": "flags_drop_one",
-  "file": "src/physgate/evaluation/evidence.py",
-  "old": "FLAGS: tuple[str, ...] = tuple(field for field in REPORTED if field not in HELD_OUT_FIELDS)",
-  "new": "FLAGS: tuple[str, ...] = REPORTED[1:]",
   "tests": [
    "tests/unit/evaluation/observe_rig.py",
    "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",
@@ -268,6 +232,66 @@
   "file": "src/physgate/evaluation/evidence.py",
   "old": "        \"seed\": config.seed,\n",
   "new": "        \"seed\": config.run_id,\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_runs_route_names_each_run_s_kind_flags_and_pins.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
+  ]
+ },
+ {
+  "name": "census_pins_keep_the_tier_s_digest",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "return tuple(path for path in self.drift if path not in HELD_OUT_FIELDS)",
+  "new": "return self.drift",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_runs_route_names_each_run_s_kind_flags_and_pins.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
+  ]
+ },
+ {
+  "name": "census_flags_drop_one",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "return tuple(field for field in self.reported if field not in HELD_OUT_FIELDS)",
+  "new": "return self.reported[1:]",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_runs_route_names_each_run_s_kind_flags_and_pins.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
+  ]
+ },
+ {
+  "name": "compose_registers_no_routes",
+  "file": "src/physgate/cli.py",
+  "old": "    table.register(evidence.routes(CENSUS))\n",
+  "new": "    table.register(())\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_runs_route_names_each_run_s_kind_flags_and_pins.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
+  ]
+ },
+ {
+  "name": "compose_hands_in_other_lists",
+  "file": "src/physgate/cli.py",
+  "old": "reported=compare.REPORTED",
+  "new": "reported=compare.DRIFT",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_runs_route_names_each_run_s_kind_flags_and_pins.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
+  ]
+ },
+ {
+  "name": "compose_hands_in_a_copy",
+  "file": "src/physgate/cli.py",
+  "old": "drift=compare.DRIFT,",
+  "new": "drift=compare.DRIFT[:-1] + compare.DRIFT[-1:],",
   "tests": [
    "tests/unit/evaluation/observe_rig.py",
    "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",

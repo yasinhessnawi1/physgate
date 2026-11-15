@@ -24,20 +24,28 @@ not have written, or a file it reads is refused by the allowlist: its row holds 
 sentence, the record it came from and the reader's own reason, and nothing else. Every refusal
 names the run by its place, never by a path on disk.
 
+**What a comparison classes, handed in.** A run's settings are sent as the comparison classes
+them: the settings it reports beside its numbers, and the pins it is refused across. Those lists,
+and the comparison itself, are the comparison's own, handed in by the composition root when it
+registers the routes (:class:`Census`, :func:`routes`). This module imports nothing of the
+comparison's: it runs inside the UI's server, whose import fence does not admit the
+comparison's module. So the classing here is the comparison's by
+construction, never a copy that could drift from it.
+
 The routes:
 
 - ``GET /api/evidence/runs``: one row per run the roots hold, with its kind, the settings a
-  comparison reports beside its numbers (``REPORTED``), as recorded, and the pins it is refused
-  across (``DRIFT``) less the held-out tier's digest.
+  comparison reports beside its numbers, as recorded, and the pins it is refused across less the
+  held-out tier's digest.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from physgate.evaluation.observe.compare import DRIFT, REPORTED
 from physgate.evaluation.observe.exceptions import ObserveError
 from physgate.evaluation.observe.manifest import manifest_id_of
 from physgate.orchestrator.events import read_events
@@ -54,11 +62,30 @@ EVENTS = "events.jsonl"
 #: A run's kind, read from its record: the two kinds it may name, and neither.
 Kind = Literal["reportable", "ablation", "development"]
 
-#: The settings a comparison reports beside its numbers, sent as the record holds them.
-FLAGS: tuple[str, ...] = tuple(field for field in REPORTED if field not in HELD_OUT_FIELDS)
-#: The pins a comparison is refused across, by path, less the held-out tier's digest: a digest
-#: names the tier's bytes, and no answer carries it.
-PINS: tuple[str, ...] = tuple(path for path in DRIFT if path not in HELD_OUT_FIELDS)
+
+
+@dataclass(frozen=True)
+class Census:
+    """What the comparison classes and how it compares, handed in at registration.
+
+    ``drift``: the settings two runs are refused across, by path; ``reported``: the settings it
+    reports beside the numbers; ``compare``: the comparison itself.
+    """
+
+    drift: tuple[str, ...]
+    reported: tuple[str, ...]
+    compare: Callable[[Path, Path], object]
+
+    @property
+    def flags(self) -> tuple[str, ...]:
+        """The reported settings a row sends as the record holds them, less the held-out tier."""
+        return tuple(field for field in self.reported if field not in HELD_OUT_FIELDS)
+
+    @property
+    def pins(self) -> tuple[str, ...]:
+        """The pins a row sends, less the held-out tier's digest, which names the tier's bytes."""
+        return tuple(path for path in self.drift if path not in HELD_OUT_FIELDS)
+
 
 #: The parts of a reader's refusal a row may carry beside its sentence: where in the record it
 #: failed and why. Every other part (a path on disk, a digest) is left out.
@@ -93,7 +120,9 @@ def refusal(record: str, exc: Refusal) -> dict[str, str]:
     return {"error": str(exc), "record": record, **kept}
 
 
-def _run_row(context: Context, position: int, name: str, run_dir: Path) -> dict[str, object]:
+def _run_row(
+    census: Census, context: Context, position: int, name: str, run_dir: Path
+) -> dict[str, object]:
     """One run's row: what it recorded and the manifest id its first line names, or why not."""
     row: dict[str, object] = {"root": position, "name": name}
     record = RUN_CONFIG
@@ -113,19 +142,30 @@ def _run_row(context: Context, position: int, name: str, run_dir: Path) -> dict[
         "seed": config.seed,
         "manifest_id": manifest_id,
         "kind": kind_of(config),
-        "flags": {field: recorded[field] for field in FLAGS},
-        "pins": {path: _at(recorded, path) for path in PINS},
+        "flags": {field: recorded[field] for field in census.flags},
+        "pins": {path: _at(recorded, path) for path in census.pins},
     }
 
 
-def runs(context: Context, params: Mapping[str, str]) -> Response:
-    """Every run the roots hold, one row each: its kind, settings and pins, or why it is unread."""
-    rows = [
-        _run_row(context, position, name, run_dir)
-        for position, name, run_dir in run_directories(context.allowlist)
-    ]
-    return json_response({"runs": rows})
+@dataclass(frozen=True)
+class Runs:
+    """``GET /api/evidence/runs``: every run the roots hold, one row each, or why it is unread."""
+
+    census: Census
+
+    def __call__(self, context: Context, params: Mapping[str, str]) -> Response:
+        """One row per run: its kind, settings and pins as the comparison classes them."""
+        rows = [
+            _run_row(self.census, context, position, name, run_dir)
+            for position, name, run_dir in run_directories(context.allowlist)
+        ]
+        return json_response({"runs": rows})
 
 
-#: Every route this module serves, registered by the command's composition root.
-ROUTES: tuple[Route, ...] = (Route("GET", "/api/evidence/runs", "read", runs),)
+def routes(census: Census) -> tuple[Route, ...]:
+    """Every route this module serves, over the comparison's census the root hands in.
+
+    The same census gives equal routes, so the root's registration, run once per command, is
+    the same registration each time.
+    """
+    return (Route("GET", "/api/evidence/runs", "read", Runs(census)),)
