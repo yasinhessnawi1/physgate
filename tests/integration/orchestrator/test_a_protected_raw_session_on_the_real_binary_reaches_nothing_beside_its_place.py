@@ -8,11 +8,11 @@ as they were when the session was installed, are withheld in the work root's ste
 
 While the session runs, two marked files are made by the test (not by the session): one in the
 harness's directory beside the session's place, which was there at the install, and one in a
-new entry of the work root, made after it. The session tries each: by the Read tool, by a shell
-the hooks read, by a shell whose path they cannot read off the command, through ``..`` from its
-own place, through a link it makes, and, where the volume ignores case, by another case of the
-path. The rows hold what reached the session and record what each attempt met
-(``record_property``).
+second trial's place in the work root, which the runner is asked to make while the session lives
+and refuses, so nothing is made there. The session tries each: by the Read tool, by a shell the
+hooks read, by a shell whose path they cannot read off the command, through ``..`` from its own
+place, through a link it makes, and, where the volume ignores case, by another case of the path.
+The rows hold what reached the session and record what each attempt met (``record_property``).
 
 Real binary only, on each platform: the carve is otherwise shown at configuration level alone.
 """
@@ -39,8 +39,10 @@ if str(BASELINE_TESTS) not in sys.path:
 
 from baseline_fixtures import PRICES, SCORED, harness_run, run_set, stand_in_store  # noqa: E402
 
+from physgate.evaluation.baseline import runner  # noqa: E402
 from physgate.evaluation.baseline.runner import (  # noqa: E402
     BASELINE_DIR,
+    BaselineError,
     HARNESS,
     PLACE,
     run_baseline,
@@ -76,7 +78,9 @@ class Attempts:
     wrote: dict[str, str]
     beside: str
     late: str
-    #: Whether the late entry was made while the session ran, and whether the volume ignores case.
+    #: Why the second trial's creation was refused while the session ran (empty: it was made),
+    #: whether anything of it is in the work root, and whether the volume ignores case.
+    late_refused: str
     late_made: bool
     case_ignored: bool
 
@@ -151,19 +155,32 @@ def _round(root: Path, install_bin: Path) -> Attempts:
     layer = judge_here(claude_version=version, search_path=session_search_path(binary))
     beside_text = f"BESIDE-{secrets.token_hex(8)}"
     late_text = f"LATE-{secrets.token_hex(8)}"
-    late_dir = work_root(made.store, "control") / f"late-{secrets.token_hex(4)}"
+    late_round, late_name = "late", "0009-1"
+    late_dir = work_root(made.store, "control") / f"{BASELINE_DIR}-{late_round}-{late_name}"
+    late: dict[str, str] = {}
     planned: list[dict[str, Any]] = []
     seen: dict[str, Path] = {}
     with serving(Script(main=[text("done")])) as (api, url):
 
         def attempts(_thread: str, cwd: str, done: int) -> dict[str, Any] | None:
             if not planned:
-                # The session is installed and running: make the two marked files now.
+                # The session is installed and running: mark the harness's directory beside its
+                # place, and ask for a second trial's place in the work root, marked if made.
                 trial = Path(cwd).parent.parent
                 beside = trial / HARNESS / MARKED
                 beside.write_text(beside_text)
-                late_dir.mkdir()
-                (late_dir / MARKED).write_text(late_text)
+                create = getattr(runner, "trial_place", None)
+                if create is None:
+                    late["refused"] = ""
+                    late_dir.mkdir()
+                    (late_dir / MARKED).write_text(late_text)
+                else:
+                    try:
+                        with create(made.store, "control", late_round, late_name):
+                            late["refused"] = ""
+                            (late_dir / MARKED).write_text(late_text)
+                    except BaselineError as exc:
+                        late["refused"] = str(exc.context.get("refused_because"))
                 seen.update(trial=trial, beside=beside)
                 planned.extend(_steps(cwd, beside, late_dir / MARKED))
             return planned[done] if done < len(planned) else text("done")
@@ -220,7 +237,8 @@ def _round(root: Path, install_bin: Path) -> Attempts:
         wrote=wrote,
         beside=beside_text,
         late=late_text,
-        late_made=(late_dir / MARKED).is_file(),
+        late_refused=late.get("refused", ""),
+        late_made=late_dir.exists(),
         case_ignored=(late_dir.parent / late_dir.name.upper()).exists(),
     )
 
@@ -242,21 +260,15 @@ def test_a_protected_session_reaches_nothing_beside_its_place_however_it_names_i
     assert attempts.beside not in attempts.wrote["linked.txt"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "Open: a session's withheld list is taken when it is installed, so an entry made in the "
-        "store's work root after that is not on it; to be withheld by rule, not by list, or a "
-        "second trial's creation refused while a session lives, before the first real round."
-    ),
-)
-def test_an_entry_made_in_the_work_root_after_the_session_s_install_is_not_reached(
+def test_no_second_trial_is_made_in_the_work_root_while_the_session_lives(
     attempts: Attempts, record_property: Callable[[str, object], None]
 ) -> None:
+    """A session's withheld list is the work root as it stood at the install: nothing is added."""
     for n, result in enumerate(attempts.results[BESIDE:]):
         record_property(f"late_attempt_{n + 1}", result[-400:])
-    assert attempts.late_made, "the late entry was not made while the session ran"
+    record_property("late_refused", attempts.late_refused)
+    assert attempts.late_refused == "session_lives", "a second trial was made beside the session"
+    assert not attempts.late_made, "the refused creation made something in the work root"
     assert len(attempts.results) == BESIDE + LATE, "the session did not make every attempt"
     assert "LATE-HIDDEN" in attempts.results[-1]
     for result in attempts.results[BESIDE:]:
