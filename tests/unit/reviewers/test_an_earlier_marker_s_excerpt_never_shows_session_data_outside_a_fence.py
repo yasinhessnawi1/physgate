@@ -42,6 +42,7 @@ from test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it impo
 )
 
 from physgate.reviewers.packet import Packet, PacketError, joined_parts
+from physgate.reviewers.transcript import PREAMBLE
 
 #: A nonce shape the session writes itself, in lines that imitate the harness's.
 PLANTED = "0123456789abcdef"
@@ -209,7 +210,9 @@ def test_an_excerpt_wholly_outside_any_block_is_the_slice_as_before(tmp_path: Pa
     outside = set(_outside(rendering, packet.earlier_nonces))
     assert start in outside and end in outside, "the stand-in is not shaped as the row needs"
     issued = joined_parts(read, _excerpt_parts(packet))
-    heading, _, body = issued.partition(b"\n")
+    preamble = PREAMBLE.format(nonce=packet.earlier_nonces[0]).encode()
+    assert issued.startswith(preamble), "the part does not open with the session's preamble"
+    heading, _, body = issued.removeprefix(preamble).partition(b"\n")
     assert heading.startswith(b"## earlier-")
     assert body == b"".join(rendering[start : end + 1])
     _holds(packet, attempt)

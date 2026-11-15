@@ -52,7 +52,7 @@ from physgate.reviewers.packet import (
     listed_paths,
 )
 from physgate.reviewers.rubric import load_rubric
-from physgate.reviewers.transcript import CONTINUED
+from physgate.reviewers.transcript import CONTINUED, PREAMBLE
 from physgate.reviewers.verdict import Answered, Unavailable, judge
 
 #: How many lines an excerpt shows before a marker's call and after the end of its result.
@@ -199,6 +199,39 @@ def data_blocks(rendering: list[bytes], nonces: tuple[str, ...]) -> list[tuple[i
     return blocks
 
 
+def _declaration(packet: Packet, lines: list[bytes], i: int) -> int:
+    """How many lines from ``i`` are an earlier session's preamble, as its rendering has it."""
+    for nonce in packet.earlier_nonces:
+        text = PREAMBLE.format(nonce=nonce).encode().splitlines(keepends=True)
+        if lines[i : i + len(text)] == text:
+            return len(text)
+    return 0
+
+
+def _part_break(
+    packet: Packet, lines: list[bytes], i: int, rendering: list[bytes], pos: int
+) -> int | None:
+    """Where a part's break ends, if one begins at the excerpt's line ``i``; else ``None``.
+
+    A part opens with the preamble of the session it shows; one that begins inside a data block
+    follows it with a copy of the block's opening fence, after the part before it closed the
+    block with a copy of its closing fence.
+    """
+    if lines[i] == rendering[pos]:
+        return None
+    closings = {f"DATA {n}>>>\n".encode() for n in packet.earlier_nonces}
+    k = i + 1 if lines[i] in closings else i
+    declared = _declaration(packet, lines, k)
+    if not declared:
+        return None
+    k += declared
+    if k > i + declared:
+        held = [f for f, c in data_blocks(rendering, packet.earlier_nonces) if f < pos <= c]
+        assert held and lines[k] == rendering[held[0]], "a part does not reopen its data block"
+        k += 1
+    return k
+
+
 def _blocks(packet: Packet, read: Path) -> list[Block]:
     """Every excerpt, read by its heading: the part and lines it names, then those lines.
 
@@ -212,6 +245,7 @@ def _blocks(packet: Packet, read: Path) -> list[Block]:
     blocks = []
     i = 0
     while i < len(lines):
+        i += _declaration(packet, lines, i)
         head = lines[i].decode().removesuffix("\n")
         while head.endswith(CONTINUED):
             i += 1
@@ -227,6 +261,11 @@ def _blocks(packet: Packet, read: Path) -> list[Block]:
         ending: tuple[int, Cut] | None = None
         while pos <= last:
             assert i < len(lines), "the excerpt ends before the lines it names"
+            after = _part_break(packet, lines, i, rendering, pos)
+            if after is not None:
+                mapped += [(None, line) for line in lines[i:after]]
+                i = after
+                continue
             cut = _CUT.fullmatch(lines[i].decode().removesuffix("\n"))
             if cut and lines[i] != rendering[pos]:
                 held = [(f, c) for f, c in blocks_of if f <= pos < c]
@@ -256,8 +295,7 @@ def _blocks(packet: Packet, read: Path) -> list[Block]:
             i += 1
             cuts.append(piece)
         blocks.append(Block(first, last, found[7], b"".join(shown), tuple(cuts), tuple(mapped)))
-        if i < len(lines):
-            assert lines[i] == b"\n", "the excerpts are not one after another, a line between"
+        if i < len(lines) and lines[i] == b"\n":
             i += 1
     return blocks
 

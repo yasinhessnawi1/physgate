@@ -6,7 +6,8 @@
   "new": "        elif start - block.first < EARLIER_HIT_SNAP_LINES:\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -16,7 +17,8 @@
   "new": "        elif block.last - end < EARLIER_HIT_SNAP_LINES:\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -26,7 +28,8 @@
   "new": "EARLIER_HIT_SNAP_LINES = 100_000\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -36,7 +39,8 @@
   "new": "EARLIER_HIT_SNAP_LINES = 0\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -46,7 +50,8 @@
   "new": "        if start == block.last:\n            pass\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -56,7 +61,8 @@
   "new": "        if end == block.first:\n            pass\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -66,7 +72,8 @@
   "new": "    if False:\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -76,7 +83,8 @@
   "new": "    if False:\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -86,7 +94,8 @@
   "new": "        windows += [_fenced(window) for window in _merged(found)]\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -96,7 +105,8 @@
   "new": "            merged[-1] = before._replace(end=later.end, hits=hits, cut_end=before.cut_end)\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -106,7 +116,8 @@
   "new": "            hits = before.hits\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -116,7 +127,8 @@
   "new": "    return next((u for u in units if u.data and u.first < index < u.last), None)\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -126,7 +138,8 @@
   "new": "            shown += [_cut(_named(starts, block.first, start - 1))]\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -136,7 +149,8 @@
   "new": "            shown += [lines[block.first]]\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -146,7 +160,8 @@
   "new": "            shown += [_cut(_named(starts, block.first, start)), lines[block.first]]\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -156,7 +171,8 @@
   "new": "            shown += [_cut(_named(starts, end, block.last))]\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -166,7 +182,8 @@
   "new": "            shown += []\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -176,7 +193,8 @@
   "new": "            shown += lines[block.first : end + 1]\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -186,7 +204,8 @@
   "new": "            shown += [*lines[block.first : end + 1], lines[block.first]]\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -196,7 +215,8 @@
   "new": "            shown += []\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -206,7 +226,8 @@
   "new": "        if False:\n            block = window.cut_start\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -216,7 +237,8 @@
   "new": "        if False:\n            block = window.cut_end\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -226,7 +248,8 @@
   "new": "EARLIER_HIT_CUT = \"## the rest is {lines}\"\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  },
  {
@@ -236,7 +259,85 @@
   "new": "        if not taken:\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
-   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
+  ]
+ },
+ {
+  "name": "p01-no-preamble",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "                head += [] if session.nonce in filling.declared else preamble\n",
+  "new": "                head += []\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
+  ]
+ },
+ {
+  "name": "p02-preamble-every-window",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "                head += [] if session.nonce in filling.declared else preamble\n",
+  "new": "                head += preamble\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
+  ]
+ },
+ {
+  "name": "p03-no-closing-copy-at-break",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "                    filling.parts[-1].append(closing)\n",
+  "new": "                    pass\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
+  ]
+ },
+ {
+  "name": "p04-no-opening-copy-after-break",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "                head = [*preamble, *([inside] if inside is not None else [])]\n",
+  "new": "                head = [*preamble]\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
+  ]
+ },
+ {
+  "name": "p05-no-preamble-after-break",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "                head = [*preamble, *([inside] if inside is not None else [])]\n",
+  "new": "                head = [*([inside] if inside is not None else [])]\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
+  ]
+ },
+ {
+  "name": "p06-no-room-for-closing",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            room = [closing] if after is not None else []\n",
+  "new": "            room = []\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
+  ]
+ },
+ {
+  "name": "p07-never-declared",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            filling.declared.add(session.nonce)\n",
+  "new": "            pass\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_an_earlier_excerpt_part_declares_the_nonces_its_fences_carry.py"
   ]
  }
 ]
