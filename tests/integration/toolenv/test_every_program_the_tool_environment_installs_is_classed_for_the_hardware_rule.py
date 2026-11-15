@@ -20,19 +20,19 @@ from physgate.hooks.shell import command_key
 
 pytestmark = pytest.mark.integration
 
-#: The environment's programs that reach no board: the interpreter and the scripts that
-#: activate it, the package installer, the libraries' own tools (encodings, arrays, fonts,
-#: tables, an ELF reader, a listing of the serial ports that opens none), and the web servers
-#: of the build tool's home screen.
+#: The environment's programs that reach no board, as its venv/bin lists them: the interpreter
+#: and the scripts that activate it, the package installer, the libraries' own tools (arrays,
+#: fonts, encodings, tables, an ELF reader, a listing of the serial ports that opens none), and
+#: the servers behind the build tool's home screen (HTTP, websockets, JSON-RPC).
 REACHES_NO_BOARD = frozenset(
     {
         "python", "python3", "python3.12",
         "activate", "activate.bat", "activate.csh", "activate.fish", "activate.nu",
-        "activate.ps1", "activate_this.py", "deactivate.bat", "pydoc.bat",
+        "activate.ps1", "activate.xsh", "activate_this.py", "deactivate.bat", "pydoc.bat",
         "pip", "pip3", "pip3.12",
-        "chardetect", "normalizer", "f2py", "numpy-config",
-        "fonttools", "pyftmerge", "pyftsubset", "ttx", "tabulate", "readelf.py",
-        "pyserial-ports", "bottle.py", "uvicorn", "websockets",
+        "f2py", "numpy-config", "fonttools", "pyftmerge", "pyftsubset", "ttx", "idna",
+        "normalizer", "tabulate", "readelf.py", "pyserial-ports",
+        "bottle", "bottle.py", "uvicorn", "websockets", "async-json-rpc-server",
     }
 )  # fmt: skip
 
