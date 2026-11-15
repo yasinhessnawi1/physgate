@@ -626,6 +626,88 @@ def test_a_run_the_spelling_check_refuses_is_refused_before_any_session_on_any_f
     assert asked == [tuple(store.held_out)] and arm.calls == []
 
 
+def test_a_round_directory_named_in_another_case_is_refused_before_anything_is_made(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """The round's directory is withheld from its sessions by name, so it is named as on disk.
+
+    Where case is ignored, another case reaches the same directory, and a session naming it as
+    it is on disk would not be matched by the name the round withholds.
+    """
+    (tmp_path / "rounds").mkdir()
+    other = tmp_path / "ROUNDS"
+    if not other.exists():
+        pytest.skip("this filesystem tells cases apart, so another case names no place")
+    run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
+    arm = StandInArm()
+    outcome = _try(lambda: _round(store, run_set((run, 0)), other / "round", arm))
+    assert isinstance(outcome, BaselineError), outcome
+    assert outcome.context.get("refused_because") == "out_not_spelt_as_on_disk", outcome.context
+    assert "spelt as the filesystem spells it" in str(outcome), outcome
+    assert arm.calls == [] and not (tmp_path / "rounds" / "round").exists()
+
+
+def test_the_round_directory_s_spelling_is_asked_before_anything_is_made_on_any_filesystem(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """The round holds its own directory to the store's spelling rule, on any filesystem.
+
+    The rule itself is the one the store's roots are held to; here it is made to say no, so the
+    row holds on a filesystem where no other case of the directory exists to name.
+    """
+    import os
+
+    from physgate.evaluation.baseline import runner
+
+    asked: list[Path] = []
+
+    def wrong(path: Path) -> bool:
+        asked.append(path)
+        return False
+
+    run = harness_run(tmp_path / "runs", store.tasks["visible"][0], store)
+    arm = StandInArm()
+    out = tmp_path / "round"
+    with pytest.MonkeyPatch.context() as patch:
+        # Set even where the runner has no such name yet, so a runner that never asks fails on
+        # the assertions below, not on the patch.
+        patch.setattr(runner, "spelt_as_on_disk", wrong, raising=False)
+        outcome = _try(lambda: _round(store, run_set((run, 0)), out, arm))
+    assert isinstance(outcome, BaselineError), outcome
+    assert outcome.context.get("refused_because") == "out_not_spelt_as_on_disk", outcome.context
+    assert asked == [Path(os.path.realpath(out))], asked
+    assert arm.calls == [] and not out.exists()
+
+
+def test_a_held_out_run_killed_during_its_review_is_refused_before_any_session(
+    tmp_path: Path, store: StandInStore
+) -> None:
+    """A run the loop left during a review, never resumed, is no measurement: the round refuses.
+
+    The reviewer's stream lies outside the run's directory and is scanned only as its review
+    ends, or by a resume; the run spawned no session whose missing end would show it. Only the
+    run's own end says every stream was scanned, so it is the run's end the round asks for. The
+    run is the real loop's, over the orchestrator's stand-ins, recording what this store asks.
+    """
+    from baseline_fixtures import config
+    from harness_rig import loop_run
+
+    task = store.tasks["held_out"][0]
+    recorded = config(task, store)
+    run = loop_run(
+        tmp_path / "runs" / "killed",
+        kill="review",
+        brief_sha256=recorded.brief_sha256,
+        reportable=True,
+        harness=recorded.harness,
+        endpoint=recorded.endpoint,
+        held_out=recorded.held_out,
+        held_out_sha256=recorded.held_out_sha256,
+        held_out_canaries=recorded.held_out_canaries,
+    )
+    _refused(store, run_set((run, 0)), tmp_path / "round", "the run has not ended")
+
+
 def _no_sleep(_seconds: float) -> None:
     return None
 
