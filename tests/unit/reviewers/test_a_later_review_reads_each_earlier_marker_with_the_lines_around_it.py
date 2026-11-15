@@ -5,9 +5,12 @@ review, and each marker the scan finds in its streams must be confirmed or dismi
 Its whole streams can be many times the attempt's own trajectory, so the review is given, as
 required reading, each marker's tool call and its result, from the 40 lines before the call to the
 40 lines after the end of the result, clipped to the session; windows that overlap are shown once.
-Each excerpt is a byte-exact slice of the earlier rendering, headed by a harness line naming the
-earlier part and the lines it is cut from, and the markers it shows. A marker whose call cannot be
-found among the harness lines brings its whole session.
+An edge that falls inside a data block moves out to the block's end when that is no more than 40
+lines away; a farther block is cut (the rows of that are in
+``test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py``). Each excerpt is
+a byte-exact slice of the earlier rendering, headed by a harness line naming the earlier part and
+the lines it is cut from, and the markers it shows. A marker whose call cannot be found among the
+harness lines brings its whole session.
 
 The earlier parts stay in the packet and in the file listing, each with its digest, readable on
 request; they are no longer required reading. The packet check holds every excerpt to the slice it
@@ -54,16 +57,21 @@ from physgate.reviewers.verdict import Answered, Unavailable, judge
 
 #: How many lines an excerpt shows before a marker's call and after the end of its result.
 AROUND = 40
+#: How far an excerpt's edge inside a data block moves out to the block's end; past it, it is cut.
+BOUND = 40
 LINE = "the file's line, as the tool showed it"
 HIT = "toolu_hit"
 INIT = event("system", subtype="init", model="claude-opus-5-5", cwd="/w", tools=["Read", "Write"])
 END = event("result", subtype="success", is_error=False, num_turns=1, result="written")
-_HEAD = re.compile(
-    r"## (earlier-[0-9]{2,}-of-[0-9]{2,}\.md) "
+_LINES = (
+    r"(earlier-[0-9]{2,}-of-[0-9]{2,}\.md) "
     r"(?:lines ([0-9]+)-([0-9]+)"
     r"|line ([0-9]+) to (earlier-[0-9]{2,}-of-[0-9]{2,}\.md) line ([0-9]+))"
-    r" \| (.+)"
 )
+_HEAD = re.compile(r"## " + _LINES + r" \| (.+)")
+#: The harness line over a data block an excerpt cuts, naming where the block's other lines are.
+_CUT = re.compile(r"## data block cut: the rest is " + _LINES)
+_FRESH = re.compile(rb"<<<DATA ([0-9a-f]{16}) (.+)\n")
 
 
 def _reads(first: int, count: int, lines: int = 30) -> list[str]:
@@ -86,9 +94,11 @@ def _session(*events: str) -> str:
     return "\n".join(events) + "\n"
 
 
-def _packet(tmp_path: Path, sessions: list[str]) -> tuple[Packet, Path, Attempt]:
-    """Attempt 2's packet, after attempt 1's ``sessions``, which no review judged."""
-    attempt = make_attempt(tmp_path, stream(with_checks_off=False))
+def _packet(
+    tmp_path: Path, sessions: list[str], own: str | None = None
+) -> tuple[Packet, Path, Attempt]:
+    """Attempt 2's packet (its stream ``own``), after attempt 1's ``sessions``, never judged."""
+    attempt = make_attempt(tmp_path, own or stream(with_checks_off=False))
     trajectories = []
     for number, text in enumerate(sessions, start=1):
         path = tmp_path / "earlier" / f"sess-{number}" / "stdout.jsonl"
@@ -128,27 +138,124 @@ def _excerpt_parts(packet: Packet) -> tuple[Part, ...]:
     return parts
 
 
+class Cut(NamedTuple):
+    """A data block an excerpt cuts: the rendering's lines it shows, those it names, its fence."""
+
+    first: int
+    last: int
+    rest: tuple[int, int]
+    nonce: str
+    what: bytes
+
+
 class Block(NamedTuple):
-    """One excerpt: the rendering's lines it shows (by index), its markers, its bytes."""
+    """One excerpt: the rendering's lines it names (by index), its markers, what it shows.
+
+    ``shown`` is the rendering's lines the excerpt shows, in order; ``lines`` is every line of the
+    excerpt under its heading, each with the index of the rendering's line it is (``None`` for a
+    line the excerpt adds: a cut block's harness line and fences).
+    """
 
     first: int
     last: int
     markers: str
     shown: bytes
+    cuts: tuple[Cut, ...] = ()
+    lines: tuple[tuple[int | None, bytes], ...] = ()
 
 
 def _rendering(packet: Packet, read: Path) -> list[bytes]:
     return joined_parts(read, packet.earlier_parts).splitlines(keepends=True)
 
 
-def _blocks(packet: Packet, read: Path) -> list[Block]:
-    """Every excerpt, read by its heading: the part and lines it names, then that many lines."""
-    lines = joined_parts(read, _excerpt_parts(packet)).splitlines(keepends=True)
+def hit_nonces(packet: Packet) -> tuple[str, ...]:
+    """The nonces the packet records for the excerpts that cut a data block."""
+    nonces: tuple[str, ...] = getattr(packet, "earlier_hit_nonces", ())
+    return nonces
+
+
+def _starts(packet: Packet) -> dict[str, int]:
     starts: dict[str, int] = {}
     at = 0
     for part in packet.earlier_parts:
         starts[part.name] = at
         at += part.lines
+    return starts
+
+
+def _named(starts: dict[str, int], found: re.Match[str]) -> tuple[int, int]:
+    """The rendering's first and last line that a heading's or a cut line's range names."""
+    if found[2]:
+        return starts[found[1]] + int(found[2]) - 1, starts[found[1]] + int(found[3]) - 1
+    return starts[found[1]] + int(found[4]) - 1, starts[found[5]] + int(found[6]) - 1
+
+
+def data_blocks(rendering: list[bytes], nonces: tuple[str, ...]) -> list[tuple[int, int]]:
+    """Each data block of the rendering: the lines of its opening and its closing fence."""
+    blocks = []
+    inside: str | None = None
+    opened = 0
+    for index, raw in enumerate(rendering):
+        line = raw.decode().removesuffix("\n")
+        if inside is not None:
+            if line == f"DATA {inside}>>>":
+                blocks.append((opened, index))
+                inside = None
+            continue
+        found = [n for n in nonces if line.startswith(f"<<<DATA {n} ")]
+        if found:
+            inside, opened = found[0], index
+    return blocks
+
+
+def _cut_piece(
+    rendering: list[bytes], lines: list[bytes], i: int, pos: int, packet: Packet
+) -> tuple[int, int, Cut, list[tuple[int | None, bytes]]] | None:
+    """The cut block the excerpt's line ``i`` begins, read against the rendering from ``pos``."""
+    head = lines[i].decode().removesuffix("\n")
+    found = _CUT.fullmatch(head)
+    opened = _FRESH.fullmatch(lines[i + 1]) if found and i + 1 < len(lines) else None
+    if found is None or opened is None or opened[1].decode() not in hit_nonces(packet):
+        return None
+    nonce = opened[1].decode()
+    mapped: list[tuple[int | None, bytes]] = [(None, lines[i]), (None, lines[i + 1])]
+    i += 2
+    own = [f"<<<DATA {n} ".encode() for n in packet.earlier_nonces]
+    ends_window = any(rendering[pos].startswith(o) for o in own)
+    if ends_window:
+        what = rendering[pos].rstrip(b"\r\n").split(b" ", 2)[2]
+        assert what == opened[2], "a cut block's fence does not name what the block holds"
+        pos += 1
+    piece = pos
+    close = f"DATA {nonce}>>>\n".encode()
+    while i < len(lines) and lines[i] != close:
+        assert pos < len(rendering), "a cut block runs past the rendering"
+        assert lines[i] == rendering[pos], "a cut block's line is not the rendering's"
+        mapped.append((pos, lines[i]))
+        pos, i = pos + 1, i + 1
+    assert i < len(lines), "a cut block's fence is never closed"
+    mapped.append((None, lines[i]))
+    last = pos - 1
+    (block,) = [(f, c) for f, c in data_blocks(rendering, packet.earlier_nonces) if f < piece <= c]
+    if ends_window:
+        rest = (last + 1, block[1])
+    else:
+        rest = (block[0], piece - 1)
+        assert pos == block[1], "a block cut at the window's start is not shown to its fence"
+        pos += 1
+    assert _named(_starts(packet), found) == rest, "the cut line does not name the block's rest"
+    return i + 1, pos, Cut(piece, last, rest, nonce, opened[2]), mapped
+
+
+def _blocks(packet: Packet, read: Path) -> list[Block]:
+    """Every excerpt, read by its heading: the part and lines it names, then those lines.
+
+    A cut block is read as the excerpt writes it: the harness line, the fence of a recorded nonce,
+    the rendering's lines, the fence closed; the session's fence on the cut side is not shown.
+    """
+    rendering = _rendering(packet, read)
+    lines = joined_parts(read, _excerpt_parts(packet)).splitlines(keepends=True)
+    starts = _starts(packet)
     blocks = []
     i = 0
     while i < len(lines):
@@ -158,19 +265,75 @@ def _blocks(packet: Packet, read: Path) -> list[Block]:
             head = head.removesuffix(CONTINUED) + lines[i].decode().removesuffix("\n")
         found = _HEAD.fullmatch(head)
         assert found, f"not an excerpt's heading: {head!r}"
-        if found[2]:
-            first = starts[found[1]] + int(found[2]) - 1
-            last = starts[found[1]] + int(found[3]) - 1
-        else:
-            first = starts[found[1]] + int(found[4]) - 1
-            last = starts[found[5]] + int(found[6]) - 1
-        count = last - first + 1
-        blocks.append(Block(first, last, found[7], b"".join(lines[i + 1 : i + 1 + count])))
-        i += 1 + count
+        first, last = _named(starts, found)
+        i += 1
+        pos = first
+        shown: list[bytes] = []
+        cuts: list[Cut] = []
+        mapped: list[tuple[int | None, bytes]] = []
+        while pos <= last:
+            assert i < len(lines), "the excerpt ends before the lines it names"
+            piece = _cut_piece(rendering, lines, i, pos, packet)
+            if piece is not None:
+                i, pos, cut, more = piece
+                cuts.append(cut)
+                mapped += more
+                shown += [line for at, line in more if at is not None]
+                continue
+            assert lines[i] == rendering[pos], "an excerpt's line is not the rendering's it names"
+            shown.append(lines[i])
+            mapped.append((pos, lines[i]))
+            pos, i = pos + 1, i + 1
+        blocks.append(
+            Block(first, last, found[7], b"".join(shown), tuple(cuts), tuple(mapped))
+        )
         if i < len(lines):
             assert lines[i] == b"\n", "the excerpts are not one after another, a line between"
             i += 1
     return blocks
+
+
+def unfenced(packet: Packet, read: Path, block: Block) -> list[int]:
+    """The rendering's lines ``block`` shows in the wrong place, as the reviewer reads them.
+
+    A line of data outside a fence, or a harness line inside one; ``-1`` for a fence left open.
+    """
+    rendering = _rendering(packet, read)
+    outside = set(_outside(rendering, packet.earlier_nonces))
+    nonces = (*packet.earlier_nonces, *hit_nonces(packet))
+    inside: str | None = None
+    wrong = []
+    for at, raw in block.lines:
+        line = raw.decode().removesuffix("\n")
+        if inside is not None:
+            if line == f"DATA {inside}>>>":
+                inside = None
+            elif at is not None and at in outside:
+                wrong.append(at)
+            continue
+        opened = [n for n in nonces if line.startswith(f"<<<DATA {n} ")]
+        if opened:
+            inside = opened[0]
+        elif at is not None and at not in outside:
+            wrong.append(at)
+    return [*wrong, -1] if inside is not None else wrong
+
+
+def snapped(packet: Packet, rendering: list[bytes], start: int, end: int) -> tuple[int, int]:
+    """``start`` and ``end`` moved out to the end of the data block each falls in, if near.
+
+    Near is within :data:`BOUND` lines; an edge on a block's far fence alone moves in past it.
+    """
+    for opened, closed in data_blocks(rendering, packet.earlier_nonces):
+        if opened < start < closed and start - opened <= BOUND:
+            start = opened
+        elif start == closed:
+            start = closed + 1
+        if opened < end < closed and closed - end <= BOUND:
+            end = closed
+        elif end == opened:
+            end = opened - 1
+    return start, end
 
 
 def _outside(rendering: list[bytes], nonces: tuple[str, ...]) -> list[int]:
@@ -212,12 +375,17 @@ def _sessions(rendering: list[bytes]) -> list[tuple[int, int]]:
     return list(zip(starts, ends, strict=True))
 
 
-def _window(packet: Packet, rendering: list[bytes], call: str) -> tuple[int, int]:
+def raw_window(packet: Packet, rendering: list[bytes], call: str) -> tuple[int, int]:
     """From 40 lines before the call to 40 after the end of its result, clipped to its session."""
     (heading,) = _harness(packet, rendering, f"### tool call Write (id {call})")
     (result,) = _harness(packet, rendering, f"### tool result for {call}")
     start, end = next((s, e) for s, e in _sessions(rendering) if s <= heading <= e)
     return max(start, heading - AROUND), min(end, _fence_end(rendering, result) + AROUND)
+
+
+def _window(packet: Packet, rendering: list[bytes], call: str) -> tuple[int, int]:
+    """The raw window with each edge moved out to the end of the data block it falls in."""
+    return snapped(packet, rendering, *raw_window(packet, rendering, call))
 
 
 def _check(packet: Packet, attempt: Attempt) -> None:
@@ -380,9 +548,11 @@ def test_a_marker_at_the_very_start_or_end_of_a_session_is_shown_clipped_to_it(
     (result_a,) = _harness(packet, rendering, "### tool result for toolu_a")
     (call_b,) = _harness(packet, rendering, "### tool call Write (id toolu_b)")
     assert call_a - first < AROUND
-    assert (a.first, a.last) == (first, _fence_end(rendering, result_a) + AROUND)
+    assert (a.first, a.last) == snapped(
+        packet, rendering, first, _fence_end(rendering, result_a) + AROUND
+    )
     assert last - call_b < AROUND
-    assert (b.first, b.last) == (call_b - AROUND, last)
+    assert (b.first, b.last) == snapped(packet, rendering, call_b - AROUND, last)
     _check(packet, attempt)
 
 
@@ -396,7 +566,8 @@ def test_a_call_whose_heading_is_cut_for_its_width_is_found_whole(tmp_path: Path
     (result,) = [i for i in outside if rendering[i].startswith(b'### tool result for "toolu_x')]
     assert rendering[call].endswith(CONTINUED.encode() + b"\n"), "the heading is not cut"
     (block,) = _blocks(packet, read)
-    assert (block.first, block.last) == (call - AROUND, _fence_end(rendering, result) + AROUND)
+    window = (call - AROUND, _fence_end(rendering, result) + AROUND)
+    assert (block.first, block.last) == snapped(packet, rendering, *window)
 
 
 def test_a_window_never_ends_on_a_lone_carriage_return(tmp_path: Path) -> None:
@@ -436,7 +607,8 @@ def test_a_refused_call_s_error_result_is_in_its_window(tmp_path: Path) -> None:
     (call,) = _harness(packet, rendering, "### tool call Write (id toolu_p)")
     (result,) = _harness(packet, rendering, "### tool result for toolu_p (an error)")
     (block,) = _blocks(packet, read)
-    assert (block.first, block.last) == (call - AROUND, _fence_end(rendering, result) + AROUND)
+    window = (call - AROUND, _fence_end(rendering, result) + AROUND)
+    assert (block.first, block.last) == snapped(packet, rendering, *window)
 
 
 # -- the check -------------------------------------------------------------------------------------
@@ -579,7 +751,8 @@ def test_the_required_earlier_reading_is_at_most_one_part_a_marker(
     rendering = _rendering(packet, read)
     blocks = _blocks(packet, read)
     for block in blocks:
-        assert block.shown == b"".join(rendering[block.first : block.last + 1])
+        assert not unfenced(packet, read, block)
+    assert len(hit_nonces(packet)) == sum(1 for block in blocks if block.cuts)
     required = sum(p.bytes for p in excerpts)
     whole = sum(p.bytes for p in packet.earlier_parts)
     assert len(packet.earlier_indicators) == hits
@@ -593,5 +766,6 @@ def test_the_required_earlier_reading_is_at_most_one_part_a_marker(
         "excerpt_parts": len(excerpts),
         "excerpt_bytes": required,
         "excerpts": len(blocks),
+        "cut_blocks": sum(len(block.cuts) for block in blocks),
     }
     print("earlier-reading sizes", json.dumps(sizes))

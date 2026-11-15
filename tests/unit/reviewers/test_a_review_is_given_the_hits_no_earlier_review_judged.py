@@ -59,6 +59,7 @@ EARLIER_KEYS = (
     "earlier_indicators",
     "earlier_hit_parts",
     "earlier_hits_sha256",
+    "earlier_hit_nonces",
 )
 
 
