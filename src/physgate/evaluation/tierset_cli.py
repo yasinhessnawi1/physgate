@@ -19,15 +19,21 @@ stale as well (``because``: ``exposed``); a register that cannot be read prints 
 (``register_unreadable``) and exits 1.
 
 Three commands write the register and the run roots, each only appending, and none takes a
-line away: nothing unmarks a version.
+line away: nothing unmarks a version. Each is given the role's withheld root itself
+(``--withheld <store>/<role>/withheld``), where both logs lie. That is what holds a session
+off: every run on the role withholds that root, so its hooks refuse a command naming it and
+its OS layer denies a write beneath it, whatever started the write. Each writer also refuses
+inside a harness session's environment, as defence in depth only.
 
-- ``physgate tiers scan-exposures --store S --role R`` records every exposure the role's run
-  roots hold that the register does not, and prints the counts added and already recorded.
-- ``physgate tiers mark-exposed --store S --role R --version V --by NAME --reason TEXT`` marks a
-  version exposed by hand, for a read no hook sees: a person's. It is refused away from a
-  terminal (``not_at_a_terminal``), as from a session's shell, which has none.
-- ``physgate tiers add-run-root --store S --role R --path DIR`` adds a directory beneath which the
-  role's runs are made; a measured run made anywhere else is refused.
+- ``physgate tiers scan-exposures --withheld W`` records every exposure the role's run roots
+  hold that the register does not, and prints the counts added and already recorded.
+- ``physgate tiers mark-exposed --withheld W --version V --by NAME --reason TEXT`` marks a
+  version exposed by hand, for a read no hook sees: a person's. As a second measure for that
+  person, it asks for a terminal (``not_at_a_terminal``) and a name; neither is what stops a
+  session, which can make a terminal of its own.
+- ``physgate tiers add-run-root --withheld W --path DIR`` adds a directory beneath which the
+  role's runs are made; a measured run made anywhere else is refused. A directory the scan
+  could not read whole, with the roots there already, is refused and nothing is appended.
 
 Each prints one JSON line, and a refusal as ``refused_because`` with exit 1.
 """
@@ -54,8 +60,7 @@ def add_parser(subparsers: Any) -> None:
     }
     for name, text in writers.items():
         sub = commands.add_parser(name, help=text)
-        sub.add_argument("--store", type=Path, required=True)
-        sub.add_argument("--role", required=True)
+        sub.add_argument("--withheld", type=Path, required=True)
         if name == "mark-exposed":
             sub.add_argument("--version", required=True)
             sub.add_argument("--by", required=True)
@@ -73,7 +78,7 @@ def status(store: Path) -> dict[str, Any]:
         ExposureError: a role's register, its run roots or what they hold cannot be read whole.
     """
     from physgate.evaluation.tiers.authoring import TIERS
-    from physgate.evaluation.tiers.exposure import exposed_versions
+    from physgate.evaluation.tiers.exposure import ExposureError, exposed_versions
     from physgate.evaluation.tiers.manifest import VERSION_NAME, TierSetError, read_version
     from physgate.evaluation.tiers.manifest import staleness as stale
     from physgate.evaluation.tiers.store import leftovers, role_root
@@ -149,19 +154,23 @@ def _write(args: argparse.Namespace) -> int:
     import sys
 
     from physgate.evaluation.tiers import exposure
+    from physgate.evaluation.tiers.store import WITHHELD
     from physgate.evaluation.tiers.task import Role
 
-    store = args.store.resolve()
+    withheld = args.withheld.resolve()
+    store, role = withheld.parent.parent, withheld.parent.name
     said: dict[str, Any]
-    if args.role not in get_args(Role):
-        print(json.dumps({"refused_because": "no_such_role"}, sort_keys=True))
+    if withheld.name != WITHHELD or role not in get_args(Role):
+        print(json.dumps({"refused_because": "not_a_withheld_root"}, sort_keys=True))
         return 1
+    args.role = role
     try:
         if args.tiers_command == "scan-exposures":
             added, already = exposure.record_scan(store, args.role)
             said = {"added": added, "already": already}
         elif args.tiers_command == "mark-exposed":
-            # A person's mark: a session's shell has no terminal, so it never makes one.
+            # A second measure for a person, never what stops a session (which can make a
+            # terminal of its own): the place does, beneath a root every run withholds.
             if not (sys.stdin.isatty() and sys.stdout.isatty()):
                 said = {"refused_because": "not_at_a_terminal"}
                 print(json.dumps(said, sort_keys=True))

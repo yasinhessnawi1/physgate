@@ -272,6 +272,33 @@ def _read_log(withheld: Path, name: str) -> list[bytes]:
         os.close(fd)
 
 
+#: What the harness puts in every role and baseline session's environment, as its hook
+#: installer writes it (:func:`physgate.hooks.settings.install`): background commands
+#: switched off, and the session's own temporary directory; and, where the OS layer runs, the
+#: survivor reaper's shell prefix.
+SESSION_MARKERS = (
+    "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS",
+    "CLAUDE_CODE_TMPDIR",
+    "CLAUDE_CODE_SHELL_PREFIX",
+)
+
+
+def _refuse_inside_a_session() -> None:
+    """Refuse a write to the register or the run roots asked for inside a harness session.
+
+    Defence in depth only: a session controls its own environment and can drop these. What
+    stops a session is the place: both logs lie beneath the role's withheld root, which the
+    hooks and the OS layer deny every session of a run on the role, to read and to write.
+
+    Raises:
+        ExposureError: the environment carries a harness session's marker.
+    """
+    found = sorted(name for name in SESSION_MARKERS if name in os.environ)
+    if found:
+        msg = f"the register is written by a person, never from a session ({', '.join(found)})"
+        raise _refuse("inside_a_session", msg)
+
+
 def _append(withheld: Path, name: str, payloads: Sequence[Mapping[str, Any]]) -> int:
     """Append ``payloads`` to the log ``name`` in ``withheld``, chained, and move its head.
 
@@ -279,8 +306,10 @@ def _append(withheld: Path, name: str, payloads: Sequence[Mapping[str, Any]]) ->
     that has been cut. Returns the number of lines the log then holds.
 
     Raises:
-        ExposureError: the withheld root is missing or a link, or the log refuses as read.
+        ExposureError: the write is asked for inside a harness session; the withheld root is
+            missing or a link; or the log refuses as read.
     """
+    _refuse_inside_a_session()
     fd = _dir_fd(withheld)
     if fd is None:
         msg = f"{withheld} is not there; the role's root is made with it"
@@ -295,7 +324,8 @@ def _append(withheld: Path, name: str, payloads: Sequence[Mapping[str, Any]]) ->
             prev = _digest(lines[-1]) if lines else _ZERO
             written: list[bytes] = []
             for at, payload in enumerate(payloads, start=len(lines)):
-                line = canonical_json({**payload, "n": at, "prev": prev}) + b"\n"
+                # One line each: the canonical bytes end in their newline.
+                line = canonical_json({**payload, "n": at, "prev": prev})
                 written.append(line)
                 prev = _digest(line)
             if written:
@@ -492,17 +522,17 @@ def _record_finding(path: Path, known: Mapping[str, TierSet]) -> Finding | None:
     return Finding(_digest(f"raw\0{path}".encode()), "raw_record", _named_by(named, known))
 
 
-def found_exposures(store: Path, role: Role) -> list[Finding]:
-    """Every exposure the role's run roots and its withheld baseline records hold now.
+def _findings(store: Path, role: Role, roots: Sequence[Path]) -> list[Finding]:
+    """Every exposure beneath ``roots`` and the role's withheld baseline records, now.
 
     Raises:
-        ExposureError: the run roots, a version, a run or a record cannot be read whole.
+        ExposureError: a root, a version, a run or a record cannot be read whole.
     """
     known = versions(store, role)
     runs: list[Path] = []
     records: list[Path] = []
     seen = [0]
-    for root in [*run_roots(store, role), withheld_root(store, role) / BASELINE_RECORDS]:
+    for root in [*roots, withheld_root(store, role) / BASELINE_RECORDS]:
         _walk(root, runs, records, seen)
     found: list[Finding] = []
     for run in sorted(set(runs)):
@@ -512,6 +542,15 @@ def found_exposures(store: Path, role: Role) -> list[Finding]:
         if finding is not None:
             found.append(finding)
     return found
+
+
+def found_exposures(store: Path, role: Role) -> list[Finding]:
+    """Every exposure the role's run roots and its withheld baseline records hold now.
+
+    Raises:
+        ExposureError: the run roots, a version, a run or a record cannot be read whole.
+    """
+    return _findings(store, role, run_roots(store, role))
 
 
 def exposed_versions(store: Path, role: Role) -> frozenset[str]:
@@ -541,11 +580,8 @@ def record_scan(store: Path, role: Role) -> tuple[int, int]:
         ExposureError: the scan or the append refuses.
     """
     known = versions(store, role)
-    recorded = {
-        (line.key, line.version)
-        for line in register_lines(store, role)
-        if line.kind == "exposure"
-    }
+    lines = register_lines(store, role)
+    recorded = {(line.key, line.version) for line in lines if line.kind == "exposure"}
     new: list[dict[str, Any]] = []
     already = 0
     for finding in found_exposures(store, role):
@@ -603,20 +639,35 @@ def mark_exposed(store: Path, role: Role, version: str, *, by: str, reason: str)
 def add_run_root(store: Path, role: Role, root: Path) -> bool:
     """Add ``root`` to the role's run roots; whether it was not there already.
 
+    Nothing is appended for a root that would make every later scan refuse: it is checked
+    first, with the roots there already, as the scan will read it (walked within the scan's
+    entry and depth bounds, every run and record in it read whole).
+
     Raises:
-        ExposureError: ``root`` is not an existing directory of its own, or lies in the store,
-            whose places no run's sessions work in, or holds it, so that the scan would walk
-            the store and take what a session left there for a run.
+        ExposureError: the write is asked for inside a harness session; ``root`` is not an
+            existing, readable directory of its own; it lies in the store, whose places no
+            run's sessions work in, or holds it, so that the scan would walk the store and take
+            what a session left there for a run; or the scan would refuse with it.
     """
-    real, home = root.resolve(), store.resolve()
-    if root.is_symlink() or not real.is_dir():
+    _refuse_inside_a_session()
+    if root.is_symlink() or not root.is_dir():
         raise _refuse("run_root_not_a_directory", f"{root} is not a directory of its own")
+    real, home = root.resolve(), store.resolve()
+    if not os.access(real, os.R_OK | os.X_OK):
+        raise _refuse("run_root_unreadable", f"{root} cannot be listed")
     if real.is_relative_to(home) or home.is_relative_to(real):
         raise _refuse(
             "run_root_and_store_overlap", "a run root lies outside the tier-set store, and apart"
         )
-    if real in run_roots(store, role):
+    roots = run_roots(store, role)
+    if real in roots:
         return False
+    try:
+        _findings(store, role, [*roots, real])
+    except ExposureError as exc:
+        why = exc.context.get("refused_because", "register_unreadable")
+        msg = f"with {root} among the run roots every scan would refuse ({why}): {exc}"
+        raise _refuse("run_root_would_refuse_the_scan", msg) from exc
     _append(withheld_root(store, role), RUN_ROOTS, [{"kind": "run_root", "path": str(real)}])
     return True
 
