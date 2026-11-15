@@ -416,8 +416,12 @@ def protected_tier_refusal(
     )
 
 
-def _spelt_as_on_disk(path: Path) -> bool:
+def spelt_as_on_disk(path: Path) -> bool:
     """Whether every part of ``path`` that exists is spelt as its directory lists it.
+
+    The rule every root a run withholds is held to (:func:`spelling_refusal`), and any other
+    place withheld by its name: on a volume that ignores case, another case names the same
+    place, and a name-matched protection given one spelling may not match the other.
 
     Raises:
         OSError: a directory on the way cannot be listed, so the spelling cannot be judged.
@@ -448,7 +452,7 @@ def spelling_refusal(
     wrong: list[str] = []
     for path in named:
         try:
-            if not _spelt_as_on_disk(path):
+            if not spelt_as_on_disk(path):
                 wrong.append(str(path))
         except OSError as exc:
             wrong.append(f"{path} (cannot be judged: {exc})")

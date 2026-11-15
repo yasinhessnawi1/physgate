@@ -129,6 +129,7 @@ from physgate.evaluation.tiers.store import (
     protected_tier_refusal,
     role_root,
     spelling_refusal,
+    spelt_as_on_disk,
     version_dir,
     withheld_refusal,
     withheld_root,
@@ -564,13 +565,29 @@ def run_baseline(
     if out.exists():
         msg = "the round's directory exists; each round gets a directory of its own"
         raise BaselineError(msg, out=str(out))
+    # Withheld from every session of the round, by its name: its finished trials and its records
+    # lie there. So it is named as the filesystem spells it, as the store's roots are: on a
+    # volume that ignores case another case names the same directory, and a session naming it
+    # as it is on disk would not be matched by the name withheld.
+    withheld_out = os.path.realpath(out)
+    try:
+        spelt = spelt_as_on_disk(Path(withheld_out))
+    except OSError as exc:
+        msg = "the round's directory's spelling cannot be judged: a directory on the way is unread"
+        raise BaselineError(
+            msg, refused_because="out_not_spelt_as_on_disk", error=str(exc.strerror)
+        ) from None
+    if not spelt:
+        msg = (
+            "the round's directory is not spelt as the filesystem spells it; name it as it is on "
+            "disk, so every session is withheld the spelling that is there"
+        )
+        raise BaselineError(msg, out=str(out), refused_because="out_not_spelt_as_on_disk")
     source, planned = plan(
         store, role, version, runs, base_url=base_url, development=development, external=external
     )
     out.mkdir(mode=0o700, parents=True)
     round_id = secrets.token_hex(8)
-    # Withheld from every session of the round: its finished trials and its records lie there.
-    withheld_out = os.path.realpath(out)
     protected_root = withheld_root(store, role) / BASELINE_DIR / round_id
     counted = EXTERNAL_TIERS if isinstance(source, ExternalSetRecord) else VERSION_TIERS
     tallies = {tier: _Tally() for tier in counted}
