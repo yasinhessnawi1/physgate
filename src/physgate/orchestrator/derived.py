@@ -302,7 +302,10 @@ def held_exports(  # noqa: PLR0913 - the change and the two ways to act on it
         recipes = read_derivations(held)
     except DerivedError as exc:
         return ExportRefusal(
-            reason=f"the tool environment's record of how exports are made is refused: {exc}",
+            reason=(
+                f"the tool environment's record of how exports are made is refused, so {first} "
+                f"cannot be held to its source: {exc}"
+            ),
             subject=first,
         )
     made = {kind for recipe in recipes for kind in recipe.derivation.products}
