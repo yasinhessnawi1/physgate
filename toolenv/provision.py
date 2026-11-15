@@ -853,8 +853,6 @@ def _build_kicad(
         checked = check_kicad(kicad_cli(root, system), version, work)
     require_one_name_each(root)
     require_links_inside(root)
-    make_read_only(root)
-    root.chmod(0o755)  # until the record is written
     record: dict[str, object] = {
         "kicad": version,
         "pin": dict(pin),
