@@ -110,6 +110,16 @@ def test_the_build_backend_and_what_a_setup_asks_for_are_each_held_to_one_exact_
     assert {"setuptools", "pytest-runner"} <= set(names)
 
 
+def test_the_lock_carries_the_build_constraints_so_a_frozen_install_holds_them() -> None:
+    # Measured on UiA (15.11): uv 0.12.17 installing from a lock that does not carry them built
+    # with setuptools 84.2.1, whatever the project names; from a lock that does, with 80.9.0.
+    uv = _project()["tool"]["uv"]
+    named = sorted(uv.get("build-constraint-dependencies", []))
+    lock = tomllib.loads((TOOLENV / "uv.lock").read_text(encoding="utf-8"))
+    carried = lock.get("manifest", {}).get("build-constraints", [])
+    assert sorted(f"{c['name']}{c['specifier']}" for c in carried) == named
+
+
 def _reachable(found: dict[str, dict[str, Any]]) -> set[str]:
     """Every package an environment installs: from the project, past no never-true marker."""
     root = found["physgate-tool-environment"]
