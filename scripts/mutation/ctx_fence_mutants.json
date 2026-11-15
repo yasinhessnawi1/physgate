@@ -134,8 +134,8 @@
  {
   "name": "f13-start-cut-without-its-fence",
   "file": "src/physgate/reviewers/packet.py",
-  "old": "            shown += [_cut(_named(starts, block.first, start - 1)), lines[block.first]]\n",
-  "new": "            shown += [_cut(_named(starts, block.first, start - 1))]\n",
+  "old": "            shown += [_cut(_lines_named(starts, block.first, start - 1)), lines[block.first]]\n",
+  "new": "            shown += [_cut(_lines_named(starts, block.first, start - 1))]\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
    "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
@@ -145,7 +145,7 @@
  {
   "name": "f14-start-cut-without-cut-line",
   "file": "src/physgate/reviewers/packet.py",
-  "old": "            shown += [_cut(_named(starts, block.first, start - 1)), lines[block.first]]\n",
+  "old": "            shown += [_cut(_lines_named(starts, block.first, start - 1)), lines[block.first]]\n",
   "new": "            shown += [lines[block.first]]\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
@@ -156,8 +156,8 @@
  {
   "name": "f15-start-rest-off",
   "file": "src/physgate/reviewers/packet.py",
-  "old": "            shown += [_cut(_named(starts, block.first, start - 1)), lines[block.first]]\n",
-  "new": "            shown += [_cut(_named(starts, block.first, start)), lines[block.first]]\n",
+  "old": "            shown += [_cut(_lines_named(starts, block.first, start - 1)), lines[block.first]]\n",
+  "new": "            shown += [_cut(_lines_named(starts, block.first, start)), lines[block.first]]\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
    "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
@@ -167,8 +167,8 @@
  {
   "name": "f16-end-rest-off",
   "file": "src/physgate/reviewers/packet.py",
-  "old": "            shown += [_cut(_named(starts, end + 1, block.last))]\n",
-  "new": "            shown += [_cut(_named(starts, end, block.last))]\n",
+  "old": "            shown += [_cut(_lines_named(starts, end + 1, block.last))]\n",
+  "new": "            shown += [_cut(_lines_named(starts, end, block.last))]\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
    "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
@@ -178,7 +178,7 @@
  {
   "name": "f17-end-cut-without-cut-line",
   "file": "src/physgate/reviewers/packet.py",
-  "old": "            shown += [_cut(_named(starts, end + 1, block.last))]\n",
+  "old": "            shown += [_cut(_lines_named(starts, end + 1, block.last))]\n",
   "new": "            shown += []\n",
   "tests": [
    "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",

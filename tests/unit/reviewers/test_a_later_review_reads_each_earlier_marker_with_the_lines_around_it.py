@@ -755,7 +755,6 @@ def test_the_required_earlier_reading_is_at_most_one_part_a_marker(
     events += [*_reads(1 + hits * gap, reads - hits * gap + 1, lines=60), END]
     packet, read, attempt = _packet(tmp_path, [_session(*events)])
     excerpts = _excerpt_parts(packet)
-    rendering = _rendering(packet, read)
     blocks = _blocks(packet, read)
     for block in blocks:
         assert not unfenced(packet, read, block)

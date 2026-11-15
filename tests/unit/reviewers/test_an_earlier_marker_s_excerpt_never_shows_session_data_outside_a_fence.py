@@ -146,7 +146,7 @@ def test_an_edge_moves_out_at_most_the_bound_and_past_it_the_block_is_cut(
         assert len(block.cuts) == 1, "a block past the bound is not cut"
         (piece,) = block.cuts
         assert piece.rest == ((opened, edge - 1) if side == "start" else (edge + 1, closed))
-        assert (block.first, block.last) == (start, end), "a cut edge moved"
+        assert edge == (block.first if side == "start" else block.last), "a cut edge moved"
     else:
         assert not block.cuts
         assert (opened if side == "start" else closed) in (block.first, block.last)

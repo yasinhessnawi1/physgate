@@ -790,7 +790,7 @@ def _where(starts: list[tuple[int, str]], index: int) -> tuple[str, int]:
     return name, index - begun + 1
 
 
-def _named(starts: list[tuple[int, str]], start: int, end: int) -> str:
+def _lines_named(starts: list[tuple[int, str]], start: int, end: int) -> str:
     """The rendering's lines ``start`` to ``end`` named by the part and lines that hold them."""
     first_part, first_line = _where(starts, start)
     last_part, last_line = _where(starts, end)
@@ -906,15 +906,15 @@ def hit_excerpts(earlier: Earlier, parts: list[tuple[str, bytes]]) -> list[tuple
             f"attempt {hit.attempt}, {hit.kind}, evidence {harness_value(hit.evidence)}"
             for hit in window.hits
         )
-        heading = "\n".join(cut_line(f"## {_named(starts, start, end)} | {markers}")) + "\n"
+        heading = "\n".join(cut_line(f"## {_lines_named(starts, start, end)} | {markers}")) + "\n"
         shown = [heading.encode("utf-8")]
         if window.cut_start:
             block = window.cut_start
-            shown += [_cut(_named(starts, block.first, start - 1)), lines[block.first]]
+            shown += [_cut(_lines_named(starts, block.first, start - 1)), lines[block.first]]
         if window.cut_end:
             block = window.cut_end
             shown += lines[start : block.first]
-            shown += [_cut(_named(starts, end + 1, block.last))]
+            shown += [_cut(_lines_named(starts, end + 1, block.last))]
             shown += [*lines[block.first : end + 1], lines[block.last]]
         else:
             shown += lines[start : end + 1]
