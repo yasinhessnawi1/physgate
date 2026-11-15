@@ -83,11 +83,23 @@ gate_ui() {
   ./scripts/check-ui.sh || fail "ui (see above)"
 }
 
-gate_tests
-gate_scoring
-gate_types
-gate_lint
-gate_ui
+# No argument runs every gate, in this order, as always. CI names one gate or a few per job
+# (tests, scoring, types, lint, ui, ui-unit, ui-browser), so the gates run in parallel jobs
+# with the same bodies as here.
+gates=("$@")
+[ "${#gates[@]}" -gt 0 ] || gates=(tests scoring types lint ui)
+for gate in "${gates[@]}"; do
+  case "$gate" in
+    tests) gate_tests ;;
+    scoring) gate_scoring ;;
+    types) gate_types ;;
+    lint) gate_lint ;;
+    ui) gate_ui ;;
+    ui-unit) ./scripts/check-ui.sh unit || fail "ui (see above)" ;;
+    ui-browser) ./scripts/check-ui.sh browser || fail "ui (see above)" ;;
+    *) fail "unknown gate '$gate'" ;;
+  esac
+done
 
 echo
 echo "All gates passed."
