@@ -100,6 +100,12 @@ UPLOADS = [
     "p=avrdude; $p -Uflash:w:firmware.hex:i",
     "p=avrdude; $p -c usbasp -p m328p",
     "p=avrdude; $p -cusbasp -patmega328p",
+    # Every occurrence of each is read, and a part or an image alone is enough.
+    "p=avrdude; $p -U x -U flash:w:firmware.hex",
+    "p=avrdude; $p -U firmware.hex",
+    "p=avrdude; $p -p m328p",
+    "p=avrdude; $p -p x -p atmega32u4",
+    "p=avrdude; $p -c x -c usbasp -p 1 -p t85",
     # The module or the script an interpreter runs, named only when the command runs.
     "python3 -m $m run -t upload",
     "m=platformio; python3 -m$m run -t upload",
@@ -182,6 +188,12 @@ NOT_UPLOADS = [
     "$CC -c main.c -pipe",
     "$SHELL -c 'ls -la'",
     "$MKDIR -p build/out",
+    '$PYTHON -c "print(1)"',
+    "$CC -c file.c -o x",
+    "$tool -p 8080",
+    "$MKDIR -p build",
+    "$CC -U NDEBUG -c file.c",
+    "$DIFF -U3 a.txt b.txt",
 ]
 
 #: Programs that only ever reach a board, each as it is usually run.
@@ -349,6 +361,14 @@ RELATIVE = [
     (None, "su - builder -c 'cat ttyACM0'", "ttyACM0"),
     (None, "sudo -D $DIR cat ttyACM0", "ttyACM0"),
     (None, "uv run --directory tools cat ttyACM0", "ttyACM0"),
+    (None, "sudo -D /srv/$X cat ttyACM0", "ttyACM0"),
+    (None, "uv run cat ttyACM0 --directory", "ttyACM0"),
+    (None, "sudo -i cat ttyACM0", "ttyACM0"),
+    (None, "sudo --login cat ttyACM0", "ttyACM0"),
+    (None, "sudo -Ei cat ttyACM0", "ttyACM0"),
+    (None, "su --log builder -c 'cat ttyACM0'", "ttyACM0"),
+    (None, "su -ml builder -c 'cat ttyACM0'", "ttyACM0"),
+    (None, "runuser -l builder -c 'cat ttyACM0'", "ttyACM0"),
 ]
 ENTERS_BY_STEPS = [
     ("/usr", "cd ../dev"),
@@ -507,6 +527,12 @@ ENTERS = [
     "timeout 5 uv --directory=/dev run cat ttyACM0",
     "poetry -C /dev run cat ttyACM0",
     "parallel --wd /dev cat ttyACM0 ::: 1",
+    # Read as the program reads its options: a start of a long name, a short one among others.
+    "sudo --chd /dev cat ttyACM0",
+    "uv run --dir /dev cat ttyACM0",
+    "poetry -qC /dev run cat ttyACM0",
+    "poetry --dir=/dev run cat ttyACM0",
+    "parallel --work /dev cat ttyACM0 ::: 1",
 ]
 
 
