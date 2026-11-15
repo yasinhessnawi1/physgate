@@ -150,7 +150,8 @@ def _installer_argv(tmp_path: Path, compaction: str, monkeypatch: Any) -> list[s
 
 
 def test_under_on_the_installer_is_given_the_rubric_and_the_note(
-    tmp_path: Path, monkeypatch: Any  # noqa: ANN401
+    tmp_path: Path,
+    monkeypatch: Any,  # noqa: ANN401
 ) -> None:
     import physgate.reviewers.claude as claude
     from physgate.reviewers.scan import ScanHit
@@ -165,7 +166,8 @@ def test_under_on_the_installer_is_given_the_rubric_and_the_note(
 
 
 def test_under_off_the_installer_is_asked_for_what_it_always_was(
-    tmp_path: Path, monkeypatch: Any  # noqa: ANN401
+    tmp_path: Path,
+    monkeypatch: Any,  # noqa: ANN401
 ) -> None:
     argv = _installer_argv(tmp_path, "off", monkeypatch)
     assert "--after-compaction" not in argv
@@ -173,7 +175,8 @@ def test_under_off_the_installer_is_asked_for_what_it_always_was(
 
 
 def test_the_installer_command_carries_both_into_the_session_s_request(
-    tmp_path: Path, monkeypatch: Any  # noqa: ANN401
+    tmp_path: Path,
+    monkeypatch: Any,  # noqa: ANN401
 ) -> None:
     from physgate.hooks import cli
 

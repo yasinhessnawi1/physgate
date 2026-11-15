@@ -130,9 +130,7 @@ def test_a_resumed_run_is_held_to_the_value_it_was_recorded_with(tmp_path: Path)
     loop = Rig(run_dir, config_overrides={"review_compaction": "off"}).open()
     loop.record.start(plan("s1"))
     loop.close()
-    reopened = outcome_of(
-        lambda: Rig(run_dir, config_overrides={"review_compaction": "on"}).open()
-    )
+    reopened = outcome_of(lambda: Rig(run_dir, config_overrides={"review_compaction": "on"}).open())
     assert isinstance(reopened, Exception), "a run resumed under another review_compaction"
 
 

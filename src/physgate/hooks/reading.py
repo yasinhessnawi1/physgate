@@ -192,7 +192,12 @@ def post_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
         return ALLOW
     dev, ino, digest, _ = identity
     record: dict[str, Any] = {
-        "dev": dev, "ino": ino, "digest": digest, "start": start, "num": num, "total": total
+        "dev": dev,
+        "ino": ino,
+        "digest": digest,
+        "start": start,
+        "num": num,
+        "total": total,
     }
     if config.after_compaction:
         # The number of compactions before this read, so a read before the last one can be told

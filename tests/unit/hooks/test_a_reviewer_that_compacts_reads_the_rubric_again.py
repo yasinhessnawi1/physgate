@@ -71,9 +71,7 @@ def _reviewer(tmp_path: Path, files: dict[str, Path], **fields: Any) -> tuple[Pa
 
 
 def _compacting(tmp_path: Path, files: dict[str, Path]) -> tuple[Path, SessionConfig]:
-    return _reviewer(
-        tmp_path, files, after_compaction=[str(files["rubric"])], compaction_note=NOTE
-    )
+    return _reviewer(tmp_path, files, after_compaction=[str(files["rubric"])], compaction_note=NOTE)
 
 
 def _start(source: str | None) -> HookInput:
