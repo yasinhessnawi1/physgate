@@ -158,6 +158,8 @@ def test_under_on_the_installer_is_given_the_rubric_and_the_note(
 
     argv = _installer_argv(tmp_path, "on", monkeypatch)
     read = tmp_path / "read"
+    assert "--after-compaction" in argv, "the installer is not told what to read again"
+    assert "--compaction-note" in argv, "the installer is not told the note"
     after = argv.index("--after-compaction")
     assert argv[after + 1] == str(read / "rubric.md")
     note = argv[argv.index("--compaction-note") + 1]

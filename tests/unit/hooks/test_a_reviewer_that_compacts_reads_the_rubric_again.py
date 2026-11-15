@@ -178,6 +178,42 @@ def test_a_configuration_without_them_is_written_with_the_bytes_it_always_had(
     assert SessionConfig.model_validate_json(written(compacting)) == compacting
 
 
+def test_the_installer_builds_both_into_a_reviewer_s_configuration(
+    tmp_path: Path, files: dict[str, Path]
+) -> None:
+    from physgate.hooks.settings import InstallRequest, build_config, current_installation
+
+    out = tmp_path / "o"
+    request = InstallRequest(
+        profile="reviewer",
+        role=None,
+        worktree=str(files["rubric"].parent / "worktree"),
+        own_branch=None,
+        store_root=None,
+        state_dir=str(out / "state"),
+        target_dir=str(out / "settings"),
+        claude_config_dir=str(out / "config"),
+        user_home=str(out / "home"),
+        token_ceiling=1000,
+        read_roots=(str(files["rubric"].parent),),
+        required_reading=tuple(sorted(str(p) for p in files.values())),
+        after_compaction=(str(files["rubric"]),),
+        compaction_note=NOTE,
+    )
+    try:
+        config = build_config(request, current_installation())
+    except ValueError as exc:
+        msg = f"the installer refuses a reviewer's compaction fields: {exc}"
+        raise AssertionError(msg) from exc
+    assert config.after_compaction == (str(files["rubric"]),)
+    assert config.compaction_note == NOTE
+    plain = build_config(
+        request.model_copy(update={"after_compaction": (), "compaction_note": None}),
+        current_installation(),
+    )
+    assert (plain.after_compaction, plain.compaction_note) == ((), None)
+
+
 # --- the session's start ----------------------------------------------------------------------
 
 
