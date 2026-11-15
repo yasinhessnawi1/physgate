@@ -96,7 +96,8 @@ def _package(name: str = "libgl1", **changed: object) -> dict[str, object]:
 def test_the_design_libraries_are_a_group_of_exact_pins_installed_by_default() -> None:
     project = tomllib.loads((TOOLENV / "pyproject.toml").read_text(encoding="utf-8"))
     group = project.get("dependency-groups", {}).get("design", [])
-    pinned = DESIGN | SOLVER
+    # With the circuit library, whose own file holds its pin and its builds.
+    pinned = DESIGN | SOLVER | {"skidl": "3.0.0"}
     assert sorted(group) == sorted(f"{name}=={version}" for name, version in pinned.items())
     assert project["tool"]["uv"].get("default-groups") == ["design"]
 
