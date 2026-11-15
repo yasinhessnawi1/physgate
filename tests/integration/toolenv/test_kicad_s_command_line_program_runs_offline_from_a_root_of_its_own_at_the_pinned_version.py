@@ -198,6 +198,7 @@ def test_the_root_carries_the_session_file_provisioning_writes(built: Path | Non
     session = getattr(provision, "kicad_session", None)
     assert callable(session), "provisioning writes no session file for KiCad"
     system = "Linux" if sys.platform.startswith("linux") else "Darwin"
+    assert (kicad_root / "session.json").is_file(), "provisioning wrote no session file"
     written = json.loads((kicad_root / "session.json").read_text(encoding="utf-8"))
     assert written == session(system)
     assert (kicad_root / "session.json").stat().st_mode & 0o222 == 0
