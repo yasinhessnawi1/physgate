@@ -126,7 +126,10 @@ class Page:
         return found
 
     def decide(self, payload: dict[str, Any]) -> tuple[int, bytes]:
-        body = json.dumps(payload).encode()
+        return self.send(json.dumps(payload).encode())
+
+    def send(self, body: bytes) -> tuple[int, bytes]:
+        """The route asked with ``body`` as it stands: a JSON number no encoder writes."""
         return self._request("POST", f"/api/runs/0/{RUN}/queue/decisions", body)
 
 
@@ -237,6 +240,8 @@ MALFORMED = [
     pytest.param(_body({"stall_current": (1.6, "kg")}), "'stall_current'", id="wrong dimension"),
     pytest.param(_body({"mass": (float("nan"), "kg")}), "finite", id="not a number"),
     pytest.param(_body({"mass": (10**400, "kg")}), "finite", id="an integer past a float"),
+    pytest.param(_body({"mass": (2 * 10**308, "kg")}), "finite", id="309 digits, past a float"),
+    pytest.param(_body({"mass": (-(10**309), "kg")}), "finite", id="310 digits, negative"),
 ]
 
 
@@ -250,6 +255,22 @@ def test_a_body_that_is_not_a_part_s_values_is_refused_with_400_and_writes_nothi
     assert b"not a decision" in body
     assert says in body.decode(), body
     assert b"Extra inputs are not permitted" not in body or says == "parts.source", body
+    assert (run_dir / DECISIONS_NAME).read_bytes() == b""
+
+
+@pytest.mark.parametrize("number", [b"1e999", b"-1e999"], ids=["1e999", "-1e999"])
+def test_a_number_past_a_float_written_as_an_exponent_is_refused_with_400(
+    served: tuple[Page, Path], number: bytes
+) -> None:
+    # No encoder writes it, so the body is sent as text: a reader that turns it into an infinity
+    # and one that refuses the number both answer 400, and nothing is written or raised.
+    page, run_dir = served
+    held = "__the_number__"
+    sent = json.dumps(_decision(page.view(), "have", parts=_body({"mass": (held, "kg")})))
+    status, body = page.send(sent.replace(f'"{held}"', number.decode()).encode())
+    assert status == 400, body
+    assert b"not a decision" in body, body
+    assert number not in body, body
     assert (run_dir / DECISIONS_NAME).read_bytes() == b""
 
 

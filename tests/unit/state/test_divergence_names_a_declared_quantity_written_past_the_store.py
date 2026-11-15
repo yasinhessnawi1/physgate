@@ -3,9 +3,10 @@
 The store refuses a session's write that touches a declared quantity, so a change in a step's
 list that does is one that did not pass the store's guard. The check names it from the record
 with the store's own two reasons: ``declared_fixed`` for a declared quantity changed or dropped,
-``declared_forged`` for one added. The parts writer's own revisions are admitted by name. A role's
-own quantity beside a declared one is not named, and a change already named for an earlier
-reason (its owner, a duty) keeps that reason and is named once.
+``declared_forged`` for one added; ``declared_fixed`` too for the kind or domain of a node holding
+one changed, or one of its edges taken away. The parts writer's own revisions are admitted by
+name. A role's own quantity beside a declared one is not named, and a change already named for an
+earlier reason (its owner, a duty) keeps that reason and is named once.
 """
 
 from __future__ import annotations
@@ -174,3 +175,50 @@ def test_with_the_duties_held_a_declared_change_is_still_named(tmp_path: Path) -
     finally:
         store.close()
     assert _reasons(found) == [FIXED]
+
+
+# --- the node a declared quantity sits on ------------------------------------------------------
+# The store refuses a role's write that moves a declared node to another kind or domain, or takes
+# one of its edges away, with the same ``declared_fixed``; such a change in a step's list did not
+# pass it, and is named. An edge added is a role's to add, and is not.
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("domain", "electrical"), ("kind", "module")], ids=["domain", "kind"]
+)
+def test_a_declared_node_moved_past_the_store_is_named_declared_fixed(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    root, head = _declared_root(tmp_path)
+    behind_the_stores_back(root, _node({"mass": _declared()}, **{field: value}))
+    found = _named(root, head)
+    assert _reasons(found) == [FIXED]
+    assert field in found[0].detail
+
+
+def _joined_root(tmp_path: Path) -> tuple[Path, int]:
+    """A store holding the declared node joined to two modules; the head after it."""
+    root = tmp_path / "graph"
+    store = Store(root)
+    joined = _node({"mass": _declared()}, constrains=["control.drive", "control.bus"])
+    assert store.declare(joined, ("run-1-parts-1",)).accepted
+    head = store.head_revision()
+    store.close()
+    return root, head
+
+
+def test_an_edge_taken_from_a_declared_node_past_the_store_is_named_declared_fixed(
+    tmp_path: Path,
+) -> None:
+    root, head = _joined_root(tmp_path)
+    behind_the_stores_back(root, _node({"mass": _declared()}, constrains=["control.drive"]))
+    found = _named(root, head)
+    assert _reasons(found) == [FIXED]
+    assert "control.bus" in found[0].detail
+
+
+def test_an_edge_added_to_a_declared_node_past_the_store_is_not_named(tmp_path: Path) -> None:
+    root, head = _joined_root(tmp_path)
+    more = ["control.drive", "control.bus", "control.imu"]
+    behind_the_stores_back(root, _node({"mass": _declared()}, constrains=more))
+    assert _named(root, head) == []

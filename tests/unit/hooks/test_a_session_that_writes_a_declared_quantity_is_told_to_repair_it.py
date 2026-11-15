@@ -5,7 +5,8 @@ one, or write the reserved source without the decision that declares it. The hoo
 line, refuses such a proposal as it is written, for ``declared_forged`` (added, or the reserved
 source without the record) or ``declared_fixed`` (changed or dropped), and the message names the
 quantity and says that declared parts are fixed by a person. A role may still add quantities of
-its own to a declared node and write the declared ones as they stand. Where a proposal breaks
+its own to a declared node and write the declared ones as they stand, and add an edge to the node
+but not take one away. Where a proposal breaks
 an earlier rule, the reason given is that rule's.
 """
 
@@ -149,11 +150,51 @@ def test_a_session_cannot_move_a_declared_node_to_another_domain(config: Session
 
 
 def test_a_session_cannot_change_a_declared_node_s_kind(config: SessionConfig) -> None:
-    # The hook's kind rule, earlier in its order, refuses it for every node; it stays refused.
+    # The hook's kind rule, earlier in its order, refuses it for every node, so its reason is the
+    # one given; the declared rule after it is never reached.
     told = _write(config, MOTOR, {**_with({"mass": _declared()}), "kind": "module"})
-    assert graph.KIND_CHANGE in told or FIXED in told
+    assert graph.KIND_CHANGE in told
+    assert FIXED not in told
 
 
 def test_a_session_may_join_a_declared_node_to_its_module(config: SessionConfig) -> None:
     joined = {**_with({"mass": _declared()}), "constrains": ["electrical.drive"]}
     assert _write(config, MOTOR, joined) == "allow"
+
+
+# Once joined, a declared node keeps its edges: a session may add one, never take one away.
+EDGES = ["electrical.drive", "electrical.bus"]
+
+
+def _joined(config: SessionConfig) -> None:
+    assert config.store_root is not None
+    store = Store(Path(config.store_root))
+    try:
+        joined = {**_with({"mass": _declared()}), "constrains": list(EDGES)}
+        assert store.write_node(joined, "electrical").accepted
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize(
+    ("edges", "dropped"),
+    [
+        (["electrical.drive"], "electrical.bus"),
+        ([], "electrical.drive"),
+        (["electrical.drive", "electrical.imu"], "electrical.bus"),
+    ],
+    ids=["one-removed", "emptied", "one-replaced"],
+)
+def test_a_session_cannot_take_an_edge_from_a_declared_node(
+    config: SessionConfig, edges: list[str], dropped: str
+) -> None:
+    _joined(config)
+    told = _write(config, MOTOR, {**_with({"mass": _declared()}), "constrains": edges})
+    assert FIXED in told and dropped in told
+    assert "fixed by a person" in told and "edge" in told
+
+
+def test_a_session_may_still_add_an_edge_to_a_joined_declared_node(config: SessionConfig) -> None:
+    _joined(config)
+    more = {**_with({"mass": _declared()}), "constrains": [*EDGES, "electrical.imu"]}
+    assert _write(config, MOTOR, more) == "allow"

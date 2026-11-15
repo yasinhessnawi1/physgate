@@ -175,6 +175,44 @@ def test_a_declared_node_joined_to_its_module_is_read(tmp_path: Path, store: Pat
     assert [p["id"] for p in _proposed(tmp_path, store, joined)] == [MOTOR]
 
 
+# Once joined, a declared node keeps its edges: a proposal may add one, never take one away.
+EDGES = ["electrical.drive", "electrical.bus"]
+
+
+@pytest.fixture
+def joined(store: Path) -> Path:
+    graph = Store(store)
+    try:
+        payload = {**_node(MOTOR, {"mass": _declared()}), "constrains": list(EDGES)}
+        assert graph.write_node(payload, "electrical").accepted
+    finally:
+        graph.close()
+    return store
+
+
+@pytest.mark.parametrize(
+    ("edges", "dropped"),
+    [
+        (["electrical.drive"], "electrical.bus"),
+        ([], "electrical.drive"),
+        (["electrical.drive", "electrical.imu"], "electrical.bus"),
+    ],
+    ids=["one-removed", "emptied", "one-replaced"],
+)
+def test_an_edge_taken_from_a_declared_node_is_declared_fixed(
+    tmp_path: Path, joined: Path, edges: list[str], dropped: str
+) -> None:
+    taken = {**_node(MOTOR, {"mass": _declared()}), "constrains": edges}
+    refused = _refusal(tmp_path, joined, taken)
+    assert refused.reason == "declared_fixed"
+    assert dropped in str(refused) and "fixed by a person" in str(refused)
+
+
+def test_an_edge_added_to_a_joined_declared_node_is_read(tmp_path: Path, joined: Path) -> None:
+    more = {**_node(MOTOR, {"mass": _declared()}), "constrains": [*EDGES, "electrical.imu"]}
+    assert [p["id"] for p in _proposed(tmp_path, joined, more)] == [MOTOR]
+
+
 def test_a_node_with_no_declared_quantity_moves_domain_as_it_always_could(
     tmp_path: Path, store: Path
 ) -> None:

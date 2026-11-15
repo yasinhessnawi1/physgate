@@ -3,7 +3,8 @@
 ``write_node`` is the path every session's proposals reach the graph by. It refuses a revision
 that adds a quantity carrying the declared record (``declared_forged``) and one that changes or
 drops a quantity the node holds as declared (``declared_fixed``). A role may still add quantities
-of its own to a declared node and rewrite the node with the declared ones as they stand. A fault
+of its own to a declared node and rewrite the node with the declared ones as they stand, and it
+may add an edge to the node but not take one away (``declared_fixed`` again). A fault
 an earlier guard already refuses keeps its old reason. A refusal writes nothing.
 """
 
@@ -176,7 +177,7 @@ def test_a_bare_number_keeps_the_missing_unit_reason_beside_a_declared_one(
 # --- the node a declared quantity sits on ------------------------------------------------------
 # A role may write its own quantities on a declared node, but the node stays what the person's
 # part was declared on: its kind and its domain are not a role's to change, as its declared
-# values and units are not. Its ``constrains`` stays the role's: the parts writer creates a
+# values and units are not. Its ``constrains`` the role may add to: the parts writer creates a
 # component's node with no edge, and only the role that owns it joins it to the module whose
 # mass, power and loads read it.
 
@@ -198,6 +199,59 @@ def test_a_role_may_join_a_declared_node_to_its_module(declared_store: Store) ->
     assert _reason(declared_store, joined) == (True, None)
     held = declared_store.read_node("control.motor_left")
     assert held["constrains"] == ["control.drive"]
+
+
+# Once joined, a declared node's edges stay: a role may add an edge but not take one away or
+# swap it for another, since the module's mass, power and loads read the declared value through
+# it. Order is not an edge: the same edges in another order are the same node's edges.
+
+EDGES = ["control.drive", "control.bus"]
+
+
+@pytest.fixture
+def joined_store(declared_store: Store) -> Store:
+    """The declared node, joined by its owner to two modules."""
+    joined = _node({"mass": _declared()}, constrains=list(EDGES))
+    assert _reason(declared_store, joined) == (True, None)
+    return declared_store
+
+
+@pytest.mark.parametrize(
+    "edges",
+    [["control.drive"], [], ["control.drive", "control.imu"]],
+    ids=["one-removed", "emptied", "one-replaced"],
+)
+def test_a_role_cannot_take_an_edge_from_a_declared_node(
+    joined_store: Store, edges: list[str]
+) -> None:
+    before = _lines(joined_store)
+    assert _reason(joined_store, _node({"mass": _declared()}, constrains=edges)) == (False, FIXED)
+    assert _lines(joined_store) == before
+    assert joined_store.read_node("control.motor_left")["constrains"] == EDGES
+
+
+@pytest.mark.parametrize(
+    "edges",
+    [[*EDGES, "control.imu"], list(reversed(EDGES))],
+    ids=["one-added", "same-edges-reordered"],
+)
+def test_a_role_may_still_add_an_edge_to_a_joined_declared_node(
+    joined_store: Store, edges: list[str]
+) -> None:
+    assert _reason(joined_store, _node({"mass": _declared()}, constrains=edges)) == (True, None)
+    assert joined_store.read_node("control.motor_left")["constrains"] == edges
+
+
+def test_a_node_with_no_declared_quantity_drops_an_edge_as_it_always_could(
+    tmp_path: Path,
+) -> None:
+    store = Store(tmp_path / "graph")
+    try:
+        plain = _node({"mass": _plain(0.5, "kg")}, constrains=list(EDGES))
+        assert store.write_node(plain, "control").accepted
+        assert _reason(store, {**plain, "constrains": []}) == (True, None)
+    finally:
+        store.close()
 
 
 def test_a_node_with_no_declared_quantity_moves_as_it_always_could(tmp_path: Path) -> None:
