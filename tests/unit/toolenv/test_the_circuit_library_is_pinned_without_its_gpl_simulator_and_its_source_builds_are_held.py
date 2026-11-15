@@ -178,7 +178,8 @@ def test_a_distribution_that_states_a_gpl_licence_is_refused_by_name(
     found = _refusals(tmp_path)
     assert len(found) == 1, found
     assert "simulator 1.7" in found[0]
-    assert "GPL" in found[0]
+    # Refused as a GPL licence, not merely as one off the allowed list.
+    assert "states a GPL licence" in found[0]
 
 
 def test_a_distribution_that_states_no_licence_is_refused(tmp_path: Path) -> None:
@@ -235,7 +236,10 @@ def test_a_gpl_mention_in_a_full_licence_text_is_refused_unless_the_distribution
         assert len(str(why).split()) > 3, name
 
 
-@pytest.mark.parametrize(("opening", "refused"), [("Apache License", False), ("GNU GPL", True)])
+@pytest.mark.parametrize(
+    ("opening", "refused"),
+    [("Apache License", False), ("GNU GPL", True), ("Proprietary licence", True)],
+)
 def test_a_distribution_whose_licence_is_only_in_its_file_is_read_from_that_file(
     tmp_path: Path, opening: str, refused: bool
 ) -> None:
