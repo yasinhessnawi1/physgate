@@ -48,9 +48,17 @@ gate_scoring() {
   # must never reach the harness's environment, where pint would pick numpy up and the
   # physics gate's unit handling would change (pyproject.toml, the evaluation group).
   echo "== scoring tests (evaluation environment) =="
-  local rc=0
+  local rc=0 targets=(tests/scoring)
+  # CI runs the scoring tests in shards of whole files: PHYSGATE_SCORING_SHARD=INDEX/COUNT
+  # names one (scripts/scoring_shard.py deals the files and proves the deal complete). Unset,
+  # every file runs, as always.
+  if [ -n "${PHYSGATE_SCORING_SHARD:-}" ]; then
+    uv run python scripts/scoring_shard.py VERIFY "${PHYSGATE_SCORING_SHARD#*/}" || fail "scoring shards"
+    targets=($(uv run python scripts/scoring_shard.py FILES "${PHYSGATE_SCORING_SHARD%/*}" "${PHYSGATE_SCORING_SHARD#*/}")) \
+      || fail "scoring shard"
+  fi
   UV_PROJECT_ENVIRONMENT=.venv-evaluation uv run --frozen --group evaluation \
-    pytest -q -n auto tests/scoring || rc=$?
+    pytest -q -n auto "${targets[@]}" || rc=$?
   if [ "$rc" -eq 5 ]; then
     fail "scoring tests — nothing ran"
   fi
@@ -83,11 +91,23 @@ gate_ui() {
   ./scripts/check-ui.sh || fail "ui (see above)"
 }
 
-gate_tests
-gate_scoring
-gate_types
-gate_lint
-gate_ui
+# No argument runs every gate, in this order, as always. CI names one gate or a few per job
+# (tests, scoring, types, lint, ui, ui-unit, ui-browser), so the gates run in parallel jobs
+# with the same bodies as here.
+gates=("$@")
+[ "${#gates[@]}" -gt 0 ] || gates=(tests scoring types lint ui)
+for gate in "${gates[@]}"; do
+  case "$gate" in
+    tests) gate_tests ;;
+    scoring) gate_scoring ;;
+    types) gate_types ;;
+    lint) gate_lint ;;
+    ui) gate_ui ;;
+    ui-unit) ./scripts/check-ui.sh unit || fail "ui (see above)" ;;
+    ui-browser) ./scripts/check-ui.sh browser || fail "ui (see above)" ;;
+    *) fail "unknown gate '$gate'" ;;
+  esac
+done
 
 echo
 echo "All gates passed."
