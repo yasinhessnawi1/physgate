@@ -9,8 +9,8 @@ from physgate.evaluation import evidence, tierset_cli
 from physgate.evaluation import requirements as evaluation_requirements
 from physgate.evaluation.baseline import cli as baseline_cli
 from physgate.evaluation.inject import cli as inject_cli
-from physgate.evaluation.observe import compare
 from physgate.evaluation.observe import cli as observe_cli
+from physgate.evaluation.observe import compare
 from physgate.evaluation.per_role import cli as per_role_cli
 from physgate.hooks import cli as hooks_cli
 from physgate.knowledge import cli as knowledge_cli
@@ -18,7 +18,6 @@ from physgate.orchestrator import cli as orchestrator_cli
 from physgate.orchestrator import requirements
 from physgate.ui import cli as ui_cli
 from physgate.ui import table
-
 
 #: What the comparison classes and how it compares, handed to the Evidence screen's routes.
 CENSUS = evidence.Census(drift=compare.DRIFT, reported=compare.REPORTED, compare=compare.compare)
