@@ -42,8 +42,16 @@ from baseline_fixtures import (
 )
 from startup_stand_in import stand_in_spawn_env
 
+from physgate.evaluation.baseline import runner as baseline_runner
 from physgate.evaluation.baseline.record import BaselineRecord
-from physgate.evaluation.baseline.runner import HARNESS, PLACE, SCORE, TRIALS, run_baseline
+from physgate.evaluation.baseline.runner import (
+    HARNESS,
+    PLACE,
+    SCORE,
+    TRIALS,
+    BaselineError,
+    run_baseline,
+)
 from physgate.evaluation.observe.cost import load_price_sheet
 from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.per_role.arms.raw import RawSetup
@@ -52,6 +60,7 @@ from physgate.evaluation.tiers.task import Task
 from physgate.hooks import paths
 from physgate.hooks.cli import add_parser
 from physgate.hooks.config import SessionConfig
+from physgate.orchestrator import session_files
 from physgate.oslayer.session_temp import session_temps_root
 
 OWN_TEMP = Path(session_temps_root()) / "0123456789"
@@ -299,7 +308,10 @@ def test_a_move_that_fails_leaves_nothing_half_made_and_the_trial_in_the_work_ro
 
     _cross_filesystem(monkeypatch, store)
     outcome = _outcome(lambda: _round(store, tmp_path, StandInArm(left=leave), "visible"))
-    assert isinstance(outcome, Exception), "a trial holding what the copy refuses was moved"
+    assert isinstance(outcome, BaselineError), f"not refused by the move: {outcome!r}"
+    assert outcome.context.get("refused_because") == "move", outcome.context
+    assert outcome.context.get("error") == "not_a_file", outcome.context
+    assert "could not be moved beneath the round's directory" in str(outcome), str(outcome)
     assert str(tmp_path) not in f"{outcome} {getattr(outcome, 'context', {})}"
     work = tmp_path / "round" / "work"
     assert not os.path.lexists(work / "0000-1"), "a half-made trial is left beneath the round"
@@ -321,8 +333,99 @@ def test_a_visible_trial_s_destination_already_there_refuses_the_move(
         taken.mkdir(parents=True)
 
     outcome = _outcome(lambda: _round(store, tmp_path, StandInArm(left=leave), "visible"))
-    assert isinstance(outcome, Exception), "a trial was moved onto a directory already there"
+    assert isinstance(outcome, BaselineError), f"not refused by the move: {outcome!r}"
+    assert outcome.context.get("refused_because") == "move", outcome.context
+    assert outcome.context.get("error") == os.strerror(errno.EEXIST), outcome.context
+    assert "beneath the round's directory is taken" in str(outcome), str(outcome)
     assert taken.is_dir() and not list(taken.iterdir()), "what lay at the destination changed"
     left = _one(work_root(store.store, "control").iterdir(), "the trial left in the work root")
     assert (left / HARNESS / "raw.json").is_file()
     assert list(role_root(store.store, "control").glob(f"*{WORKING}"))
+
+
+def _left_where_it_ran(store: StandInStore, tmp_path: Path) -> Path:
+    """Nothing of the trial beneath the round; the trial in the work root with its record."""
+    assert not os.path.lexists(tmp_path / "round" / "work" / "0000-1"), (
+        "a half-made trial is left beneath the round"
+    )
+    left = _one(work_root(store.store, "control").iterdir(), "the trial left in the work root")
+    assert (left / HARNESS / "raw.json").is_file(), "the source was removed"
+    working = _one(role_root(store.store, "control").glob(f"*{WORKING}"), "its record of work")
+    assert json.loads(working.read_text())["work"] == str(left)
+    return left
+
+
+#: Far deeper than the copy goes: a session's ``mkdir x; cd x`` loop, cut short.
+DEEPER = 200
+
+
+def test_a_tree_deeper_than_the_copy_goes_is_refused_and_nothing_of_it_left_beneath_the_round(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Across filesystems the copy refuses a tree past its depth bound, as a failed move."""
+    store = copied(made, tmp_path / "store")
+    chain = os.path.join(*(["d"] * DEEPER))
+
+    def leave(place: Path, _harness: Path) -> None:
+        (place / "worktree").mkdir()
+        (place / "worktree" / "first.txt").write_text("copied before the refusal")
+        os.makedirs(place / "worktree" / chain)
+
+    tried = _cross_filesystem(monkeypatch, store)
+    outcome = _outcome(lambda: _round(store, tmp_path, StandInArm(left=leave), "visible"))
+    assert tried, "no move across filesystems was tried"
+    left = _left_where_it_ran(store, tmp_path)
+    assert (left / PLACE / "worktree" / chain).is_dir(), "the deep tree was changed"
+    assert isinstance(outcome, BaselineError), f"not refused by the move: {outcome!r}"
+    assert outcome.context.get("refused_because") == "move", outcome.context
+    assert outcome.context.get("error") == "too_deep", outcome.context
+    assert str(tmp_path) not in f"{outcome} {outcome.context}"
+
+
+def _failing_copy(monkeypatch: pytest.MonkeyPatch, failure: BaseException) -> list[str]:
+    """The copy raises ``failure`` on reaching the file ``zz-last``, after it copied others."""
+    real = session_files.open_beneath
+    reached: list[str] = []
+
+    def open_beneath(anchor: Path, names: Any, **kwargs: Any) -> int:  # noqa: ANN401
+        if names[-1] == "zz-last":
+            reached.append(names[-1])
+            raise failure
+        return real(anchor, names, **kwargs)
+
+    monkeypatch.setattr(baseline_runner, "open_beneath", open_beneath)
+    return reached
+
+
+def _leave_two(place: Path, _harness: Path) -> None:
+    (place / "worktree").mkdir()
+    (place / "worktree" / "first.txt").write_text("copied before the failure")
+    (place / "worktree" / "zz-last").write_text("the copy fails here")
+
+
+def test_any_failure_of_the_copy_leaves_nothing_half_made_and_is_refused_as_a_failed_move(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not an OS error nor a refused file: a recursion limit, as a deep tree once met."""
+    store = copied(made, tmp_path / "store")
+    _cross_filesystem(monkeypatch, store)
+    reached = _failing_copy(monkeypatch, RecursionError("maximum recursion depth exceeded"))
+    outcome = _outcome(lambda: _round(store, tmp_path, StandInArm(left=_leave_two), "visible"))
+    assert reached, "the failure was never injected"
+    _left_where_it_ran(store, tmp_path)
+    assert isinstance(outcome, BaselineError), f"not refused by the move: {outcome!r}"
+    assert outcome.context.get("refused_because") == "move", outcome.context
+    assert outcome.context.get("error") == "RecursionError", outcome.context
+
+
+def test_an_interrupt_during_the_copy_still_stops_the_round_and_leaves_nothing_half_made(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The interrupt is raised on as it came; what the copy made is removed on its way."""
+    store = copied(made, tmp_path / "store")
+    _cross_filesystem(monkeypatch, store)
+    reached = _failing_copy(monkeypatch, KeyboardInterrupt())
+    with pytest.raises(KeyboardInterrupt):
+        _round(store, tmp_path, StandInArm(left=_leave_two), "visible")
+    assert reached, "the interrupt was never raised"
+    _left_where_it_ran(store, tmp_path)
