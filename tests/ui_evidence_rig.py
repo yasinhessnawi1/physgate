@@ -7,7 +7,7 @@ target repository, so they differ only where each is meant to:
   held-out tier of two roots made beside the runs (``<out>/tier``), never under them;
 - ``ev-development``: neither reportable nor an ablation, the gate observing;
 - ``ev-ablation``: an ablation run with the hooks off, from a clean commit inside the OS layer;
-- ``ev-drifted``: a development run whose role is pinned to another model and whose output-token
+- ``ev-drifted``: a development run whose decomposition is pinned to another model and whose token
   limit differs, so it is refused against ``ev-development`` by name;
 - ``ev-tampered``: a development run whose configuration was rewritten after it started, so its
   first line names another configuration;
@@ -44,7 +44,7 @@ RUNS = (
     "ev-tampered",
     "ev-unreadable",
 )
-#: The model the drifted run's role is pinned to, and its output-token limit.
+#: The drifted run's decomposition model (its reviewers', never a role's) and its token limit.
 DRIFTED_MODEL = "claude-opus-5-5"
 DRIFTED_TOKENS = 32000
 #: The line the unreadable run's log ends in.
@@ -99,7 +99,7 @@ def evidence_runs(out: Path) -> EvidenceRuns:
         overrides={**measured, "ablation": True, "hooks": "off"},
     )
     drifted = rig.config("ev-drifted", repo).models.model_copy(
-        update={"roles": {"electrical": DRIFTED_MODEL}}
+        update={"decomposition": DRIFTED_MODEL}
     )
     rig.fake_run(
         runs,

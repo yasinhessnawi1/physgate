@@ -125,9 +125,9 @@ def test_the_kinds_differ_where_each_run_was_made_to(
     assert rows["ev-reportable"]["flags"]["reportable"] is True
     assert rows["ev-reportable"]["flags"]["harness"]["clean"] is True
     assert rows["ev-development"]["flags"]["gate_mode"] == "observe"
-    assert rows["ev-drifted"]["pins"]["models.roles"] == {"electrical": DRIFTED_MODEL}
+    assert rows["ev-drifted"]["pins"]["models.decomposition"] == DRIFTED_MODEL
     assert rows["ev-drifted"]["pins"]["max_output_tokens"] == DRIFTED_TOKENS
-    assert rows["ev-development"]["pins"]["models.roles"] != {"electrical": DRIFTED_MODEL}
+    assert rows["ev-development"]["pins"]["models.decomposition"] != DRIFTED_MODEL
 
 
 def test_no_row_carries_the_held_out_tier(built: tuple[EvidenceRuns, Path, Path]) -> None:
