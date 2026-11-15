@@ -77,6 +77,7 @@ def test_a_matched_pair_is_the_comparison_s_own_answer(
 def test_the_baseline_is_the_first_run_named(built: tuple[EvidenceRuns, Path, Path]) -> None:
     status, body = _compare(built, "ev-ablation", "ev-development")
     assert status == 200, body
+    assert set(body) == {"a", "b", "comparison"}, body
     assert body["comparison"]["baseline"]["run_id"] == "ev-ablation"
     assert body["comparison"]["candidate"]["run_id"] == "ev-development"
 
@@ -86,6 +87,7 @@ def test_a_run_compared_with_itself_differs_in_nothing(
 ) -> None:
     status, body = _compare(built, "ev-development", "ev-development")
     assert status == 200, body
+    assert set(body) == {"a", "b", "comparison"}, body
     assert body["comparison"]["differs_in"] == []
 
 
