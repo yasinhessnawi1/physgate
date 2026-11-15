@@ -299,8 +299,16 @@ _PROGRAMS = _ONLY_A_BOARD | frozenset(GUARDED)
 #: A program named only when the command runs is refused given these first words of the build
 #: tool's: its tests (which upload), its debugger (which loads the board), its devices.
 _LATE_USES = frozenset({"test", "debug", "device"})
-#: A flasher's memory operation (``flash:w:``), and a programmer's or a part's plain name.
+#: A flasher's memory operation (``flash:w:``), an image it writes by name (avrdude's ``-U
+#: file``), a microcontroller's part name (``m328p``, ``atmega32u4``, ``t85``), and a
+#: programmer's or a part's plain name.
 _MEMORY_OPERATION = re.compile(r"[A-Za-z0-9_]+:[rwv]:")
+_IMAGE_FILE = re.compile(r".+\.(hex|elf|bin|eep|srec|ihex)(:[a-z])?", re.IGNORECASE)
+_PART = re.compile(
+    r"(at)?(mega|tiny|xmega|90usb|90can|90pwm|90s)[0-9]+[a-z0-9]*|[mtx][0-9]+[a-z0-9]*"
+    r"|usb[0-9]+[a-z0-9]*|avr[0-9]+[a-z0-9]*",
+    re.IGNORECASE,
+)
 _PLAIN_NAME = re.compile(r"[A-Za-z0-9_+-]+")
 
 #: Each program that runs its arguments (the parser's own list): its short options that take no
@@ -317,27 +325,27 @@ _WRAPPERS: Mapping[str, tuple[str, str, frozenset[str]]] = {
     "builtin": ("", "", frozenset()),
     "sudo": ("AbEeHiKklnPSsVv", "CDghpRrTtUu", frozenset()),
 }
-#: The options of those programs that move the command they run to the directory named, and
-#: those that give it a new root, which leaves it anywhere a word could say.
-_WRAPPER_MOVES: Mapping[str, tuple[tuple[str, str], ...]] = {
-    "env": (("C", "--chdir"),),
-    "sudo": (("D", "--chdir"),),
+#: The programs that run a command somewhere else by an option of their own, wrappers and
+#: runners alike, all read by one reader (:func:`_moving_option`): the short options of each
+#: that take no value (so a short option may stand among them in one word), the options (short
+#: letter, long name) naming the directory the command runs in, and those that leave it where
+#: no word says: a new root, a login's home.
+_MOVING: Mapping[str, tuple[str, tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]] = {
+    "env": ("i0v", (("C", "--chdir"),), ()),
+    "sudo": ("AbEeHiKklnPSsVv", (("D", "--chdir"),), (("R", "--chroot"), ("i", "--login"))),
+    "uv": ("qvn", (("", "--directory"),), ()),
+    "uvx": ("qvn", (("", "--directory"),), ()),
+    "poetry": ("qvnhV", (("C", "--directory"),), ()),
+    "parallel": ("", (("", "--wd"), ("", "--workdir")), ()),
+    "su": ("fmp", (), (("l", "--login"),)),
+    "runuser": ("fmp", (), (("l", "--login"),)),
 }
-_WRAPPER_ANYWHERE: Mapping[str, tuple[tuple[str, str], ...]] = {"sudo": (("R", "--chroot"),)}
-#: Programs that run a command (the git rule's runners), by the option naming the directory
-#: they run it in, its value the next word or glued after ``=`` (or to a short option)...
-_RUNNER_DIRECTORIES: Mapping[str, tuple[str, ...]] = {
-    "uv": ("--directory",),
-    "uvx": ("--directory",),
-    "poetry": ("-C", "--directory"),
-    "parallel": ("--wd", "--workdir"),
-}
-#: ... by the words with which they run it where no word says (each found file's directory, a
-#: login's home), and those that run it under a new root.
-_RUNNER_ANYWHERE: Mapping[str, tuple[str, ...]] = {
-    "find": ("-execdir", "-okdir"),
-    "su": ("-", "-l", "--login"),
-    "runuser": ("-", "-l", "--login"),
+#: Words that are no option of that kind and leave the command anywhere all the same: a login
+#: by a bare dash, and each found file's directory (``find``'s own words are matched whole).
+_ANYWHERE_WORDS: Mapping[str, frozenset[str]] = {
+    "su": frozenset({"-"}),
+    "runuser": frozenset({"-"}),
+    "find": frozenset({"-execdir", "-okdir"}),
 }
 _NEW_ROOT = frozenset({"chroot"})
 
@@ -472,16 +480,18 @@ def serial_device_path(path: str, cwd: str) -> str | None:
     return None
 
 
-def _option_of(wrapper: str, word: str, short: str, long: str) -> tuple[bool, str | None]:
-    """Whether a wrapper's option ``word`` is ``-short`` or ``long``, and the value glued to it.
+def _option_in(word: str, flags: str, short: str, long: str) -> tuple[bool, str | None]:
+    """Whether the option word ``word`` is ``-short`` or ``long``, and the value glued to it.
 
-    As the wrapper's own reading takes it: in a run of short options after any that take no
-    value, or as any start of the long name (``--split`` is ``--split-string``).
+    As a program's own option reader takes it: among a run of short options after any of
+    ``flags`` (those that take no value), or as any start of the long name (``--split`` is
+    ``--split-string``). A word that is no option is neither.
     """
     if word.startswith("--"):
         name, glued, value = word.partition("=")
         return len(name) > 2 and long.startswith(name), (value if glued else None)
-    flags = _WRAPPERS[wrapper][0]
+    if not word.startswith("-"):
+        return False, None
     for n, char in enumerate(word[1:], 1):
         if char == short:
             return True, word[n + 1 :] or None
@@ -516,25 +526,35 @@ def _value_at(
     return None if target is None or at in unread else target
 
 
+def _moving_option(
+    program: str, argv: Sequence[str], index: int, unread: frozenset[int]
+) -> tuple[bool, str | None] | None:
+    """Whether the word at ``index`` moves the command ``program`` runs, and where to.
+
+    ``None`` for a word that does not; else ``(True, target)``, the target ``None`` where only
+    running decides it or no word says it, as for a new root or a login.
+    """
+    word = argv[index]
+    if word in _ANYWHERE_WORDS.get(program, ()):
+        return True, None
+    flags, to, anywhere = _MOVING.get(program, ("", (), ()))
+    for short, long in to:
+        named, glued = _option_in(word, flags, short, long)
+        if named:
+            return True, _value_at(argv, index, glued, unread)
+    if any(_option_in(word, flags, short, long)[0] for short, long in anywhere):
+        return True, None
+    return None
+
+
 def _runner_moves(argv: Sequence[str], stepped: int, unread: frozenset[int]) -> list[str | None]:
-    """The moves a program that runs a command makes by its own words, from ``argv`` on."""
-    moves: list[str | None] = []
+    """The moves a program that runs a command makes by any of its words, from ``argv`` on."""
     key = command_key(argv[0])
     if key in _NEW_ROOT:
         return [None]
-    for n, word in enumerate(argv[1:], 1):
-        if word in _RUNNER_ANYWHERE.get(key, ()):
-            moves.append(None)
-        for option in _RUNNER_DIRECTORIES.get(key, ()):
-            glued = None
-            if word.startswith(option + "="):
-                glued = word[len(option) + 1 :]
-            elif len(option) == 2 and word.startswith(option) and word != option:
-                glued = word[2:]
-            elif word != option:
-                continue
-            moves.append(_value_at(argv, n, glued, frozenset(u - stepped for u in unread)))
-    return moves
+    relative = frozenset(u - stepped for u in unread)
+    found = (_moving_option(key, argv, n, relative) for n in range(1, len(argv)))
+    return [move[1] for move in found if move is not None]
 
 
 def _moves_to(cmd: SimpleCommand) -> str | None | bool:
@@ -550,13 +570,9 @@ def _moves_to(cmd: SimpleCommand) -> str | None | bool:
     moves: list[str | None] = []
     options = wrapper_options(cmd.argv)
     for index, wrapper, _ in options:
-        for short, long in _WRAPPER_MOVES.get(wrapper, ()):
-            named, glued = _option_of(wrapper, cmd.argv[index], short, long)
-            if named:
-                moves.append(_value_at(cmd.argv, index, glued, unread))
-        for short, long in _WRAPPER_ANYWHERE.get(wrapper, ()):
-            if _option_of(wrapper, cmd.argv[index], short, long)[0]:
-                moves.append(None)
+        move = _moving_option(wrapper, cmd.argv, index, unread)
+        if move is not None:
+            moves.append(move[1])
     argv = unwrap(cmd.argv)
     stepped = len(cmd.argv) - len(argv)
     if argv and command_key(argv[0]) in _CD:
@@ -877,24 +893,29 @@ def _named_late(
 
 
 def _flasher_words(words: Sequence[str]) -> bool:
-    """Whether ``words`` read as a flasher's: a memory operation, or a programmer and a part.
+    """Whether ``words`` read as a flasher's, every occurrence of each option read.
 
-    avrdude's ``-U flash:w:…``; or ``-c`` and ``-p`` both given a plain name (``-c usbasp -p
-    m328p``), never a file, a path or a line of code, so ``$CC -c main.c`` and ``$SHELL -c '…'``
+    A ``-U`` given a memory operation (``flash:w:…``) or an image by name (``firmware.hex``);
+    a ``-p`` given a microcontroller's part name (``m328p``); or a ``-c`` and a ``-p`` both
+    given a plain name (``-c usbasp -p 1``). Never a file, a path, a number or a line of code
+    on its own, so ``$CC -c main.c``, ``$CC -U NDEBUG``, ``$tool -p 8080`` and ``$SHELL -c '…'``
     are not.
     """
 
-    def value(option: str) -> str:
+    def values(option: str) -> list[str]:
+        found = []
         for n, word in enumerate(words):
             if word == option:
-                return words[n + 1] if n + 1 < len(words) else ""
-            if word.startswith(option):
-                return word[len(option) :]
-        return ""
+                found.append(words[n + 1] if n + 1 < len(words) else "")
+            elif word.startswith(option):
+                found.append(word[len(option) :])
+        return found
 
-    if _MEMORY_OPERATION.match(value("-U")):
+    if any(_MEMORY_OPERATION.match(v) or _IMAGE_FILE.fullmatch(v) for v in values("-U")):
         return True
-    return all(_PLAIN_NAME.fullmatch(value(option)) for option in ("-c", "-p"))
+    if any(_PART.fullmatch(v) for v in values("-p")):
+        return True
+    return all(any(_PLAIN_NAME.fullmatch(v) for v in values(o)) for o in ("-c", "-p"))
 
 
 def _check_command(cmd: SimpleCommand, places: Sequence[str]) -> str | None:
@@ -905,7 +926,8 @@ def _check_command(cmd: SimpleCommand, places: Sequence[str]) -> str | None:
             return DEVICE.format(device=device)
     options = wrapper_options(cmd.argv)
     for index, wrapper, _ in options:
-        if wrapper == "env" and _option_of("env", cmd.argv[index], "S", "--split-string")[0]:
+        split = _option_in(cmd.argv[index], _WRAPPERS["env"][0], "S", "--split-string")
+        if wrapper == "env" and split[0]:
             return SPLIT
     argv = unwrap(cmd.argv)
     unread = cmd.dynamic | cmd.expanding
