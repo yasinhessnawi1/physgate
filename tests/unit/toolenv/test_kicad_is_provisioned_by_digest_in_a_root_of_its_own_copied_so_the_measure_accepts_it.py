@@ -23,6 +23,7 @@ script's judgements are tested here on stand-ins; the real release is the integr
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import importlib.util
 import inspect
@@ -79,7 +80,9 @@ MAC_KEPT = [
 ]
 
 
+@functools.cache
 def _provision() -> ModuleType:
+    """The script, loaded once: a refusal is then always of the one ``ProvisionError`` class."""
     spec = importlib.util.spec_from_file_location("toolenv_provision", TOOLENV / "provision.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

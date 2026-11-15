@@ -76,8 +76,7 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path | None]:
     _writable(root)
 
 
-@pytest.fixture
-def kicad_root(built: Path | None) -> Path:
+def _root(built: Path | None) -> Path:
     assert built is not None, "provisioning builds no KiCad root"
     return built
 
@@ -88,7 +87,8 @@ def _cli(root: Path) -> Path:
     return Path(str(place(root, "Linux" if sys.platform.startswith("linux") else "Darwin")))
 
 
-def test_the_harness_s_measure_accepts_the_root(kicad_root: Path) -> None:
+def test_the_harness_s_measure_accepts_the_root(built: Path | None) -> None:
+    kicad_root = _root(built)
     found = manifest([kicad_root])
     assert found.entries > 10_000
     files = 0
@@ -104,7 +104,8 @@ def test_the_harness_s_measure_accepts_the_root(kicad_root: Path) -> None:
     assert files > 10_000
 
 
-def test_the_record_names_the_pin_the_licence_and_what_the_copy_took(kicad_root: Path) -> None:
+def test_the_record_names_the_pin_the_licence_and_what_the_copy_took(built: Path | None) -> None:
+    kicad_root = _root(built)
     provision = _provision()
     record = json.loads((kicad_root / "provisioned.json").read_text(encoding="utf-8"))
     linux = sys.platform.startswith("linux")
@@ -143,8 +144,9 @@ def _offline() -> list[str]:
 
 
 def test_the_program_answers_the_pinned_version_offline_and_writes_nothing_into_its_root(
-    kicad_root: Path, tmp_path: Path
+    built: Path | None, tmp_path: Path
 ) -> None:
+    kicad_root = _root(built)
     before = scan([kicad_root])
     prefix = _offline()
     for name in ("home", "tmp", "config"):
@@ -171,8 +173,9 @@ def test_the_program_answers_the_pinned_version_offline_and_writes_nothing_into_
 
 
 def test_the_harness_measures_both_roots_and_records_the_program_at_its_version(
-    kicad_root: Path,
+    built: Path | None,
 ) -> None:
+    kicad_root = _root(built)
     if not NAMED_ENVIRONMENT:
         pytest.skip("PHYSGATE_TOOL_ENVIRONMENT names no environment to measure beside it")
     env = Path(NAMED_ENVIRONMENT)
