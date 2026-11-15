@@ -251,6 +251,9 @@ class Design(_Frozen):
         if len(set(names)) != len(names) or len(set(tasks)) != len(tasks):
             msg = "a suite is named twice, or a task is in two suites and would count twice"
             raise ValueError(msg)
+        if self.role == "whole_run":
+            msg = f"the suite {self.name!r} is of a whole run: this report has no whole-run section"
+            raise ValueError(msg)
         return self
 
 
