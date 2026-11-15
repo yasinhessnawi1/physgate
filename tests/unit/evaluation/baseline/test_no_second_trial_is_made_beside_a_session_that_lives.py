@@ -117,7 +117,7 @@ def test_a_trial_s_creation_while_a_session_of_the_round_lives_is_refused_and_ma
 def test_the_round_s_own_creation_is_refused_while_another_trial_s_session_lives(
     tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Another trial is made in the work root after this round was planned, and its session lives."""
+    """Another trial is made in the work root after this round was planned; its session lives."""
     store = copied(made, tmp_path / "store")
     create = _creation()
     arm = StandInArm()

@@ -61,6 +61,13 @@ The records live in the hook state directory, which the hooks themselves write
 and which is protected only by the layers that refuse writes before they
 happen. That is the same-user limit: anything a hook can write, a command run
 as the same user can write too.
+
+The record names every protected entry by its path, and those beneath the roots no session
+reads (a held-out task's directory is its id) with their digests. Where the session's
+configuration names a place apart from its own directory (the run's, refused to every read and
+write of every layer), the part that names those entries is kept there under the session's id,
+and the record in the hook state holds none of them; every check reads both parts, and a part
+that is missing, or a record that holds it whole where a place apart is named, refuses.
 """
 
 from __future__ import annotations
@@ -76,6 +83,7 @@ from typing import TYPE_CHECKING
 
 from physgate.hooks import paths, withheld
 from physgate.hooks.journal_view import Head, heads
+from physgate.hooks.reasons import SENTINEL_APART_REASON
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.snapshot import BlobStore, Entry, file_digest, quarantine, record, signature
 from physgate.hooks.snapshot import signatures as take_signatures
@@ -259,6 +267,27 @@ def _loaded_code(config: ConfigView, also: list[str] | None = None) -> list[str]
     )
 
 
+def _apart_place(config: ConfigView) -> str | None:
+    """Where the configuration keeps the record's part that names protected entries, or ``None``.
+
+    Raises:
+        ValueError: it names more than one place.
+    """
+    places = [r.path for r in config.protected_roots if r.reason == SENTINEL_APART_REASON]
+    if len(places) > 1:
+        msg = "the session's configuration names more than one place apart for the record"
+        raise ValueError(msg)
+    return places[0] if places else None
+
+
+#: The record's fields kept apart, beside the ``revert`` entries the ``hidden`` field names: every
+#: entry beneath a root no session reads, every file of them kept as a digest alone, and every
+#: file the withheld-file tripwire holds.
+APART_FIELDS = ("hidden", "sealed", "withheld")
+#: Set in a record whose part apart is kept in the place apart.
+KEPT_APART = "kept_apart"
+
+
 def _entry_json(entry: Entry) -> list[Any]:
     return [list(entry.signature), entry.digest, entry.link]
 
@@ -268,32 +297,73 @@ def _entry(raw: list[Any]) -> Entry:
 
 
 class _State:
-    def __init__(self, directory: str) -> None:
+    def __init__(self, directory: str, apart: str | None = None, session_id: str = "") -> None:
         self.directory = directory
         self.blobs = BlobStore(os.path.join(directory, "blobs"))
         self.quarantine = os.path.join(directory, "quarantine")
         self.path = os.path.join(directory, "baseline.json")
         self.loaded_text: str | None = None
+        #: The place apart, and the session's part there, named by its id.
+        self.apart = apart
+        self.apart_path = None if apart is None else os.path.join(apart, f"{session_id}.json")
+        self.apart_text: str | None = None
 
     def load(self) -> dict[str, Any] | None:
+        """The whole record, its part apart read back in; ``None`` before the first hook.
+
+        Raises:
+            OSError: the record says its part is kept apart, and it cannot be read there.
+            ValueError: the record and the configuration disagree on whether a part is apart.
+        """
         if not os.path.exists(self.path):
             return None
         with open(self.path) as handle:
             self.loaded_text = handle.read()
         loaded: dict[str, Any] = json.loads(self.loaded_text)
+        kept_apart = loaded.pop(KEPT_APART, False)
+        if self.apart_path is None:
+            if kept_apart:
+                msg = "the record's protected entries are kept apart, and no place apart is named"
+                raise ValueError(msg)
+            return loaded
+        if not kept_apart:
+            msg = "a place apart is named, and the record holds its protected entries whole"
+            raise ValueError(msg)
+        with open(self.apart_path) as handle:
+            self.apart_text = handle.read()
+        part: dict[str, Any] = json.loads(self.apart_text)
+        loaded["revert"] = loaded["revert"] | part["revert"]
+        for name in APART_FIELDS:
+            loaded[name] = part[name]
         return loaded
 
     def save(self, base: dict[str, Any]) -> None:
-        text = json.dumps(base, sort_keys=True)
-        if text == self.loaded_text:
-            # The record is byte for byte what was read under the same lock:
-            # rewriting it would change nothing, on the call that is most common.
+        if self.apart_path is None:
+            self.loaded_text = self._write(self.path, json.dumps(base, sort_keys=True))
             return
-        tmp = os.path.join(self.directory, ".baseline.json.tmp")
+        hidden = set(base["hidden"])
+        own = {k: v for k, v in base.items() if k not in APART_FIELDS}
+        own["revert"] = {p: e for p, e in base["revert"].items() if p not in hidden}
+        own[KEPT_APART] = True
+        part = {name: base[name] for name in APART_FIELDS}
+        part["revert"] = {p: e for p, e in base["revert"].items() if p in hidden}
+        # The part apart first: a record that says its part is kept apart has one to read.
+        self.apart_text = self._write(self.apart_path, json.dumps(part, sort_keys=True))
+        self.loaded_text = self._write(self.path, json.dumps(own, sort_keys=True))
+
+    def _write(self, path: str, text: str) -> str:
+        """Replace ``path`` with ``text`` through a temporary twin, unless it holds it already."""
+        if text == (self.loaded_text if path == self.path else self.apart_text):
+            # The file is byte for byte what was read under the same lock: rewriting it
+            # would change nothing, on the call that is most common.
+            return text
+        directory, name = os.path.split(path)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        tmp = os.path.join(directory, f".{name}.tmp")
         with open(tmp, "w") as handle:
             handle.write(text)
-        os.replace(tmp, self.path)
-        self.loaded_text = text
+        os.replace(tmp, path)
+        return text
 
 
 def _lock(directory: str) -> int:
@@ -450,7 +520,11 @@ def _baseline(config: ConfigView, state: _State) -> dict[str, Any]:
 
     with paths.resolve_roots_once():
         entries = record(revert_roots, state.blobs, revert_exceptions, sealed)
-    return {
+        # Kept apart where a place is named: every entry no tool of the session may read.
+        hidden: list[str] | None = None
+        if state.apart is not None:
+            hidden = [p for p in entries if paths.read_refused(p, config)]
+    base: dict[str, Any] = {
         "revert_roots": revert_roots,
         "revert_exceptions": revert_exceptions,
         "revert": {p: _entry_json(e) for p, e in entries.items()},
@@ -463,6 +537,9 @@ def _baseline(config: ConfigView, state: _State) -> dict[str, Any]:
         "records": {p: _record_state(p) for p in _roots(config, "record")},
         "halted": None,
     }
+    if hidden is not None:
+        base["hidden"] = sorted(hidden)
+    return base
 
 
 def _depth(path: str) -> int:
@@ -907,7 +984,7 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
     directory = os.path.join(session_dir(config, hook_input.session_id), "sentinel")
     fd = _lock(directory)
     try:
-        state = _State(directory)
+        state = _State(directory, _apart_place(config), hook_input.session_id)
         base = state.load()
         if base is None:
             base = _baseline(config, state)

@@ -59,6 +59,7 @@ from physgate.hooks.reasons import HOOK_STATE_REASON as HOOK_STATE_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import SESSION_TEMPS_REASON as SESSION_TEMPS_REASON
+from physgate.hooks.reasons import SENTINEL_APART_REASON as SENTINEL_APART_REASON
 from physgate.hooks.reasons import SESSIONS_REASON as SESSIONS_REASON
 from physgate.hooks.reasons import SHELL_STARTUP_REASON as SHELL_STARTUP_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
@@ -155,6 +156,14 @@ class InstallRequest(BaseModel):
     #: recorded configuration, which holds the held-out tier's canaries. Each is put back
     #: like any protected root, and refused to every read as well.
     withheld: tuple[AbsolutePath, ...] = ()
+    #: The run's place, outside every place of any session's own, where the hook sentinel keeps
+    #: the part of its record that names the protected entries: each entry beneath a root no
+    #: session reads (the held-out tier, the answer keys, the run's withheld records), by its
+    #: path, with its digest. The session's own directory can lie later where people and other
+    #: sessions read; this place no session reads or writes on any layer, and the sentinel
+    #: writes it while the session runs, so it is never put back. ``None``: the record is kept
+    #: whole in the session's hook state, as a session installed before the place existed has.
+    sentinel_apart: AbsolutePath | None = None
     #: The source checkout the orchestrator runs from, when it runs from one: the
     #: gate's source, the curated library and the frozen experiments the run is
     #: judged by. A session in any other worktree may write none of it.
@@ -627,6 +636,21 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         else:
             protected.setdefault(sessions, (SESSIONS_REASON, "none"))
             reads.setdefault(sessions, "shell_denied")
+    if request.sentinel_apart is not None:
+        apart = request.sentinel_apart
+        own = [request.worktree, request.user_home, request.state_dir, request.target_dir]
+        own += [request.claude_config_dir, request.os_layer_temp_dir, request.temp_dir]
+        for place in (p for p in own if p is not None):
+            if _inside(apart, place) or _inside(place, apart):
+                msg = (
+                    f"the sentinel's place apart {apart} and the session's own place {place} "
+                    "overlap: what it keeps apart would lie where the session reaches"
+                )
+                raise ValueError(msg)
+        # Assigned, not defaulted: refused to every read and write on every layer, and never
+        # put back, since the sentinel writes it while the session runs.
+        protected[apart] = (SENTINEL_APART_REASON, "none")
+        reads[apart] = "denied"
     if request.profile in OWN_TEMP_PROFILES:
         # The temporary directory every Claude Code session of the user shares, which holds the
         # other sessions' task outputs, the operator's among them. This session's binary is

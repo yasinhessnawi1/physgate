@@ -321,6 +321,13 @@ def withheld_paths(run_dir: Path) -> tuple[Path, ...]:
     return (*named, params) if params is not None else named
 
 
+#: The run's place apart from every session's own directory, where each role session's sentinel
+#: keeps the part of its record that names the protected entries (a held-out task's directory,
+#: which is its id, and each file's digest): a session's directory can lie later where people and
+#: other sessions read; this place no role session reads or writes on any layer. Resume's checks
+#: read it there, as the session's own checks did.
+SENTINEL_APART_DIR = "sentinel-apart"
+
 #: The run's own records, in the run directory. The session's working directory is
 #: one level below it, so none of these contains the worktree.
 #: The run's records a role session may not write and the sentinel puts back. ``series`` holds
@@ -1668,6 +1675,11 @@ class ClaudeDispatcher:
         # there; the OS layer opens its home to its commands, and its binary reads its
         # configuration itself.
         protect += ["--sessions-root", str(self._run.run_dir / "sessions")]
+        # Beside the session directories, never in one: made before the install, so the layers
+        # refuse a place that is there.
+        apart = self._run.run_dir / SENTINEL_APART_DIR
+        apart.mkdir(mode=0o700, exist_ok=True)
+        protect += ["--sentinel-apart", str(apart)]
         # A session in the target's worktree has nothing of its own in the harness
         # checkout, and the live gate reads from it.
         protect += harness_protection()

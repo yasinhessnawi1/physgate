@@ -83,6 +83,13 @@ SESSIONS_REASON = (
     "a session reads there only what it is given to read"
 )
 
+#: Given for any tool's read or write of the run's place where the hook sentinel keeps, apart from
+#: each session's own directory, the part of its record that names the protected entries.
+SENTINEL_APART_REASON = (
+    "it holds the hook layer's record of the protected paths each session of the run started "
+    "with, which names what no session reads; no session reads or writes it"
+)
+
 #: Given for a role, baseline or reviewer session's read or write of the temporary directory every
 #: Claude Code session of the user on the machine shares, which holds the other sessions' task
 #: outputs. The session's own binary is pointed at a directory of its own, so none of it is there.

@@ -82,6 +82,12 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         "required for a role or baseline session",
     )
     p.add_argument(
+        "--sentinel-apart",
+        help="the run's place, outside every place of the session's own, where the sentinel "
+        "keeps the part of its record that names the protected entries: refused to every read "
+        "and write on every layer, never put back",
+    )
+    p.add_argument(
         "--harness",
         help="the source checkout the orchestrator runs from: refused whole, its trusted trees "
         "put back",
@@ -246,6 +252,7 @@ def _install(args: argparse.Namespace) -> int:
         sessions_root=_abs(args.sessions_root) if args.sessions_root else None,
         extra_protected_record=tuple(_abs(p) for p in args.protect_record),
         withheld=tuple(_abs(p) for p in args.withheld),
+        sentinel_apart=_abs(args.sentinel_apart) if args.sentinel_apart else None,
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,
         harness_root=_abs(args.harness) if args.harness else None,
         harness_site_packages=tuple(_abs(p) for p in args.harness_site_packages),

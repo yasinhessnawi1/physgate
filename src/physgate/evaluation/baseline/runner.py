@@ -74,7 +74,9 @@ an external number may be reported waits on its audit, which is a person's readi
 
 from __future__ import annotations
 
+import contextlib
 import errno
+import fcntl
 import hashlib
 import json
 import os
@@ -82,7 +84,7 @@ import secrets
 import shutil
 import stat
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -515,6 +517,44 @@ def _working(root: Path, name: str, work: Path) -> Path:
     return record
 
 
+_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+@contextlib.contextmanager
+def trial_place(
+    store: Path, role: Role, round_id: str, name: str
+) -> Iterator[tuple[Path, Path]]:
+    """A new trial's directory in the role's work root and its record of work, held while it lives.
+
+    A trial's session is withheld the work root's entries beside its own place as they stand
+    when it is installed, a list: an entry made there later is on no session's list. So the work
+    root is held, by a lock on its directory, from the trial's creation until the body ends,
+    which the runner leaves only once the trial's session has ended and the trial has been moved
+    out; while it is held, another trial's creation is refused before anything is made.
+
+    Raises:
+        BaselineError: ``session_lives``: another trial in the work root is held; nothing made.
+    """
+    root = role_root(store, role)
+    make_role_root(root)
+    fd = os.open(work_root(store, role), _DIRECTORY)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            msg = (
+                "another trial's session lives in the role's work root: no trial is made beside "
+                "it, since that session's withheld list would not name it"
+            )
+            raise BaselineError(msg, refused_because="session_lives") from None
+        trial_dir = work_root(store, role) / f"{BASELINE_DIR}-{round_id}-{name}"
+        working = _working(root, f"{BASELINE_DIR}-{name}", trial_dir)
+        trial_dir.mkdir(mode=0o700, parents=True)
+        yield trial_dir, working
+    finally:
+        os.close(fd)
+
+
 def _secure(work: Path, place: Path) -> None:
     """Move a protected trial's whole directory from the work root beneath the withheld root.
 
@@ -694,55 +734,56 @@ def _one_trial(
         raise BaselineError(msg, entry=str(trial.index), refused_because="binary")
     for attempt in (1, 2):
         name = f"{trial.index:04d}-{attempt}"
+        if attempt == 2:
+            # Only a first attempt the machine ended is run again, once its trial is out.
+            sleep(delays[0] if delays else 0.0)
         # Made in the work root, which every run on the store withholds, whatever the trial's
         # tier: its session is given its own place out of the run's held-out roots and nothing
         # else there, and the round's own directory is withheld from it besides. Two
         # directories, never one: the session's place, where it may leave anything, and the
         # harness's, beside it, where the copied answer, the record and the score are written.
-        trial_dir = work_root(store, role) / f"{BASELINE_DIR}-{round_id}-{name}"
-        working = _working(role_root(store, role), f"{BASELINE_DIR}-{name}", trial_dir)
-        given = replace(
-            setup, held_out_carved=str(trial_dir / PLACE), held_out_also=(withheld_out,)
-        )
-        trial_dir.mkdir(mode=0o700, parents=True)
-        work, harness = trial_dir / PLACE, trial_dir / HARNESS
-        harness.mkdir(mode=0o700)
-        record = arm(task, given, work, cap=trial.cap, harness=harness)
-        stream = work / "session" / "stdout.jsonl"
-        answer = harness / "answer" / task.answer.path
-        scored: Mapping[str, Any] | None = None
-        if record.get("answer") == "found":
-            scored = score(task, answer)
-            write_new(harness / SCORE, canonical_json(dict(scored)))
-        machine = False
-        if scored is None:
-            try:
-                machine = raw_ended_by_infrastructure(record, stream, task)
-            except TrialExcludedError:
-                machine = False  # assembled as excluded below, with its reason
-        if machine and attempt == 1:
+        # The work root is held until the trial is out (:func:`trial_place`).
+        with trial_place(store, role, round_id, name) as (trial_dir, working):
+            given = replace(
+                setup, held_out_carved=str(trial_dir / PLACE), held_out_also=(withheld_out,)
+            )
+            work, harness = trial_dir / PLACE, trial_dir / HARNESS
+            harness.mkdir(mode=0o700)
+            record = arm(task, given, work, cap=trial.cap, harness=harness)
+            stream = work / "session" / "stdout.jsonl"
+            answer = harness / "answer" / task.answer.path
+            scored: Mapping[str, Any] | None = None
+            if record.get("answer") == "found":
+                scored = score(task, answer)
+                write_new(harness / SCORE, canonical_json(dict(scored)))
+            machine = False
+            if scored is None:
+                try:
+                    machine = raw_ended_by_infrastructure(record, stream, task)
+                except TrialExcludedError:
+                    machine = False  # assembled as excluded below, with its reason
+            if machine and attempt == 1:
+                _finish(trial_dir, working, protected_root, out, name)
+                continue
+            found = differences(run_dir, work, role=role, task=task, record_dir=harness)
+            allowed = DEVELOPMENT_DIFFERENCES if development else frozenset()
+            named = sorted({f.split(":", 1)[0] for f in found} - allowed)
+            if named:
+                _finish(trial_dir, working, protected_root, out, name)
+                msg = "the raw arm differs from the harness run in more than the harness: "
+                raise BaselineError(msg + ", ".join(named), entry=str(trial.index))
+            line = raw_trial(
+                suite=f"{role}_{trial.tier}",
+                task=task,
+                trial=trial.entry.trial,
+                record=record,
+                stream=stream,
+                prices=prices,
+                score=scored,
+                unscored=machine,
+            )
             _finish(trial_dir, working, protected_root, out, name)
-            sleep(delays[0] if delays else 0.0)
-            continue
-        found = differences(run_dir, work, role=role, task=task, record_dir=harness)
-        allowed = DEVELOPMENT_DIFFERENCES if development else frozenset()
-        named = sorted({f.split(":", 1)[0] for f in found} - allowed)
-        if named:
-            _finish(trial_dir, working, protected_root, out, name)
-            msg = "the raw arm differs from the harness run in more than the harness: "
-            raise BaselineError(msg + ", ".join(named), entry=str(trial.index))
-        line = raw_trial(
-            suite=f"{role}_{trial.tier}",
-            task=task,
-            trial=trial.entry.trial,
-            record=record,
-            stream=stream,
-            prices=prices,
-            score=scored,
-            unscored=machine,
-        )
-        _finish(trial_dir, working, protected_root, out, name)
-        return record, line
+            return record, line
     msg = "a trial ran past its one re-run"  # unreachable: the second attempt always returns
     raise BaselineError(msg, entry=str(trial.index))
 

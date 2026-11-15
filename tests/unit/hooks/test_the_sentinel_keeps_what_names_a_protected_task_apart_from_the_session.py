@@ -192,3 +192,27 @@ def test_a_place_apart_that_holds_the_session_s_own_directory_is_refused(root: P
 def test_the_session_s_id_names_its_part_apart(root: Path) -> None:
     assert _check(root, "SessionStart") == "allow"
     assert os.listdir(root / "apart") == [f"{SESSION}.json"]
+
+
+def test_a_record_kept_apart_read_where_no_place_apart_is_named_refuses(root: Path) -> None:
+    assert _check(root, "SessionStart") == "allow"
+    with pytest.raises(ValueError, match="no place apart"):
+        _check(root, config=_config(root, apart=False))
+
+
+def test_a_record_that_no_longer_says_it_is_kept_apart_refuses(root: Path) -> None:
+    assert _check(root, "SessionStart") == "allow"
+    record = json.loads(_main(root).read_text())
+    assert record.pop("kept_apart") is True
+    _main(root).write_text(json.dumps(record, sort_keys=True))
+    with pytest.raises(ValueError, match="whole"):
+        _check(root)
+
+
+def test_two_places_apart_refuse(root: Path) -> None:
+    config = _config(root)
+    (found,) = [r for r in config.protected_roots if r.path == str(root / "apart")]
+    second = found.model_copy(update={"path": str(root / "apart-too")})
+    doubled = config.model_copy(update={"protected_roots": (*config.protected_roots, second)})
+    with pytest.raises(ValueError, match="more than one place apart"):
+        _check(root, "SessionStart", doubled)
