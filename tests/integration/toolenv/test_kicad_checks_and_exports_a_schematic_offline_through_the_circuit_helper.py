@@ -9,7 +9,8 @@ taken away. Read here, on the pinned release:
   exit code and counts; the same with two pins left open: the open pins counted by type;
 - the netlist holds the nets and parts, the parts list one row per part; the PDF, one page,
   is in the session's temporary directory and not in the module;
-- a second run gives the same bytes for the three text exports;
+- a second run gives the same bytes for the three text exports, and so does a session wired
+  anew with its module at another path (each set's time printed: a measurement);
 - a SKiDL script generates a schematic from the pinned libraries with tags set, and the rules
   check runs on it and its findings are reported, not judged (two runs place the parts apart
   even with a seed and fixed hashing: no repeat is held);
@@ -28,6 +29,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -88,9 +90,13 @@ def _recorded(env: Path, kicad: Path) -> ToolEnvironment:
 
 @pytest.fixture
 def session(tmp_path: Path) -> Iterator[Session]:
+    yield _session_at(Path(os.path.realpath(tmp_path)), Path("repo") / "modules" / "board")
+
+
+def _session_at(place: Path, module_at: Path) -> Session:
+    """A session wired anew beneath ``place``, its module at ``module_at`` there."""
     env_root, kicad_root = _roots()
-    place = Path(os.path.realpath(tmp_path))
-    temp, home, module = place / "temp", place / "home", place / "repo" / "modules" / "board"
+    temp, home, module = place / "temp", place / "home", place / module_at
     for folder in (temp, home, module):
         folder.mkdir(parents=True)
     taken = ("PATH", "HOME", "TMPDIR", "LANG")
@@ -102,7 +108,7 @@ def session(tmp_path: Path) -> Iterator[Session]:
         "LANG": "C.UTF-8",
         **variables,
     }
-    yield Session(env, temp, home, module, (env_root, kicad_root), offline_prefix())
+    return Session(env, temp, home, module, (env_root, kicad_root), offline_prefix())
 
 
 # ---- a schematic written by hand from the pinned symbols ---------------------------------------
@@ -345,8 +351,41 @@ def test_a_second_run_gives_the_same_bytes_for_the_three_text_exports(session: S
             assert kept.setdefault(suffix, body) == body, suffix
 
 
+@pytest.mark.parametrize("open_pins", [False, True])
+def test_a_session_wired_anew_elsewhere_gives_the_same_bytes_for_the_three_text_exports(
+    session: Session, tmp_path: Path, capsys: pytest.CaptureFixture[str], open_pins: bool
+) -> None:
+    # A measurement for holding committed exports to their schematic: the same schematic in a
+    # second session, wired anew (its own temporary directory, home and KiCad configuration,
+    # first used here) with its module at another path at another depth, as a commit-time
+    # regeneration would be. The time of each set (the rules check, then the exports) is
+    # printed with the result.
+    elsewhere = _session_at(
+        Path(os.path.realpath(tmp_path)) / "elsewhere", Path("x") / "checkout" / "modules" / "board"
+    )
+    text = hand_written(session.roots[1], open_pins=open_pins)
+    made: list[dict[str, bytes]] = []
+    times: list[float] = []
+    for each in (session, elsewhere):
+        schematic = each.module / "board.kicad_sch"
+        schematic.write_text(text, encoding="utf-8")
+        started = time.monotonic()
+        _helper(each, "rules_check", schematic, "board")
+        _helper(each, "exports", schematic, "board")
+        times.append(time.monotonic() - started)
+        made.append(
+            {s: (each.module / "exports" / f"board{s}").read_bytes() for s in TEXT_EXPORTS}
+        )
+    with capsys.disabled():
+        sizes = {s: len(made[0][s]) for s in TEXT_EXPORTS}
+        print(f"\n[measure] open_pins={open_pins} seconds per set {times} sizes {sizes}")
+    for suffix in TEXT_EXPORTS:
+        assert made[0][suffix] == made[1][suffix], (suffix, made[0][suffix], made[1][suffix])
+
+
 SKIDL = """
 import sys
+import time
 from skidl import KICAD10, Net, Part, generate_schematic, set_default_tool
 set_default_tool(KICAD10)
 resistor = "Resistor_SMD:R_0603_1608Metric"
