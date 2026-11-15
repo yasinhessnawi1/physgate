@@ -71,8 +71,9 @@ own parameters name, and runs on an API key still ask the owner before they spen
   who decides here. It suggests the macOS account's full name and keeps the answer in the
   settings. It then starts `physgate ui --operator <name>`, so approvals and rejections
   made in the app are recorded under that name. physgate → Operator Name… changes it.
-- **"Stay read-only" is also an answer.** The UI then reads everything and decides nothing,
-  and each launch says so, with how to set a name.
+- **"Stay read-only" is also an answer.** It asks first, because it writes the operator
+  setting. The UI then reads everything and decides nothing, and each launch says so, with
+  how to set a name.
 - **The action token stays in memory.** The server prints the operator's address, with
   this start's action token in its fragment (`#act=…`), and the app opens exactly that
   address. The address is held in memory only: never written to a log or a file, never put

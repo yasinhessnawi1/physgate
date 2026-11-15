@@ -29,9 +29,12 @@
         <input id="operator-name" type="text" autocomplete="name" maxlength="64" spellcheck="false" />
         <button id="operator-save" class="pg-btn pg-btn-act" type="button">Decide as this name…</button>
       </div>
+      <div class="row">
+        <button id="operator-skip" class="pg-btn pg-btn-act" type="button">Stay read-only…</button>
+      </div>
       <p class="quiet-note">
-        Or <button id="operator-skip" class="inline-action" type="button">stay read-only</button>: the UI
-        then shows everything and decides nothing. physgate → Operator Name… changes this later.
+        Read-only: the UI then shows everything and decides nothing. physgate → Operator Name…
+        changes this later.
       </p>
       <p id="operator-problem" class="problem" role="alert" hidden></p>
     </main>

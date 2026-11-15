@@ -497,28 +497,6 @@ th {
   color: var(--color-text);
 }
 
-/* A button inside a sentence: drawn as a link, reached as a 44 px target. */
-.inline-action {
-  position: relative;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-accent);
-  font: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.inline-action::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: max(100%, var(--size-touch-min));
-  height: var(--size-touch-min);
-  transform: translate(-50%, -50%);
-}
-
 /* -- icons: the operator UI's own files, drawn in the text's colour --------------------------- */
 .pg-icon {
   display: inline-block;

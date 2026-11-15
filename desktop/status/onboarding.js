@@ -495,7 +495,16 @@ async function showOperator() {
       },
       () => invoke("set_operator", { name: input.value }).catch(failed),
     );
-  $("operator-skip").onclick = () => invoke("set_operator", { name: null }).catch(failed);
+  $("operator-skip").onclick = () =>
+    askFirst(
+      {
+        title: "Stay read-only?",
+        summary: "No name is recorded, so the app shows everything and decides nothing.",
+        writes: "Operator: none, read-only",
+        confirm: "Stay read-only",
+      },
+      () => invoke("set_operator", { name: null }).catch(failed),
+    );
   input.onkeydown = (event) => {
     if (event.key === "Enter") $("operator-save").click();
   };
