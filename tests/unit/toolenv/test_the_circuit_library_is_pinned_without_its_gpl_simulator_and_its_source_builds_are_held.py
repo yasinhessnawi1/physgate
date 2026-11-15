@@ -243,3 +243,98 @@ def test_the_environment_check_stops_provisioning_naming_every_refusal(tmp_path:
     assert isinstance(raised, provision.ProvisionError), raised
     assert "one 1.0" in str(raised)
     assert "two 1.0" in str(raised)
+
+
+# ---- what was built from source -------------------------------------------------------------
+
+
+def _source_project(root: Path, constraint: str = "setuptools==80.9.0") -> Path:
+    project = root / "project"
+    project.mkdir()
+    (project / "pyproject.toml").write_text(
+        f'[tool.uv]\nbuild-constraint-dependencies = ["{constraint}"]\n', encoding="utf-8"
+    )
+    (project / "uv.lock").write_text(
+        "version = 1\n"
+        '[[package]]\nname = "kinet2pcb"\nversion = "1.1.4"\n'
+        'sdist = { url = "https://example.invalid/k.tar.gz", hash = "sha256:' + "a" * 64 + '" }\n'
+        '[[package]]\nname = "rich"\nversion = "15.0.0"\n'
+        'wheels = [{ url = "https://example.invalid/r.whl", hash = "sha256:' + "b" * 64 + '" }]\n'
+        '[[package]]\nname = "pyyaml"\nversion = "6.0.3"\n'
+        'sdist = { url = "https://example.invalid/y.tar.gz", hash = "sha256:' + "c" * 64 + '" }\n',
+        encoding="utf-8",
+    )
+    return project
+
+
+def _built_wheel(cache: Path, generator: str, revision: str = "rev1") -> Path:
+    import zipfile
+
+    folder = cache / "uv" / "sdists-v9" / "pypi" / "kinet2pcb" / "1.1.4" / revision
+    folder.mkdir(parents=True)
+    wheel = folder / "kinet2pcb-1.1.4-py2.py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("kinet2pcb/__init__.py", "")
+        archive.writestr(
+            "kinet2pcb-1.1.4.dist-info/WHEEL", f"Wheel-Version: 1.0\nGenerator: {generator}\n"
+        )
+        archive.writestr("kinet2pcb-1.1.4.dist-info/RECORD", "kinet2pcb/__init__.py,,\n")
+    return wheel
+
+
+def _site_with(root: Path, *names: str) -> Path:
+    site = root / "site"
+    for name in names:
+        (site / f"{name}.dist-info").mkdir(parents=True)
+    return site
+
+
+def test_an_installed_source_package_is_recorded_by_its_source_and_wheel_digests(
+    tmp_path: Path,
+) -> None:
+    provision = _provision()
+    project = _source_project(tmp_path)
+    wheel = _built_wheel(tmp_path / "cache", "setuptools (80.9.0)")
+    site = _site_with(tmp_path, "kinet2pcb-1.1.4", "rich-15.0.0")
+    built = getattr(provision, "built_from_source", None)
+    assert callable(built), "the script records nothing built from source"
+    found = built(project, tmp_path / "cache", site)
+    # pyyaml is held only as source too, but is not installed: nothing was built from it.
+    assert sorted(found) == ["kinet2pcb"]
+    entry = found["kinet2pcb"]
+    assert entry["sdist_sha256"] == "a" * 64
+    assert entry["wheel"] == wheel.name
+    assert entry["wheel_sha256"] == provision.sha256_of(wheel)
+    assert len(entry["wheel_record_sha256"]) == 64
+    assert entry["built_by"] == "setuptools (80.9.0)"
+    assert provision.build_constraints(project) == ["setuptools==80.9.0"]
+
+
+def test_a_wheel_built_by_another_backend_than_the_one_held_stops_provisioning(
+    tmp_path: Path,
+) -> None:
+    provision = _provision()
+    project = _source_project(tmp_path)
+    _built_wheel(tmp_path / "cache", "setuptools (84.2.1)")
+    site = _site_with(tmp_path, "kinet2pcb-1.1.4")
+    built = getattr(provision, "built_from_source", lambda *_: None)
+    raised = _raised(lambda: built(project, tmp_path / "cache", site))
+    assert isinstance(raised, provision.ProvisionError), raised
+    assert "84.2.1" in str(raised)
+    assert "80.9.0" in str(raised)
+
+
+@pytest.mark.parametrize("wheels", [0, 2])
+def test_a_source_package_without_exactly_one_built_wheel_stops_provisioning(
+    tmp_path: Path, wheels: int
+) -> None:
+    provision = _provision()
+    project = _source_project(tmp_path)
+    for index in range(wheels):
+        _built_wheel(tmp_path / "cache", "setuptools (80.9.0)", revision=f"rev{index}")
+    (tmp_path / "cache" / "uv").mkdir(parents=True, exist_ok=True)
+    site = _site_with(tmp_path, "kinet2pcb-1.1.4")
+    built = getattr(provision, "built_from_source", lambda *_: None)
+    raised = _raised(lambda: built(project, tmp_path / "cache", site))
+    assert isinstance(raised, provision.ProvisionError), raised
+    assert f"{wheels} wheels" in str(raised)

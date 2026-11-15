@@ -140,17 +140,25 @@ def test_the_packages_built_from_source_are_recorded_with_both_digests(env: Path
     assert held == project["tool"]["uv"]["build-constraint-dependencies"]
 
 
-def test_a_second_provisioning_from_a_fresh_cache_builds_the_same_wheels(
+def test_a_second_provisioning_from_a_fresh_cache_builds_wheels_of_the_same_contents(
     env: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
+    # Measured on UiA (15.11): the wheel files themselves differ between two builds (the zip
+    # holds each file's time), so the claim is the sources' digests and the wheels' contents,
+    # by the file list each wheel carries, which names every file with its digest. The two
+    # wheel files' digests are printed, not compared.
     first = _record(env).get("built_from_source")
     assert isinstance(first, dict), "the record names no package built from source"
     again = tmp_path_factory.mktemp("again") / "env"
     try:
         second = _provision().provision(again, tmp_path_factory.mktemp("fresh-cache"))
-        assert second.get("built_from_source") == first, (
-            f"first {json.dumps(first, sort_keys=True)}; "
-            f"second {json.dumps(second.get('built_from_source'), sort_keys=True)}"
-        )
+        built = second.get("built_from_source")
+        assert isinstance(built, dict)
+        assert sorted(built) == sorted(first) == list(SOURCE_ONLY)
+        for name in SOURCE_ONLY:
+            digests = (first[name]["wheel_sha256"], built[name]["wheel_sha256"])
+            print(f"{name}: wheel sha256 {digests[0]} then {digests[1]}")
+            for field in ("version", "sdist_sha256", "wheel", "wheel_record_sha256", "built_by"):
+                assert built[name][field] == first[name][field], (name, field)
     finally:
         _writable(again)
