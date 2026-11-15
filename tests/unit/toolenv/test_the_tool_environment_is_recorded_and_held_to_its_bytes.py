@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from physgate.toolenv import manifest as walking
+from physgate.toolenv import record
 from physgate.toolenv.exceptions import ToolEnvironmentError
 from physgate.toolenv.manifest import manifest, scan
 from physgate.toolenv.record import (
@@ -389,7 +390,7 @@ def test_a_native_tool_with_the_interpreter_s_name_is_refused(tmp_path: Path, na
 
 
 def test_a_native_tool_named_python_does_not_switch_off_the_interpreter_s_checks(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The interpreter named outside the roots is refused (above); a tool by the name the
     # interpreter was judged under must not take its place in the judgement.
@@ -407,8 +408,12 @@ def test_a_native_tool_named_python_does_not_switch_off_the_interpreter_s_checks
             runner=_runner(root),
         )
 
+    # With the name check off, the interpreter is still judged under its own key: a tool
+    # named python cannot stand in its place, so the interpreter outside the roots is refused.
+    monkeypatch.setattr(record, "INTERPRETER_NAMES", frozenset())
     raised = _raised(measured)
     assert isinstance(raised, ToolEnvironmentError), raised
+    assert "named outside its roots" in str(raised), raised
 
 
 # ---- the code the interpreter loads lies in the roots -----------------------------------
