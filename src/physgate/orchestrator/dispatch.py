@@ -1678,7 +1678,7 @@ class ClaudeDispatcher:
         # Beside the session directories, never in one: made before the install, so the layers
         # refuse a place that is there.
         apart = self._run.run_dir / SENTINEL_APART_DIR
-        apart.mkdir(mode=0o700, exist_ok=True)
+        apart.mkdir(mode=0o700, parents=True, exist_ok=True)
         protect += ["--sentinel-apart", str(apart)]
         # A session in the target's worktree has nothing of its own in the harness
         # checkout, and the live gate reads from it.
