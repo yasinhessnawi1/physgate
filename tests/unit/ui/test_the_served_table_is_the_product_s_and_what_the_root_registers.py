@@ -20,6 +20,7 @@ import physgate
 from physgate.cli import compose, main
 from physgate.evaluation import evidence
 from physgate.evaluation.observe import compare
+from physgate.orchestrator import catches as catch_count
 from physgate.ui import cli as ui_cli
 from physgate.ui import server as ui_server
 from physgate.ui import table
@@ -30,11 +31,21 @@ from physgate.ui.table import ROUTES, served
 SRC = Path(physgate.__file__).parent
 
 #: The routes the Evidence screen reads, as this slice registers them.
-EVIDENCE_PATTERNS = {"/api/evidence/runs"}
+EVIDENCE_PATTERNS = {
+    "/api/evidence/runs",
+    "/api/evidence/spend/{root:index}/{name:name}/{date:date}",
+    "/api/evidence/compare/{a_root:index}/{a_name:name}/{b_root:index}/{b_name:name}",
+    "/api/evidence/catches",
+}
 #: The Evidence screen's routes over the comparison's own census, built here from the comparison
 #: itself, so the root's registration equals them only if it hands in that census.
 EVIDENCE_ROUTES = evidence.routes(
-    evidence.Census(drift=compare.DRIFT, reported=compare.REPORTED, compare=compare.compare)
+    evidence.Census(
+        drift=compare.DRIFT,
+        reported=compare.REPORTED,
+        compare=compare.compare,
+        catches=catch_count.catches,
+    )
 )
 
 
@@ -131,7 +142,7 @@ def test_the_composition_root_registers_exactly_the_evidence_routes() -> None:
     compose()
     assert table.registered() == EVIDENCE_ROUTES
     assert served() == (*ROUTES, *EVIDENCE_ROUTES)
-    assert {route.pattern for route in EVIDENCE_ROUTES} >= EVIDENCE_PATTERNS
+    assert {route.pattern for route in EVIDENCE_ROUTES} == EVIDENCE_PATTERNS
     assert {(route.method, route.kind) for route in EVIDENCE_ROUTES} == {("GET", "read")}
     assert all(route.pattern.startswith("/api/evidence/") for route in EVIDENCE_ROUTES)
 
@@ -148,6 +159,8 @@ def test_the_routes_class_runs_by_the_comparison_s_own_lists_and_function() -> N
         assert census.drift is compare.DRIFT
         assert census.reported is compare.REPORTED
         assert census.compare is compare.compare
+        # The catch count is the command line's own function, handed in the same way.
+        assert census.catches is catch_count.catches
 
 
 def test_the_evidence_module_imports_nothing_of_the_comparison() -> None:
@@ -159,6 +172,7 @@ def test_the_evidence_module_imports_nothing_of_the_comparison() -> None:
         for alias in node.names
     ]
     assert [name for name in imported if "compare" in name] == []
+    assert [name for name in imported if "catches" in name] == []
 
 
 @pytest.mark.usefixtures("nothing_registered")

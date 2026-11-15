@@ -41,15 +41,18 @@ The routes:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+
+from pydantic import BaseModel
 
 from physgate.evaluation.observe.exceptions import ObserveError
 from physgate.evaluation.observe.manifest import manifest_id_of
 from physgate.orchestrator.events import read_events
 from physgate.orchestrator.exceptions import OrchestratorError
+from physgate.orchestrator.gate_events import GateEvent
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 from physgate.ui.exceptions import PathRefusedError
 from physgate.ui.readers import HELD_OUT_FIELDS
@@ -65,15 +68,18 @@ Kind = Literal["reportable", "ablation", "development"]
 
 @dataclass(frozen=True)
 class Census:
-    """What the comparison classes and how it compares, handed in at registration.
+    """What the comparison classes and how it compares, and the catch count, handed in.
 
     ``drift``: the settings two runs are refused across, by path; ``reported``: the settings it
-    reports beside the numbers; ``compare``: the comparison itself.
+    reports beside the numbers; ``compare``: the comparison itself; ``catches``: the gate's catch
+    count over a set of gate events. The fence admits none of their modules, so the root hands
+    them in at registration.
     """
 
     drift: tuple[str, ...]
     reported: tuple[str, ...]
-    compare: Callable[[Path, Path], object]
+    compare: Callable[[Path, Path], BaseModel]
+    catches: Callable[[list[GateEvent]], Sequence[BaseModel]]
 
     @property
     def flags(self) -> tuple[str, ...]:
@@ -161,10 +167,56 @@ class Runs:
         return json_response({"runs": rows})
 
 
+@dataclass(frozen=True)
+class Spend:
+    """``GET /api/evidence/spend/...``: red stub."""
+
+    census: Census
+
+    def __call__(self, context: Context, params: Mapping[str, str]) -> Response:
+        """Red stub."""
+        return json_response({})
+
+
+@dataclass(frozen=True)
+class Comparison:
+    """``GET /api/evidence/compare/...``: red stub."""
+
+    census: Census
+
+    def __call__(self, context: Context, params: Mapping[str, str]) -> Response:
+        """Red stub."""
+        return json_response({})
+
+
+@dataclass(frozen=True)
+class Catches:
+    """``GET /api/evidence/catches``: red stub."""
+
+    census: Census
+
+    def __call__(self, context: Context, params: Mapping[str, str]) -> Response:
+        """Red stub."""
+        return json_response({})
+
+
+#: The path of the spend route over one run at one price sheet's date.
+SPEND = "/api/evidence/spend/{root:index}/{name:name}/{date:date}"
+#: The path of the comparison of a baseline run with a candidate.
+COMPARE = "/api/evidence/compare/{a_root:index}/{a_name:name}/{b_root:index}/{b_name:name}"
+#: The path of the catch count per kind of run.
+CATCHES = "/api/evidence/catches"
+
+
 def routes(census: Census) -> tuple[Route, ...]:
     """Every route this module serves, over the comparison's census the root hands in.
 
     The same census gives equal routes, so the root's registration, run once per command, is
     the same registration each time.
     """
-    return (Route("GET", "/api/evidence/runs", "read", Runs(census)),)
+    return (
+        Route("GET", "/api/evidence/runs", "read", Runs(census)),
+        Route("GET", SPEND, "read", Spend(census)),
+        Route("GET", COMPARE, "read", Comparison(census)),
+        Route("GET", CATCHES, "read", Catches(census)),
+    )

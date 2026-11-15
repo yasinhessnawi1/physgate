@@ -14,6 +14,7 @@ guard, which refuses any open outside what the request may read (a 500 naming th
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -360,10 +361,27 @@ def test_a_library_route_refuses_a_file_it_reads_that_links_out_of_its_roots(
 # the target's bytes, and no other number. A route over one run answers 403. Either way the
 # target is never opened.
 
-#: Each run file a registered route reads, and per route whether it answers 403 or a row.
+#: The registered routes over one run, or two, planted here: the run's spend at a sheet, and the
+#: run compared with itself.
+SPEND = f"/api/evidence/spend/0/{RUN}/{PRICES}"
+COMPARE = f"/api/evidence/compare/0/{RUN}/0/{RUN}"
+#: Each run file a registered route reads, and per route whether it answers 403, a row of the
+#: run list, or a run the catch count names as not read.
 REGISTERED_PLANTS: dict[str, dict[str, str]] = {
-    "run.json": {"/api/evidence/runs": "row"},
-    "events.jsonl": {"/api/evidence/runs": "row"},
+    "run.json": {
+        "/api/evidence/runs": "row",
+        SPEND: "403",
+        COMPARE: "403",
+        "/api/evidence/catches": "unread",
+    },
+    "events.jsonl": {
+        "/api/evidence/runs": "row",
+        SPEND: "403",
+        COMPARE: "403",
+        "/api/evidence/catches": "unread",
+    },
+    # A session's stream: the spend reads each call's result from it.
+    "stream": {SPEND: "403"},
 }
 
 
@@ -402,9 +420,20 @@ def test_a_registered_route_refuses_a_run_file_that_links_out_of_its_roots(
         assert MARKER not in body, route
         if expected == "403":
             assert status == 403, (route, status, body[:200])
+            # The refusal names the run by its place, never a path on disk.
+            assert str(tmp_path) not in body.decode(), (route, body[:300])
+            assert os.path.realpath(tmp_path) not in body.decode(), (route, body[:300])
             continue
         assert status == 200, (route, status, body[:200])
-        (row,) = [row for row in json.loads(body)["runs"] if row["name"] == RUN]
+        answer = json.loads(body)
+        if expected == "unread":
+            assert set(answer) == {"kinds", "unread"}, answer
+            (row,) = [row for row in answer["unread"] if row["name"] == RUN]
+            assert "error" in row, row
+            counted = [run["name"] for kind in answer["kinds"] for run in kind["runs"]]
+            assert RUN not in counted, answer
+            continue
+        (row,) = [row for row in answer["runs"] if row["name"] == RUN]
         assert "error" in row, row
         assert not {"manifest_id", "flags", "pins"} & set(row), row
     real_target = str(target.resolve())
