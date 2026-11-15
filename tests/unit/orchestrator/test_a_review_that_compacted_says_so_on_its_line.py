@@ -45,8 +45,8 @@ def test_the_no_verdict_line_says_how_many_compactions_came_first(tmp_path: Path
     assert getattr(line, "compactions", None) == 2
     assert line.retry is False
     assert [e for e in events if isinstance(e, Escalated)]
-    raw = (tmp_path / "events.jsonl").read_text().splitlines()
-    (written,) = [json.loads(r) for r in raw if '"review_unavailable"' in r]
+    raw = [json.loads(r) for r in (tmp_path / "events.jsonl").read_text().splitlines()]
+    (written,) = [r for r in raw if r["kind"] == "review_unavailable"]
     assert written["compactions"] == 2
 
 
@@ -54,8 +54,8 @@ def test_a_no_verdict_line_without_a_compaction_keeps_its_bytes(tmp_path: Path) 
     _carries_compactions()
     reviewer = FakeReviewer(unavailable={1: _unavailable("context_exceeded")})
     _run(tmp_path, reviewer)
-    raw = (tmp_path / "events.jsonl").read_text().splitlines()
-    (written,) = [json.loads(r) for r in raw if '"review_unavailable"' in r]
+    raw = [json.loads(r) for r in (tmp_path / "events.jsonl").read_text().splitlines()]
+    (written,) = [r for r in raw if r["kind"] == "review_unavailable"]
     assert "compactions" not in written
 
 

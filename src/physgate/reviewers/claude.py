@@ -926,8 +926,13 @@ class ClaudeReviewer:
             return ended("no_verdict", "no model message in the review")
         # The hook layer records each compaction it was told of, and the rubric read since is
         # held to that record: a compaction it did not see is one after which nothing shows the
-        # rubric was read again. Either difference is no verdict.
-        seen = compactions_seen(Path(installed.config), session_id)
+        # rubric was read again. Either difference is no verdict. Under ``off`` a compaction has
+        # already ended the review above, and the hook layer records none.
+        seen = (
+            compactions_seen(Path(installed.config), session_id)
+            if self._setup.review_compaction == "on"
+            else 0
+        )
         if seen < len(compacted):
             return ended("reading_incomplete", "a compaction the hook layer did not see")
         if seen > len(compacted):

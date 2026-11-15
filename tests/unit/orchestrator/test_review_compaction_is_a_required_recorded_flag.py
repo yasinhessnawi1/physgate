@@ -111,11 +111,8 @@ def test_a_run_s_record_writes_the_flag_on_its_first_line(tmp_path: Path) -> Non
     for name, value, said in (("on", "on", "on"), ("off", "off", None)):
         run_dir = tmp_path / name
         run_dir.mkdir()
-        loop = outcome_of(
-            lambda run_dir=run_dir, value=value: Rig(
-                run_dir, config_overrides={"review_compaction": value}
-            ).open()
-        )
+        overrides: dict[str, Any] = {"review_compaction": value}
+        loop = outcome_of(Rig(run_dir, config_overrides=overrides).open)
         assert not isinstance(loop, Exception), loop
         loop.record.start(plan("s1"))
         loop.close()

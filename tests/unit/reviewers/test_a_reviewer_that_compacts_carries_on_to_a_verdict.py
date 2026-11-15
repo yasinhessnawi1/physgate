@@ -235,7 +235,7 @@ def test_a_review_without_a_compaction_is_written_as_before(
     assert "compactions" in ReviewResult.model_fields
     result = _review(tmp_path, monkeypatch, [([COMPLETED], _verdict(VALID))])
     assert isinstance(result, ReviewResult), result
-    assert result.compactions is None  # type: ignore[attr-defined]
+    assert result.compactions is None
     line = json.loads(result.model_dump_json())
     assert "compactions" not in line and "compaction_pre_tokens" not in line
 
