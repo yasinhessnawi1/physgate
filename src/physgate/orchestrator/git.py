@@ -516,22 +516,7 @@ def git(
     Raises:
         GitError: it exited non-zero and ``check`` is true.
     """
-    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
-    exe = harness_git().path
-    if objects_only:
-        object_format = _object_format(Path(cwd), git_dir)
-        store = _object_store(_object_dirs(Path(cwd), git_dir), object_format)
-        env["GIT_ATTR_SOURCE"] = EMPTY_TREES[object_format]
-        argv = [exe, attr_source(object_format), "--git-dir", store, *_FLAGS, *args]
-        run_in: Path | str = store
-    elif git_dir is not None:
-        argv = [exe, attr_source(), "--git-dir", str(git_dir.path), "--work-tree", str(cwd)]
-        argv += _FLAGS
-        argv += args
-        run_in = cwd
-    else:
-        argv = [exe, attr_source(), *_FLAGS, *args]
-        run_in = cwd
+    argv, run_in, env = _command(cwd, args, objects_only=objects_only, git_dir=git_dir)
     done = subprocess.run(
         argv,
         cwd=run_in,
@@ -553,6 +538,54 @@ def git(
             stderr=done.stderr.strip()[-800:],
         )
     return done.stdout
+
+
+def git_bytes(
+    cwd: Path, *args: str, objects_only: bool = False, git_dir: GitDir | None = None
+) -> bytes:
+    """Run one git command in ``cwd`` as :func:`git` does; its output as the bytes git wrote.
+
+    For a read whose bytes are the point, a blob a scorer takes as it was committed: nothing
+    is decoded, and no line ending is rewritten, as the text mode :func:`git` reads in does.
+
+    Raises:
+        GitError: it exited non-zero.
+    """
+    argv, run_in, env = _command(cwd, args, objects_only=objects_only, git_dir=git_dir)
+    done = subprocess.run(argv, cwd=run_in, env=env, capture_output=True, check=False)
+    if done.returncode != 0:
+        msg = "a git command failed"
+        raise GitError(
+            msg,
+            command=" ".join(args),
+            cwd=str(cwd),
+            exit=str(done.returncode),
+            stderr=done.stderr.decode("utf-8", errors="replace").strip()[-800:],
+        )
+    return done.stdout
+
+
+def _command(
+    cwd: Path, args: tuple[str, ...], *, objects_only: bool, git_dir: GitDir | None
+) -> tuple[list[str], Path | str, dict[str, str]]:
+    """One git command's argv, the directory it runs in and its environment."""
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
+    exe = harness_git().path
+    if objects_only:
+        object_format = _object_format(Path(cwd), git_dir)
+        store = _object_store(_object_dirs(Path(cwd), git_dir), object_format)
+        env["GIT_ATTR_SOURCE"] = EMPTY_TREES[object_format]
+        argv = [exe, attr_source(object_format), "--git-dir", store, *_FLAGS, *args]
+        run_in: Path | str = store
+    elif git_dir is not None:
+        argv = [exe, attr_source(), "--git-dir", str(git_dir.path), "--work-tree", str(cwd)]
+        argv += _FLAGS
+        argv += args
+        run_in = cwd
+    else:
+        argv = [exe, attr_source(), *_FLAGS, *args]
+        run_in = cwd
+    return argv, run_in, env
 
 
 def git_timed(

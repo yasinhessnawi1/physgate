@@ -32,6 +32,7 @@ from physgate.evaluation.per_role.author_session import (
 from physgate.evaluation.per_role.validate import id_digest
 from physgate.evaluation.tiers import store as store_module
 from physgate.evaluation.tiers.authoring import TIERS, AuthoringError
+from physgate.evaluation.tiers.canaries import root_canaries
 from physgate.evaluation.tiers.manifest import VERSION_NAME
 from physgate.evaluation.tiers.store import pool_dir
 from physgate.orchestrator.credentials import Credential
@@ -488,7 +489,7 @@ def _check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, write: Any) -> tuple
     # The check looks for every canary under the root, as the command gives it them.
     setup = dataclasses.replace(
         check_setup(plan.store, _setup(tmp_path / "private")),
-        held_out_canaries=author_session.root_canaries(plan.root),
+        held_out_canaries=root_canaries(plan.root),
     )
     out = blind_check(
         plan.store,

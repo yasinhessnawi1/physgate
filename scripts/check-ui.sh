@@ -6,6 +6,11 @@
 # Without Node or pnpm this fails rather than skips: a gate that quietly does not run reports
 # green while proving nothing.
 
+# An argument names the half to run: "unit" is types, lint, format, unit tests and build;
+# "browser" is the build and the browser tests. No argument runs both, as always.
+mode=${1:-all}
+case "$mode" in all | unit | browser) ;; *) echo "unknown mode '$mode'" >&2; exit 1 ;; esac
+
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -31,11 +36,14 @@ run() {
 # pnpm runs from inside ui/, where package.json pins its exact version for corepack; run from
 # the repository root, corepack would find no pin and use whatever version it has.
 cd ui
-run "types" pnpm run typecheck
-run "lint" pnpm run lint
-run "format" pnpm run format:check
-run "unit tests" pnpm run test
+if [ "$mode" != browser ]; then
+  run "types" pnpm run typecheck
+  run "lint" pnpm run lint
+  run "format" pnpm run format:check
+  run "unit tests" pnpm run test
+fi
 run "build" "$root/scripts/build-ui.sh"
+[ "$mode" != unit ] || exit 0
 
 # The browser tests serve on PHYSGATE_UI_E2E_PORT. Unset, every worktree used to ask for the same
 # port, so two worktrees' checks running at once collided and the second refused to start. Unset

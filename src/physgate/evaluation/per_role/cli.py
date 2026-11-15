@@ -243,7 +243,7 @@ def _session_setup(args: argparse.Namespace, install: Path) -> Any:
         role_python=_role_python(getattr(args, "role_python", None)),
         held_out=session_held_out(args),
         withheld_reads=tuple(str(p.resolve()) for p in args.withhold),
-        # Each command gives the session every canary under its root (``root_canaries``).
+        # Each command gives the session every canary of the store's roots (``store_canaries``).
         held_out_canaries=(),
         network="none",
         os_layer=layer,
@@ -289,13 +289,13 @@ def _with_install(args: argparse.Namespace, run: Any) -> int:
 def _author(args: argparse.Namespace) -> int:
     import dataclasses
 
-    from physgate.evaluation.per_role.author_session import AuthoringPlan, author, root_canaries
-    from physgate.evaluation.tiers.store import author_evidence, role_root
+    from physgate.evaluation.per_role.author_session import AuthoringPlan, author
+    from physgate.evaluation.tiers.canaries import store_canaries
+    from physgate.evaluation.tiers.store import author_evidence
 
     # The paths given are resolved once, before anything runs, so a system link such as
     # macOS's /var is followed here and never met by the split's refusal of links.
     store = args.store.resolve()
-    root = role_root(store, args.role)
     prefix = args.id_prefix
     if prefix is None:
         evidence = author_evidence(store, args.role)
@@ -312,9 +312,9 @@ def _author(args: argparse.Namespace) -> int:
         per_task_cap=args.per_task_cap,
         id_prefix=prefix,
     )
-    # Every canary the tiers already cut under the root name: the session's record says
+    # Every canary the tiers already cut under every role's root name: the session's record says
     # whether one showed in its stream, and the runner refuses a session not looking.
-    canaries = root_canaries(root)
+    canaries = store_canaries(store)
     return _with_install(
         args,
         lambda setup: author(plan, dataclasses.replace(setup, held_out_canaries=canaries)),
@@ -325,17 +325,18 @@ def _blind_check(args: argparse.Namespace) -> int:
     import dataclasses
     import secrets
 
-    from physgate.evaluation.per_role.author_session import blind_check, root_canaries
-    from physgate.evaluation.tiers.store import role_root, work_root
+    from physgate.evaluation.per_role.author_session import blind_check
+    from physgate.evaluation.tiers.canaries import store_canaries
+    from physgate.evaluation.tiers.store import work_root
 
     store = args.store.resolve()
     args.work = args.work.resolve()
     # Its copy of the held-out tasks lies in the store, where every run withholds it.
     work = work_root(store, args.role) / f"check-{secrets.token_hex(8)}"
     args.check_work = work
-    # As the author's: the check looks for every canary the root's tiers name, and its
+    # As the author's: the check looks for every canary every role's root names, and its
     # answer is not taken unless its record says none showed.
-    canaries = root_canaries(role_root(store, args.role))
+    canaries = store_canaries(store)
     return _with_install(
         args,
         lambda setup: blind_check(
