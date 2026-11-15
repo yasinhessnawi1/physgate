@@ -320,7 +320,6 @@ def _spend(run: _Run, line: CostLine) -> dict[str, object]:
             roles.setdefault(role_of[end.subtask_id], []).append((call, end))
         else:
             apart[APART.get(kind, LEFT_OVER)].append(call)
-    order = [role for role in dict.fromkeys(role_of.values()) if role in roles]
     return {
         "view": VIEW,
         "roles": [
@@ -338,7 +337,7 @@ def _spend(run: _Run, line: CostLine) -> dict[str, object]:
                     for call, end in roles[role]
                 ],
             }
-            for role in order
+            for role in roles
         ],
         "apart": {
             group: {"sum": _sum(calls, named), "calls": [_row(call, named) for call in calls]}

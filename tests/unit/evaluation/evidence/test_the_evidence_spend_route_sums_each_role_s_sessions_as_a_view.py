@@ -27,7 +27,12 @@ import pytest
 from ui_evidence_rig import EvidenceRuns, evidence_runs
 from ui_rig import context_over, evaluation_rig, fake_ui, serving
 
-from physgate.orchestrator.events import SessionEnded, SubtaskPlanned, read_events
+from physgate.orchestrator.events import (
+    SessionEnded,
+    SubtaskPlanned,
+    TokensUsed,
+    read_events,
+)
 
 #: A sheet that prices each call's cache writes by the time to live its result records.
 PRICES = "2026-10-16"
@@ -216,6 +221,37 @@ def test_a_stream_changed_after_its_seal_marks_its_session_and_its_role_a_lower_
     assert spend["line"]["lower_bound"] is True
 
 
+def test_a_session_the_log_records_no_end_for_is_apart_and_in_no_role(
+    built: dict[str, Any], tmp_path: Path
+) -> None:
+    root = tmp_path / "priced"
+    shutil.copytree(built["priced"] / PRICED, root / PRICED, symlinks=True)
+    log_path = root / PRICED / "events.jsonl"
+    log = read_events(log_path)
+    spent = next(
+        e for e in log if isinstance(e, TokensUsed) and e.attribution.startswith("session:")
+    )
+    # A session a killed orchestrator left behind: its tokens are on the log, its end is not.
+    ghost = spent.model_copy(
+        update={
+            "seq": log[-1].seq + 1,
+            "attribution": "session:left-behind",
+            "message_id": "m-left",
+        }
+    )
+    with log_path.open("a") as out:
+        out.write(ghost.model_dump_json() + "\n")
+    spend, line = _answered(built, root)
+    assert "session:left-behind" in {c["attribution"] for c in line["calls"]}
+    left = spend["apart"]["left_over"]
+    assert [c["attribution"] for c in left["calls"]] == ["session:left-behind"]
+    in_roles = {row["session_id"] for role in spend["roles"] for row in role["sessions"]}
+    assert "left-behind" not in in_roles
+    assert spend["apart"]["review"]["calls"], "the reviews stay where they were"
+    reviewed = {c["attribution"] for c in spend["apart"]["review"]["calls"]}
+    assert "session:left-behind" not in reviewed
+
+
 def test_an_unknown_run_is_not_found_by_its_place(built: dict[str, Any]) -> None:
     ((status, body),) = _get(built["priced"], built["ui"], _spend("ev-none"))
     assert status == 404
@@ -249,6 +285,7 @@ def test_a_log_line_this_package_cannot_read_is_refused_with_its_reason(
 def test_a_date_with_no_sheet_is_refused_naming_the_date(built: dict[str, Any]) -> None:
     ((status, body),) = _get(built["priced"], built["ui"], _spend(PRICED, "1999-01-01"))
     assert status == 422
+    assert set(body) == {"error", "root", "name", "record", "date"}, body
     assert (body["root"], body["name"], body["record"], body["date"]) == (
         "0",
         PRICED,

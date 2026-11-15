@@ -221,16 +221,6 @@
   ]
  },
  {
-  "name": "spend_roles_unordered_empty_kept",
-  "file": "src/physgate/evaluation/evidence.py",
-  "old": "    order = [role for role in dict.fromkeys(role_of.values()) if role in roles]",
-  "new": "    order = list(dict.fromkeys(role_of.values()))",
-  "tests": [
-   "tests/unit/evaluation/observe_rig.py",
-   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
-  ]
- },
- {
   "name": "spend_left_over_into_review",
   "file": "src/physgate/evaluation/evidence.py",
   "old": "apart[APART.get(kind, LEFT_OVER)].append(call)",
