@@ -98,7 +98,7 @@ def _release_of(state: RunState, components: tuple[Any, ...]) -> RunState:
     fresh = RunState()
     fresh.asks_parts = True
     fresh.parts_released = PartsReleased.model_validate(
-        {**line.model_dump(), "components": [one.model_dump() for one in components]}
+        {**line.model_dump(), "components": tuple(one.model_dump() for one in components)}
     )
     return fresh
 
