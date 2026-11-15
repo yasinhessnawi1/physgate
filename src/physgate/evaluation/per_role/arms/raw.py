@@ -22,7 +22,9 @@ subtasks of the same role), so a long raw session can meet its turn or clock bou
 an end is the arm's own spending (``wall_clock``), recorded, never trimmed or re-run.
 
 What the session left is kept as sealed evidence: its stream, its answer, its end and a
-record of every pin the comparison with the harness arm is held to.
+record of every pin the comparison with the harness arm is held to. What is not kept is the
+hook sentinel's record of the protected paths, which names every entry beneath the withheld
+roots: it is removed with the credential once the end check has read it.
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from physgate.evaluation.tiers.task import Task
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.credentials import (
     Credential,
+    open_in_session,
     remove_secrets,
     write_key_helper,
     write_login,
@@ -64,6 +67,7 @@ from physgate.orchestrator.dispatch import (
     spawn_held,
     write_record,
 )
+from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.processes import kill_own, stop_tree
 from physgate.orchestrator.role_python import RolePython, session_bin
@@ -751,6 +755,10 @@ def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> No
         remove_secrets(sdir / "state", sdir / "config")
     except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
         errors.append(repr(exc))
+    try:
+        remove_sentinel_records(sdir / "state")
+    except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
+        errors.append(repr(exc))
     for stream in streams:
         try:
             redact(stream, secret)
@@ -759,8 +767,81 @@ def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> No
     if errors:
         record = {"error": "; ".join(errors).replace(secret, "[redacted]")}
         write_record(work.parent, work.name, record, "cleanup.json")
-        msg = "the raw session's credential could not be removed: " + record["error"]
+        msg = "the raw session's credential, or the sentinel's record of its protected paths, "
+        msg += "could not be removed: " + record["error"]
         raise RawArmError(msg, work=str(work))
+
+
+#: The hook sentinel's record of the protected paths as the session started, and the temporary
+#: name it is written under first: each lists every entry beneath the session's withheld roots
+#: by its path (a protected task's directory is its id), with its size, times and digest.
+SENTINEL_RECORDS = ("baseline.json", ".baseline.json.tmp")
+_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def _beneath(fd: int, name: str) -> int | None:
+    """A descriptor on the directory ``name`` in ``fd``, never through a link; ``None`` if absent.
+
+    Raises:
+        InvocationError: ``name`` is a link or not a directory.
+    """
+    try:
+        return os.open(name, _DIRECTORY, dir_fd=fd)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        msg = "a directory of the session's hook state is a link or not a directory; not followed"
+        raise InvocationError(msg, name=name, error=str(exc.strerror)) from None
+
+
+def remove_sentinel_records(state_dir: Path) -> None:
+    """Remove the sentinel's record of the protected paths from every session in ``state_dir``.
+
+    Its last reader is the end check after the stop (:func:`check_after_stop`); after it the
+    record is no one's input, and kept it would name the protected tasks wherever the session's
+    directory goes next. The hook state is reached as the credential's files are
+    (:func:`open_in_session`), each directory beneath it opened without following a link; a
+    link at a record's own name is removed, which removes nothing it points at. What lies beside
+    the record (the bytes kept of files the session may read, their index, what was moved
+    aside) names no protected path, and stays.
+
+    Raises:
+        InvocationError: a directory on the way is a link or not a directory, or a record
+            could not be removed; it may still be there.
+    """
+    top = open_in_session(state_dir)
+    if top is None:
+        return
+    try:
+        sessions = _beneath(top, "sessions")
+        if sessions is None:
+            return
+        try:
+            for name in sorted(os.listdir(sessions)):
+                own = _beneath(sessions, name)
+                if own is None:
+                    continue
+                try:
+                    sentinel = _beneath(own, "sentinel")
+                finally:
+                    os.close(own)
+                if sentinel is None:
+                    continue
+                try:
+                    for record in SENTINEL_RECORDS:
+                        try:
+                            os.unlink(record, dir_fd=sentinel)
+                        except FileNotFoundError:
+                            continue
+                        except OSError as exc:
+                            msg = "the sentinel's record of the protected paths was not removed"
+                            raise InvocationError(msg, error=str(exc.strerror)) from None
+                finally:
+                    os.close(sentinel)
+        finally:
+            os.close(sessions)
+    finally:
+        os.close(top)
 
 
 def canaries_sha256(canaries: Iterable[str]) -> str:
