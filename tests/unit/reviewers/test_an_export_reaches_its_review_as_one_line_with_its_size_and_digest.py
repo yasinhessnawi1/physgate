@@ -226,23 +226,32 @@ def test_anything_else_is_no_export(path: str) -> None:
     assert exports.is_export(path) is False
 
 
-def test_the_folder_and_suffixes_are_the_ones_the_design_helper_writes() -> None:
-    # The helper never imports the harness, so its folder and suffixes are read from its source.
-    tree = ast.parse((REPO / "toolenv" / "helpers" / "geometry.py").read_text(encoding="utf-8"))
-    folder = [
-        node.value.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == "EXPORTS" for t in node.targets)
-        and isinstance(node.value, ast.Constant)
-    ]
-    assert folder == [exports.EXPORTS_DIR]
-    # An f-string's literal parts are constants too, so this finds the suffixes it formats.
-    written = {
-        node.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant) and node.value in (".step", ".stl", ".dxf", ".svg")
-    }
+def test_the_folder_and_suffixes_are_the_ones_the_design_helpers_write() -> None:
+    # The helpers never import the harness, so folder and suffixes are read from their source:
+    # the CAD helper writes the part's exports, the circuit helper KiCad's four.
+    written: set[str] = set()
+    candidates = (".step", ".stl", ".dxf", ".svg", ".pdf", ".erc.json", ".net", ".csv")
+    for helper in ("geometry.py", "circuit.py"):
+        path = REPO / "toolenv" / "helpers" / helper
+        tree = (
+            ast.parse(path.read_text(encoding="utf-8"))
+            if path.is_file()
+            else ast.Module(body=[], type_ignores=[])
+        )
+        folder = [
+            node.value.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "EXPORTS" for t in node.targets)
+            and isinstance(node.value, ast.Constant)
+        ]
+        assert folder == [exports.EXPORTS_DIR], helper
+        # An f-string's literal parts are constants too, so this finds the suffixes it formats.
+        written |= {
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and node.value in candidates
+        }
     assert written == set(exports.EXPORT_SUFFIXES)
 
 
