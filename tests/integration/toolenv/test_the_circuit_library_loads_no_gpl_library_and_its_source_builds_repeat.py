@@ -164,6 +164,9 @@ def test_a_second_provisioning_from_a_fresh_cache_builds_wheels_of_the_same_cont
     again = tmp_path_factory.mktemp("again") / "env"
     try:
         second = _provision().provision(again, tmp_path_factory.mktemp("fresh-cache"))
+        # The second provisioning read every licence and imported the circuit library too.
+        assert second.get("licences_read") == _record(env).get("licences_read")
+        assert second["self_check"]["circuit"] == {"skidl": "3.0.0", "inspice_modules": []}
         built = second.get("built_from_source")
         assert isinstance(built, dict)
         assert sorted(built) == sorted(first) == list(SOURCE_ONLY)
