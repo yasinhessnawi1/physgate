@@ -22,3 +22,4 @@ out=${GITHUB_STEP_SUMMARY:-/dev/stdout}
       | sed 's/^/- count: /' | tail -n 3
   done
 } >> "$out"
+exit 0
