@@ -465,7 +465,9 @@ def test_an_answer_that_does_not_say_where_its_code_comes_from_is_refused(
 # ---- roots, as they are walked ----------------------------------------------------------
 
 
-@pytest.mark.parametrize("spelt", ["{root}/", "{root}/.", "{parent}/./env", "{parent}/x/../env"])
+@pytest.mark.parametrize(
+    "spelt", ["{root}/", "{root}/.", "/{root}", "{parent}/./env", "{parent}/x/../env"]
+)
 def test_a_root_not_spelt_plainly_is_refused_when_measured(tmp_path: Path, spelt: str) -> None:
     # Recorded as named; a record a session writes names its roots plainly, so a run measured
     # on another spelling could seal nothing. Refused here, not at the first record.

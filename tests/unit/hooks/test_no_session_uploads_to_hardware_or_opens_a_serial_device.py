@@ -80,17 +80,31 @@ UPLOADS = [
     "nice --adjustment 5 pio run -t upload",
     "/usr/bin/time -o out pio run -t upload",
     "sudo -u root pio run -t upload",
+    # An option this rule has no word on is read as one that may take a value.
+    "env -a x pio run -t upload",
     "exec -a x python3 -m platformio run -t upload",
     "p=pio; exec -a x $p run -t upload",
     "p=pio; timeout 60 $p run -t upload",
     # An interpreter running the build tool by any spelling of its module, or as a script.
     "python3 -Im platformio run -t upload",
     "python3 -Implatformio run -t upload",
+    "python3 -W ignore -m platformio run -t upload",
     "python3 -m platformio.__main__ run -t upload",
     "timeout 5 python3 -m platformio.__main__ run -t upload",
     "python3 /opt/env/venv/bin/pio run -t upload",
     # Its monitor, by a name only running decides.
     "p=pio; $p device monitor",
+    # A program named only when the command runs, given a flasher's words: a memory
+    # operation, or a programmer and a part.
+    "p=avrdude; $p -U flash:w:firmware.hex",
+    "p=avrdude; $p -Uflash:w:firmware.hex:i",
+    "p=avrdude; $p -c usbasp -p m328p",
+    "p=avrdude; $p -cusbasp -patmega328p",
+    # The module or the script an interpreter runs, named only when the command runs.
+    "python3 -m $m run -t upload",
+    "m=platformio; python3 -m$m run -t upload",
+    "python3 $script run -t upload",
+    "python3 -I $script device monitor",
 ]
 
 NOT_UPLOADS = [
@@ -158,6 +172,16 @@ NOT_UPLOADS = [
     "python3 -W ignore -m platformio run",
     "p=pio; $p run",
     "p=ls; $p -la",
+    # Ordinary commands whose program only running names.
+    "$PYTHON script.py",
+    "python3 $SCRIPT",
+    "python3 -m $MODULE",
+    "python3 $SCRIPT --input data.csv",
+    'for t in tests/*.sh; do "$t"; done',
+    "for f in src/*.c; do $CC -c $f; done",
+    "$CC -c main.c -pipe",
+    "$SHELL -c 'ls -la'",
+    "$MKDIR -p build/out",
 ]
 
 #: Programs that only ever reach a board, each as it is usually run.
@@ -317,6 +341,14 @@ RELATIVE = [
     (None, "CDPATH=/ cd dev && cat ttyACM0", "ttyACM0"),
     (None, "export CDPATH=/; cd dev; cat ttyACM0", "ttyACM0"),
     (None, "CDPATH=/dev cd bus && cat usb/001/001", "usb/001/001"),
+    # A move whose target only running decides, or that goes where no word says: the command
+    # could be anywhere after it.
+    (None, "find . -execdir cat ttyACM0 \\;", "ttyACM0"),
+    (None, "chroot /srv cat ttyACM0", "ttyACM0"),
+    (None, "sudo -R /srv cat ttyACM0", "ttyACM0"),
+    (None, "su - builder -c 'cat ttyACM0'", "ttyACM0"),
+    (None, "sudo -D $DIR cat ttyACM0", "ttyACM0"),
+    (None, "uv run --directory tools cat ttyACM0", "ttyACM0"),
 ]
 ENTERS_BY_STEPS = [
     ("/usr", "cd ../dev"),
@@ -360,6 +392,7 @@ UNREAD = [
     "p=pio; $p debug",
     "p=pio; $p device list",
     "p=pio; $p -c vscode test",
+    "python3 -m $m test",
 ]
 
 #: ``env -S`` splits a string into a command by env's rules, not the shell's: refused whole.
@@ -445,6 +478,10 @@ NOT_DEVICES = [
     "echo ttyACM0",
     "env -C /tmp cat notes.md",
     "env -C ./build ls",
+    "sudo -D /tmp cat notes.md",
+    "uv run --directory ./tools pytest -q",
+    "find . -name '*.c' -exec cat {} +",
+    "sudo -u builder cat ttyS-notes.md",
 ]
 
 ENTERS = [
@@ -460,6 +497,16 @@ ENTERS = [
     "env --chdir=/dev cat ttyACM0",
     "env --chdir /dev cat ttyACM0",
     "env -iC/dev cat ttyACM0",
+    # So do sudo, uv, poetry and parallel, by their own options.
+    "sudo -D /dev cat cu.usbmodem1",
+    "sudo -D/dev cat ttyACM0",
+    "sudo -iD /dev cat ttyACM0",
+    "sudo --chdir=/dev cat ttyACM0",
+    "sudo --chdir /dev cat ttyACM0",
+    "uv run --directory /dev cat ttyACM0",
+    "timeout 5 uv --directory=/dev run cat ttyACM0",
+    "poetry -C /dev run cat ttyACM0",
+    "parallel --wd /dev cat ttyACM0 ::: 1",
 ]
 
 
