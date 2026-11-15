@@ -288,9 +288,9 @@ def test_a_shortened_or_rewritten_register_refuses_rather_than_reads_as_nothing_
 def test_marks_are_appended_in_their_order_and_read_back_whole(made: StandInStore) -> None:
     try:
         _two_marks(made)
-    except Exception as exc:  # noqa: BLE001 - a refused second mark is the failure asserted
-        pytest.fail(f"a second mark was refused: {exc!r}")
-    lines = api(f"{EXPOSURE}.register_lines")(made.store, "control")
+        lines = api(f"{EXPOSURE}.register_lines")(made.store, "control")
+    except Exception as exc:  # noqa: BLE001 - two marks that do not read back are the failure
+        pytest.fail(f"two marks do not read back whole: {exc!r}")
     assert [(line.n, line.reason) for line in lines] == [
         (0, "opened the tier by hand"),
         (1, "copied a task by mistake"),
