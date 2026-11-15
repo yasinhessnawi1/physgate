@@ -40,9 +40,15 @@ An interpreter runs one as a module (``-m``, run together with other options, a 
 ``__main__`` included) or as the script it is given. ``env -S`` is refused outright: it splits
 a string into a command by env's own rules, which are not the shell's, and this file reads the
 shell's. A document that names an upload is text and passes. A word of such a command that only
-running it decides (``$TARGET``) is refused: the tool would not get the word that was read; so
-is a program named only when the command runs (``$p``) given an upload, its tests, its debugger
-or its devices.
+running it decides (``$TARGET``) is refused: the tool would not get the word that was read.
+
+**A program named only when the command runs** (``$p``, or the module or script an interpreter
+is given that way) cannot be known from the words, so it is refused only for the shapes named
+here: the build tool's upload, monitor, tests, debugger or devices, and a flasher's options
+(any ``-U``, or ``-p`` beside ``-U``, ``-e`` or ``-c``). Given other words, or none, it passes
+this hook, and what holds is the OS layer's denial of the board's devices. The exact reading of
+a guarded program's words, which refuses an upload by a route not named, is for a program
+named in the command's own words.
 
 **A device is matched wherever it is named**, in any word, assignment, redirection or text a
 command is fed: a device is opened by whatever program is handed its name, so there is no
@@ -299,17 +305,13 @@ _PROGRAMS = _ONLY_A_BOARD | frozenset(GUARDED)
 #: A program named only when the command runs is refused given these first words of the build
 #: tool's: its tests (which upload), its debugger (which loads the board), its devices.
 _LATE_USES = frozenset({"test", "debug", "device"})
-#: A flasher's memory operation (``flash:w:``), an image it writes by name (avrdude's ``-U
-#: file``), a microcontroller's part name (``m328p``, ``atmega32u4``, ``t85``), and a
-#: programmer's or a part's plain name.
-_MEMORY_OPERATION = re.compile(r"[A-Za-z0-9_]+:[rwv]:")
-_IMAGE_FILE = re.compile(r".+\.(hex|elf|bin|eep|srec|ihex)(:[a-z])?", re.IGNORECASE)
-_PART = re.compile(
-    r"(at)?(mega|tiny|xmega|90usb|90can|90pwm|90s)[0-9]+[a-z0-9]*|[mtx][0-9]+[a-z0-9]*"
-    r"|usb[0-9]+[a-z0-9]*|avr[0-9]+[a-z0-9]*",
-    re.IGNORECASE,
-)
-_PLAIN_NAME = re.compile(r"[A-Za-z0-9_+-]+")
+#: A flasher's options, read as words and not modelled further: any ``-U`` (a memory operation
+#: or an image to write), and ``-p`` (a part) beside ``-U``, ``-e`` (an erase) or ``-c`` (a
+#: programmer). Only ``-U`` is read glued to its value as well: ``-p`` and ``-c`` glued are a
+#: compiler's ``-pthread`` and ``-pipe`` beside its ``-c``.
+_FLASHER_OPTION = "-U"
+_PART_OPTION = "-p"
+_BESIDE_A_PART = frozenset({"-U", "-e", "-c"})
 
 #: Each program that runs its arguments (the parser's own list): its short options that take no
 #: value, those that take one, and its long options that take none, GNU's and BSD's together.
@@ -893,29 +895,15 @@ def _named_late(
 
 
 def _flasher_words(words: Sequence[str]) -> bool:
-    """Whether ``words`` read as a flasher's, every occurrence of each option read.
+    """Whether ``words`` carry a flasher's options (:data:`_FLASHER_OPTION`, :data:`_PART_OPTION`).
 
-    A ``-U`` given a memory operation (``flash:w:…``) or an image by name (``firmware.hex``);
-    a ``-p`` given a microcontroller's part name (``m328p``); or a ``-c`` and a ``-p`` both
-    given a plain name (``-c usbasp -p 1``). Never a file, a path, a number or a line of code
-    on its own, so ``$CC -c main.c``, ``$CC -U NDEBUG``, ``$tool -p 8080`` and ``$SHELL -c '…'``
-    are not.
+    Any ``-U``, or ``-p`` beside ``-U``, ``-e`` or ``-c``. Every occurrence counts, whatever its
+    value; the flasher's grammar is not modelled, so a program named only when the command runs
+    and given other words passes here, and the OS layer's device denial is what holds for it.
     """
-
-    def values(option: str) -> list[str]:
-        found = []
-        for n, word in enumerate(words):
-            if word == option:
-                found.append(words[n + 1] if n + 1 < len(words) else "")
-            elif word.startswith(option):
-                found.append(word[len(option) :])
-        return found
-
-    if any(_MEMORY_OPERATION.match(v) or _IMAGE_FILE.fullmatch(v) for v in values("-U")):
+    if any(word.startswith(_FLASHER_OPTION) for word in words):
         return True
-    if any(_PART.fullmatch(v) for v in values("-p")):
-        return True
-    return all(any(_PLAIN_NAME.fullmatch(v) for v in values(o)) for o in ("-c", "-p"))
+    return _PART_OPTION in words and bool(_BESIDE_A_PART & set(words))
 
 
 def _check_command(cmd: SimpleCommand, places: Sequence[str]) -> str | None:
