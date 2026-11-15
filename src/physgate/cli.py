@@ -14,9 +14,8 @@ from physgate.evaluation.observe import compare
 from physgate.evaluation.per_role import cli as per_role_cli
 from physgate.hooks import cli as hooks_cli
 from physgate.knowledge import cli as knowledge_cli
-from physgate.orchestrator import catches
+from physgate.orchestrator import catches, requirements
 from physgate.orchestrator import cli as orchestrator_cli
-from physgate.orchestrator import requirements
 from physgate.ui import cli as ui_cli
 from physgate.ui import table
 
