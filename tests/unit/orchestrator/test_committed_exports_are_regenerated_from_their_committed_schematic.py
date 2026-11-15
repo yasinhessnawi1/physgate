@@ -257,9 +257,7 @@ def checker(
     store = tmp_path / "store"
     make_store(store, node("control.loop", "control"))
     try:
-        return GitChangeChecker(
-            run, store, dict(PLANNED), environment=environment, regenerate=runs
-        )  # type: ignore[call-arg]
+        return GitChangeChecker(run, store, dict(PLANNED), environment=environment, regenerate=runs)
     except TypeError as exc:
         raise AssertionError(f"the checker takes the environment and a runner: {exc}") from None
 
