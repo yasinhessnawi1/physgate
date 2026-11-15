@@ -161,7 +161,9 @@ class Runs:
         timeout_s: float,
         roots: Sequence[str],
     ) -> int | None:
-        self.calls.append({"argv": list(argv), "work": Path(work), "roots": list(roots)})
+        self.calls.append(
+            {"argv": list(argv), "work": Path(work), "roots": list(roots), "timeout": timeout_s}
+        )
         try:
             done = subprocess.run(  # noqa: S603 - the stand-in, as the record names it
                 list(argv), cwd=work, env=dict(env), timeout=timeout_s, check=False,
@@ -511,3 +513,61 @@ def test_the_refusal_kind_is_classed_wherever_refusal_kinds_are() -> None:
     sources = set(typing.get_args(repair.FindingSource))
     assert kinds <= sources
     assert set(repair._WHO) == sources  # noqa: SLF001 - every source is worded
+
+
+# ---- the check's own bounds: how many sets, and one deadline for all of them ------------------
+
+
+def _sets_of(count: int, text: str = SOUND) -> dict[str, bytes]:
+    files: dict[str, bytes] = {}
+    for n in range(count):
+        files.update(made(text, stem=f"board{n}"))
+    return files
+
+
+def test_as_many_sets_as_the_cap_are_regenerated_and_pass(tmp_path: Path) -> None:
+    assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
+    cap = getattr(derived, "MAX_SETS_PER_CHECK", None)
+    assert isinstance(cap, int) and cap >= 1, "a stated cap on the sets one check regenerates"
+    found, runs = check(tmp_path, _sets_of(cap))
+    assert found.refused_by is None, found.reason
+    assert len(runs.calls) == cap
+
+
+def test_one_set_past_the_cap_is_refused_in_words_and_none_is_regenerated(
+    tmp_path: Path,
+) -> None:
+    assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
+    cap = getattr(derived, "MAX_SETS_PER_CHECK", None)
+    assert isinstance(cap, int) and cap >= 1, "a stated cap on the sets one check regenerates"
+    found, runs = check(tmp_path, _sets_of(cap + 1))
+    assert found.refused_by == "exports", (found.refused_by, found.reason)
+    assert found.reason is not None and f"at most {cap}" in found.reason, found.reason
+    assert runs.calls == []
+
+
+def test_each_regeneration_is_given_no_more_than_the_check_s_time_left(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
+    monkeypatch.setattr(derived, "TOTAL_DEADLINE_S", 4.0, raising=False)
+    root = stand_in_root(tmp_path, recipe(timeout_s=20))
+    found, runs = check(tmp_path, _sets_of(2), root=root)
+    assert found.refused_by is None, found.reason
+    assert [call["timeout"] <= 4.0 for call in runs.calls] == [True, True], runs.calls
+    assert runs.calls[1]["timeout"] <= runs.calls[0]["timeout"]
+
+
+def test_running_out_of_the_check_s_deadline_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
+    monkeypatch.setattr(derived, "TOTAL_DEADLINE_S", 2.0, raising=False)
+    files = _sets_of(2)
+    files[f"{MODULE}/board0.kicad_sch"] = (SOUND + "SLEEP\n").encode()
+    root = stand_in_root(tmp_path, recipe(timeout_s=20))
+    found, runs = check(tmp_path, files, root=root)
+    assert runs.calls and runs.calls[0]["timeout"] <= 2.0, runs.calls
+    assert found.refused_by == "exports", (found.refused_by, found.reason)
+    assert found.reason is not None and "deadline" in found.reason, found.reason
+    assert len(runs.calls) == 1
