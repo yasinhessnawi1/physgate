@@ -109,16 +109,16 @@ def test_the_record_names_the_pin_the_licence_and_what_the_copy_took(kicad_root:
     record = json.loads((kicad_root / "provisioned.json").read_text(encoding="utf-8"))
     linux = sys.platform.startswith("linux")
     machine = ("Linux", "x86_64") if linux else ("Darwin", "arm64")
-    assert record["kicad"] == VERSION
-    assert record["pin"] == provision.kicad_pin(provision.load_pins(), *machine)
-    assert "GPL-3.0-or-later" in record["licence"]
-    assert record["self_check"]["version"] == VERSION
-    assert kicad_root / record["program"] == _cli(kicad_root)
-    copied = record["copied"]
-    assert copied["files"] > 10_000
+    assert record.get("kicad") == VERSION
+    assert record.get("pin") == provision.kicad_pin(provision.load_pins(), *machine)
+    assert "GPL-3.0-or-later" in record.get("licence", "")
+    assert record.get("self_check", {}).get("version") == VERSION
+    assert kicad_root / record.get("program", "") == _cli(kicad_root)
+    copied = record.get("copied", {})
+    assert copied.get("files", 0) > 10_000
     if linux:
-        assert copied["dropped"] == ["usr/share/kicad/demos"]
-        assert copied["names_copied_apart"] > 0
+        assert copied.get("dropped") == ["usr/share/kicad/demos"]
+        assert copied.get("names_copied_apart", 0) > 0
         assert not (kicad_root / "app" / "usr" / "share" / "kicad" / "demos").exists()
         assert (kicad_root / "app" / "usr" / "share" / "kicad" / "symbols").is_dir()
     else:

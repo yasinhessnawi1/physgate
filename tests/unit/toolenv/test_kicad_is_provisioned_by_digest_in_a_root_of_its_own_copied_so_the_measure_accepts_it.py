@@ -30,6 +30,7 @@ import json
 import os
 import stat
 import sys
+import tarfile
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
@@ -359,6 +360,32 @@ def test_a_dropped_part_is_not_copied(tmp_path: Path) -> None:
     assert (into / "share" / "library.txt").read_bytes() == b"a library\n"
 
 
+def test_a_dropped_part_may_be_a_link_out_of_the_tree_which_is_then_not_copied(
+    tmp_path: Path,
+) -> None:
+    tree = _release(tmp_path)
+    (tree / "shared" / "settings.py").symlink_to("/etc/a-host-file.py")
+    into = tmp_path / "copy"
+    counts = _copied(tree, into, ("usr/shared/settings.py",))
+    assert not os.path.lexists(into / "shared" / "settings.py")
+    assert isinstance(counts, dict) and counts.get("dropped") == ["usr/shared/settings.py"]
+    assert manifest([into]).entries > 8
+
+
+def test_every_link_the_measure_would_refuse_is_named_at_once(tmp_path: Path) -> None:
+    tree = _release(tmp_path)
+    (tree / "first").symlink_to("/etc/one")
+    (tree / "share" / "second").symlink_to("../../two")
+    provision = _provision()
+    _refused(
+        provision,
+        lambda: _copied(tree, tmp_path / "copy"),
+        "2 links",
+        "first (/etc/one)",
+        "share/second (../../two)",
+    )
+
+
 def test_the_copy_says_what_it_made_acceptable(tmp_path: Path) -> None:
     tree = _release(tmp_path)
     counts = _copied(tree, tmp_path / "copy", ("share/demos",))
@@ -515,6 +542,98 @@ def test_the_self_check_runs_with_downloads_refused_and_its_writes_in_provisioni
     assert seen.get("PATH") == "/usr/bin:/bin"
     assert "DISPLAY" not in seen
     assert "WAYLAND_DISPLAY" not in seen
+
+
+# ---- the Linux release unpacked ---------------------------------------------------------------
+
+#: A stand-in image: asked to unpack itself, it leaves a tree as the real runtime does.
+IMAGE = b"#!/bin/sh\nmkdir -p squashfs-root/bin\necho a program > squashfs-root/bin/tool-cli\n"
+
+
+def _archive(tmp_path: Path, *members: tuple[str, bytes]) -> Path:
+    archive = tmp_path / "release.tar"
+    with tarfile.open(archive, "w") as tar:
+        for name, body in members:
+            (tmp_path / "member").write_bytes(body)
+            tar.add(tmp_path / "member", arcname=name)
+    return archive
+
+
+def _unpacked(provision: ModuleType, archive: Path, inner: dict[str, str], work: Path) -> object:
+    work.mkdir()
+    for name in ("home", "tmp"):
+        (work / name).mkdir()
+    return _named(provision, "_linux_release")(archive, _pin(inner=inner), work)
+
+
+def test_the_archive_s_one_image_is_held_to_its_digest_and_unpacks_its_own_tree(
+    tmp_path: Path,
+) -> None:
+    provision = _provision()
+    archive = _archive(tmp_path, ("tool.AppImage", IMAGE))
+    inner = {"file": "tool.AppImage", "sha256": hashlib.sha256(IMAGE).hexdigest()}
+    tree = Path(str(_unpacked(provision, archive, inner, tmp_path / "work")))
+    assert tree.name == "squashfs-root"
+    assert (tree / "bin" / "tool-cli").read_text() == "a program\n"
+    assert not (tmp_path / "work" / "kicad-archive" / "tool.AppImage").exists()
+
+
+def test_an_image_whose_bytes_differ_from_its_pin_is_refused_naming_both_digests(
+    tmp_path: Path,
+) -> None:
+    provision = _provision()
+    archive = _archive(tmp_path, ("tool.AppImage", IMAGE))
+    pinned = hashlib.sha256(b"another image").hexdigest()
+    inner = {"file": "tool.AppImage", "sha256": pinned}
+    _refused(
+        provision,
+        lambda: _unpacked(provision, archive, inner, tmp_path / "work"),
+        "tool.AppImage",
+        pinned,
+        hashlib.sha256(IMAGE).hexdigest(),
+    )
+    assert not (tmp_path / "work" / "kicad-tree" / "squashfs-root").exists()
+
+
+@pytest.mark.parametrize(
+    "members",
+    [
+        (("tool.AppImage", IMAGE), ("extra", b"one more file")),
+        (("other.AppImage", IMAGE),),
+    ],
+    ids=["a-second-member", "another-name"],
+)
+def test_an_archive_that_is_not_exactly_the_one_image_is_refused(
+    tmp_path: Path, members: tuple[tuple[str, bytes], ...]
+) -> None:
+    provision = _provision()
+    archive = _archive(tmp_path, *members)
+    inner = {"file": "tool.AppImage", "sha256": hashlib.sha256(IMAGE).hexdigest()}
+    _refused(
+        provision,
+        lambda: _unpacked(provision, archive, inner, tmp_path / "work"),
+        "release.tar",
+        "one image",
+    )
+
+
+def test_the_command_line_refuses_a_kicad_root_in_the_environment_before_building_anything(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    provision = _provision()
+    built: list[object] = []
+
+    def build(*args: object, **_: object) -> dict[str, object]:
+        built.append(args)
+        return {"self_check": {}}
+
+    monkeypatch.setattr(provision, "provision", build)
+    monkeypatch.setattr(provision, "provision_kicad", build)
+    env = tmp_path / "env"
+    status = provision.main(["--dest", str(env), "--kicad-dest", str(env / "kicad")])
+    assert status == 1
+    assert built == []
+    assert "inside" in capsys.readouterr().err
 
 
 # ---- the program's place, and macOS -----------------------------------------------------------
