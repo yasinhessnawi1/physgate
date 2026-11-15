@@ -28,7 +28,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from startup_stand_in import stand_in_spawn_env
 
 from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.per_role.arms.raw import BudgetWatch
@@ -419,19 +418,17 @@ def test_the_raw_session_declares_its_reaper_canary_wherever_the_reaper_runs(
     # so the raw arm's declaration is held on Linux too.
     import argparse
 
-    from test_the_raw_arm_s_credential_is_handled_as_a_role_session_s import _setup
+    from test_the_raw_arm_s_credential_is_handled_as_a_role_session_s import (
+        _setup,
+        capture_installer,
+    )
 
     from physgate.hooks.cli import add_parser
     from physgate.oslayer import reaper_install
 
-    seen: list[list[str]] = []
-
-    def capture(argv: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
-        seen.append(argv)
-        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": stand_in_spawn_env()}
-        return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
-
-    monkeypatch.setattr(subprocess, "run", capture)
+    # This thread's calls alone: a watch thread an earlier row left can read the process table
+    # while this row's patch stands, and its ``ps`` is no installer call.
+    seen = capture_installer(monkeypatch)
     worktree = outside_tmp / "worktree"
     worktree.mkdir()
     raw._install(
@@ -441,6 +438,7 @@ def test_the_raw_session_declares_its_reaper_canary_wherever_the_reaper_runs(
         Path(session_temps_root()) / "0123456789",
     )
     monkeypatch.undo()
+    assert seen and seen[0][1:3] == ["hooks", "install"], seen
     monkeypatch.setattr(reaper_install, "wanted", lambda platform=sys.platform: True)
     parser = argparse.ArgumentParser()
     add_parser(parser.add_subparsers(dest="command"))
