@@ -315,9 +315,7 @@ def _append(withheld: Path, name: str, payloads: Sequence[Mapping[str, Any]]) ->
         msg = f"{withheld} is not there; the role's root is made with it"
         raise _refuse("register_unreadable", msg)
     try:
-        lock = os.open(
-            name + LOCK_SUFFIX, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=fd
-        )
+        lock = os.open(name + LOCK_SUFFIX, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=fd)
         try:
             fcntl.flock(lock, fcntl.LOCK_EX)
             lines = _lines_of(fd, name)
