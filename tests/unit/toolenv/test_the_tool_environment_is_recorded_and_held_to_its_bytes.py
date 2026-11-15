@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -38,6 +39,12 @@ def _environment(tmp_path: Path) -> tuple[Path, Path, Path]:
     tool.write_text("#!/bin/sh\n")
     tool.chmod(0o755)
     (root / "lib" / "control" / "margins.py").write_text("def margin(): return 1\n")
+    # Provisioned an hour before, as a real environment is: a stat's times come from a clock
+    # that moves once a tick, so an edit of the same size made within the tick the file was
+    # written in would keep every time the scan reads, and a row would test the clock.
+    an_hour_ago = time.time() - 3600
+    for path in (root, *root.rglob("*")):
+        os.utime(path, (an_hour_ago, an_hour_ago), follow_symlinks=False)
     return root, python, tool
 
 
@@ -46,7 +53,7 @@ def _runner(
     *,
     physgate: bool = False,
     prefix: str | None = None,
-    **changes: object,
+    changes: dict[str, object] | None = None,
 ) -> Runner:
     answer: dict[str, object] = {
         "version": "3.12.9",
@@ -59,7 +66,7 @@ def _runner(
         "physgate": physgate,
         "distributions": [["control", "0.10.1"], ["numpy", "2.1.2"]],
     }
-    answer.update(changes)
+    answer.update(changes or {})
 
     def run(argv: Sequence[str]) -> str | None:
         if argv[1:2] == ["--version"]:
@@ -118,6 +125,16 @@ def test_a_write_that_puts_the_modification_time_back_is_still_seen(tmp_path: Pa
     require_unchanged(env, at_start)
     library = root / "lib" / "control" / "margins.py"
     before = os.stat(library)
+    # Setting a file's times stamps its change time with the clock as it is, which moves once a
+    # tick; a session writes long after its environment was provisioned. So the edit waits
+    # until a change would be stamped later than the file's last one, or the row tests the tick.
+    tick = tmp_path / "tick"
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        tick.write_text("x")
+        if os.stat(tick).st_ctime_ns > before.st_ctime_ns:
+            break
+        time.sleep(0.001)
     library.write_text("def margin(): return 3\n")  # same size, other bytes
     os.utime(library, ns=(before.st_atime_ns, before.st_mtime_ns))
     with pytest.raises(ToolEnvironmentError):
@@ -423,7 +440,7 @@ def test_code_the_interpreter_loads_from_outside_the_roots_is_refused(
         for key, value in change.items()
     }
     with pytest.raises(ToolEnvironmentError, match="outside"):
-        _measure(root, python, tool, runner=_runner(root, **placed))
+        _measure(root, python, tool, runner=_runner(root, changes=placed))
 
 
 @pytest.mark.parametrize("missing", ["base_prefix", "exec_prefix", "base_exec_prefix", "path"])
@@ -500,7 +517,11 @@ def test_an_entry_that_vanishes_while_walked_is_refused(
     monkeypatch.setattr(walking, "_check", vanishing)
     for walk in (manifest, scan):
         second.write_text("b = 1\n")
-        raised = _raised(lambda walk=walk: walk([root]))
+
+        def walked(walk: Callable[[Sequence[Path]], object] = walk) -> object:
+            return walk([root])
+
+        raised = _raised(walked)
         assert isinstance(raised, ToolEnvironmentError), raised
 
 
@@ -532,3 +553,39 @@ def test_a_file_swapped_for_a_pipe_while_walked_is_refused_without_waiting(
         thread.join(10)
         pytest.fail("the walk waited on a pipe put in a file's place")
     assert isinstance(outcome[0], ToolEnvironmentError), outcome
+
+
+def test_every_recorded_field_is_what_was_measured_where_it_really_is(tmp_path: Path) -> None:
+    # The interpreter, a native tool and the prefix are each named through a link: the record
+    # keeps the names as named and everything else where it really is, and counts what it walked.
+    root, python, tool = _environment(tmp_path)
+    real_python = root / "bin" / "python3.12"
+    python.rename(real_python)
+    python.symlink_to("python3.12")
+    linked_tool = root / "bin" / "gcc"
+    linked_tool.symlink_to("avr-gcc")
+    (root / "current").symlink_to("lib")
+    env = measure(
+        str(python),
+        [str(root)],
+        native={"gcc": str(linked_tool)},
+        forbidden={},
+        runner=_runner(root, prefix=str(root / "current")),
+    )
+    assert env.interpreter == str(python)
+    assert env.resolved == os.path.realpath(real_python) != env.interpreter
+    assert env.prefix == os.path.realpath(root / "lib") != str(root / "current")
+    assert [(t.name, t.path) for t in env.native_tools] == [("gcc", str(linked_tool))]
+    assert env.native_tools[0].resolved == os.path.realpath(tool) != str(linked_tool)
+    assert env.roots == (str(root),)
+    entries, size = 1, 0
+    for directory, dirs, files in os.walk(root):
+        for name in dirs + files:
+            entries += 1
+            path = os.path.join(directory, name)
+            if os.path.isfile(path) and not os.path.islink(path):
+                size += os.lstat(path).st_size
+    walked = manifest([root])
+    assert env.total_bytes == walked.total_bytes == size > 0
+    assert env.entries == walked.entries == entries
+    assert env.manifest_digest == walked.digest

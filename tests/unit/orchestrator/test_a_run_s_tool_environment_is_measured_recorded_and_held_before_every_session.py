@@ -28,6 +28,8 @@ from orch_helpers import SCRIPTED_BOUNDS, make_config
 from pydantic import ValidationError
 from test_the_physgate_command_starts_and_decides import PARAMS, fake_binary
 
+from physgate.hooks import settings
+from physgate.hooks.settings import TOOL_SEARCH, session_tool_search
 from physgate.orchestrator import cli, dispatch
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
@@ -298,6 +300,16 @@ def test_a_new_run_s_configuration_measures_the_environment_its_parameters_name(
         configured({**PARAMS, "tool_environment": named, "tool_servers": claimed}).tool_servers
         == recorded_servers()
     )
+    # Whether the sessions were offered the search tool is read from the deny their settings
+    # carry, never from the parameters: a parameter that says otherwise moves nothing, and a
+    # profile that stops denying it moves the record.
+    assert config.tool_search == session_tool_search() == "denied"
+    asked_offered = {**PARAMS, "tool_environment": None, "tool_search": "offered"}
+    assert configured(asked_offered).tool_search == "denied"
+    offered = tuple(name for name in settings.PROFILE_DENIED["baseline"] if name != TOOL_SEARCH)
+    monkeypatch.setitem(settings.PROFILE_DENIED, "baseline", offered)
+    assert configured({**PARAMS, "tool_environment": None}).tool_search == "offered"
+    assert configured({**asked_offered, "tool_search": "denied"}).tool_search == "offered"
 
 
 # -- held to the record ----------------------------------------------------------------------

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from physgate.hooks import hardware
+from physgate.hooks.hardware import FLASHERS, GUARDED
 from physgate.hooks.shell import command_key
 
 pytestmark = pytest.mark.integration
@@ -46,7 +46,7 @@ def _programs() -> list[str]:
 
 def test_every_program_in_the_environment_is_classed() -> None:
     programs = _programs()
-    judged = hardware.FLASHERS | frozenset(hardware.GUARDED)
+    judged = FLASHERS | frozenset(GUARDED)
     unclassed = [name for name in programs if command_key(name) not in judged | REACHES_NO_BOARD]
     assert programs, "the environment's venv/bin holds nothing"
     assert not unclassed, f"classed by no list: {unclassed}; every program there: {programs}"
@@ -56,5 +56,5 @@ def test_the_environment_s_debugger_and_serial_terminal_are_refused_as_flashers(
     programs = _programs()
     for name in ("piodebuggdb", "pyserial-miniterm"):
         assert name in programs, f"{name} is not in the environment: {programs}"
-        assert name in hardware.FLASHERS
-    assert not REACHES_NO_BOARD & (hardware.FLASHERS | frozenset(hardware.GUARDED))
+        assert name in FLASHERS
+    assert not REACHES_NO_BOARD & (FLASHERS | frozenset(GUARDED))

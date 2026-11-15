@@ -84,6 +84,12 @@ devices of that kind (the hooks' own table of them) are denied to every command 
 session, to read and to write: without the read denial a read-only open of a serial device
 succeeded inside the sandbox (measured on macOS), which is all a serial monitor needs. On
 macOS a USB device is not a file and no rule here names it.
+
+**The file tools are left to the hooks.** No ``Read`` permission rule is written:
+Claude Code applies such a rule before any hook runs, so a refused tool call would
+be refused without the hooks' reason and without a line in their log, the record
+the bypass measurements count. The hooks refuse the file tools on what no session
+reads, and log it; the OS layer bounds the shell, where the hooks cannot see.
 """
 
 from __future__ import annotations

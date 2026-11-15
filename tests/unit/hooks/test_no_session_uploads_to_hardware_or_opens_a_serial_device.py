@@ -624,7 +624,7 @@ def test_every_hook_together_refuses_these_in_every_profile(tmp_path: Path, prof
 
     def decided(command: str) -> bool:
         hook_input = HookInput.model_validate(bash(command, cwd=config.worktree))
-        return dispatch(REGISTRY.values(), hook_input, config).allow
+        return dispatch(list(REGISTRY.values()), hook_input, config).allow
 
     for command in (
         "env -S 'pio run -t upload'",
