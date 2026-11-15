@@ -638,9 +638,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             reads.setdefault(sessions, "shell_denied")
     if request.sentinel_apart is not None:
         apart = request.sentinel_apart
-        own = [request.worktree, request.user_home, request.state_dir, request.target_dir]
-        own += [request.claude_config_dir, request.os_layer_temp_dir, request.temp_dir]
-        for place in (p for p in own if p is not None):
+        places: list[str | None] = [request.worktree, request.user_home, request.state_dir]
+        places += [request.target_dir]
+        places += [request.claude_config_dir, request.os_layer_temp_dir, request.temp_dir]
+        for place in (p for p in places if p is not None):
             if _inside(apart, place) or _inside(place, apart):
                 msg = (
                     f"the sentinel's place apart {apart} and the session's own place {place} "

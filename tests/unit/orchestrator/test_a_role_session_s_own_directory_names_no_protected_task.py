@@ -153,7 +153,7 @@ def _no_place_apart(monkeypatch: pytest.MonkeyPatch) -> None:
             argv = [w for i, w in enumerate(argv) if not any(i in (j, j + 1) for j in at)]
         return real(argv, *a, **k)
 
-    monkeypatch.setattr(dispatch.subprocess, "run", install)
+    monkeypatch.setattr(subprocess, "run", install)
 
 
 def test_after_its_start_the_session_s_own_directory_names_no_protected_task(
@@ -196,7 +196,7 @@ def test_a_protected_file_changed_during_the_session_is_caught_at_its_end_check(
 ) -> None:
     run = HeldOutRun(tmp_path, "changes-held-out")
     loop = Rig(run.run.run_dir).open()
-    raised: BaseException | None = None
+    raised: InvocationError | None = None
     try:
         run.dispatcher(monkeypatch).run(run.request(), loop._spawned)
     except InvocationError as exc:
