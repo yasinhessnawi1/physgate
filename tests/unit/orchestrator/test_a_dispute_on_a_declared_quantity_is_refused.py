@@ -39,7 +39,7 @@ from physgate.orchestrator.dispute import DisputeError, parse  # noqa: E402
 from physgate.state.schema import DECLARED_SOURCE  # noqa: E402
 from physgate.state.store import Store  # noqa: E402
 
-RECORD = {"item_id": "run-1-parts-1", "decision_sha256": "a" * 64, "operator": "yasin"}
+RECORD = {"item_id": "run-1-parts-1", "decision_sha256": "a" * 64, "operator": "operator"}
 DECLARED = {
     "value": 24,
     "unit": "V",

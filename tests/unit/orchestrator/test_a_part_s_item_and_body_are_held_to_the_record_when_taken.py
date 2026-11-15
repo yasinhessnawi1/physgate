@@ -71,7 +71,7 @@ def test_a_choice_taken_on_another_view_than_the_item_s_line_halts_the_run(tmp_p
         item_id=IDS[0],
         ts="2026-11-12T10:00:00.000000Z",
         decision="choose find",
-        resolved_by="yasin",
+        resolved_by="operator",
         verb="choose",
         position="find",
         shown_sha256="a" * 64,

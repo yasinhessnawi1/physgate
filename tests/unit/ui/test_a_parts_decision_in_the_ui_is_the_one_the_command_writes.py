@@ -156,7 +156,7 @@ def served(built: dict[str, Path], tmp_path: Path) -> Iterator[tuple[Page, Path]
     root = tmp_path / "ui-root"
     root.mkdir()
     run_dir = _copy(built["run"], root)
-    context = replace(context_over(root, ui_root=built["ui"]), operator="yasin")
+    context = replace(context_over(root, ui_root=built["ui"]), operator="operator")
     with serving(context) as live:
         yield Page(live.port, live.token), run_dir
 
@@ -200,7 +200,7 @@ def test_a_part_decided_in_the_ui_writes_exactly_what_the_command_writes(
     try:
         code = main(
             ["queue", "resolve", item_id, "--run-dir", str(by_command), "--choose", position,
-             *flags, "--sha256", view.digests[item_id], "--by", "yasin"]
+             *flags, "--sha256", view.digests[item_id], "--by", "operator"]
         )  # fmt: skip
     except SystemExit as exc:
         code = int(exc.code or 0)
@@ -290,7 +290,7 @@ def test_a_body_that_does_not_go_with_its_choice_is_refused_with_409_as_the_comm
     ] + [flag for text in (parts or {}).get("texts", []) for flag in ("--text", text)]
     code = main(
         ["queue", "resolve", item_id, "--run-dir", str(by_command), "--choose", position,
-         *flags, "--sha256", view.digests[item_id], "--by", "yasin"]
+         *flags, "--sha256", view.digests[item_id], "--by", "operator"]
     )  # fmt: skip
     assert code != 0
     assert says in capsys.readouterr().err

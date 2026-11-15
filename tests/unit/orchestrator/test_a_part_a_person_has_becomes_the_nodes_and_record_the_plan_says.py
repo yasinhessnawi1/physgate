@@ -30,7 +30,7 @@ TS = "2026-11-12T10:30:00.000000Z"
 
 
 def _taken(choice: str, stated: Any = None, item: str = IDS[0]) -> TakenPart:  # noqa: ANN401
-    return TakenPart(item_id=item, choice=choice, body=stated, operator="yasin", decided_ts=TS)  # type: ignore[arg-type]
+    return TakenPart(item_id=item, choice=choice, body=stated, operator="operator", decided_ts=TS)  # type: ignore[arg-type]
 
 
 STATED = body({"mass": (0.4, "kg"), "stall_current": (2.4, "A"), "extra_note": (1, "m")})
@@ -43,7 +43,7 @@ def test_a_component_s_own_names_and_a_name_added_go_to_its_node() -> None:
         owner_role="control",
         item_id=IDS[0],
         body=STATED,
-        operator="yasin",
+        operator="operator",
         decided_ts=TS,
     )
     assert payload is not None
@@ -66,7 +66,7 @@ def test_the_plan_s_shared_names_go_to_the_cross_node_joined_to_the_component() 
         owner_role="sizing",
         item_id=IDS[0],
         body=STATED,
-        operator="yasin",
+        operator="operator",
         decided_ts=TS,
     )
     assert payload is not None
@@ -87,7 +87,7 @@ def test_each_quantity_carries_the_decision_that_made_it() -> None:
         owner_role="control",
         item_id=IDS[0],
         body=STATED,
-        operator="yasin",
+        operator="operator",
         decided_ts=TS,
     )
     assert payload is not None
@@ -100,7 +100,7 @@ def test_each_quantity_carries_the_decision_that_made_it() -> None:
         "declared": {
             "item_id": IDS[0],
             "decision_sha256": parts_sha256(STATED),
-            "operator": "yasin",
+            "operator": "operator",
         },
     }
 
@@ -114,7 +114,7 @@ def test_a_node_that_would_hold_no_name_is_not_written() -> None:
             owner_role="sizing",
             item_id=IDS[0],
             body=only_own,
-            operator="yasin",
+            operator="operator",
             decided_ts=TS,
         )
         is None

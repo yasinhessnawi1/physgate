@@ -29,7 +29,7 @@ def _declared(value: float = 0.4, unit: str = "kg", item: str = ITEM) -> dict[st
         "unit": unit,
         "source": RESERVED,
         "written_by": "control",
-        "declared": {"item_id": item, "decision_sha256": SHA, "operator": "yasin"},
+        "declared": {"item_id": item, "decision_sha256": SHA, "operator": "operator"},
     }
 
 

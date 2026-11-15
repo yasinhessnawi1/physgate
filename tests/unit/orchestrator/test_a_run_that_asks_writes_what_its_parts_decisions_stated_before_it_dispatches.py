@@ -120,7 +120,7 @@ def test_a_value_is_written_where_the_plan_says_and_carries_its_decision(tmp_pat
     assert quantity["declared"] == {
         "item_id": IDS[0],
         "decision_sha256": taken["parts_sha256"],
-        "operator": "yasin",
+        "operator": "operator",
     }
     assert quantity["declared"]["item_id"] == IDS[0]
     assert set(made["quantities"]) == {"mass"}

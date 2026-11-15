@@ -38,7 +38,7 @@ def _resolve(run_dir: Path, item_id: str, *args: str) -> Any:  # noqa: ANN401
     digest = read_queue(run_dir).digests[item_id]
     return _main(
         "queue", "resolve", item_id, "--run-dir", str(run_dir), "--sha256", digest,
-        "--by", "yasin", *args,
+        "--by", "operator", *args,
     )  # fmt: skip
 
 
@@ -57,7 +57,7 @@ def test_have_is_decided_with_each_value_it_states(tmp_path: Path) -> None:
     assert (line["decision"], line["position"], line["resolved_by"]) == (
         "choose have",
         "have",
-        "yasin",
+        "operator",
     )
     assert line["parts"] == {
         "declared": {
@@ -145,7 +145,7 @@ def test_a_whole_number_past_a_float_is_refused_by_the_command_never_raised(
 def test_free_text_decides_no_part(tmp_path: Path) -> None:
     run_dir = _run(tmp_path)
     assert _resolve(run_dir, IDS[1], "--choose", "find") == 0, "the command decides no part"
-    args = ("queue", "resolve", IDS[0], "--run-dir", str(run_dir), "--by", "yasin")
+    args = ("queue", "resolve", IDS[0], "--run-dir", str(run_dir), "--by", "operator")
     assert _main(*args, "--decision", "I have one") == 2
     assert len(_lines(run_dir)) == 1
 
@@ -163,7 +163,7 @@ def test_find_remaining_chooses_find_on_every_open_part_each_on_its_own_view(
     run_dir = _run(tmp_path)
     assert _resolve(run_dir, IDS[1], "--choose", "have", "--declare", "mass=0.02:kg") == 0
     capsys.readouterr()
-    assert _find_remaining(run_dir, "--find-remaining", "--by", "yasin") == 0
+    assert _find_remaining(run_dir, "--find-remaining", "--by", "operator") == 0
     printed = json.loads(capsys.readouterr().out)
     assert [one["item_id"] for one in printed["resolved"]] == [IDS[0], IDS[2]]
     have, first, third = _lines(run_dir)
@@ -175,7 +175,7 @@ def test_find_remaining_chooses_find_on_every_open_part_each_on_its_own_view(
             "choose find",
             "find",
         )
-        assert (line["resolved_by"], line["shown_sha256"]) == ("yasin", digests[item_id])
+        assert (line["resolved_by"], line["shown_sha256"]) == ("operator", digests[item_id])
         assert "parts" not in line
     assert read_queue(run_dir).open_items() == []
 
@@ -185,25 +185,25 @@ def test_find_remaining_decides_no_item_of_another_kind(tmp_path: Path) -> None:
 
     run_dir = _run(tmp_path)
     other = _arbitration(run_dir)
-    assert _find_remaining(run_dir, "--find-remaining", "--by", "yasin") == 0
+    assert _find_remaining(run_dir, "--find-remaining", "--by", "operator") == 0
     assert [one.item_id for one in read_queue(run_dir).open_items()] == [other]
     assert len(_lines(run_dir)) == 3
 
 
 def test_with_no_part_open_find_remaining_writes_nothing(tmp_path: Path) -> None:
     run_dir = _run(tmp_path)
-    assert _find_remaining(run_dir, "--find-remaining", "--by", "yasin") == 0
+    assert _find_remaining(run_dir, "--find-remaining", "--by", "operator") == 0
     before = decisions_bytes(run_dir)
-    assert _find_remaining(run_dir, "--find-remaining", "--by", "yasin") == 0
+    assert _find_remaining(run_dir, "--find-remaining", "--by", "operator") == 0
     assert decisions_bytes(run_dir) == before and len(_lines(run_dir)) == 3
 
 
-@pytest.mark.parametrize("args", [("--by", "yasin"), ("--find-remaining",), ()])
+@pytest.mark.parametrize("args", [("--by", "operator"), ("--find-remaining",), ()])
 def test_nothing_is_chosen_unless_a_person_asks_and_says_who(
     tmp_path: Path, args: tuple[str, ...]
 ) -> None:
     run_dir = _run(tmp_path)
-    assert _find_remaining(run_dir, "--find-remaining", "--by", "yasin") == 0, "no such command"
+    assert _find_remaining(run_dir, "--find-remaining", "--by", "operator") == 0, "no such command"
     fresh = listed(tmp_path / "other", item(MOTOR, 1, 1))
     assert _find_remaining(fresh, *args) == 2
     assert decisions_bytes(fresh) == b""

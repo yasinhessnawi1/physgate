@@ -33,7 +33,7 @@ from physgate.state.divergence import Divergence
 from physgate.state.schema import DECLARED_SOURCE
 from physgate.state.store import JournalLine
 
-RECORD = {"item_id": "run-1-parts-1", "decision_sha256": "a" * 64, "operator": "yasin"}
+RECORD = {"item_id": "run-1-parts-1", "decision_sha256": "a" * 64, "operator": "operator"}
 
 
 def q(value: float, unit: str, source: str = "datasheet", **more: Any) -> dict[str, Any]:  # noqa: ANN401

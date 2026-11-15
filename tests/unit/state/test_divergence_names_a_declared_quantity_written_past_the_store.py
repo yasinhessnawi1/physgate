@@ -26,7 +26,7 @@ from physgate.state.store import Store
 RESERVED = "declared by the person"
 FORGED = "declared_forged"
 FIXED = "declared_fixed"
-RECORD = {"item_id": "run-1-parts-1", "decision_sha256": "a" * 64, "operator": "yasin"}
+RECORD = {"item_id": "run-1-parts-1", "decision_sha256": "a" * 64, "operator": "operator"}
 
 
 def _declared(value: float = 0.4, unit: str = "kg") -> dict[str, Any]:

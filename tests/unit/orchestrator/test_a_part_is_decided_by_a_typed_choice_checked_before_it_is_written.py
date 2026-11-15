@@ -220,7 +220,7 @@ def test_approve_and_reject_decide_no_part(tmp_path: Path, verb: str, note: str 
 def test_free_text_decides_no_part(tmp_path: Path) -> None:
     run_dir = _run(tmp_path)
     found = outcome_of(
-        lambda: record_decision(run_dir, ITEM, decision="I have one", resolved_by="yasin")
+        lambda: record_decision(run_dir, ITEM, decision="I have one", resolved_by="operator")
     )
     _refused(found, "choosing have, make or find")
     assert decisions_bytes(run_dir) == b""
@@ -275,13 +275,13 @@ def test_a_choice_is_bound_to_the_view_it_was_taken_on(tmp_path: Path) -> None:
     stale = shown(run_dir, ITEM).model_copy(update={"item_sha256": "0" * 64})
     found = outcome_of(
         lambda: record_decision(
-            run_dir, ITEM, person=person("have", body(MASS)), resolved_by="yasin", shown=stale
+            run_dir, ITEM, person=person("have", body(MASS)), resolved_by="operator", shown=stale
         )
     )
     assert isinstance(found, StaleViewError), found
     assert decisions_bytes(run_dir) == b""
     unbound = outcome_of(
-        lambda: record_decision(run_dir, ITEM, person=person("find"), resolved_by="yasin")
+        lambda: record_decision(run_dir, ITEM, person=person("find"), resolved_by="operator")
     )
     _refused(unbound, "bound to the view")
 
@@ -444,7 +444,7 @@ def _line(tmp_path: Path, **changes: Any) -> Path:  # noqa: ANN401
         "ts": TS,
         "kind": "resolution",
         "decision": "choose have",
-        "resolved_by": "yasin",
+        "resolved_by": "operator",
         "verb": "choose",
         "position": "have",
         "shown_sha256": read_queue(run_dir).digests[ITEM],

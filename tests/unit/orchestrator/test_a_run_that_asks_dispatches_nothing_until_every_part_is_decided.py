@@ -199,7 +199,7 @@ def _forged(run_dir: Path, **fields: Any) -> None:  # noqa: ANN401
         "item_id": IDS[0],
         "ts": "2026-11-12T10:00:00.000000Z",
         "kind": "resolution",
-        "resolved_by": "yasin",
+        "resolved_by": "operator",
         "shown_sha256": read_queue(run_dir).digests[IDS[0]],
     }
     line.update(fields)

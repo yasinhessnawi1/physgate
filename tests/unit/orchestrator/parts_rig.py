@@ -144,7 +144,7 @@ def decide(
             run_dir,
             item_id_,
             person=person(position, parts, verb, note),
-            resolved_by="yasin",
+            resolved_by="operator",
             shown=shown(run_dir, item_id_),
         )
     except AssertionError:
@@ -309,7 +309,7 @@ def taken(
         "verb": "choose",
         "position": position,
         "note": None,
-        "resolved_by": "yasin",
+        "resolved_by": "operator",
         "decided_ts": log[-1]["ts"],
         "decision_offset": 0,
         "shown_sha256": "a" * 64,

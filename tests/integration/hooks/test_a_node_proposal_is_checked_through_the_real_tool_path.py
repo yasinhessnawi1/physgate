@@ -245,7 +245,7 @@ FORGED = _node(
             "declared": {
                 "item_id": "run-1-parts-1",
                 "decision_sha256": "a" * 64,
-                "operator": "yasin",
+                "operator": "operator",
             },
         }
     },

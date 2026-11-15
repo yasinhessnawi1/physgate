@@ -31,7 +31,7 @@ def _declared(value: float = 0.4, unit: str = "kg", **record: Any) -> dict[str, 
         "declared": {
             "item_id": "run-1-parts-1",
             "decision_sha256": "a" * 64,
-            "operator": "yasin",
+            "operator": "operator",
         }
         | record,
     }

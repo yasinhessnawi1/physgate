@@ -51,7 +51,7 @@ def _decide(run_dir: Path, item_id: str, position: Position, parts: Any = None) 
         run_dir,
         item_id,
         person=PersonDecision(verb="choose", note=None, position=position, parts=parts),
-        resolved_by="yasin",
+        resolved_by="operator",
         shown=ShownItem(
             item_sha256=read_queue(run_dir).digests[item_id],
             trajectories=statuses_now(run_dir, item_id),
