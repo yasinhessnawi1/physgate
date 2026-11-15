@@ -18,9 +18,11 @@ import shutil
 from pathlib import Path
 
 import pytest
-from ui_rig import RECORDER, context_over, fake_ui, real_runs, sealed_session, serving
+from ui_rig import RECORDER, context_over, fake_ui, real_runs, sealed_session, serving, swept
 
 from physgate.state.store import journal_records_after
+from physgate.ui.routes import split_target
+from physgate.ui.table import registered
 
 #: The marker written into every planted target: it must never appear in a response.
 MARKER = b"PLANTED-TARGET-MARKER"
@@ -348,3 +350,63 @@ def test_a_library_route_refuses_a_file_it_reads_that_links_out_of_its_roots(
     real_target = str(target.resolve())
     tried = [p for p in RECORDER.opened if str(Path(p).resolve()) == real_target]
     assert tried == [], f"a library route tried to open the planted target: {tried}"
+
+
+# -- the routes the composition root registers ------------------------------------------------
+#
+# The Evidence screen's routes, registered beside the table from the evaluation side, read the
+# same run files and are planted the same three ways. A listing over every run refuses the
+# planted run in its own row: the listing answers, that run's row carries the reason and none of
+# the target's bytes, and no other number. A route over one run answers 403. Either way the
+# target is never opened.
+
+#: Each run file a registered route reads, and per route whether it answers 403 or a row.
+REGISTERED_PLANTS: dict[str, dict[str, str]] = {
+    "run.json": {"/api/evidence/runs": "row"},
+    "events.jsonl": {"/api/evidence/runs": "row"},
+}
+
+
+def test_every_route_the_composition_root_registers_is_planted_here() -> None:
+    swept()
+    reached = [
+        segments
+        for routes in REGISTERED_PLANTS.values()
+        for target in routes
+        if (segments := split_target(target)) is not None
+    ]
+    unplanted = [
+        route.pattern
+        for route in registered()
+        if not any(route.match(segments) is not None for segments in reached)
+    ]
+    assert unplanted == []
+
+
+@pytest.mark.parametrize("toward", TOWARD)
+@pytest.mark.parametrize("planted", sorted(REGISTERED_PLANTS))
+def test_a_registered_route_refuses_a_run_file_that_links_out_of_its_roots(
+    built: dict[str, Path], tmp_path: Path, planted: str, toward: str
+) -> None:
+    import json
+
+    world = _world(built, tmp_path)
+    session = sealed_session(world["root"] / RUN)
+    target = _plant(world, planted, toward, session)
+    context = context_over(world["root"], ui_root=built["ui"], held_out=(str(world["held"]),))
+    routes = REGISTERED_PLANTS[planted]
+    with serving(context) as live, RECORDER.recording():
+        answers = {route: live.request("GET", route) for route in routes}
+    for route, expected in routes.items():
+        status, _, body = answers[route]
+        assert MARKER not in body, route
+        if expected == "403":
+            assert status == 403, (route, status, body[:200])
+            continue
+        assert status == 200, (route, status, body[:200])
+        (row,) = [row for row in json.loads(body)["runs"] if row["name"] == RUN]
+        assert "error" in row, row
+        assert not {"manifest_id", "flags", "pins"} & set(row), row
+    real_target = str(target.resolve())
+    tried = [p for p in RECORDER.opened if str(Path(p).resolve()) == real_target]
+    assert tried == [], f"a registered route tried to open the planted target: {tried}"

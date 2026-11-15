@@ -18,6 +18,15 @@ from physgate.orchestrator import requirements
 from physgate.ui import cli as ui_cli
 
 
+def compose() -> None:
+    """Wire the evaluation into the core, here and nowhere else.
+
+    The evaluation's conditions on a run: the core states none of its own, and runs without
+    them where there is no evaluation.
+    """
+    requirements.register(evaluation_requirements.REQUIREMENTS)
+
+
 def main(
     argv: Sequence[str] | None = None,
     registrations: orchestrator_cli.Registrations | None = None,
@@ -27,9 +36,7 @@ def main(
     ``registrations`` is for tests; the command itself runs with the orchestrator's
     default registrations.
     """
-    # The evaluation's conditions on a run, registered here, at the composition root:
-    # the core states none of its own, and runs without them where there is no evaluation.
-    requirements.register(evaluation_requirements.REQUIREMENTS)
+    compose()
     parser = argparse.ArgumentParser(prog="physgate")
     subparsers = parser.add_subparsers(dest="command", required=True)
     hooks_cli.add_parser(subparsers)

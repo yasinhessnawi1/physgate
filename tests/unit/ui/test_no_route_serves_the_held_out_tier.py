@@ -8,7 +8,8 @@ root names where the tier lives.
 
 The run here is made by the real loop with a tier of two roots, and escalated, so its queue holds
 an item and every route over it has a record to serve. The config route is asked first and on its
-own; then every GET route in the table is asked, and no answer may hold any of the tier's strings.
+own; then every GET route the command serves is asked (the table's and those its composition
+root registers), and no answer may hold any of the tier's strings.
 Every check first asserts the record it reads carries them, so a fixture that lost its tier would
 fail rather than pass.
 """
@@ -24,7 +25,7 @@ from pathlib import Path
 
 import pytest
 from ui_library_rig import STANDARDS_CANDIDATE, build_library
-from ui_rig import context_over, evaluation_rig, fake_ui, sealed_session, serving
+from ui_rig import context_over, evaluation_rig, fake_ui, sealed_session, serving, swept
 
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.protocols import QuantityRef
@@ -32,7 +33,6 @@ from physgate.orchestrator.run_config import load_run_config
 from physgate.state.store import journal_records_after
 from physgate.ui import engines
 from physgate.ui.routes import Route
-from physgate.ui.table import ROUTES
 
 #: The checkout itself, whose engine catalogue the sweep serves, so that route has a record too.
 REPO = Path(__file__).resolve().parents[3]
@@ -192,8 +192,10 @@ def test_no_get_route_serves_a_root_canary_or_digest_of_the_tier(
     world: World,
 ) -> None:
     leaks = _tier_strings(world)
-    gets = [route for route in ROUTES if route.method == "GET"]
-    assert len(gets) == len(ROUTES) - 1, "every route but the decision is a GET"
+    # Every route the command serves, the ones its composition root registers included.
+    routes = swept()
+    gets = [route for route in routes if route.method == "GET"]
+    assert len(gets) == len(routes) - 1, "every route but the decision is a GET"
     valid = _valid(world)
     answers = _serve(world, *(_target(route, valid) for route in gets))
     statuses = {route.pattern: status for route, (_, status, _) in zip(gets, answers, strict=True)}

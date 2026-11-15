@@ -9,6 +9,8 @@ declared.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from physgate.ui import actions, library, readers, simulation
 from physgate.ui.routes import Route, asset, engine_catalogue, index, runs
 
@@ -64,6 +66,24 @@ ROUTES: tuple[Route, ...] = (
     # The one route that acts: a decision, through the approval queue's own function.
     Route("POST", f"{RUN}/queue/decisions", "act", actions.decide),
 )
+
+
+#: The read routes the command's composition root registered beside the product's own.
+_registered: tuple[Route, ...] = ()
+
+
+def register(routes: Iterable[Route]) -> None:
+    """Serve ``routes`` beside :data:`ROUTES`."""
+
+
+def registered() -> tuple[Route, ...]:
+    """The routes registered beside the product's own."""
+    return _registered
+
+
+def served() -> tuple[Route, ...]:
+    """Every route the server answers: the product's own, then what was registered."""
+    return ROUTES
 
 
 def methods(routes: tuple[Route, ...]) -> frozenset[str]:
