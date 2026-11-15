@@ -46,6 +46,14 @@ def named(name: str) -> Any:  # noqa: ANN401 - whatever the name holds
     return getattr(module, name)
 
 
+def outcome_of(call: Any, *args: Any) -> Any:  # noqa: ANN401
+    """What ``call`` returns, or the error it raises, so a row asserts on either."""
+    try:
+        return call(*args)
+    except Exception as exc:  # noqa: BLE001 - the refusal is what a row asserts on
+        return exc
+
+
 def _log(lines: list[dict[str, Any]]) -> bytes:
     return b"".join(json.dumps(one).encode() + b"\n" for one in lines)
 
@@ -179,8 +187,8 @@ def test_a_node_the_map_does_not_name_is_to_find() -> None:
 def test_a_run_that_does_not_ask_gives_an_empty_map() -> None:
     state = not_asking()
     assert not state.asks_parts
-    assert dict(named("parts_choices")(state)) == {}
-    assert dict(named("parts_choices")(RunState())) == {}
+    assert outcome_of(dict, outcome_of(named("parts_choices"), state)) == {}
+    assert outcome_of(dict, outcome_of(named("parts_choices"), RunState())) == {}
 
 
 def test_a_run_that_asks_and_is_not_released_is_refused() -> None:
@@ -201,7 +209,8 @@ def test_the_release_line_alone_is_read() -> None:
 
 
 def test_a_release_of_as_many_components_as_a_plan_may_hold_is_read() -> None:
-    choices = named("parts_choices")(_many(MAX_COMPONENTS))
+    choices = outcome_of(named("parts_choices"), _many(MAX_COMPONENTS))
+    assert not isinstance(choices, Exception), choices
     assert len(choices) == MAX_COMPONENTS
 
 
@@ -263,5 +272,7 @@ def test_a_line_the_map_does_not_name_is_unchecked() -> None:
 
 
 def test_a_run_that_does_not_ask_leaves_every_line_unchecked() -> None:
-    lines = named("sourcing_lines")(BOM_LINES, named("parts_choices")(not_asking()))
+    choices = outcome_of(named("parts_choices"), not_asking())
+    assert not isinstance(choices, Exception), choices
+    lines = named("sourcing_lines")(BOM_LINES, choices)
     assert _records(lines) == dict.fromkeys(BOM_LINES, ("unchecked", None))
