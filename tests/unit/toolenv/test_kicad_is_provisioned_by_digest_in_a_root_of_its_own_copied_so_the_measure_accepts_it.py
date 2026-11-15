@@ -50,6 +50,14 @@ LINUX = {
     "bytes": 316_538_880,
     "sha256": "abb59cee9f9782736c1b9a92e3ab08b31320ee01d72a6f9442a07fdef71b87d0",
 }
+#: What of the Linux tree is not copied: the demonstration projects, and the two links the
+#: release's bundled interpreter carries to places it does not ship (the host's own site file
+#: under /etc, and a build-time library name whose target is absent).
+LINUX_DROPPED = [
+    "usr/share/kicad/demos",
+    "shared/lib/python3.11/sitecustomize.py",
+    "shared/lib/python3.11/config-3.11-x86_64-linux-gnu/libpython3.11.so",
+]
 MAC_FILE = "kicad-unified-universal-10.0.8.dmg"
 MAC = {
     "file": MAC_FILE,
@@ -134,7 +142,7 @@ def test_kicad_is_pinned_for_both_machines_by_file_address_size_and_digest() -> 
     assert isinstance(linux, dict) and isinstance(mac, dict), sorted(kicad)
     assert {key: linux.get(key) for key in LINUX} == LINUX
     assert {key: mac.get(key) for key in MAC} == MAC
-    assert linux.get("dropped") == ["usr/share/kicad/demos"]
+    assert linux.get("dropped") == LINUX_DROPPED
     assert mac.get("kept") == MAC_KEPT
 
 

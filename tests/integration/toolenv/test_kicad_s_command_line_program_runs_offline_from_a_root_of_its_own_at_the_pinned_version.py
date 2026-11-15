@@ -117,7 +117,11 @@ def test_the_record_names_the_pin_the_licence_and_what_the_copy_took(kicad_root:
     copied = record.get("copied", {})
     assert copied.get("files", 0) > 10_000
     if linux:
-        assert copied.get("dropped") == ["usr/share/kicad/demos"]
+        assert copied.get("dropped") == [
+            "usr/share/kicad/demos",
+            "shared/lib/python3.11/sitecustomize.py",
+            "shared/lib/python3.11/config-3.11-x86_64-linux-gnu/libpython3.11.so",
+        ]
         assert copied.get("names_copied_apart", 0) > 0
         assert not (kicad_root / "app" / "usr" / "share" / "kicad" / "demos").exists()
         assert (kicad_root / "app" / "usr" / "share" / "kicad" / "symbols").is_dir()
