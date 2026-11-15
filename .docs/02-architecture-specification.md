@@ -83,7 +83,7 @@ flowchart TB
         SKILL["Skill + standards files"]
     end
 
-    subgraph TOOLS["Tool layer (MCP)"]
+    subgraph TOOLS["Tool layer: recorded tool environment + contained tool servers (MCP)"]
         CAD["build123d / FreeCAD"]
         FEA["CalculiX"]
         ECAD["KiCad"]
@@ -245,14 +245,16 @@ Repair budget is **three attempts**. Attempt 1 rejection returns the finding. At
 | Design | Concept, decomposition, trade-offs | graph, requirement templates | decomposition patterns, abstraction levels, requirement phrasing | requirement coverage, traceability | all | automated |
 | Mechanical | Geometry, sizing, mounting, DFM | build123d, a finite-element solver (in the recorded tool environment); an inspection tool server (later) *(amended 12.11.2026, owner-approved)* | material table, fastener rules, wall-thickness and radius minima, DFM checklist | geometric validity, sizing margin, DFM pass | sizing, integration, manufacturing | generated, **human sign-off on sizing** |
 | Electrical | Component selection, power budget, wiring, connectors | KiCad command-line checks and exports, a schematic generator (in the recorded tool environment), datasheets *(amended 12.11.2026, owner-approved)* | connector conventions, derating rules, power-budget template | schematic DRC clean, budget closes, parts sourceable | sizing, firmware, integration | automated |
-| Control | Plant model, controller, stability | python-control, MuJoCo, Simscape | plant-model templates, PID and LQR selection rules, margin thresholds | closed-loop stable in sim, margins met | sizing, firmware, simulation | automated, **human sign-off on stability margin** |
-| Firmware | Drivers, real-time loop, HAL, on-target test | PlatformIO, Arduino CLI, HIL rig | timing budget rules, HAL conventions, driver patterns | compiles, timing budget met, on-target test passes | integration | automated |
+| Control | Plant model, controller, stability | python-control and MuJoCo (in the recorded tool environment); our own control and MuJoCo tool servers. *(amended 15.11.2026, owner-approved)* | plant-model templates, PID and LQR selection rules, margin thresholds | closed-loop stable in sim, margins met | sizing, firmware, simulation | automated, **human sign-off on stability margin** |
+| Firmware | Drivers, real-time loop, HAL, on-target test | PlatformIO (in the recorded tool environment), built with its own command in the session's shell; no upload and no device; a firmware tool server of our own (later). *(amended 15.11.2026, owner-approved)* | timing budget rules, HAL conventions, driver patterns | compiles, timing budget met, on-target test passes in simulation *(amended 15.11.2026, owner-approved)* | integration | automated |
 
 **Depends on.** ARCH-010, ARCH-020
 **Cadence.** per module
 **Acceptance.** Each role's skill file exists and is non-empty before that role is ever dispatched.
 
 **Amended 12.11.2026 (owner-approved).** The mechanical and electrical tool cells name what the recorded tool environment provides. TraceParts and Partuno move to the sourcing check.
+
+**Amended 15.11.2026 (owner-approved).** The control and firmware tool cells name what the recorded tool environment and the tool-server register provide. Simscape and the Arduino command-line tool are not provided. Hardware-in-the-loop is out while hardware reach is refused (ARCH-090).
 
 ### ARCH-051 — Cross-cutting roles
 
@@ -372,6 +374,7 @@ Each rubric also:
 ### ARCH-082 — Propagation check definition
 **Decision.** For any node whose quantities changed, traverse `constrains`. For each target, if no quantity on that target was rewritten in the same commit and no explicit `no_change_justified` annotation exists, fail.
 **Amended 01.11.2026.** The check is unchanged by sizing's closing pass. Where that pass changes a value whose edges reach a domain node, the node's owner is given one session to rewrite it or say why not (ARCH-051), and the check judges what that session wrote.
+**Amended 15.11.2026 (owner-approved).** Parts a person declared are given design: the change history's baseline is past them, and attempts are named above it as before. A declared node therefore owes no propagation of its own, as an interface node owes none. An edge from a role's changed node into a declared node is judged as any edge is; its owner answers it with a reason in `no_change_justified`, since no role can rewrite the declared values.
 
 **Depends on.** ARCH-010, ARCH-080
 **Cadence.** per run
@@ -397,10 +400,29 @@ Each rubric also:
 | Unit consistency on committed expressions | PreToolUse | yes |
 | Mandatory reading complete | PreToolUse (ARCH-020) | yes |
 | Git from a role session: none at all (ARCH-005) | PreToolUse | yes |
-| Tools outside the session's closed tool list | session settings | yes |
+| **Tools outside the session's closed tool list**, the admitted tools of the tool servers it is offered among them (ARCH-093) | session settings, and PreToolUse for a server's tools | yes |
 | Cross-role graph write | PreToolUse, and the store again when the orchestrator applies proposals | yes |
 | Schema validity of graph writes | PreToolUse | yes |
+| **A tool server's arguments**: only those its register entry names, and a path only inside the worktree | PreToolUse | yes for what the arguments name; what a server reads in turn is held by its wrapper (ARCH-091) |
+| **Uploads, flashing and a board's devices**, for every profile, through a shell command, a file tool's path and a server tool's arguments | PreToolUse, and the OS layer's denial of the devices | yes for what a command's words decide; what only running decides is held by the OS layer |
+| **Writes into the run's tool environment** | PreToolUse, the OS layer, and the scan before every session (ARCH-092) | yes |
 | Correctness of engineering judgement | — | **no, reviewer + gate** |
+
+**Amended 15.11.2026 (owner-approved).** **The hardware rule.** It refuses the shapes named here, and an error inside the hook is a refusal. A program that only ever reaches a board is refused by name. A program that both builds and reaches a board, named in the command's own words, is read word by word against its named build-only uses: a use, an option or a spelling not named is refused, so an upload by such a program by a route not named is refused without being named.
+
+A word of such a command that only running decides is refused. A program named only when the command runs cannot be known from the words: the hook refuses it only for the shapes named, the build tool's upload, monitor, tests, debugger or devices, and a flasher's options read as words (any `-U`, or `-p` beside `-U`, `-e` or `-c`). With any other words, or none, it passes the hook, and the OS layer's denial of the board's devices is what holds. A program behind a wrapper's option, and the module or script an interpreter runs, are read as in command position; `env -S` is refused.
+
+A board's device is refused wherever a call names it; a pattern that could expand to one is refused as the device. A file tool's path is judged as written and as it resolves, a link to one included. A shell command's words are judged as written. A move is followed when a word names it (`cd`, `env -C`, `sudo -D`, `uv --directory`, `poetry -C`, `parallel --wd`, the options named here and no others); after one that goes where no word says (`find -execdir`, `chroot`, `sudo -R`, a login by `sudo -i`, `su -` or `runuser -l`, a target only running decides) a name that would be a device from anywhere is refused. A directory reached through a link, a name a program assembles, a pattern split across words, and a move by an option not named here (`make -C`) are held by the OS layer's device denial, not by the words.
+
+A relative name is read from wherever the command could be: after a move the rule cannot follow, a name that would be a device from there is refused.
+
+The OS layer denies the same devices, to read and to write, from the same table.
+
+A plain build whose own project file starts a flash passes the hooks by its words; the OS layer's denial of the device stops it.
+
+**Its residual.** The list of programs that only reach a board is not complete; every program in the provisioned tool environment's `venv/bin` is classed by it, or named as reaching no board. A program that talks to a USB device without a device node, which macOS allows, is named by neither layer; the sandbox profile the pinned binaries write opens no USB or HID client, which has been read in the profile and not measured with a device.
+
+**Amended 15.11.2026 (owner-approved).** Every profile's settings deny the binary's own search tool beside the two web tools: role, reviewer, orchestrator and the raw agent. With tool search on, the binary leaves the tools of a session's servers out of the request and tells the model to load them through the search tool first. That tool is on no closed list, so the hook refuses it, and the admitted tools could be reached only through a call that fails. With it denied, the binary offers every tool directly. Nothing is widened: the deny removes a tool, the closed list is unchanged, and every call still reaches the hooks by its own name and input. A run records whether its sessions were denied the search tool, read from the deny lists, never from its parameters (ARCH-145).
 
 **The shell parser's rule.** The parser resolves exactly what a command's own text decides, following braces, quoting forms, literal in-call variables and literal directory changes across the readings of every common shell, and refuses only what it cannot read that way at a stated bound. It never refuses wholesale on doubt, because a layer that refuses ordinary commands is switched off in practice. **Its residual is what only running decides:** values set at run time (substitutions, `read`, special and positional parameters, arrays, `IFS`), the directory after a `cd` through a substitution, scripts fed by a pipe, `xargs` or `source`, interpreters fed a program on standard input, paths a program builds from its input, and any command behaviour the parser's rule lists do not name, since no such list is complete. For put-back paths the sentinel undoes what the parser misses. For refuse-only paths and for reads nothing after the parser catches it, which is why ARCH-091 exists.
 
@@ -435,12 +457,60 @@ The parser of ARCH-090 resolves what a command's text decides; it cannot see wha
 - A run without the layer records "absent" with its reason and is refused before any session starts unless its parameters allow the absence; an allowed run runs, and its record of the layer says so. A reportable run with shell sessions and no layer, or one that names the allowance, is refused before any session starts.
 
 **Known limits.**
-- The file tools, the hooks and tool servers run outside the sandbox; ARCH-090's hooks remain their layer.
+- The file tools and the hooks run outside the sandbox; ARCH-090's hooks remain their layer.
+- An admitted tool server, which the binary starts outside the sandbox, runs inside a wrapper the harness generates from the session's own policy. Both wrappers are allowlists: on macOS a generated sandbox profile that denies by default, on Linux a bubblewrap root that holds only the listed places.
+- Inside it a server reads nothing the session's commands may not read and none of the simulation-record outbox, writes only a directory of its own in the session's temporary directory, made empty at its start, reaches no network, opens no board device and is given none of the session's credentials.
+- A server not named by its wrapper is refused at the spawn, and where the platform has no wrapper no server is offered.
+- A path a session swaps for a link after it was judged is not followed out of the wrapper.
+- On Linux a server may run the system's own programs, which run inside the same wrapper: no network, no home, no denied place. On macOS any place's name, size and times, and the root's own listing, stay readable to a server, never a denied file's content.
 - A denylist hides only what it names: another checkout of this public repository on the same machine is not in any run's registry, so held-out material is kept only where it is registered and never in git.
 - A per-path rule cannot tell one program from another, so a path a script may write, such as the simulation-record outbox, is protected by its collector rather than by this layer (ARCH-146).
 - Hard links that already exist are not undone.
 - The network is unchanged: in the permission mode role sessions run in, the sandbox's proxy lets every host through. The setting is recorded with the run.
 - The layer is absent wherever the platform cannot run it: native Windows; a Linux host that lacks the sandbox's packages or forbids the user namespaces it needs, including the project's current evaluation server. Runs with shell sessions that must be reportable therefore run where the layer is present.
+
+**Amended 15.11.2026 (owner-approved).** The first known limit, "The file tools, the hooks and tool servers run outside the sandbox; ARCH-090's hooks remain their layer.", is replaced by the first six limits above.
+
+### ARCH-092 — Tool environment
+**Decision.** A run may name a tool environment: the interpreter, the libraries and the native programs its role sessions compute and build with, under roots of their own.
+- **Recorded as measured.** The run records what was measured, never what its parameters claim: the interpreter as named and as resolved, its version, every library and native program with its version, the roots, and the digest of a manifest of every entry under the roots (each file by mode, size and content digest), with the entry count and total size.
+
+A run that names none records exactly what it recorded before the field existed.
+
+- **Refused where its bytes could change unseen.** An environment is refused if a file has a second name, a link leads out of the roots or loops, an entry is not a file, directory or link, a program or the prefix lies outside the roots, the roots nest, or its interpreter can import the harness.
+
+It is refused where it overlaps the harness checkout, the run's directory or any temporary directory, and a run that names it beside another interpreter for its role sessions is refused.
+
+- **Held to its bytes.** The environment is measured in full the first time a process dispatches, on a new run and at every resume, and must equal the record. Before each later session every entry is scanned for device, inode, size, mode and modification and change times against that measure. Any difference refuses the session before anything of it exists. Both roots are measured before every session: 2.45 s on the university host (median of 7) and 1.2 to 1.6 s on CI, for 99,116 entries. A change made while a session ran is named when it ends.
+- **Read and run, written by none.** Each session is installed with the environment's roots. Its file tools may read them and never write them, a shell command that names one and is not a plain read is refused, and the OS layer denies every write into them.
+
+The session finds the environment's programs first on its search path, and its scripts are told the environment's roots and digest.
+
+- **Offline.** All network use happens at provisioning, outside every session. A role session computes and builds firmware with the environment with no network and git refused, each build in a core directory of its own in the session's temporary directory.
+- **Provisioned apart from the harness.** The environment is built from its own locks, taken a week back, by copying files and never linking them, and is left read-only. The harness's own lock and interpreter hold none of its libraries.
+- **Build output stays out of the commit.** An attempt whose commit adds, inside its module, a file beneath a named build directory (`.pio`, `.pioenvs`, `build`, at any depth) or a file with a named built-file suffix (`.elf`, `.axf`, `.hex`, `.bin`, `.uf2`, `.eep`, `.o`, `.a`, `.map`, `.lst`), each matched in any case, is out of scope: refused before the gate with the paths named, at no gate run and no review. A module's own data under one of these names is refused with them; it goes under another name. A build's output under a name not listed is not refused.
+
+**Known limits.** The scan before each session reads metadata, not content: a rewrite of the same size within one tick of the file clock after the file's last write is not seen. No session can make one, since the environment is denied to its writes and written only at provisioning.
+
+### ARCH-093 — Tool servers
+**Decision.** A role session and the raw agent may be offered tool servers, and only those a register names. The register names, for each server, its tools, every argument each may be given and how the server starts. It names our own control and MuJoCo servers.
+- **The closed list.** A session's closed list names exactly the admitted tools of the servers it is offered. A reviewer and the orchestrator are offered none.
+- **Tools that reach a board.** The register lists, apart from any server, the tools a firmware server offers that reach a board, a port or a probe. A register whose server admits one is refused when it is loaded, and a call to one is refused under any server's name, even where a session's list names it.
+- **The argument rule.** An admitted tool is asked only what its register entry names: an argument the entry does not name, or of another kind, refuses the call. An argument the entry marks as a path is judged as a file tool's read or write of that path would be, and must lie inside the session's worktree however it is spelt: relative, through `..`, through a link, or as a case variant. Only the MuJoCo server reads a relative path, from the worktree.
+
+A tool the register does not hold is refused by name.
+
+- **Only the harness's servers start.** Every session is spawned in the binary's strict tool-server mode with its configuration given inline: the empty one for a reviewer, on its resume too, and for the decomposition call, and for a role session only the servers it is offered. A server named in a file around the session does not start.
+
+The most one server answer may hold is set by the harness (25,000 tokens), never left to a remote flag.
+
+- **Started from the record.** Each server starts by absolute path from the root of the recorded environment that holds its program. A run continued on another register or another output bound starts no server.
+- **Only inside the OS layer.** A server is offered only where the OS layer contains it (ARCH-091); a run without the layer, or without servers, offers none. A run that names servers without a tool environment is refused.
+- **Working aids, not evidence.** No server's answer backs a sealed record: records come only from module scripts (ARCH-146).
+
+**Known limits.** The hooks see a call's arguments, never what the server does with them; what a server reads in turn is held by its wrapper (ARCH-091). Code a session hands a server runs no wider than the session's own shell. A heavy valid argument can use processor time or memory until the session ends.
+
+No community PlatformIO server is shipped. That server writes its own state into the project directory it builds, and its wrapper lets it only read the worktree, so a build through it fails before it starts. Letting it write there would let a project file's own scripts write the module outside the hooks. Firmware is built with the environment's own build command in the session's shell, inside the OS layer. A firmware server of our own is later work.
 
 ---
 
@@ -500,12 +570,44 @@ The parser of ARCH-090 resolves what a command's text decides; it cannot see wha
 **Cadence.** —
 **Acceptance.** No order-placing capability is exposed to any agent.
 
-**Registered direction — parts the user has or can make.** Not yet a numbered decision. The pipeline assumes every component is found and bought; a person often already has a part, or can make one. Once decomposition has produced the component list, the person marks each component as one of three:
-- **have it:** its real specifications become fixed inputs, with user-declared provenance;
-- **make it:** a custom part, with the constraints the person states;
-- **find it**, the default: sourced and sized as today.
+### ARCH-122 — Parts the user has or can make
+**Amended 15.11.2026 (owner-approved).** This entry replaces the registered direction of the same name.
 
-The choice is an approval-queue decision (ARCH-130), so it is recorded like any other. Sourcing (ARCH-120) skips parts marked have or make, and sizing (ARCH-051) treats them as fixed. The physics gate still checks them: a declared part is an input to the design, not an exemption from it. It touches decomposition, sizing, sourcing and the operator UI, and becomes a numbered entry when its specification is registered.
+**Decision.** When the run is configured for it (`parts_on_hand: on`), the decomposition's one answer also lists the design's components, at most twenty. Each has a node id, a domain, the role of the module it belongs to, a label, and the quantity names a part on hand must state: its own, written on the component's node, and shared ones, written on sizing's node for that component. Before any subtask is dispatched, the orchestrator lists one approval-queue item per component (ARCH-130) and holds the run, with no timeout, until each is decided by a choice:
+
+- **have it:** the person states the part's real specifications as a typed body, each a value with a unit. A quantity the gate's catalogue names must be stated in a unit of its kind's dimension; a name the catalogue does not know is admitted, and the gate records it as unchecked;
+- **make it:** a custom part, with the values and short texts the person states;
+- **find it**, the default: nothing is stated, and the part is sourced and sized as before.
+
+The choice is recorded by the queue's one decision function, under its lock and against the view the person was shown. Approve and reject are refused on a parts item, and a refused decision writes nothing. The command line and the operator UI's one decision route carry the same body; "find every remaining part" is one command, and code never chooses.
+
+When the last item is taken, the orchestrator alone writes each stated value onto its node as a *declared* quantity, which names the item, the digest of what the decision stated, and the person. The physics gate then judges each declared value's unit and range (the subtask-scope checks of ARCH-080) before any session runs: a blocking result raises each part it names again as a new item quoting the finding, with no session spawned and no review spent, and the run is released on a clean or observed result. A domain interface that contradicts a declared value raises its part again before the gate. The release writes a parts record (each component's choice, values and texts) that every role session and every reviewer is given as required reading, held to the digest the release records.
+
+A declared quantity is fixed. No role creates, changes, re-units or removes one, sizing included, or changes the kind or domain of the node it sits on; a role may add quantities of its own beside it, and the node's owner may add an edge to it but never take one away or replace it, since only the owner joins a part's node to its module and an edge taken away would take the declared value out of that module's mass, power and loads. The proposal hook and the orchestrator's apply step refuse the attempt as a refusal the session can repair, the store refuses it again, and a write that passes all three is an incident that halts the run (ARCH-090). A dispute on a declared quantity is refused. Replay rebuilds every declared write from the recorded decisions and refuses one that no decision explains or whose digest differs, and the declared quantities at the journal's head must be the ones the parts writes landed.
+
+The physics gate checks declared quantities exactly as it checks every other quantity: a declared part is an input to the design, not an exemption from it, and no check reads provenance. The checks that read values together (equilibrium, power, conservation, thermal) see declared values at module scope, and every check sees them at system scope. A blocking finding at an attempt's end made only of range findings on declared values goes to the person, since no role can repair it; any other finding (a balance, a load or a unit finding, or one that names a role's value or no value) goes back to the role, with the declared values marked fixed. To the system-scope call the declared parts are given design, as decomposition's interface nodes are: written before any attempt, they stand below the change history's baseline (ARCH-082), and every check still reads them.
+
+Sourcing (ARCH-120) is to read each component's choice from the release through one read function and record parts marked have or make as skipped, owned or custom, never as validated. Until the sourcing step's bill-of-materials task lands, the consumer is a stand-in that records exactly that, and no product code calls it yet. A different choice after the run is released means a new run. The switch is a recorded run parameter with no default; it needs a run that acts on decisions, and so the OS layer (ARCH-091, ARCH-133): where the layer is unavailable, today on Windows, the product runs with it off. Evaluation runs set it off, and a run with it off is byte-identical to a run made before it existed.
+
+**Depends on.** ARCH-001, ARCH-010, ARCH-030, ARCH-040, ARCH-051, ARCH-080, ARCH-082, ARCH-090, ARCH-091, ARCH-120, ARCH-130, ARCH-133
+**Cadence.** per run (the decisions, the release and its gate run); per subtask (the guard and the routing); per journal account (the head check)
+**Acceptance.**
+- A role's proposal that creates, changes or removes a declared quantity is refused at each of the three layers.
+- A part declared with an implausible value is blocked by the gate and reaches the person with no repair attempt and no review.
+- No subtask is dispatched while a parts item is open.
+- With the feature off, a run's prompt, schema, events, ledger and store are byte-identical to a run without it.
+- Sourcing validates no line whose component is marked have or make (shown today on the read function and its stand-in consumer; owed again by the real sourcing step).
+- A parts decision is recorded only through the queue's one decision function, from the command line or the UI's one decision route; a value without a unit, in the wrong dimension, or a body that does not go with its choice is refused and writes nothing.
+- Replay refuses a declared quantity that no recorded decision explains.
+- A scripted run on the reference brief with one part owned, one made and the rest found runs to its end, and re-run from its recorded configuration under the same run id, with the recorded decisions fed back and the clock and commit dates pinned by the test rig, reproduces every record of it.
+
+**Amendments that go with it:**
+- **ARCH-130:** the sources gain "a parts decision (ARCH-122)", whose positions are have, make and find. A choice may carry a typed body, written by the same one function.
+- **ARCH-010:** a quantity may carry a declared record (item, decision digest, person). It is optional and left out when absent, so older nodes stay byte-identical; it goes only with its reserved source, and any source that imitates that one is refused.
+- **ARCH-040:** the precedence becomes physics gate, then a person's declaration, then sizing, then a single domain. A declared quantity cannot be disputed.
+- **ARCH-051:** sizing's exclusive write on `cross` quantities excludes declared ones.
+- **ARCH-082:** parts a person declared are given design: the change history's baseline is past them, and attempts are named above it as before. A declared node therefore owes no propagation of its own, as an interface node owes none. An edge from a role's changed node into a declared node is judged as any edge is; its owner answers it with a reason in `no_change_justified`, since no role can rewrite the declared values.
+- **ARCH-120:** lines for have and make parts are recorded as skipped, with the reason.
 
 ---
 
@@ -630,6 +732,8 @@ A rising second gap triggers regeneration of the validation tier. It is not a su
 
 **Per role.** The comparison is made for each design role on its own as well as for the whole run: the role under the harness against the raw agent on the same numerically scored tasks, control and firmware first. A whole-run figure alone cannot show which role the harness helps or hurts.
 
+**Amended 15.11.2026 (owner-approved).** **Same tools.** The raw agent is given the harness run's tool environment and tool-server records, and uses them as a role session does: installed with the environment's roots, which it reads and runs and never writes, the environment's programs first on its search path, held to the environment before its session, and offered the raw agent's servers where the OS layer contains them. A change to the environment while the raw session ran refuses its result. What it was given is in its record, and each per-role pair is held to the harness run's: the environment in the normal form two runs are compared in (ARCH-145), the server record whole, and whether the search tool was denied. A pair that differs in any of them is named, and is no fair pair.
+
 **Published benchmarks.** Published state-of-the-art benchmarks and systems are a primary comparison beside the project's own tasks, reported as a separate external tier and never merged into the three tiers of ARCH-141. Each is run on the benchmark's own split, protocol and scorer, scored numerically, with this baseline also run on that split, so the harness is compared with the published systems and with the bare model under identical conditions.
 
 **No number before its audit.** Before any headline is reported, every existing figure is checked for optimism: unrun attempts, narrowed scopes, single runs, proxy data, costs that read low, components changed after a freeze. A frozen result is never edited; the correction is a new measurement.
@@ -649,6 +753,7 @@ A rising second gap triggers regeneration of the validation tier. It is not a su
 - **Cost** is priced call by call, at the cache lifetime each call actually paid, from a dated price sheet that is never edited, and reconciled against the agent runtime's own total. A call whose stream is not the bytes sealed at its session's end, or whose cache lifetime could not be read, is named and priced at the lower rate, and the line says it is a lower bound. Lines priced before this rule charged every cache write at the shorter lifetime and read 21.5–28.8 % low on the runs recomputed; such lines are recomputed, never cited as they stand.
 - **The runtime's remote feature-flag state** is recorded with how it was known: observed in the runtime's own output, or off by a documented setting that the version does not report. The two are distinct values, never one.
 - **Artefact hashes** include each simulation record's seal and script digest (ARCH-146).
+- **The tool layer** is recorded per run: the tool environment as measured (ARCH-092), the tool servers its sessions are offered (each profile's servers, the bound on one server answer, the register's digest) and whether its sessions were denied the binary's search tool. A run recorded before these fields reads as no environment, no servers and the search tool offered, and its recorded bytes are unchanged. Two runs that differ in any of the three are not compared. The environment is compared in a normal form: each path relative to the root that holds it, with the manifest's digest, the counts, and the interpreter's, every library's and every program's version. The same environment at another root is no difference; a changed digest or version is. A run's manifest carries the request defaults measured for its pin and for whether the search tool was denied; a run measured before keeps the list it was measured with. *(amended 15.11.2026, owner-approved)*
 
 Record, per run, the variance in task ordering and merge decisions across repeated runs with the same seed and brief. This is the reproducibility axis the COBOL comparison used, and it is the primary measurement for the orchestrator ablation.
 
@@ -691,6 +796,8 @@ The outbox cannot be protected by hooks alone: any program a session runs can wr
 **Acceptance (added 12.11.2026).** A changed result record is refused on read. A quantity that differs from its result record never reaches the gate. A node whose `geometry_hash` differs from its geometry result's refuses the attempt. A node that names no record is byte-identical to one written before this amendment.
 
 **Known limits (added 12.11.2026).** A result record proves which committed code it names and that the graph's number is the recorded one. It does not prove that the model's loads and supports are the design's, which stays the reviewer's judgement, and it does not prove that the code produced the number: re-running the script in isolation is the what-if runner's mechanism.
+
+**Amended 15.11.2026 (owner-approved).** **Exception: the run's tool environment.** A record may name the code its script loaded from the run's recorded tool environment once, by the environment's digest, instead of file by file. The collector seals such a record only when it names the run's own roots and digest, the environment was held to its record before the session, and the OS layer ran around the session. Otherwise the record is not sealed, and the reason is recorded. Every other file of code outside the module still refuses the seal: a virtual environment or an interpreter home the session made, and the interpreter's own installation outside the environment's roots. A record that names an environment on a run that records none, or none on a run that records one, is refused. A record written before the field existed reads as it did.
 
 ---
 
