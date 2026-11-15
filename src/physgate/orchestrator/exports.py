@@ -21,12 +21,23 @@ placed, the spacing between tokens, and up to the budget of free text. The geome
 describes the shape a script built, not an export's bytes, so it bounds none of this; the
 reviewer can still read the whole file in the packet's export of the commit.
 
+A circuit's exports (the circuit helper's KiCad rules-check report, netlist, parts list and a
+PDF of the schematic) are admitted the same way, each by a check of its own kind and under its
+own cap (:data:`EXPORT_CAPS`). The three texts are the reviewer's evidence and almost all their
+words are the role's own (net names, values, references), so they are never summarised: the
+review shows them in git's diff, as every other committed file a role writes
+(:data:`SHOWN_IN_FULL`), and the cap keeps that a size one review reads. The PDF is one line
+(size, sha256, pages) whose text is not shown: the same circuit is in the schematic and the
+netlist, in full (:data:`PDF_UNSEEN`).
+
 The suffixes are data: adding a kind of export adds a suffix here and a check below, and the
 helpers in the tool environment write the same folder and suffixes (a test holds them to it).
 """
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import math
 import re
@@ -43,10 +54,23 @@ from physgate.orchestrator.export_writer import (
 
 #: The folder of a module that holds its exports, and nothing else.
 EXPORTS_DIR = "exports"
+#: The exports a circuit leaves as text, which the review shows in full in git's diff as every
+#: other committed file a role writes: KiCad's rules-check report, its netlist and the parts
+#: list. Their caps keep "in full" a size a reviewer reads.
+SHOWN_IN_FULL: tuple[str, ...] = (".erc.json", ".net", ".csv")
 #: What an export's name ends in, compared without regard to case.
-EXPORT_SUFFIXES: tuple[str, ...] = (".step", ".stl")
-#: The largest export a commit may hold, in bytes; past it the attempt is refused.
+EXPORT_SUFFIXES: tuple[str, ...] = (".step", ".stl", ".pdf", *SHOWN_IN_FULL)
+#: The largest export of any kind a commit may hold, in bytes; past it the attempt is refused.
 MAX_EXPORT_BYTES = 2_000_000
+#: Each kind's largest file, in bytes; one byte past it refuses the attempt, never cuts the file.
+EXPORT_CAPS: dict[str, int] = {
+    ".step": MAX_EXPORT_BYTES,
+    ".stl": MAX_EXPORT_BYTES,
+    ".pdf": MAX_EXPORT_BYTES,
+    ".erc.json": 1_000_000,
+    ".net": 1_000_000,
+    ".csv": 200_000,
+}
 #: The most bytes a module's exports may hold together after an attempt.
 MAX_MODULE_EXPORT_BYTES = 16_000_000
 #: The longest text taken from inside an export into its summary, in characters.
@@ -77,12 +101,37 @@ def summary(path: str, body: bytes) -> str | None:
     exactly, or ASCII from ``solid`` to ``endsolid``. Every number is finite. Text taken from
     inside the file is cut, stripped and quoted (:func:`_field`).
     """
-    name = PurePosixPath(path).name.casefold()
-    if name.endswith(".step"):
+    kind = suffix_of(path)
+    if kind == ".step":
         return _step(body)
-    if name.endswith(".stl"):
+    if kind == ".stl":
         return _stl_binary(body) or _stl_ascii(body)
+    if kind == ".pdf":
+        return _pdf(body)
+    if kind == ".erc.json":
+        return _rules_check_report(body)
+    if kind == ".net":
+        return _netlist(body)
+    if kind == ".csv":
+        return _parts_list(body)
     return None
+
+
+def suffix_of(path: str) -> str | None:
+    """The export suffix ``path``'s name ends in, in lower case, or ``None``."""
+    name = PurePosixPath(path).name.casefold()
+    return next((suffix for suffix in EXPORT_SUFFIXES if name.endswith(suffix)), None)
+
+
+def cap_of(path: str) -> int:
+    """The largest file of ``path``'s kind a commit may hold (:data:`EXPORT_CAPS`)."""
+    kind = suffix_of(path)
+    return MAX_EXPORT_BYTES if kind is None else EXPORT_CAPS[kind]
+
+
+def shown_in_full(path: str) -> bool:
+    """Whether ``path``'s kind stays in the review's diff, as text (:data:`SHOWN_IN_FULL`)."""
+    return suffix_of(path) in SHOWN_IN_FULL
 
 
 def _field(text: str) -> str:
@@ -253,6 +302,136 @@ def _numbers(words: list[str]) -> list[float] | None:
     return values if all(math.isfinite(value) for value in values) else None
 
 
+# ---- the circuit's exports: KiCad's report, netlist and parts list, and a PDF ------------------
+
+#: What the line of a PDF says in place of a free-text count: the limit a reviewer is shown.
+PDF_UNSEEN = (
+    "its text is not shown or counted here (the schematic and the netlist in the diff hold "
+    "the same circuit in full)"
+)
+#: The kinds whose bytes the review shows in full, never as a line.
+_TEXT_KINDS = frozenset({"text"})
+_PDF_VERSION = re.compile(rb"%PDF-(1\.[0-7]|2\.0)\r?\n")
+_PDF_PAGE = re.compile(rb"/Type\s*/Page(?![A-Za-z0-9])")
+_PDF_END = re.compile(rb"%%EOF\s*\Z")
+#: KiCad's rules-check report: its layout's name, and the fields every report holds.
+ERC_SCHEMA = "https://schemas.kicad.org/erc.v1.json"
+_ERC_FIELDS = frozenset({"$schema", "kicad_version", "sheets", "source", "date"})
+_ERC_FINDING_TEXT = ("type", "severity", "description")
+#: The parts list's header, as the circuit helper asks KiCad to write it.
+PARTS_LIST_HEADER = ("Reference", "Value", "Footprint", "Quantity", "DNP")
+#: A netlist's opening, and the parts of the export every netlist holds.
+_NETLIST_START = re.compile(rb'\(export\s+\(version\s+"E"\)')
+_NETLIST_PARTS = ("design", "components", "nets")
+
+
+def _utf8(body: bytes) -> str | None:
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _pdf(body: bytes) -> str | None:
+    """A PDF from its header to its end marker, with at least one page: version and pages."""
+    version = _PDF_VERSION.match(body)
+    if version is None or _PDF_END.search(body) is None:
+        return None
+    pages = len(_PDF_PAGE.findall(body))
+    if pages == 0:
+        return None
+    noun = "page" if pages == 1 else "pages"
+    return f"PDF {version.group(1).decode()}, {pages} {noun}"
+
+
+def _no_constant(name: str) -> object:
+    msg = f"{name} is no number"
+    raise ValueError(msg)
+
+
+def _rules_check_report(body: bytes) -> str | None:
+    """KiCad's JSON report: its schema and fields, and every finding's texts as text."""
+    text = _utf8(body)
+    if text is None:
+        return None
+    try:
+        report = json.loads(text, parse_constant=_no_constant)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(report, dict) or not report.keys() >= _ERC_FIELDS:
+        return None
+    sheets = report["sheets"]
+    if report["$schema"] != ERC_SCHEMA or not isinstance(report["kicad_version"], str):
+        return None
+    if not isinstance(sheets, list) or not all(isinstance(sheet, dict) for sheet in sheets):
+        return None
+    findings = 0
+    for sheet in sheets:
+        for value in sheet.values():
+            if not isinstance(value, list):
+                continue
+            for finding in value:
+                if not isinstance(finding, dict) or not all(
+                    isinstance(finding.get(key), str) for key in _ERC_FINDING_TEXT
+                ):
+                    return None
+                findings += 1
+    return f"KiCad rules-check report, {findings} findings"
+
+
+def _balanced(text: str) -> bool:
+    """Whether every parenthesis outside a string closes, and the text is one expression."""
+    depth, quoted, escaped = 0, False, False
+    closed_at = -1
+    for index, char in enumerate(text):
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char == "(":
+            if closed_at >= 0:
+                return False
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth < 0:
+                return False
+            if depth == 0:
+                closed_at = index
+        elif closed_at >= 0 and not char.isspace():
+            return False
+    return depth == 0 and not quoted and closed_at >= 0
+
+
+def _netlist(body: bytes) -> str | None:
+    """KiCad's S-expression netlist: one balanced export with its design, components and nets."""
+    text = _utf8(body)
+    if text is None or not _NETLIST_START.match(body) or not _balanced(text):
+        return None
+    if not all(re.search(rf"\({part}\s", text) for part in _NETLIST_PARTS):
+        return None
+    components, nets = len(re.findall(r"\(comp\s", text)), len(re.findall(r"\(net\s", text))
+    return f"KiCad netlist, {components} components, {nets} nets"
+
+
+def _parts_list(body: bytes) -> str | None:
+    """The parts list: the helper's header, then rows of exactly its fields."""
+    text = _utf8(body)
+    if text is None:
+        return None
+    rows = list(csv.reader(io.StringIO(text, newline="")))
+    if not rows or tuple(rows[0]) != PARTS_LIST_HEADER:
+        return None
+    if not all(len(row) == len(PARTS_LIST_HEADER) for row in rows[1:]):
+        return None
+    return f"parts list, {len(rows) - 1} rows"
+
+
 # ---- free text --------------------------------------------------------------------------------
 
 
@@ -271,6 +450,9 @@ class FreeText:
 
     A distinct string or word is counted once because a repeat tells a reader nothing the first
     did not; where it repeats is the residual this count leaves, with the numbers themselves.
+
+    A PDF's text is not read or counted: its line says so (:data:`PDF_UNSEEN`). The three text
+    exports (:data:`SHOWN_IN_FULL`) are never summarised: every byte is in the diff.
     """
 
     kind: str
@@ -295,10 +477,14 @@ class FreeText:
         Only with no header or attribute byte of its own, and at most
         :data:`~physgate.orchestrator.export_writer.FREE_TEXT_BUDGET` bytes in all.
         """
+        if self.kind in _TEXT_KINDS:
+            return False
         return self.header == 0 and self.attributes == 0 and self.total <= FREE_TEXT_BUDGET
 
     def described(self) -> str:
         """The counts as the reviewer's line gives them."""
+        if self.kind == "PDF":
+            return PDF_UNSEEN
         if self.kind == "binary STL":
             parts = f"header {self.header}, attributes {self.attributes}"
         elif self.kind == "ASCII STL":
@@ -315,7 +501,12 @@ def free_text(path: str, body: bytes) -> FreeText | None:
     """The free text in an export's bytes; ``None`` if they are not its kind (:func:`summary`)."""
     if summary(path, body) is None:
         return None
-    if PurePosixPath(path).name.casefold().endswith(".step"):
+    kind = suffix_of(path)
+    if kind == ".pdf":
+        return FreeText(kind="PDF")
+    if kind in SHOWN_IN_FULL:
+        return FreeText(kind="text")
+    if kind == ".step":
         return _step_free_text(body)
     if _stl_binary(body) is not None:
         return _stl_binary_free_text(body)

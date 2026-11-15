@@ -22,7 +22,8 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
 - ``diff-NN-of-MM.patch``: the attempt's change against where it left the run branch,
   in numbered parts. A module's exports (``orchestrator.exports``) are named after git's
   change, one line each with path, size and sha256, in place of their bytes; ``worktree/``
-  holds them whole.
+  holds them whole. A circuit's three text exports are not: they stay in git's diff, as every
+  other committed file does.
 
 The export and the diff leave out the attempt's disputes (``orchestrator.dispute``): a
 dispute is a role's position for a person to arbitrate, recorded on the run's log, and the

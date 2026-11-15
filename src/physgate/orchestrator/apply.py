@@ -84,7 +84,7 @@ from physgate.orchestrator.dispute import DISPUTES_DIR, Dispute, DisputeError, d
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.exceptions import DutyUnownedError, RoleRegisterError, StoreRefusalError
 from physgate.orchestrator.export_writer import FREE_TEXT_BUDGET
-from physgate.orchestrator.exports import is_export
+from physgate.orchestrator.exports import is_export, shown_in_full
 from physgate.orchestrator.follow import FollowedInterface, FollowRefusedError, follow
 from physgate.orchestrator.git import (
     GitDir,
@@ -527,7 +527,7 @@ def too_long(long: LongLine) -> str:
         f"reviewer. Commit files with no line longer than {LINE_MAX_BYTES} bytes, for example "
         "one value or one row per line."
     )
-    if not is_export(long.path):
+    if not is_export(long.path) or shown_in_full(long.path):
         return found
     return (
         f"{found} {long.path} is an export, and it is shown in full: a review shows an export "

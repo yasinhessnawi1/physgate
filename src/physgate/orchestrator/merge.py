@@ -51,6 +51,7 @@ from physgate.orchestrator.exports import (
     EXPORTS_DIR,
     MAX_EXPORT_BYTES,
     MAX_MODULE_EXPORT_BYTES,
+    cap_of,
     free_text,
     is_export,
 )
@@ -110,6 +111,13 @@ NOT_AN_EXPORT = (
     f"{' or '.join(EXPORT_SUFFIXES)}, directly in it, with names that print, belong there"
 )
 EXPORT_TOO_BIG = f"an export over {MAX_EXPORT_BYTES} bytes"
+
+
+def export_too_big(cap: int) -> str:
+    """What an attempt is told about an export over its kind's cap (``exports.EXPORT_CAPS``)."""
+    return f"an export over {cap} bytes"
+
+
 EXPORT_INVALID = "an export whose bytes are not what its suffix says"
 EXPORT_STL_OWN_BYTES = (
     "a binary STL whose 80-byte header is not the one the design helper's writer gives it, or "
@@ -248,9 +256,9 @@ def write_scope_violations(
 
     So is a misplaced or malformed export (``exports``): a file with an export suffix anywhere
     in the module but directly in its exports folder, anything in that folder that is no export,
-    an export over :data:`~physgate.orchestrator.exports.MAX_EXPORT_BYTES` or whose bytes are not
-    what its suffix says, a binary STL with a header or attribute byte its writer does not
-    write (``exports.FreeText``), and exports holding more than
+    an export over its kind's cap (:data:`~physgate.orchestrator.exports.EXPORT_CAPS`) or whose
+    bytes are not what its suffix says, a binary STL with a header or attribute byte its writer
+    does not write (``exports.FreeText``), and exports holding more than
     :data:`~physgate.orchestrator.exports.MAX_MODULE_EXPORT_BYTES` together in the module after
     the attempt. Misplaced files are named in git's order, then the exports' bytes, read from
     the commit. An attempt that passes holds only exports the review packet may show by size,
@@ -347,8 +355,9 @@ def _export_read(
     the bytes are read as git holds them, never decoded.
     """
     size = int(git(repo, "cat-file", "-s", spec, objects_only=True, git_dir=git_dir))
-    if size > MAX_EXPORT_BYTES:
-        return EXPORT_TOO_BIG, b""
+    cap = cap_of(path)
+    if size > cap:
+        return export_too_big(cap), b""
     body = git_blob(repo, spec, git_dir=git_dir)
     found = free_text(path, body)
     if found is None:
@@ -389,15 +398,16 @@ def admitted_exports(
 
     For the review packet, which shows such a side as one line in place of its bytes. A side is
     admitted when its path is an export directly in the module's own exports folder
-    (``exports.is_export``), it is a regular file there, within
-    :data:`~physgate.orchestrator.exports.MAX_EXPORT_BYTES`, and its bytes are what its suffix
+    (``exports.is_export``), it is a regular file there, within its kind's cap
+    (:data:`~physgate.orchestrator.exports.EXPORT_CAPS`), and its bytes are what its suffix
     says; each is named by its path and the sha256 of its bytes. The side before a change or a
     removal is the run branch's, which only an admitted attempt put there, held to the same
     conditions again. Nothing is admitted in a module whose exports hold more than
     :data:`~physgate.orchestrator.exports.MAX_MODULE_EXPORT_BYTES` together at ``commit``.
     Nor is a side whose free text passes the budget (``exports.FreeText.summarised``): the
     review shows it in full, and the change check refuses the attempt if a line of it is too
-    long to show.
+    long to show. Nor is a text export of a circuit (``exports.SHOWN_IN_FULL``), ever: the
+    review shows it in git's diff, as every other committed file a role writes.
     Sorted by path, then digest. Called once :func:`write_scope_violations` found nothing.
     """
     exports_dir = _module_path(module_dir) / EXPORTS_DIR
