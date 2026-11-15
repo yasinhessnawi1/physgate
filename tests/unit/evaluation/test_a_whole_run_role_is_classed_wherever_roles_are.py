@@ -21,7 +21,7 @@ from physgate.evaluation.tierset_cli import status
 from physgate.evaluation.tiers import store as store_module
 from physgate.evaluation.tiers.authoring import AuthoringError, author_brief
 from physgate.evaluation.tiers.canaries import store_canaries
-from physgate.evaluation.tiers.manifest import TierSet, requirements_source, staleness
+from physgate.evaluation.tiers.manifest import requirements_source, staleness
 from physgate.evaluation.tiers.store import is_visible_tier, role_roots
 from physgate.evaluation.tiers.task import AnswerForm, Role, ScorerId
 
@@ -34,8 +34,8 @@ def _version(store: Path, role: str, canary: str | None = None) -> Path:
     root = store / role
     for part in ("withheld", "work"):
         (root / part).mkdir(parents=True, exist_ok=True)
-    for tier in ("visible", "validation", "held_out"):
-        (root / VERSION / tier).mkdir(parents=True, exist_ok=True)
+    for name in ("visible", "validation", "held_out"):
+        (root / VERSION / name).mkdir(parents=True, exist_ok=True)
     if canary is not None:
         tier = root / VERSION / "held_out"
         (tier / "t-1").mkdir()
@@ -83,7 +83,7 @@ def test_a_store_that_cannot_be_listed_is_taken_as_holding_every_role_s_root(
             raise PermissionError(13, "denied", str(store))
         return real(path)
 
-    monkeypatch.setattr(store_module.os, "listdir", listing)
+    monkeypatch.setattr(os, "listdir", listing)
     assert {role for _, role in role_roots((str(store),))} == set(get_args(Role))
     assert "whole_run" in {role for _, role in role_roots((str(store),))}
 
@@ -159,7 +159,7 @@ def test_no_author_brief_or_requirements_source_exists_for_a_whole_run_yet() -> 
 
 
 def test_a_manifest_naming_a_whole_run_is_stale_for_want_of_a_current_brief() -> None:
-    manifest = TierSet.model_construct(role=WHOLE)
-    found = staleness(manifest)
+    manifest = SimpleNamespace(role=WHOLE)
+    found = staleness(manifest)  # type: ignore[arg-type]
     assert found.because == ("no_current_brief",)
     assert found.tiers == ("visible", "validation", "held_out")
