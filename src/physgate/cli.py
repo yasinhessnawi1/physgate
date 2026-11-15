@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
+from physgate.evaluation import evidence
 from physgate.evaluation import requirements as evaluation_requirements
 from physgate.evaluation import tierset_cli
 from physgate.evaluation.baseline import cli as baseline_cli
@@ -16,15 +17,18 @@ from physgate.knowledge import cli as knowledge_cli
 from physgate.orchestrator import cli as orchestrator_cli
 from physgate.orchestrator import requirements
 from physgate.ui import cli as ui_cli
+from physgate.ui import table
 
 
 def compose() -> None:
     """Wire the evaluation into the core, here and nowhere else.
 
     The evaluation's conditions on a run: the core states none of its own, and runs without
-    them where there is no evaluation.
+    them where there is no evaluation. And the Evidence screen's reads over the evaluation's
+    records, served beside the UI's own routes: no module of the UI imports the evaluation.
     """
     requirements.register(evaluation_requirements.REQUIREMENTS)
+    table.register(evidence.ROUTES)
 
 
 def main(

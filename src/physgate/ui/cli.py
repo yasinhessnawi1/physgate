@@ -115,6 +115,7 @@ def _serve(args: argparse.Namespace) -> int:
     from physgate.ui.paths import Allowlist
     from physgate.ui.routes import Context
     from physgate.ui.server import make_server, operator_url, require_loopback
+    from physgate.ui.table import served
 
     try:
         require_loopback(args.bind)
@@ -136,6 +137,8 @@ def _serve(args: argparse.Namespace) -> int:
             Context(allowlist=allowlist, assets=built, operator=args.operator, engines=catalogue),
             bind=args.bind,
             port=args.port,
+            # The product's routes and the reads the command's composition root registered.
+            routes=served(),
         )
     except StartupRefusedError as exc:
         return _fail(str(exc), **exc.context)
