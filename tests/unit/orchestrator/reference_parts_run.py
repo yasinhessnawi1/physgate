@@ -465,6 +465,8 @@ class Made:
     repo: Path
     steps: tuple[str, str]
     requests: tuple[SessionRequest, ...]
+    #: What the process that ended on the parts' hold handed any session: nothing, if it held.
+    held_requests: tuple[SessionRequest, ...] = ()
 
 
 def made(
@@ -481,14 +483,14 @@ def made(
     """
     with ticking(monkeypatch):
         run_dir = start(root, cfg, repo)
-        held, _ = drive(root, cfg, repo)
+        held, before = drive(root, cfg, repo)
         decide(run_dir)
         requests: list[SessionRequest] = []
         try:
             ended, requests = drive(root, cfg, repo, requests)
         except Exception as exc:  # noqa: BLE001 - how the run ended is what a row asserts on
             ended = f"raised {type(exc).__name__}: {exc}"
-    return Made(run_dir, repo, (held, ended), tuple(requests))
+    return Made(run_dir, repo, (held, ended), tuple(requests), tuple(before))
 
 
 def recorded_run(monkeypatch: pytest.MonkeyPatch, root: Path) -> Made:

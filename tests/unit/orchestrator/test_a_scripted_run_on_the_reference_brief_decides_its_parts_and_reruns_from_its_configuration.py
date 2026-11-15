@@ -85,15 +85,21 @@ def test_the_run_holds_for_its_parts_then_runs_to_its_end(
     assert recorded.steps == ("wait", "done")
     kinds = _kinds(log)
     released = kinds.index("parts_released")
-    first_dispatch = kinds.index("session_spawned") if "session_spawned" in kinds else None
-    first_stage = kinds.index("stage_entered")
-    assert released < first_stage
-    assert first_dispatch is None or released < first_dispatch
+    assert released < kinds.index("stage_entered")
+    # The process that held handed no session anything; the one after the release handed one
+    # session per planned module, each once, and the run ended on the system-scope pass.
+    assert recorded.held_requests == ()
+    assert sorted(r.subtask_id for r in recorded.requests) == sorted(
+        line["subtask_id"] for line in log if line["kind"] == "merged"
+    )
     assert kinds.count("decision_taken") == len(ref.COMPONENTS)
-    assert kinds.count("merged") == len(ref.MODULES)
+    assert kinds.count("merged") == len(ref.MODULES) == len(recorded.requests)
     system = [line for line in log if line["kind"] == "integration_gate_ran"]
     assert len(system) == 1 and system[0]["result"]["verdict"] == "pass"
-    assert kinds[-1] == "run_ended" or "run_ended" not in kinds
+    assert kinds.index("integration_gate_ran") > max(
+        k for k, kind in enumerate(kinds) if kind == "merged"
+    )
+    assert not {"incident", "halted", "integration_escalated"} & set(kinds)
 
 
 def test_the_brief_is_the_reference_brief_and_its_digest_is_recorded(recorded: ref.Made) -> None:
@@ -162,6 +168,27 @@ def test_the_release_gate_judged_the_declared_values_before_any_session(
         HAVE.node,
         MAKE.node,
     ]
+
+
+def test_the_release_gate_runs_the_unit_and_range_checks_at_subtask_scope_and_no_other(
+    log: list[dict[str, Any]],
+) -> None:
+    # The release judges each declared value on its own: its unit and its range. The checks
+    # that read values together (loads, power, conservation, heat, propagation) see the
+    # declared values at module and system scope, after sessions have run.
+    (gated,) = [line for line in log if line["kind"] == "parts_gate_ran"]
+    checks = gated["result"]["checks"]
+    assert {record["name"] for record in checks} == {"units", "magnitude"}
+    assert {record["scope"] for record in checks} == {"subtask"}
+    system = next(line for line in log if line["kind"] == "integration_gate_ran")
+    assert {record["name"] for record in system["result"]["checks"]} >= {
+        "units",
+        "magnitude",
+        "equilibrium",
+        "conservation",
+        "power",
+        "thermal",
+    }
 
 
 def test_every_session_is_handed_the_record_the_release_names(

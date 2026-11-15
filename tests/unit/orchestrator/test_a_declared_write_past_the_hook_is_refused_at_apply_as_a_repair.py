@@ -152,3 +152,27 @@ def test_the_reserved_source_without_the_record_is_declared_forged(
 def test_a_bare_number_keeps_its_old_reason(tmp_path: Path, store: Path) -> None:
     refused = _refusal(tmp_path, store, _node("electrical.driver", {"i": 2.4}))
     assert refused.reason == REJECT_MISSING_UNIT
+
+
+# --- the node a declared quantity sits on ------------------------------------------------------
+
+
+def test_a_declared_node_moved_to_another_domain_is_declared_fixed(
+    tmp_path: Path, store: Path
+) -> None:
+    moved = {**_node(MOTOR, {"mass": _declared(), "own": _plain()}), "domain": "control"}
+    refused = _refusal(tmp_path, store, moved)
+    assert refused.reason == "declared_fixed"
+    assert "domain" in str(refused) and "fixed by a person" in str(refused)
+
+
+def test_a_declared_node_joined_to_its_module_is_read(tmp_path: Path, store: Path) -> None:
+    joined = {**_node(MOTOR, {"mass": _declared()}), "constrains": ["electrical.drive"]}
+    assert [p["id"] for p in _proposed(tmp_path, store, joined)] == [MOTOR]
+
+
+def test_a_node_with_no_declared_quantity_moves_domain_as_it_always_could(
+    tmp_path: Path, store: Path
+) -> None:
+    moved = {**_node("electrical.driver", {"i": _plain()}), "domain": "control"}
+    assert [p["id"] for p in _proposed(tmp_path, store, moved)] == ["electrical.driver"]

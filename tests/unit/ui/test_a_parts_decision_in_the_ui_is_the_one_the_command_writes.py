@@ -236,6 +236,7 @@ MALFORMED = [
     ),
     pytest.param(_body({"stall_current": (1.6, "kg")}), "'stall_current'", id="wrong dimension"),
     pytest.param(_body({"mass": (float("nan"), "kg")}), "finite", id="not a number"),
+    pytest.param(_body({"mass": (10**400, "kg")}), "finite", id="an integer past a float"),
 ]
 
 

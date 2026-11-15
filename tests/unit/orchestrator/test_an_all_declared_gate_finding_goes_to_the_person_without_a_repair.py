@@ -81,6 +81,91 @@ def test_a_passing_result_and_no_result_are_never_all_declared() -> None:
     assert all_declared(None, DECLARED) is False
 
 
+# --- what the real checks name ----------------------------------------------------------------
+# A check does not always name every value its failure rests on: the conservation check names a
+# relation's first term only, and the loads reading of the equilibrium check names none. Only the
+# magnitude check names exactly the one value it judged, so only a finding made of magnitude
+# records alone can say it is about declared values and nothing else.
+
+DRIVER = "electrical.driver"
+IMU_RATE = ("electrical.imu", "sample_rate")
+
+
+def _real(tmp_path: Path, *payloads: dict[str, Any]) -> Any:  # noqa: ANN401
+    """The registered gate's result at system scope over ``payloads``, all given design."""
+    from gate_fixtures import graph
+
+    from physgate.gate.graph import GraphView
+    from physgate.gate.runner import PhysicsGate
+
+    graph(tmp_path / "g", *payloads)
+    return PhysicsGate().run(GraphView.read(tmp_path / "g", 0), ("system",), "on")
+
+
+def _shape(result: Any) -> tuple[list[tuple[str, str]], list[str]]:  # noqa: ANN401
+    named = [(q.node_id, q.name) for q in result.quantities]
+    blocking = sorted({r.name for r in result.checks if r.outcome == "fail" and r.blocking})
+    return named, blocking
+
+
+def test_an_energy_balance_that_names_only_its_declared_first_term_is_not_all_declared(
+    tmp_path: Path,
+) -> None:
+    from gate_fixtures import node
+
+    # Power in is declared; power out and heat are a role's. The balance names power in alone.
+    driver = node(
+        DRIVER,
+        quantities={
+            "input_power": (10, "W"),
+            "output_power": (9, "W"),
+            "heat_dissipation": (0.5, "W"),
+        },
+        constrains=["electrical.drive"],
+    )
+    result = _real(tmp_path, node("electrical.drive", kind="module"), driver)
+    assert _shape(result) == ([(DRIVER, "input_power")], ["conservation"])
+    assert all_declared(result, frozenset({(DRIVER, "input_power")})) is False
+
+
+def test_a_module_mass_that_names_only_its_declared_whole_is_not_all_declared(
+    tmp_path: Path,
+) -> None:
+    from gate_fixtures import CONSERVATION
+
+    result = _real(tmp_path, *CONSERVATION)
+    named, blocking = _shape(result)
+    assert blocking == ["conservation"] and len(named) == 1
+    assert all_declared(result, frozenset(named)) is False
+
+
+def test_a_loads_failure_naming_nothing_beside_a_declared_magnitude_is_not_all_declared(
+    tmp_path: Path,
+) -> None:
+    from gate_fixtures import MAGNITUDE, node
+
+    # A gearbox whose reaction moment was left at an old torque: the loads reading names no value.
+    gearbox = node(
+        "mechanical.gearboxes",
+        domain="mechanical",
+        quantities={"torque_peak": (0.38, "N*m"), "reaction_moment": (1.1, "N*m")},
+    )
+    result = _real(tmp_path, gearbox, *MAGNITUDE)
+    assert _shape(result) == ([IMU_RATE], ["equilibrium", "magnitude"])
+    assert all_declared(result, frozenset({IMU_RATE})) is False
+
+
+def test_a_real_magnitude_failure_on_a_declared_value_alone_is_all_declared(
+    tmp_path: Path,
+) -> None:
+    from gate_fixtures import MAGNITUDE
+
+    result = _real(tmp_path, *MAGNITUDE)
+    assert _shape(result) == ([IMU_RATE], ["magnitude"])
+    assert all_declared(result, frozenset({IMU_RATE})) is True
+    assert all_declared(result, frozenset()) is False
+
+
 def test_the_gate_part_leaves_the_mark_out_when_it_is_not_set() -> None:
     fields = {"ran": True, "mode": "on", "verdict": "fail", "failing_check": "magnitude"}
     plain = GatePart.model_validate({**fields, "checks": ()})
@@ -100,14 +185,18 @@ def test_an_all_declared_first_rejection_is_forced_and_any_other_is_not(
 # --- the loop ---------------------------------------------------------------------------------
 
 
-def _released(tmp_path: Path, attempt_one: Any) -> Any:  # noqa: ANN401
+def _released(
+    tmp_path: Path,
+    attempt_one: Any,  # noqa: ANN401
+    declared: dict[str, tuple[Any, Any]] | None = None,
+) -> Any:  # noqa: ANN401
     """A run whose motor's mass is declared, released; its first attempt's gate answer set."""
     the_rig = started(tmp_path / "run")
     assert again(the_rig) == "wait"
     assert the_rig.gate is not None
     the_rig.gate.results = {1: attempt_one}
     run_dir = the_rig.run_dir
-    stated = body({"mass": (0.4, "kg"), "stall_current": (2.4, "A")})
+    stated = body(declared or {"mass": (0.4, "kg"), "stall_current": (2.4, "A")})
     assert isinstance(decide(run_dir, "run-1-parts-1", "have", stated), QueueResolution)
     assert isinstance(decide(run_dir, "run-1-parts-2", "find"), QueueResolution)
     assert isinstance(decide(run_dir, "run-1-parts-3", "find"), QueueResolution)
@@ -161,6 +250,38 @@ def test_a_mixed_finding_goes_back_to_the_role_marking_the_declared_value_fixed(
     # An undeclared quantity is named from the second repair on, as before, and never as fixed.
     torque_lines = [line for line in repair.splitlines() if f"{MOTOR} torque" in line]
     assert all("declared" not in line for line in torque_lines)
+
+
+def test_a_real_balance_naming_only_a_declared_term_goes_to_the_role_s_repair(
+    tmp_path: Path,
+) -> None:
+    from gate_fixtures import node
+
+    # The motor's power in is declared; its power out and heat are the role's to repair. The
+    # registered gate's own result names power in alone.
+    motor = node(
+        MOTOR,
+        domain="control",
+        quantities={
+            "input_power": (10, "W"),
+            "output_power": (9, "W"),
+            "heat_dissipation": (0.5, "W"),
+        },
+    )
+    real = _real(tmp_path / "gate", motor)
+    assert _shape(real) == ([(MOTOR, "input_power")], ["conservation"])
+    the_rig = _released(
+        tmp_path,
+        lambda mode: real,
+        {"input_power": (10, "W"), "stall_current": (2.4, "A")},
+    )
+    again(the_rig)
+    first = _decided(log_of(the_rig.run_dir))[0]
+    assert first["subtask_id"] == "s1" and first["attempt"] == 1
+    assert first["decision"]["forced"] is False
+    assert "all_declared" not in first["state"]["gate"]
+    s1 = [r for r in the_rig.dispatcher.requests if r.subtask_id == "s1"]
+    assert [r.attempt for r in s1][:2] == [1, 2]
 
 
 def test_a_finding_on_an_undeclared_value_routes_as_it_always_did(tmp_path: Path) -> None:

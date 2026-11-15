@@ -44,6 +44,7 @@ from parts_rig import (
     shown,
 )
 from plan_hold_rig import outcome_of
+from pydantic import ValidationError
 
 from physgate.orchestrator import queue as queue_module
 from physgate.orchestrator.events import Position
@@ -353,6 +354,34 @@ def test_a_value_is_a_finite_number(tmp_path: Path, value: Any) -> None:  # noqa
     found = outcome_of(lambda: decide(run_dir, ITEM, "have", body({"mass": (value, "kg")})))
     assert isinstance(found, Exception), found
     assert decisions_bytes(run_dir) == b""
+
+
+@pytest.mark.parametrize(
+    "value", [10**309, -(10**309), 10**400, 10**4000], ids=["309", "-309", "401", "4001"]
+)
+def test_an_integer_too_large_for_a_finite_number_is_refused_in_plain_words(
+    value: int,
+) -> None:
+    # A whole number past a float's range is not a finite number: it is refused as the body's
+    # other values are, and never raises anything but the body's own refusal.
+    try:
+        body({"mass": (value, "kg")})
+    except ValidationError as refused:
+        said = str(refused)
+    except Exception as exc:  # noqa: BLE001 - any other escape is what this row refuses
+        said = f"raised {type(exc).__name__}"
+    else:
+        said = "accepted"
+    assert "finite number" in said, said
+    assert len(said) < 2000, "the refusal does not print the whole number"
+
+
+def test_the_largest_integer_a_finite_number_holds_is_judged_as_any_value(tmp_path: Path) -> None:
+    # 10**308 is a finite float: it passes the number rule and is judged by its kind's rules.
+    run_dir = _run(tmp_path)
+    big = body({"own_note_big": (10**308, "m")})
+    found = outcome_of(lambda: decide(run_dir, ITEM, "have", big))
+    assert not isinstance(found, Exception), found
 
 
 def test_a_wrong_value_beside_a_good_one_refuses_the_whole_decision(tmp_path: Path) -> None:

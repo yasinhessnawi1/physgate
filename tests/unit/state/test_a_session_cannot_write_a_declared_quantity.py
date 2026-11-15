@@ -171,3 +171,40 @@ def test_a_bare_number_keeps_the_missing_unit_reason_beside_a_declared_one(
         assert (result.accepted, result.reason) == (False, REJECT_MISSING_UNIT)
     finally:
         store.close()
+
+
+# --- the node a declared quantity sits on ------------------------------------------------------
+# A role may write its own quantities on a declared node, but the node stays what the person's
+# part was declared on: its kind and its domain are not a role's to change, as its declared
+# values and units are not. Its ``constrains`` stays the role's: the parts writer creates a
+# component's node with no edge, and only the role that owns it joins it to the module whose
+# mass, power and loads read it.
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("domain", "electrical"), ("kind", "module")], ids=["domain", "kind"]
+)
+def test_a_role_cannot_move_a_declared_node_to_another_domain_or_kind(
+    declared_store: Store, field: str, value: str
+) -> None:
+    before = _lines(declared_store)
+    moved = _node({"mass": _declared(), "extra": _plain()}, **{field: value})
+    assert _reason(declared_store, moved) == (False, FIXED)
+    assert _lines(declared_store) == before
+
+
+def test_a_role_may_join_a_declared_node_to_its_module(declared_store: Store) -> None:
+    joined = _node({"mass": _declared()}, constrains=["control.drive"])
+    assert _reason(declared_store, joined) == (True, None)
+    held = declared_store.read_node("control.motor_left")
+    assert held["constrains"] == ["control.drive"]
+
+
+def test_a_node_with_no_declared_quantity_moves_as_it_always_could(tmp_path: Path) -> None:
+    store = Store(tmp_path / "graph")
+    try:
+        plain = _node({"mass": _plain(0.5, "kg")})
+        assert store.write_node(plain, "control").accepted
+        assert _reason(store, {**plain, "domain": "electrical"}) == (True, None)
+    finally:
+        store.close()

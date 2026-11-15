@@ -128,6 +128,20 @@ def test_what_the_function_refuses_the_command_refuses_and_writes_nothing(
     assert decisions_bytes(run_dir) == before
 
 
+@pytest.mark.parametrize("digits", [310, 401, 4000])
+def test_a_whole_number_past_a_float_is_refused_by_the_command_never_raised(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], digits: int
+) -> None:
+    run_dir = _run(tmp_path)
+    try:
+        code = _resolve(run_dir, IDS[0], "--choose", "have", "--declare", f"mass={'9' * digits}:kg")
+    except Exception as exc:  # noqa: BLE001 - a crash is what this row refuses
+        code = f"raised {type(exc).__name__}"
+    assert code == 2
+    assert "finite number" in capsys.readouterr().err
+    assert decisions_bytes(run_dir) == b""
+
+
 def test_free_text_decides_no_part(tmp_path: Path) -> None:
     run_dir = _run(tmp_path)
     assert _resolve(run_dir, IDS[1], "--choose", "find") == 0, "the command decides no part"

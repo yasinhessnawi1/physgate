@@ -132,3 +132,24 @@ def test_an_earlier_rule_keeps_its_reason_where_a_declared_fault_is_crossed_with
     told = _write(config, MOTOR, other)
     assert graph.OWNER_CHANGE in told or REJECT_CROSS_ROLE in told
     assert FIXED not in told and FORGED not in told
+
+
+# --- the node a declared quantity sits on ------------------------------------------------------
+
+
+def test_a_session_cannot_move_a_declared_node_to_another_domain(config: SessionConfig) -> None:
+    moved = {**_with({"mass": _declared(), "extra": _plain()}), "domain": "control"}
+    told = _write(config, MOTOR, moved)
+    assert FIXED in told and "domain" in told
+    assert "fixed by a person" in told
+
+
+def test_a_session_cannot_change_a_declared_node_s_kind(config: SessionConfig) -> None:
+    # The hook's kind rule, earlier in its order, refuses it for every node; it stays refused.
+    told = _write(config, MOTOR, {**_with({"mass": _declared()}), "kind": "module"})
+    assert graph.KIND_CHANGE in told or FIXED in told
+
+
+def test_a_session_may_join_a_declared_node_to_its_module(config: SessionConfig) -> None:
+    joined = {**_with({"mass": _declared()}), "constrains": ["electrical.drive"]}
+    assert _write(config, MOTOR, joined) == "allow"
