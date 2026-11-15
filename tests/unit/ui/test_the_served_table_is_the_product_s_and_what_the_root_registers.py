@@ -185,4 +185,3 @@ def test_only_the_composition_root_registers_routes_and_no_ui_module_names_the_e
         or "from physgate.evaluation import evidence" in path.read_text()
     ]
     assert naming == []
-

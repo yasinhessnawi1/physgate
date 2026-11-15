@@ -5,9 +5,8 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from physgate.evaluation import evidence
+from physgate.evaluation import evidence, tierset_cli
 from physgate.evaluation import requirements as evaluation_requirements
-from physgate.evaluation import tierset_cli
 from physgate.evaluation.baseline import cli as baseline_cli
 from physgate.evaluation.inject import cli as inject_cli
 from physgate.evaluation.observe import cli as observe_cli
