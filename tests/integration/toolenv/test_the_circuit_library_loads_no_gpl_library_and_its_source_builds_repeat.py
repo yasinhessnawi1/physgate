@@ -122,6 +122,18 @@ def test_no_distribution_in_the_environment_states_a_gpl_licence_or_one_off_the_
     assert {"skidl", "kinet2pcb", "hierplace", "numpy"} <= names
 
 
+def test_provisioning_read_every_licence_and_imported_the_circuit_library_itself(
+    env: Path,
+) -> None:
+    record = _record(env)
+    read = record.get("licences_read")
+    assert isinstance(read, int), "the record does not say how many licences were read"
+    assert read == len(list(_site(env).glob("*.dist-info")))
+    checks = record.get("self_check")
+    assert isinstance(checks, dict)
+    assert checks.get("circuit") == {"skidl": "3.0.0", "inspice_modules": []}
+
+
 def test_the_packages_built_from_source_are_recorded_with_both_digests(env: Path) -> None:
     lock = tomllib.loads((REPO / "toolenv" / "uv.lock").read_text(encoding="utf-8"))
     found = {package["name"]: package for package in lock["package"]}

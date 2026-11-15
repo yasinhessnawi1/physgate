@@ -235,6 +235,20 @@ def test_a_gpl_mention_in_a_full_licence_text_is_refused_unless_the_distribution
         assert len(str(why).split()) > 3, name
 
 
+@pytest.mark.parametrize(("opening", "refused"), [("Apache License", False), ("GNU GPL", True)])
+def test_a_distribution_whose_licence_is_only_in_its_file_is_read_from_that_file(
+    tmp_path: Path, opening: str, refused: bool
+) -> None:
+    named = getattr(_provision(), "LICENCE_FROM_FILE", {})
+    assert named.get("ocpsvg") == "Apache License"
+    _installed(tmp_path, "ocpsvg", "Summary: no licence field")
+    licences = tmp_path / "ocpsvg-1.0.dist-info" / "licenses"
+    licences.mkdir()
+    (licences / "LICENSE").write_text(f"   {opening}\n   Version 2.0\n", encoding="utf-8")
+    found = _refusals(tmp_path)
+    assert (found != []) is refused, found
+
+
 def test_every_distribution_is_read_and_all_refusals_are_named_at_once(tmp_path: Path) -> None:
     _installed(tmp_path, "one", "License-Expression: GPL-2.0-only")
     _installed(tmp_path, "two", "Summary: nothing")
@@ -308,7 +322,9 @@ def test_an_installed_source_package_is_recorded_by_its_source_and_wheel_digests
     site = _site_with(tmp_path, "kinet2pcb-1.1.4", "rich-15.0.0")
     built = getattr(provision, "built_from_source", None)
     assert callable(built), "the script records nothing built from source"
-    found = built(project, tmp_path / "cache", site)
+    found: dict[str, Any] = {}
+    raised = _raised(lambda: found.update(built(project, tmp_path / "cache", site)))
+    assert raised is None, raised
     # pyyaml is held only as source too, but is not installed: nothing was built from it.
     assert sorted(found) == ["kinet2pcb"]
     entry = found["kinet2pcb"]
