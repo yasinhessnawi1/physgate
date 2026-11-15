@@ -212,6 +212,11 @@ class InstallRequest(BaseModel):
     #: run's arm (see :data:`DISCIPLINE_HOOKS` and :func:`build_config`), for a role session only.
     #: The installer command takes it only for a run whose recorded configuration says so.
     hooks: Hooks = "on"
+    #: For a reviewer whose run allows compaction (ARCH-060): the required files it reads again
+    #: in full after each compaction, and the note it is told then. Empty for every other
+    #: session, whose configuration is written with the bytes it always had.
+    after_compaction: tuple[AbsolutePath, ...] = ()
+    compaction_note: str | None = None
 
     @model_validator(mode="after")
     def _only_a_role_session_drops_the_discipline(self) -> InstallRequest:
@@ -721,7 +726,20 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         watchdog_seconds=WATCHDOG_SECONDS,
         hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
         survivor_reaper=reaper_on,
+        after_compaction=tuple(sorted(request.after_compaction)),
+        compaction_note=request.compaction_note,
     )
+
+
+#: The configuration's fields left out of its written bytes when empty: only a reviewer whose
+#: run allows compaction has them, so every other session's configuration keeps its bytes.
+_LEFT_OUT_WHEN_EMPTY = ("after_compaction", "compaction_note")
+
+
+def config_bytes(config: SessionConfig) -> bytes:
+    """The configuration's bytes as the installer writes them and the hooks read them."""
+    absent = {name for name in _LEFT_OUT_WHEN_EMPTY if not getattr(config, name)}
+    return _dump(config.model_dump(mode="json", exclude=absent))
 
 
 #: Where :func:`protected_in_a_worktree` places the role session it asks about. Nothing is
@@ -1056,18 +1074,18 @@ def install(
     target = Path(request.target_dir)
     target.mkdir(parents=True, exist_ok=True)
     config_path = target / CONFIG_NAME
-    config_bytes = _dump(config.model_dump(mode="json"))
+    written = config_bytes(config)
     # The shape is validated where it is written, through the schema, on the very
     # bytes the hooks will read and whose digest they carry: the hooks validate
     # them again with the standard-library validator a test holds to this one.
-    if SessionConfig.model_validate_json(config_bytes) != config:
+    if SessionConfig.model_validate_json(written) != config:
         msg = "the configuration does not read back as the one that was built"
         raise ValueError(msg)
-    config_path.write_bytes(config_bytes)
+    config_path.write_bytes(written)
     settings = render_settings(
         config,
         str(config_path),
-        digest(config_bytes),
+        digest(written),
         wired_hooks(request, registry),
         request.api_key_helper,
     )

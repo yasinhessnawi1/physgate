@@ -232,7 +232,8 @@ def review_retried_once(
 
     An infrastructure end (an API error, no result, the wall clock) is retried once, with
     a fresh session, after ``delays``' first entry (at once if there is none). A refused or
-    invalid verdict, an unfinished reading, a compaction or an overflow is final at once:
+    invalid verdict, an unfinished reading, a compaction where compaction is off, or an overflow
+    (after any compactions) is final at once:
     a fresh session would repeat it. Every try's tokens and its ``review_unavailable``
     line, with whether it is retried, are logged before anything else happens.
 
@@ -265,6 +266,7 @@ def review_retried_once(
                     session_id=exc.session_id,
                     reviewer_model=exc.reviewer_model,
                     spec_defects=exc.spec_defects,
+                    compactions=exc.compactions,
                 )
             )
             if not retry:

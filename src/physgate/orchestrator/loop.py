@@ -3108,6 +3108,7 @@ class Loop:
                         reviewer_model=exc.reviewer_model,
                         spec_defects=exc.spec_defects,
                         managed=exc.managed,
+                        compactions=exc.compactions,
                     )
                 )
                 if not retry:

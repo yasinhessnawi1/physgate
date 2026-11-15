@@ -42,6 +42,7 @@ LINES: tuple[dict[str, Any], ...] = (
         "escalation_backend": "rules",
         "queue_decisions": "act",
         "parts_on_hand": "on",
+        "review_compaction": "off",
         "producer_wait": "hold",
     },
     {
