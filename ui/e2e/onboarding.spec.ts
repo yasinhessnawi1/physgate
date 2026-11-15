@@ -497,6 +497,7 @@ const FLOWS: readonly Flow[] = [
     walk: async (page, flow) => {
       await operatorDrawn(page, flow);
       await button(page, /^stay read-only/i).click();
+      await confirmIfAsked(page);
       await upTo(page, flow, 3);
     },
   },
@@ -627,6 +628,18 @@ const WRITES: readonly Write[] = [
     },
     trigger: (page) => button(page, /^decide as this name/i),
     names: ["Grace Hopper"],
+  },
+  {
+    name: "staying read-only",
+    flow: "stay read-only",
+    step: "operator",
+    given: fixture(),
+    before: async (page, flow) => {
+      await operatorDrawn(page, flow);
+      return 2;
+    },
+    trigger: (page) => button(page, /^stay read-only/i),
+    names: ["Operator", "read-only"],
   },
 ];
 
