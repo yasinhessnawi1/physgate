@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,17 @@ from physgate.evaluation.tiers.heldout import tier_digest
 from physgate.evaluation.tiers.store import withheld_root
 
 EXPOSURE = "physgate.evaluation.tiers.exposure"
+
+
+def _refused_because(call: Callable[[], object]) -> str:
+    """The counted reason ``call`` is refused with; any other error fails the row."""
+    error = api(f"{EXPOSURE}.ExposureError")
+    try:
+        call()
+    except Exception as exc:  # noqa: BLE001 - which error it is, is what is asserted
+        assert isinstance(exc, error), f"refused by {type(exc).__name__}, not with a reason"
+        return str(exc.context.get("refused_because"))
+    pytest.fail("it was not refused")
 
 
 def _reason(why: str | None, reason: str) -> None:
@@ -215,10 +227,18 @@ def test_a_hand_mark_without_a_person_or_a_reason_is_refused(
     made: StandInStore, by: str, reason: str
 ) -> None:
     mark = api(f"{EXPOSURE}.mark_exposed")
-    error = api(f"{EXPOSURE}.ExposureError")
-    with pytest.raises(error):
-        mark(made.store, "control", made.version, by=by, reason=reason)
+    why = _refused_because(lambda: mark(made.store, "control", made.version, by=by, reason=reason))
+    wanted = "hand_mark_names_no_one" if not by else "hand_mark_without_a_reason"
+    assert why == wanted
     assert api(f"{EXPOSURE}.register_lines")(made.store, "control") == []
+
+
+def test_a_hand_mark_on_a_version_the_role_does_not_have_is_refused(made: StandInStore) -> None:
+    mark = api(f"{EXPOSURE}.mark_exposed")
+    why = _refused_because(
+        lambda: mark(made.store, "control", "e" * 64, by="a person", reason="opened it by hand")
+    )
+    assert why == "version_unknown"
 
 
 def _two_marks(made: StandInStore) -> Path:
@@ -266,12 +286,26 @@ def test_a_shortened_or_rewritten_register_refuses_rather_than_reads_as_nothing_
 
 
 def test_marks_are_appended_in_their_order_and_read_back_whole(made: StandInStore) -> None:
-    _two_marks(made)
+    try:
+        _two_marks(made)
+    except Exception as exc:  # noqa: BLE001 - a refused second mark is the failure asserted
+        pytest.fail(f"a second mark was refused: {exc!r}")
     lines = api(f"{EXPOSURE}.register_lines")(made.store, "control")
     assert [(line.n, line.reason) for line in lines] == [
         (0, "opened the tier by hand"),
         (1, "copied a task by mistake"),
     ]
+
+
+@pytest.mark.parametrize("cut", ["the last line", "every line"])
+def test_reading_a_shortened_register_is_refused_with_its_reason(
+    made: StandInStore, cut: str
+) -> None:
+    register = _two_marks(made) / "register.jsonl"
+    lines = register.read_bytes().splitlines(keepends=True)
+    register.write_bytes(lines[0] if cut == "the last line" else b"")
+    why = _refused_because(lambda: api(f"{EXPOSURE}.register_lines")(made.store, "control"))
+    assert why == "register_unreadable"
 
 
 def test_a_raw_record_that_names_no_digest_marks_every_version_of_the_role(

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -56,9 +57,31 @@ def _decompose(
 ) -> list[str]:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
     monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(fake_binary(tmp_path, "2.1.272")))
+    # The harness and the target as a checkout with a commit, wherever the suite runs from (a
+    # copy of the tree without its history, too).
+    monkeypatch.setattr(cli, "harness_state", lambda _root: CLEAN_HARNESS)
     args = _decompose_args(tmp_path, params)
     args[args.index("--run-dir") + 1] = str(tmp_path / "runs" / "run")
+    args[args.index("--target") + 1] = str(_target(tmp_path / "target"))
     return args
+
+
+def _target(repo: Path) -> Path:
+    """A target repository with one commit."""
+    repo.mkdir()
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(repo),
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+    }
+    (repo / "README.md").write_text("a target\n")
+    for argv in (["git", "init", "-q", "-b", "main"], ["git", "add", "-A"]):
+        subprocess.run(argv, cwd=repo, env=env, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=repo, env=env, check=True)
+    return repo
 
 
 def test_a_requirement_is_shown_the_run_s_directory_at_decompose(
