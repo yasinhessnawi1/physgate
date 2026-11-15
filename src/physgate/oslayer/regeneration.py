@@ -16,13 +16,26 @@ which may be a role's tree, so nothing of a role's tree can name the wrapper.
 
 **Bounds.** The error stream is read through a pipe as the program writes it, its end kept and
 its length counted; past :data:`MAX_ERROR_BYTES` the program is ended and
-:class:`RegenerationBoundError` raised. What lies in the call's folder is counted every
-:data:`POLL_S` seconds and once more at the end; past :data:`MAX_WRITTEN_BYTES` the same. So
-neither the error stream nor the folder can fill a disk or this process's memory.
+:class:`RegenerationBoundError` raised. No file the program or anything it starts writes may
+grow past :data:`MAX_WRITTEN_BYTES` and one byte: the operating system holds that
+(``RLIMIT_FSIZE``, set by a launcher before the wrapper starts, and inherited by everything
+under it), for a file deleted while open as for any other, and a program the limit stops is
+refused. What lies in the call's folder is counted as well, every :data:`POLL_S` seconds and
+once more at the end, a second check: past :data:`MAX_WRITTEN_BYTES` in all, or a folder that
+cannot be listed or a file that cannot be looked at, refuses. What the count cannot see is the
+sum of several files deleted while open, each under the limit; a size-capped folder in memory
+inside the wrapper would hold that, and is not made here.
 
 **Its own session.** The program starts in a session of its own, with no controlling
 terminal, and when it ends, times out or passes a bound its whole process group is killed:
-nothing it started goes on writing into a folder that is being removed.
+nothing it started goes on writing into a folder that is being removed. After that the error
+stream must close within :data:`DRAIN_GRACE_S` seconds, and never later than the call's
+deadline and that grace: something still holding it open left the group, and the call is
+refused, never waited for. On Linux nothing can leave: bubblewrap's ``--unshare-pid`` makes the
+program the first process of a namespace of its own, and ``--die-with-parent`` kills it when
+the wrapper dies, which takes down every process in that namespace, a new session's included.
+On macOS a process that starts a session of its own and closes its error stream is not seen
+and can outlive the call.
 """
 
 from __future__ import annotations
@@ -58,12 +71,24 @@ MAX_ERROR_BYTES = 1_000_000
 MAX_WRITTEN_BYTES = 256_000_000
 #: How often, in seconds, the call's folder is counted while the program runs.
 POLL_S = 0.2
+#: The seconds the error stream has to close once the program's group is ended.
+DRAIN_GRACE_S = 2.0
 #: The most read from the error stream at once.
 _CHUNK = 65536
+#: The launcher: the file size limit set, the signal that enforces it at its default (Python
+#: ignores it at start), then the wrapper in its place, by absolute path, with nothing searched.
+_LIMITED = (
+    "import os, resource, signal, sys\n"
+    "size = int(sys.argv[1])\n"
+    "resource.setrlimit(resource.RLIMIT_FSIZE, (size, size))\n"
+    "signal.signal(signal.SIGXFSZ, signal.SIG_DFL)\n"
+    "os.execv(sys.argv[2], sys.argv[2:])\n"
+)
 
 
 class RegenerationBoundError(RuntimeError):
     """A regeneration passed a bound this module holds; the program was ended."""
+
 
 #: What runs one regeneration: the argument list, the folder made for it, its environment, the
 #: seconds it is given and the recorded roots; its exit code (``None`` when it timed out) and the
@@ -170,8 +195,9 @@ def _run(
     reader, writer = os.pipe()
     try:
         try:
+            limit = str(MAX_WRITTEN_BYTES + 1)
             child = subprocess.Popen(  # noqa: S603 - the recorded command, inside its wrapper
-                list(command),
+                [sys.executable, "-I", "-c", _LIMITED, limit, *command],
                 cwd=work,
                 env=dict(env),
                 stdin=subprocess.DEVNULL,
@@ -207,11 +233,24 @@ def _watched(
                 stream.take()
             _hold_bounds(stream, work)
         _end(child)
-        # Nothing of the group is left to write, so the stream closes: what remains is read.
-        while stream.open and watch.select(POLL_S):
-            stream.take()
+        # Nothing of the group is left to write, so the stream closes: what remains is read,
+        # for a short grace and never past the deadline and that grace.
+        drained = min(deadline, time.monotonic()) + DRAIN_GRACE_S
+        while stream.open:
+            left = drained - time.monotonic()
+            if left <= 0:
+                msg = (
+                    "something the regeneration started left its process group and held its "
+                    "error stream open after it ended"
+                )
+                raise RegenerationBoundError(msg)
+            if watch.select(min(left, POLL_S)):
+                stream.take()
             _hold_bounds(stream, work)
     _hold_bounds(stream, work)
+    if child.returncode == -signal.SIGXFSZ:
+        msg = f"the regeneration was stopped writing a file past {MAX_WRITTEN_BYTES} bytes"
+        raise RegenerationBoundError(msg)
     return child.returncode, stream.tail.decode("utf-8", errors="replace")
 
 
@@ -224,13 +263,29 @@ def _hold_bounds(stream: _Stream, work: Path) -> None:
         raise RegenerationBoundError(msg)
 
 
+def _uncounted(error: OSError) -> None:
+    """A folder of the call that cannot be listed: what it holds cannot be counted, so refused."""
+    if isinstance(error, FileNotFoundError):
+        return  # removed since its parent was listed: it holds nothing
+    msg = f"a folder the regeneration wrote cannot be counted ({type(error).__name__})"
+    raise RegenerationBoundError(msg)
+
+
 def _bytes_in(folder: Path) -> int:
-    """The bytes the files beneath ``folder`` hold, no link followed; what is gone counts none."""
+    """The bytes the files beneath ``folder`` hold, no link followed.
+
+    A file or folder removed since it was listed holds nothing and counts none; one that
+    cannot be listed or looked at for any other reason refuses, never counted as empty.
+    """
     total = 0
-    for top, _folders, files in os.walk(folder):
+    for top, _folders, files in os.walk(folder, onerror=_uncounted):
         for name in files:
-            with contextlib.suppress(OSError):
+            try:
                 total += os.lstat(os.path.join(top, name)).st_size
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                _uncounted(exc)
     return total
 
 
