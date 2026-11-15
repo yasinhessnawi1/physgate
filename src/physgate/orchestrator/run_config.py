@@ -32,8 +32,8 @@ from physgate.flags import (
     Hooks,
     OsLayerAbsent,
     PartsOnHand,
-    ReviewCompaction,
     QueueDecisions,
+    ReviewCompaction,
     Reviewers,
     Skills,
     replans,
@@ -582,7 +582,8 @@ class RunConfig(_Frozen):
         ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off``, ``parts_on_hand``
         and ``review_compaction`` when ``off``, ``reviewers`` when ``paired``, ``skills`` and
         ``hooks`` when ``on``, ``ablation`` when ``False``, and ``binary`` and ``account`` when
-        ``None``, so their recorded digests still name them. A run that names a binding always records it, so the binding is part of its manifest id.
+        ``None``, so their recorded digests still name them. A run that names a binding always
+        records it, so the binding is part of its manifest id.
         """
         exclude = set()
         if self.thinking_display == "omitted":

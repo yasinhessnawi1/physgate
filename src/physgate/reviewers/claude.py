@@ -54,6 +54,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from physgate.flags import ReviewCompaction
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
 from physgate.lines import split_lines
 from physgate.orchestrator.accounting import require_matching_totals
@@ -118,7 +119,6 @@ from physgate.orchestrator.protocols import (
     UnavailableCause,
     require_separate_models,
 )
-from physgate.flags import ReviewCompaction
 from physgate.orchestrator.run_config import DESIGN_REVIEWER, Effort, RunBounds, RunConfig
 from physgate.orchestrator.usage_limit import UsageLimit, usage_limit_of
 from physgate.oslayer.session_temp import make_session_temp

@@ -26,6 +26,7 @@ TIMEOUT = 1200
 
 
 def run_one(mutant: dict[str, Any], index: int) -> dict[str, Any]:
+    """Run one mutant's tests in a fresh copy and say whether an assertion killed it."""
     name = str(mutant["name"])
     # Outside any path holding a word a rule of the harness reads (the review root's word
     # check refuses "physgate" in the path), and outside the clone: a fresh directory in /tmp.
@@ -120,6 +121,7 @@ def run_one(mutant: dict[str, Any], index: int) -> dict[str, Any]:
 
 
 def main() -> None:
+    """Run the baseline, every mutant, then the baseline again, one line of JSON each."""
     mutants = json.loads(Path(sys.argv[1]).read_text())
     out = Path(sys.argv[2])
     every = sorted({t for m in mutants for t in m["tests"]})
