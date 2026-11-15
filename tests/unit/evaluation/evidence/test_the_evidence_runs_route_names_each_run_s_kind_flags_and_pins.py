@@ -235,3 +235,24 @@ def test_a_run_directory_linked_from_the_tier_is_never_listed_or_read(
     assert [row["name"] for row in json.loads(body)["runs"]] == ["ev-development"]
     away = os.path.realpath(held)
     assert [p for p in RECORDER.opened if os.path.realpath(p).startswith(away)] == []
+
+
+def test_a_run_with_no_log_yet_is_a_row_saying_so(
+    built: tuple[EvidenceRuns, Path, Path], tmp_path: Path
+) -> None:
+    from ui_rig import write_run
+
+    _, ui, _ = built
+    root = tmp_path / "runs"
+    write_run(root / "run-unstarted", "run-unstarted")
+    with serving(context_over(root, ui_root=ui)) as live:
+        status, _, body = live.request("GET", ROUTE)
+    assert status == 200, body[:300]
+    assert json.loads(body)["runs"] == [
+        {
+            "root": 0,
+            "name": "run-unstarted",
+            "record": "events.jsonl",
+            "error": "the run directory holds no event log",
+        }
+    ]

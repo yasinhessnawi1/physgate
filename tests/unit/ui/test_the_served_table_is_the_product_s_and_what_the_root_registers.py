@@ -71,8 +71,11 @@ def test_the_table_refuses_to_register_a_route_of_a_kind_the_guard_has_no_policy
     # A route cannot be declared with such a kind; one changed after it was declared is refused
     # at registration too, before any request reaches it.
     object.__setattr__(forged, "kind", "steer")
-    with pytest.raises(UnregisteredKindError, match="no policy"):
+    with pytest.raises((UnregisteredKindError, ValueError)) as refused:
         table.register((forged,))
+    # Refused by the guard's own register of policies, not only as something other than a read.
+    assert isinstance(refused.value, UnregisteredKindError), refused.value
+    assert "no policy" in str(refused.value)
     assert served() == ROUTES
 
 
@@ -108,7 +111,10 @@ def test_the_table_takes_one_registration_and_the_same_again_changes_nothing() -
     table.register(first)
     # The command's entry point runs once per command, and a test process runs it many times:
     # the same routes again are the same registration.
-    table.register(first)
+    try:
+        table.register(first)
+    except ValueError as exc:
+        pytest.fail(f"the same routes again were refused: {exc}")
     with pytest.raises(ValueError, match="registered once"):
         table.register((Route("GET", "/api/other", "read", _answer),))
     assert served() == (*ROUTES, *first)
