@@ -362,14 +362,13 @@ def test_a_schematic_that_draws_on_a_sub_sheet_is_refused_in_words_that_say_so(
     assert not (tmp_path / "calls.log").exists()
 
 
-def _regenerate(tmp_path: Path, schematic: Path, module: Path) -> int:
-    done = subprocess.run(
+def _regenerate(tmp_path: Path, schematic: Path, module: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [sys.executable, "-I", str(HELPERS / "circuit.py"), "regenerate", str(schematic),
          str(module), "board"],
         env={**os.environ, "TMPDIR": str(tmp_path)}, capture_output=True, text=True,
         timeout=120, check=False,
     )  # fmt: skip
-    return done.returncode
 
 
 def test_regenerate_writes_the_three_text_exports_and_no_pdf(
@@ -378,7 +377,8 @@ def test_regenerate_writes_the_three_text_exports_and_no_pdf(
     assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
     module, schematic = _module(tmp_path)
     _canned(monkeypatch, tmp_path, _report([_finding(1)]))
-    assert _regenerate(tmp_path, schematic, module) == 0
+    done = _regenerate(tmp_path, schematic, module)
+    assert done.returncode == 0, done.stderr[-2000:]
     assert (module / "exports").is_dir(), "regenerate wrote no exports"
     names = sorted(p.name for p in (module / "exports").iterdir())
     assert names == ["board.csv", "board.erc.json", "board.net"]
@@ -392,7 +392,9 @@ def test_regenerate_exits_three_on_a_sub_sheet_and_writes_nothing(
     assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
     module, schematic = _module(tmp_path)
     schematic.write_text(WITH_SUB_SHEET, encoding="utf-8")
-    assert _regenerate(tmp_path, schematic, module) == 3
+    done = _regenerate(tmp_path, schematic, module)
+    assert done.returncode == 3, done.stderr[-2000:]
+    assert "sub-sheet" in done.stderr, done.stderr[-2000:]
     exports = module / "exports"
     assert not exports.exists() or not list(exports.iterdir())
 

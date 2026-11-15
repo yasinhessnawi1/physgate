@@ -16,11 +16,17 @@ containment and the real program are the integration test's. Read here:
   schematics sharing a name each have their refusal;
 - a regeneration that fails, times out, writes over a cap or writes nothing refuses; an exit code
   the record words (a sub-sheet) is refused in the record's words;
-- no recorded environment, or one that does not hold its record, refuses; a commit touching
-  neither a schematic nor an export asks for nothing;
+- no recorded environment, or one that does not hold its record, refuses, whatever file of the
+  module the change touches: which files are sources is read from the held environment alone; a
+  commit touching neither a schematic nor an export regenerates nothing;
+- a failed regeneration is refused with its last line, bounded; time used up before a set
+  starts refuses it unrun; an export kind no entry makes is refused; a product written as a link
+  is no product; the check refuses and never raises;
 - the command's argument list holds nothing of the role's tree but the copied schematic's path,
   in a folder made new for the call and removed after it;
-- the record is read strictly; the core names no tool; the refusal kind is classed everywhere.
+- the record is read strictly; the core names no tool and starts no process (the runner is the
+  OS layer's, whose wrapper is named in code and found on absolute folders only); the refusal
+  kind is classed everywhere.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ import tempfile
 import typing
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -50,6 +57,11 @@ try:
     from physgate.orchestrator import derived
 except ImportError:  # the module is what these rows ask for; each fails on its first assertion
     derived = None  # type: ignore[assignment]
+
+try:
+    from physgate.oslayer import regeneration
+except ImportError:  # the runner's home is what the rows below ask for
+    regeneration = None  # type: ignore[assignment]
 
 REPO = Path(__file__).resolve().parents[3]
 PLANNED = {"s1": "modules/s1"}
@@ -72,6 +84,9 @@ source, module, name = sys.argv[1:4]
 text = open(source, encoding="utf-8").read()
 if "SUBSHEET" in text:
     sys.exit(3)
+if "SAY" in text:
+    sys.stderr.write("an earlier line\n" + "why " * 100 + "\x07\n\n")
+    sys.exit(1)
 if "FAIL" in text:
     sys.exit(1)
 if "SLEEP" in text:
@@ -160,18 +175,18 @@ class Runs:
         env: Mapping[str, str],
         timeout_s: float,
         roots: Sequence[str],
-    ) -> int | None:
+    ) -> tuple[int | None, str]:
         self.calls.append(
             {"argv": list(argv), "work": Path(work), "roots": list(roots), "timeout": timeout_s}
         )
         try:
             done = subprocess.run(  # noqa: S603 - the stand-in, as the record names it
                 list(argv), cwd=work, env=dict(env), timeout=timeout_s, check=False,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
             )  # fmt: skip
         except subprocess.TimeoutExpired:
-            return None
-        return done.returncode
+            return None, ""
+        return done.returncode, done.stderr.decode("utf-8", errors="replace")[-4096:]
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -238,13 +253,12 @@ def checker(
     run: RunGit,
     environment: Callable[[], ToolEnvironment | None],
     runs: Runs,
-    record: ToolEnvironment,
 ) -> GitChangeChecker:
     store = tmp_path / "store"
     make_store(store, node("control.loop", "control"))
     try:
         return GitChangeChecker(
-            run, store, dict(PLANNED), recorded=record, environment=environment, regenerate=runs
+            run, store, dict(PLANNED), environment=environment, regenerate=runs
         )  # type: ignore[call-arg]
     except TypeError as exc:
         raise AssertionError(f"the checker takes the environment and a runner: {exc}") from None
@@ -257,14 +271,25 @@ def check(
     start: dict[str, bytes] | None = None,
     root: Path | None = None,
     environment: Callable[[], ToolEnvironment | None] | None = None,
+    runs: Runs | None = None,
 ) -> tuple[ports.ChangeCheck, Runs]:
     assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
     run, commit = attempt(tmp_path, files, start)
     the_root = root or stand_in_root(tmp_path)
-    runs = Runs()
+    the_runs = runs or Runs()
     record = recorded(the_root)
-    found = checker(tmp_path, run, environment or (lambda: record), runs, record)
-    return found.check("s1", commit, "control"), runs
+    found = checker(tmp_path, run, environment or (lambda: record), the_runs)
+    return found.check("s1", commit, "control"), the_runs
+
+
+def check_never_raising(
+    tmp_path: Path, files: dict[str, bytes], **given: Any  # noqa: ANN401
+) -> tuple[ports.ChangeCheck, Runs]:
+    """As :func:`check`, holding that the change check refuses and never raises."""
+    try:
+        return check(tmp_path, files, **given)
+    except Exception as exc:  # noqa: BLE001 - what escapes the check is the finding
+        raise AssertionError(f"the change check raised instead of refusing: {exc!r}") from None
 
 
 def refused(found: ports.ChangeCheck, path: str) -> str:
@@ -333,7 +358,7 @@ def test_a_schematic_committed_without_its_exports_is_refused(tmp_path: Path) ->
 
 def test_exports_committed_without_their_schematic_are_refused(tmp_path: Path) -> None:
     files = {k: v for k, v in made(SOUND).items() if k.endswith((".erc.json", ".net", ".csv"))}
-    found, runs = check(tmp_path, files)
+    found, runs = check_never_raising(tmp_path, files)
     refused(found, f"{MODULE}/exports/board.erc.json")
     assert runs.calls == []
 
@@ -386,11 +411,67 @@ def test_a_regeneration_that_fails_times_out_passes_a_cap_or_writes_nothing_refu
     files = made(SOUND)
     files[f"{MODULE}/board.kicad_sch"] = (SOUND + word + "\n").encode()
     root = stand_in_root(tmp_path, recipe(timeout_s=3))
-    found, runs = check(tmp_path, files, root=root)
+    found, runs = check_never_raising(tmp_path, files, root=root)
     assert found.refused_by == "exports", (found.refused_by, found.reason)
     assert found.reason is not None and said in found.reason, found.reason
     assert f"{MODULE}/board.kicad_sch" in found.reason
     assert len(runs.calls) == 1
+
+
+def test_a_failed_regeneration_is_refused_with_its_last_line_bounded(tmp_path: Path) -> None:
+    files = made(SOUND)
+    files[f"{MODULE}/board.kicad_sch"] = (SOUND + "SAY\n").encode()
+    found, _ = check(tmp_path, files)
+    assert found.refused_by == "exports", (found.refused_by, found.reason)
+    assert found.reason is not None and "exit code 1" in found.reason, found.reason
+    assert "why why" in found.reason, found.reason
+    assert "an earlier line" not in found.reason and "\x07" not in found.reason, found.reason
+    said = found.reason.split("why", 1)[1]
+    assert len("why" + said) <= 200, len("why" + said)
+    assert said.endswith("…"), said[-20:]
+
+
+@pytest.mark.parametrize(
+    ("said", "kept"),
+    [
+        ("", ""),
+        ("\n \n", ""),
+        ("first\nlast one\n", "last one"),
+        ("a\tb\x1b[31m\n", "a b [31m"),
+        ("x" * 200, "x" * 200),
+        ("x" * 201, "x" * 199 + "…"),
+    ],
+)
+def test_a_failed_command_s_last_line_is_kept_printable_and_cut(said: str, kept: str) -> None:
+    assert derived is not None, "physgate.orchestrator.derived words a failed regeneration"
+    assert getattr(derived, "MAX_SAID", None) == 200, "a stated bound on the line a refusal carries"
+    assert derived.last_line(said) == kept
+
+
+def test_a_product_written_as_a_link_is_not_written(tmp_path: Path) -> None:
+    class Linking(Runs):
+        """The stand-in's set, with its parts list moved aside and a link left in its place."""
+
+        def __call__(self, argv: Sequence[str], work: Path, *rest: Any) -> tuple[int | None, str]:
+            ended = super().__call__(argv, work, *rest)
+            product = Path(work) / "module" / "exports" / "board.csv"
+            aside = Path(work) / "aside.csv"
+            product.rename(aside)
+            product.symlink_to(aside)
+            return ended
+
+    found, runs = check(tmp_path, made(SOUND), runs=Linking())
+    reason = refused(found, f"{MODULE}/exports/board.csv")
+    assert "not written" in reason
+    assert len(runs.calls) == 1
+
+
+def test_an_export_of_a_kind_no_recorded_entry_makes_is_refused(tmp_path: Path) -> None:
+    root = stand_in_root(tmp_path, recipe(products=[".erc.json", ".net"]))
+    found, runs = check(tmp_path, made(SOUND), root=root)
+    reason = refused(found, f"{MODULE}/exports/board.csv")
+    assert "names no way to make it again" in reason
+    assert runs.calls == []
 
 
 # ---- the record ----------------------------------------------------------------------------------
@@ -413,16 +494,75 @@ def test_an_environment_that_does_not_hold_its_record_refuses(tmp_path: Path) ->
     assert runs.calls == []
 
 
-def test_a_commit_touching_no_schematic_and_no_export_asks_for_nothing(tmp_path: Path) -> None:
+def test_a_commit_touching_no_schematic_and_no_export_regenerates_nothing(
+    tmp_path: Path,
+) -> None:
+    found, runs = check(tmp_path, {f"{MODULE}/notes.txt": b"x\n"})
+    assert found.refused_by is None, found.reason
+    assert runs.calls == []
+
+
+def test_a_commit_touching_nothing_in_the_module_asks_for_nothing(tmp_path: Path) -> None:
+    assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
     asked: list[int] = []
 
     def environment() -> ToolEnvironment | None:
         asked.append(1)
         return None
 
-    found, runs = check(tmp_path, {f"{MODULE}/notes.txt": b"x\n"}, environment=environment)
-    assert found.refused_by is None, found.reason
-    assert (asked, runs.calls) == ([], [])
+    run, commit = attempt(tmp_path, {"modules/a.txt": b"1\n"})
+    base = _git(run.repo, "rev-parse", "main")
+    try:
+        refusal = derived.held_exports(
+            run.repo, base, commit, MODULE, environment=environment, runner=Runs()
+        )
+    except TypeError as exc:
+        raise AssertionError(f"the check takes the environment and a runner alone: {exc}") from None
+    assert (refusal, asked) == (None, [])
+
+
+def test_which_files_are_sources_is_read_once_the_environment_holds(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "regen.py").write_text(REGEN, encoding="utf-8")
+    record = recorded(root)
+
+    def holds() -> ToolEnvironment | None:
+        # What the hold vouches for is what is read: the record's file stands from here on.
+        (root / "derived.json").write_text(json.dumps({"derivations": [recipe()]}), "utf-8")
+        return record
+
+    files = {f"{MODULE}/board.kicad_sch": SOUND.encode()}
+    found, runs = check(tmp_path, files, root=root, environment=holds)
+    reason = refused(found, f"{MODULE}/exports/board.erc.json")
+    assert "missing" in reason
+    assert runs.calls == []
+
+
+def test_an_environment_that_does_not_hold_refuses_a_change_to_any_file_of_the_module(
+    tmp_path: Path,
+) -> None:
+    def not_held() -> ToolEnvironment | None:
+        msg = "the manifest digest of the tool environment is not the recorded one"
+        raise InvocationError(msg)
+
+    found, runs = check(tmp_path, {f"{MODULE}/notes.txt": b"x\n"}, environment=not_held)
+    reason = refused(found, f"{MODULE}/notes.txt")
+    assert "not the recorded one" in reason
+    assert runs.calls == []
+
+
+def test_time_used_up_before_a_set_starts_refuses_it_unrun(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
+    # A clock that stands still: the deadline is now, and no time is left, to the last digit.
+    monkeypatch.setattr(derived, "time", SimpleNamespace(monotonic=lambda: 1000.0))
+    monkeypatch.setattr(derived, "TOTAL_DEADLINE_S", 0.0)
+    found, runs = check(tmp_path, made(SOUND))
+    assert found.refused_by == "exports", (found.refused_by, found.reason)
+    assert found.reason is not None and "deadline" in found.reason, found.reason
+    assert runs.calls == []
 
 
 def test_the_command_holds_only_the_copied_schematic_in_a_fresh_folder_removed_after(
@@ -486,10 +626,53 @@ def test_a_root_without_a_record_derives_nothing_and_one_with_it_is_read(tmp_pat
 
 
 def test_with_no_wrapper_on_this_machine_the_regeneration_is_refused(tmp_path: Path) -> None:
-    assert derived is not None, "physgate.orchestrator.derived runs the regeneration contained"
-    run = derived.contained_runner(platform="linux", bwrap=None)
-    with pytest.raises(derived.DerivedError):
-        run([sys.executable, "-c", "pass"], tmp_path, {}, 5.0, [str(tmp_path)])
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    from physgate.oslayer.containment import ContainmentError
+
+    marker = tmp_path / "ran"
+    for platform in ("linux", "sunos5"):
+        run = regeneration.contained_runner(platform=platform, bwrap=None)
+        with pytest.raises(ContainmentError):
+            run([sys.executable, "-c", f"open({str(marker)!r}, 'w')"], tmp_path, {}, 5.0, [])
+    assert not marker.exists()
+
+
+def test_the_wrapper_is_named_in_code_and_found_on_absolute_folders_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    assert regeneration.WRAPPER == "bwrap"
+    tree, system = tmp_path / "role-tree", tmp_path / "system"
+    for folder in (tree, system):
+        folder.mkdir()
+        (folder / "bwrap").write_text("#!/bin/sh\n", encoding="utf-8")
+        (folder / "bwrap").chmod(0o755)
+    monkeypatch.chdir(tree)
+    assert regeneration.wrapper_on(os.pathsep.join([".", "role-tree/.."])) is None
+    found = regeneration.wrapper_on(os.pathsep.join([".", str(system)]))
+    assert found == str(system / "bwrap"), found
+
+
+def test_the_runner_says_the_exit_code_and_the_end_of_the_error_stream(tmp_path: Path) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    bound = getattr(regeneration, "MAX_SAID_BYTES", None)
+    assert bound == 4096, "a stated bound on the error stream kept"
+    loud = "import sys; sys.stderr.write('x' * 10000 + 'END'); sys.exit(4)"
+    code, said = regeneration._run([sys.executable, "-c", loud], tmp_path, {}, 20.0)  # noqa: SLF001
+    assert code == 4
+    assert said.endswith("END") and len(said) <= bound, (len(said), said[-10:])
+    slow = "import time; time.sleep(30)"
+    ended = regeneration._run([sys.executable, "-c", slow], tmp_path, {}, 0.5)  # noqa: SLF001
+    assert ended == (None, "")
+
+
+def test_the_core_starts_no_process_and_the_checker_s_runner_is_the_os_layer_s() -> None:
+    core = REPO / "src" / "physgate" / "orchestrator" / "derived.py"
+    text = core.read_text("utf-8")
+    for word in ("subprocess", "sandbox", "bwrap", "seatbelt"):
+        assert word not in text.casefold(), word
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    assert callable(getattr(regeneration, "default_runner", None))
 
 
 def test_the_core_names_no_tool() -> None:

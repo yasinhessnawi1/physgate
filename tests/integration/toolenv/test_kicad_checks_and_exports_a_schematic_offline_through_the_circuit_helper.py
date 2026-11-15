@@ -31,7 +31,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -476,8 +475,10 @@ def _inside(session: Session, place: Path) -> set[Path]:
 
 try:
     from physgate.orchestrator import derived
+    from physgate.oslayer import regeneration
 except ImportError:  # each row below fails on its first assertion
     derived = None  # type: ignore[assignment]
+    regeneration = None  # type: ignore[assignment]
 
 _GIT_ENV = {
     "PATH": "/usr/bin:/bin",
@@ -519,11 +520,12 @@ def _made_in_session(session: Session, *, open_pins: bool) -> Path:
 
 def _held(session: Session, base: str, commit: str) -> object:
     assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
     repo = session.module.parents[1]
     recorded = _recorded(*session.roots)
     return derived.held_exports(
-        repo, base, commit, "modules/board", recorded=recorded,
-        environment=lambda: recorded, runner=derived.contained_runner(bwrap=shutil.which("bwrap")),
+        repo, base, commit, "modules/board", environment=lambda: recorded,
+        runner=regeneration.default_runner(),
     )  # fmt: skip
 
 
