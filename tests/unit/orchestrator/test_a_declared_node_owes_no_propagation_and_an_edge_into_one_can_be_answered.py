@@ -162,7 +162,8 @@ def test_a_declared_node_s_own_edge_owes_no_propagation(tmp_path: Path) -> None:
     _attempt(root, events, "s1", _node(DRIVER, "electrical", "electrical", {}), "electrical")
     result = _call(root, integration_history(events))
     assert _propagation(result) == []
-    assert isinstance(result, GateResult) and result.verdict == "pass", result.finding
+    assert isinstance(result, GateResult), result
+    assert result.verdict == "pass", result.finding
     # Named as change sets of their own, the parts writes would owe sizing's edge to the motor.
     named = (1, (ChangeSet(subtask_id="m", attempt=1, revisions=(2,)),
                  ChangeSet(subtask_id="c", attempt=1, revisions=(3,)),
@@ -191,4 +192,5 @@ def test_a_role_s_change_into_a_declared_node_fails_until_its_owner_answers_it(
     found = _propagation(answered)
     assert [outcome for outcome, _ in found] == ["unchecked"]
     assert REASON in found[0][1]
-    assert isinstance(answered, GateResult) and answered.verdict == "pass", answered.finding
+    assert isinstance(answered, GateResult), answered
+    assert answered.verdict == "pass", answered.finding
