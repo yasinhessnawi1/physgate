@@ -531,3 +531,43 @@ def driven_once_more(monkeypatch: pytest.MonkeyPatch, run: Made) -> str:
         except Exception as exc:  # noqa: BLE001 - how the process ended is what a row asserts on
             step = f"raised {type(exc).__name__}: {exc}"
     return step
+
+
+def scope_holds(monkeypatch: pytest.MonkeyPatch, run: Made) -> tuple[bool, list[str]]:
+    """Ask the loop's own re-check of the system-scope result over the ended run.
+
+    A completion by integration, or the state integration is issued, rests on the system-scope
+    result being, whole, what the gate gives again over the canonical store. This run plans no
+    integration role, so no step of it reaches that re-check; it is asked here directly, of a
+    loop opened over the run as a further process would open it. Returns its answer and the
+    kinds of the lines it wrote.
+    """
+    cfg = load_run_config(run.run_dir / "run.json")
+    events = run.run_dir / "events.jsonl"
+    before = len(events.read_text().splitlines())
+    layout = RunGit(repo=run.repo, run_dir=run.run_dir, run_id=cfg.run_id)
+    keeper = StoreKeeper(layout, run.run_dir / "store")
+    with ticking(monkeypatch):
+        loop = Loop(
+            config=cfg,
+            run_dir=run.run_dir,
+            gate=PhysicsGate(),
+            reviewers={
+                role: observe_rig.Reviewer(model=model, ids=role)
+                for role, model in cfg.models.reviewers.items()
+            },
+            dispatcher=StandInSession(layout),
+            changes=GitChangeChecker(layout, run.run_dir / "store", module_dirs(cfg.seed)),
+            merger=GitMerger(layout, removal_timeout_s=60.0),
+            graph=keeper,
+            escalation=bind("rules"),
+            material=CanaryCheck(held_out=frozenset(), review_material=frozenset()),
+            sleep=lambda _: None,
+        )
+        try:
+            held = loop._scope_holds()  # noqa: SLF001 - the re-check no step of this run reaches
+        finally:
+            loop.close()
+            keeper.close()
+    written = [json.loads(x)["kind"] for x in events.read_text().splitlines()[before:]]
+    return held, written

@@ -218,6 +218,17 @@ def test_a_further_process_over_the_ended_run_finds_the_system_scope_result_as_r
     assert "incident" not in after[len(before) :] and "halted" not in after[len(before) :]
 
 
+def test_the_system_scope_result_is_what_the_gate_gives_again_over_the_store(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # What a completion by integration rests on: the call asked again, as the log recorded it.
+    run = ref.recorded_run(monkeypatch, tmp_path)
+    assert run.steps == ("wait", "done")
+    held, written = ref.scope_holds(monkeypatch, run)
+    assert written == []
+    assert held is True
+
+
 # --- the re-run ------------------------------------------------------------------------------
 
 
