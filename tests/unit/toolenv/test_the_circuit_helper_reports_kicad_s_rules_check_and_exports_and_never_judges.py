@@ -198,7 +198,9 @@ def test_the_exports_are_named_by_size_and_digest_with_dates_and_source_set(
     assert names == ["exports/board.net", "exports/board.csv"]
     # The PDF is the session's own reading, in its temporary directory: a role commits none.
     pdf = found["pdf"]
-    assert pdf["file"] == str(temp / "circuit" / "board.pdf")
+    place = Path(pdf["file"])
+    assert place.name == "board.pdf" and place.parent.parent == temp, place
+    assert place.parent.name.startswith("circuit-"), place
     body = Path(pdf["file"]).read_bytes()
     assert body.startswith(b"%PDF-")
     assert pdf["sha256"] == hashlib.sha256(body).hexdigest()
@@ -216,6 +218,28 @@ def test_the_exports_are_named_by_size_and_digest_with_dates_and_source_set(
     assert bom[bom.index("--fields") + 1] == "Reference,Value,Footprint,${QUANTITY},${DNP}"
     assert bom[bom.index("--labels") + 1] == "Reference,Value,Footprint,Quantity,DNP"
     assert _truth_values(found) == []
+
+
+def test_a_link_at_a_fixed_place_in_the_temporary_directory_is_neither_followed_nor_written(
+    circuit: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert hasattr(circuit, "exports"), "the tool environment has no circuit helper"
+    module, schematic = _module(tmp_path)
+    temp, elsewhere = tmp_path / "session-temp", tmp_path / "elsewhere"
+    temp.mkdir()
+    elsewhere.mkdir()
+    # A folder and a file named as a fixed path would be, each a link out of the directory.
+    (temp / "circuit").symlink_to(elsewhere, target_is_directory=True)
+    (elsewhere / "board.pdf").symlink_to(tmp_path / "victim")
+    monkeypatch.setattr(tempfile, "tempdir", str(temp))
+    found = [circuit.exports(schematic, module, "board")["pdf"]["file"] for _ in range(2)]
+    assert not (tmp_path / "victim").exists()
+    assert sorted(p.name for p in elsewhere.iterdir()) == ["board.pdf"]
+    # Each call writes into a folder of its own, made new in the temporary directory.
+    assert len({Path(file).parent for file in found}) == 2
+    for file in found:
+        parent = Path(file).parent
+        assert parent.parent == temp and not parent.is_symlink(), file
 
 
 def test_without_the_program_on_the_search_path_the_helper_refuses(

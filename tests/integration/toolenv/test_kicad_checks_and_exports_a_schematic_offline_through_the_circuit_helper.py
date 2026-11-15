@@ -10,8 +10,9 @@ taken away. Read here, on the pinned release:
 - the netlist holds the nets and parts, the parts list one row per part; the PDF, one page,
   is in the session's temporary directory and not in the module;
 - a second run gives the same bytes for the three text exports;
-- a SKiDL script generates a schematic from the pinned libraries with tags set, twice, and the
-  two are the same bytes; the rules check runs on it and its findings are reported, not judged;
+- a SKiDL script generates a schematic from the pinned libraries with tags and a placement seed
+  set, twice, and the two differ in identifiers alone (the generator draws one at random); the
+  rules check runs on it and its findings are reported, not judged;
 - nothing is written into either root, and in the test's own folder nothing outside the
   session's temporary directory, its home and the module.
 
@@ -310,7 +311,8 @@ def test_the_netlist_parts_list_and_pdf_hold_the_circuit(session: Session) -> No
     assert sorted(row.split(",")[0] for row in rows[1:]) == ['"J1"', '"R1"']
     told = found["pdf"]
     assert isinstance(told, dict)
-    assert Path(told["file"]) == session.temp / "circuit" / "board.pdf"
+    place = Path(told["file"])
+    assert place.name == "board.pdf" and place.parent.parent == session.temp, place
     pdf = Path(told["file"]).read_bytes()
     assert pdf.startswith(b"%PDF-") and pdf.rstrip().endswith(b"%%EOF")
     assert len(re.findall(rb"/Type\s*/Page(?![s\w])", pdf)) == 1
@@ -327,6 +329,15 @@ def test_a_second_run_gives_the_same_bytes_for_the_three_text_exports(session: S
             assert kept.setdefault(suffix, body) == body, suffix
 
 
+UUID = re.compile(rb"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def _identifiers_in_order(body: bytes) -> bytes:
+    """``body`` with each identifier replaced by the order it first appears in."""
+    seen: dict[bytes, int] = {}
+    return UUID.sub(lambda m: b"id-%d" % seen.setdefault(m.group(), len(seen)), body)
+
+
 SKIDL = """
 import sys
 from skidl import KICAD10, Net, Part, generate_schematic, set_default_tool
@@ -340,11 +351,11 @@ vin, out, gnd = Net("VIN"), Net("OUT"), Net("GND")
 vin += j1[1], r1[1]
 out += r1[2], r2[1], j1[2]
 gnd += r2[2], j1[3]
-generate_schematic(filepath=sys.argv[1], top_name="divider", title="divider")
+generate_schematic(filepath=sys.argv[1], top_name="divider", title="divider", seed=1)
 """
 
 
-def test_a_skidl_script_generates_the_same_schematic_twice_and_the_check_reports_on_it(
+def test_a_skidl_script_generates_one_schematic_twice_but_for_its_identifiers_and_is_checked(
     session: Session,
 ) -> None:
     script = session.module / "divider.py"
@@ -366,7 +377,17 @@ def test_a_skidl_script_generates_the_same_schematic_twice_and_the_check_reports
         schematics = sorted(out.rglob("*.kicad_sch"))
         assert len(schematics) == 1, schematics
         generated.append(schematics[0].read_bytes())
-    assert generated[0] == generated[1]
+    # Measured: with tags and a placement seed set, two runs differ only in identifiers (the
+    # generator draws the root sheet's at random, and every symbol's instance path holds it).
+    differing = [
+        (a, b)
+        for a, b in zip(generated[0].splitlines(), generated[1].splitlines(), strict=True)
+        if a != b
+    ]
+    assert all(UUID.search(a) and UUID.sub(b"", a) == UUID.sub(b"", b) for a, b in differing), (
+        differing[:4]
+    )
+    assert _identifiers_in_order(generated[0]) == _identifiers_in_order(generated[1])
     schematic = next((session.module / "gen1").rglob("*.kicad_sch"))
     found = _helper(session, "rules_check", schematic, "divider")
     counts = found["counts"]
