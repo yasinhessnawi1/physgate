@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -523,8 +524,8 @@ def _held(session: Session, base: str, commit: str) -> object:
     repo = session.module.parents[1]
     recorded = _recorded(*session.roots)
     return derived.held_exports(
-        repo, base, commit, "modules/board",
-        environment=lambda: recorded, runner=derived.contained_runner(),
+        repo, base, commit, "modules/board", recorded=recorded,
+        environment=lambda: recorded, runner=derived.contained_runner(bwrap=shutil.which("bwrap")),
     )  # fmt: skip
 
 

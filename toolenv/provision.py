@@ -921,6 +921,36 @@ def _build_kicad(
     return record
 
 
+#: The file at the environment's root that names how committed exports are regenerated.
+DERIVED_FILE = "derived.json"
+
+
+def derivations() -> dict[str, object]:
+    """How the commit check regenerates a schematic's three text exports: the tool layer's data.
+
+    The circuit helper's own ``regenerate`` call on the environment's interpreter, the products
+    it writes into the module's exports folder named after the schematic, and the words for the
+    exit code it ends with on a schematic that draws on a sub-sheet.
+    """
+    return {
+        "derivations": [
+            {
+                "source": ".kicad_sch",
+                "products": [".erc.json", ".net", ".csv"],
+                "argv": [
+                    "{interpreter}", "-I", "{root}/helpers/circuit.py", "regenerate",
+                    "{source}", "{module}", "{name}",
+                ],  # fmt: skip
+                "timeout_s": 300,
+                "refusals": {
+                    "3": "the schematic draws on a sub-sheet; one sheet per schematic is "
+                    "checked and exported: draw the circuit in one sheet",
+                },
+            }
+        ]
+    }
+
+
 def _helpers(dest: Path) -> list[str]:
     (dest / "helpers").mkdir()
     copied = []
@@ -928,6 +958,9 @@ def _helpers(dest: Path) -> list[str]:
     for path in sorted(source.glob("*.py")) if source.is_dir() else []:
         shutil.copyfile(path, dest / "helpers" / path.name)
         copied.append(path.name)
+    (dest / DERIVED_FILE).write_text(
+        json.dumps(derivations(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return copied
 
 

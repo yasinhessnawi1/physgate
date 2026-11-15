@@ -53,7 +53,8 @@ import hashlib
 import json
 import re
 import shutil
-from collections.abc import Iterable
+import sys
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from physgate import roles
@@ -80,6 +81,7 @@ from physgate.orchestrator.declaration import (
     DeclarationError,
     parse,
 )
+from physgate.orchestrator.derived import Runner, contained_runner, held_exports
 from physgate.orchestrator.dispute import DISPUTES_DIR, Dispute, DisputeError, disputer_problem
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.exceptions import DutyUnownedError, RoleRegisterError, StoreRefusalError
@@ -120,6 +122,7 @@ from physgate.state.store import (
     journal_records_after,
 )
 from physgate.state.vocabulary import nearest_quantity_names
+from physgate.toolenv.record import ToolEnvironment
 
 #: The hook's name for a proposal that is not a whole, valid node named for its file.
 INVALID = "invalid"
@@ -551,11 +554,31 @@ def declares_completion(role: str) -> bool:
 class GitChangeChecker:
     """The change check before the gate: write scope, then every proposal pre-checked."""
 
-    def __init__(self, run: RunGit, store_root: Path, module_dirs: dict[str, str]) -> None:
-        """Check attempts of ``run`` against the canonical store at ``store_root``."""
+    def __init__(
+        self,
+        run: RunGit,
+        store_root: Path,
+        module_dirs: dict[str, str],
+        *,
+        recorded: ToolEnvironment | None = None,
+        environment: Callable[[], ToolEnvironment | None] | None = None,
+        regenerate: Runner | None = None,
+    ) -> None:
+        """Check attempts of ``run`` against the canonical store at ``store_root``.
+
+        ``recorded`` is the run's record of its tool environment, ``environment`` holds the
+        environment to it and gives it (the dispatcher's, which holds it before every session),
+        and ``regenerate`` runs the command that makes committed exports again
+        (:mod:`physgate.orchestrator.derived`; by default inside the tool containment).
+        """
         self._run = run
         self._store_root = store_root
         self._module_dirs = module_dirs
+        self._recorded = recorded
+        self._environment = environment or (lambda: None)
+        self._regenerate = regenerate or contained_runner(
+            bwrap=shutil.which("bwrap") if sys.platform.startswith("linux") else None
+        )
 
     def check(
         self,
@@ -600,6 +623,24 @@ class GitChangeChecker:
             subject = ",".join(sorted(v.split(" (", 1)[0] for v in outside))
             return ChangeCheck(
                 refused_by="write_scope", reason=reason, subject=subject, graph_root=str(scratch)
+            )
+        # The exports made from a source are what the committed source makes, made again here.
+        held = held_exports(
+            repo,
+            base,
+            attempt_commit,
+            module_dir,
+            recorded=self._recorded,
+            environment=self._environment,
+            runner=self._regenerate,
+            git_dir=pinned,
+        )
+        if held is not None:
+            return ChangeCheck(
+                refused_by="exports",
+                reason=held.reason,
+                subject=held.subject,
+                graph_root=str(scratch),
             )
         # What the review may show of the attempt's exports by line, by the rule just passed.
         exported = admitted_exports(repo, base, attempt_commit, module_dir, git_dir=pinned)

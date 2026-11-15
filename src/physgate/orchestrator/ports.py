@@ -235,7 +235,14 @@ class ChangeCheck(_Frozen):
 
     refused_by: (
         Literal[
-            "proposal", "write_scope", "series", "declaration", "dispute", "interface", "long_line"
+            "proposal",
+            "write_scope",
+            "series",
+            "declaration",
+            "dispute",
+            "interface",
+            "long_line",
+            "exports",
         ]
         | None
     )

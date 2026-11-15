@@ -45,6 +45,7 @@ FindingSource = Literal[
     "arbitration",
     "interface",
     "long_line",
+    "exports",
 ]
 
 _WHO = {
@@ -63,6 +64,8 @@ _WHO = {
     "joined to it, holding every one of its quantities)",
     "long_line": "the review's read limit (a line of the attempt's diff too long for a reviewer "
     "to read whole stops the attempt before its review)",
+    "exports": "the export check (a committed export must be what its committed source makes; it "
+    "is made again at commit and compared byte for byte)",
 }
 
 #: The fixed line every instruction that quotes a person's words ends with: what a person

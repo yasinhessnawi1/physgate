@@ -238,12 +238,13 @@ def checker(
     run: RunGit,
     environment: Callable[[], ToolEnvironment | None],
     runs: Runs,
+    record: ToolEnvironment,
 ) -> GitChangeChecker:
     store = tmp_path / "store"
     make_store(store, node("control.loop", "control"))
     try:
         return GitChangeChecker(
-            run, store, dict(PLANNED), environment=environment, regenerate=runs
+            run, store, dict(PLANNED), recorded=record, environment=environment, regenerate=runs
         )  # type: ignore[call-arg]
     except TypeError as exc:
         raise AssertionError(f"the checker takes the environment and a runner: {exc}") from None
@@ -261,7 +262,8 @@ def check(
     run, commit = attempt(tmp_path, files, start)
     the_root = root or stand_in_root(tmp_path)
     runs = Runs()
-    found = checker(tmp_path, run, environment or (lambda: recorded(the_root)), runs)
+    record = recorded(the_root)
+    found = checker(tmp_path, run, environment or (lambda: record), runs, record)
     return found.check("s1", commit, "control"), runs
 
 
