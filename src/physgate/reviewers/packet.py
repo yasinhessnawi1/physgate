@@ -21,10 +21,12 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
   is a byte-exact slice of the earlier rendering under a harness line naming the earlier part
   and the lines it is cut from, and the markers it shows. An excerpt never shows the session's
   data outside a fence: an edge inside a data block moves out to the block's end, or, past
-  :data:`EARLIER_HIT_SNAP_LINES`, the cut piece is fenced afresh under a harness line naming
-  where the rest is. A marker whose call cannot be found among the harness lines brings its
-  whole session. These are the earlier attempts' required reading; their whole streams stay
-  readable on request.
+  :data:`EARLIER_HIT_SNAP_LINES`, the cut piece stands between the block's own fence lines
+  under a harness line naming where the rest is. Each excerpt part shows, before a session's first
+  excerpt in it, that session's preamble as its rendering has it, so every fence in a part is
+  declared in the part. A marker whose call cannot be found among the harness lines brings its
+  whole session. These are the earlier attempts' required reading;
+  their whole streams stay readable on request.
 - ``worktree/``: the attempt's commit, exported. Not the implementing session's
   worktree: an export holds exactly what was committed, and no ``.git`` that points
   back into the target repository. A symbolic link in the commit is written as a
@@ -136,8 +138,8 @@ from physgate.reviewers.rubric import Rubric
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError, scan
 from physgate.reviewers.transcript import (
     CONTINUED,
+    PREAMBLE,
     cut_line,
-    fresh_nonce,
     harness_value,
     is_call_heading,
     is_result_heading,
@@ -160,7 +162,7 @@ EARLIER_HITS_PART = "earlier-hits-{n:02d}-of-{total:02d}.md"
 EARLIER_HIT_LINES = 40
 #: How many lines an excerpt's edge that falls inside a data block may move out to reach the
 #: block's end: as many as the window shows around a marker, so moving at most doubles that side.
-#: A block whose end is farther is cut, and the piece shown is fenced afresh.
+#: A block whose end is farther is cut, and the piece shown keeps the block's own fence lines.
 EARLIER_HIT_SNAP_LINES = 40
 #: The harness line over a data block an excerpt cuts; the lines are named as the heading names.
 EARLIER_HIT_CUT = "## data block cut: the rest is {lines}"
@@ -352,11 +354,6 @@ class Packet(BaseModel):
     #: parts and their joined digest. Left out of the record when absent, as the fields above.
     earlier_hit_parts: tuple[Part, ...] = ()
     earlier_hits_sha256: Sha256 | None = None
-    #: The nonce of each excerpt that fences a cut data block afresh, in order. Left out of the
-    #: record when empty, as the fields above.
-    earlier_hit_nonces: tuple[
-        Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")], ...
-    ] = ()
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -375,8 +372,7 @@ class Packet(BaseModel):
             data.pop("parts_record_sha256", None)
         if self.earlier_sha256 is None:
             data.pop("earlier_sha256", None)
-        empties = ("earlier_parts", "earlier_nonces", "earlier_indicators", "earlier_hit_parts")
-        for empty in (*empties, "earlier_hit_nonces"):
+        for empty in ("earlier_parts", "earlier_nonces", "earlier_indicators", "earlier_hit_parts"):
             if not data.get(empty):
                 data.pop(empty, None)
         if self.earlier_hits_sha256 is None:
@@ -794,7 +790,7 @@ def _where(starts: list[tuple[int, str]], index: int) -> tuple[str, int]:
     return name, index - begun + 1
 
 
-def _named(starts: list[tuple[int, str]], start: int, end: int) -> str:
+def _lines_named(starts: list[tuple[int, str]], start: int, end: int) -> str:
     """The rendering's lines ``start`` to ``end`` named by the part and lines that hold them."""
     first_part, first_line = _where(starts, start)
     last_part, last_line = _where(starts, end)
@@ -815,6 +811,7 @@ class _Window(NamedTuple):
     end: int
     hits: list[ScanHit]
     units: list[_Unit]
+    session: EarlierSession
     cut_start: _Unit | None = None
     cut_end: _Unit | None = None
 
@@ -860,34 +857,23 @@ def _merged(windows: list[_Window]) -> list[_Window]:
     return merged
 
 
-def hit_excerpts(
-    earlier: Earlier,
-    parts: list[tuple[str, bytes]],
-    avoid: tuple[str, ...] = (),
-    nonces: tuple[str, ...] | None = None,
-) -> tuple[bytes, tuple[str, ...]]:
-    """Each of the earlier hits' tool call and result with the lines around it, as shown.
+def hit_excerpts(earlier: Earlier, parts: list[tuple[str, bytes]]) -> list[tuple[str, bytes]]:
+    """Each of the earlier hits' tool call and result with the lines around it, in parts.
 
     For each hit: the rendering's lines from :data:`EARLIER_HIT_LINES` before its call to as
     many after the end of its result, clipped to its session; a hit whose call cannot be found
     among the harness lines brings its whole session. Windows that overlap or touch are shown
     once. Each window is a byte-exact slice, under a harness line naming the part (``parts``,
     the rendering as issued) and the lines it is cut from, and the markers it shows; the windows
-    stand one after another, an empty line between. Empty when no hit is found.
+    stand one after another, an empty line between, in parts one read can show whole
+    (:func:`_excerpt_parts`), each of which opens every session it shows with that session's
+    preamble. Empty when no hit is found.
 
     No line of the session's data is shown outside a fence (:func:`_fenced`). Where a block is
-    cut, the piece shown loses the session's fence on its cut side and stands between fences of
-    the excerpt's own nonce, under :data:`EARLIER_HIT_CUT` naming the block's other lines. Each
-    excerpt that cuts a block draws one nonce, held apart from ``avoid``, every other nonce and
-    the whole rendering, as the transcript's own are; given ``nonces`` (the ones a packet
-    recorded), it uses them, one for each such excerpt in order.
-
-    Returns:
-        The excerpts and the nonces their fresh fences carry.
-
-    Raises:
-        PacketError: the recorded nonces are not one for each excerpt that cuts a block, or one
-            of them is held by the rendering or used twice.
+    cut, the piece shown stands between the block's own fence lines, the session's nonce on
+    each, so the fence on its cut side is a copy of that line; :data:`EARLIER_HIT_CUT` before
+    the block names its other lines. The nonce is the one the session's rendering is fenced
+    with, held apart from every earlier stream when it was drawn (:func:`_rendered_earlier`).
     """
     lines = earlier.data.splitlines(keepends=True)
     windows: list[_Window] = []
@@ -906,64 +892,117 @@ def hit_excerpts(
             # A window never ends on a lone carriage return: the empty line after it would join it.
             while not lines[end].endswith(b"\n") and end + 1 < session.end:
                 end += 1
-            found.append(_Window(start, end, [hit], units))
+            found.append(_Window(start, end, [hit], units, session))
         windows += _merged([_fenced(window) for window in _merged(found)])
     starts: list[tuple[int, str]] = []
     at = 0
     for name, body in parts:
         starts.append((at, name))
         at += len(body.splitlines())
-    cutting = [w for w in windows if w.cut_start or w.cut_end]
-    if nonces is not None and len(nonces) != len(cutting):
-        msg = "the nonces recorded for the earlier markers' excerpts are not one for each cut"
-        raise PacketError(msg, recorded=str(len(nonces)), cut=str(len(cutting)))
-    held = "\n".join([earlier.data.decode("utf-8"), *avoid, *earlier.nonces])
-    chosen: list[str] = []
-    blocks = []
+    blocks: list[tuple[EarlierSession, list[bytes]]] = []
     for window in windows:
         start, end = window.start, window.end
         markers = " | ".join(
             f"attempt {hit.attempt}, {hit.kind}, evidence {harness_value(hit.evidence)}"
             for hit in window.hits
         )
-        heading = "\n".join(cut_line(f"## {_named(starts, start, end)} | {markers}")) + "\n"
-        if not (window.cut_start or window.cut_end):
-            blocks.append(heading.encode("utf-8") + b"".join(lines[start : end + 1]))
-            continue
-        recorded = nonces[len(chosen)] if nonces is not None else None
-        nonce = fresh_nonce(held, recorded)
-        if recorded is not None and nonce != recorded:
-            msg = "an earlier marker's excerpt could not use its recorded nonce"
-            raise PacketError(msg, nonce=recorded)
-        chosen.append(nonce)
-        held += "\n" + nonce
+        heading = "\n".join(cut_line(f"## {_lines_named(starts, start, end)} | {markers}")) + "\n"
         shown = [heading.encode("utf-8")]
-        at = start
         if window.cut_start:
             block = window.cut_start
-            rest = _named(starts, block.first, start - 1)
-            shown += _cut_piece(lines[block.first], nonce, lines[start : block.last], rest)
-            at = block.last + 1
+            shown += [_cut(_lines_named(starts, block.first, start - 1)), lines[block.first]]
         if window.cut_end:
             block = window.cut_end
-            shown += lines[at : block.first]
-            rest = _named(starts, end + 1, block.last)
-            shown += _cut_piece(lines[block.first], nonce, lines[block.first + 1 : end + 1], rest)
+            shown += lines[start : block.first]
+            shown += [_cut(_lines_named(starts, end + 1, block.last))]
+            shown += [*lines[block.first : end + 1], lines[block.last]]
         else:
-            shown += lines[at : end + 1]
-        blocks.append(b"".join(shown))
-    return b"\n".join(blocks), tuple(chosen)
+            shown += lines[start : end + 1]
+        blocks.append((window.session, b"".join(shown).splitlines(keepends=True)))
+    return _excerpt_parts(blocks, lines)
 
 
-def _cut_piece(opening: bytes, nonce: str, shown: list[bytes], rest: str) -> list[bytes]:
-    """A cut data block's lines ``shown``, fenced with ``nonce``, under the line naming the rest.
+def _preamble(lines: list[bytes], session: EarlierSession) -> list[bytes]:
+    """The preamble the session's rendering opens with, under its heading and an empty line.
 
-    The fences name what the block holds as the session's own fence (``opening``) does.
+    Raises:
+        PacketError: those lines are not the preamble the transcript renders for its nonce.
     """
-    what = opening.rstrip(b"\r\n").split(b" ", 2)[2]
-    cut = "\n".join(cut_line(EARLIER_HIT_CUT.format(lines=rest))) + "\n"
-    opened = f"<<<DATA {nonce} ".encode() + what + b"\n"
-    return [cut.encode("utf-8"), opened, *shown, f"DATA {nonce}>>>\n".encode()]
+    count = len(PREAMBLE.splitlines())
+    shown = lines[session.first + 2 : session.first + 2 + count]
+    if b"".join(shown) != PREAMBLE.format(nonce=session.nonce).encode("utf-8"):
+        msg = "an earlier session's rendering does not open with its preamble"
+        raise PacketError(msg, nonce=session.nonce)
+    return shown
+
+
+class _Filling(NamedTuple):
+    """The excerpt parts as they are filled, and which sessions the last one has declared."""
+
+    parts: list[list[bytes]]
+    declared: set[str]
+
+
+def _fits(filling: _Filling, more: list[bytes]) -> bool:
+    if not filling.parts:
+        return False
+    last = filling.parts[-1]
+    size = sum(len(line) for line in last) + sum(len(line) for line in more)
+    return size <= PART_MAX_BYTES and len(last) + len(more) <= PART_MAX_LINES
+
+
+def _excerpt_parts(
+    blocks: list[tuple[EarlierSession, list[bytes]]], lines: list[bytes]
+) -> list[tuple[str, bytes]]:
+    """The excerpts in parts one read can show whole, each part declaring the fences it holds.
+
+    A part shows a session's preamble, as its rendering has it, before that session's first
+    excerpt in the part, so every fence in a part is declared above it in the same part. A part
+    that ends inside a data block closes it with a copy of the block's closing fence line, and
+    the next part reopens it, after the preamble, with a copy of its opening fence line.
+
+    Raises:
+        PacketError: a line, with what a part must hold before it, is longer than one part may be.
+    """
+    filling = _Filling([], set())
+    for session, shown in blocks:
+        preamble = _preamble(lines, session)
+        opening = f"<<<DATA {session.nonce} ".encode()
+        closing = f"DATA {session.nonce}>>>\n".encode()
+        inside: bytes | None = None
+        for index, line in enumerate(shown):
+            after = inside
+            if line.startswith(opening):
+                after = line
+            elif line == closing:
+                after = None
+            head: list[bytes] = []
+            if index == 0:
+                head = [b"\n"] if filling.parts else []
+                head += [] if session.nonce in filling.declared else preamble
+            room = [closing] if after is not None else []
+            if not _fits(filling, [*head, line, *room]):
+                if inside is not None and filling.parts:
+                    filling.parts[-1].append(closing)
+                filling.parts.append([])
+                filling.declared.clear()
+                head = [*preamble, *([inside] if inside is not None else [])]
+                if not _fits(filling, [*head, line, *room]):
+                    msg = "an excerpt's line is longer than one read can show whole"
+                    raise PacketError(msg, bytes=str(len(line)), limit=str(PART_MAX_BYTES))
+            filling.declared.add(session.nonce)
+            filling.parts[-1].extend([*head, line])
+            inside = after
+    total = len(filling.parts)
+    return [
+        (EARLIER_HITS_PART.format(n=number, total=total), b"".join(part))
+        for number, part in enumerate(filling.parts, start=1)
+    ]
+
+
+def _cut(rest: str) -> bytes:
+    """The harness line over a data block an excerpt cuts, naming where its other lines are."""
+    return ("\n".join(cut_line(EARLIER_HIT_CUT.format(lines=rest))) + "\n").encode("utf-8")
 
 
 def split_parts(data: bytes, pattern: str) -> list[tuple[str, bytes]]:
@@ -1278,8 +1317,9 @@ def build_packet(
     earlier = _rendered_earlier(artefact, nonces)
     earlier_cut = split_parts(earlier.data, EARLIER_PART) if earlier.data else []
     earlier_parts = _write_parts(read, earlier_cut)
-    excerpts, hit_nonces = hit_excerpts(earlier, earlier_cut, nonces)
-    hit_parts = _write_parts(read, split_parts(excerpts, EARLIER_HITS_PART)) if excerpts else ()
+    excerpt_cut = hit_excerpts(earlier, earlier_cut)
+    excerpts = b"".join(body for _, body in excerpt_cut)
+    hit_parts = _write_parts(read, excerpt_cut) if excerpt_cut else ()
     # Verified once, and every read below goes through the directory that check confirmed.
     where = _git_dir(Path(repo))
     files = _export(where, artefact.attempt_commit, read / WORKTREE_NAME)
@@ -1388,7 +1428,6 @@ def build_packet(
         earlier_indicators=earlier.hits,
         earlier_hit_parts=hit_parts,
         earlier_hits_sha256=_digest(excerpts) if excerpts else None,
-        earlier_hit_nonces=hit_nonces,
     )
     (Path(review) / RECORD_NAME).write_text(packet.model_dump_json(indent=1) + "\n")
     return packet
@@ -1513,7 +1552,6 @@ def _check_earlier(packet: Packet, artefact: Artefact, read: Path) -> None:
     earlier = _rendered_earlier(artefact, packet.transcript_nonces, packet.earlier_nonces)
     if not earlier.data:
         issued_any = packet.earlier_parts or packet.earlier_indicators or packet.earlier_hit_parts
-        issued_any = issued_any or packet.earlier_hit_nonces
         if issued_any or packet.earlier_sha256 is not None or packet.earlier_hits_sha256:
             msg = "the packet issued earlier attempts the attempt does not carry"
             raise PacketError(msg, read=str(read))
@@ -1530,11 +1568,10 @@ def _check_earlier(packet: Packet, artefact: Artefact, read: Path) -> None:
         msg = "the earlier attempts' parts are not their rendering cut as it is issued"
         raise PacketError(msg, read=str(read))
     # Each excerpt made again from the rendering: the slice it names, under the heading it has,
-    # each cut block fenced with the nonce recorded for it, which the rendering must not hold.
-    avoid = packet.transcript_nonces
-    excerpts, _ = hit_excerpts(earlier, cut, avoid, packet.earlier_hit_nonces)
+    # each cut block between its session's own fence lines.
+    expected = hit_excerpts(earlier, cut)
+    excerpts = b"".join(body for _, body in expected)
     _issued(read, packet.earlier_hit_parts, "an earlier marker's excerpt")
-    expected = split_parts(excerpts, EARLIER_HITS_PART) if excerpts else []
     held = [(p.name, p.sha256) for p in packet.earlier_hit_parts] == [
         (n, _digest(b)) for n, b in expected
     ]
