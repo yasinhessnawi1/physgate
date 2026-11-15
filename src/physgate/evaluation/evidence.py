@@ -63,7 +63,6 @@ EVENTS = "events.jsonl"
 Kind = Literal["reportable", "ablation", "development"]
 
 
-
 @dataclass(frozen=True)
 class Census:
     """What the comparison classes and how it compares, handed in at registration.
