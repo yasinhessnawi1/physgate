@@ -255,6 +255,7 @@ def setup_from_run(
         held_out_canaries=tuple(config.held_out_canaries),
         network=config.network,
         os_layer=os_layer,
+        held_out_sha256=tuple(config.held_out_sha256),
     )
 
 

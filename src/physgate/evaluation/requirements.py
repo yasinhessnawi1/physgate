@@ -35,12 +35,19 @@ held-out tiers of every version under that role's root, older ones too. Nor does
 withheld roots are not spelt as the filesystem spells them, so every layer of the protection
 is given the spelling on disk.
 
+A reportable or ablation run that names held-out roots is on one version of a tier-set store,
+found by its brief, and is refused unless that version is known, unchanged since the run
+recorded it, not marked exposed by the store's register, and its run directory lies beneath one
+of the run roots the register scans (:func:`.tiers.exposure.version_refusal`). A version the run
+only withholds, as every run on the role withholds every version, is not one it is on.
+
 These are the evaluation's rules, not the product's: the command's composition root
 registers them with the core, and removing the evaluation removes them.
 """
 
 from __future__ import annotations
 
+from physgate.evaluation.tiers.exposure import version_refusal
 from physgate.evaluation.tiers.store import (
     leftover_refusal,
     protected_tier_refusal,
@@ -197,6 +204,22 @@ def a_named_store_s_roots_are_spelt_as_on_disk(facts: RunFacts) -> str | None:
     return f"{words} ({reason})"
 
 
+def a_measured_run_is_on_a_known_unexposed_version(facts: RunFacts) -> str | None:
+    """Refuse a measured run with held-out roots unless it is on a version it may be measured on.
+
+    At its start, at every run and at every resume: a run that exposed its version, or whose
+    tier changed while it was halted, does not go on as measured. A run that is not measured is
+    the product's, and is not held to it.
+    """
+    if measured(facts.config) is None or not facts.config.held_out:
+        return None
+    refusal = version_refusal(facts.config, facts.run_dir)
+    if refusal is None:
+        return None
+    reason, words = refusal
+    return f"{words} ({reason})"
+
+
 def observed_design_review_for_reportable_runs(facts: RunFacts) -> str | None:
     """Refuse to start a reportable run that does not record its plan's review.
 
@@ -227,5 +250,6 @@ REQUIREMENTS: tuple[RunRequirement, ...] = (
     every_named_role_root_s_protected_tiers_are_withheld,
     every_named_role_root_s_work_root_is_withheld,
     a_named_store_s_roots_are_spelt_as_on_disk,
+    a_measured_run_is_on_a_known_unexposed_version,
     observed_design_review_for_reportable_runs,
 )

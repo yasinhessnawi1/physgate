@@ -14,8 +14,22 @@ root, counted. Never a task id, a brief or a canary. It exits 1 if a version is 
 store holds a split's leftovers or work left; and if the store cannot be read, it prints one
 refusal line (``store_unreadable``) instead and exits 1.
 
-An exposure, read from the store's register, marks a version stale as well; the register is
-read here once it exists.
+An exposure, read from the role's register as freshly scanned, marks a version's held-out tier
+stale as well (``because``: ``exposed``); a register that cannot be read prints one refusal line
+(``register_unreadable``) and exits 1.
+
+Three commands write the register and the run roots, each only appending, and none takes a
+line away: nothing unmarks a version.
+
+- ``physgate tiers scan-exposures --store S --role R`` records every exposure the role's run
+  roots hold that the register does not, and prints the counts added and already recorded.
+- ``physgate tiers mark-exposed --store S --role R --version V --by NAME --reason TEXT`` marks a
+  version exposed by hand, for a read no hook sees: a person's. It is refused away from a
+  terminal (``not_at_a_terminal``), as from a session's shell, which has none.
+- ``physgate tiers add-run-root --store S --role R --path DIR`` adds a directory beneath which the
+  role's runs are made; a measured run made anywhere else is refused.
+
+Each prints one JSON line, and a refusal as ``refused_because`` with exit 1.
 """
 
 from __future__ import annotations
@@ -33,6 +47,22 @@ def add_parser(subparsers: Any) -> None:
     status_parser = commands.add_parser("status", help="each version's state, counts and digests")
     status_parser.add_argument("--store", type=Path, required=True)
     status_parser.set_defaults(func=_status)
+    writers = {
+        "scan-exposures": "record the exposures the role's run roots hold",
+        "mark-exposed": "mark a version exposed by hand, at a terminal",
+        "add-run-root": "add a directory beneath which the role's runs are made",
+    }
+    for name, text in writers.items():
+        sub = commands.add_parser(name, help=text)
+        sub.add_argument("--store", type=Path, required=True)
+        sub.add_argument("--role", required=True)
+        if name == "mark-exposed":
+            sub.add_argument("--version", required=True)
+            sub.add_argument("--by", required=True)
+            sub.add_argument("--reason", required=True)
+        elif name == "add-run-root":
+            sub.add_argument("--path", type=Path, required=True)
+        sub.set_defaults(func=_write)
 
 
 def status(store: Path) -> dict[str, Any]:
@@ -40,8 +70,10 @@ def status(store: Path) -> dict[str, Any]:
 
     Raises:
         OSError: the store, or a role's root in it, cannot be read.
+        ExposureError: a role's register, its run roots or what they hold cannot be read whole.
     """
     from physgate.evaluation.tiers.authoring import TIERS
+    from physgate.evaluation.tiers.exposure import exposed_versions
     from physgate.evaluation.tiers.manifest import VERSION_NAME, TierSetError, read_version
     from physgate.evaluation.tiers.manifest import staleness as stale
     from physgate.evaluation.tiers.store import leftovers, role_root
@@ -55,27 +87,35 @@ def status(store: Path) -> dict[str, Any]:
             if (root.is_dir())
             else []
         )
+        unread: str | None = None
+        try:
+            exposed = exposed_versions(store, role) if names else frozenset()
+        except ExposureError as exc:
+            # Whether any version of the role was seen cannot be told: none reads as fresh.
+            exposed, unread = frozenset(), exc.context.get("refused_because", "register_unreadable")
         for name in names:
+            why = unread
             try:
                 manifest = read_version(root / name)
             except TierSetError as exc:
+                why = exc.context.get("refused_because", "unreadable")
+            if why is not None:
                 versions.append(
-                    {
-                        "role": role,
-                        "version": name,
-                        "state": "refused",
-                        "because": [exc.context.get("refused_because", "unreadable")],
-                    }
+                    {"role": role, "version": name, "state": "refused", "because": [why]}
                 )
                 continue
             found = stale(manifest)
+            stale_tiers, because = list(found.tiers), list(found.because)
+            if name in exposed:
+                stale_tiers = sorted({*stale_tiers, "held_out"})
+                because.append("exposed")
             versions.append(
                 {
                     "role": role,
                     "version": name,
-                    "state": "stale" if found.tiers else "fresh",
-                    "stale_tiers": list(found.tiers),
-                    "because": list(found.because),
+                    "state": "stale" if stale_tiers else "fresh",
+                    "stale_tiers": stale_tiers,
+                    "because": because,
                     "tiers": {t: manifest.tier(t).model_dump(mode="json") for t in TIERS},
                     "model": manifest.model,
                     "seed": manifest.seed,
@@ -86,6 +126,8 @@ def status(store: Path) -> dict[str, Any]:
 
 
 def _status(args: argparse.Namespace) -> int:
+    from physgate.evaluation.tiers.exposure import ExposureError
+
     store = args.store.resolve()
     try:
         found = status(store)
@@ -93,6 +135,44 @@ def _status(args: argparse.Namespace) -> int:
         refusal = {"refused_because": "store_unreadable", "store": str(store), "error": str(exc)}
         print(json.dumps(refusal, sort_keys=True))
         return 1
+    except ExposureError as exc:
+        reason = exc.context.get("refused_because", "register_unreadable")
+        print(json.dumps({"refused_because": reason, "error": str(exc)}, sort_keys=True))
+        return 1
     print(json.dumps(found, sort_keys=True))
     refused = any(v["state"] == "refused" for v in found["versions"])
     return 1 if refused or any(found["left"].values()) else 0
+
+
+def _write(args: argparse.Namespace) -> int:
+    """One of the three writers of the role's register and run roots; one JSON line."""
+    import sys
+
+    from physgate.evaluation.tiers import exposure
+    from physgate.evaluation.tiers.task import Role
+
+    store = args.store.resolve()
+    said: dict[str, Any]
+    if args.role not in get_args(Role):
+        print(json.dumps({"refused_because": "no_such_role"}, sort_keys=True))
+        return 1
+    try:
+        if args.tiers_command == "scan-exposures":
+            added, already = exposure.record_scan(store, args.role)
+            said = {"added": added, "already": already}
+        elif args.tiers_command == "mark-exposed":
+            # A person's mark: a session's shell has no terminal, so it never makes one.
+            if not (sys.stdin.isatty() and sys.stdout.isatty()):
+                said = {"refused_because": "not_at_a_terminal"}
+                print(json.dumps(said, sort_keys=True))
+                return 1
+            exposure.mark_exposed(store, args.role, args.version, by=args.by, reason=args.reason)
+            said = {"marked": args.version}
+        else:
+            said = {"added": exposure.add_run_root(store, args.role, args.path)}
+    except exposure.ExposureError as exc:
+        reason = exc.context.get("refused_because", "refused")
+        print(json.dumps({"refused_because": reason, "error": str(exc)}, sort_keys=True))
+        return 1
+    print(json.dumps(said, sort_keys=True))
+    return 0
