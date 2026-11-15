@@ -26,6 +26,9 @@ be complete the table says what is allowed instead:
   an upload by a route this file does not know (a test on the target, a debug session, a
   remote run, a program run through the tool's packages, a target or an option added later)
   is refused without being named;
+- the interactive consoles the design libraries bring (``ipython``, ``ipython3``, ``isympy``)
+  are guarded with no build-only use: an interpreter whose module and script this file does
+  not read is refused in every use, alone included;
 - the devices of each platform, which the OS layer reads from here too (``oslayer.policy``),
   so the two layers cannot name different devices.
 
@@ -151,6 +154,11 @@ SPLIT = (
     "env -S is refused: it splits a string into a command by env's own rules, which are not "
     "the shell's, so what it would run is not the command this check read. Write the command "
     "out as words."
+)
+NO_FORM = (
+    "{program} is refused in every use: it is an interpreter that runs whatever it is given, "
+    "a board's flasher among them, and this check does not read what it is told to run. Run "
+    "Python as python, with a script or a module named in the command's own words."
 )
 UNREADABLE = (
     "This call's arguments could not be read to their end ({detail}), so whether they name "
@@ -282,13 +290,22 @@ _SKETCH_TOOL: Guard = (
         ),
     },
 )  # fmt: skip
-#: The programs that both build and reach a board, each held to its build-only uses.
+#: The interactive consoles the design libraries put in the environment (an IPython shell by
+#: both its names, and SymPy's): interpreters the module rule below does not read, so
+#: ``ipython -m <flasher module>`` is not seen through. Guarded with no build-only use and no
+#: option of their own, so every use is refused, the bare one included.
+_NO_FORM: Guard = ({}, {})
+#: The programs that both build and reach a board, each held to its build-only uses, and the
+#: consoles that may run one, held to none.
 GUARDED: Mapping[str, Guard] = {
     "pio": _BUILD_TOOL,
     "platformio": _BUILD_TOOL,
     "esptool": _IMAGE_TOOL,
     "esptool.py": _IMAGE_TOOL,
     "arduino-cli": _SKETCH_TOOL,
+    "ipython": _NO_FORM,
+    "ipython3": _NO_FORM,
+    "isympy": _NO_FORM,
 }
 #: Interpreters that run one of the programs above as a module (``python -m platformio``) or
 #: as the script they are given.
@@ -741,7 +758,8 @@ def build_only(program: str, words: Sequence[str]) -> bool:
     """Whether ``words`` are, read exactly, one of a guarded program's build-only uses.
 
     A program that is not guarded has no uses to hold it to. One run with its own options
-    alone (``--version``) does nothing.
+    alone (``--version``) does nothing, unless the program has no build-only use at all: a
+    console run alone reads what to run from its input.
     """
     guard = GUARDED.get(program)
     if guard is None:
@@ -752,7 +770,7 @@ def build_only(program: str, words: Sequence[str]) -> bool:
         return False
     n = opened[0]
     if n == len(words):
-        return True
+        return bool(uses)
     name = words[n]
     if name not in uses and n + 1 < len(words):
         name, n = f"{name} {words[n + 1]}", n + 1
@@ -767,11 +785,17 @@ def build_only(program: str, words: Sequence[str]) -> bool:
     return program not in BUILD_TOOLS or all(target in BUILD_TARGETS for target in given)
 
 
+def _not_build(program: str) -> str:
+    """The refusal of a guarded program's use that is not build-only, for its kind of guard."""
+    reason = NO_FORM if not GUARDED[program][1] else NOT_BUILD
+    return reason.format(program=program)
+
+
 def refusal_of(program: str, words: Sequence[str]) -> str | None:
     """The reason ``program`` may not be run with ``words``, or ``None``."""
     if upload_in(program, words):
         return UPLOAD
-    return None if build_only(program, words) else NOT_BUILD.format(program=program)
+    return None if build_only(program, words) else _not_build(program)
 
 
 def _module_program(module: str, at: int) -> tuple[int, str] | None:
@@ -930,7 +954,7 @@ def _check_command(cmd: SimpleCommand, places: Sequence[str]) -> str | None:
         return UPLOAD
     if any(n >= stepped + start for n in unread):
         return DYNAMIC
-    return None if build_only(program, words) else NOT_BUILD.format(program=program)
+    return None if build_only(program, words) else _not_build(program)
 
 
 def command_refusal(command: str, cwd: str) -> str | None:
