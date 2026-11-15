@@ -234,8 +234,7 @@ def cut_line(line: str) -> list[str]:
     return pieces
 
 
-def fresh_nonce(stream: str, nonce: str | None) -> str:
-    """``nonce`` if ``stream`` does not hold it; else, or if none is given, one it does not hold."""
+def _fresh_nonce(stream: str, nonce: str | None) -> str:
     candidate = nonce or secrets.token_hex(8)
     while candidate in stream:
         candidate = secrets.token_hex(8)
@@ -248,7 +247,7 @@ def render(stream: str, *, nonce: str | None = None) -> tuple[str, str]:
     ``nonce`` is used if the stream does not hold it; otherwise, or if none is
     given, a fresh one is drawn.
     """
-    chosen = fresh_nonce(stream, nonce)
+    chosen = _fresh_nonce(stream, nonce)
     out = _Writer(chosen)
     for line in split_lines(stream):
         if not line.strip():

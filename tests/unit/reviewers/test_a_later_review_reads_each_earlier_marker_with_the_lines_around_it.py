@@ -71,7 +71,6 @@ _LINES = (
 _HEAD = re.compile(r"## " + _LINES + r" \| (.+)")
 #: The harness line over a data block an excerpt cuts, naming where the block's other lines are.
 _CUT = re.compile(r"## data block cut: the rest is " + _LINES)
-_FRESH = re.compile(rb"<<<DATA ([0-9a-f]{16}) (.+)\n")
 
 
 def _reads(first: int, count: int, lines: int = 30) -> list[str]:
@@ -139,13 +138,11 @@ def _excerpt_parts(packet: Packet) -> tuple[Part, ...]:
 
 
 class Cut(NamedTuple):
-    """A data block an excerpt cuts: the rendering's lines it shows, those it names, its fence."""
+    """A data block an excerpt cuts: the rendering's data lines it shows, and those it names."""
 
     first: int
     last: int
     rest: tuple[int, int]
-    nonce: str
-    what: bytes
 
 
 class Block(NamedTuple):
@@ -153,7 +150,7 @@ class Block(NamedTuple):
 
     ``shown`` is the rendering's lines the excerpt shows, in order; ``lines`` is every line of the
     excerpt under its heading, each with the index of the rendering's line it is (``None`` for a
-    line the excerpt adds: a cut block's harness line and fences).
+    line the excerpt adds: a cut block's harness line, and its fence line on the cut side).
     """
 
     first: int
@@ -166,12 +163,6 @@ class Block(NamedTuple):
 
 def _rendering(packet: Packet, read: Path) -> list[bytes]:
     return joined_parts(read, packet.earlier_parts).splitlines(keepends=True)
-
-
-def hit_nonces(packet: Packet) -> tuple[str, ...]:
-    """The nonces the packet records for the excerpts that cut a data block."""
-    nonces: tuple[str, ...] = getattr(packet, "earlier_hit_nonces", ())
-    return nonces
 
 
 def _starts(packet: Packet) -> dict[str, int]:
@@ -208,52 +199,14 @@ def data_blocks(rendering: list[bytes], nonces: tuple[str, ...]) -> list[tuple[i
     return blocks
 
 
-def _cut_piece(
-    rendering: list[bytes], lines: list[bytes], i: int, pos: int, packet: Packet
-) -> tuple[int, int, Cut, list[tuple[int | None, bytes]]] | None:
-    """The cut block the excerpt's line ``i`` begins, read against the rendering from ``pos``."""
-    head = lines[i].decode().removesuffix("\n")
-    found = _CUT.fullmatch(head)
-    opened = _FRESH.fullmatch(lines[i + 1]) if found and i + 1 < len(lines) else None
-    if found is None or opened is None or opened[1].decode() not in hit_nonces(packet):
-        return None
-    nonce = opened[1].decode()
-    mapped: list[tuple[int | None, bytes]] = [(None, lines[i]), (None, lines[i + 1])]
-    i += 2
-    own = [f"<<<DATA {n} ".encode() for n in packet.earlier_nonces]
-    ends_window = any(rendering[pos].startswith(o) for o in own)
-    if ends_window:
-        what = rendering[pos].rstrip(b"\r\n").split(b" ", 2)[2]
-        assert what == opened[2], "a cut block's fence does not name what the block holds"
-        pos += 1
-    piece = pos
-    close = f"DATA {nonce}>>>\n".encode()
-    while i < len(lines) and lines[i] != close:
-        assert pos < len(rendering), "a cut block runs past the rendering"
-        assert lines[i] == rendering[pos], "a cut block's line is not the rendering's"
-        mapped.append((pos, lines[i]))
-        pos, i = pos + 1, i + 1
-    assert i < len(lines), "a cut block's fence is never closed"
-    mapped.append((None, lines[i]))
-    last = pos - 1
-    (block,) = [(f, c) for f, c in data_blocks(rendering, packet.earlier_nonces) if f < piece <= c]
-    if ends_window:
-        rest = (last + 1, block[1])
-    else:
-        rest = (block[0], piece - 1)
-        assert pos == block[1], "a block cut at the window's start is not shown to its fence"
-        pos += 1
-    assert _named(_starts(packet), found) == rest, "the cut line does not name the block's rest"
-    return i + 1, pos, Cut(piece, last, rest, nonce, opened[2]), mapped
-
-
 def _blocks(packet: Packet, read: Path) -> list[Block]:
     """Every excerpt, read by its heading: the part and lines it names, then those lines.
 
-    A cut block is read as the excerpt writes it: the harness line, the fence of a recorded nonce,
-    the rendering's lines, the fence closed; the session's fence on the cut side is not shown.
+    A cut block is read as the excerpt writes it: the harness line naming the block's other lines,
+    then the block's lines shown, with the block's own fence line copied on the cut side.
     """
     rendering = _rendering(packet, read)
+    blocks_of = data_blocks(rendering, packet.earlier_nonces)
     lines = joined_parts(read, _excerpt_parts(packet)).splitlines(keepends=True)
     starts = _starts(packet)
     blocks = []
@@ -271,22 +224,38 @@ def _blocks(packet: Packet, read: Path) -> list[Block]:
         shown: list[bytes] = []
         cuts: list[Cut] = []
         mapped: list[tuple[int | None, bytes]] = []
+        ending: tuple[int, Cut] | None = None
         while pos <= last:
             assert i < len(lines), "the excerpt ends before the lines it names"
-            piece = _cut_piece(rendering, lines, i, pos, packet)
-            if piece is not None:
-                i, pos, cut, more = piece
-                cuts.append(cut)
-                mapped += more
-                shown += [line for at, line in more if at is not None]
+            cut = _CUT.fullmatch(lines[i].decode().removesuffix("\n"))
+            if cut and lines[i] != rendering[pos]:
+                held = [(f, c) for f, c in blocks_of if f <= pos < c]
+                assert held, "a cut line stands where no data block is cut"
+                ((opened, closed),) = held
+                mapped.append((None, lines[i]))
+                i += 1
+                if pos == opened:
+                    piece = Cut(opened + 1, last, (last + 1, closed))
+                    ending = (closed, piece)
+                else:
+                    piece = Cut(pos, closed - 1, (opened, pos - 1))
+                    assert lines[i] == rendering[opened], "a cut block is not opened by its fence"
+                    mapped.append((None, lines[i]))
+                    i += 1
+                    cuts.append(piece)
+                assert _named(starts, cut) == piece.rest, "the cut line does not name the rest"
                 continue
             assert lines[i] == rendering[pos], "an excerpt's line is not the rendering's it names"
             shown.append(lines[i])
             mapped.append((pos, lines[i]))
             pos, i = pos + 1, i + 1
-        blocks.append(
-            Block(first, last, found[7], b"".join(shown), tuple(cuts), tuple(mapped))
-        )
+        if ending is not None:
+            closed, piece = ending
+            assert i < len(lines) and lines[i] == rendering[closed], "a cut block is left open"
+            mapped.append((None, lines[i]))
+            i += 1
+            cuts.append(piece)
+        blocks.append(Block(first, last, found[7], b"".join(shown), tuple(cuts), tuple(mapped)))
         if i < len(lines):
             assert lines[i] == b"\n", "the excerpts are not one after another, a line between"
             i += 1
@@ -300,7 +269,7 @@ def unfenced(packet: Packet, read: Path, block: Block) -> list[int]:
     """
     rendering = _rendering(packet, read)
     outside = set(_outside(rendering, packet.earlier_nonces))
-    nonces = (*packet.earlier_nonces, *hit_nonces(packet))
+    nonces = packet.earlier_nonces
     inside: str | None = None
     wrong = []
     for at, raw in block.lines:
@@ -752,7 +721,6 @@ def test_the_required_earlier_reading_is_at_most_one_part_a_marker(
     blocks = _blocks(packet, read)
     for block in blocks:
         assert not unfenced(packet, read, block)
-    assert len(hit_nonces(packet)) == sum(1 for block in blocks if block.cuts)
     required = sum(p.bytes for p in excerpts)
     whole = sum(p.bytes for p in packet.earlier_parts)
     assert len(packet.earlier_indicators) == hits
