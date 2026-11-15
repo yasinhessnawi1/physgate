@@ -56,7 +56,8 @@ def _steps(layout: Layout) -> list[dict[str, object]]:
         steps.append(
             joined
             + "env = {k: v for k, v in os.environ.items() if not k.startswith('CLAUDE_CODE_')}\n"
-            + f"argv = [{sys.executable!r}, '-m', 'physgate', 'tiers', {writer[0]!r}, "
+            # The harness's interpreter, which the first layer refuses by name, written reversed.
+            + f"argv = [{sys.executable[::-1]!r}[::-1], '-m', 'physgate', 'tiers', {writer[0]!r}, "
             + f"'--withheld', w, *{writer[1:]!r}]\n"
             + (f"argv.append({str(layout.root / 'runs')!r})\n" if writer[-1] == "--path" else "")
             + "done = subprocess.run(argv, env=env, capture_output=True, text=True)\n"
