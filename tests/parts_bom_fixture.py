@@ -183,7 +183,7 @@ LINES: tuple[dict[str, Any], ...] = (
         "verb": "choose",
         "position": "have",
         "note": None,
-        "resolved_by": "operator",
+        "resolved_by": "yasin",
         "decided_ts": "2026-11-15T00:58:45.519936Z",
         "decision_offset": 0,
         "shown_sha256": "c747fc38d285a223b175c31495116bcecf39d708240cf5240b70a7f0049e4d38",
@@ -207,7 +207,7 @@ LINES: tuple[dict[str, Any], ...] = (
         "verb": "choose",
         "position": "make",
         "note": None,
-        "resolved_by": "operator",
+        "resolved_by": "yasin",
         "decided_ts": "2026-11-15T00:58:45.521576Z",
         "decision_offset": 354,
         "shown_sha256": "de57ec2596377ebd99214e5aab61fdd5c4053ba5448e7f29b2ef323236cc9d15",
@@ -231,7 +231,7 @@ LINES: tuple[dict[str, Any], ...] = (
         "verb": "choose",
         "position": "find",
         "note": None,
-        "resolved_by": "operator",
+        "resolved_by": "yasin",
         "decided_ts": "2026-11-15T00:58:45.522828Z",
         "decision_offset": 691,
         "shown_sha256": "415f515002a7bc5114890dba7db58551a6411276869cd6c05fa2a8e5cc6daf5c",
@@ -254,7 +254,7 @@ LINES: tuple[dict[str, Any], ...] = (
         "verb": "choose",
         "position": "have",
         "note": None,
-        "resolved_by": "operator",
+        "resolved_by": "yasin",
         "decided_ts": "2026-11-15T00:58:45.524163Z",
         "decision_offset": 937,
         "shown_sha256": "46177446cc85f53891124f16a1a50f035f06669b30e74e5500dbde87d2a320dc",
@@ -483,7 +483,7 @@ NODES: tuple[dict[str, Any], ...] = (
                 "declared": {
                     "item_id": "run-1-parts-1",
                     "decision_sha256": DRIVER_STATED,
-                    "operator": "operator",
+                    "operator": "yasin",
                 },
             }
         },
@@ -507,7 +507,7 @@ NODES: tuple[dict[str, Any], ...] = (
                 "declared": {
                     "item_id": "run-1-parts-1",
                     "decision_sha256": DRIVER_STATED,
-                    "operator": "operator",
+                    "operator": "yasin",
                 },
             }
         },
@@ -531,7 +531,7 @@ NODES: tuple[dict[str, Any], ...] = (
                 "declared": {
                     "item_id": "run-1-parts-2",
                     "decision_sha256": BATTERY_STATED,
-                    "operator": "operator",
+                    "operator": "yasin",
                 },
             }
         },
@@ -569,7 +569,7 @@ NODES: tuple[dict[str, Any], ...] = (
                 "declared": {
                     "item_id": "run-1-parts-4",
                     "decision_sha256": CHASSIS_STATED,
-                    "operator": "operator",
+                    "operator": "yasin",
                 },
             }
         },
