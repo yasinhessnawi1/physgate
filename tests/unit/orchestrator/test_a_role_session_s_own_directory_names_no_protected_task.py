@@ -204,7 +204,8 @@ def test_a_protected_file_changed_during_the_session_is_caught_at_its_end_check(
     finally:
         loop.close()
     assert raised is not None, "a changed held-out file went unrefused"
-    assert raised.context.get("check"), raised.context
+    # By the sentinel's check after the stop, or the dispatcher's own record of the roots.
+    assert raised.context.get("check") or raised.context.get("changed"), raised.context
 
 
 def _changed_while_gone(run: HeldOutRun, monkeypatch: pytest.MonkeyPatch, pids: list[int]) -> str:
