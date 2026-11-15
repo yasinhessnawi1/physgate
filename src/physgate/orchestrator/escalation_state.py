@@ -256,10 +256,12 @@ def all_declared(result: GateResult | None, declared: frozenset[tuple[str, str]]
 
     ``declared`` is each ``(node, name)`` declared at the journal's head. The line records only
     the first three quantities the blocking observations name, not which observation named
-    which, so the answer is yes only where the record can say so: fewer than three named (three
-    may be three of more, cut), every one declared, and no blocking failure of the units check,
-    whose observations name no quantity. In every other case the answer is no, and the attempt
-    routes as any other does.
+    which, and a check does not always name every value its failure rests on: the conservation
+    check names a relation's first term only, the units check and the loads reading name none.
+    Only the magnitude check names exactly the one value it judged. So the answer is yes only
+    where the record can say so: every blocking record is the magnitude check's, fewer than three
+    quantities are named (three may be three of more, cut), and every one is declared. In every
+    other case the answer is no, and the attempt routes to its role as any other does.
     """
     if result is None or result.verdict != "fail":
         return False
@@ -267,7 +269,7 @@ def all_declared(result: GateResult | None, declared: frozenset[tuple[str, str]]
     if not named or len(named) >= RECORDED_QUANTITIES:
         return False
     blocking = [r for r in result.checks if r.outcome == "fail" and r.blocking]
-    if any(r.name == "units" for r in blocking):
+    if any(r.name != "magnitude" for r in blocking):
         return False
     return all((q.node_id, q.name) in declared for q in named)
 

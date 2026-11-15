@@ -53,7 +53,7 @@ import hashlib
 import json
 import re
 import shutil
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from pathlib import Path
 
 from physgate import roles
@@ -109,7 +109,7 @@ from physgate.state.protocol import (
 from physgate.state.schema import (
     REJECT_DECLARED_FORGED,
     declared_message,
-    declared_refusal,
+    declared_node_refusal,
     forged_sources,
     quantities_are_valid,
     validate_node,
@@ -309,13 +309,13 @@ def _ownership_refusal(payload: Payload, fixed: _Fixed, role: str) -> _Refusal:
     return None
 
 
-def _content_refusal(payload: Payload, path: str, held: Mapping[str, Payload]) -> None:
+def _content_refusal(payload: Payload, path: str, held: Payload | None) -> None:
     """Refuse a malformed quantity, a declared one touched, a shadowing name, or any fault.
 
     The hook's order after ownership: a quantity that is not a value with a unit, a source
     and a writer (the reserved source without its decision is a forgery); a declared quantity
-    added, changed or dropped against the ``held`` ones; a name that shadows a relation's
-    quantity; the node as a whole.
+    added, changed or dropped against the ``held`` node, or the kind or domain of a node holding
+    one changed; a name that shadows a relation's quantity; the node as a whole.
 
     Raises:
         ProposalRefusedError: the first of these ``payload`` breaks.
@@ -334,7 +334,7 @@ def _content_refusal(payload: Payload, path: str, held: Mapping[str, Payload]) -
                 REJECT_DECLARED_FORGED,
             )
         raise ProposalRefusedError(problem, path, REJECT_MISSING_UNIT)
-    declared = declared_refusal(dict(held), payload.get("quantities") or {})
+    declared = declared_node_refusal(held, payload)
     if declared is not None:
         raise ProposalRefusedError(
             f"{path} is refused ({declared[0]}): {declared_message(*declared)}",
@@ -415,9 +415,7 @@ def read_proposals(
             reason, said = refused
             raise ProposalRefusedError(f"{change.path} {said}", named["id"], reason)
         head = journal_heads.get(named["id"])
-        _content_refusal(
-            payload, change.path, {} if head is None else head[2].get("quantities", {})
-        )
+        _content_refusal(payload, change.path, None if head is None else head[2])
         found.append(payload)
     return sorted(found, key=lambda p: str(p["id"]))
 

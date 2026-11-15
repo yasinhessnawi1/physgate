@@ -28,7 +28,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Annotated, Any, Literal
+from collections.abc import Mapping
+from typing import Annotated, Any, Final, Literal
 
 from pydantic import (
     AfterValidator,
@@ -349,6 +350,33 @@ def declared_refusal(
     return (REJECT_DECLARED_FORGED, forged) if forged else None
 
 
+#: The fields of a node that holds a declared quantity that no role's write may change, beside
+#: the declared quantities themselves: what the person's part was declared on. Its
+#: ``constrains`` stays the owner's: the parts writer creates a component's node with no edge,
+#: and only the role that owns the node joins it to the module whose relations read it.
+DECLARED_NODE_FIELDS: Final = ("kind", "domain")
+
+
+def declared_node_refusal(
+    held: Mapping[str, Any] | None, written: Mapping[str, Any]
+) -> tuple[str, tuple[str, ...]] | None:
+    """:func:`declared_refusal` for a whole node written over the ``held`` one (``None``: new).
+
+    Its quantities first, as :func:`declared_refusal` reads them; then, where the held node holds
+    a declared quantity, ``declared_fixed`` naming each of :data:`DECLARED_NODE_FIELDS` the
+    revision changes. The hook, apply and the store each ask this, so a role is told the same
+    at every layer.
+    """
+    quantities: dict[str, Any] = {} if held is None else dict(held.get("quantities") or {})
+    found = declared_refusal(quantities, dict(written.get("quantities") or {}))
+    if found is not None or held is None:
+        return found
+    if not any(isinstance(q, dict) and q.get("declared") is not None for q in quantities.values()):
+        return None
+    moved = tuple(field for field in DECLARED_NODE_FIELDS if written.get(field) != held.get(field))
+    return (REJECT_DECLARED_FIXED, moved) if moved else None
+
+
 def forged_sources(payload: dict[str, Any]) -> tuple[str, ...]:
     """The quantities of ``payload`` that take the reserved source, or one that imitates it.
 
@@ -380,8 +408,8 @@ def declared_message(reason: str, names: tuple[str, ...]) -> str:
     if reason == REJECT_DECLARED_FIXED:
         return (
             f"{told}: a declared part is fixed by a person. Write the node with each declared "
-            "quantity exactly as it stands (value, unit, source and record), and keep to "
-            "quantities of your own beside it."
+            "quantity exactly as it stands (value, unit, source and record) and its kind and "
+            "domain as they are, and keep to quantities of your own beside it."
         )
     return (
         f"{told}: a quantity is declared only by a person's recorded decision, never by a session. "

@@ -360,6 +360,15 @@ def text_problem(text: str) -> str | None:
     return None if problem is None else f"a made part's text is held as a note is: {problem}"
 
 
+def _fits_a_float(value: int) -> bool:
+    """Whether a whole number is within a finite float's range (one past it cannot be judged)."""
+    try:
+        float(value)
+    except OverflowError:
+        return False
+    return True
+
+
 def declared_problem(name: str, stated: DeclaredValue) -> str | None:
     """Why ``stated`` cannot be the value of the quantity called ``name``, or ``None`` if it can.
 
@@ -381,7 +390,12 @@ def declared_problem(name: str, stated: DeclaredValue) -> str | None:
             "by the catalogue's name"
         )
     value = stated.value
-    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return f"{name!r}: the value must be a finite number, not {value!r}"
+    if isinstance(value, int) and not _fits_a_float(value):
+        # Said without the number: past 4300 digits Python will not even print it.
+        return f"{name!r}: the value must be a finite number, and this whole number is too large"
+    if not math.isfinite(value):
         return f"{name!r}: the value must be a finite number, not {value!r}"
     kind = kind_of(name)
     try:

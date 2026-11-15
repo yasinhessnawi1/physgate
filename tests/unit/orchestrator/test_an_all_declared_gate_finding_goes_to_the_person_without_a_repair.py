@@ -1,10 +1,11 @@
 """A gate finding on declared values alone goes to the person, spending no repair attempt.
 
 ARCH-122, ARCH-131. The recorded gate line keeps only the first three blocking quantities, not
-each observation's, so a blocking result is read as all-declared only when it names fewer than
-three quantities (none was cut), every one is declared at the head, and no blocking record is a
-units failure (the units check names no quantity). Such an attempt end is a forced route to the
-queue; every other case routes as it did, and a repair names a declared value as fixed.
+each observation's, and only the magnitude check names exactly the value it judged, so a blocking
+result is read as all-declared only when every blocking record is the magnitude check's, it names
+fewer than three quantities (none was cut), and every one is declared at the head. Such an attempt
+end is a forced route to the queue; every other case routes to the role as it did, and a repair
+names a declared value as fixed.
 """
 
 from __future__ import annotations

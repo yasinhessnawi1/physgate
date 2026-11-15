@@ -69,7 +69,7 @@ from physgate.state.protocol import (
 )
 from physgate.state.schema import (
     REJECT_DECLARED_FORGED,
-    declared_refusal,
+    declared_node_refusal,
     forged_sources,
     quantities_are_valid,
     validate_node,
@@ -925,8 +925,8 @@ class Store:
 
         validate_node(node)
 
-        held = {} if known is None else self._read_node(node_id).get("quantities", {})
-        refused_for = declared_refusal(held, node.get("quantities", {}))
+        held = None if known is None else self._read_node(node_id)
+        refused_for = declared_node_refusal(held, node)
         if refused_for is not None:
             return WriteResult(False, None, refused_for[0])
 

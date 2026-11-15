@@ -352,7 +352,7 @@ def _check(proposal: object, file_stem: str, config: ConfigView) -> tuple[str, s
     from physgate.state.schema import (
         REJECT_DECLARED_FORGED,
         declared_message,
-        declared_refusal,
+        declared_node_refusal,
         forged_sources,
         quantities_are_valid,
         validate_node,
@@ -387,10 +387,7 @@ def _check(proposal: object, file_stem: str, config: ConfigView) -> tuple[str, s
             node_id=node_id,
         )
         return REJECT_MISSING_UNIT, str(refusal)
-    declared = declared_refusal(
-        {} if current is None else current[2].get("quantities") or {},
-        proposal.get("quantities") or {},
-    )
+    declared = declared_node_refusal(None if current is None else current[2], proposal)
     if declared is not None:
         return declared[0], declared_message(*declared)
     shadowed = _shadowing_quantities(proposal)
