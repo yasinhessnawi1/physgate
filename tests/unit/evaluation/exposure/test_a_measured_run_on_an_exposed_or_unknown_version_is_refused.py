@@ -209,7 +209,14 @@ def _two_marks(made: StandInStore) -> Path:
 
 @pytest.mark.parametrize(
     "cut",
-    ["the last line", "every line", "the register", "the head", "a line rewritten"],
+    [
+        "the last line",
+        "every line",
+        "the register",
+        "the head",
+        "a line rewritten",
+        "the last line rewritten",
+    ],
 )
 def test_a_shortened_or_rewritten_register_refuses_rather_than_reads_as_nothing_exposed(
     tmp_path: Path, made: StandInStore, cut: str
@@ -226,11 +233,53 @@ def test_a_shortened_or_rewritten_register_refuses_rather_than_reads_as_nothing_
         register.unlink()
     elif cut == "the head":
         head.unlink()
-    else:
+    elif cut == "a line rewritten":
         first = json.loads(lines[0])
         first["reason"] = "nothing to see here"
         register.write_bytes(json.dumps(first).encode() + b"\n" + lines[1])
+    else:
+        last = json.loads(lines[1])
+        last["reason"] = "nothing to see here"
+        register.write_bytes(lines[0] + json.dumps(last).encode() + b"\n")
     _reason(refusal(config(made.tasks["visible"][0], made), runs / "r1"), "register_unreadable")
+
+
+def test_marks_are_appended_in_their_order_and_read_back_whole(made: StandInStore) -> None:
+    _two_marks(made)
+    lines = api(f"{EXPOSURE}.register_lines")(made.store, "control")
+    assert [(line.n, line.reason) for line in lines] == [
+        (0, "opened the tier by hand"),
+        (1, "copied a task by mistake"),
+    ]
+
+
+def test_a_raw_record_that_names_no_digest_marks_every_version_of_the_role(
+    made: StandInStore,
+) -> None:
+    later = second_version(made)
+    trial = withheld_root(made.store, "control") / "baseline" / "round-1" / "t1" / "harness"
+    trial.mkdir(parents=True)
+    (trial / "raw.json").write_text(json.dumps({"held_out_seen": True}))
+    exposed = api(f"{EXPOSURE}.exposed_versions")(made.store, "control")
+    assert exposed == frozenset({made.version, later.version})
+
+
+def test_a_brief_in_two_versions_is_refused_as_on_no_one_version(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    runs = with_run_root(made, tmp_path / "runs")
+    later = second_version(made, brief="Stabilise plant number {i}. Answer here.")
+    on_both = config(made.tasks["visible"][0], later)
+    _reason(refusal(on_both, runs / "r1"), "brief_in_several_versions")
+
+
+def test_a_measured_run_with_no_held_out_roots_is_not_held_to_it(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    runs = with_run_root(made, tmp_path / "runs")
+    task = made.tasks["visible"][0]
+    run = config(task, made, held_out=[], held_out_sha256=[], held_out_canaries=[])
+    assert refusal(run, runs / "r1") is None
 
 
 def test_a_run_that_is_not_measured_is_not_held_to_it(tmp_path: Path, made: StandInStore) -> None:

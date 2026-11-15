@@ -62,10 +62,11 @@ def _decompose(
 
 
 def test_a_requirement_is_shown_the_run_s_directory_at_decompose(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seen = _seen(monkeypatch)
     assert main(_decompose(tmp_path, monkeypatch, PARAMS)) == 2
+    assert len(seen) == 1, f"the requirements were not asked once: {capsys.readouterr().err}"
     (facts,) = seen
     assert getattr(facts, "run_dir", None) == (tmp_path / "runs" / "run").resolve()
 
@@ -78,6 +79,7 @@ def test_a_requirement_is_shown_the_run_s_directory_at_run_and_resume(
     _recorded(tmp_path, os_layer=PRESENT)
     code, spawned = _through_the_command(tmp_path, monkeypatch, command, PRESENT)
     assert code == 2 and spawned == []
+    assert len(seen) == 1, "the requirements were not asked once"
     (facts,) = seen
     assert getattr(facts, "run_dir", None) == (tmp_path / "run").resolve()
 

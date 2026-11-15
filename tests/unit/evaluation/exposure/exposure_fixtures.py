@@ -69,7 +69,7 @@ def facts(run: RunConfig, run_dir: Path | None, *, new_run: bool = True) -> RunF
     try:
         return RunFacts(
             config=run, os_layer=LAYER, shell_sessions=True, new_run=new_run, run_dir=run_dir
-        )  # type: ignore[call-arg]
+        )
     except TypeError:
         pytest.fail("a requirement is not shown the run's directory (RunFacts.run_dir)")
 
@@ -104,17 +104,20 @@ def incident_in(run_dir: Path) -> None:
     log.close()
 
 
-def second_version(made: StandInStore) -> StandInStore:
+def second_version(
+    made: StandInStore, brief: str = "Hold plant number {i} steady. Answer here."
+) -> StandInStore:
     """A second version of the control role, split from a pool of tasks with briefs of their own.
 
     The run it gives withholds both versions' protected tiers and looks for both's canaries, as
-    every run on the role must.
+    every run on the role must. ``brief`` gives task ``i``'s brief; the default is none of the
+    first version's.
     """
     pool = made.store / "control" / "withheld" / "pool"
     for i in range(24):
         write_task_dir(
             pool / f"control.u{i:02d}",
-            own_task(id=f"control.u{i:02d}", brief=f"Hold plant number {i} steady. Answer here."),
+            own_task(id=f"control.u{i:02d}", brief=brief.format(i=i)),
             {"good": (controller(), None), "bad_slow": (controller(), "settling")},
         )
     manifest, _ = write_version(

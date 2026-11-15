@@ -1,15 +1,20 @@
-"""The register is written by three commands, a hand mark only at a terminal, and by no session.
+"""The register is written by three commands, and by no session.
 
-The register and the run roots lie beneath the role's withheld root, which every run that names
-anything under the role's root withholds: a role session's file tool, its shell and the OS
-layer refuse both files to it, so it can neither read them nor write them, and a writer it
-started would be refused the write. A hand mark is made by a person at a terminal, naming who
-and why. No command removes a line, so nothing unmarks a version. ``tiers status`` shows an
-exposed version as stale.
+What holds a session off is the place: the register and the run roots lie beneath the role's
+withheld root, which every run that names anything under the role's root withholds. A role
+session's file tool and its shell refuse both files to it and every writer's command, which
+names that root, and the OS layer denies writes beneath it (shown here in the generated
+policy; through the real binary in the integration rows). Each writer also refuses inside a
+harness session's environment, as defence in depth: a session controls its own environment.
+A hand mark asks for a terminal and a name, a second measure for the person who makes it,
+never what stops a session. A run root that would make every later scan refuse is not added.
+No command removes a line, so nothing unmarks a version. ``tiers status`` shows an exposed
+version as stale.
 """
 
 from __future__ import annotations
 
+import importlib
 import json
 import sys
 from pathlib import Path
@@ -58,10 +63,8 @@ def _at_a_terminal(monkeypatch: pytest.MonkeyPatch, *, yes: bool) -> None:
 def _mark(made: StandInStore, reason: str = "opened the tier by hand") -> list[str]:
     return [
         "mark-exposed",
-        "--store",
-        str(made.store),
-        "--role",
-        "control",
+        "--withheld",
+        str(withheld_root(made.store, "control")),
         "--version",
         made.version,
         "--by",
@@ -108,7 +111,7 @@ def test_the_scan_and_the_run_roots_are_written_by_their_commands_and_counted(
 ) -> None:
     runs = tmp_path / "runs"
     runs.mkdir()
-    store = ["--store", str(made.store), "--role", "control"]
+    store = ["--withheld", str(withheld_root(made.store, "control"))]
     code, said = _tiers(capsys, "add-run-root", *store, "--path", str(runs))
     assert code == 0 and said.get("added") is True
     code, said = _tiers(capsys, "add-run-root", *store, "--path", str(runs))
@@ -214,8 +217,108 @@ def test_a_role_session_of_a_run_on_the_store_cannot_read_or_write_the_register_
     # A writer a session started would write beneath the withheld root, which its commands may
     # not write, whatever names it was given.
     for command in ("scan-exposures", "mark-exposed", "add-run-root"):
-        typed = f"physgate tiers {command} --store {made.store} --role control"
-        refused_by_the_shell = bool(shell_paths.check(parse(typed)[0], wt, config))
-        assert refused_by_the_shell or _covered(str(withheld), filesystem["denyWrite"]), (
-            f"a role session could run {command} and have it write the register"
+        typed = f"physgate tiers {command} --withheld {withheld}"
+        assert shell_paths.check(parse(typed)[0], wt, config), (
+            f"a role session's shell may run {command} on the role's withheld root"
         )
+        assert _covered(str(withheld), filesystem["denyWrite"]), (
+            f"the OS layer would let {command} write beneath the withheld root"
+        )
+
+
+HOOK_TESTS = Path(__file__).resolve().parents[2] / "hooks"
+
+
+@pytest.mark.parametrize("profile", ["role", "baseline"])
+def test_every_role_and_baseline_session_carries_a_marker_the_writers_refuse(
+    tmp_path: Path, profile: str
+) -> None:
+    if str(HOOK_TESTS) not in sys.path:
+        sys.path.insert(0, str(HOOK_TESTS))
+    from test_install_writes_the_sessions_settings_file import REGISTRY, _request
+
+    from physgate.hooks.settings import install
+
+    fields: dict[str, Any] = {"profile": profile}
+    if profile == "baseline":
+        fields.update(role=None, own_branch=None, store_root=None)
+    done = install(_request(tmp_path, **fields), REGISTRY)
+    markers = set(api(f"{EXPOSURE}.SESSION_MARKERS"))
+    assert markers & set(done.spawn_env), f"a {profile} session carries no marker: {done.spawn_env}"
+
+
+def _three_writers(made: StandInStore, runs: Path) -> dict[str, Any]:
+    return {
+        "scan": lambda: api(f"{EXPOSURE}.record_scan")(made.store, "control"),
+        "mark": lambda: api(f"{EXPOSURE}.mark_exposed")(
+            made.store, "control", made.version, by="a person", reason="opened the tier by hand"
+        ),
+        "root": lambda: api(f"{EXPOSURE}.add_run_root")(made.store, "control", runs),
+    }
+
+
+@pytest.mark.parametrize("marker", ["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "CLAUDE_CODE_TMPDIR"])
+@pytest.mark.parametrize("writer", ["scan", "mark", "root"])
+def test_each_writer_refuses_inside_a_harness_session_and_appends_nothing(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch, marker: str, writer: str
+) -> None:
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    error = api(f"{EXPOSURE}.ExposureError")
+    monkeypatch.setenv(marker, "1")
+    with pytest.raises(error) as refused:
+        _three_writers(made, runs)[writer]()
+    assert refused.value.context.get("refused_because") == "inside_a_session"
+    withheld = withheld_root(made.store, "control")
+    assert not [p for p in withheld.iterdir() if p.name.startswith(("register", "run-roots"))]
+
+
+def _bad_root(tmp_path: Path, how: str, monkeypatch: pytest.MonkeyPatch) -> Path:
+    try:
+        exposure = importlib.import_module(EXPOSURE)
+    except ImportError:
+        pytest.fail(f"{EXPOSURE} is not built")
+    root = tmp_path / "root"
+    if how == "missing":
+        return root
+    if how == "a file":
+        root.write_text("not a directory")
+        return root
+    if how == "a link":
+        (tmp_path / "real").mkdir()
+        root.symlink_to(tmp_path / "real")
+        return root
+    root.mkdir()
+    if how == "unreadable":
+        root.chmod(0)
+    elif how == "too deep":
+        monkeypatch.setattr(exposure, "MOST_DEPTH", 2)
+        (root / "a" / "b" / "c" / "d").mkdir(parents=True)
+    elif how == "too many entries":
+        monkeypatch.setattr(exposure, "MOST_ENTRIES", 5)
+        for i in range(10):
+            (root / f"e{i}").mkdir()
+    else:
+        (root / "broken").mkdir()
+        (root / "broken" / "run.json").write_text("not a run's configuration")
+    return root
+
+
+@pytest.mark.parametrize(
+    "how",
+    ["missing", "a file", "a link", "unreadable", "too deep", "too many entries", "a broken run"],
+)
+def test_a_run_root_the_scan_could_not_read_whole_is_refused_and_nothing_is_appended(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    root = _bad_root(tmp_path, how, monkeypatch)
+    error = api(f"{EXPOSURE}.ExposureError")
+    try:
+        with pytest.raises(error):
+            api(f"{EXPOSURE}.add_run_root")(made.store, "control", root)
+    finally:
+        if how == "unreadable":
+            root.chmod(0o700)
+    assert api(f"{EXPOSURE}.run_roots")(made.store, "control") == []
+    withheld = withheld_root(made.store, "control")
+    assert not (withheld / "run-roots.jsonl").exists()

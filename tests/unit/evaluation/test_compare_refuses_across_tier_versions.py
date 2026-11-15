@@ -47,7 +47,8 @@ def _refused(baseline: Path, candidate: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "case", ["one side only", "another version", "another digest", "not a record"]
+    "case",
+    ["one side only", "another version", "another digest", "not a record", "neither a record"],
 )
 def test_runs_on_different_tier_versions_are_not_compared(tmp_path: Path, case: str) -> None:
     repo = target_repo(tmp_path)
@@ -58,6 +59,9 @@ def test_runs_on_different_tier_versions_are_not_compared(tmp_path: Path, case: 
     elif case == "another digest":
         _write(candidate, _tiers(held_out="6" * 64))
     elif case == "not a record":
+        _write(candidate, b'{"format": 1}')
+    elif case == "neither a record":
+        _write(baseline, b'{"format": 1}')
         _write(candidate, b'{"format": 1}')
     _refused(baseline, candidate)
 
