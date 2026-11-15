@@ -79,6 +79,7 @@ from physgate.hooks.reasons import (
     HOOK_STATE_REASON,
     OUTSIDE_REVIEW_REASON,
     REVIEW_MATERIAL_REASON,
+    SENTINEL_APART_REASON,
     SESSION_TEMPS_REASON,
     SESSIONS_REASON,
     WITHHELD_REASON,
@@ -409,6 +410,7 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
         # reads of its own there, nor the temporary directory every Claude Code session of the
         # user shares, which holds the other sessions' task outputs, nor another session's own
         # temporary directory, but for the session's own.
+        # Nor the run's place apart, where the sentinel keeps what names the protected entries.
         # Claude Code's directory in the session's scratch home is read by none either: what
         # is there is not the session's, and the OS layer denies the shell's reads alike.
         for root in config.protected_roots:
@@ -420,6 +422,7 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
                     in (
                         WITHHELD_REASON,
                         SESSIONS_REASON,
+                        SENTINEL_APART_REASON,
                         CLAUDE_TEMP_REASON,
                         SESSION_TEMPS_REASON,
                         HOME_CLAUDE_REASON,

@@ -216,3 +216,21 @@ def test_two_places_apart_refuse(root: Path) -> None:
     doubled = config.model_copy(update={"protected_roots": (*config.protected_roots, second)})
     with pytest.raises(ValueError, match="more than one place apart"):
         _check(root, "SessionStart", doubled)
+
+
+@pytest.mark.parametrize("tool", ["Read", "Write"])
+def test_no_file_tool_of_the_session_reaches_the_place_apart(root: Path, tool: str) -> None:
+    key = "file_path"
+    target = str(root / "apart" / f"{SESSION}.json")
+    hook_input = HookInput.model_validate(
+        {
+            "session_id": SESSION,
+            "cwd": str(root / "worktree"),
+            "hook_event_name": "PreToolUse",
+            "tool_name": tool,
+            "tool_input": {key: target, "content": "x"},
+        }
+    )
+    decision = paths.pre_tool_use(hook_input, _config(root))
+    assert not decision.allow
+    assert "protected paths" in decision.reason or "no session reads" in decision.reason
