@@ -116,7 +116,7 @@ const INTRO_MS = 7000;
 
 function showIntro() {
   $("setup").hidden = true;
-  $("intro").hidden = false;
+  $("welcome").hidden = false;
   const film = $("intro-film");
   let finished = false;
   const done = async () => {
@@ -158,7 +158,7 @@ function onArrow(event) {
 
 async function showEngine() {
   document.onkeydown = null;
-  $("intro").hidden = true;
+  $("welcome").hidden = true;
   $("setup").hidden = false;
   $("engine-title").focus();
   await refresh();
@@ -470,10 +470,12 @@ async function finish() {
 
 // ---- Operator name ------------------------------------------------------------------
 
+// The sections' ids are never the step names in the URL: a fragment that names an element
+// makes the browser move focus there once the page has loaded, and the heading would lose it.
 async function showOperator() {
-  $("intro").hidden = true;
+  $("welcome").hidden = true;
   $("setup").hidden = true;
-  $("operator").hidden = false;
+  $("operator-page").hidden = false;
   $("operator-title").focus();
   const said = await invoke("operator_state");
   const input = $("operator-name");
