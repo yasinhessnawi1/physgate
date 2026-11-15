@@ -190,3 +190,14 @@ def test_the_harness_measures_both_roots_and_records_the_program_at_its_version(
     assert measured.roots == (str(env), str(kicad_root))
     alone = manifest([env])
     assert measured.entries > alone.entries + 10_000
+
+
+def test_the_root_carries_the_session_file_provisioning_writes(built: Path | None) -> None:
+    kicad_root = _root(built)
+    provision = _provision()
+    session = getattr(provision, "kicad_session", None)
+    assert callable(session), "provisioning writes no session file for KiCad"
+    system = "Linux" if sys.platform.startswith("linux") else "Darwin"
+    written = json.loads((kicad_root / "session.json").read_text(encoding="utf-8"))
+    assert written == session(system)
+    assert (kicad_root / "session.json").stat().st_mode & 0o222 == 0

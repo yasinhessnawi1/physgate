@@ -33,7 +33,7 @@ from physgate.unit_spelling import require_bounded_spelling
 
 REPO = Path(__file__).resolve().parents[3]
 HELPERS = REPO / "toolenv" / "helpers"
-FILES = ("geometry.py", "result_file.py", "structure.py")
+FILES = ("circuit.py", "geometry.py", "result_file.py", "structure.py")
 
 
 def _raised(call: Callable[[], object]) -> BaseException | None:
@@ -209,6 +209,10 @@ def test_the_kinds_of_result_and_their_fields_are_a_closed_list(result_file: Mod
                 "libraries",
             ]
         ),
+        "rules_check": sorted(
+            ["schema", "kind", "schematic", "report", "exit_code", "counts", "findings", "tool"]
+        ),
+        "ecad_exports": sorted(["schema", "kind", "schematic", "exports", "exit_codes", "tool"]),
     }
     named = {name for fields in result_file.FIELDS.values() for name in fields}
     assert not named & set(result_file.JUDGEMENT_WORDS)
@@ -991,6 +995,8 @@ ALLOWED_IMPORTS = {
     "math",
     "os",
     "re",
+    "shutil",
+    "subprocess",
     "sys",
     "typing",
     "build123d",
