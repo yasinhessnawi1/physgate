@@ -103,6 +103,7 @@ UPLOADS = [
     # Every occurrence of each is read, and a part or an image alone is enough.
     "p=avrdude; $p -U x -U flash:w:firmware.hex",
     "p=avrdude; $p -U firmware.hex",
+    "p=avrdude; $p -U lfuse:w:0xFF:m",
     "p=avrdude; $p -p m328p",
     "p=avrdude; $p -p x -p atmega32u4",
     "p=avrdude; $p -c x -c usbasp -p 1 -p t85",
