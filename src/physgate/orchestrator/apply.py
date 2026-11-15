@@ -53,7 +53,6 @@ import hashlib
 import json
 import re
 import shutil
-import sys
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
@@ -81,7 +80,7 @@ from physgate.orchestrator.declaration import (
     DeclarationError,
     parse,
 )
-from physgate.orchestrator.derived import Runner, contained_runner, held_exports
+from physgate.orchestrator.derived import Runner, held_exports
 from physgate.orchestrator.dispute import DISPUTES_DIR, Dispute, DisputeError, disputer_problem
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.exceptions import DutyUnownedError, RoleRegisterError, StoreRefusalError
@@ -99,6 +98,7 @@ from physgate.orchestrator.git import (
 )
 from physgate.orchestrator.merge import RunGit, admitted_exports, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
+from physgate.oslayer.regeneration import default_runner
 from physgate.reviewers.packet import LINE_MAX_BYTES, PART_MAX_BYTES, LongLine, long_line
 from physgate.series.consistency import check_proposals
 from physgate.series.reader import SealedEntry, attempt_records
@@ -560,25 +560,21 @@ class GitChangeChecker:
         store_root: Path,
         module_dirs: dict[str, str],
         *,
-        recorded: ToolEnvironment | None = None,
         environment: Callable[[], ToolEnvironment | None] | None = None,
         regenerate: Runner | None = None,
     ) -> None:
         """Check attempts of ``run`` against the canonical store at ``store_root``.
 
-        ``recorded`` is the run's record of its tool environment, ``environment`` holds the
-        environment to it and gives it (the dispatcher's, which holds it before every session),
-        and ``regenerate`` runs the command that makes committed exports again
-        (:mod:`physgate.orchestrator.derived`; by default inside the tool containment).
+        ``environment`` holds the run's tool environment to its record and gives it (the
+        dispatcher's, which holds it before every session), and ``regenerate`` runs the command
+        that makes committed exports again (:mod:`physgate.orchestrator.derived`; by default
+        :func:`physgate.oslayer.regeneration.default_runner`, inside the tool containment).
         """
         self._run = run
         self._store_root = store_root
         self._module_dirs = module_dirs
-        self._recorded = recorded
         self._environment = environment or (lambda: None)
-        self._regenerate = regenerate or contained_runner(
-            bwrap=shutil.which("bwrap") if sys.platform.startswith("linux") else None
-        )
+        self._regenerate = regenerate or default_runner()
 
     def check(
         self,
@@ -630,7 +626,6 @@ class GitChangeChecker:
             base,
             attempt_commit,
             module_dir,
-            recorded=self._recorded,
             environment=self._environment,
             runner=self._regenerate,
             git_dir=pinned,

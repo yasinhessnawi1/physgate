@@ -1013,7 +1013,6 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
                 run,
                 store_root,
                 {e.subtask_id: e.module_dir for e in plan},
-                recorded=config.tool_environment,
                 environment=dispatcher.held_tool_environment,
             ),
             merger=GitMerger(run, removal_timeout_s=REMOVAL_TIMEOUT_S),

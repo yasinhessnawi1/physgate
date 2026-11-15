@@ -51,6 +51,8 @@ EXPORTS = "exports"
 PROGRAM = "kicad-cli"
 #: The time the reports' dates are set to.
 FIXED_DATE = "2000-01-01T00:00:00"
+#: The prefix of the folder made new for each call's PDF, in the temporary directory.
+PDF_FOLDER_PREFIX = "circuit-"
 #: How long one run of the program may take.
 TIMEOUT_S = 600
 #: The most of a report that is read, and of a text kept from it.
@@ -249,28 +251,46 @@ def rules_check(
 
 
 def exports(
-    schematic: str | os.PathLike[str],
-    module: str | os.PathLike[str],
-    name: str,
-    *,
-    reading: bool = True,
+    schematic: str | os.PathLike[str], module: str | os.PathLike[str], name: str
 ) -> dict[str, Any]:
     """Write ``<module>/exports/<name>.net`` and ``.csv`` from ``schematic``, and a PDF of it.
 
     The PDF goes into a folder made new for the call in the session's temporary directory
     (``<temp>/circuit-<random>/<name>.pdf``), named in the answer by its full path, size and
-    sha256. With ``reading`` false no PDF is made and the answer names none.
+    sha256.
 
     Raises:
         HelperRefusedError: the name, the schematic or the module is not one, the program is
             not on the search path, or an export was not written.
     """
     path, folder = _places(schematic, module)
+    codes, written, pdf = _written(path, folder, name, PDF_FOLDER_PREFIX)
+    return checked(
+        {
+            "schema": SCHEMA,
+            "kind": "ecad_exports",
+            "schematic": os.path.relpath(path, folder),
+            "exports": [file_entry(file, os.path.relpath(file, folder)) for file in written],
+            "pdf": None if pdf is None else file_entry(pdf, pdf),
+            "exit_codes": codes,
+            "tool": {PROGRAM: version()},
+        }
+    )
+
+
+def _written(
+    path: str, folder: str, name: str, pdf_prefix: str | None
+) -> tuple[dict[str, int], list[str], str | None]:
+    """The netlist and the parts list of the schematic at ``path``, written, dates and source set.
+
+    With ``pdf_prefix`` a PDF too, in a folder made new under that prefix; the program's exit
+    codes, the two files written, and the PDF's path or ``None``.
+    """
     stem = os.path.join(folder, EXPORTS, _name(name))
     cli = _program()
     copy = _alone(path)
     try:
-        codes, pdf = _exported(cli, copy, stem, name, reading=reading)
+        codes, pdf = _exported(cli, copy, stem, name, pdf_prefix)
     finally:
         shutil.rmtree(os.path.dirname(copy), ignore_errors=True)
     written = [f"{stem}.net", f"{stem}.csv"]
@@ -279,28 +299,18 @@ def exports(
     _fixed(f"{stem}.net", _DATE_NET, json.dumps(FIXED_DATE).encode())
     source = os.path.relpath(path, folder).replace(os.sep, "/")
     _fixed(f"{stem}.net", _SOURCE_NET, json.dumps(source, ensure_ascii=False).encode())
-    answer: dict[str, Any] = {
-        "schema": SCHEMA,
-        "kind": "ecad_exports",
-        "schematic": os.path.relpath(path, folder),
-        "exports": [file_entry(file, os.path.relpath(file, folder)) for file in written],
-        "exit_codes": codes,
-        "tool": {PROGRAM: version()},
-    }
-    if pdf:
-        answer["pdf"] = file_entry(pdf, pdf)
-    return checked(answer)
+    return codes, written, pdf
 
 
 def _exported(
-    cli: str, path: str, stem: str, name: str, *, reading: bool
+    cli: str, path: str, stem: str, name: str, pdf_prefix: str | None
 ) -> tuple[dict[str, int], str | None]:
-    """Run the netlist, the parts list and, when ``reading``, the PDF on the copy at ``path``."""
+    """Run the netlist, the parts list and, with ``pdf_prefix``, the PDF on the copy at ``path``."""
     folder = os.path.dirname(path)
     pdf = None
-    if reading:
+    if pdf_prefix is not None:
         # A folder made new for this call, never a fixed place a link could already stand at.
-        pdf = os.path.join(tempfile.mkdtemp(prefix="circuit-"), f"{name}.pdf")
+        pdf = os.path.join(tempfile.mkdtemp(prefix=pdf_prefix), f"{name}.pdf")
     codes = {
         "netlist": _run(
             [cli, "sch", "export", "netlist", "--format", "kicadsexpr", "-o", f"{stem}.net", path],
@@ -335,9 +345,13 @@ def _exported(
 def regenerate(
     schematic: str | os.PathLike[str], module: str | os.PathLike[str], name: str
 ) -> None:
-    """Write the three text exports of ``schematic`` as a session's calls write them; no PDF."""
+    """Write the three text exports of ``schematic`` as a session's calls write them.
+
+    No PDF is made and no answer is built: the commit check compares the files.
+    """
     rules_check(schematic, module, name)
-    exports(schematic, module, name, reading=False)
+    path, folder = _places(schematic, module)
+    _written(path, folder, name, None)
 
 
 def main(argv: list[str]) -> int:

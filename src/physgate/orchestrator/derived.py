@@ -9,14 +9,15 @@ containment, and compared byte for byte with what was committed.
 **Where the command comes from.** One file at a root of the tool environment
 (:data:`DERIVED_FILE`), written when the environment is provisioned and covered by its manifest
 digest like every other file. It is read only once the environment has been held to the run's
-record (the ``environment`` callable raises otherwise), strictly and bounded: per source suffix,
+record (the ``environment`` callable raises otherwise), for which files are sources as much as
+for the command, strictly and bounded: per source suffix,
 the products' suffixes (each a kind the commit-time rule shows in full), an argument list of
 fixed words and named places only, a timeout, and the words for the exit codes the program
 ends with on a source it refuses. This module names no tool; adding one adds an entry there.
 
 **What is regenerated.** A source pairs with the products of the same name in the module's
 exports folder (``<stem><suffix>``). Only a set the change touches (its source or any of its
-products changed) is regenerated, so a change that touches none pays nothing. The source's
+products changed) is regenerated, so a change that touches none runs nothing. The source's
 committed bytes alone are written at their module path in a folder made new for the call and
 removed after any outcome; nothing else of the role's tree is put there or named on the
 argument list.
@@ -25,7 +26,12 @@ argument list.
 one name, a product no recorded entry makes, no recorded environment or one that does not hold
 its record, a command that fails, times out, writes a product over its kind's cap or writes
 none, and any byte difference. A refusal names the file and says to regenerate; it never
-quotes a file's content or the program's output.
+quotes a file's content. A command that fails is refused with the last line it wrote to its
+error stream, printable characters only and at most :data:`MAX_SAID` of them, so one failure
+can be told from another without reading the program's output.
+
+This module decides and starts nothing: the runner it is given starts the command
+(:mod:`physgate.oslayer.regeneration` by default, inside the tool containment).
 """
 
 from __future__ import annotations
@@ -34,8 +40,6 @@ import os
 import re
 import shutil
 import stat
-import subprocess
-import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -55,13 +59,7 @@ from pydantic import (
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.exports import EXPORTS_DIR, SHOWN_IN_FULL, cap_of, suffix_of
 from physgate.orchestrator.git import GitDir, changes_between, git, git_blob
-from physgate.oslayer.containment import (
-    SANDBOX_EXEC,
-    ContainmentError,
-    bwrap_args,
-    seatbelt_profile,
-)
-from physgate.oslayer.policy import board_devices
+from physgate.oslayer.containment import ContainmentError
 from physgate.toolenv.exceptions import ToolEnvironmentError
 from physgate.toolenv.record import ToolEnvironment
 from physgate.toolenv.session import wire
@@ -82,6 +80,8 @@ MAX_SETS_PER_CHECK = 8
 #: a full module takes about a minute; each run is given the lesser of its own timeout and
 #: what is left, and a check that runs out refuses.
 TOTAL_DEADLINE_S = 900.0
+#: The most characters of a failed command's last line a refusal carries.
+MAX_SAID = 200
 #: The places an argument may name, and nothing else in braces.
 PLACES = frozenset({"interpreter", "root", "source", "module", "name"})
 _PLACE = re.compile(r"\{([^{}]*)\}")
@@ -91,12 +91,16 @@ Suffix = Annotated[str, StringConstraints(pattern=_SUFFIX)]
 Words = Annotated[str, StringConstraints(min_length=1, max_length=300, pattern=r"^[ -~]+$")]
 
 #: What runs one regeneration: the argument list, the folder made for it, its environment, the
-#: seconds it is given and the recorded roots; its exit code, or ``None`` when it timed out.
-Runner = Callable[[Sequence[str], Path, Mapping[str, str], float, Sequence[str]], int | None]
+#: seconds it is given and the recorded roots; its exit code (``None`` when it timed out) and
+#: the end of its error stream. It raises
+#: :class:`~physgate.oslayer.containment.ContainmentError` when the command cannot be contained.
+Runner = Callable[
+    [Sequence[str], Path, Mapping[str, str], float, Sequence[str]], tuple[int | None, str]
+]
 
 
 class DerivedError(RuntimeError):
-    """The record of how exports are made again is refused, or cannot be run here."""
+    """The record of how exports are made again is refused."""
 
 
 class Derivation(BaseModel):
@@ -188,78 +192,6 @@ def read_derivations(recorded: ToolEnvironment) -> tuple[Recipe, ...]:
     return tuple(found)
 
 
-def contained_runner(*, platform: str = sys.platform, bwrap: str | None = None) -> Runner:
-    """The runner the change check uses: the command inside the tool containment.
-
-    Reads only the recorded roots (and the system's own places), writes only the folder made
-    for the call, no network: on Linux bubblewrap at ``bwrap`` (``None``: there is none, and
-    every regeneration is refused), on macOS a generated Seatbelt profile written outside that
-    folder.
-    """
-    wrapper = bwrap
-
-    def run(
-        argv: Sequence[str],
-        work: Path,
-        env: Mapping[str, str],
-        timeout_s: float,
-        roots: Sequence[str],
-    ) -> int | None:
-        profiles: str | None = None
-        try:
-            if platform.startswith("linux"):
-                if wrapper is None:
-                    msg = "no bubblewrap on this machine contains the regeneration"
-                    raise DerivedError(msg)
-                options = bwrap_args(read_denied=(), server_dir=str(work), read_roots=roots)
-                command = [wrapper, *options, "--", *argv]
-            elif platform == "darwin":
-                profiles = tempfile.mkdtemp(prefix="physgate-derived-profile-")
-                profile = Path(profiles) / "regenerate.sb"
-                profile.write_text(
-                    seatbelt_profile(
-                        read_denied=(),
-                        server_dir=str(work),
-                        devices=board_devices(platform),
-                        command=argv[0],
-                        exec_roots=roots,
-                        read_roots=roots,
-                    ),
-                    encoding="utf-8",
-                )
-                command = [SANDBOX_EXEC, "-f", str(profile), *argv]
-            else:
-                msg = f"no wrapper contains the regeneration on {platform}"
-                raise DerivedError(msg)
-            return _run(command, work, env, timeout_s)
-        except ContainmentError as exc:
-            raise DerivedError(str(exc)) from None
-        finally:
-            if profiles is not None:
-                shutil.rmtree(profiles, ignore_errors=True)
-
-    return run
-
-
-def _run(
-    command: Sequence[str], work: Path, env: Mapping[str, str], timeout_s: float
-) -> int | None:
-    try:
-        done = subprocess.run(  # noqa: S603 - the recorded command, inside its wrapper
-            list(command),
-            cwd=work,
-            env=dict(env),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout_s,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return None
-    return done.returncode
-
-
 def _stem(name: str, suffix: str) -> str:
     return name[: -len(suffix)]
 
@@ -317,13 +249,12 @@ def _sets(
     return sets
 
 
-def held_exports(  # noqa: PLR0913 - the change, the record and the two ways to act on it
+def held_exports(  # noqa: PLR0913 - the change and the two ways to act on it
     repo: Path,
     base: str,
     commit: str,
     module_dir: str,
     *,
-    recorded: ToolEnvironment | None,
     environment: Callable[[], ToolEnvironment | None],
     runner: Runner,
     git_dir: GitDir | None = None,
@@ -331,33 +262,31 @@ def held_exports(  # noqa: PLR0913 - the change, the record and the two ways to 
     """Why the exports ``commit`` holds in ``module_dir`` are not what their sources produce.
 
     ``None`` when every set the change from ``base`` touches regenerates to the committed
-    bytes, or when it touches none. ``recorded`` is the run's record of its tool environment
-    (``None`` for a run that names none); its file is read here only to learn which suffixes
-    are sources, so a change touching no source and no export asks for nothing. Otherwise
-    ``environment`` holds the environment to that record and gives it (``None`` for a run that
-    names none), raising :class:`~physgate.orchestrator.exceptions.InvocationError` when it
-    does not hold; the command is read again from the held environment, and only from it.
+    bytes, or when it touches none. A change that touches nothing in the module asks for
+    nothing. Otherwise ``environment`` holds the run's tool environment to its record and
+    gives it (``None`` for a run that names none), raising
+    :class:`~physgate.orchestrator.exceptions.InvocationError` when it does not hold; which
+    files are sources, and how each is made again, are read from the held environment, and
+    only from it.
     """
     module = PurePosixPath(module_dir)
     exports_dir = module / EXPORTS_DIR
     changed = [c.path for c in changes_between(repo, base, commit, git_dir=git_dir)]
     changed = [path for path in changed if module in PurePosixPath(path).parents]
-    try:
-        sources = {r.derivation.source for r in read_derivations(recorded)} if recorded else set()
-    except DerivedError:
-        sources = set()
+    if not changed:
+        return None
     shown = [p for p in changed if PurePosixPath(p).parent == exports_dir]
     shown = [p for p in shown if suffix_of(p) in SHOWN_IN_FULL]
-    named = [p for p in changed if any(PurePosixPath(p).name.endswith(s) for s in sources)]
-    touched = shown + [p for p in named if p not in shown]
-    if not touched:
-        return None
+    first = (shown or changed)[0]
     try:
         held = environment()
     except InvocationError as exc:
         return ExportRefusal(
-            reason=f"the exports cannot be made again from their sources: {exc}",
-            subject=touched[0],
+            reason=(
+                "the run's tool environment does not hold its record, so which files are "
+                f"sources of exports cannot be read, and the change to {first} is refused: {exc}"
+            ),
+            subject=first,
         )
     if held is None:
         if not shown:
@@ -374,7 +303,7 @@ def held_exports(  # noqa: PLR0913 - the change, the record and the two ways to 
     except DerivedError as exc:
         return ExportRefusal(
             reason=f"the tool environment's record of how exports are made is refused: {exc}",
-            subject=touched[0],
+            subject=first,
         )
     made = {kind for recipe in recipes for kind in recipe.derivation.products}
     unmade = [path for path in shown if suffix_of(path) not in made]
@@ -507,8 +436,8 @@ def _run_and_compare(  # noqa: PLR0911, PLR0913 - each refusal is its own return
     if given <= 0:
         return _out_of_time(source)
     try:
-        code = runner(argv, work, env, given, recorded.roots)
-    except DerivedError as exc:
+        code, said = runner(argv, work, env, given, recorded.roots)
+    except ContainmentError as exc:
         return ExportRefusal(
             reason=f"the exports of {source} cannot be made again here: {exc}", subject=source
         )
@@ -524,15 +453,29 @@ def _run_and_compare(  # noqa: PLR0911, PLR0913 - each refusal is its own return
         )
     if code != 0:
         words = derivation.refusals.get(str(code), f"the program ended with exit code {code}")
-        return ExportRefusal(
-            reason=f"the exports of {source} could not be made again: {words}", subject=source
-        )
+        reason = f"the exports of {source} could not be made again: {words}"
+        last = last_line(said)
+        if last:
+            reason += f"; its last line: {last}"
+        return ExportRefusal(reason=reason, subject=source)
     for path in found.products:
         made = placed / EXPORTS_DIR / PurePosixPath(path).name
         refusal = _same(repo, commit, path, made, git_dir, source)
         if refusal is not None:
             return refusal
     return None
+
+
+def last_line(said: str) -> str:
+    """The last line of ``said`` that holds a printable character, at most :data:`MAX_SAID` long.
+
+    Every character that is not printable is a space; a line cut short ends in an ellipsis.
+    """
+    lines = ["".join(c if c.isprintable() else " " for c in line) for line in said.splitlines()]
+    lines = [line.strip() for line in lines if line.strip()]
+    if not lines:
+        return ""
+    return lines[-1] if len(lines[-1]) <= MAX_SAID else lines[-1][: MAX_SAID - 1] + "…"
 
 
 def _out_of_time(source: str) -> ExportRefusal:
