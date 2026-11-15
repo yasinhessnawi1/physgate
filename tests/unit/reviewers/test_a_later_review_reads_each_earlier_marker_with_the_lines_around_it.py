@@ -363,47 +363,93 @@ def test_an_id_given_twice_shows_both_of_its_calls(tmp_path: Path) -> None:
 def test_a_marker_at_the_very_start_or_end_of_a_session_is_shown_clipped_to_it(
     tmp_path: Path,
 ) -> None:
+    # A session before it, so a window not clipped at the start would reach into that one.
     sessions = [
-        _session(*_noqa("toolu_a"), *_reads(1, 6), END),
-        _session(INIT, *_reads(7, 6), *_noqa("toolu_b", result=False)),
+        _session(INIT, *_reads(20, 3), END),
+        _session(*_noqa("toolu_a"), *_reads(1, 6), *_noqa("toolu_b", result=False)),
     ]
     packet, read, attempt = _packet(tmp_path, sessions)
     rendering = _rendering(packet, read)
-    (first, last), (second_first, second_last) = _sessions(rendering)
+    _, (first, last) = _sessions(rendering)
     a, b = _blocks(packet, read)
     (call_a,) = _harness(packet, rendering, "### tool call Write (id toolu_a)")
     (result_a,) = _harness(packet, rendering, "### tool result for toolu_a")
     (call_b,) = _harness(packet, rendering, "### tool call Write (id toolu_b)")
-    assert (a.first, a.last) == (first, _fence_end(rendering, result_a) + AROUND)
     assert call_a - first < AROUND
-    assert (b.first, b.last) == (call_b - AROUND, second_last)
-    assert second_first < b.first
+    assert (a.first, a.last) == (first, _fence_end(rendering, result_a) + AROUND)
+    assert last - call_b < AROUND
+    assert (b.first, b.last) == (call_b - AROUND, last)
     _check(packet, attempt)
+
+
+def test_a_call_whose_heading_is_cut_for_its_width_is_found_whole(tmp_path: Path) -> None:
+    long_id = "toolu_" + "x" * 1200
+    sessions = [_session(INIT, *_reads(1, 4), *_noqa(long_id), *_reads(5, 4), END)]
+    packet, read, _ = _packet(tmp_path, sessions)
+    rendering = _rendering(packet, read)
+    outside = _outside(rendering, packet.earlier_nonces)
+    (call,) = [i for i in outside if rendering[i].startswith(b"### tool call Write (id ")]
+    (result,) = [i for i in outside if rendering[i].startswith(b'### tool result for "toolu_x')]
+    assert rendering[call].endswith(CONTINUED.encode() + b"\n"), "the heading is not cut"
+    (block,) = _blocks(packet, read)
+    assert (block.first, block.last) == (call - AROUND, _fence_end(rendering, result) + AROUND)
+
+
+def test_a_window_never_ends_on_a_lone_carriage_return(tmp_path: Path) -> None:
+    # Each piece of this result ends a line of the rendering with a carriage return alone.
+    returns = "\r".join(f"p{k:02d}" for k in range(60))
+    read_cr = [tool_use("toolu_cr", "Read", file_path="/w/r.txt"), tool_result("toolu_cr", returns)]
+    sessions = [
+        _session(INIT, *_reads(1, 2), *_noqa("toolu_a"), *read_cr, *_reads(3, 8),
+                 *_noqa("toolu_b"), *_reads(11, 2), END)
+    ]  # fmt: skip
+    packet, read, attempt = _packet(tmp_path, sessions)
+    rendering = _rendering(packet, read)
+    a, b = _blocks(packet, read)
+    assert a.shown.endswith(b"\n") and a.shown == b"".join(rendering[a.first : a.last + 1])
+    assert b.shown == b"".join(rendering[b.first : b.last + 1])
+    _check(packet, attempt)
+
+
+def test_an_earlier_attempt_without_a_marker_is_read_whole_as_before(tmp_path: Path) -> None:
+    packet, read, _ = _packet(tmp_path, [_session(INIT, *_reads(1, 2), END)])
+    assert not getattr(packet, "earlier_hit_parts", ())
+    assert packet.earlier_parts
+    assert all(str(read / p.name) in packet.required_reading for p in packet.earlier_parts)
 
 
 # -- the check -------------------------------------------------------------------------------------
 
 
-def _tampered(packet: Packet, read: Path) -> Packet:
-    """The packet with its first excerpt part changed by one line, its record changed to match."""
+def _tampered(packet: Packet, read: Path, *, digest_too: bool) -> Packet:
+    """The packet with its first excerpt part changed by one line and its record to match.
+
+    With ``digest_too`` the record's joined digest is changed to match as well.
+    """
     part = _excerpt_parts(packet)[0]
     path = read / part.name
-    body = path.read_bytes().replace(b"file's line", b"file's LINE", 1)
+    body = path.read_bytes().replace(LINE.encode(), LINE.upper().encode(), 1)
     assert body != path.read_bytes()
     path.write_bytes(body)
-    digest = hashlib.sha256(body).hexdigest()
-    parts = (part.model_copy(update={"sha256": digest}), *_excerpt_parts(packet)[1:])
-    joined = joined_parts(read, parts)
-    update = {"earlier_hit_parts": parts, "earlier_hits_sha256": hashlib.sha256(joined).hexdigest()}
+    parts = (
+        part.model_copy(update={"sha256": hashlib.sha256(body).hexdigest()}),
+        *_excerpt_parts(packet)[1:],
+    )
+    update: dict[str, Any] = {"earlier_hit_parts": parts}
+    if digest_too:
+        update["earlier_hits_sha256"] = hashlib.sha256(joined_parts(read, parts)).hexdigest()
     return packet.model_copy(update=update)
 
 
-def test_an_excerpt_that_is_not_the_slice_it_names_refuses_the_packet(tmp_path: Path) -> None:
+@pytest.mark.parametrize("digest_too", [True, False], ids=["record retold", "parts retold"])
+def test_an_excerpt_that_is_not_the_slice_it_names_refuses_the_packet(
+    tmp_path: Path, digest_too: bool
+) -> None:
     sessions = [_session(INIT, *_reads(1, 4), *_noqa(HIT), *_reads(5, 4), END)]
     packet, read, attempt = _packet(tmp_path, sessions)
     _check(packet, attempt)
     original = (read / _excerpt_parts(packet)[0].name).read_bytes()
-    retold = _tampered(packet, read)
+    retold = _tampered(packet, read, digest_too=digest_too)
     with pytest.raises(PacketError, match="earlier"):
         _check(retold, attempt)
     # Changed on disk only, the part is not the one the record names.
@@ -411,6 +457,14 @@ def test_an_excerpt_that_is_not_the_slice_it_names_refuses_the_packet(tmp_path: 
         _check(packet, attempt)
     (read / _excerpt_parts(packet)[0].name).write_bytes(original)
     _check(packet, attempt)
+
+
+def test_an_excerpts_digest_that_is_not_theirs_refuses_the_packet(tmp_path: Path) -> None:
+    sessions = [_session(INIT, *_reads(1, 4), *_noqa(HIT), *_reads(5, 4), END)]
+    packet, _, attempt = _packet(tmp_path, sessions)
+    _excerpt_parts(packet)
+    with pytest.raises(PacketError, match="earlier"):
+        _check(packet.model_copy(update={"earlier_hits_sha256": "0" * 64}), attempt)
 
 
 def test_an_excerpt_part_left_out_of_the_record_refuses_the_packet(tmp_path: Path) -> None:
