@@ -1164,6 +1164,24 @@ def test_nothing_the_regeneration_started_outlives_it(tmp_path: Path, child: str
     assert not marker.exists(), "a process the regeneration started went on after it ended"
 
 
+def test_the_end_of_the_stream_is_read_once_the_group_is_ended(tmp_path: Path) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    # A grandchild in the program's own group holds the error stream open past the program's
+    # end, so the stream closes only once the group is ended: the call reads its end and says
+    # how the program ended, and is not refused.
+    program = (
+        "import subprocess, sys; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); "
+        "sys.stderr.write('END'); sys.exit(3)"
+    )
+    run = regeneration._run  # noqa: SLF001 - the runner's own process handling, without a wrapper
+    try:
+        ended = run([sys.executable, "-c", program], tmp_path, {}, 20.0)
+    except Exception as exc:  # noqa: BLE001 - what escapes the runner is the finding
+        raise AssertionError(f"an honest end was refused: {exc!r}") from None
+    assert ended == (3, "END"), ended
+
+
 # ---- what leaves the group, and what the system itself bounds -------------------------------
 
 
