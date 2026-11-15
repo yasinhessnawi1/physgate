@@ -225,8 +225,8 @@ def setup_from_run(
     """The raw arm's setup, every pin taken from the harness run's own record.
 
     What the record names, the raw session is given: the binary's version, the role's model,
-    effort, output-token limit, reasoning display, bounds, held-out roots and canaries and
-    network. What this machine supplies (the binary, the credential, the installation, the
+    effort, output-token limit, reasoning display, bounds, held-out roots and canaries,
+    network, tool environment and tool servers. What this machine supplies (the binary, the credential, the installation, the
     OS layer and the interpreter as measured now) is compared with the record afterwards,
     never assumed equal. The endpoint is the operator's, ``base_url``, never the record's:
     the credential goes where the operator says, and the record's endpoint is only held
@@ -255,6 +255,11 @@ def setup_from_run(
         held_out_canaries=tuple(config.held_out_canaries),
         network=config.network,
         os_layer=os_layer,
+        # The tools the run's sessions computed and built with, and the servers it offered
+        # from them: the raw session is given both as the run recorded them, held to them
+        # before and after it runs (``RawSetup``), and offered only the baseline profile's.
+        tool_environment=config.tool_environment,
+        tool_servers=config.tool_servers,
     )
 
 
