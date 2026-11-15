@@ -369,7 +369,32 @@ jobs:
           rows = {name: int(suite.get(name, "0")) for name in ("tests", "failures", "errors", "skipped")}
           print(f"rows: {rows}, pytest exit {sys.argv[2]}")
           passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
-          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 4 and passed == 4 else 1)
+          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 5 and passed == 5 else 1)
+          PY
+
+      - name: KiCad checks and exports a schematic offline through the circuit helper
+        # A session wired to both roots runs the rules check and the exports on hand-written
+        # schematics and on one SKiDL generates; the text exports repeat byte for byte; nothing
+        # is written into either root. Counted as above: a skip means the rows ran nowhere.
+        if: success() || failure()
+        env:
+          PHYSGATE_KICAD_ROOT: /home/runner/pg-env/kicad
+          PHYSGATE_TOOL_ENVIRONMENT: /home/runner/pg-env/env
+        run: |
+          status=0
+          "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync pytest -q -rs -m integration \
+            --junitxml="$RUNNER_TEMP/circuit-rows.xml" \
+            tests/integration/toolenv/test_kicad_checks_and_exports_a_schematic_offline_through_the_circuit_helper.py \
+            || status=$?
+          python3 - "$RUNNER_TEMP/circuit-rows.xml" "$status" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suite = next(ET.parse(sys.argv[1]).getroot().iter("testsuite"))
+          rows = {name: int(suite.get(name, "0")) for name in ("tests", "failures", "errors", "skipped")}
+          print(f"rows: {rows}, pytest exit {sys.argv[2]}")
+          passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
+          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 6 and passed == 6 else 1)
           PY
 
       - name: Real sessions use the tool environment inside the OS layer, offline

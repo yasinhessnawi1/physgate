@@ -710,6 +710,47 @@ def kicad_cli(root: Path, system: str) -> Path:
     return root.joinpath(KICAD_APP, *KICAD_CLI[system])
 
 
+#: Where the copied release keeps its libraries and templates, inside the KiCad root.
+KICAD_SHARE = {
+    "Linux": ("app", "share", "kicad"),
+    "Darwin": ("app", "KiCad.app", "Contents", "SharedSupport"),
+}
+#: The release's own library tables, which name the libraries by the variables below.
+KICAD_TABLES = ("sym-lib-table", "fp-lib-table")
+#: The folder of KiCad's configuration that this release reads, beneath its configuration home.
+KICAD_CONFIG_VERSION = "10.0"
+
+
+def kicad_session(system: str) -> dict[str, object]:
+    """How a session is wired to the KiCad root built on ``system``: the tool layer's file.
+
+    ``kicad-cli`` on the session's search path; KiCad's configuration in the session's own
+    temporary directory, with the release's library tables linked into it, so a session reads
+    the pinned libraries and writes its settings nowhere else; the libraries' variables at the
+    release's own folders.
+    """
+    share = "/".join(KICAD_SHARE[system])
+    config = f"kicad-config/{KICAD_CONFIG_VERSION}"
+    return {
+        "programs": {"kicad-cli": "/".join((KICAD_APP, *KICAD_CLI[system]))},
+        "directories": ["kicad-config", config],
+        "links": {f"{config}/{table}": f"{share}/template/{table}" for table in KICAD_TABLES},
+        "variables": {
+            "KICAD_CONFIG_HOME": "{temp}/kicad-config",
+            "KICAD10_SYMBOL_DIR": f"{{root}}/{share}/symbols",
+            "KICAD10_FOOTPRINT_DIR": f"{{root}}/{share}/footprints",
+            "KICAD10_TEMPLATE_DIR": f"{{root}}/{share}/template",
+        },
+    }
+
+
+def write_kicad_session(root: Path, system: str) -> None:
+    """Write the KiCad root's session file (:func:`kicad_session`) beside its copied release."""
+    (root / SESSION_FILE).write_text(
+        json.dumps(kicad_session(system), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
 def check_kicad(cli: Path, version: str, work: Path) -> dict[str, str]:
     """Ask the program its version, with every download refused and its writes in ``work``.
 
@@ -875,6 +916,7 @@ def _build_kicad(
     (root / KICAD_RECORD).write_text(
         json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+    write_kicad_session(root, system)
     make_read_only(root)
     return record
 

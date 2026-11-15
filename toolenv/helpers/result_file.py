@@ -52,6 +52,10 @@ FIELDS: dict[str, frozenset[str]] = {
             "libraries",
         }
     ),
+    "rules_check": frozenset(
+        {"schema", "kind", "schematic", "report", "exit_code", "counts", "findings", "tool"}
+    ),
+    "ecad_exports": frozenset({"schema", "kind", "schematic", "exports", "exit_codes", "tool"}),
     "reference_measurement": frozenset(
         {
             "schema",
