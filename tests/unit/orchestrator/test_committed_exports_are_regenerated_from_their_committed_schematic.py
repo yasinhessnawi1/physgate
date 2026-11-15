@@ -283,7 +283,9 @@ def check(
 
 
 def check_never_raising(
-    tmp_path: Path, files: dict[str, bytes], **given: Any  # noqa: ANN401
+    tmp_path: Path,
+    files: dict[str, bytes],
+    **given: Any,  # noqa: ANN401
 ) -> tuple[ports.ChangeCheck, Runs]:
     """As :func:`check`, holding that the change check refuses and never raises."""
     try:
