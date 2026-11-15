@@ -73,7 +73,7 @@ if args == ["--version"]:
 out = args[args.index("-o") + 1]
 if args[:2] == ["sch", "erc"]:
     with open(out, "w") as f:
-        f.write(os.environ["FAKE_REPORT"])
+        f.write(open(os.environ["FAKE_REPORT"]).read())
     sys.exit(int(os.environ.get("FAKE_EXIT", "0")))
 if args[:3] == ["sch", "export", "netlist"]:
     with open(out, "w") as f:
@@ -110,6 +110,13 @@ def _module(tmp_path: Path) -> tuple[Path, Path]:
     return module, schematic
 
 
+def _canned(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, report: str) -> None:
+    """Have the stand-in write ``report``, through a file: a variable holds less than a report."""
+    canned = tmp_path / "canned-report"
+    canned.write_text(report, encoding="utf-8")
+    monkeypatch.setenv("FAKE_REPORT", str(canned))
+
+
 def _report(findings: list[dict[str, Any]]) -> str:
     return json.dumps(
         {
@@ -140,7 +147,7 @@ def test_the_rules_check_reports_the_exit_code_counts_and_findings_as_the_tool_g
     assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
     module, schematic = _module(tmp_path)
     findings = [_finding(1), _finding(2), _finding(3, "warning", "lib_symbol_mismatch")]
-    monkeypatch.setenv("FAKE_REPORT", _report(findings))
+    _canned(monkeypatch, tmp_path, _report(findings))
     monkeypatch.setenv("FAKE_EXIT", "5")
     found = circuit.rules_check(schematic, module, "board")
     assert found["kind"] == "rules_check"
@@ -176,7 +183,7 @@ def test_findings_past_the_bound_are_counted_but_not_listed_and_texts_are_cut(
     module, schematic = _module(tmp_path)
     many = [_finding(n) for n in range(1205)]
     many[0]["description"] = "x" * 500 + "\x07"
-    monkeypatch.setenv("FAKE_REPORT", _report(many))
+    _canned(monkeypatch, tmp_path, _report(many))
     found = circuit.rules_check(schematic, module, "board")
     assert found["counts"]["total"]["value"] == 1205
     assert found["counts"]["listed"]["value"] == 1000
@@ -278,7 +285,7 @@ def test_a_report_that_is_no_json_is_refused(
 ) -> None:
     assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
     module, schematic = _module(tmp_path)
-    monkeypatch.setenv("FAKE_REPORT", "this is not JSON")
+    _canned(monkeypatch, tmp_path, "this is not JSON")
     raised = _raised(lambda: circuit.rules_check(schematic, module, "board"))
     assert type(raised).__name__ == "HelperRefusedError", raised
 
@@ -288,7 +295,7 @@ def test_a_result_with_a_judgement_added_is_refused(
 ) -> None:
     assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
     module, schematic = _module(tmp_path)
-    monkeypatch.setenv("FAKE_REPORT", _report([_finding(1)]))
+    _canned(monkeypatch, tmp_path, _report([_finding(1)]))
     found = circuit.rules_check(schematic, module, "board")
     result_file = _helper("result_file")
     for field, value in (("clean", 1), ("violations", 1), ("findings", [{"ok": True}])):
