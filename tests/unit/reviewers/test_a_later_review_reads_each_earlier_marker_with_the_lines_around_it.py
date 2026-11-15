@@ -32,11 +32,12 @@ from test_a_review_is_given_the_hits_no_earlier_review_judged import (
     ROLE,
     RUBRIC,
     _answer,
+    _build,
 )
 
 from physgate.orchestrator.protocols import Artefact
 from physgate.orchestrator.trajectory import seal
-from physgate.reviewers.claude import to_answer
+from physgate.reviewers.claude import review_prompt, to_answer
 from physgate.reviewers.packet import (
     PART_MAX_BYTES,
     Packet,
@@ -241,7 +242,7 @@ def test_the_markers_with_their_lines_are_required_reading_and_the_whole_streams
     assert set(whole) <= listing and set(excerpts) <= listing
     assert all(Path(path).is_file() for path in whole)
     data = packet.model_dump(mode="json")
-    joined = joined_parts(read, packet.earlier_hit_parts)  # type: ignore[attr-defined]
+    joined = joined_parts(read, packet.earlier_hit_parts)
     assert data.get("earlier_hits_sha256") == hashlib.sha256(joined).hexdigest()
     assert [p["name"] for p in data.get("earlier_hit_parts", [])] == [
         Path(p).name for p in excerpts
@@ -416,6 +417,23 @@ def test_an_earlier_attempt_without_a_marker_is_read_whole_as_before(tmp_path: P
     assert not getattr(packet, "earlier_hit_parts", ())
     assert packet.earlier_parts
     assert all(str(read / p.name) in packet.required_reading for p in packet.earlier_parts)
+    prompt = review_prompt("control", packet)
+    whole = read / packet.earlier_parts[0].name
+    assert f"- {whole}: the trajectories of earlier attempts" in prompt
+
+
+def test_a_refused_call_s_error_result_is_in_its_window(tmp_path: Path) -> None:
+    refused = [
+        tool_use("toolu_p", "Write", file_path="/w/src/physgate/gate/x.py", content="x"),
+        tool_result("toolu_p", "/w/src/physgate/gate/x.py is protected: the gate", error=True),
+    ]
+    sessions = [_session(INIT, *_reads(1, 4), *refused, *_reads(5, 4), END)]
+    packet, read, _ = _packet(tmp_path, sessions)
+    rendering = _rendering(packet, read)
+    (call,) = _harness(packet, rendering, "### tool call Write (id toolu_p)")
+    (result,) = _harness(packet, rendering, "### tool result for toolu_p (an error)")
+    (block,) = _blocks(packet, read)
+    assert (block.first, block.last) == (call - AROUND, _fence_end(rendering, result) + AROUND)
 
 
 # -- the check -------------------------------------------------------------------------------------
@@ -457,6 +475,22 @@ def test_an_excerpt_that_is_not_the_slice_it_names_refuses_the_packet(
         _check(packet, attempt)
     (read / _excerpt_parts(packet)[0].name).write_bytes(original)
     _check(packet, attempt)
+
+
+def test_excerpts_issued_for_an_attempt_with_no_earlier_one_refuse_the_packet(
+    tmp_path: Path,
+) -> None:
+    sessions = [_session(INIT, *_reads(1, 4), *_noqa(HIT), *_reads(5, 4), END)]
+    earlier, read, _ = _packet(tmp_path / "earlier", sessions)
+    plain, plain_read, attempt = _build(tmp_path / "plain", earlier=False)
+    for part in _excerpt_parts(earlier):
+        (plain_read / part.name).write_bytes((read / part.name).read_bytes())
+    update = {
+        "earlier_hit_parts": earlier.earlier_hit_parts,
+        "earlier_hits_sha256": earlier.earlier_hits_sha256,
+    }
+    with pytest.raises(PacketError, match="earlier"):
+        _check(plain.model_copy(update=update), attempt)
 
 
 def test_an_excerpts_digest_that_is_not_theirs_refuses_the_packet(tmp_path: Path) -> None:
