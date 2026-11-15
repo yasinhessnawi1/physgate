@@ -563,14 +563,16 @@ def kicad_archive(pin: Mapping[str, object], cache: Path, work: Path) -> Path:
 def _part(source: Path, part: str) -> str:
     """Where a part of a tree, named by a plain relative path that is there, really lies in it.
 
-    A link on the way is followed (a release may name its own top as ``usr``), and the place it
-    leads to must lie inside the tree: that place, relative to the tree, is what is returned.
+    A link on the way to it is followed (a release may name its own top as ``usr``), and the
+    part itself is the entry found there, whatever it is (a link too); it must lie inside the
+    tree, and its place relative to the tree is what is returned.
     """
     pieces = part.split("/")
     if part.startswith("/") or any(piece in ("", ".", "..") for piece in pieces):
         raise ProvisionError(f"{part!r}: a part of the release is named by a plain relative path")
-    top, place = os.path.realpath(source), os.path.realpath(source / part)
-    if not os.path.lexists(source / part) or not os.path.exists(place):
+    top = os.path.realpath(source)
+    place = os.path.join(os.path.realpath(source.joinpath(*pieces[:-1])), pieces[-1])
+    if not os.path.lexists(place):
         raise ProvisionError(f"{part!r}: the release has no such part")
     if not place.startswith(top + os.sep):
         raise ProvisionError(f"{part!r}: a part of the release lies outside it")
@@ -672,12 +674,16 @@ def copy_apart(
                     f"{relative}: the release holds something that is not a file, a directory"
                     " or a link"
                 )
-    for target, relative in links:
-        if not _resolves_inside(target, into):
-            raise ProvisionError(
-                f"{relative}: a link of the release that leads outside it, nowhere or round a"
-                f" loop ({os.readlink(target)})"
-            )
+    refused = [
+        f"{relative} ({os.readlink(target)})"
+        for target, relative in links
+        if not _resolves_inside(target, into)
+    ]
+    if refused:
+        raise ProvisionError(
+            f"{len(refused)} links of the release lead outside it, nowhere or round a loop: "
+            + "; ".join(refused[:40])
+        )
     counts: dict[str, object] = {
         "files": files,
         "names_copied_apart": apart,
