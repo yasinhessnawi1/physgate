@@ -299,6 +299,9 @@ _PROGRAMS = _ONLY_A_BOARD | frozenset(GUARDED)
 #: A program named only when the command runs is refused given these first words of the build
 #: tool's: its tests (which upload), its debugger (which loads the board), its devices.
 _LATE_USES = frozenset({"test", "debug", "device"})
+#: A flasher's memory operation (``flash:w:``), and a programmer's or a part's plain name.
+_MEMORY_OPERATION = re.compile(r"[A-Za-z0-9_]+:[rwv]:")
+_PLAIN_NAME = re.compile(r"[A-Za-z0-9_+-]+")
 
 #: Each program that runs its arguments (the parser's own list): its short options that take no
 #: value, those that take one, and its long options that take none, GNU's and BSD's together.
@@ -314,6 +317,29 @@ _WRAPPERS: Mapping[str, tuple[str, str, frozenset[str]]] = {
     "builtin": ("", "", frozenset()),
     "sudo": ("AbEeHiKklnPSsVv", "CDghpRrTtUu", frozenset()),
 }
+#: The options of those programs that move the command they run to the directory named, and
+#: those that give it a new root, which leaves it anywhere a word could say.
+_WRAPPER_MOVES: Mapping[str, tuple[tuple[str, str], ...]] = {
+    "env": (("C", "--chdir"),),
+    "sudo": (("D", "--chdir"),),
+}
+_WRAPPER_ANYWHERE: Mapping[str, tuple[tuple[str, str], ...]] = {"sudo": (("R", "--chroot"),)}
+#: Programs that run a command (the git rule's runners), by the option naming the directory
+#: they run it in, its value the next word or glued after ``=`` (or to a short option)...
+_RUNNER_DIRECTORIES: Mapping[str, tuple[str, ...]] = {
+    "uv": ("--directory",),
+    "uvx": ("--directory",),
+    "poetry": ("-C", "--directory"),
+    "parallel": ("--wd", "--workdir"),
+}
+#: ... by the words with which they run it where no word says (each found file's directory, a
+#: login's home), and those that run it under a new root.
+_RUNNER_ANYWHERE: Mapping[str, tuple[str, ...]] = {
+    "find": ("-execdir", "-okdir"),
+    "su": ("-", "-l", "--login"),
+    "runuser": ("-", "-l", "--login"),
+}
+_NEW_ROOT = frozenset({"chroot"})
 
 #: The tools that name the one file they act on, and the argument that names it.
 _PATH_KEYS = {
@@ -446,16 +472,16 @@ def serial_device_path(path: str, cwd: str) -> str | None:
     return None
 
 
-def _env_option(word: str, short: str, long: str) -> tuple[bool, str | None]:
-    """Whether env's option ``word`` is ``-short`` or ``long``, and the value glued to it.
+def _option_of(wrapper: str, word: str, short: str, long: str) -> tuple[bool, str | None]:
+    """Whether a wrapper's option ``word`` is ``-short`` or ``long``, and the value glued to it.
 
-    As env's own reading takes it: in a run of short options after any that take no value, or
-    as any start of the long name (``--split`` is ``--split-string``).
+    As the wrapper's own reading takes it: in a run of short options after any that take no
+    value, or as any start of the long name (``--split`` is ``--split-string``).
     """
     if word.startswith("--"):
         name, glued, value = word.partition("=")
         return len(name) > 2 and long.startswith(name), (value if glued else None)
-    flags = _WRAPPERS["env"][0]
+    flags = _WRAPPERS[wrapper][0]
     for n, char in enumerate(word[1:], 1):
         if char == short:
             return True, word[n + 1 :] or None
@@ -481,26 +507,64 @@ def _hides_the_program(argv: Sequence[str], index: int, wrapper: str, taken: boo
     return False
 
 
+def _value_at(
+    argv: Sequence[str], index: int, glued: str | None, unread: frozenset[int]
+) -> str | None:
+    """An option's value: glued to the option at ``index``, or the next word; ``None`` unread."""
+    at = index if glued is not None else index + 1
+    target = glued if glued is not None else (argv[at] if at < len(argv) else None)
+    return None if target is None or at in unread else target
+
+
+def _runner_moves(argv: Sequence[str], stepped: int, unread: frozenset[int]) -> list[str | None]:
+    """The moves a program that runs a command makes by its own words, from ``argv`` on."""
+    moves: list[str | None] = []
+    key = command_key(argv[0])
+    if key in _NEW_ROOT:
+        return [None]
+    for n, word in enumerate(argv[1:], 1):
+        if word in _RUNNER_ANYWHERE.get(key, ()):
+            moves.append(None)
+        for option in _RUNNER_DIRECTORIES.get(key, ()):
+            glued = None
+            if word.startswith(option + "="):
+                glued = word[len(option) + 1 :]
+            elif len(option) == 2 and word.startswith(option) and word != option:
+                glued = word[2:]
+            elif word != option:
+                continue
+            moves.append(_value_at(argv, n, glued, frozenset(u - stepped for u in unread)))
+    return moves
+
+
 def _moves_to(cmd: SimpleCommand) -> str | None | bool:
     """Where a command moves the shell, or the program it runs, if it does.
 
-    A written target; ``None`` for a move only running decides, or for more than one;
-    ``False`` for a command that moves nowhere. ``cd`` and its kin move the shell; ``env -C``
-    moves the program env runs.
+    A written target; ``None`` for a move only running decides, one that goes where no word
+    says, or more than one; ``False`` for a command that moves nowhere. ``cd`` and its kin move
+    the shell; a wrapper's or a runner's own option (``env -C``, ``sudo -D``, ``uv
+    --directory``) moves the program it runs, and ``find -execdir``, ``chroot``, ``sudo -R``
+    and a login (``su -``) leave it anywhere.
     """
     unread = cmd.dynamic | cmd.expanding
     moves: list[str | None] = []
-    for index, wrapper, _ in wrapper_options(cmd.argv):
-        if wrapper != "env":
-            continue
-        named, glued = _env_option(cmd.argv[index], "C", "--chdir")
-        if named:
-            at = index if glued is not None else index + 1
-            target = glued if glued is not None else (cmd.argv[at] if at < len(cmd.argv) else None)
-            moves.append(None if target is None or at in unread else target)
+    options = wrapper_options(cmd.argv)
+    for index, wrapper, _ in options:
+        for short, long in _WRAPPER_MOVES.get(wrapper, ()):
+            named, glued = _option_of(wrapper, cmd.argv[index], short, long)
+            if named:
+                moves.append(_value_at(cmd.argv, index, glued, unread))
+        for short, long in _WRAPPER_ANYWHERE.get(wrapper, ()):
+            if _option_of(wrapper, cmd.argv[index], short, long)[0]:
+                moves.append(None)
     argv = unwrap(cmd.argv)
+    stepped = len(cmd.argv) - len(argv)
     if argv and command_key(argv[0]) in _CD:
-        moves.append(_cd_target(argv, len(cmd.argv) - len(argv), unread))
+        moves.append(_cd_target(argv, stepped, unread))
+    if argv:
+        among = any(_hides_the_program(cmd.argv, *option) for option in options)
+        for n in range(len(argv) if _searched(argv, among) else 1):
+            moves += _runner_moves(argv[n:], stepped + n, unread)
     if not moves:
         return False
     return moves[0] if len(moves) == 1 else None
@@ -701,12 +765,11 @@ def _module_program(module: str, at: int) -> tuple[int, str] | None:
     return (at, package) if package in _PROGRAMS else None
 
 
-def _run_by_interpreter(argv: Sequence[str]) -> tuple[int, str] | None:
-    """Where an interpreter's words name a program this rule judges, and which, or ``None``.
+def _interpreter_target(argv: Sequence[str]) -> tuple[int, str, bool] | None:
+    """Where the module or the script an interpreter runs is named, or ``None`` for neither.
 
-    The module it is given (``-m``, after other options run together with it, or glued to the
-    module's name, a package's ``__main__`` included), or the script it runs, when that script
-    is such a program by its name.
+    The word's position, the module or script as written, and whether it is a module (``-m``,
+    after other options run together with it, or glued to the module's name).
     """
     n = 1
     while n < len(argv):
@@ -714,8 +777,8 @@ def _run_by_interpreter(argv: Sequence[str]) -> tuple[int, str] | None:
         option = _MODULE_OPTION.fullmatch(word)
         if option is not None:
             if option.group(1):
-                return _module_program(option.group(1), n)
-            return _module_program(argv[n + 1], n + 1) if n + 1 < len(argv) else None
+                return n, option.group(1), True
+            return (n + 1, argv[n + 1], True) if n + 1 < len(argv) else None
         if _PYTHON_CODE.fullmatch(word):
             return None
         if _PYTHON_VALUE.fullmatch(word):
@@ -724,9 +787,24 @@ def _run_by_interpreter(argv: Sequence[str]) -> tuple[int, str] | None:
         if word.startswith("-"):
             n += 1
             continue
-        key = command_key(word)
-        return (n, key) if key in _PROGRAMS else None
+        return n, word, False
     return None
+
+
+def _run_by_interpreter(argv: Sequence[str]) -> tuple[int, str] | None:
+    """Where an interpreter's words name a program this rule judges, and which, or ``None``.
+
+    The module it is given (a package's ``__main__`` included), or the script it runs, when
+    that script is such a program by its name.
+    """
+    target = _interpreter_target(argv)
+    if target is None:
+        return None
+    n, named, module = target
+    if module:
+        return _module_program(named, n)
+    key = command_key(named)
+    return (n, key) if key in _PROGRAMS else None
 
 
 def _program_here(argv: Sequence[str]) -> tuple[int, str] | None:
@@ -773,23 +851,50 @@ def _named_late(
 ) -> str | None:
     """The reason a program named only when the command runs is refused, or ``None``.
 
-    Wherever a program could stand (:func:`_program_at`), a word only running decides is read as
-    the build tool: given an upload or its monitor it is refused as one, and given its tests,
-    its debugger or its devices as a word that may not be left to running.
+    Wherever a program could stand (:func:`_program_at`), the module or script an interpreter
+    there runs among them, a word only running decides is read as the build tool or a flasher:
+    given an upload, the build tool's monitor or a flasher's words it is refused as an upload,
+    and given the build tool's tests, its debugger or its devices as a word that may not be
+    left to running. With any other words, or none, it passes: what it runs is the OS layer's.
     """
     if not argv:
         return None
     for n in range(len(argv) if _searched(argv, among) else 1):
-        if stepped + n not in unread:
-            continue
-        words = argv[n + 1 :]
-        if upload_in("pio", words):
-            return UPLOAD
-        opened = _read_options(words, 0, _BUILD_TOOL[0], positionals=None)
-        first = words[opened[0]] if opened is not None and opened[0] < len(words) else ""
-        if first.casefold() in _LATE_USES:
-            return DYNAMIC
+        late = [n] if stepped + n in unread else []
+        if _MODULE_RUNNERS.fullmatch(command_key(argv[n])):
+            target = _interpreter_target(argv[n:])
+            if target is not None and stepped + n + target[0] in unread:
+                late.append(n + target[0])
+        for at in late:
+            words = argv[at + 1 :]
+            if upload_in("pio", words) or _flasher_words(words):
+                return UPLOAD
+            opened = _read_options(words, 0, _BUILD_TOOL[0], positionals=None)
+            first = words[opened[0]] if opened is not None and opened[0] < len(words) else ""
+            if first.casefold() in _LATE_USES:
+                return DYNAMIC
     return None
+
+
+def _flasher_words(words: Sequence[str]) -> bool:
+    """Whether ``words`` read as a flasher's: a memory operation, or a programmer and a part.
+
+    avrdude's ``-U flash:w:…``; or ``-c`` and ``-p`` both given a plain name (``-c usbasp -p
+    m328p``), never a file, a path or a line of code, so ``$CC -c main.c`` and ``$SHELL -c '…'``
+    are not.
+    """
+
+    def value(option: str) -> str:
+        for n, word in enumerate(words):
+            if word == option:
+                return words[n + 1] if n + 1 < len(words) else ""
+            if word.startswith(option):
+                return word[len(option) :]
+        return ""
+
+    if _MEMORY_OPERATION.match(value("-U")):
+        return True
+    return all(_PLAIN_NAME.fullmatch(value(option)) for option in ("-c", "-p"))
 
 
 def _check_command(cmd: SimpleCommand, places: Sequence[str]) -> str | None:
@@ -800,7 +905,7 @@ def _check_command(cmd: SimpleCommand, places: Sequence[str]) -> str | None:
             return DEVICE.format(device=device)
     options = wrapper_options(cmd.argv)
     for index, wrapper, _ in options:
-        if wrapper == "env" and _env_option(cmd.argv[index], "S", "--split-string")[0]:
+        if wrapper == "env" and _option_of("env", cmd.argv[index], "S", "--split-string")[0]:
             return SPLIT
     argv = unwrap(cmd.argv)
     unread = cmd.dynamic | cmd.expanding
