@@ -73,7 +73,6 @@ UPLOADS = [
     "python3 -mplatformio run -t upload",
     "trap 'pio run -t upload' EXIT",
     # The program named only when the command runs, given an upload target all the same.
-    "p=pio; $p run -t upload",
     # Behind a wrapper's option that takes a value: the value is not the program.
     "exec -a x pio run -t upload",
     "env --unset X pio run -t upload",
@@ -83,8 +82,6 @@ UPLOADS = [
     # An option this rule has no word on is read as one that may take a value.
     "env -a x pio run -t upload",
     "exec -a x python3 -m platformio run -t upload",
-    "p=pio; exec -a x $p run -t upload",
-    "p=pio; timeout 60 $p run -t upload",
     # An interpreter running the build tool by any spelling of its module, or as a script.
     "python3 -Im platformio run -t upload",
     "python3 -Implatformio run -t upload",
@@ -93,6 +90,14 @@ UPLOADS = [
     "timeout 5 python3 -m platformio.__main__ run -t upload",
     "python3 /opt/env/venv/bin/pio run -t upload",
     # Its monitor, by a name only running decides.
+]
+
+#: A program, or the module or script an interpreter runs, named only when the command runs,
+#: given the build tool's upload words or a flasher's options. Refused, in words of its own.
+LATE_UPLOADS = [
+    "p=pio; $p run -t upload",
+    "p=pio; exec -a x $p run -t upload",
+    "p=pio; timeout 60 $p run -t upload",
     "p=pio; $p device monitor",
     # A program named only when the command runs, given a flasher's words: a memory
     # operation, or a programmer and a part.
@@ -111,9 +116,17 @@ UPLOADS = [
     "m=platformio; python3 -m$m run -t upload",
     "python3 $script run -t upload",
     "python3 -I $script device monitor",
+    # An ordinary compiler or diff whose options are a flasher's as words: the cost of not
+    # modelling the flasher's grammar, told to the role as a rewrite.
+    "CC=gcc; $CC -U NDEBUG -c f.c",
+    "DIFF=diff; $DIFF -U3 a b",
+    "CC=gcc; $CC -c x.c -p",
 ]
 
 NOT_UPLOADS = [
+    # Words after a script, or after -c, are that script's or that code's own arguments.
+    "python3 build.py -m platformio run -t upload",
+    "python3 -c 'print(1)' -m pio run -t upload",
     "pio run",
     "pio run -e balboa",
     "pio run -t clean",
@@ -562,6 +575,16 @@ def _tool(tmp: Path, tool: str, tool_input: dict[str, Any], cwd: str | None = No
 @pytest.mark.parametrize("command", UPLOADS, ids=UPLOADS)
 def test_a_command_that_uploads_or_flashes_is_refused(tmp_path: Path, command: str) -> None:
     assert _shell(tmp_path, command) == H.UPLOAD
+
+
+@pytest.mark.parametrize("command", LATE_UPLOADS, ids=LATE_UPLOADS)
+def test_a_program_named_at_run_time_is_told_to_be_named_in_the_command_s_words(
+    tmp_path: Path, command: str
+) -> None:
+    reason = _shell(tmp_path, command)
+    assert reason != "allow"
+    assert "name the program in the command's own words" in reason.lower()
+    assert "upload" not in reason.lower()
 
 
 @pytest.mark.parametrize("command", NOT_UPLOADS, ids=NOT_UPLOADS)

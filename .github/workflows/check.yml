@@ -12,14 +12,16 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  tests:
+    name: tests
     runs-on: ubuntu-latest
-    # The Python suite, then the operator UI's gates, browser tests included. A
-    # ceiling well above the observed time still stops a hung runner from burning
-    # an hour before anyone looks.
-    timeout-minutes: 30
+    # Measured about 6 min for the tests step and about 1 min of setup; the ceiling is over three times that, so a hung runner still stops.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+
+      - name: Start the job's clock
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Install uv
         # Pinned to an exact version rather than a major. This action publishes
@@ -82,7 +84,342 @@ jobs:
         working-directory: ui
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Tests, types, lint
-        # This is the whole job on purpose. The same script is what runs
-        # locally, so "green on my machine" and "green here" cannot come apart.
-        run: ./scripts/check.sh
+      - name: Python tests
+        # Every test the default selection collects, in parallel, exactly as the single job ran them.
+        shell: bash
+        run: ./scripts/check.sh tests 2>&1 | tee "$RUNNER_TEMP/tests.log"
+
+      - name: Test count and wall time, to the job summary
+        if: always()
+        run: ./scripts/ci-job-summary.sh "tests" "$JOB_START" "$RUNNER_TEMP/tests.log"
+
+  scoring:
+    name: scoring (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    # The scoring tests took between 11 and 18 min on one runner, on identical code, so they run
+    # in three shards of whole files (scripts/scoring_shard.py deals them and the static job and
+    # each leg prove the deal complete). One leg failing does not stop the others from reporting.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["0/3", "1/3", "2/3"]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start the job's clock
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        # Pinned to an exact version rather than a major. This action publishes
+        # no floating major ref above v7 — v8, v9 and v10 do not resolve as
+        # refs at all — so a major pin here would simply fail to check out.
+        # Verified against the provider on the day this was written; the cost
+        # is that the bump is manual and deliberate.
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          # Left unpinned, this installs whatever is newest on the day. The
+          # tools that decide pass or fail are pinned by the lockfile and so
+          # are identical either way, but the thing that builds the
+          # environment they run in was not pinned at all, which is an odd gap
+          # in a repository whose point is that a green run here and a green
+          # run elsewhere mean the same thing.
+          #
+          # This exact version is the one that has actually been observed
+          # green on these gates on this runner. The developer machine is
+          # still on an older one, so this records the difference rather than
+          # removing it; removing it means upgrading there and re-taking the
+          # environment measurements, which is deliberate work and not this
+          # change. When that happens the number belongs in the project file
+          # as a required version, where one entry constrains both sides and
+          # fails closed instead of being a note.
+          version: "0.12.17"
+          enable-cache: true
+
+      - name: Create the environment from the lockfile
+        # --frozen fails when the lockfile has drifted from the project file,
+        # instead of quietly resolving something no one has checked. The Python
+        # version comes from the pin file in the repository root.
+        run: uv sync --frozen
+
+      - name: Install zsh
+        # The splitter's tests read each word as every installed shell does, zsh
+        # among them, which the runner image does not carry. The reaper's tests no
+        # longer need it: off macOS its command shell is bash, or sh.
+        run: sudo apt-get install -y --no-install-recommends zsh
+
+      - name: Install Node
+        # The operator UI's toolchain. Exact tag, like every action pin here, and
+        # the Node version the UI's package file names.
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22.23.2"
+
+      - name: Enable the pinned pnpm
+        # Corepack ships with Node and installs exactly the pnpm the UI's package
+        # file names, version and sha512 both; no further action is needed.
+        run: corepack enable
+
+      - name: Install the UI's dependencies from the lockfile
+        # --frozen-lockfile fails on any drift from the lockfile. No dependency's
+        # install script runs: the UI's package-manager settings refuse a package
+        # that needs one, and --ignore-scripts says so here as well.
+        working-directory: ui
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install the browser the UI's tests drive
+        working-directory: ui
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Scoring tests, in the evaluation environment
+        # tests/scoring is outside the default collection (norecursedirs); the three legs together
+        # hold every file of it, once.
+        env:
+          PHYSGATE_SCORING_SHARD: ${{ matrix.shard }}
+        shell: bash
+        run: ./scripts/check.sh scoring 2>&1 | tee "$RUNNER_TEMP/scoring.log"
+
+      - name: Test count and wall time, to the job summary
+        if: always()
+        run: ./scripts/ci-job-summary.sh "scoring ${{ matrix.shard }}" "$JOB_START" "$RUNNER_TEMP/scoring.log"
+
+  static:
+    name: static
+    runs-on: ubuntu-latest
+    # Measured under a minute for types, lint and format together, setup included; the ceiling allows a cold cache.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start the job's clock
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        # Pinned to an exact version rather than a major. This action publishes
+        # no floating major ref above v7 — v8, v9 and v10 do not resolve as
+        # refs at all — so a major pin here would simply fail to check out.
+        # Verified against the provider on the day this was written; the cost
+        # is that the bump is manual and deliberate.
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          # Left unpinned, this installs whatever is newest on the day. The
+          # tools that decide pass or fail are pinned by the lockfile and so
+          # are identical either way, but the thing that builds the
+          # environment they run in was not pinned at all, which is an odd gap
+          # in a repository whose point is that a green run here and a green
+          # run elsewhere mean the same thing.
+          #
+          # This exact version is the one that has actually been observed
+          # green on these gates on this runner. The developer machine is
+          # still on an older one, so this records the difference rather than
+          # removing it; removing it means upgrading there and re-taking the
+          # environment measurements, which is deliberate work and not this
+          # change. When that happens the number belongs in the project file
+          # as a required version, where one entry constrains both sides and
+          # fails closed instead of being a note.
+          version: "0.12.17"
+          enable-cache: true
+
+      - name: Create the environment from the lockfile
+        # --frozen fails when the lockfile has drifted from the project file,
+        # instead of quietly resolving something no one has checked. The Python
+        # version comes from the pin file in the repository root.
+        run: uv sync --frozen
+
+      - name: Types, lint and format
+        # The same gates, same commands, as in the single job.
+        shell: bash
+        run: ./scripts/check.sh types lint 2>&1 | tee "$RUNNER_TEMP/static.log"
+
+      - name: The scoring shards are a complete partition
+        # Fails if any scoring test file is in no shard or in two. The count is the number of
+        # legs in the scoring job's matrix; each leg runs the same proof for its own count.
+        run: uv run python scripts/scoring_shard.py VERIFY 3
+
+      - name: Test count and wall time, to the job summary
+        if: always()
+        run: ./scripts/ci-job-summary.sh "static""$JOB_START" "$RUNNER_TEMP/static.log"
+
+  ui-unit:
+    name: ui-unit
+    runs-on: ubuntu-latest
+    # Measured about 45 s for the UI types, lint, format, unit tests and build, and about 1 min of setup.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start the job's clock
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        # Pinned to an exact version rather than a major. This action publishes
+        # no floating major ref above v7 — v8, v9 and v10 do not resolve as
+        # refs at all — so a major pin here would simply fail to check out.
+        # Verified against the provider on the day this was written; the cost
+        # is that the bump is manual and deliberate.
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          # Left unpinned, this installs whatever is newest on the day. The
+          # tools that decide pass or fail are pinned by the lockfile and so
+          # are identical either way, but the thing that builds the
+          # environment they run in was not pinned at all, which is an odd gap
+          # in a repository whose point is that a green run here and a green
+          # run elsewhere mean the same thing.
+          #
+          # This exact version is the one that has actually been observed
+          # green on these gates on this runner. The developer machine is
+          # still on an older one, so this records the difference rather than
+          # removing it; removing it means upgrading there and re-taking the
+          # environment measurements, which is deliberate work and not this
+          # change. When that happens the number belongs in the project file
+          # as a required version, where one entry constrains both sides and
+          # fails closed instead of being a note.
+          version: "0.12.17"
+          enable-cache: true
+
+      - name: Create the environment from the lockfile
+        # --frozen fails when the lockfile has drifted from the project file,
+        # instead of quietly resolving something no one has checked. The Python
+        # version comes from the pin file in the repository root.
+        run: uv sync --frozen
+
+      - name: Install zsh
+        # The splitter's tests read each word as every installed shell does, zsh
+        # among them, which the runner image does not carry. The reaper's tests no
+        # longer need it: off macOS its command shell is bash, or sh.
+        run: sudo apt-get install -y --no-install-recommends zsh
+
+      - name: Install Node
+        # The operator UI's toolchain. Exact tag, like every action pin here, and
+        # the Node version the UI's package file names.
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22.23.2"
+
+      - name: Enable the pinned pnpm
+        # Corepack ships with Node and installs exactly the pnpm the UI's package
+        # file names, version and sha512 both; no further action is needed.
+        run: corepack enable
+
+      - name: Install the UI's dependencies from the lockfile
+        # --frozen-lockfile fails on any drift from the lockfile. No dependency's
+        # install script runs: the UI's package-manager settings refuse a package
+        # that needs one, and --ignore-scripts says so here as well.
+        working-directory: ui
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install the browser the UI's tests drive
+        working-directory: ui
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: The UI's types, lint, format, unit tests and build
+        # The first half of the UI gates, same commands as in the single job.
+        shell: bash
+        run: ./scripts/check.sh ui-unit 2>&1 | tee "$RUNNER_TEMP/ui-unit.log"
+
+      - name: Test count and wall time, to the job summary
+        if: always()
+        run: ./scripts/ci-job-summary.sh "ui-unit" "$JOB_START" "$RUNNER_TEMP/ui-unit.log"
+
+  ui-browser:
+    name: ui-browser
+    runs-on: ubuntu-latest
+    # Measured about 5.5 min for the browser tests and about 1 min of setup; the ceiling is more than twice that.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start the job's clock
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        # Pinned to an exact version rather than a major. This action publishes
+        # no floating major ref above v7 — v8, v9 and v10 do not resolve as
+        # refs at all — so a major pin here would simply fail to check out.
+        # Verified against the provider on the day this was written; the cost
+        # is that the bump is manual and deliberate.
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          # Left unpinned, this installs whatever is newest on the day. The
+          # tools that decide pass or fail are pinned by the lockfile and so
+          # are identical either way, but the thing that builds the
+          # environment they run in was not pinned at all, which is an odd gap
+          # in a repository whose point is that a green run here and a green
+          # run elsewhere mean the same thing.
+          #
+          # This exact version is the one that has actually been observed
+          # green on these gates on this runner. The developer machine is
+          # still on an older one, so this records the difference rather than
+          # removing it; removing it means upgrading there and re-taking the
+          # environment measurements, which is deliberate work and not this
+          # change. When that happens the number belongs in the project file
+          # as a required version, where one entry constrains both sides and
+          # fails closed instead of being a note.
+          version: "0.12.17"
+          enable-cache: true
+
+      - name: Create the environment from the lockfile
+        # --frozen fails when the lockfile has drifted from the project file,
+        # instead of quietly resolving something no one has checked. The Python
+        # version comes from the pin file in the repository root.
+        run: uv sync --frozen
+
+      - name: Install zsh
+        # The splitter's tests read each word as every installed shell does, zsh
+        # among them, which the runner image does not carry. The reaper's tests no
+        # longer need it: off macOS its command shell is bash, or sh.
+        run: sudo apt-get install -y --no-install-recommends zsh
+
+      - name: Install Node
+        # The operator UI's toolchain. Exact tag, like every action pin here, and
+        # the Node version the UI's package file names.
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22.23.2"
+
+      - name: Enable the pinned pnpm
+        # Corepack ships with Node and installs exactly the pnpm the UI's package
+        # file names, version and sha512 both; no further action is needed.
+        run: corepack enable
+
+      - name: Install the UI's dependencies from the lockfile
+        # --frozen-lockfile fails on any drift from the lockfile. No dependency's
+        # install script runs: the UI's package-manager settings refuse a package
+        # that needs one, and --ignore-scripts says so here as well.
+        working-directory: ui
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install the browser the UI's tests drive
+        working-directory: ui
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: The UI's build and browser tests
+        # The second half of the UI gates: the build the browser tests serve, then the tests.
+        shell: bash
+        run: ./scripts/check.sh ui-browser 2>&1 | tee "$RUNNER_TEMP/ui-browser.log"
+
+      - name: Test count and wall time, to the job summary
+        if: always()
+        run: ./scripts/ci-job-summary.sh "ui-browser" "$JOB_START" "$RUNNER_TEMP/ui-browser.log"
+
+  check:
+    # The name branch protection requires. It passes only when every job above succeeded:
+    # a failed, cancelled or skipped job fails it, so no job can drop out unseen.
+    name: check
+    if: always()
+    needs: [tests, scoring, static, ui-unit, ui-browser]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job must have succeeded
+        env:
+          TESTS: ${{ needs.tests.result }}
+          SCORING: ${{ needs.scoring.result }}
+          STATIC: ${{ needs.static.result }}
+          UI_UNIT: ${{ needs.ui-unit.result }}
+          UI_BROWSER: ${{ needs.ui-browser.result }}
+        run: |
+          echo "tests=$TESTS scoring=$SCORING static=$STATIC ui-unit=$UI_UNIT ui-browser=$UI_BROWSER"
+          for result in "$TESTS" "$SCORING" "$STATIC" "$UI_UNIT" "$UI_BROWSER"; do
+            [ "$result" = success ] || { echo "a job did not succeed"; exit 1; }
+          done
