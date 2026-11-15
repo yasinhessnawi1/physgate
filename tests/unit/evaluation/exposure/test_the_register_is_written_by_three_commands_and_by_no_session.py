@@ -123,6 +123,19 @@ def test_the_scan_and_the_run_roots_are_written_by_their_commands_and_counted(
     assert code == 0 and (said.get("added"), said.get("already")) == (0, 1)
 
 
+@pytest.mark.parametrize("writer", ["scan-exposures", "add-run-root"])
+def test_a_writer_given_anything_but_a_role_s_withheld_root_is_refused(
+    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str], writer: str
+) -> None:
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    extra = ["--path", str(runs)] if writer == "add-run-root" else []
+    code, said = _tiers(capsys, writer, "--withheld", str(made.store / "control" / "work"), *extra)
+    assert code != 0 and said.get("refused_because") == "not_a_withheld_root"
+    withheld = withheld_root(made.store, "control")
+    assert not [p for p in withheld.iterdir() if p.name.startswith(("register", "run-roots"))]
+
+
 def test_a_run_root_in_the_store_or_holding_it_is_refused(
     tmp_path: Path, made: StandInStore
 ) -> None:
@@ -305,20 +318,29 @@ def _bad_root(tmp_path: Path, how: str, monkeypatch: pytest.MonkeyPatch) -> Path
 
 
 @pytest.mark.parametrize(
-    "how",
-    ["missing", "a file", "a link", "unreadable", "too deep", "too many entries", "a broken run"],
+    ("how", "reason"),
+    [
+        ("missing", "run_root_not_a_directory"),
+        ("a file", "run_root_not_a_directory"),
+        ("a link", "run_root_not_a_directory"),
+        ("unreadable", "run_root_unreadable"),
+        ("too deep", "run_root_would_refuse_the_scan"),
+        ("too many entries", "run_root_would_refuse_the_scan"),
+        ("a broken run", "run_root_would_refuse_the_scan"),
+    ],
 )
 def test_a_run_root_the_scan_could_not_read_whole_is_refused_and_nothing_is_appended(
-    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch, how: str
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch, how: str, reason: str
 ) -> None:
     root = _bad_root(tmp_path, how, monkeypatch)
     error = api(f"{EXPOSURE}.ExposureError")
     try:
-        with pytest.raises(error):
+        with pytest.raises(error) as refused:
             api(f"{EXPOSURE}.add_run_root")(made.store, "control", root)
     finally:
         if how == "unreadable":
             root.chmod(0o700)
+    assert refused.value.context.get("refused_because") == reason
     assert api(f"{EXPOSURE}.run_roots")(made.store, "control") == []
     withheld = withheld_root(made.store, "control")
     assert not (withheld / "run-roots.jsonl").exists()

@@ -147,6 +147,27 @@ def test_an_incident_in_a_run_on_the_later_version_marks_every_version_its_diges
     assert exposed == frozenset({made.version, later.version})
 
 
+def test_an_incident_marks_only_the_versions_its_run_s_digests_name(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    runs = with_run_root(made, tmp_path / "runs")
+    later = second_version(made)
+    task = later.tasks["visible"][1]
+    only_later = [h for h in later.held_out if made.version not in h]
+    run = config(
+        task,
+        later,
+        held_out=only_later,
+        held_out_sha256=[tier_digest(Path(h)) for h in only_later],
+    )
+    assert len(run.held_out) == len(later.held_out) - 2
+    run_dir = harness_run(runs, task, later, ended=False)
+    (run_dir / "run.json").write_text(run.model_dump_json())
+    incident_in(run_dir)
+    exposed = api(f"{EXPOSURE}.exposed_versions")(made.store, "control")
+    assert exposed == frozenset({later.version})
+
+
 def test_an_authoring_line_marks_nothing_exposed(tmp_path: Path, made: StandInStore) -> None:
     runs = with_run_root(made, tmp_path / "runs")
     run = config(made.tasks["visible"][0], made)
