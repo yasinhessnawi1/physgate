@@ -1,0 +1,26 @@
+[
+ {
+  "name": "b8b-end-unclipped",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "                end = min(session.end - 1, span[1] + EARLIER_HIT_LINES)\n",
+  "new": "                end = span[1] + EARLIER_HIT_LINES\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ },
+ {
+  "name": "b9-no-merge",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        if merged and start <= merged[-1][1] + 1:\n",
+  "new": "        if False:\n",
+  "tests": [
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py",
+   "tests/unit/reviewers/test_a_review_is_given_the_hits_no_earlier_review_judged.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_of_the_earlier_attempts_it_must_judge.py",
+   "tests/unit/reviewers/test_every_attempt_packet_is_byte_identical_to_todays.py"
+  ]
+ }
+]

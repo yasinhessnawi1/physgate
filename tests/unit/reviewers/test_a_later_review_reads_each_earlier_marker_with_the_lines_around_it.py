@@ -273,7 +273,9 @@ def test_windows_that_overlap_are_shown_once_naming_both_markers(tmp_path: Path)
     ]  # fmt: skip
     packet, read, _ = _packet(tmp_path, sessions)
     rendering = _rendering(packet, read)
-    (block,) = _blocks(packet, read)
+    blocks = _blocks(packet, read)
+    assert len(blocks) == 1, "windows that overlap are shown more than once"
+    (block,) = blocks
     first, _ = _window(packet, rendering, "toolu_a")
     _, last = _window(packet, rendering, "toolu_b")
     assert (block.first, block.last) == (first, last)
@@ -364,14 +366,15 @@ def test_an_id_given_twice_shows_both_of_its_calls(tmp_path: Path) -> None:
 def test_a_marker_at_the_very_start_or_end_of_a_session_is_shown_clipped_to_it(
     tmp_path: Path,
 ) -> None:
-    # A session before it, so a window not clipped at the start would reach into that one.
+    # A session before it and one after, so a window not clipped would reach into one of them.
     sessions = [
         _session(INIT, *_reads(20, 3), END),
         _session(*_noqa("toolu_a"), *_reads(1, 6), *_noqa("toolu_b", result=False)),
+        _session(INIT, *_reads(30, 3), END),
     ]
     packet, read, attempt = _packet(tmp_path, sessions)
     rendering = _rendering(packet, read)
-    _, (first, last) = _sessions(rendering)
+    _, (first, last), _ = _sessions(rendering)
     a, b = _blocks(packet, read)
     (call_a,) = _harness(packet, rendering, "### tool call Write (id toolu_a)")
     (result_a,) = _harness(packet, rendering, "### tool result for toolu_a")
