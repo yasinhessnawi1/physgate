@@ -32,6 +32,8 @@ def _config(**changes: object) -> RunConfig:
         os_layer=LAYER.model_dump(),
         network="none",
         network_enforced=True,
+        tool_servers=None,
+        tool_search="denied",
         held_out=["/store/control/withheld"],
         held_out_sha256=["d" * 64],
         held_out_canaries=["c" * 32],

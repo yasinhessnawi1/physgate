@@ -905,8 +905,9 @@ def test_every_required_field_is_one_the_comparison_checks() -> None:
 def test_each_compared_nested_field_is_in_what_the_raw_arm_is_held_to(parent: str) -> None:
     """A nested field classed compared is a key of the expected pin, so it is compared in fact.
 
-    Read over a run with each form a nested model may take (the OS layer present and absent),
-    so every member of a union is seen.
+    Read over a run with each form a nested model may take (the OS layer present and absent,
+    a tool environment and servers named), so every member of a union is seen; a field nested
+    deeper (a tool environment's distributions' names) is a key at its own path.
     """
     configs = [
         _config(role_python=_PYTHON.model_dump(mode="json")),
@@ -915,14 +916,32 @@ def test_each_compared_nested_field_is_in_what_the_raw_arm_is_held_to(parent: st
             network_enforced=False,
             reportable=False,
         ),
+        _config(tool_environment=_placed(HERE), tool_servers=SERVERS),
     ]
-    keys = {key for config in configs for key in _expected(config, "control", TASK)[parent] or {}}
+    keys = {
+        key
+        for config in configs
+        for key in _key_paths(_expected(config, "control", TASK)[parent] or {})
+    }
     compared = {
         p.split(".", 1)[1]
         for p, kind in RUN_FIELDS.items()
         if p.startswith(f"{parent}.") and kind == "compared"
     }
     assert compared and compared <= keys, (parent, compared, keys)
+
+
+def _key_paths(value: Any, prefix: str = "") -> set[str]:  # noqa: ANN401 - a pin as recorded
+    """Every key of ``value`` by its dotted path, through mappings and the items of lists."""
+    if isinstance(value, dict):
+        found: set[str] = set()
+        for key, inner in value.items():
+            found.add(prefix + key)
+            found |= _key_paths(inner, f"{prefix}{key}.")
+        return found
+    if isinstance(value, list):
+        return {path for item in value for path in _key_paths(item, prefix)}
+    return set()
 
 
 class _HeldBoundsCompared(RunBounds):
