@@ -5,16 +5,7 @@
  */
 import type { GateMode } from "../design/components/verdict/GateMode";
 import { type Quantity, requireQuantity } from "../design/quantity";
-import {
-  count,
-  flag,
-  list,
-  object,
-  oneOf,
-  optionalCount,
-  optionalText,
-  text,
-} from "./check";
+import { count, flag, list, object, oneOf, optionalCount, optionalText, text } from "./check";
 import { ShapeError } from "./client";
 
 /** The precedence table's levels, by the names a ruling's line holds. */

@@ -19,12 +19,13 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Any
 
 WORKTREE = Path.cwd()
 TIMEOUT = 1200
 
 
-def run_one(mutant: dict[str, object], index: int) -> dict[str, object]:
+def run_one(mutant: dict[str, Any], index: int) -> dict[str, Any]:
     name = str(mutant["name"])
     # Outside any path holding a word a rule of the harness reads (the review root's word
     # check refuses "physgate" in the path), and outside the clone: a fresh directory in /tmp.
@@ -73,7 +74,7 @@ def run_one(mutant: dict[str, object], index: int) -> dict[str, object]:
         "0",
         f"--basetemp={basetemp / 'bt'}",
         f"--junitxml={junit}",
-        *[str(t) for t in mutant["tests"]],  # type: ignore[union-attr]
+        *[str(t) for t in mutant["tests"]],
     ]
     try:
         done = subprocess.run(

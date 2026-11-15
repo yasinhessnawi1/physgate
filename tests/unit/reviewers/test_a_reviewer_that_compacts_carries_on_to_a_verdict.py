@@ -157,13 +157,15 @@ def _review(
         _, result = sessions[spawned.index(path)]
         return SimpleNamespace(result=result, usage=(), answered={MODEL}, tampered=None)
 
-    shown = sum(
-        1
-        for events, _ in sessions
-        for e in events
-        if e.get("type") == "system" and e.get("subtype") == "compact_boundary"
-    )
-    saw = shown if hook_saw is None else hook_saw
+    def shown() -> int:
+        # As the hook layer would have recorded them by the end of the latest invocation.
+        return sum(
+            1
+            for events, _ in sessions[: len(spawned)]
+            for e in events
+            if e.get("type") == "system" and e.get("subtype") == "compact_boundary"
+        )
+
     monkeypatch.setattr(claude, "binary_version", lambda binary: VERSION)
     monkeypatch.setattr(claude, "review_dir", lambda root, sid: tmp_path / "rs" / "review")
     monkeypatch.setattr(ClaudeReviewer, "_prepare", lambda self, review, a, sid: packet)
@@ -180,7 +182,12 @@ def _review(
     monkeypatch.setattr(claude, "require_matching_totals", lambda *a: None)
     monkeypatch.setattr(claude, "read_in_full", lambda *a: True)
     monkeypatch.setattr(claude, "write_key_helper", lambda state, key: None)
-    monkeypatch.setattr(claude, "compactions_seen", lambda *a: saw, raising=False)
+    monkeypatch.setattr(
+        claude,
+        "compactions_seen",
+        lambda *a: shown() if hook_saw is None else hook_saw,
+        raising=False,
+    )
     reviewer = ClaudeReviewer(role=ROLE, setup=setup, rubric=load_rubric(REPO / "knowledge", ROLE))
     try:
         return reviewer.review(SimpleNamespace())  # type: ignore[arg-type]
