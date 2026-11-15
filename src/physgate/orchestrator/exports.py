@@ -21,14 +21,14 @@ placed, the spacing between tokens, and up to the budget of free text. The geome
 describes the shape a script built, not an export's bytes, so it bounds none of this; the
 reviewer can still read the whole file in the packet's export of the commit.
 
-A circuit's exports (the circuit helper's KiCad rules-check report, netlist, parts list and a
-PDF of the schematic) are admitted the same way, each by a check of its own kind and under its
-own cap (:data:`EXPORT_CAPS`). The three texts are the reviewer's evidence and almost all their
-words are the role's own (net names, values, references), so they are never summarised: the
-review shows them in git's diff, as every other committed file a role writes
-(:data:`SHOWN_IN_FULL`), and the cap keeps that a size one review reads. The PDF is one line
-(size, sha256, pages) whose text is not shown: the same circuit is in the schematic and the
-netlist, in full (:data:`PDF_UNSEEN`).
+A circuit's exports (the circuit helper's KiCad rules-check report, netlist and parts list) are
+admitted the same way, each by a check of its own kind and under its own cap
+(:data:`EXPORT_CAPS`). They are the reviewer's evidence and almost all their words are the
+role's own (net names, values, references), so they are never summarised: the review shows them
+in git's diff, as every other committed file a role writes (:data:`SHOWN_IN_FULL`), and the cap
+keeps that a size one review reads. A role commits no PDF: a file the reviewer is not shown
+would be a way past the free-text budget, so a ``.pdf`` in the folder is no export and refused.
+A kind check never raises: bytes it cannot parse are not its kind.
 
 The suffixes are data: adding a kind of export adds a suffix here and a check below, and the
 helpers in the tool environment write the same folder and suffixes (a test holds them to it).
@@ -59,14 +59,13 @@ EXPORTS_DIR = "exports"
 #: list. Their caps keep "in full" a size a reviewer reads.
 SHOWN_IN_FULL: tuple[str, ...] = (".erc.json", ".net", ".csv")
 #: What an export's name ends in, compared without regard to case.
-EXPORT_SUFFIXES: tuple[str, ...] = (".step", ".stl", ".pdf", *SHOWN_IN_FULL)
+EXPORT_SUFFIXES: tuple[str, ...] = (".step", ".stl", *SHOWN_IN_FULL)
 #: The largest export of any kind a commit may hold, in bytes; past it the attempt is refused.
 MAX_EXPORT_BYTES = 2_000_000
 #: Each kind's largest file, in bytes; one byte past it refuses the attempt, never cuts the file.
 EXPORT_CAPS: dict[str, int] = {
     ".step": MAX_EXPORT_BYTES,
     ".stl": MAX_EXPORT_BYTES,
-    ".pdf": MAX_EXPORT_BYTES,
     ".erc.json": 1_000_000,
     ".net": 1_000_000,
     ".csv": 200_000,
@@ -106,8 +105,6 @@ def summary(path: str, body: bytes) -> str | None:
         return _step(body)
     if kind == ".stl":
         return _stl_binary(body) or _stl_ascii(body)
-    if kind == ".pdf":
-        return _pdf(body)
     if kind == ".erc.json":
         return _rules_check_report(body)
     if kind == ".net":
@@ -302,18 +299,10 @@ def _numbers(words: list[str]) -> list[float] | None:
     return values if all(math.isfinite(value) for value in values) else None
 
 
-# ---- the circuit's exports: KiCad's report, netlist and parts list, and a PDF ------------------
+# ---- the circuit's exports: KiCad's rules-check report, netlist and parts list ------------------
 
-#: What the line of a PDF says in place of a free-text count: the limit a reviewer is shown.
-PDF_UNSEEN = (
-    "its text is not shown or counted here (the schematic and the netlist in the diff hold "
-    "the same circuit in full)"
-)
 #: The kinds whose bytes the review shows in full, never as a line.
 _TEXT_KINDS = frozenset({"text"})
-_PDF_VERSION = re.compile(rb"%PDF-(1\.[0-7]|2\.0)\r?\n")
-_PDF_PAGE = re.compile(rb"/Type\s*/Page(?![A-Za-z0-9])")
-_PDF_END = re.compile(rb"%%EOF\s*\Z")
 #: KiCad's rules-check report: its layout's name, and the fields every report holds.
 ERC_SCHEMA = "https://schemas.kicad.org/erc.v1.json"
 _ERC_FIELDS = frozenset({"$schema", "kicad_version", "sheets", "source", "date"})
@@ -330,18 +319,6 @@ def _utf8(body: bytes) -> str | None:
         return body.decode("utf-8")
     except UnicodeDecodeError:
         return None
-
-
-def _pdf(body: bytes) -> str | None:
-    """A PDF from its header to its end marker, with at least one page: version and pages."""
-    version = _PDF_VERSION.match(body)
-    if version is None or _PDF_END.search(body) is None:
-        return None
-    pages = len(_PDF_PAGE.findall(body))
-    if pages == 0:
-        return None
-    noun = "page" if pages == 1 else "pages"
-    return f"PDF {version.group(1).decode()}, {pages} {noun}"
 
 
 def _no_constant(name: str) -> object:
@@ -424,7 +401,11 @@ def _parts_list(body: bytes) -> str | None:
     text = _utf8(body)
     if text is None:
         return None
-    rows = list(csv.reader(io.StringIO(text, newline="")))
+    try:
+        rows = list(csv.reader(io.StringIO(text, newline="")))
+    except csv.Error:
+        # A field past the reader's limit, or a quote it cannot close: not a parts list.
+        return None
     if not rows or tuple(rows[0]) != PARTS_LIST_HEADER:
         return None
     if not all(len(row) == len(PARTS_LIST_HEADER) for row in rows[1:]):
@@ -451,8 +432,8 @@ class FreeText:
     A distinct string or word is counted once because a repeat tells a reader nothing the first
     did not; where it repeats is the residual this count leaves, with the numbers themselves.
 
-    A PDF's text is not read or counted: its line says so (:data:`PDF_UNSEEN`). The three text
-    exports (:data:`SHOWN_IN_FULL`) are never summarised: every byte is in the diff.
+    The circuit's three text exports (:data:`SHOWN_IN_FULL`) are never summarised: every byte
+    is in the diff.
     """
 
     kind: str
@@ -483,8 +464,6 @@ class FreeText:
 
     def described(self) -> str:
         """The counts as the reviewer's line gives them."""
-        if self.kind == "PDF":
-            return PDF_UNSEEN
         if self.kind == "binary STL":
             parts = f"header {self.header}, attributes {self.attributes}"
         elif self.kind == "ASCII STL":
@@ -502,8 +481,6 @@ def free_text(path: str, body: bytes) -> FreeText | None:
     if summary(path, body) is None:
         return None
     kind = suffix_of(path)
-    if kind == ".pdf":
-        return FreeText(kind="PDF")
     if kind in SHOWN_IN_FULL:
         return FreeText(kind="text")
     if kind == ".step":

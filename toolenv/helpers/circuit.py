@@ -6,9 +6,10 @@ A module's script names its schematic (``.kicad_sch``, written by hand or genera
   written to ``<module>/exports/<name>.erc.json``, and an answer that carries the program's exit
   code as the number it was, the findings counted by severity and by type, and each finding's
   type, severity and texts, cut to a bound; the report itself is the evidence;
-- :func:`exports`: the netlist (``<name>.net``, KiCad's S-expression), the parts list
-  (``<name>.csv``, a fixed list of fields) and a PDF of the schematic (``<name>.pdf``), each by
-  name, size and sha256.
+- :func:`exports`: the netlist (``<name>.net``, KiCad's S-expression) and the parts list
+  (``<name>.csv``, a fixed list of fields), each by name, size and sha256; and a PDF of the
+  schematic for the session's own reading, written into the session's temporary directory and
+  never into the module: a reviewer is not shown a PDF's text, so a role commits none.
 
 The report's one date and the netlist's one date are set to a fixed time and the netlist's
 source to the schematic's path in the module, so one platform repeats a text export's bytes.
@@ -28,6 +29,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Mapping
 from typing import Any
 
@@ -217,7 +219,10 @@ def rules_check(
 def exports(
     schematic: str | os.PathLike[str], module: str | os.PathLike[str], name: str
 ) -> dict[str, Any]:
-    """Write ``<module>/exports/<name>.net``, ``.csv`` and ``.pdf`` from ``schematic``.
+    """Write ``<module>/exports/<name>.net`` and ``.csv`` from ``schematic``, and a PDF of it.
+
+    The PDF goes into the session's temporary directory (``<temp>/circuit/<name>.pdf``), named
+    in the answer by its full path, size and sha256.
 
     Raises:
         HelperRefusedError: the name, the schematic or the module is not one, the program is
@@ -226,6 +231,9 @@ def exports(
     path, folder = _places(schematic, module)
     stem = os.path.join(folder, EXPORTS, _name(name))
     cli = _program()
+    reading = os.path.join(tempfile.gettempdir(), "circuit")
+    os.makedirs(reading, exist_ok=True)
+    pdf = os.path.join(reading, f"{name}.pdf")
     codes = {
         "netlist": _run(
             [cli, "sch", "export", "netlist", "--format", "kicadsexpr", "-o", f"{stem}.net", path],
@@ -251,10 +259,10 @@ def exports(
             ],
             folder,
         ),  # fmt: skip
-        "pdf": _run([cli, "sch", "export", "pdf", "-o", f"{stem}.pdf", path], folder),
+        "pdf": _run([cli, "sch", "export", "pdf", "-o", pdf, path], folder),
     }
-    written = [f"{stem}.net", f"{stem}.csv", f"{stem}.pdf"]
-    if not all(os.path.isfile(file) for file in written):
+    written = [f"{stem}.net", f"{stem}.csv"]
+    if not all(os.path.isfile(file) for file in [*written, pdf]):
         raise HelperRefusedError(f"an export was not written; the program's exit codes: {codes}")
     _fixed(f"{stem}.net", _DATE_NET, json.dumps(FIXED_DATE).encode())
     source = os.path.relpath(path, folder).replace(os.sep, "/")
@@ -265,6 +273,7 @@ def exports(
             "kind": "ecad_exports",
             "schematic": os.path.relpath(path, folder),
             "exports": [file_entry(file, os.path.relpath(file, folder)) for file in written],
+            "pdf": file_entry(pdf, pdf),
             "exit_codes": codes,
             "tool": {PROGRAM: version()},
         }
