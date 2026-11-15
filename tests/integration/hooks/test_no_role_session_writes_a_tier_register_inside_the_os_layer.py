@@ -7,7 +7,8 @@ stops them is the OS layer. One step writes the register directly; the others ru
 three writers with the harness's session markers taken out of their environment, as a session
 can, so the writers' own refusal inside a session does not stop them either.
 
-Without the layer the same steps write there, which shows the probe works.
+Without the layer the same steps write there, which shows the probe works; the sentinel puts
+back what they wrote after each call, so that row reads what each step says.
 """
 
 from __future__ import annotations
@@ -82,12 +83,17 @@ def test_inside_the_layer_no_step_writes_beneath_the_withheld_root(layout: Layou
     told = run["told"]
     assert isinstance(told, list) and len(told) == 1 + len(WRITERS)
     assert "denied:" in told[-1] and "wrote" not in told[-1], told[-1]
+    assert "exit 0" not in told[0] and "exit 0" not in told[2], told
     assert _written(layout) == [], _written(layout)
 
 
 def test_without_the_layer_the_steps_write_there_which_shows_the_probe_works(
     layout: Layout,
 ) -> None:
-    run_session(layout, _steps(layout), layer=False)
-    written = _written(layout)
-    assert {"register.head", "run-roots.jsonl", "register.jsonl"} <= set(written), written
+    # What the steps wrote is put back by the sentinel after each call, so what they say is
+    # read: the direct write landed, and the scan ran to its end and wrote its head.
+    run = run_session(layout, _steps(layout), layer=False)
+    told = run["told"]
+    assert isinstance(told, list) and len(told) == 1 + len(WRITERS), told
+    assert "wrote" in told[-1], told
+    assert "exit 0" in told[0], told
