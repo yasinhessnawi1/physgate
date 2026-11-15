@@ -130,3 +130,29 @@ def test_a_link_in_the_way_is_never_followed_and_refuses_the_result(tmp_path: Pa
     record = json.loads((work / "cleanup.json").read_text())
     assert "link" in record["error"], record
     assert not (work / "raw.json").exists()
+
+
+#: A session whose record's name holds a directory, which no unlink removes.
+UNREMOVABLE = f"""
+id=""; prev=""
+for a in "$@"; do [ "$prev" = "--session-id" ] && id="$a"; prev="$a"; done
+dir="../session/state/sessions/$id/sentinel/baseline.json"
+mkdir -p "$dir"
+printf '%s' '{{"revert": {{"{PROTECTED_ID}": []}}}}' > "$dir/kept"
+echo '{{"type":"result","subtype":"success","usage":{{}}}}'
+"""
+
+
+def test_a_record_that_cannot_be_removed_refuses_the_result(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    outcome: BaseException | None = None
+    try:
+        binary = _script(tmp_path / "claude", UNREMOVABLE)
+        raw.run_raw(TASK, _setup(tmp_path, binary), work, cap=10**9)
+    except BaseException as exc:  # noqa: BLE001 - the row holds what was raised
+        outcome = exc
+    assert isinstance(outcome, raw.RawArmError), outcome
+    assert "sentinel's record" in str(outcome), outcome
+    record = json.loads((work / "cleanup.json").read_text())
+    assert "the sentinel's record of the protected paths was not removed" in record["error"]
+    assert not (work / "raw.json").exists()
