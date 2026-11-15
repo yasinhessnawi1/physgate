@@ -40,7 +40,7 @@ from physgate.orchestrator.arbitration import (
     dispute_standing,
 )
 from physgate.orchestrator.budget import infra_retry_delay
-from physgate.orchestrator.change_sets import change_history
+from physgate.orchestrator.change_sets import change_history, integration_history
 from physgate.orchestrator.common import PLANNED_ID_MAX_LENGTH, SUBTASK_PATTERN, utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decisions import (
@@ -3249,7 +3249,7 @@ class Loop:
             if head is None:
                 msg = "an integration call with no run branch head recorded"
                 raise RunStateError(msg, run_dir=str(self.run_dir))
-            baseline, change_sets = change_history(self.log.events)
+            baseline, change_sets = integration_history(self.log.events)
             artefact = IntegrationArtefact(
                 run_id=self.config.run_id,
                 graph_root=str(self._graph.root),
@@ -3677,7 +3677,7 @@ class Loop:
         head, mode = run_head_of(prefix), self.config.gate_mode
         again: GateResult | None = None
         if head is not None and mode != "off" and self._gate is not None:
-            baseline, change_sets = change_history(prefix)
+            baseline, change_sets = integration_history(prefix)
             artefact = IntegrationArtefact(
                 run_id=self.config.run_id,
                 graph_root=str(self._graph.root),

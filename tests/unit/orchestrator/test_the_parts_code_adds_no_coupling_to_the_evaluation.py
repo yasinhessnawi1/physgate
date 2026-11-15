@@ -36,6 +36,7 @@ MODULES = (
     "flags.py",
     "hooks/graph.py",
     "orchestrator/apply.py",
+    "orchestrator/change_sets.py",
     "orchestrator/cli.py",
     "orchestrator/decisions.py",
     "orchestrator/decompose.py",
@@ -63,6 +64,7 @@ MODULES = (
     "state/divergence.py",
     "state/schema.py",
     "state/store.py",
+    "ui/actions.py",
 )
 
 #: The command line's imports of the evaluation, held before the parts feature: each statement
