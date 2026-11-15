@@ -41,7 +41,10 @@ def made(tmp_path: Path) -> StandInStore:
 
 
 def _tiers(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, dict[str, Any]]:
-    code = main(["tiers", *args])
+    try:
+        code = main(["tiers", *args])
+    except SystemExit:
+        pytest.fail(f"tiers has no command {args[0]} taking these arguments")
     out = capsys.readouterr().out.strip().splitlines()
     assert out, "the command printed nothing"
     return code, json.loads(out[-1])

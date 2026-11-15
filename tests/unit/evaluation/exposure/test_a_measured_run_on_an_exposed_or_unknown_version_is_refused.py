@@ -115,9 +115,7 @@ def test_a_raw_record_under_the_run_roots_marks_the_version_too(
     _reason(refusal(run, runs / "r1"), "version_exposed")
 
 
-def test_a_hand_mark_refuses_a_run_on_the_version(
-    tmp_path: Path, made: StandInStore
-) -> None:
+def test_a_hand_mark_refuses_a_run_on_the_version(tmp_path: Path, made: StandInStore) -> None:
     runs = with_run_root(made, tmp_path / "runs")
     mark = api(f"{EXPOSURE}.mark_exposed")
     mark(made.store, "control", made.version, by="a person", reason="opened the tier by hand")
@@ -149,9 +147,7 @@ def test_an_incident_in_a_run_on_the_later_version_marks_every_version_its_diges
     assert exposed == frozenset({made.version, later.version})
 
 
-def test_an_authoring_line_marks_nothing_exposed(
-    tmp_path: Path, made: StandInStore
-) -> None:
+def test_an_authoring_line_marks_nothing_exposed(tmp_path: Path, made: StandInStore) -> None:
     runs = with_run_root(made, tmp_path / "runs")
     run = config(made.tasks["visible"][0], made)
     append = api(f"{EXPOSURE}._append")
@@ -166,9 +162,7 @@ def test_an_authoring_line_marks_nothing_exposed(
     assert refusal(run, runs / "r1") is None, "an author's read was taken for an exposure"
 
 
-def test_a_second_scan_records_nothing_new(
-    tmp_path: Path, made: StandInStore
-) -> None:
+def test_a_second_scan_records_nothing_new(tmp_path: Path, made: StandInStore) -> None:
     runs = with_run_root(made, tmp_path / "runs")
     incident_in(harness_run(runs, made.tasks["visible"][1], made, ended=False))
     scan = api(f"{EXPOSURE}.record_scan")
@@ -239,9 +233,7 @@ def test_a_shortened_or_rewritten_register_refuses_rather_than_reads_as_nothing_
     _reason(refusal(config(made.tasks["visible"][0], made), runs / "r1"), "register_unreadable")
 
 
-def test_a_run_that_is_not_measured_is_not_held_to_it(
-    tmp_path: Path, made: StandInStore
-) -> None:
+def test_a_run_that_is_not_measured_is_not_held_to_it(tmp_path: Path, made: StandInStore) -> None:
     runs = with_run_root(made, tmp_path / "runs")
     _two_marks(made)
     outside = tmp_path / "elsewhere" / "held_out"
@@ -307,9 +299,7 @@ def test_a_protected_tier_changed_since_the_run_recorded_it_is_refused(
     assert run.held_out_sha256[-1][:8] in str(why)
 
 
-def test_a_protected_tier_in_no_version_is_refused(
-    tmp_path: Path, made: StandInStore
-) -> None:
+def test_a_protected_tier_in_no_version_is_refused(tmp_path: Path, made: StandInStore) -> None:
     runs = with_run_root(made, tmp_path / "runs")
     version = made.store / "control" / made.version
     other = made.store / "control" / ("e" * 64)
