@@ -48,9 +48,17 @@ gate_scoring() {
   # must never reach the harness's environment, where pint would pick numpy up and the
   # physics gate's unit handling would change (pyproject.toml, the evaluation group).
   echo "== scoring tests (evaluation environment) =="
-  local rc=0
+  local rc=0 targets=(tests/scoring)
+  # CI runs the scoring tests in shards of whole files: PHYSGATE_SCORING_SHARD=INDEX/COUNT
+  # names one (scripts/scoring_shard.py deals the files and proves the deal complete). Unset,
+  # every file runs, as always.
+  if [ -n "${PHYSGATE_SCORING_SHARD:-}" ]; then
+    uv run python scripts/scoring_shard.py VERIFY "${PHYSGATE_SCORING_SHARD#*/}" || fail "scoring shards"
+    targets=($(uv run python scripts/scoring_shard.py FILES "${PHYSGATE_SCORING_SHARD%/*}" "${PHYSGATE_SCORING_SHARD#*/}")) \
+      || fail "scoring shard"
+  fi
   UV_PROJECT_ENVIRONMENT=.venv-evaluation uv run --frozen --group evaluation \
-    pytest -q -n auto tests/scoring || rc=$?
+    pytest -q -n auto "${targets[@]}" || rc=$?
   if [ "$rc" -eq 5 ]; then
     fail "scoring tests — nothing ran"
   fi

@@ -94,10 +94,16 @@ jobs:
         run: ./scripts/ci-job-summary.sh "tests" "$JOB_START" "$RUNNER_TEMP/tests.log"
 
   scoring:
-    name: scoring
+    name: scoring (${{ matrix.shard }})
     runs-on: ubuntu-latest
-    # Measured about 10.5 min for the scoring step in its own environment and about 1 min of setup; the ceiling is more than twice that.
-    timeout-minutes: 25
+    # The scoring tests took between 11 and 18 min on one runner, on identical code, so they run
+    # in three shards of whole files (scripts/scoring_shard.py deals them and the static job and
+    # each leg prove the deal complete). One leg failing does not stop the others from reporting.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["0/3", "1/3", "2/3"]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -166,13 +172,16 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Scoring tests, in the evaluation environment
-        # tests/scoring is outside the default collection (norecursedirs) and is the whole of this job.
+        # tests/scoring is outside the default collection (norecursedirs); the three legs together
+        # hold every file of it, once.
+        env:
+          PHYSGATE_SCORING_SHARD: ${{ matrix.shard }}
         shell: bash
         run: ./scripts/check.sh scoring 2>&1 | tee "$RUNNER_TEMP/scoring.log"
 
       - name: Test count and wall time, to the job summary
         if: always()
-        run: ./scripts/ci-job-summary.sh "scoring" "$JOB_START" "$RUNNER_TEMP/scoring.log"
+        run: ./scripts/ci-job-summary.sh "scoring ${{ matrix.shard }}" "$JOB_START" "$RUNNER_TEMP/scoring.log"
 
   static:
     name: static
@@ -222,9 +231,14 @@ jobs:
         shell: bash
         run: ./scripts/check.sh types lint 2>&1 | tee "$RUNNER_TEMP/static.log"
 
+      - name: The scoring shards are a complete partition
+        # Fails if any scoring test file is in no shard or in two. The count is the number of
+        # legs in the scoring job's matrix; each leg runs the same proof for its own count.
+        run: uv run python scripts/scoring_shard.py VERIFY 3
+
       - name: Test count and wall time, to the job summary
         if: always()
-        run: ./scripts/ci-job-summary.sh "static" "$JOB_START" "$RUNNER_TEMP/static.log"
+        run: ./scripts/ci-job-summary.sh "static""$JOB_START" "$RUNNER_TEMP/static.log"
 
   ui-unit:
     name: ui-unit
