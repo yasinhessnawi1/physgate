@@ -189,6 +189,8 @@ A quantity may also name the simulation record it was read off and the extractor
 **Cadence.** per subtask
 **Acceptance.** A session that skips a required read cannot make a tool call.
 
+**Amended 15.11.2026 (owner-approved).** In a reviewer session that compacts, the rubric is required reading again after each compaction: the verdict is refused until it has been read in full since the last one. A file read in full before a compaction stays read.
+
 ### ARCH-021 — Research phase, switchable
 **Decision.** Triggered when a specification names a component or standard absent from the knowledge layer. Findings written to the component document under `## Research`. Flag `--research=on|off|observe`.
 **Depends on.** ARCH-020, ARCH-140
@@ -305,6 +307,8 @@ Repair budget is **three attempts**. Attempt 1 rejection returns the finding. At
 **Acceptance.** Dispatch refuses to run a reviewer on the same model string as the implementer, and a design review on the decomposition's model string.
 
 **Amended 11.11.2026 (owner-approved).** The simulation role builds what the implementers are judged in, so its model differs from every implementer's and the decomposition's, and its paired reviewer differs from both the simulation role's model and every implementer's. Dispatch refuses either otherwise, by the normalised comparison above.
+
+**Amended 15.11.2026 (owner-approved).** A paired reviewer's session may compact its conversation when the review outgrows its model's context window, under the recorded run parameter `review_compaction` (`on` or `off`; a run recorded before it reads as `off`). A verdict given after a compaction is a verdict, recorded with the number of compactions before it, and shown as such wherever the verdict is shown. After each compaction the reviewer is told again where its material is and which markers it must judge, and its verdict is refused until it has read the rubric again in full. A review that still outgrows the window, or whose compaction the hook layer did not see, reaches no verdict, as before.
 
 ### ARCH-061 — Implementation order
 **Decision.** Control and firmware reviewers first, since those roles are automated first. The electrical and mechanical reviewers follow ahead of their roles, because the injected-error instrument of ARCH-083 sends each domain's artefacts to that domain's reviewer alone, and a domain with no reviewer stops the instrument before any review. Others follow their roles. A reviewer's existence never admits its role: a run refuses to start if it names a role absent from the role register, and a role enters the register only with its standing sign-offs (ARCH-130) wired.
@@ -682,6 +686,8 @@ When every planned subtask is merged or ended, the integration call runs again o
 **Cadence.** as decided, at a subtask boundary
 **Acceptance.** An approved attempt is merged by the same merge function, with the commit the item names, and the integration call then runs; a test does this on a run that had already ended, with the real loop, git, store and gate. An approve on an attempt the gate failed, the change check refused, or on a subtask any of whose reviews confirmed a reward-hacking indicator merges nothing, each proven by its own test and a mutation of its guard. An item rewritten before it was decided halts the run at take. A rejection with attempts left dispatches exactly one further attempt whose repair instruction quotes the note; with none left, none. A rejection after a blocked review dispatches exactly one fix session, installed as a role session is, whose acceptance merges and whose rejection ends the subtask. No decision is taken between a session's spawn and its attempt's end, nor before a resume has read every leftover session's record, nor from a decisions file rewritten beneath a session's start; a run that acts is refused without the OS layer. Every decision taken is one line in the event log naming the item, the digest shown, the verb and what it did.
 
+**Amended 15.11.2026 (owner-approved).** A later reviewer is shown the earlier attempts no review judged as each scan hit's tool call and result with the lines around them, as required reading. Their whole streams are in the packet, listed by part and digest, and the reviewer may read any of them. Each hit is judged as before.
+
 ---
 
 ## S14. Evaluation
@@ -809,6 +815,8 @@ The outbox cannot be protected by hooks alone: any program a session runs can wr
 **Depends on.** ARCH-031, ARCH-060
 **Cadence.** per run
 **Acceptance.** Cost per full run recorded and trended.
+
+**Amended 15.11.2026 (owner-approved).** A reviewer's compaction (ARCH-060) is not a cut of trajectory reading: every required file is read in full before the verdict, and a verdict given after a compaction is recorded as such, so its catches can be counted apart.
 
 ### ARCH-151 — Build order
 
