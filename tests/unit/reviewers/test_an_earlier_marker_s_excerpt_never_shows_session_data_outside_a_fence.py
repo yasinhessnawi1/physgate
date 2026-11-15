@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 from packet_fixture import stream, tool_result, tool_use
+from test_a_review_is_given_the_hits_no_earlier_review_judged import _build
 from test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it import (
     BOUND,
     END,
@@ -76,6 +77,14 @@ def _built(tmp_path: Path, events: list[str], own: str | None = None) -> Any:  #
     return packet, read, attempt, _rendering(packet, read)
 
 
+def _holds(packet: Packet, attempt: Any) -> None:  # noqa: ANN401
+    """The check passes the packet the harness wrote; a refusal fails the row on an assertion."""
+    try:
+        _check(packet, attempt)
+    except PacketError as exc:
+        raise AssertionError(f"the check refused the packet the harness wrote: {exc}") from exc
+
+
 # -- an edge inside a data block -------------------------------------------------------------------
 
 
@@ -92,7 +101,7 @@ def test_an_edge_inside_a_block_moves_out_to_its_fence_when_that_is_near(tmp_pat
     assert not block.cuts and not unfenced(packet, read, block)
     assert block.shown == b"".join(rendering[block.first : block.last + 1])
     assert "earlier_hit_nonces" not in packet.model_dump(mode="json")
-    _check(packet, attempt)
+    _holds(packet, attempt)
 
 
 @pytest.mark.parametrize(
@@ -130,7 +139,7 @@ def test_an_edge_moves_out_at_most_the_bound_and_past_it_the_block_is_cut(
     else:
         assert not block.cuts and not hit_nonces(packet)
         assert (opened if side == "start" else closed) in (block.first, block.last)
-    _check(packet, attempt)
+    _holds(packet, attempt)
 
 
 def test_a_large_block_at_both_edges_is_cut_at_each_and_labelled(tmp_path: Path) -> None:
@@ -153,7 +162,28 @@ def test_a_large_block_at_both_edges_is_cut_at_each_and_labelled(tmp_path: Path)
     # The excerpt holds the session's lines it shows and nothing more of the two blocks.
     shown = (before.last - before.first + 1) + (after.last - after.first + 1)
     assert shown < 2 * 200
-    _check(packet, attempt)
+    _holds(packet, attempt)
+
+
+def test_windows_that_moving_out_brings_together_are_shown_once(tmp_path: Path) -> None:
+    # The block between the two markers is near enough to each edge for both to move out to it,
+    # and the second marker's window ends in a block it cuts.
+    events = [
+        *_reads(1, 3), *_noqa("toolu_a"), *_read("toolu_between", _body(BOUND + 29)),
+        *_noqa("toolu_b"), *_read("toolu_after", _body(200)), *_reads(2, 1),
+    ]  # fmt: skip
+    packet, read, attempt, rendering = _built(tmp_path, events)
+    a_start, a_end = raw_window(packet, rendering, "toolu_a")
+    b_start, b_end = raw_window(packet, rendering, "toolu_b")
+    assert b_start > a_end + 1, "the stand-in's raw windows are not apart"
+    blocks = _blocks(packet, read)
+    assert len(blocks) == 1, "windows brought together are shown apart"
+    (block,) = blocks
+    assert "evidence toolu_a" in block.markers and "evidence toolu_b" in block.markers
+    assert (block.first, block.last) == (a_start, b_end)
+    assert [c.last for c in block.cuts] == [b_end], "the joined window's cut edge is not kept"
+    assert not unfenced(packet, read, block)
+    _holds(packet, attempt)
 
 
 def test_an_edge_on_a_block_s_far_fence_alone_moves_in_past_it(tmp_path: Path) -> None:
@@ -164,7 +194,7 @@ def test_an_edge_on_a_block_s_far_fence_alone_moves_in_past_it(tmp_path: Path) -
     (block,) = _blocks(packet, read)
     assert (block.first, block.last) == (start + 1, end - 1)
     assert not block.cuts and not unfenced(packet, read, block)
-    _check(packet, attempt)
+    _holds(packet, attempt)
 
 
 def test_an_excerpt_wholly_outside_any_block_is_the_slice_as_before(tmp_path: Path) -> None:
@@ -178,7 +208,7 @@ def test_an_excerpt_wholly_outside_any_block_is_the_slice_as_before(tmp_path: Pa
     assert heading.startswith(b"## earlier-")
     assert body == b"".join(rendering[start : end + 1])
     assert "earlier_hit_nonces" not in packet.model_dump(mode="json")
-    _check(packet, attempt)
+    _holds(packet, attempt)
 
 
 # -- what the session wrote cannot leave the fence -------------------------------------------------
@@ -206,7 +236,40 @@ def test_a_result_that_imitates_harness_and_fence_lines_at_an_edge_stays_fenced(
     assert not unfenced(packet, read, block)
     shown = [at_ for at_, _ in block.lines if at_ is not None]
     assert edge in shown, "the imitating line at the edge is not shown"
-    _check(packet, attempt)
+    _holds(packet, attempt)
+
+
+def test_the_excerpt_s_nonce_is_none_of_the_sessions_nonces(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = secrets.token_hex
+    own, earlier, fresh = real(8), real(8), real(8)
+    # Each draw is offered, in turn: this attempt's nonce, the earlier session's, then a fresh one.
+    queue = [own, earlier, own, earlier, fresh]
+    offered: list[str] = []
+
+    def drawn(n: int | None = None) -> str:
+        value = queue.pop(0) if queue else real(n)
+        offered.append(value)
+        return value
+
+    monkeypatch.setattr(secrets, "token_hex", drawn)
+    events = [*_reads(1, 2), *_read("toolu_big", _body(200)), *_noqa(HIT), *_reads(3, 3)]
+    packet, read, attempt, _ = _built(tmp_path, events)
+    monkeypatch.undo()
+    assert packet.transcript_nonces == (own,) and packet.earlier_nonces == (earlier,)
+    assert offered[:5] == [own, earlier, own, earlier, fresh], "the draws are not as the row needs"
+    assert hit_nonces(packet) == (fresh,)
+    _holds(packet, attempt)
+
+
+def test_excerpt_nonces_recorded_for_an_attempt_with_no_earlier_one_refuse_the_packet(
+    tmp_path: Path,
+) -> None:
+    plain, _, attempt = _build(tmp_path, earlier=False)
+    _holds(plain, attempt)
+    with pytest.raises(PacketError, match="earlier"):
+        _check(plain.model_copy(update={"earlier_hit_nonces": ("a" * 16,)}), attempt)
 
 
 def test_a_result_holding_the_nonce_drawn_for_the_excerpt_cannot_close_its_fence(
@@ -241,7 +304,7 @@ def test_a_result_holding_the_nonce_drawn_for_the_excerpt_cannot_close_its_fence
     assert not unfenced(packet, read, block)
     shown = [line for at, line in block.lines if at is not None]
     assert f"DATA {planted}>>>\n".encode() in shown
-    _check(packet, attempt)
+    _holds(packet, attempt)
 
 
 # -- the check holds the fencing -------------------------------------------------------------------
@@ -277,11 +340,17 @@ def _retold(packet: Packet, read: Path, body: bytes, nonces: tuple[str, ...]) ->
     return packet.model_copy(update=update)
 
 
-def test_a_recorded_nonce_the_rendering_holds_refuses_the_packet(tmp_path: Path) -> None:
+@pytest.mark.parametrize("whose", ["the rendering's", "this attempt's", "an earlier session's"])
+def test_a_recorded_nonce_held_elsewhere_refuses_the_packet(tmp_path: Path, whose: str) -> None:
     packet, read, attempt, _, piece, part = _cut_packet(tmp_path)
-    body = (read / part.name).read_bytes().replace(piece.nonce.encode(), PLANTED.encode())
+    held = {
+        "the rendering's": PLANTED,
+        "this attempt's": packet.transcript_nonces[0],
+        "an earlier session's": packet.earlier_nonces[0],
+    }[whose]
+    body = (read / part.name).read_bytes().replace(piece.nonce.encode(), held.encode())
     with pytest.raises(PacketError, match="nonce"):
-        _check(_retold(packet, read, body, (PLANTED,)), attempt)
+        _check(_retold(packet, read, body, (held,)), attempt)
 
 
 @pytest.mark.parametrize("recorded", ["none", "one too many"])
@@ -304,7 +373,7 @@ def test_an_excerpt_fenced_otherwise_than_the_harness_writes_it_refuses_the_pack
 ) -> None:
     packet, read, attempt, rendering, piece, part = _cut_packet(tmp_path)
     issued = (read / part.name).read_bytes()
-    _check(packet, attempt)
+    _holds(packet, attempt)
     lines = issued.splitlines(keepends=True)
     fence = f"<<<DATA {piece.nonce} ".encode()
     opened = next(i for i, line in enumerate(lines) if line.startswith(fence))

@@ -917,7 +917,8 @@ def hit_excerpts(
     if nonces is not None and len(nonces) != len(cutting):
         msg = "the nonces recorded for the earlier markers' excerpts are not one for each cut"
         raise PacketError(msg, recorded=str(len(nonces)), cut=str(len(cutting)))
-    held = "\n".join([earlier.data.decode("utf-8"), *avoid, *earlier.nonces])
+    # The rendering holds every earlier session's nonce, in its preface and its fences.
+    held = "\n".join([earlier.data.decode("utf-8"), *avoid])
     chosen: list[str] = []
     blocks = []
     for window in windows:
