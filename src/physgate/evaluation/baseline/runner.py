@@ -521,9 +521,7 @@ _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
 @contextlib.contextmanager
-def trial_place(
-    store: Path, role: Role, round_id: str, name: str
-) -> Iterator[tuple[Path, Path]]:
+def trial_place(store: Path, role: Role, round_id: str, name: str) -> Iterator[tuple[Path, Path]]:
     """A new trial's directory in the role's work root and its record of work, held while it lives.
 
     A trial's session is withheld the work root's entries beside its own place as they stand
