@@ -1125,11 +1125,9 @@ def built_from_source(project: Path, cache: Path, site_packages: Path) -> dict[s
             in the cache, or its wheel names another build backend than the one held.
     """
     lock = tomllib.loads((project / "uv.lock").read_text(encoding="utf-8"))
+    stems = [info.name.removesuffix(".dist-info") for info in site_packages.glob("*.dist-info")]
     installed = {
-        _canonical(info.name.rsplit("-", 1)[0])
-        + "=="
-        + info.name.rsplit("-", 1)[1][: -len(".dist-info")]
-        for info in site_packages.glob("*.dist-info")
+        f"{_canonical(stem.rsplit('-', 1)[0])}=={stem.rsplit('-', 1)[-1]}" for stem in stems
     }
     held = {pin.split("==")[0]: pin.split("==")[1] for pin in build_constraints(project)}
     found: dict[str, object] = {}
