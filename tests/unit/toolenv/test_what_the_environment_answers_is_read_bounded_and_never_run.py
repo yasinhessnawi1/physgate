@@ -99,7 +99,16 @@ def test_a_hostile_probe_answer_is_refused_cleanly(tmp_path: Path, answer: str) 
 
 def test_a_well_formed_probe_answer_is_recorded(tmp_path: Path) -> None:
     root, python = _tree(tmp_path)
-    answer = {"version": "3.12.9", "prefix": str(root), "physgate": False, "distributions": []}
+    answer = {
+        "version": "3.12.9",
+        "prefix": str(root),
+        "base_prefix": str(root),
+        "exec_prefix": str(root),
+        "base_exec_prefix": str(root),
+        "path": [str(root / "lib")],
+        "physgate": False,
+        "distributions": [],
+    }
 
     def run(argv: Sequence[str]) -> str | None:
         return json.dumps(answer)

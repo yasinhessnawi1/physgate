@@ -72,11 +72,17 @@ def found_in(tmp_path: Path, files: Mapping[str, str | None]) -> list[str]:
         f"{MODULE}/firmware.hex",
         f"{MODULE}/out/release/firmware.hex",
         f"{MODULE}/FIRMWARE.ELF",
-        f"{MODULE}/build/main.cpp.o",
-        f"{MODULE}/build/libFrameworkArduino.a",
+        f"{MODULE}/out/main.cpp.o",
+        f"{MODULE}/out/libFrameworkArduino.a",
         f"{MODULE}/firmware.eep",
         f"{MODULE}/firmware.bin",
         f"{MODULE}/out/FIRMWARE.BIN",
+        # What else a build writes beside its image: the linker's map, a listing, the UF2 and
+        # AXF forms of the image.
+        f"{MODULE}/firmware.map",
+        f"{MODULE}/out/firmware.lst",
+        f"{MODULE}/firmware.uf2",
+        f"{MODULE}/out/FIRMWARE.AXF",
     ],
 )
 def test_a_built_file_in_the_module_is_named(tmp_path: Path, path: str) -> None:
@@ -108,6 +114,18 @@ def test_a_built_file_in_the_module_is_named(tmp_path: Path, path: str) -> None:
             f"{MODULE}/.pio",
             2,
         ),
+        (
+            {
+                f"{MODULE}/build/main.cpp.o": "x\n",
+                f"{MODULE}/build/libFrameworkArduino.a": "x\n",
+                f"{MODULE}/build/main.cpp.d": "x\n",
+            },
+            f"{MODULE}/build",
+            3,
+        ),
+        ({f"{MODULE}/firmware/build/firmware.su": "x\n"}, f"{MODULE}/firmware/build", 1),
+        ({f"{MODULE}/.pioenvs/balboa/firmware.elf": "x\n"}, f"{MODULE}/.pioenvs", 1),
+        ({f"{MODULE}/BUILD/notes.txt": "x\n"}, f"{MODULE}/BUILD", 1),
     ],
     ids=[
         "one file",
@@ -115,6 +133,10 @@ def test_a_built_file_in_the_module_is_named(tmp_path: Path, path: str) -> None:
         "below the module's top",
         "another case",
         "a library's own tree inside it, named by the outer one",
+        "the conventional build directory, named once",
+        "it below the module's top",
+        "the build tool's older directory",
+        "it in another case",
     ],
 )
 def test_a_build_directory_in_the_module_is_named_once_with_its_size(
@@ -138,6 +160,14 @@ def test_a_build_directory_in_the_module_is_named_once_with_its_size(
         f"{MODULE}/table.o.txt",
         f"{MODULE}/bin/readme.md",
         f"{MODULE}/firmware.bin.md",
+        f"{MODULE}/build.py",
+        f"{MODULE}/build",
+        f"{MODULE}/rebuild/notes.md",
+        f"{MODULE}/builds/notes.md",
+        f"{MODULE}/map.md",
+        f"{MODULE}/sitemap.mapping",
+        f"{MODULE}/firmware.uf2.md",
+        f"{MODULE}/.pioenvs.md",
     ],
 )
 def test_a_source_file_named_like_one_is_in_scope(tmp_path: Path, path: str) -> None:

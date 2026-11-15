@@ -71,6 +71,9 @@ def _environment(tmp_path: Path) -> dict[str, Any]:
         "version": "3.12.9",
         "prefix": str(root),
         "base_prefix": str(root),
+        "exec_prefix": str(root),
+        "base_exec_prefix": str(root),
+        "path": [str(root / "lib")],
         "physgate": False,
         "distributions": [["control", "0.10.1"]],
     }

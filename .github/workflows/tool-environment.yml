@@ -236,7 +236,8 @@ jobs:
         # session writes a tool environment through the real tool path, or opens a serial
         # device, or is let to start an upload; a plain build whose own project file starts a
         # flash finds the device denied; the environment's
-        # own servers answer with the pinned libraries, to the pinned binary too. Then
+        # own servers answer with the pinned libraries, to the pinned binary too; every program
+        # the environment installs is one the hardware rule has classed. Then
         # every row is counted: a file that skipped here ran nowhere on Linux, so a skip
         # is a failure, as is a run that collected nothing.
         env:
@@ -252,6 +253,7 @@ jobs:
             tests/integration/hooks/test_a_plain_build_told_to_flash_finds_no_device_inside_the_os_layer.py \
             tests/integration/toolenv/test_the_own_tool_servers_compute_with_the_pinned_libraries.py \
             tests/integration/toolenv/test_provisioning_finds_its_own_interpreter_from_any_working_directory.py \
+            tests/integration/toolenv/test_every_program_the_tool_environment_installs_is_classed_for_the_hardware_rule.py \
             || status=$?
           python3 - "$RUNNER_TEMP/rows.xml" "$status" <<'PY'
           import sys
