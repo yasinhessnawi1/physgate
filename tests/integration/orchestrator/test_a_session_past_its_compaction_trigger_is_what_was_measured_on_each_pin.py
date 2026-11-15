@@ -5,25 +5,25 @@ binary does at a compaction was measured. These rows measure it at the scripted 
 reviewer's model string, with the verdict tool offered (``--json-schema``), in a non-interactive
 session, and hold each pin to what it did. No model is called and no credential is loaded.
 
-- B1: a context past the trigger is compacted: one compaction request, one ``compact_boundary``
+- A context past the trigger is compacted: one compaction request, one ``compact_boundary``
   event whose ``compact_metadata`` names ``trigger``, ``pre_tokens``, ``post_tokens``,
   ``cumulative_dropped_tokens`` and ``duration_ms``; then the session goes on and gives its
   structured answer.
-- B2: every request, the compaction's own and those after it, offers the same tools and the
+- Every request, the compaction's own and those after it, offers the same tools and the
   verdict tool with the same schema bytes.
-- B3: the compaction call's usage is no message of the stream; the result's ``modelUsage``
+- The compaction call's usage is no message of the stream; the result's ``modelUsage``
   includes it, its ``usage`` does not, and after a resume ``modelUsage`` is the whole session's,
   the compaction counted once. The account read from the stream therefore differs from the
   binary's totals by exactly the compaction call.
-- B4: the session-start hook runs again after the compaction with ``source: "compact"`` and the
+- The session-start hook runs again after the compaction with ``source: "compact"`` and the
   same session id, and the context it returns reaches the next request, without the one it
   returned at the start.
-- B5: where the trigger sits against the context the last message reported, with the run's
+- Where the trigger sits against the context the last message reported, with the run's
   output cap and with a small one.
-- B6: a compaction that cannot keep up ends the session at the binary's own limit, which a
+- A compaction that cannot keep up ends the session at the binary's own limit, which a
   review names ``context_exceeded``: a context that refills at once (``rapid_refill_breaker``)
   and a compaction request refused as too long (``blocking_limit``).
-- B7: a resume of a session that compacted starts from the summary, runs the session-start hook
+- A resume of a session that compacted starts from the summary, runs the session-start hook
   with ``source: "resume"`` and the same session id, and shows no boundary again.
 """
 
@@ -85,8 +85,6 @@ class Pin:
     #: ``pre_tokens`` less the context the last message reported: the binary's own estimate of
     #: what it added since.
     pre_over_reported: int
-    #: ``post_tokens`` after a compaction answered with the endpoint's summary.
-    post_tokens: int
     #: The least reported context that compacts, by output cap: the window (1,000,000) less the
     #: cap (counted up to 20,000) less about 3,000.
     first_compacting: dict[int, int]
@@ -97,13 +95,11 @@ class Pin:
 PINS: dict[str, Pin] = {
     "2.1.301": Pin(
         pre_over_reported=25,
-        post_tokens=588,
         first_compacting={1000: 995_968, RUN_OUTPUT_CAP: 976_968},
         refused_compaction_requests=2,
     ),
     "2.1.322": Pin(
         pre_over_reported=3,
-        post_tokens=611,
         first_compacting={1000: 995_997, RUN_OUTPUT_CAP: 976_997},
         refused_compaction_requests=3,
     ),
@@ -156,7 +152,7 @@ def _probe(body: dict[str, Any], source: str) -> bool:
     return (PROBE_CONTEXT + source) in json.dumps(body)
 
 
-def test_b1_a_context_past_the_trigger_is_compacted_and_the_session_gives_its_answer(
+def test_a_context_past_the_trigger_is_compacted_and_the_session_gives_its_answer(
     binary: str, tmp_path: Path
 ) -> None:
     ran = _compacted_once(binary, tmp_path)
@@ -169,8 +165,11 @@ def test_b1_a_context_past_the_trigger_is_compacted_and_the_session_gives_its_an
     assert set(metadata) == METADATA
     assert metadata["trigger"] == "auto"
     assert metadata["pre_tokens"] == PAST + pin.pre_over_reported
-    assert metadata["post_tokens"] == pin.post_tokens
-    assert metadata["cumulative_dropped_tokens"] == metadata["pre_tokens"] - pin.post_tokens
+    # The size after it counts the session's own prompt, so it varies with the directory's
+    # name: held only to lie between nothing and the size before.
+    assert 0 < metadata["post_tokens"] < metadata["pre_tokens"]
+    dropped = metadata["pre_tokens"] - metadata["post_tokens"]
+    assert metadata["cumulative_dropped_tokens"] == dropped
     assert isinstance(metadata["duration_ms"], int)
     # The binary says it is compacting, and that it succeeded, before the boundary.
     statuses = [
@@ -191,7 +190,7 @@ def test_b1_a_context_past_the_trigger_is_compacted_and_the_session_gives_its_an
     assert off is not None and off[0] == "compacted"
 
 
-def test_b2_every_request_offers_the_same_tools_and_the_same_verdict_schema_bytes(
+def test_every_request_offers_the_same_tools_and_the_same_verdict_schema_bytes(
     binary: str, tmp_path: Path
 ) -> None:
     ran = _compacted_once(binary, tmp_path)
@@ -204,7 +203,7 @@ def test_b2_every_request_offers_the_same_tools_and_the_same_verdict_schema_byte
     assert ran.after_compaction() and "StructuredOutput" in _tools(ran.after_compaction()[0])
 
 
-def test_b3_the_compaction_call_is_in_the_binary_s_totals_and_no_message_of_the_stream(
+def test_the_compaction_call_is_in_the_binary_s_totals_and_no_message_of_the_stream(
     binary: str, tmp_path: Path
 ) -> None:
     session = Session(binary, tmp_path)
@@ -235,7 +234,7 @@ def test_b3_the_compaction_call_is_in_the_binary_s_totals_and_no_message_of_the_
     assert all(u.usage.input_tokens != COMPACT_USAGE["input_tokens"] for u in more)
 
 
-def test_b4_the_session_start_hook_runs_after_the_compaction_and_its_context_is_delivered(
+def test_the_session_start_hook_runs_after_the_compaction_and_its_context_is_delivered(
     binary: str, tmp_path: Path
 ) -> None:
     ran = _compacted_once(binary, tmp_path)
@@ -261,7 +260,7 @@ def test_b4_the_session_start_hook_runs_after_the_compaction_and_its_context_is_
 
 
 @pytest.mark.parametrize("cap", [1000, RUN_OUTPUT_CAP])
-def test_b5_the_trigger_sits_where_it_was_measured_against_the_reported_context(
+def test_the_trigger_sits_where_it_was_measured_against_the_reported_context(
     binary: str, tmp_path: Path, cap: int
 ) -> None:
     env = {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(cap)}
@@ -276,7 +275,7 @@ def test_b5_the_trigger_sits_where_it_was_measured_against_the_reported_context(
     assert totals["contextWindow"] == 1_000_000
 
 
-def test_b6a_a_context_that_refills_at_once_ends_at_the_binary_s_breaker(
+def test_a_context_that_refills_at_once_ends_at_the_binary_s_breaker(
     binary: str, tmp_path: Path
 ) -> None:
     ran = Session(binary, tmp_path).run([_read(PAST)] * 12, max_turns=30)
@@ -295,7 +294,7 @@ def test_b6a_a_context_that_refills_at_once_ends_at_the_binary_s_breaker(
     assert _model_usage(ran) == {f: streamed[f] + 3 * COMPACT_USAGE[f] for f in FIELDS}
 
 
-def test_b6b_a_compaction_refused_as_too_long_ends_at_the_binary_s_limit(
+def test_a_compaction_refused_as_too_long_ends_at_the_binary_s_limit(
     binary: str, tmp_path: Path
 ) -> None:
     too_long = failure(400, "invalid_request_error", "prompt is too long: 1010000 tokens > 1000000")
@@ -320,7 +319,7 @@ def test_b6b_a_compaction_refused_as_too_long_ends_at_the_binary_s_limit(
     require_matching_totals(result, usage)
 
 
-def test_b7_a_resume_of_a_compacted_session_starts_from_its_summary(
+def test_a_resume_of_a_compacted_session_starts_from_its_summary(
     binary: str, tmp_path: Path
 ) -> None:
     session = Session(binary, tmp_path)
