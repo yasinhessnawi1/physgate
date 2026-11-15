@@ -72,7 +72,9 @@ def evidence_runs(out: Path) -> EvidenceRuns:
     for root in tier:
         root.mkdir(parents=True)
         (root / "task.json").write_text("{}\n")
-    measured = {"harness": CLEAN, "os_layer": LAYER, "os_layer_absent": "refuse"}
+    # The rig's loop records the layer only once it runs, so its runs allow the absence as the
+    # rig's own do; the command's requirement that a measured run refuses it is not asked here.
+    measured = {"harness": CLEAN, "os_layer": LAYER}
     gate = rig.Gate(fail_on={1})
     rig.fake_run(
         runs,
