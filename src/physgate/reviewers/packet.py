@@ -19,9 +19,12 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
   from :data:`EARLIER_HIT_LINES` lines before the call to as many after the end of the result,
   clipped to the session, windows that overlap shown once (:func:`hit_excerpts`). Each excerpt
   is a byte-exact slice of the earlier rendering under a harness line naming the earlier part
-  and the lines it is cut from, and the markers it shows. A marker whose call cannot be found
-  among the harness lines brings its whole session. These are the earlier attempts' required
-  reading; their whole streams stay readable on request.
+  and the lines it is cut from, and the markers it shows. An excerpt never shows the session's
+  data outside a fence: an edge inside a data block moves out to the block's end, or, past
+  :data:`EARLIER_HIT_SNAP_LINES`, the cut piece stands between the block's own fence lines
+  under a harness line naming where the rest is. A marker whose call cannot be found among the
+  harness lines brings its whole session. These are the earlier attempts' required reading;
+  their whole streams stay readable on request.
 - ``worktree/``: the attempt's commit, exported. Not the implementing session's
   worktree: an export holds exactly what was committed, and no ``.git`` that points
   back into the target repository. A symbolic link in the commit is written as a
@@ -154,6 +157,12 @@ EARLIER_HITS_PART = "earlier-hits-{n:02d}-of-{total:02d}.md"
 #: How many lines of the earlier rendering an excerpt shows before a marker's tool call, and
 #: after the end of its tool result.
 EARLIER_HIT_LINES = 40
+#: How many lines an excerpt's edge that falls inside a data block may move out to reach the
+#: block's end: as many as the window shows around a marker, so moving at most doubles that side.
+#: A block whose end is farther is cut, and the piece shown keeps the block's own fence lines.
+EARLIER_HIT_SNAP_LINES = 40
+#: The harness line over a data block an excerpt cuts; the lines are named as the heading names.
+EARLIER_HIT_CUT = "## data block cut: the rest is {lines}"
 DIFF_PART = "diff-{n:02d}-of-{total:02d}.patch"
 #: The names of the parts the listing of the read directory is issued in.
 FILES_PART = "files-{n:02d}-of-{total:02d}.md"
@@ -778,6 +787,72 @@ def _where(starts: list[tuple[int, str]], index: int) -> tuple[str, int]:
     return name, index - begun + 1
 
 
+def _named(starts: list[tuple[int, str]], start: int, end: int) -> str:
+    """The rendering's lines ``start`` to ``end`` named by the part and lines that hold them."""
+    first_part, first_line = _where(starts, start)
+    last_part, last_line = _where(starts, end)
+    if first_part == last_part:
+        return f"{first_part} lines {first_line}-{last_line}"
+    return f"{first_part} line {first_line} to {last_part} line {last_line}"
+
+
+def _block_at(units: list[_Unit], index: int) -> _Unit | None:
+    """The data block the rendering's line ``index`` lies in, its fences counted; else ``None``."""
+    return next((u for u in units if u.data and u.first <= index <= u.last), None)
+
+
+class _Window(NamedTuple):
+    """One excerpt: its first and last line, its markers, and the block each edge cuts, if any."""
+
+    start: int
+    end: int
+    hits: list[ScanHit]
+    units: list[_Unit]
+    cut_start: _Unit | None = None
+    cut_end: _Unit | None = None
+
+
+def _fenced(window: _Window) -> _Window:
+    """The window with each edge that falls inside a data block moved to the block's end.
+
+    An edge on a block's far fence alone moves in past it, which shows no data. An edge whose
+    block ends more than :data:`EARLIER_HIT_SNAP_LINES` away stays, and that block is cut.
+    """
+    start, end = window.start, window.end
+    cut_start = cut_end = None
+    block = _block_at(window.units, start)
+    if block is not None and start != block.first:
+        if start == block.last:
+            start += 1
+        elif start - block.first <= EARLIER_HIT_SNAP_LINES:
+            start = block.first
+        else:
+            cut_start = block
+    block = _block_at(window.units, end)
+    if block is not None and end != block.last:
+        if end == block.first:
+            end -= 1
+        elif block.last - end <= EARLIER_HIT_SNAP_LINES:
+            end = block.last
+        else:
+            cut_end = block
+    return window._replace(start=start, end=end, cut_start=cut_start, cut_end=cut_end)
+
+
+def _merged(windows: list[_Window]) -> list[_Window]:
+    """The windows in order, those that overlap or touch shown once; each keeps its outer edges."""
+    merged: list[_Window] = []
+    for window in sorted(windows, key=lambda w: (w.start, w.end)):
+        if merged and window.start <= merged[-1].end + 1:
+            before = merged[-1]
+            hits = before.hits + [h for h in window.hits if h not in before.hits]
+            later = window if window.end > before.end else before
+            merged[-1] = before._replace(end=later.end, hits=hits, cut_end=later.cut_end)
+        else:
+            merged.append(window)
+    return merged
+
+
 def hit_excerpts(earlier: Earlier, parts: list[tuple[str, bytes]]) -> bytes:
     """Each of the earlier hits' tool call and result with the lines around it, as shown.
 
@@ -787,13 +862,20 @@ def hit_excerpts(earlier: Earlier, parts: list[tuple[str, bytes]]) -> bytes:
     once. Each window is a byte-exact slice, under a harness line naming the part (``parts``,
     the rendering as issued) and the lines it is cut from, and the markers it shows; the windows
     stand one after another, an empty line between. Empty when no hit is found.
+
+    No line of the session's data is shown outside a fence (:func:`_fenced`). Where a block is
+    cut, the piece shown stands between the block's own fence lines, the session's nonce on
+    each, so the fence on its cut side is a copy of that line; :data:`EARLIER_HIT_CUT` before
+    the block names its other lines. The nonce is the one the session's rendering is fenced
+    with, held apart from every earlier stream when it was drawn (:func:`_rendered_earlier`).
     """
     lines = earlier.data.splitlines(keepends=True)
-    windows: list[tuple[int, int, list[ScanHit]]] = []
+    windows: list[_Window] = []
     for session in earlier.sessions:
         if not session.hits:
             continue
         units = _units(lines, session)
+        found: list[_Window] = []
         for hit in session.hits:
             span = _hit_span(units, hit)
             if span is None:
@@ -804,35 +886,39 @@ def hit_excerpts(earlier: Earlier, parts: list[tuple[str, bytes]]) -> bytes:
             # A window never ends on a lone carriage return: the empty line after it would join it.
             while not lines[end].endswith(b"\n") and end + 1 < session.end:
                 end += 1
-            windows.append((start, end, [hit]))
-    merged: list[tuple[int, int, list[ScanHit]]] = []
-    for start, end, shown in sorted(windows, key=lambda w: (w[0], w[1])):
-        if merged and start <= merged[-1][1] + 1:
-            first, last, before = merged[-1]
-            merged[-1] = (first, max(last, end), before + [h for h in shown if h not in before])
-        else:
-            merged.append((start, end, shown))
+            found.append(_Window(start, end, [hit], units))
+        windows += _merged([_fenced(window) for window in _merged(found)])
     starts: list[tuple[int, str]] = []
     at = 0
     for name, body in parts:
         starts.append((at, name))
         at += len(body.splitlines())
     blocks = []
-    for start, end, shown in merged:
-        first_part, first_line = _where(starts, start)
-        last_part, last_line = _where(starts, end)
-        lines_named = (
-            f"{first_part} lines {first_line}-{last_line}"
-            if first_part == last_part
-            else f"{first_part} line {first_line} to {last_part} line {last_line}"
-        )
+    for window in windows:
+        start, end = window.start, window.end
         markers = " | ".join(
             f"attempt {hit.attempt}, {hit.kind}, evidence {harness_value(hit.evidence)}"
-            for hit in shown
+            for hit in window.hits
         )
-        heading = "\n".join(cut_line(f"## {lines_named} | {markers}")) + "\n"
-        blocks.append(heading.encode("utf-8") + b"".join(lines[start : end + 1]))
+        heading = "\n".join(cut_line(f"## {_named(starts, start, end)} | {markers}")) + "\n"
+        shown = [heading.encode("utf-8")]
+        if window.cut_start:
+            block = window.cut_start
+            shown += [_cut(_named(starts, block.first, start - 1)), lines[block.first]]
+        if window.cut_end:
+            block = window.cut_end
+            shown += lines[start : block.first]
+            shown += [_cut(_named(starts, end + 1, block.last))]
+            shown += [*lines[block.first : end + 1], lines[block.last]]
+        else:
+            shown += lines[start : end + 1]
+        blocks.append(b"".join(shown))
     return b"\n".join(blocks)
+
+
+def _cut(rest: str) -> bytes:
+    """The harness line over a data block an excerpt cuts, naming where its other lines are."""
+    return ("\n".join(cut_line(EARLIER_HIT_CUT.format(lines=rest))) + "\n").encode("utf-8")
 
 
 def split_parts(data: bytes, pattern: str) -> list[tuple[str, bytes]]:
@@ -1396,7 +1482,8 @@ def _check_earlier(packet: Packet, artefact: Artefact, read: Path) -> None:
     if [(p.name, p.sha256) for p in packet.earlier_parts] != [(n, _digest(b)) for n, b in cut]:
         msg = "the earlier attempts' parts are not their rendering cut as it is issued"
         raise PacketError(msg, read=str(read))
-    # Each excerpt made again from the rendering: the slice it names, under the heading it has.
+    # Each excerpt made again from the rendering: the slice it names, under the heading it has,
+    # each cut block between its session's own fence lines.
     excerpts = hit_excerpts(earlier, cut)
     _issued(read, packet.earlier_hit_parts, "an earlier marker's excerpt")
     expected = split_parts(excerpts, EARLIER_HITS_PART) if excerpts else []

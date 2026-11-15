@@ -1,0 +1,242 @@
+[
+ {
+  "name": "f01-start-bound-strict",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        elif start - block.first <= EARLIER_HIT_SNAP_LINES:\n",
+  "new": "        elif start - block.first < EARLIER_HIT_SNAP_LINES:\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f02-end-bound-strict",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        elif block.last - end <= EARLIER_HIT_SNAP_LINES:\n",
+  "new": "        elif block.last - end < EARLIER_HIT_SNAP_LINES:\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f03-bound-never-cuts",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "EARLIER_HIT_SNAP_LINES = 40\n",
+  "new": "EARLIER_HIT_SNAP_LINES = 100_000\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f04-bound-always-cuts",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "EARLIER_HIT_SNAP_LINES = 40\n",
+  "new": "EARLIER_HIT_SNAP_LINES = 0\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f05-start-far-fence-kept",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        if start == block.last:\n            start += 1\n",
+  "new": "        if start == block.last:\n            pass\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f06-end-far-fence-kept",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        if end == block.first:\n            end -= 1\n",
+  "new": "        if end == block.first:\n            pass\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f07-start-never-fenced",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "    if block is not None and start != block.first:\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f08-end-never-fenced",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "    if block is not None and end != block.last:\n",
+  "new": "    if False:\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f09-no-second-merge",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        windows += _merged([_fenced(window) for window in _merged(found)])\n",
+  "new": "        windows += [_fenced(window) for window in _merged(found)]\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f10-merge-loses-later-cut",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            merged[-1] = before._replace(end=later.end, hits=hits, cut_end=later.cut_end)\n",
+  "new": "            merged[-1] = before._replace(end=later.end, hits=hits, cut_end=before.cut_end)\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f11-merge-loses-hits",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            hits = before.hits + [h for h in window.hits if h not in before.hits]\n",
+  "new": "            hits = before.hits\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f12-block-at-fences-excluded",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "    return next((u for u in units if u.data and u.first <= index <= u.last), None)\n",
+  "new": "    return next((u for u in units if u.data and u.first < index < u.last), None)\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f13-start-cut-without-its-fence",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            shown += [_cut(_named(starts, block.first, start - 1)), lines[block.first]]\n",
+  "new": "            shown += [_cut(_named(starts, block.first, start - 1))]\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f14-start-cut-without-cut-line",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            shown += [_cut(_named(starts, block.first, start - 1)), lines[block.first]]\n",
+  "new": "            shown += [lines[block.first]]\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f15-start-rest-off",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            shown += [_cut(_named(starts, block.first, start - 1)), lines[block.first]]\n",
+  "new": "            shown += [_cut(_named(starts, block.first, start)), lines[block.first]]\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f16-end-rest-off",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            shown += [_cut(_named(starts, end + 1, block.last))]\n",
+  "new": "            shown += [_cut(_named(starts, end, block.last))]\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f17-end-cut-without-cut-line",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            shown += [_cut(_named(starts, end + 1, block.last))]\n",
+  "new": "            shown += []\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f18-end-cut-left-open",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            shown += [*lines[block.first : end + 1], lines[block.last]]\n",
+  "new": "            shown += lines[block.first : end + 1]\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f19-end-cut-closed-by-wrong-line",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            shown += [*lines[block.first : end + 1], lines[block.last]]\n",
+  "new": "            shown += [*lines[block.first : end + 1], lines[block.first]]\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f20-end-lines-before-dropped",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "            shown += lines[start : block.first]\n",
+  "new": "            shown += []\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f21-start-cut-ignored",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        if window.cut_start:\n            block = window.cut_start\n",
+  "new": "        if False:\n            block = window.cut_start\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f22-end-cut-ignored",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        if window.cut_end:\n            block = window.cut_end\n",
+  "new": "        if False:\n            block = window.cut_end\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f23-cut-line-reworded",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "EARLIER_HIT_CUT = \"## data block cut: the rest is {lines}\"\n",
+  "new": "EARLIER_HIT_CUT = \"## the rest is {lines}\"\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ },
+ {
+  "name": "f24-earlier-nonce-not-held-from-streams",
+  "file": "src/physgate/reviewers/packet.py",
+  "old": "        if not taken and not any(candidate in stream for stream in streams):\n",
+  "new": "        if not taken:\n",
+  "tests": [
+   "tests/unit/reviewers/test_an_earlier_marker_s_excerpt_never_shows_session_data_outside_a_fence.py",
+   "tests/unit/reviewers/test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it.py"
+  ]
+ }
+]
