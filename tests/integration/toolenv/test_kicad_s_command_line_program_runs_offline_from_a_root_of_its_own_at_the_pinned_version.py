@@ -140,7 +140,7 @@ def _offline() -> list[str]:
         socket.create_connection(OUTSIDE, 5).close()
     except OSError:
         return []
-    pytest.fail("the network is reachable here and nothing can take it away")
+    pytest.skip("this machine can take the network from no single process, and has it")
 
 
 def test_the_program_answers_the_pinned_version_offline_and_writes_nothing_into_its_root(
