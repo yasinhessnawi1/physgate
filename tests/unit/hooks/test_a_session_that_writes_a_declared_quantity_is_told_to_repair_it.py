@@ -191,10 +191,19 @@ def test_a_session_cannot_take_an_edge_from_a_declared_node(
     _joined(config)
     told = _write(config, MOTOR, {**_with({"mass": _declared()}), "constrains": edges})
     assert FIXED in told and dropped in told
-    assert "fixed by a person" in told and "edge" in told
+    assert "fixed by a person" in told and "you may add one" in told
 
 
 def test_a_session_may_still_add_an_edge_to_a_joined_declared_node(config: SessionConfig) -> None:
     _joined(config)
     more = {**_with({"mass": _declared()}), "constrains": [*EDGES, "electrical.imu"]}
     assert _write(config, MOTOR, more) == "allow"
+
+
+def test_a_constrains_that_is_not_a_list_keeps_no_edge_of_a_declared_node(
+    config: SessionConfig,
+) -> None:
+    # Both edges' names inside one string: read as a list of edges it would seem to keep them.
+    _joined(config)
+    told = _write(config, MOTOR, {**_with({"mass": _declared()}), "constrains": " ".join(EDGES)})
+    assert FIXED in told and "the edge to electrical.drive" in told
