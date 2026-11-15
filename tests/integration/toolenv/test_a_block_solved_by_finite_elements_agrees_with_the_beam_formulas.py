@@ -5,8 +5,8 @@ interpreter (scikit-fem on the pinned numpy and scipy), with the helpers of this
 home of its own and, where this machine can take it away, no network. It solves the fixture bar
 as a cantilever and as a simply supported beam and writes a result file for each.
 
-**Stated before the test** (the strength-check decision, and the ruling on slice 1c's open
-questions), for each of the two load cases on the fixture bar at the helper's default mesh:
+**Stated before the test**, so that no bound is fitted to what the solve happens to give, for
+each of the two load cases on the fixture bar at the helper's default mesh:
 
 1. the solve's deflection lies within 5 % of the beam formula's;
 2. its reactions sum to the applied load within 1e-6 of the load;

@@ -630,13 +630,37 @@ class GitChangeChecker:
             runner=self._regenerate,
             git_dir=pinned,
         )
-        if held is not None:
+        if held.refusal is not None:
             return ChangeCheck(
                 refused_by="exports",
-                reason=held.reason,
-                subject=held.subject,
+                reason=held.refusal.reason,
+                subject=held.refusal.subject,
                 graph_root=str(scratch),
+                exports_regenerated=held.regenerated,
             )
+        found = self._past_exports(
+            subtask_id, attempt_commit, role, base, pinned, scratch, series=series, follows=follows
+        )
+        # Whatever is decided past the exports, the check says how many sets it made again.
+        return found.model_copy(update={"exports_regenerated": held.regenerated})
+
+    def _past_exports(  # noqa: PLR0913 - the attempt and where the check stands
+        self,
+        subtask_id: str,
+        attempt_commit: str,
+        role: str,
+        base: str,
+        pinned: GitDir,
+        scratch: Path,
+        *,
+        series: SessionSeries | None,
+        follows: int | None,
+    ) -> ChangeCheck:
+        """The rest of :meth:`check` once the attempt's exports held: the declaration on."""
+        repo = self._run.repo
+        module_dir = self._module_dirs[subtask_id]
+        declares = declares_completion(role)
+        disputes = disputer_problem(role) is None
         # What the review may show of the attempt's exports by line, by the rule just passed.
         exported = admitted_exports(repo, base, attempt_commit, module_dir, git_dir=pinned)
         try:

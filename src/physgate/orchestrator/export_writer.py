@@ -9,10 +9,11 @@ enumeration those files hold is here, except the four labels the probe gave its 
 session chooses. A pin change that makes the writer write other words fails the offline proof's
 row that holds the fixtures to no free text, and the words are measured again.
 
-What the fixtures hold, counted as ``exports.FreeText`` counts it: no free text at all. The
-ruling's first measure, string bytes outside a STEP header, was 619 bytes in each fixture and up
-to 1,003 in the probe (``'2D SPACE'`` once for every curve on a face), so it grows with the shape
-and cannot be a budget; the bytes outside the writer's own strings and words do not grow.
+What the fixtures hold, counted as ``exports.FreeText`` counts it: no free text at all. A simpler
+measure, every string byte outside a STEP header, was 619 bytes in each fixture and up to 1,003
+in the probe (``'2D SPACE'`` once for every curve on a face), so it grows with the shape and
+cannot be a budget; the bytes outside the writer's own strings and words do not grow, which is
+why they are what the budget counts.
 """
 
 from __future__ import annotations

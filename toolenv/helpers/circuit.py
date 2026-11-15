@@ -14,8 +14,11 @@ A module's script names its schematic (``.kicad_sch``, written by hand or genera
 The program is given a copy of the schematic alone, in a folder made new for the call and
 removed after it: a project file beside the schematic, which would set the rules' severities,
 is never read, so every report is made with the release's own rules, and the commit check that
-regenerates the exports from the committed schematic (``python circuit.py regenerate``) gets
-the same bytes. A schematic that draws on a sub-sheet is refused: one sheet per schematic.
+regenerates the exports from the committed schematic (``python circuit.py regenerate --``) gets
+the same bytes. A schematic that draws on a sub-sheet is refused: one sheet per schematic. The
+schematic is read as one s-expression to find its sheet symbols (:func:`sheet_symbols`), the
+same way in a session and at commit; a file that cannot be read that way is refused too. The
+program's printed output is never read or held.
 
 The report's one date and the netlist's one date are set to a fixed time and the netlist's
 source to the schematic's path in the module, so one platform repeats a text export's bytes.
@@ -68,14 +71,63 @@ PARTS_LABELS = ("Reference", "Value", "Footprint", "Quantity", "DNP")
 _DATE_JSON = re.compile(rb'^\s*"date"\s*:\s*("[^"\n]*")', re.MULTILINE)
 _DATE_NET = re.compile(rb'\(date ("[^"\n]*")\)')
 _SOURCE_NET = re.compile(rb'\(source ("[^"\n]*")\)')
-#: A sheet symbol: the schematic draws on a sub-sheet, another file.
-_SUB_SHEET = re.compile(rb"\(\s*sheet\s")
+#: One token of a schematic's s-expression: a run of space, a parenthesis, a string in double
+#: quotes (a backslash escapes the byte after it), or a word of printable ASCII that ends at a
+#: space, a parenthesis or a quote. Any other byte outside a string matches the last
+#: alternative alone, and the file is not read: a control byte, a byte past ASCII, an unclosed
+#: string, and ``#``, which a reader might take for a comment, among them.
+_TOKEN = re.compile(rb'(\s+)|(\()|(\))|("(?:[^"\\]|\\.)*")|([!$-\'*-~]+)|(.)', re.DOTALL)
+#: The word that heads a sheet symbol: the schematic draws on a sub-sheet, another file.
+_SHEET = b"sheet"
 #: The exit code ``regenerate`` ends with when the schematic draws on a sub-sheet.
 SUB_SHEET_EXIT = 3
 
 
 class SubSheetRefusedError(HelperRefusedError):
     """The schematic draws on a sub-sheet; the helper works on one sheet per schematic."""
+
+
+#: The groups of :data:`_TOKEN`, by what each matched.
+_SPACE, _OPEN, _CLOSE, _STRING, _WORD, _OTHER = range(1, 7)
+#: Why a file is not read as a schematic.
+UNREADABLE = (
+    "the schematic is not one s-expression as KiCad writes one (lists in parentheses that all "
+    "close, strings in double quotes, words of printable ASCII, and nothing after the outermost "
+    "list); it is not checked or exported"
+)
+
+
+def sheet_symbols(body: bytes) -> int:
+    """How many lists of the schematic's one s-expression are headed by the word ``sheet``.
+
+    Read as tokens (:data:`_TOKEN`), so a sheet symbol is found however it is spaced:
+    ``(sheet (at``, ``(sheet(at`` and ``(sheet"`` alike, the word in any case or in quotes;
+    the same words inside a string, or as the start of a longer word (``sheet_instances``),
+    head nothing. The session's calls and the commit check's ``regenerate`` read a schematic
+    this one way, so an honest one is exported and regenerated alike.
+
+    Raises:
+        HelperRefusedError: the file is not one s-expression read that way (:data:`UNREADABLE`).
+    """
+    depth = heads = lists = previous = 0
+    for token in _TOKEN.finditer(body):
+        kind = token.lastindex
+        if kind == _SPACE:
+            continue
+        # Outside every list only the one outermost list may open, and nothing after it.
+        if kind == _OTHER or (not depth and (kind != _OPEN or lists)):
+            raise HelperRefusedError(UNREADABLE)
+        if previous == _OPEN and kind in (_STRING, _WORD):
+            word = token.group()[1:-1] if kind == _STRING else token.group()
+            if word.lower() == _SHEET:
+                heads += 1
+        if not depth:
+            lists += 1
+        depth += 1 if kind == _OPEN else -1 if kind == _CLOSE else 0
+        previous = kind
+    if depth or not lists:
+        raise HelperRefusedError(UNREADABLE)
+    return heads
 
 
 def _name(name: str) -> str:
@@ -93,7 +145,7 @@ def _places(schematic: str | os.PathLike[str], module: str | os.PathLike[str]) -
     if not os.path.isdir(folder):
         raise HelperRefusedError("the module is an existing folder")
     with open(path, "rb") as handle:
-        if _SUB_SHEET.search(handle.read()):
+        if sheet_symbols(handle.read()):
             raise SubSheetRefusedError(
                 "the schematic draws on a sub-sheet; one sheet per schematic is checked and "
                 "exported: draw the circuit in one sheet"
@@ -118,8 +170,14 @@ def _program() -> str:
 
 
 def _run(argv: list[str], cwd: str) -> int:
+    # What the program prints is never read, so none of it is held: its files are the answer.
     done = subprocess.run(  # noqa: S603 - the pinned program, with arguments built here
-        argv, cwd=cwd, capture_output=True, timeout=TIMEOUT_S, check=False
+        argv,
+        cwd=cwd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=TIMEOUT_S,
+        check=False,
     )
     return done.returncode
 
@@ -355,12 +413,17 @@ def regenerate(
 
 
 def main(argv: list[str]) -> int:
-    """``regenerate <schematic> <module> <name>``: the commit check's call; its exit code."""
-    if len(argv) != len(("regenerate", "schematic", "module", "name")) or argv[0] != "regenerate":
-        print("usage: circuit.py regenerate <schematic> <module> <name>", file=sys.stderr)
+    """``regenerate -- <schematic> <module> <name>``: the commit check's call; its exit code.
+
+    The commit check puts the end of the options before the paths, and the call is read only
+    in that shape.
+    """
+    shape = ("regenerate", "--", "schematic", "module", "name")
+    if len(argv) != len(shape) or argv[:2] != list(shape[:2]):
+        print("usage: circuit.py regenerate -- <schematic> <module> <name>", file=sys.stderr)
         return 2
     try:
-        regenerate(argv[1], argv[2], argv[3])
+        regenerate(argv[2], argv[3], argv[4])
     except SubSheetRefusedError as exc:
         print(exc, file=sys.stderr)
         return SUB_SHEET_EXIT

@@ -269,6 +269,10 @@ class ChangeCheck(_Frozen):
     #: The exports the commit-time rule admitted (``merge.admitted_exports``), for the attempt
     #: the reviewer is handed. Never on the change check's own line.
     exports: tuple[AdmittedExport, ...] = ()
+    #: How many sets of exports the check made again from their committed sources and found
+    #: equal (``derived.HeldExports.regenerated``): 0 when the change touched none, and
+    #: ``None`` when the check was refused before it reached the exports.
+    exports_regenerated: Annotated[int, Field(ge=0)] | None = None
 
 
 class WorktreeRemoval(_Frozen):

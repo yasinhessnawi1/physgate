@@ -23,12 +23,26 @@ removed after any outcome; nothing else of the role's tree is put there or named
 argument list.
 
 **What refuses.** A source without its whole set, a product without its source, two sources of
-one name, a product no recorded entry makes, no recorded environment or one that does not hold
-its record, a command that fails, times out, writes a product over its kind's cap or writes
-none, and any byte difference. A refusal names the file and says to regenerate; it never
+one name, a source whose name is not of the safe shape (:data:`SAFE_NAME`), a product no
+recorded entry makes, no recorded environment or one that does not hold its record, a command
+that fails, times out, passes a bound of the runner's, writes a product over its kind's cap or
+writes none, and any byte difference. A refusal names the file and says to regenerate; it never
 quotes a file's content. A command that fails is refused with the last line it wrote to its
 error stream, printable characters only and at most :data:`MAX_SAID` of them, so one failure
 can be told from another without reading the program's output.
+
+**What the machine does is a refusal too.** A folder or file that cannot be made, written or
+read, a wrapper program that is gone, a git read that fails, a bound the runner holds: each
+refuses the set with a short reason (the error's kind and the system's words for it, never a
+path or a program's text), and nothing of it escapes the change check. Anything else is a fault
+of this code and is raised as it is, so it is never taken for a pass.
+
+**The argument list.** The name is placed only once it has the safe shape, and the core puts
+the end of the options (``--``) before the first word that names the source, the module or the
+name, so nothing a role chose can be read as an option, whatever the recorded program parses.
+
+**What the check says.** Its result carries the number of sets made again and found equal: 0
+when the change touched none, so "nothing to check" is told apart from "every set held".
 
 This module decides and starts nothing: the runner it is given starts the command
 (:mod:`physgate.oslayer.regeneration` by default, inside the tool containment).
@@ -36,6 +50,7 @@ This module decides and starts nothing: the runner it is given starts the comman
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
@@ -56,10 +71,11 @@ from pydantic import (
     field_validator,
 )
 
-from physgate.orchestrator.exceptions import InvocationError
+from physgate.orchestrator.exceptions import GitError, InvocationError
 from physgate.orchestrator.exports import EXPORTS_DIR, SHOWN_IN_FULL, cap_of, suffix_of
 from physgate.orchestrator.git import GitDir, changes_between, git, git_blob
 from physgate.oslayer.containment import ContainmentError
+from physgate.oslayer.regeneration import RegenerationBoundError
 from physgate.toolenv.exceptions import ToolEnvironmentError
 from physgate.toolenv.record import ToolEnvironment
 from physgate.toolenv.session import wire
@@ -84,6 +100,13 @@ TOTAL_DEADLINE_S = 900.0
 MAX_SAID = 200
 #: The places an argument may name, and nothing else in braces.
 PLACES = frozenset({"interpreter", "root", "source", "module", "name"})
+#: The places whose words a role chose: the end of the options stands before the first of them.
+ROLE_PLACES = frozenset({"source", "module", "name"})
+#: The word that ends a program's options; the core places it, and a record may not.
+END_OF_OPTIONS = "--"
+#: The shape a source's name has before it is placed: no dash first, no space, nothing but
+#: lower-case letters, digits, ``-`` and ``_``, at most 64 characters.
+SAFE_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _PLACE = re.compile(r"\{([^{}]*)\}")
 _SUFFIX = r"^\.[a-z0-9_]+(\.[a-z0-9_]+)?$"
 
@@ -134,6 +157,9 @@ class Derivation(BaseModel):
         if argv[0] != "{interpreter}" and not argv[0].startswith("{root}/"):
             msg = "the command is the interpreter or a program beneath the root"
             raise ValueError(msg)
+        if END_OF_OPTIONS in argv:
+            msg = "the end of the options is placed by the core, not by the record"
+            raise ValueError(msg)
         return argv
 
 
@@ -159,14 +185,31 @@ class ExportRefusal:
     subject: str
 
 
+@dataclass(frozen=True)
+class HeldExports:
+    """What the change check found of a commit's exports."""
+
+    #: Why they are refused; ``None`` when every set the change touches held, or it touched none.
+    refusal: ExportRefusal | None
+    #: How many sets were made again from their committed sources and found equal to what was
+    #: committed, before any refusal: 0 when the change touched none.
+    regenerated: int = 0
+
+
+#: What making a set again can meet that is the machine's, not this code's: a folder or file
+#: that cannot be made, written or read (a wrapper program gone among them), a git read that
+#: fails, a bound the runner holds. Each refuses the set; any other error is raised as it is.
+_UNMADE: tuple[type[Exception], ...] = (OSError, GitError, RegenerationBoundError)
+
+
 def read_derivations(recorded: ToolEnvironment) -> tuple[Recipe, ...]:
     """Every entry of the record at the recorded roots; a root without the file adds none.
 
     Read only once the environment has been held to the run's record.
 
     Raises:
-        DerivedError: a file is no regular file, is too big, or is outside its shape; or two
-            entries derive from one suffix or make one kind.
+        DerivedError: a file cannot be read, is no regular file, is too big, or is outside its
+            shape; or two entries derive from one suffix or make one kind.
     """
     found: list[Recipe] = []
     for root in recorded.roots:
@@ -175,11 +218,15 @@ def read_derivations(recorded: ToolEnvironment) -> tuple[Recipe, ...]:
             info = path.lstat()
         except FileNotFoundError:
             continue
+        except OSError as exc:
+            raise DerivedError(_unreadable(path, exc)) from None
         if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_DERIVED_BYTES:
             msg = f"{path} is no regular file of at most {MAX_DERIVED_BYTES} bytes"
             raise DerivedError(msg)
         try:
             record = _Record.model_validate_json(path.read_bytes())
+        except OSError as exc:
+            raise DerivedError(_unreadable(path, exc)) from None
         except ValidationError as exc:
             msg = f"{path} is outside its shape: {exc.errors()[0]['msg']}"
             raise DerivedError(msg) from None
@@ -258,23 +305,50 @@ def held_exports(  # noqa: PLR0913 - the change and the two ways to act on it
     environment: Callable[[], ToolEnvironment | None],
     runner: Runner,
     git_dir: GitDir | None = None,
-) -> ExportRefusal | None:
+) -> HeldExports:
     """Why the exports ``commit`` holds in ``module_dir`` are not what their sources produce.
 
-    ``None`` when every set the change from ``base`` touches regenerates to the committed
-    bytes, or when it touches none. A change that touches nothing in the module asks for
-    nothing. Otherwise ``environment`` holds the run's tool environment to its record and
-    gives it (``None`` for a run that names none), raising
-    :class:`~physgate.orchestrator.exceptions.InvocationError` when it does not hold; which
-    files are sources, and how each is made again, are read from the held environment, and
-    only from it.
+    No refusal when every set the change from ``base`` touches regenerates to the committed
+    bytes, or when it touches none; the result counts the sets made again and found equal. A
+    change that touches nothing in the module asks for nothing. Otherwise ``environment``
+    holds the run's tool environment to its record and gives it (``None`` for a run that names
+    none), raising :class:`~physgate.orchestrator.exceptions.InvocationError` when it does not
+    hold; which files are sources, and how each is made again, are read from the held
+    environment, and only from it.
     """
     module = PurePosixPath(module_dir)
+    picked = _picked(repo, base, commit, module, environment, git_dir)
+    if isinstance(picked, ExportRefusal):
+        return HeldExports(refusal=picked)
+    deadline = time.monotonic() + TOTAL_DEADLINE_S
+    for done, (found, held) in enumerate(picked):
+        try:
+            refusal = _regenerated(repo, commit, module, found, held, runner, git_dir, deadline)
+        except _UNMADE as exc:
+            refusal = _unmade(found.sources[0], exc)
+        if refusal is not None:
+            return HeldExports(refusal=refusal, regenerated=done)
+    return HeldExports(refusal=None, regenerated=len(picked))
+
+
+def _picked(  # noqa: PLR0911 - each refusal is its own return
+    repo: Path,
+    base: str,
+    commit: str,
+    module: PurePosixPath,
+    environment: Callable[[], ToolEnvironment | None],
+    git_dir: GitDir | None,
+) -> ExportRefusal | list[tuple[_Set, ToolEnvironment]]:
+    """The sets the change touches, each with the held environment, or why none may be made.
+
+    Empty when the change asks for nothing: it touches nothing in the module, or the run names
+    no tool environment and no export is shown.
+    """
     exports_dir = module / EXPORTS_DIR
     changed = [c.path for c in changes_between(repo, base, commit, git_dir=git_dir)]
     changed = [path for path in changed if module in PurePosixPath(path).parents]
     if not changed:
-        return None
+        return []
     shown = [p for p in changed if PurePosixPath(p).parent == exports_dir]
     shown = [p for p in shown if suffix_of(p) in SHOWN_IN_FULL]
     first = (shown or changed)[0]
@@ -290,7 +364,7 @@ def held_exports(  # noqa: PLR0913 - the change and the two ways to act on it
         )
     if held is None:
         if not shown:
-            return None
+            return []
         return ExportRefusal(
             reason=(
                 f"{shown[0]} is an export made from a source, and the run records no tool "
@@ -332,14 +406,55 @@ def held_exports(  # noqa: PLR0913 - the change and the two ways to act on it
         )
     for found in chosen:
         refusal = _paired(found, exports_dir)
+        if refusal is None:
+            refusal = _named(found)
         if refusal is not None:
             return refusal
-    deadline = time.monotonic() + TOTAL_DEADLINE_S
-    for found in chosen:
-        refusal = _regenerated(repo, commit, module, found, held, runner, git_dir, deadline)
-        if refusal is not None:
-            return refusal
-    return None
+    return [(found, held) for found in chosen]
+
+
+def _named(found: _Set) -> ExportRefusal | None:
+    """Why a set's name may not be placed on the argument list, if it may not."""
+    if SAFE_NAME.fullmatch(found.stem):
+        return None
+    source = found.sources[0]
+    return ExportRefusal(
+        reason=(
+            f"{source} has a name an export may not have: lower-case letters, digits, - and _, "
+            "a letter or a digit first, at most 64 characters; rename it and regenerate"
+        ),
+        subject=source,
+    )
+
+
+def _unmade(source: str, exc: Exception) -> ExportRefusal:
+    """The refusal of a set the machine stopped from being made again: short, and bounded."""
+    return ExportRefusal(
+        reason=(
+            f"the exports of {source} could not be made again here ({_words_of(exc)}); the "
+            "exports are refused"
+        ),
+        subject=source,
+    )
+
+
+def _words_of(exc: Exception) -> str:
+    """The kind of ``exc``, and the system's or the runner's own words for it, cut to a line.
+
+    Never a path or a program's text: an error of the system says its words (``strerror``),
+    the runner's bound says the bound, and every other kind says its kind alone.
+    """
+    said = ""
+    if isinstance(exc, RegenerationBoundError):
+        said = str(exc)
+    elif isinstance(exc, OSError):
+        said = exc.strerror or ""
+    said = last_line(said)
+    return f"{type(exc).__name__}: {said}" if said else type(exc).__name__
+
+
+def _unreadable(path: Path, exc: OSError) -> str:
+    return f"{path} cannot be read ({_words_of(exc)})"
 
 
 def _paired(found: _Set, exports_dir: PurePosixPath) -> ExportRefusal | None:
@@ -433,7 +548,7 @@ def _run_and_compare(  # noqa: PLR0911, PLR0913 - each refusal is its own return
         "module": str(placed),
         "name": found.stem,
     }
-    argv = [_PLACE.sub(lambda m: places[m.group(1)], word) for word in derivation.argv]
+    argv = _argv(derivation.argv, places)
     left = deadline - time.monotonic()
     given = min(float(derivation.timeout_s), left)
     if given <= 0:
@@ -467,6 +582,22 @@ def _run_and_compare(  # noqa: PLR0911, PLR0913 - each refusal is its own return
         if refusal is not None:
             return refusal
     return None
+
+
+def _argv(words: Sequence[str], places: Mapping[str, str]) -> list[str]:
+    """The record's words with each place filled in one pass, and the end of the options first.
+
+    :data:`END_OF_OPTIONS` stands once, before the first word that names a place a role chose,
+    so no such word is read as an option, whatever the program parses.
+    """
+    argv: list[str] = []
+    ended = False
+    for word in words:
+        if not ended and ROLE_PLACES & set(_PLACE.findall(word)):
+            argv.append(END_OF_OPTIONS)
+            ended = True
+        argv.append(_PLACE.sub(lambda m: places[m.group(1)], word))
+    return argv
 
 
 def last_line(said: str) -> str:
@@ -544,5 +675,7 @@ def _remove(work: Path) -> None:
         for name in directories:
             path = os.path.join(folder, name)
             if not os.path.islink(path):
-                os.chmod(path, 0o700)  # noqa: S103 - a folder this module made
+                # Gone since it was listed, or not this module's to change: left as it is.
+                with contextlib.suppress(OSError):
+                    os.chmod(path, 0o700)  # noqa: S103 - a folder this module made
     shutil.rmtree(work, ignore_errors=True)

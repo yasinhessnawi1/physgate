@@ -820,7 +820,7 @@ class Raising(Runs):
 @pytest.mark.parametrize(
     ("error", "kind"),
     [
-        (FileNotFoundError(errno.ENOENT, "No such file or directory", "bwrap"), "FileNotFoundError"),
+        (FileNotFoundError(errno.ENOENT, "No such file or directory", "bwrap"), "FileNotFound"),
         (PermissionError(errno.EACCES, "Permission denied", "sandbox-exec"), "PermissionError"),
         (OSError(errno.EIO, "Input/output error"), "OSError"),
     ],

@@ -415,7 +415,7 @@ def test_provisioning_records_how_the_exports_are_regenerated() -> None:
     assert "sub-sheet" in entry["refusals"]["3"]
 
 
-# ---- the schematic read as one s-expression: every form of a sheet symbol, and what is not one ----
+# ---- the schematic read as one s-expression: every form of a sheet symbol, and what is none ----
 
 #: A sheet symbol as KiCad writes it, and as a reader that ends a word at a parenthesis or a quote
 #: reads one: each draws on a sub-sheet.
