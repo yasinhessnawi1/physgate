@@ -377,7 +377,14 @@ def test_a_dropped_part_may_be_a_link_out_of_the_tree_which_is_then_not_copied(
     tree = _release(tmp_path)
     (tree / "shared" / "settings.py").symlink_to("/etc/a-host-file.py")
     into = tmp_path / "copy"
-    counts = _copied(tree, into, ("usr/shared/settings.py",))
+    counts: object = None
+
+    def copy() -> None:
+        nonlocal counts
+        counts = _copied(tree, into, ("usr/shared/settings.py",))
+
+    raised = _raised(copy)
+    assert raised is None, repr(raised)
     assert not os.path.lexists(into / "shared" / "settings.py")
     assert isinstance(counts, dict) and counts.get("dropped") == ["usr/shared/settings.py"]
     assert manifest([into]).entries > 8
