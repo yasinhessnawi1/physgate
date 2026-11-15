@@ -84,6 +84,7 @@ REPORTED: tuple[str, ...] = (
     "escalation_backend",
     "queue_decisions",
     "design_review",
+    "parts_on_hand",
     "reportable",
     "ablation",
     "os_layer",

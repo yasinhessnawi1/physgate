@@ -31,6 +31,7 @@ from physgate.flags import (
     DesignReview,
     Hooks,
     OsLayerAbsent,
+    PartsOnHand,
     QueueDecisions,
     Reviewers,
     Skills,
@@ -388,6 +389,10 @@ class RunConfig(_Frozen):
     #: recorded before the field existed reviewed none, and reads as ``off``.
     design_review: DesignReview
 
+    #: Whether the run asks which parts a person has or can make before anything is dispatched
+    #: (ARCH-122), a flag of the register. Required, never taken from the environment. A run
+    #: recorded before the field existed asked nothing, and reads as ``off``.
+    parts_on_hand: PartsOnHand
     #: Who reviews a role's work (ARCH-140), a flag of the register. Required, never taken from
     #: the environment. A run recorded before the field existed was reviewed by the paired
     #: specialists, and reads as ``paired``.
@@ -478,6 +483,20 @@ class RunConfig(_Frozen):
         return self
 
     @model_validator(mode="after")
+    def _asking_about_parts_needs_decisions_that_act(self) -> RunConfig:
+        # A run that asks holds every dispatch until a person has decided each part, and what
+        # they state is written into the graph from their decisions. A run that only records
+        # decisions takes none, so it would hold for ever, or go on without what was asked.
+        if self.parts_on_hand == "on" and self.queue_decisions != "act":
+            msg = (
+                "parts_on_hand: on holds the run until a person decides each part, so the run "
+                "acts on decisions: it needs queue_decisions: act, here "
+                f"{self.queue_decisions}"
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
     def _acting_on_decisions_needs_the_os_layer(self) -> RunConfig:
         # Only the OS layer keeps a role session's own shell from the decisions file; the hook
         # layer judges words. A run whose decisions act would otherwise act on a line a session
@@ -554,9 +573,10 @@ class RunConfig(_Frozen):
         ``escalation_backend`` and ``os_layer`` when they are ``None``, ``held_out``,
         ``held_out_canaries`` and ``held_out_sha256`` when empty, ``network`` when ``open``,
         ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``,
-        ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off``, ``reviewers`` when
-        ``paired``, ``skills`` and ``hooks`` when ``on``, ``ablation`` when ``False``, and
-        ``binary`` and ``account`` when ``None``, so their recorded digests still name them. A
+        ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off``, ``parts_on_hand``
+        when ``off``, ``reviewers`` when ``paired``, ``skills`` and ``hooks`` when ``on``,
+        ``ablation`` when ``False``, and ``binary`` and ``account`` when ``None``, so their
+        recorded digests still name them. A
         run that names a binding always records it, so the binding is part of its manifest id.
         """
         exclude = set()
@@ -590,6 +610,8 @@ class RunConfig(_Frozen):
             exclude.add("account")
         if self.design_review == "off":
             exclude.add("design_review")
+        if self.parts_on_hand == "off":
+            exclude.add("parts_on_hand")
         exclude |= {
             name for name, before in BEFORE_THE_SWITCH.items() if getattr(self, name) == before
         }
@@ -721,6 +743,8 @@ def load_run_config(path: Path) -> RunConfig:
         ("account", None),
         # Recorded before the field existed: no plan was reviewed.
         ("design_review", "off"),
+        # Recorded before the field existed: nothing was asked about parts.
+        ("parts_on_hand", "off"),
         # Recorded before the switches existed: paired reviewers, the skill file and the design
         # discipline were all there, and no run was an ablation.
         *BEFORE_THE_SWITCH.items(),

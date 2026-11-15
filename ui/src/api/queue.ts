@@ -30,6 +30,7 @@ export const SOURCES = [
   "escalation_decision",
   "contract",
   "plan_review",
+  "parts",
 ] as const;
 export type QueueSource = (typeof SOURCES)[number];
 

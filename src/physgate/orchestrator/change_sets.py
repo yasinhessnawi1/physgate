@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from physgate.orchestrator.events import Decomposed, Event, WriteDone
+from physgate.orchestrator.events import Decomposed, Event, PartsWriteDone, WriteDone
 from physgate.orchestrator.protocols import ChangeSet
 
 
@@ -42,3 +42,26 @@ def change_history(events: Iterable[Event]) -> tuple[int, tuple[ChangeSet, ...]]
         ChangeSet(subtask_id=subtask, attempt=attempt, revisions=tuple(sorted(revisions)))
         for (subtask, attempt), revisions in ordered
     )
+
+
+def integration_history(events: Iterable[Event]) -> tuple[int, tuple[ChangeSet, ...]]:
+    """The history the system-scope call is told: :func:`change_history`, with declared parts given.
+
+    A run that asks which parts a person has writes each part a person has or makes before any
+    session runs (ARCH-122): at the revisions straight above decomposition's head, below every
+    attempt's, and named by no attempt. Like decomposition's interface nodes they are the design
+    the attempts were given, fixed before any role read it, so the baseline is the last of them
+    and every attempt's writes are named exactly as :func:`change_history` names them. Every check
+    still reads the declared nodes, at their latest revision, in the whole graph. A parts write
+    after an attempt's write is given nothing: the history then leaves it unnamed, and the gate
+    refuses it (replay refuses such a log before that). A run that wrote no part is told what
+    :func:`change_history` says.
+    """
+    listed = list(events)
+    baseline, change_sets = change_history(listed)
+    for event in listed:
+        # Only a write straight above the given design extends it: an attempt's write between
+        # them takes the next revision, and a part written after it is no longer adjacent.
+        if isinstance(event, PartsWriteDone) and event.revision == baseline + 1:
+            baseline = event.revision
+    return baseline, change_sets

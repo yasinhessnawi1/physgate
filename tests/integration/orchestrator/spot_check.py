@@ -194,6 +194,7 @@ def params() -> dict[str, Any]:
         "hooks": "on",
         "ablation": False,
         "design_review": "off",
+        "parts_on_hand": "off",
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],

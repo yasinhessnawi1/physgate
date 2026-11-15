@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from orch_helpers import gate_records, make_config, ticking_clock
@@ -268,8 +270,23 @@ class FakeGate:
             return failing_gate_result(mode)
         return passing_gate_result(mode)
 
+    #: The release's calls, kept apart from the attempts' so an attempt's verdicts keep their
+    #: places: each artefact the release was judged by, and what each call answers in turn.
+    releases: list[Artefact] = field(default_factory=list)
+    release_results: list[Callable[[RunningGateMode], GateResult]] = field(default_factory=list)
+    #: Per attempt call (counted from one), a whole result in place of the verdict's.
+    results: dict[int, Callable[[RunningGateMode], GateResult]] = field(default_factory=dict)
+
     def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
+        if artefact.subtask_id == "parts":
+            self.releases.append(artefact)
+            n = len(self.releases)
+            if n <= len(self.release_results):
+                return self.release_results[n - 1](mode)
+            return passing_gate_result(mode)
         self.seen.append(artefact)
+        if len(self.seen) in self.results:
+            return self.results[len(self.seen)](mode)
         verdict = (
             self.verdicts[len(self.seen) - 1] if len(self.seen) <= len(self.verdicts) else "pass"
         )
@@ -394,7 +411,30 @@ class FakeGraph:
     root: Path = Path("store")
 
     def records_after(self, revision: int) -> list[Any]:
-        return []
+        return [one for one in self._ledgered() if one.rev > revision]
+
+    def _ledgered(self) -> list[Any]:
+        """The nodes declared, as a journal would hold them: by earlier processes too, if kept.
+
+        The nodes the decomposition wrote, where a test names them (``before``), are the lines
+        up to the head.
+        """
+        written = [
+            SimpleNamespace(rev=n, op="create", node_id=one["id"], payload=one)
+            for n, one in enumerate(self.before, start=1)
+        ]
+        if self.ledger is None:
+            return written + [
+                SimpleNamespace(rev=self.head + n, op="create", node_id=one["id"], payload=one)
+                for n, one in enumerate(self.declared, start=1)
+            ]
+        if not self.ledger.exists():
+            return []
+        found = [json.loads(raw) for raw in self.ledger.read_text().splitlines()]
+        return written + [
+            SimpleNamespace(rev=one["rev"], op="create", node_id=one["id"], payload=one["payload"])
+            for one in found
+        ]
 
     def hold(self) -> None:
         return None
@@ -410,6 +450,25 @@ class FakeGraph:
 
     def follow(self, payload: dict[str, Any], role: str, joined: tuple[str, ...]) -> int:
         raise AssertionError("no proposal, so no interface is followed")
+
+    #: The journal's head as the decomposition recorded it, and the nodes declared since.
+    head: int = 1
+    declared: list[dict[str, Any]] = field(default_factory=list)
+    #: The nodes the decomposition wrote, at revisions 1 to the head, where a test names them.
+    before: list[dict[str, Any]] = field(default_factory=list)
+
+    #: Where a rig that spans processes keeps what it declared, in place of the journal.
+    ledger: Path | None = None
+
+    def declare(self, payload: dict[str, Any], item_ids: tuple[str, ...]) -> int:
+        self.declared.append(payload)
+        if self.ledger is None:
+            return self.head + len(self.declared)
+        revision = self.head + len(self._ledgered()) + 1
+        with self.ledger.open("a") as handle:
+            line = {"rev": revision, "id": payload["id"], "payload": payload}
+            handle.write(json.dumps(line) + "\n")
+        return revision
 
     def divergences(
         self, since: int, acting_role: str, admitted: frozenset[int] = frozenset()

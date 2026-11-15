@@ -97,6 +97,8 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "queue_decisions": "harness",
     # Whether the plan is reviewed before anything is dispatched; the raw arm has no plan.
     "design_review": "harness",
+    # Whether a person is asked which parts they have; the raw arm has no plan to ask about.
+    "parts_on_hand": "harness",
     # Who reviews a role's work, whether a role session is given its skill file, and whether
     # its hooks enforce the design discipline: the raw arm has no reviewer, library or hooks
     # of the harness's.

@@ -41,6 +41,7 @@
  "hooks": "on",
  "ablation": false,
  "design_review": "on",
+ "parts_on_hand": "off",
  "held_out": [],
  "held_out_canaries": [],
  "held_out_sha256": [],

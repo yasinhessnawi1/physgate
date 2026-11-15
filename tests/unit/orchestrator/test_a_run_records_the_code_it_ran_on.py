@@ -205,6 +205,7 @@ def _decompose_args(tmp_path: Path, reportable: bool) -> list[str]:
         "hooks": "on",
         "ablation": False,
         "design_review": "off",
+        "parts_on_hand": "off",
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],

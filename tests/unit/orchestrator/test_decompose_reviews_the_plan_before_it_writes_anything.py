@@ -42,6 +42,7 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 REVIEWING = {
     **PARAMS,
     "design_review": "observe",
+    "parts_on_hand": "off",
     "models": {**PARAMS["models"], "reviewers": {"electrical": DESIGN, "design": DESIGN}},  # type: ignore[dict-item]
 }
 

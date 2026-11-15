@@ -6,10 +6,11 @@ written under the same lock and the same checks. Nothing else is written, and th
 ``act`` kind refuses any other write this handler might attempt.
 
 What the request carries, and nothing more: the item, approve, reject or choose with the
-position chosen, a note (required to reject), and what the page showed of the item (its line's
-digest and each trajectory's seal status), which the decision function checks again under its
-lock, and the id the server gave that view, never a time: the server's register says when it was
-shown, and that goes into the decision's line (ARCH-130). Who decided is the operator the server
+position chosen, a note (required to reject), what a choice of have or make states of a part (each
+value with its unit, and a made part's texts: ARCH-122), and what the page showed of the item (its
+line's digest and each trajectory's seal status), which the decision function checks again under
+its lock, and the id the server gave that view, never a time: the server's register says when it
+was shown, and that goes into the decision's line (ARCH-130). Who decided is the operator the server
 was started with, never a field of the request. The run directory is reached by the walk from its
 root that no swap can redirect, and the decision function opens every file beneath it.
 """
@@ -24,7 +25,14 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, Validation
 from physgate.orchestrator.common import NonEmptyStr, first_problem
 from physgate.orchestrator.events import Position
 from physgate.orchestrator.exceptions import QueueError
-from physgate.orchestrator.queue import MAX_NOTE, PersonDecision, ShownItem, Verb, record_decision
+from physgate.orchestrator.queue import (
+    MAX_NOTE,
+    PartsBody,
+    PersonDecision,
+    ShownItem,
+    Verb,
+    record_decision,
+)
 from physgate.ui import readers
 from physgate.ui.exceptions import UIError
 from physgate.ui.routes import Context, Response, error_response, json_response, request_body
@@ -40,6 +48,9 @@ class DecisionRequest(BaseModel):
     verb: Verb
     position: Position | None = None
     note: Annotated[str, Field(max_length=MAX_NOTE)]
+    #: What a choice of have or make states of a part; left out of every other request. Held to
+    #: its rules here, and whether it goes with the choice is the decision function's to judge.
+    parts: PartsBody | None = None
     shown: ShownItem
     view_id: Annotated[str, StringConstraints(pattern=VIEW_ID_PATTERN)] | None = None
 
@@ -67,6 +78,7 @@ def decide(context: Context, params: Mapping[str, str]) -> Response:
             verb=request.verb,
             note=request.note if request.note.strip() else None,
             position=request.position,
+            parts=request.parts,
         )
     except ValidationError as exc:  # not a decision the queue records: the request is refused
         return error_response(
