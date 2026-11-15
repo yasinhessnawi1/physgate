@@ -108,8 +108,8 @@ class Derivation(BaseModel):
     products: tuple[Suffix, ...] = Field(min_length=1, max_length=8)
     argv: tuple[Words, ...] = Field(min_length=1, max_length=32)
     timeout_s: int = Field(ge=1, le=MAX_TIMEOUT_S)
-    refusals: dict[Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]{0,2}$")], Words] = (
-        Field(default_factory=dict, max_length=16)
+    refusals: dict[Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]{0,2}$")], Words] = Field(
+        default_factory=dict, max_length=16
     )
 
     @field_validator("products")

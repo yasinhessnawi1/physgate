@@ -378,9 +378,7 @@ def test_a_session_wired_anew_elsewhere_gives_the_same_bytes_for_the_three_text_
         _helper(each, "rules_check", schematic, "board")
         _helper(each, "exports", schematic, "board")
         times.append(time.monotonic() - started)
-        made.append(
-            {s: (each.module / "exports" / f"board{s}").read_bytes() for s in TEXT_EXPORTS}
-        )
+        made.append({s: (each.module / "exports" / f"board{s}").read_bytes() for s in TEXT_EXPORTS})
     with capsys.disabled():
         sizes = {s: len(made[0][s]) for s in TEXT_EXPORTS}
         print(f"\n[measure] open_pins={open_pins} seconds per set {times} sizes {sizes}")

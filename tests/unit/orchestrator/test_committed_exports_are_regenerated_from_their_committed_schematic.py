@@ -66,7 +66,7 @@ _ENV = {
 }
 
 #: The stand-in program: the three kinds from ``part`` and ``open`` lines, or as a word tells.
-REGEN = r'''
+REGEN = r"""
 import json, os, sys, time
 source, module, name = sys.argv[1:4]
 text = open(source, encoding="utf-8").read()
@@ -99,11 +99,11 @@ comps = "".join(' (comp (ref "' + p + '"))' for p in parts)
 pad = " " * 1_000_001 if "BIG" in text else ""
 with open(os.path.join(out, name + ".net"), "w") as f:
     f.write('(export (version "E")\n  (design (source "' + rel + '"))\n  (components'
-            + comps + ")\n  (nets)" + pad + ")\n")
+            + comps + ')\n  (nets (net (code "1") (name "/A")))' + pad + ")\n")
 rows = "".join('"' + p + '","1k","R","1",""\n' for p in parts)
 with open(os.path.join(out, name + ".csv"), "w") as f:
     f.write('"Reference","Value","Footprint","Quantity","DNP"\n' + rows)
-'''
+"""
 
 SOUND = "part R1\npart J1\n"
 FAILING = "part R1\npart J1\nopen R1\nopen J1\n"
@@ -195,9 +195,7 @@ def made(text: str, stem: str = "board", where: str = "") -> dict[str, bytes]:
     source.write_text(text, encoding="utf-8")
     program = scratch / "regen.py"
     program.write_text(REGEN, encoding="utf-8")
-    subprocess.run(
-        [sys.executable, "-I", str(program), str(source), str(module), stem], check=True
-    )
+    subprocess.run([sys.executable, "-I", str(program), str(source), str(module), stem], check=True)
     found = {
         f"{MODULE}/{p.relative_to(module).as_posix()}": p.read_bytes()
         for p in module.rglob("*")

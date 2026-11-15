@@ -938,9 +938,14 @@ def derivations() -> dict[str, object]:
                 "source": ".kicad_sch",
                 "products": [".erc.json", ".net", ".csv"],
                 "argv": [
-                    "{interpreter}", "-I", "{root}/helpers/circuit.py", "regenerate",
-                    "{source}", "{module}", "{name}",
-                ],  # fmt: skip
+                    "{interpreter}",
+                    "-I",
+                    "{root}/helpers/circuit.py",
+                    "regenerate",
+                    "{source}",
+                    "{module}",
+                    "{name}",
+                ],
                 "timeout_s": 300,
                 "refusals": {
                     "3": "the schematic draws on a sub-sheet; one sheet per schematic is "
