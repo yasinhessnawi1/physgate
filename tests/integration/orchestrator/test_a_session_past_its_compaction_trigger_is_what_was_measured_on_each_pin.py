@@ -45,6 +45,7 @@ from compaction_session import (
 )
 from scripted_endpoint import COMPACTION_MARKER, failure, tool
 
+from physgate.orchestrator import accounting
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.decompose import read_stream
 from physgate.orchestrator.exceptions import AccountingError
@@ -225,6 +226,19 @@ def test_the_compaction_call_is_in_the_binary_s_totals_and_no_message_of_the_str
     with pytest.raises(AccountingError) as refused:
         require_matching_totals(result, usage)
     assert refused.value.context["field"] == "input_tokens"
+    # The reader of a compaction's own usage takes the difference as one line of it, and the
+    # same stream without its boundary still raises.
+    count = getattr(accounting, "compaction_line", None)
+    assert count is not None, "no reader of a compaction's own usage"
+    line = count(result, usage, compactions=len(compactions_in(ran.stdout)), message_id="c-1")
+    assert line is not None
+    assert {f: int(getattr(line.usage, f)) for f in FIELDS} == {f: COMPACT_USAGE[f] for f in FIELDS}
+    unmarked = "".join(
+        f"{json.dumps(e)}\n" for e in ran.events if e.get("subtype") != "compact_boundary"
+    )
+    assert compactions_in(unmarked) == ()
+    with pytest.raises(AccountingError):
+        count(result, read_stream(unmarked)[1], compactions=0, message_id="c-1")
     # A resume's totals are the whole session's: the first invocation's, the compaction call
     # once, and the resume's own messages.
     resumed = session.run([tool("StructuredOutput", answer=8)], resume=True, prompt="again")
