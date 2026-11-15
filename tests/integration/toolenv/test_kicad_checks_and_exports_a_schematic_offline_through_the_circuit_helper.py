@@ -10,10 +10,9 @@ taken away. Read here, on the pinned release:
 - the netlist holds the nets and parts, the parts list one row per part; the PDF, one page,
   is in the session's temporary directory and not in the module;
 - a second run gives the same bytes for the three text exports;
-- a SKiDL script generates a schematic from the pinned libraries with tags, a placement seed and
-  the interpreter's string hashing fixed, twice, and the two differ in identifiers alone (the
-  generator draws one at random); the
-  rules check runs on it and its findings are reported, not judged;
+- a SKiDL script generates a schematic from the pinned libraries with tags set, and the rules
+  check runs on it and its findings are reported, not judged (two runs place the parts apart
+  even with a seed and fixed hashing: no repeat is held);
 - nothing is written into either root, and in the test's own folder nothing outside the
   session's temporary directory, its home and the module.
 
@@ -330,15 +329,6 @@ def test_a_second_run_gives_the_same_bytes_for_the_three_text_exports(session: S
             assert kept.setdefault(suffix, body) == body, suffix
 
 
-UUID = re.compile(rb"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
-
-
-def _identifiers_in_order(body: bytes) -> bytes:
-    """``body`` with each identifier replaced by the order it first appears in."""
-    seen: dict[bytes, int] = {}
-    return UUID.sub(lambda m: b"id-%d" % seen.setdefault(m.group(), len(seen)), body)
-
-
 SKIDL = """
 import sys
 from skidl import KICAD10, Net, Part, generate_schematic, set_default_tool
@@ -373,31 +363,25 @@ def _generated(session: Session, script: Path, out: Path, more: dict[str, str]) 
     return schematics[0].read_bytes()
 
 
-def test_a_skidl_script_generates_one_schematic_twice_but_for_its_identifiers_and_is_checked(
+def test_a_skidl_script_generates_a_schematic_from_the_pinned_libraries_that_is_checked(
     session: Session,
 ) -> None:
     script = session.module / "divider.py"
     script.write_text(SKIDL, encoding="utf-8")
-    # Measured on CI: with tags and a placement seed alone, two runs placed the parts apart
-    # (files of different lengths). With the interpreter's string hashing fixed as well, the
-    # generator's one random draw is left: the root sheet's identifier, which every symbol's
-    # instance path holds.
-    seeded = [_generated(session, script, session.module / f"seed{n}", {}) for n in (1, 2)]
+    # Measured on CI (Linux): two runs place the parts apart even with tags, the placement seed
+    # and the interpreter's string hashing all fixed, so no repeat of a generated file is held
+    # here; the committed schematic is the record. Each run's file is read by the check.
     fixed = {"PYTHONHASHSEED": "0"}
-    generated = [_generated(session, script, session.module / f"gen{n}", fixed) for n in (1, 2)]
-    told = f"tags and seed alone gave the same bytes but for identifiers: {_alike(*seeded)}"
-    assert _alike(*generated), told
-    schematic = next((session.module / "gen1").rglob("*.kicad_sch"))
-    found = _helper(session, "rules_check", schematic, "divider")
-    counts = found["counts"]
-    assert isinstance(counts, dict)
-    assert isinstance(_value(counts["total"]), int)
-    assert found["kind"] == "rules_check"
-
-
-def _alike(first: bytes, second: bytes) -> bool:
-    """Whether two files are the same bytes once each identifier is named by its order."""
-    return _identifiers_in_order(first) == _identifiers_in_order(second)
+    for n in (1, 2):
+        body = _generated(session, script, session.module / f"gen{n}", fixed)
+        for ref in (b'"R1"', b'"R2"', b'"J1"'):
+            assert ref in body, (n, ref)
+        schematic = next((session.module / f"gen{n}").rglob("*.kicad_sch"))
+        found = _helper(session, "rules_check", schematic, f"divider-{n}")
+        counts = found["counts"]
+        assert isinstance(counts, dict)
+        assert isinstance(_value(counts["total"]), int)
+        assert found["kind"] == "rules_check"
 
 
 def test_nothing_is_written_into_either_root_or_outside_the_session_s_places(
