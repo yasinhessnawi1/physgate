@@ -752,8 +752,9 @@ def _move_out(trial_dir: Path, work: Path, name: str) -> None:
 
     The destination is made first, so one already there refuses the move; the directory is then
     renamed over that empty one, which only an empty directory lets happen. Across filesystems
-    it is copied (:func:`_copy_tree`) and removed only once the copy is whole. What a failed
-    move made is removed, and the trial is left where it ran.
+    it is copied (:func:`_copy_tree`, at most :data:`MAX_COPY_DEPTH` deep) and removed only once
+    the copy is whole. Whatever stops a move, what it made is removed and the trial is left where
+    it ran; an interrupt or an exit is then raised on as it came.
 
     Raises:
         BaselineError: the move failed or was refused; it names no path.
@@ -774,6 +775,10 @@ def _move_out(trial_dir: Path, work: Path, name: str) -> None:
     except OSError as exc:
         msg = "a visible trial's place beneath the round's directory is taken or cannot be made"
         raise BaselineError(msg, refused_because="move", error=str(exc.strerror)) from None
+    # What lands at ``work/<name>/place`` is session-made content, links included (they are made
+    # again as links, never followed, as a rename on one filesystem carries them): the harness
+    # never reads it by path and never gives it to git. Whoever reads it later reads files a
+    # session could have shaped.
     try:
         try:
             os.rename(trial_dir, destination)
@@ -783,12 +788,16 @@ def _move_out(trial_dir: Path, work: Path, name: str) -> None:
             _copy_tree(trial_dir, destination)
         else:
             return
-    except (OSError, FileRefused) as exc:
+    except BaseException as exc:
+        # Any failure of the move, not only the filesystem's or a refused file's (a recursion or
+        # memory limit, an interrupt): what it made beneath the round's directory is removed and
+        # the trial stays in the work root with its record.
         shutil.rmtree(destination, ignore_errors=True)
-        why = exc.kind if isinstance(exc, FileRefused) else str(exc.strerror)
+        if not isinstance(exc, Exception):
+            raise  # an interrupt or an exit stops the round as it would at any other step
         msg = "a visible trial could not be moved beneath the round's directory; it is left "
         msg += "in the store's work root with its record"
-        raise BaselineError(msg, refused_because="move", error=why) from None
+        raise BaselineError(msg, refused_because="move", error=_why_not_moved(exc)) from None
     try:
         shutil.rmtree(trial_dir)
     except OSError as exc:
@@ -797,65 +806,117 @@ def _move_out(trial_dir: Path, work: Path, name: str) -> None:
         raise BaselineError(msg, refused_because="move", error=str(exc.strerror)) from None
 
 
+def _why_not_moved(exc: Exception) -> str:
+    """What a failed move's refusal says of its cause: a kind or the filesystem's words, no path."""
+    if isinstance(exc, FileRefused):
+        return exc.kind
+    if isinstance(exc, _TooDeep):
+        return "too_deep"
+    if isinstance(exc, OSError):
+        return str(exc.strerror)
+    return type(exc).__name__  # its message may carry a path; its kind is enough
+
+
 #: Opening a directory to walk it: never through a link.
 _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+#: How many directories deep beneath a trial's directory the copy across filesystems goes;
+#: a deeper one refuses the move. What the harness itself leaves there (the place's worktree,
+#: the role's python environment, the session's records) lies well under 32 levels; 64 keeps a
+#: margin over that for what a session makes, while the walk holds at most two descriptors per
+#: level (128 at most, half of the smallest usual per-process limit, 256) and a session's
+#: ``mkdir x; cd x`` loop cannot make it exhaust descriptors, memory or a recursion limit. A
+#: rename on one filesystem moves the tree whole, at any depth, and needs no bound.
+MAX_COPY_DEPTH = 64
+
+
+class _TooDeep(Exception):  # noqa: N818 - a refusal, as FileRefused is
+    """A directory beneath a trial lies deeper than :data:`MAX_COPY_DEPTH`."""
+
+
+@dataclass
+class _Level:
+    """One directory on the copy's way down: its names beneath the source, both descriptors."""
+
+    names: tuple[str, ...]
+    source_fd: int
+    destination_fd: int
+    #: Its entries not yet copied, the next one last.
+    left: list[tuple[str, int]]
+
+
+def _entries(directory_fd: int) -> list[tuple[str, int]]:
+    """A directory's entries and their modes, never following a link; the first name last."""
+    with os.scandir(directory_fd) as entries:
+        return sorted(
+            ((e.name, e.stat(follow_symlinks=False).st_mode) for e in entries), reverse=True
+        )
 
 
 def _copy_tree(source: Path, destination: Path) -> None:
     """Copy everything beneath ``source`` into the empty directory ``destination``.
 
-    Each directory is walked from a descriptor, opened without following a link; each regular
-    file is read as a session's files are read (:func:`.session_files.open_beneath`, under the
-    session file bound) and written as a new file; a link is made again as the link it is,
-    never followed; anything else is refused.
+    Walked without recursion, one directory at a time, at most :data:`MAX_COPY_DEPTH` deep;
+    each directory opened from its parent's descriptor without following a link, and held open
+    only while the walk is beneath it. Each regular file is read as a session's files are read
+    (:func:`.session_files.open_beneath`, under the session file bound) and written as a new
+    file; a link is made again as the link it is, never followed; anything else is refused.
 
     Raises:
         FileRefused: an entry is neither a directory, a regular file with one name nor a link,
             or a file is larger than the bound.
+        _TooDeep: a directory lies deeper than the bound.
         OSError: the filesystem refused a step.
     """
-    source_fd = os.open(source, _DIRECTORY)
+    opened: list[int] = []  # every descriptor the walk holds, in the order opened
     try:
-        destination_fd = os.open(destination, _DIRECTORY)
-        try:
-            _copy_into(source, (), source_fd, destination_fd)
-        finally:
-            os.close(destination_fd)
+        opened.append(os.open(source, _DIRECTORY))
+        opened.append(os.open(destination, _DIRECTORY))
+        way = [_Level((), opened[0], opened[1], _entries(opened[0]))]
+        while way:
+            level = way[-1]
+            if not level.left:
+                way.pop()
+                os.close(opened.pop())  # its destination's descriptor, then its source's
+                os.close(opened.pop())
+                continue
+            name, mode = level.left.pop()
+            names = (*level.names, name)
+            if stat.S_ISDIR(mode):
+                if len(names) > MAX_COPY_DEPTH:
+                    raise _TooDeep
+                os.mkdir(name, 0o700, dir_fd=level.destination_fd)
+                opened.append(os.open(name, _DIRECTORY, dir_fd=level.source_fd))
+                opened.append(os.open(name, _DIRECTORY, dir_fd=level.destination_fd))
+                way.append(_Level(names, opened[-2], opened[-1], _entries(opened[-2])))
+            else:
+                _copy_entry(source, names, mode, level.source_fd, level.destination_fd)
     finally:
-        os.close(source_fd)
+        for fd in reversed(opened):
+            os.close(fd)
 
 
-def _copy_into(anchor: Path, names: tuple[str, ...], source_fd: int, destination_fd: int) -> None:
-    with os.scandir(source_fd) as entries:
-        listed = sorted((e.name, e.stat(follow_symlinks=False).st_mode) for e in entries)
-    for name, mode in listed:
-        if stat.S_ISDIR(mode):
-            os.mkdir(name, 0o700, dir_fd=destination_fd)
-            inner = os.open(name, _DIRECTORY, dir_fd=source_fd)
-            try:
-                made = os.open(name, _DIRECTORY, dir_fd=destination_fd)
-                try:
-                    _copy_into(anchor, (*names, name), inner, made)
-                finally:
-                    os.close(made)
-            finally:
-                os.close(inner)
-        elif stat.S_ISLNK(mode):
-            os.symlink(os.readlink(name, dir_fd=source_fd), name, dir_fd=destination_fd)
-        elif stat.S_ISREG(mode):
-            fd = open_beneath(anchor, (*names, name))
-            try:
-                data = read_bounded(fd, MAX_SESSION_FILE_BYTES)
-                kept = os.fstat(fd).st_mode & 0o700
-            finally:
-                os.close(fd)
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
-            out = os.open(name, flags, kept | 0o600, dir_fd=destination_fd)
-            try:
-                view = memoryview(data)
-                while view:
-                    view = view[os.write(out, view) :]
-            finally:
-                os.close(out)
-        else:
-            raise FileRefused("not_a_file", "neither a directory, a regular file nor a link")
+def _copy_entry(
+    anchor: Path, names: tuple[str, ...], mode: int, source_fd: int, destination_fd: int
+) -> None:
+    """Copy the one entry ``names`` beneath ``anchor`` that is not a directory, or refuse it."""
+    name = names[-1]
+    if stat.S_ISLNK(mode):
+        os.symlink(os.readlink(name, dir_fd=source_fd), name, dir_fd=destination_fd)
+    elif stat.S_ISREG(mode):
+        fd = open_beneath(anchor, names)
+        try:
+            data = read_bounded(fd, MAX_SESSION_FILE_BYTES)
+            kept = os.fstat(fd).st_mode & 0o700
+        finally:
+            os.close(fd)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+        out = os.open(name, flags, kept | 0o600, dir_fd=destination_fd)
+        try:
+            view = memoryview(data)
+            while view:
+                view = view[os.write(out, view) :]
+        finally:
+            os.close(out)
+    else:
+        raise FileRefused("not_a_file", "neither a directory, a regular file nor a link")

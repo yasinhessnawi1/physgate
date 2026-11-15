@@ -429,3 +429,30 @@ def test_an_interrupt_during_the_copy_still_stops_the_round_and_leaves_nothing_h
         _round(store, tmp_path, StandInArm(left=_leave_two), "visible")
     assert reached, "the interrupt was never raised"
     _left_where_it_ran(store, tmp_path)
+
+
+@pytest.mark.parametrize("beyond", [0, 1], ids=["at the bound", "one past it"])
+def test_the_copy_goes_as_deep_as_its_bound_and_no_deeper(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch, beyond: int
+) -> None:
+    """A directory exactly at the bound beneath the trial is copied; one level more is refused."""
+    store = copied(made, tmp_path / "store")
+    # ``place/worktree`` is two levels beneath the trial's directory.
+    chain = os.path.join(*(["d"] * (baseline_runner.MAX_COPY_DEPTH + beyond - 2)))
+
+    def leave(place: Path, _harness: Path) -> None:
+        os.makedirs(place / "worktree" / chain)
+        (place / "worktree" / chain / "deepest.txt").write_text("at the bottom")
+
+    tried = _cross_filesystem(monkeypatch, store)
+    outcome = _outcome(lambda: _round(store, tmp_path, StandInArm(left=leave), "visible"))
+    assert tried, "no move across filesystems was tried"
+    if beyond:
+        _left_where_it_ran(store, tmp_path)
+        assert isinstance(outcome, BaselineError), f"not refused by the move: {outcome!r}"
+        assert outcome.context.get("error") == "too_deep", outcome.context
+        return
+    assert isinstance(outcome, BaselineRecord), f"the copy was refused: {outcome!r}"
+    moved = tmp_path / "round" / "work" / "0000-1" / PLACE / "worktree" / chain
+    assert (moved / "deepest.txt").read_text() == "at the bottom"
+    assert not list(work_root(store.store, "control").iterdir())
