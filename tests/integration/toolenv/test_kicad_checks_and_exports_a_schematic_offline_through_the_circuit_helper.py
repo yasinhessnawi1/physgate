@@ -16,6 +16,10 @@ taken away. Read here, on the pinned release:
   even with a seed and fixed hashing: no repeat is held);
 - nothing is written into either root, and in the test's own folder nothing outside the
   session's temporary directory, its home and the module.
+- at commit, the three exports are regenerated from the committed schematic inside the tool
+  containment (bubblewrap on Linux): an honest set passes, a hand-edited clean report and stale
+  exports are refused, a project file that silences a rule changes nothing in the report, and
+  a schematic that draws on a sub-sheet is refused in words that say so.
 
 ``PHYSGATE_KICAD_ROOT`` and ``PHYSGATE_TOOL_ENVIRONMENT`` name the two provisioned roots
 (``toolenv/provision.py --dest ... --kicad-dest ...``) at this commit; without both, the rows
@@ -467,3 +471,122 @@ def _inside(session: Session, place: Path) -> set[Path]:
             for top in (session.temp, session.home, session.module)
         )  # fmt: skip
     }
+
+
+# ---- the commit check regenerates the committed exports inside the containment ----------------
+
+try:
+    from physgate.orchestrator import derived
+except ImportError:  # each row below fails on its first assertion
+    derived = None  # type: ignore[assignment]
+
+_GIT_ENV = {
+    "PATH": "/usr/bin:/bin",
+    "HOME": os.devnull,
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_AUTHOR_NAME": "t",
+    "GIT_AUTHOR_EMAIL": "t@example.invalid",
+    "GIT_COMMITTER_NAME": "t",
+    "GIT_COMMITTER_EMAIL": "t@example.invalid",
+}
+#: A project file that turns the rule the open pins break off; the helper never reads it.
+SILENCING = json.dumps(
+    {"erc": {"rule_severities": {"pin_not_connected": "ignore"}}, "meta": {"version": 1}}
+)
+
+
+def _commit(repo: Path, message: str) -> str:
+    def git(*args: str) -> str:
+        done = subprocess.run(
+            ["git", "-c", "commit.gpgsign=false", *args],
+            cwd=repo, env=_GIT_ENV, capture_output=True, text=True, check=True,
+        )  # fmt: skip
+        return done.stdout.strip()
+
+    if not (repo / ".git").exists():
+        git("init", "-q", "-b", "main")
+    git("add", "-A")
+    git("commit", "-q", "--allow-empty", "-m", message)
+    return git("rev-parse", "HEAD")
+
+
+def _made_in_session(session: Session, *, open_pins: bool) -> Path:
+    schematic = _schematic(session, open_pins=open_pins)
+    _helper(session, "rules_check", schematic, "board")
+    _helper(session, "exports", schematic, "board")
+    return schematic
+
+
+def _held(session: Session, base: str, commit: str) -> object:
+    assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
+    repo = session.module.parents[1]
+    recorded = _recorded(*session.roots)
+    return derived.held_exports(
+        repo, base, commit, "modules/board",
+        environment=lambda: recorded, runner=derived.contained_runner(),
+    )  # fmt: skip
+
+
+def test_an_honest_set_is_regenerated_inside_the_containment_and_passes(
+    session: Session,
+) -> None:
+    repo = session.module.parents[1]
+    base = _commit(repo, "start")
+    _made_in_session(session, open_pins=True)
+    assert _held(session, base, _commit(repo, "honest")) is None
+
+
+def test_a_project_file_that_silences_a_rule_changes_nothing_in_the_report(
+    session: Session,
+) -> None:
+    repo = session.module.parents[1]
+    base = _commit(repo, "start")
+    _made_in_session(session, open_pins=True)
+    plain = (session.module / "exports" / "board.erc.json").read_bytes()
+    (session.module / "board.kicad_pro").write_text(SILENCING, encoding="utf-8")
+    _made_in_session(session, open_pins=True)
+    report = (session.module / "exports" / "board.erc.json").read_bytes()
+    assert report == plain
+    assert json.dumps(json.loads(report)).count("pin_not_connected") == 2
+    assert _held(session, base, _commit(repo, "with a silencing project file")) is None
+
+
+def test_a_hand_edited_clean_report_over_a_failing_schematic_is_refused_at_commit(
+    session: Session,
+) -> None:
+    repo = session.module.parents[1]
+    base = _commit(repo, "start")
+    _made_in_session(session, open_pins=False)
+    clean = (session.module / "exports" / "board.erc.json").read_bytes()
+    _made_in_session(session, open_pins=True)
+    (session.module / "exports" / "board.erc.json").write_bytes(clean)
+    refusal = _held(session, base, _commit(repo, "forged"))
+    assert refusal is not None
+    assert refusal.subject == "modules/board/exports/board.erc.json"  # type: ignore[attr-defined]
+    assert "regenerate" in refusal.reason  # type: ignore[attr-defined]
+
+
+def test_a_changed_schematic_with_stale_exports_is_refused_at_commit(session: Session) -> None:
+    repo = session.module.parents[1]
+    _made_in_session(session, open_pins=False)
+    base = _commit(repo, "sound")
+    _schematic(session, open_pins=True)
+    refusal = _held(session, base, _commit(repo, "stale"))
+    assert refusal is not None
+    assert refusal.subject == "modules/board/exports/board.erc.json"  # type: ignore[attr-defined]
+
+
+def test_a_schematic_that_draws_on_a_sub_sheet_is_refused_in_words_at_commit(
+    session: Session,
+) -> None:
+    repo = session.module.parents[1]
+    _made_in_session(session, open_pins=False)
+    base = _commit(repo, "sound")
+    schematic = session.module / "board.kicad_sch"
+    text = schematic.read_text(encoding="utf-8")
+    sheet = '  (sheet (at 10 10) (size 20 10) (property "Sheetfile" "power.kicad_sch"))\n'
+    schematic.write_text(text.replace("  (sheet_instances", sheet + "  (sheet_instances"), "utf-8")
+    refusal = _held(session, base, _commit(repo, "sub-sheet"))
+    assert refusal is not None
+    assert "sub-sheet" in refusal.reason  # type: ignore[attr-defined]

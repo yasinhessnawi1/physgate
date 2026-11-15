@@ -18,6 +18,7 @@ import importlib.util
 import json
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Iterator
@@ -68,6 +69,11 @@ import json, os, sys
 args = sys.argv[1:]
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps(args) + "\n")
+if os.environ.get("FAKE_PLACES") and args[:1] == ["sch"]:
+    with open(os.environ["FAKE_PLACES"], "a") as places:
+        seen = {"cwd": os.getcwd(), "schematic": args[-1],
+                "beside": sorted(os.listdir(os.path.dirname(args[-1])))}
+        places.write(json.dumps(seen) + "\n")
 if args == ["--version"]:
     print("10.0.8"); sys.exit(0)
 out = args[args.index("-o") + 1]
@@ -305,3 +311,103 @@ def test_a_result_with_a_judgement_added_is_refused(
             changed[field] = value
         raised = _raised(partial(result_file.checked, changed))
         assert type(raised).__name__ == "HelperRefusedError", (field, raised)
+
+
+# ---- the schematic alone, as the commit check regenerates it -------------------------------------
+
+#: A schematic that draws on a sub-sheet: a sheet symbol naming another schematic file.
+WITH_SUB_SHEET = (
+    "(kicad_sch (version 20250114)\n"
+    '  (sheet (at 10 10) (size 20 10) (property "Sheetfile" "power.kicad_sch"))\n'
+    '  (sheet_instances (path "/" (page "1"))))\n'
+)
+
+
+def test_the_program_is_given_a_copy_of_the_schematic_alone_in_a_folder_of_its_own(
+    circuit: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
+    module, schematic = _module(tmp_path)
+    # A project file beside it, which would set the rules' severities: never read.
+    (module / "board.kicad_pro").write_text('{"erc": {"rule_severities": {}}}', "utf-8")
+    temp = tmp_path / "session-temp"
+    temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp))
+    monkeypatch.setenv("FAKE_PLACES", str(tmp_path / "places.log"))
+    _canned(monkeypatch, tmp_path, _report([]))
+    circuit.rules_check(schematic, module, "board")
+    circuit.exports(schematic, module, "board")
+    seen = [json.loads(line) for line in (tmp_path / "places.log").read_text().splitlines()]
+    assert len(seen) == 4, seen
+    for call in seen:
+        copy = Path(call["schematic"])
+        assert copy != schematic and not copy.is_relative_to(module), call
+        assert copy.name == "board.kicad_sch" and call["beside"] == ["board.kicad_sch"], call
+        assert Path(call["cwd"]) == copy.parent and copy.parent.parent == temp, call
+        assert not copy.parent.exists(), call
+    netlist = (module / "exports" / "board.net").read_text()
+    assert '(source "board.kicad_sch")' in netlist
+
+
+def test_a_schematic_that_draws_on_a_sub_sheet_is_refused_in_words_that_say_so(
+    circuit: ModuleType, tmp_path: Path
+) -> None:
+    assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
+    module, schematic = _module(tmp_path)
+    schematic.write_text(WITH_SUB_SHEET, encoding="utf-8")
+    for call in (circuit.rules_check, circuit.exports):
+        raised = _raised(partial(call, schematic, module, "board"))
+        assert isinstance(raised, circuit.HelperRefusedError), raised
+        assert "sub-sheet" in str(raised), raised
+    assert not (tmp_path / "calls.log").exists()
+
+
+def _regenerate(tmp_path: Path, schematic: Path, module: Path) -> int:
+    done = subprocess.run(
+        [sys.executable, "-I", str(HELPERS / "circuit.py"), "regenerate", str(schematic),
+         str(module), "board"],
+        env={**os.environ, "TMPDIR": str(tmp_path)}, capture_output=True, text=True,
+        timeout=120, check=False,
+    )  # fmt: skip
+    return done.returncode
+
+
+def test_regenerate_writes_the_three_text_exports_and_no_pdf(
+    circuit: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
+    module, schematic = _module(tmp_path)
+    _canned(monkeypatch, tmp_path, _report([_finding(1)]))
+    assert _regenerate(tmp_path, schematic, module) == 0
+    assert (module / "exports").is_dir(), "regenerate wrote no exports"
+    names = sorted(p.name for p in (module / "exports").iterdir())
+    assert names == ["board.csv", "board.erc.json", "board.net"]
+    calls = [json.loads(line) for line in (tmp_path / "calls.log").read_text().splitlines()]
+    assert not [call for call in calls if call[:3] == ["sch", "export", "pdf"]], calls
+
+
+def test_regenerate_exits_three_on_a_sub_sheet_and_writes_nothing(
+    circuit: ModuleType, tmp_path: Path
+) -> None:
+    assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
+    module, schematic = _module(tmp_path)
+    schematic.write_text(WITH_SUB_SHEET, encoding="utf-8")
+    assert _regenerate(tmp_path, schematic, module) == 3
+    exports = module / "exports"
+    assert not exports.exists() or not list(exports.iterdir())
+
+
+def test_provisioning_records_how_the_exports_are_regenerated() -> None:
+    spec = importlib.util.spec_from_file_location("provision_t8", REPO / "toolenv" / "provision.py")
+    assert spec is not None and spec.loader is not None
+    provision = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(provision)
+    assert hasattr(provision, "derivations"), "provisioning writes no derived.json"
+    (entry,) = provision.derivations()["derivations"]
+    assert entry["source"] == ".kicad_sch"
+    assert entry["products"] == [".erc.json", ".net", ".csv"]
+    assert entry["argv"] == [
+        "{interpreter}", "-I", "{root}/helpers/circuit.py", "regenerate", "{source}", "{module}",
+        "{name}",
+    ]  # fmt: skip
+    assert "sub-sheet" in entry["refusals"]["3"]
