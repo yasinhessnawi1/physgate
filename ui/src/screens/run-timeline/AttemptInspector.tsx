@@ -23,6 +23,7 @@ import { Tally } from "../../design/components/verdict/Tally";
 import { VerdictBadge } from "../../design/components/verdict/VerdictBadge";
 import { tallyOfChecks } from "../../design/tally";
 import { agentOf } from "../../words/actors";
+import { compactionsText } from "../../words/review";
 import { ActorTag } from "../common/ActorTag";
 import { Bound, CheckName, checkId, Measured, sentenceOf } from "../common/checks";
 import { allItems } from "../common/queueItems";
@@ -64,6 +65,9 @@ export function Reviews({ reviews }: { readonly reviews: readonly ReviewLine[] }
             <span>{r.finding ?? "No finding recorded"}</span>
             {r.reviewerModel !== null && (
               <span className="pg-panel-note mono">{r.reviewerModel}</span>
+            )}
+            {r.compactions !== null && (
+              <span className="pg-panel-note">{compactionsText(r.compactions)}</span>
             )}
           </span>
           {r.verdict === "pass" || r.verdict === "fail" ? (

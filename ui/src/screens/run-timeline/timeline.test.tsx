@@ -289,6 +289,7 @@ describe("the attempt inspector's reviews are the log's review lines", () => {
             finding: "x",
             reviewerModel: "claude-sonnet-5",
             sessionId: null,
+            compactions: null,
           },
         ]}
       />,
@@ -324,6 +325,7 @@ describe("a review that reached no verdict has its own row, never a pass or a fa
       detail:
         "the binary's cap on refused verdicts ended it: Failed to provide valid structured output after 5 attempts",
       reviewerModel: "claude-sonnet-5",
+      compactions: null,
     },
     { ...at(6), kind: "escalated", subtask: "s1", itemId: "item-1" },
   ];
@@ -379,6 +381,7 @@ describe("a finding is shown once, a short first line first and the rest expanda
       finding: long,
       reviewerModel: "claude-sonnet-5",
       sessionId: "x",
+      compactions: null,
     },
     {
       ...at(6),
