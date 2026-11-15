@@ -57,9 +57,9 @@ from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
 from physgate.hooks.reasons import HOME_CLAUDE_REASON as HOME_CLAUDE_REASON
 from physgate.hooks.reasons import HOOK_STATE_REASON as HOOK_STATE_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
+from physgate.hooks.reasons import SENTINEL_APART_REASON as SENTINEL_APART_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import SESSION_TEMPS_REASON as SESSION_TEMPS_REASON
-from physgate.hooks.reasons import SENTINEL_APART_REASON as SENTINEL_APART_REASON
 from physgate.hooks.reasons import SESSIONS_REASON as SESSIONS_REASON
 from physgate.hooks.reasons import SHELL_STARTUP_REASON as SHELL_STARTUP_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON

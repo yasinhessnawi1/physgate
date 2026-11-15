@@ -42,9 +42,9 @@ from baseline_fixtures import PRICES, SCORED, harness_run, run_set, stand_in_sto
 from physgate.evaluation.baseline import runner  # noqa: E402
 from physgate.evaluation.baseline.runner import (  # noqa: E402
     BASELINE_DIR,
-    BaselineError,
     HARNESS,
     PLACE,
+    BaselineError,
     run_baseline,
     setup_from_run,
 )
