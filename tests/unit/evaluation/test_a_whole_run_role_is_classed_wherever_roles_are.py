@@ -17,13 +17,13 @@ from typing import Any, get_args
 import pytest
 
 from physgate.evaluation.baseline.runner import BaselineError, _require_withheld
-from physgate.evaluation.tierset_cli import status
 from physgate.evaluation.tiers import store as store_module
 from physgate.evaluation.tiers.authoring import AuthoringError, author_brief
 from physgate.evaluation.tiers.canaries import store_canaries
 from physgate.evaluation.tiers.manifest import requirements_source, staleness
 from physgate.evaluation.tiers.store import is_visible_tier, role_roots
 from physgate.evaluation.tiers.task import AnswerForm, Role, ScorerId
+from physgate.evaluation.tierset_cli import status
 
 VERSION = "a" * 64
 CANARY = "b" * 32
