@@ -37,6 +37,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -73,6 +74,14 @@ MAX_DERIVED_BYTES = 64_000
 MAX_SOURCE_BYTES = 10_000_000
 #: The most seconds one regeneration may be given.
 MAX_TIMEOUT_S = 600
+#: The most sets one change check makes again. A module is one board, or a board and a few
+#: daughter boards; eight sets is a module with room to spare, and past it the change is
+#: refused, never checked in part.
+MAX_SETS_PER_CHECK = 8
+#: The seconds all of one change check's regenerations share. A set takes about 8 s on CI, so
+#: a full module takes about a minute; each run is given the lesser of its own timeout and
+#: what is left, and a check that runs out refuses.
+TOTAL_DEADLINE_S = 900.0
 #: The places an argument may name, and nothing else in braces.
 PLACES = frozenset({"interpreter", "root", "source", "module", "name"})
 _PLACE = re.compile(r"\{([^{}]*)\}")
@@ -381,12 +390,21 @@ def held_exports(  # noqa: PLR0913 - the change, the record and the two ways to 
     sets = _sets(_listed(repo, commit, module, git_dir), module, recipes)
     # A set whose every file was removed is gone from the commit: nothing is left to hold.
     chosen = [sets[key] for key in sorted(keys) if key in sets]
+    if len(chosen) > MAX_SETS_PER_CHECK:
+        return ExportRefusal(
+            reason=(
+                f"the change touches {len(chosen)} sources with exports, and one change check "
+                f"makes at most {MAX_SETS_PER_CHECK} sets again; commit fewer at a time"
+            ),
+            subject=(chosen[MAX_SETS_PER_CHECK].sources or chosen[MAX_SETS_PER_CHECK].products)[0],
+        )
     for found in chosen:
         refusal = _paired(found, exports_dir)
         if refusal is not None:
             return refusal
+    deadline = time.monotonic() + TOTAL_DEADLINE_S
     for found in chosen:
-        refusal = _regenerated(repo, commit, module, found, held, runner, git_dir)
+        refusal = _regenerated(repo, commit, module, found, held, runner, git_dir, deadline)
         if refusal is not None:
             return refusal
     return None
@@ -434,6 +452,7 @@ def _regenerated(  # noqa: PLR0913 - the one call's parts
     recorded: ToolEnvironment,
     runner: Runner,
     git_dir: GitDir | None,
+    deadline: float,
 ) -> ExportRefusal | None:
     """Make one set again from its committed source, in a folder made for it, and compare."""
     source = found.sources[0]
@@ -450,7 +469,9 @@ def _regenerated(  # noqa: PLR0913 - the one call's parts
         target = placed / PurePosixPath(source).relative_to(module)
         target.parent.mkdir(parents=True)
         target.write_bytes(git_blob(repo, spec, git_dir=git_dir))
-        return _run_and_compare(repo, commit, found, recorded, runner, git_dir, work, target)
+        return _run_and_compare(
+            repo, commit, found, recorded, runner, git_dir, work, target, deadline
+        )
     finally:
         _remove(work)
 
@@ -464,6 +485,7 @@ def _run_and_compare(  # noqa: PLR0911, PLR0913 - each refusal is its own return
     git_dir: GitDir | None,
     work: Path,
     target: Path,
+    deadline: float,
 ) -> ExportRefusal | None:
     source, derivation, placed = found.sources[0], found.recipe.derivation, work / "module"
     try:
@@ -480,12 +502,18 @@ def _run_and_compare(  # noqa: PLR0911, PLR0913 - each refusal is its own return
         "name": found.stem,
     }
     argv = [_PLACE.sub(lambda m: places[m.group(1)], word) for word in derivation.argv]
+    left = deadline - time.monotonic()
+    given = min(float(derivation.timeout_s), left)
+    if given <= 0:
+        return _out_of_time(source)
     try:
-        code = runner(argv, work, env, float(derivation.timeout_s), recorded.roots)
+        code = runner(argv, work, env, given, recorded.roots)
     except DerivedError as exc:
         return ExportRefusal(
             reason=f"the exports of {source} cannot be made again here: {exc}", subject=source
         )
+    if code is None and given < derivation.timeout_s:
+        return _out_of_time(source)
     if code is None:
         return ExportRefusal(
             reason=(
@@ -505,6 +533,16 @@ def _run_and_compare(  # noqa: PLR0911, PLR0913 - each refusal is its own return
         if refusal is not None:
             return refusal
     return None
+
+
+def _out_of_time(source: str) -> ExportRefusal:
+    return ExportRefusal(
+        reason=(
+            f"the change check's deadline of {TOTAL_DEADLINE_S:g} s for making exports again ran "
+            f"out at {source}; the exports are refused: commit fewer sources at a time"
+        ),
+        subject=source,
+    )
 
 
 def _same(  # noqa: PLR0913 - the committed file, the made one and where they come from
