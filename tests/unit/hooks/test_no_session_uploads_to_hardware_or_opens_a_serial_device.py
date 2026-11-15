@@ -74,6 +74,43 @@ UPLOADS = [
     "trap 'pio run -t upload' EXIT",
     # The program named only when the command runs, given an upload target all the same.
     "p=pio; $p run -t upload",
+    # Behind a wrapper's option that takes a value: the value is not the program.
+    "exec -a x pio run -t upload",
+    "env --unset X pio run -t upload",
+    "nice --adjustment 5 pio run -t upload",
+    "/usr/bin/time -o out pio run -t upload",
+    "sudo -u root pio run -t upload",
+    # An option this rule has no word on is read as one that may take a value.
+    "env -a x pio run -t upload",
+    "exec -a x python3 -m platformio run -t upload",
+    "p=pio; exec -a x $p run -t upload",
+    "p=pio; timeout 60 $p run -t upload",
+    # An interpreter running the build tool by any spelling of its module, or as a script.
+    "python3 -Im platformio run -t upload",
+    "python3 -Implatformio run -t upload",
+    "python3 -W ignore -m platformio run -t upload",
+    "python3 -m platformio.__main__ run -t upload",
+    "timeout 5 python3 -m platformio.__main__ run -t upload",
+    "python3 /opt/env/venv/bin/pio run -t upload",
+    # Its monitor, by a name only running decides.
+    "p=pio; $p device monitor",
+    # A program named only when the command runs, given a flasher's words: a memory
+    # operation, or a programmer and a part.
+    "p=avrdude; $p -U flash:w:firmware.hex",
+    "p=avrdude; $p -Uflash:w:firmware.hex:i",
+    "p=avrdude; $p -c usbasp -p m328p",
+    # Every occurrence is read: any -U, whatever its value, or a part beside an erase.
+    "p=avrdude; $p -U x -U flash:w:firmware.hex",
+    "p=avrdude; $p -U firmware.hex",
+    "p=avrdude; $p -U lfuse:w:0xFF:m",
+    "p=avrdude; $p -U 3",
+    "p=avrdude; $p -p m328p -e",
+    "p=avrdude; $p -c x -c usbasp -p 1 -p t85",
+    # The module or the script an interpreter runs, named only when the command runs.
+    "python3 -m $m run -t upload",
+    "m=platformio; python3 -m$m run -t upload",
+    "python3 $script run -t upload",
+    "python3 -I $script device monitor",
 ]
 
 NOT_UPLOADS = [
@@ -130,6 +167,33 @@ NOT_UPLOADS = [
     "cat > notes.md <<'EOF'\nNever run pio run -t upload or avrdude here.\nEOF\n",
     "python3 -c \"print('pio run -t upload')\"",
     "printf '%s\\n' 'esptool.py write_flash'",
+    # A wrapper's options read whole, so a judged program's name among the words is text.
+    "time grep -rn platformio src",
+    "nice -n 5 grep pio notes.md",
+    "env -u X grep pio notes.md",
+    "exec -a x ls",
+    "env --unset X ls",
+    "python3 -m pytest tests/test_pio.py",
+    "python3 tools/build.py",
+    "python3 -W ignore -m platformio run",
+    "p=pio; $p run",
+    "p=ls; $p -la",
+    # Ordinary commands whose program only running names.
+    "$PYTHON script.py",
+    "python3 $SCRIPT",
+    "python3 -m $MODULE",
+    "python3 $SCRIPT --input data.csv",
+    'for t in tests/*.sh; do "$t"; done',
+    "for f in src/*.c; do $CC -c $f; done",
+    "$CC -c main.c -pipe",
+    "$SHELL -c 'ls -la'",
+    "$MKDIR -p build/out",
+    '$PYTHON -c "print(1)"',
+    "$CC -c file.c -o x",
+    "$tool -p 8080",
+    "$MKDIR -p build",
+    "$PYTHON -m pytest -p no:cacheprovider",
+    "$CC -c x.c -pthread -o x",
 ]
 
 #: Programs that only ever reach a board, each as it is usually run.
@@ -150,6 +214,12 @@ FLASHERS = [
     "micronucleus firmware.hex",
     "timeout 30 openocd -f board.cfg",
     "sh -c 'dfu-util -D firmware.bin'",
+    # Those the run's own tool environment installs: run by path, by name, or as a module.
+    "piodebuggdb",
+    "/opt/env/venv/bin/piodebuggdb --version",
+    "pyserial-miniterm - 115200",
+    "miniterm.py - 115200",
+    "echo 1 | python3 -m serial.tools.miniterm - 115200",
 ]
 
 #: A use of a guarded program that is not one of its build-only uses, with the program.
@@ -192,6 +262,7 @@ NOT_BUILD_ONLY = [
     ("esptool.py write_mem 0x400 1", "esptool.py"),
     ("bash <<'EOF'\nesptool.py erase_flash\nEOF", "esptool.py"),
     ("python -m esptool write_flash 0 firmware.bin", "esptool"),
+    ("python -m esptool.__main__ write_flash 0 firmware.bin", "esptool"),
     ("arduino-cli upload -p COM3", "arduino-cli"),
     ("arduino-cli compile -u --fqbn x:y:z .", "arduino-cli"),
     ("arduino-cli compile --upload .", "arduino-cli"),
@@ -282,6 +353,22 @@ RELATIVE = [
     (None, "CDPATH=/ cd dev && cat ttyACM0", "ttyACM0"),
     (None, "export CDPATH=/; cd dev; cat ttyACM0", "ttyACM0"),
     (None, "CDPATH=/dev cd bus && cat usb/001/001", "usb/001/001"),
+    # A move whose target only running decides, or that goes where no word says: the command
+    # could be anywhere after it.
+    (None, "find . -execdir cat ttyACM0 \\;", "ttyACM0"),
+    (None, "chroot /srv cat ttyACM0", "ttyACM0"),
+    (None, "sudo -R /srv cat ttyACM0", "ttyACM0"),
+    (None, "su - builder -c 'cat ttyACM0'", "ttyACM0"),
+    (None, "sudo -D $DIR cat ttyACM0", "ttyACM0"),
+    (None, "uv run --directory tools cat ttyACM0", "ttyACM0"),
+    (None, "sudo -D /srv/$X cat ttyACM0", "ttyACM0"),
+    (None, "uv run cat ttyACM0 --directory", "ttyACM0"),
+    (None, "sudo -i cat ttyACM0", "ttyACM0"),
+    (None, "sudo --login cat ttyACM0", "ttyACM0"),
+    (None, "sudo -Ei cat ttyACM0", "ttyACM0"),
+    (None, "su --log builder -c 'cat ttyACM0'", "ttyACM0"),
+    (None, "su -ml builder -c 'cat ttyACM0'", "ttyACM0"),
+    (None, "runuser -l builder -c 'cat ttyACM0'", "ttyACM0"),
 ]
 ENTERS_BY_STEPS = [
     ("/usr", "cd ../dev"),
@@ -319,6 +406,24 @@ UNREAD = [
     "pio $SUB -t upload_later",
     "esptool.py $WHAT 0 firmware.bin",
     "pio run -d build_*",
+    # A program named only when the command runs, given the build tool's tests, its debugger
+    # or its devices.
+    "p=pio; $p test",
+    "p=pio; $p debug",
+    "p=pio; $p device list",
+    "p=pio; $p -c vscode test",
+    "python3 -m $m test",
+]
+
+#: ``env -S`` splits a string into a command by env's rules, not the shell's: refused whole.
+SPLIT = [
+    "env -S 'pio run -t upload'",
+    "env -S'pio run -t upload'",
+    "env -iS 'pio run -t upload'",
+    "env --split-string='pio run -t upload'",
+    "env --split-string 'pio run -t upload'",
+    "env --sp 'pio run -t upload'",
+    "env -S 'ls -la'",
 ]
 
 DEVICES = [
@@ -391,6 +496,12 @@ NOT_DEVICES = [
     "cd ./dev && ls",
     "cat docs/ttyUSB-notes.md",
     "echo ttyACM0",
+    "env -C /tmp cat notes.md",
+    "env -C ./build ls",
+    "sudo -D /tmp cat notes.md",
+    "uv run --directory ./tools pytest -q",
+    "find . -name '*.c' -exec cat {} +",
+    "sudo -u builder cat ttyS-notes.md",
 ]
 
 ENTERS = [
@@ -401,6 +512,27 @@ ENTERS = [
     "cd /tmp/../dev",
     "cd ../../../dev",
     "cd /DEV",
+    # env moves the program it runs.
+    "env -C /dev cat cu.usbmodem1",
+    "env --chdir=/dev cat ttyACM0",
+    "env --chdir /dev cat ttyACM0",
+    "env -iC/dev cat ttyACM0",
+    # So do sudo, uv, poetry and parallel, by their own options.
+    "sudo -D /dev cat cu.usbmodem1",
+    "sudo -D/dev cat ttyACM0",
+    "sudo -iD /dev cat ttyACM0",
+    "sudo --chdir=/dev cat ttyACM0",
+    "sudo --chdir /dev cat ttyACM0",
+    "uv run --directory /dev cat ttyACM0",
+    "timeout 5 uv --directory=/dev run cat ttyACM0",
+    "poetry -C /dev run cat ttyACM0",
+    "parallel --wd /dev cat ttyACM0 ::: 1",
+    # Read as the program reads its options: a start of a long name, a short one among others.
+    "sudo --chd /dev cat ttyACM0",
+    "uv run --dir /dev cat ttyACM0",
+    "poetry -qC /dev run cat ttyACM0",
+    "poetry --dir=/dev run cat ttyACM0",
+    "parallel --work /dev cat ttyACM0 ::: 1",
 ]
 
 
@@ -509,6 +641,11 @@ def test_a_word_only_running_decides_is_refused_in_a_command_that_can_upload(
     assert _shell(tmp_path, command) == H.DYNAMIC
 
 
+@pytest.mark.parametrize("command", SPLIT, ids=SPLIT)
+def test_a_string_env_splits_into_a_command_is_refused(tmp_path: Path, command: str) -> None:
+    assert _shell(tmp_path, command) == getattr(H, "SPLIT", "(no reason for env -S yet)")
+
+
 @pytest.mark.parametrize(("command", "device"), DEVICES, ids=[c for c, _ in DEVICES])
 def test_a_command_that_names_a_serial_device_is_refused(
     tmp_path: Path, command: str, device: str
@@ -552,11 +689,48 @@ def test_every_profile_is_refused_through_every_door(tmp_path: Path, profile: st
     assert decided("Bash", {"command": "pio run"}) == "allow"
 
 
+@pytest.mark.parametrize("profile", ["role", "baseline", "orchestrator", "reviewer"])
+def test_every_hook_together_refuses_these_in_every_profile(tmp_path: Path, profile: str) -> None:
+    # Through the whole registry, as a session meets it: the rule for roles that refuses an
+    # env option it cannot read is not what holds these for the other profiles.
+    _, _, config = write_config(tmp_path, profile=profile)
+
+    def decided(command: str) -> bool:
+        hook_input = HookInput.model_validate(bash(command, cwd=config.worktree))
+        return dispatch(list(REGISTRY.values()), hook_input, config).allow
+
+    for command in (
+        "env -S 'pio run -t upload'",
+        "env -C /dev cat cu.usbmodem1",
+        'python3 "$SESSION_BIN/pio" run -t upload',
+        "exec -a x pio run -t upload",
+    ):
+        assert not decided(command), f"{command} is allowed to {profile}"
+    assert decided("pio run")
+
+
 def test_an_upload_refusal_wins_over_nothing_and_a_device_is_named_first(tmp_path: Path) -> None:
     # Both faults at once: the device is what the reason names, so a session is told the
     # thing no rewording of the command would get past.
     reason = _shell(tmp_path, "pio run -t upload --upload-port /dev/ttyACM0")
     assert reason == H.DEVICE.format(device="/dev/ttyACM0")
+
+
+#: A program named only when the command runs, given a flasher's words the hook does not read
+#: as one: a part alone, or a part and a programmer glued to their options. The flasher's
+#: grammar is not modelled; the OS layer's denial of the device holds for these.
+RUN_TIME_FLASHERS_PASSING = [
+    "p=avrdude; $p -p m328p",
+    "p=avrdude; $p -cusbasp -patmega328p",
+]
+
+
+@pytest.mark.parametrize("command", RUN_TIME_FLASHERS_PASSING, ids=RUN_TIME_FLASHERS_PASSING)
+@pytest.mark.xfail(strict=True, reason="a run-time flasher in other words is the OS layer's")
+def test_a_run_time_flasher_in_words_not_read_as_one_is_refused(
+    tmp_path: Path, command: str
+) -> None:
+    assert _shell(tmp_path, command) == H.UPLOAD
 
 
 @pytest.mark.xfail(strict=True, reason="a path a program builds as it runs is the OS layer's")

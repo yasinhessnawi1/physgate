@@ -32,9 +32,23 @@ be complete the table says what is allowed instead:
 **Commands are matched, not text.** The parser hands over each command a call would run, those
 inside substitutions, ``sh -c``, ``eval`` and a script fed to a shell on its input included, and
 the commands another program runs among its own words (``timeout 5 …``, ``xargs …``) are
-found the way the git rule finds them, with that rule's own list of such programs. A document
-that names an upload is text and passes. A word of such a command that only running it decides
-(``$TARGET``) is refused: the tool would not get the word that was read.
+found the way the git rule finds them, with that rule's own list of such programs. So are those
+behind a wrapper's option that takes a value (``exec -a name …``, ``env --unset X …``,
+``/usr/bin/time -o out …``): the parser steps over the option, and the value it leaves where
+the program should be is not taken for it; the program is searched for among the words after.
+An interpreter runs one as a module (``-m``, run together with other options, a package's
+``__main__`` included) or as the script it is given. ``env -S`` is refused outright: it splits
+a string into a command by env's own rules, which are not the shell's, and this file reads the
+shell's. A document that names an upload is text and passes. A word of such a command that only
+running it decides (``$TARGET``) is refused: the tool would not get the word that was read.
+
+**A program named only when the command runs** (``$p``, or the module or script an interpreter
+is given that way) cannot be known from the words, so it is refused only for the shapes named
+here: the build tool's upload, monitor, tests, debugger or devices, and a flasher's options
+(any ``-U``, or ``-p`` beside ``-U``, ``-e`` or ``-c``). Given other words, or none, it passes
+this hook, and what holds is the OS layer's denial of the board's devices. The exact reading of
+a guarded program's words, which refuses an upload by a route not named, is for a program
+named in the command's own words.
 
 **A device is matched wherever it is named**, in any word, assignment, redirection or text a
 command is fed: a device is opened by whatever program is handed its name, so there is no
@@ -94,7 +108,14 @@ from typing import TYPE_CHECKING
 
 from physgate.hooks import git_ops
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
-from physgate.hooks.shell import ShellSyntaxError, SimpleCommand, command_key, parse, unwrap
+from physgate.hooks.shell import (
+    ShellSyntaxError,
+    SimpleCommand,
+    command_key,
+    parse,
+    unwrap,
+    wrapper_options,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping, Sequence
@@ -126,6 +147,11 @@ DYNAMIC = (
     "A word of this command is decided only when it runs, and the command is one that can "
     "upload to hardware, so it is refused. Write its words out."
 )
+SPLIT = (
+    "env -S is refused: it splits a string into a command by env's own rules, which are not "
+    "the shell's, so what it would run is not the command this check read. Write the command "
+    "out as words."
+)
 UNREADABLE = (
     "This call's arguments could not be read to their end ({detail}), so whether they name "
     "an upload or a serial device is not known, and the call is refused."
@@ -151,14 +177,20 @@ BOARD_DEVICES: Mapping[str, tuple[str, ...]] = {
 #: The directory every one of them lies in.
 _DEVICES = "dev"
 
-#: Programs that only ever reach a board: flashers, and the servers of debug probes.
+#: Programs that only ever reach a board: flashers, the servers of debug probes, and serial
+#: terminals, those the run's own tool environment installs among them (the build tool's
+#: debugger front end, and the serial library's terminal by both its names).
 FLASHERS = frozenset(
     {
         "avrdude", "dfu-util", "dfu-programmer", "bossac", "openocd", "st-flash", "st-info",
         "pyocd", "teensy_loader_cli", "picotool", "stm32flash", "jlinkexe", "nrfjprog",
-        "micronucleus",
+        "micronucleus", "piodebuggdb", "pyserial-miniterm", "miniterm.py",
     }
 )  # fmt: skip
+#: Modules an interpreter runs that only ever reach a board: the serial library's terminal,
+#: which opens the first port it finds when it is named none.
+FLASHER_MODULES = frozenset({"serial.tools.miniterm"})
+_ONLY_A_BOARD = FLASHERS | FLASHER_MODULES
 
 #: The build tool, by each name it is run under.
 BUILD_TOOLS = frozenset({"pio", "platformio"})
@@ -258,9 +290,66 @@ GUARDED: Mapping[str, Guard] = {
     "esptool.py": _IMAGE_TOOL,
     "arduino-cli": _SKETCH_TOOL,
 }
-#: Interpreters that run one of the programs above as a module (``python -m platformio``).
+#: Interpreters that run one of the programs above as a module (``python -m platformio``) or
+#: as the script they are given.
 _MODULE_RUNNERS = re.compile(r"python[0-9.]*|pypy[0-9.]*")
-_PROGRAMS = FLASHERS | frozenset(GUARDED)
+#: Their options that take no value, which may run together in one word before another.
+_PYTHON_FLAGS = "bBdEhiIOPqRsSuvVx"
+#: ``-m``, after any of those, with the module glued to it if it is.
+_MODULE_OPTION = re.compile(f"-[{_PYTHON_FLAGS}]*m(.*)", re.DOTALL)
+#: The options whose value is the next word.
+_PYTHON_VALUE = re.compile(f"-[{_PYTHON_FLAGS}]*[WX]|--check-hash-based-pycs")
+#: Code handed over as a string, or read from standard input: no program is named by a word.
+_PYTHON_CODE = re.compile(f"-[{_PYTHON_FLAGS}]*c.*|-", re.DOTALL)
+_PROGRAMS = _ONLY_A_BOARD | frozenset(GUARDED)
+#: A program named only when the command runs is refused given these first words of the build
+#: tool's: its tests (which upload), its debugger (which loads the board), its devices.
+_LATE_USES = frozenset({"test", "debug", "device"})
+#: A flasher's options, read as words and not modelled further: any ``-U`` (a memory operation
+#: or an image to write), and ``-p`` (a part) beside ``-U``, ``-e`` (an erase) or ``-c`` (a
+#: programmer). Only ``-U`` is read glued to its value as well: ``-p`` and ``-c`` glued are a
+#: compiler's ``-pthread`` and ``-pipe`` beside its ``-c``.
+_FLASHER_OPTION = "-U"
+_PART_OPTION = "-p"
+_BESIDE_A_PART = frozenset({"-U", "-e", "-c"})
+
+#: Each program that runs its arguments (the parser's own list): its short options that take no
+#: value, those that take one, and its long options that take none, GNU's and BSD's together.
+#: The parser steps over every option word; after one whose value is the next word, the first
+#: word it leaves is that value, so the program is searched for among the words after it.
+_WRAPPERS: Mapping[str, tuple[str, str, frozenset[str]]] = {
+    "env": ("i0v", "uCSPLU", frozenset({"--ignore-environment", "--null", "--debug"})),
+    "exec": ("cl", "a", frozenset()),
+    "command": ("pvV", "", frozenset()),
+    "nice": ("0123456789", "n", frozenset()),
+    "nohup": ("", "", frozenset()),
+    "time": ("aphlqv", "of", frozenset({"--append", "--portability", "--quiet", "--verbose"})),
+    "builtin": ("", "", frozenset()),
+    "sudo": ("AbEeHiKklnPSsVv", "CDghpRrTtUu", frozenset()),
+}
+#: The programs that run a command somewhere else by an option of their own, wrappers and
+#: runners alike, all read by one reader (:func:`_moving_option`): the short options of each
+#: that take no value (so a short option may stand among them in one word), the options (short
+#: letter, long name) naming the directory the command runs in, and those that leave it where
+#: no word says: a new root, a login's home.
+_MOVING: Mapping[str, tuple[str, tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]] = {
+    "env": ("i0v", (("C", "--chdir"),), ()),
+    "sudo": ("AbEeHiKklnPSsVv", (("D", "--chdir"),), (("R", "--chroot"), ("i", "--login"))),
+    "uv": ("qvn", (("", "--directory"),), ()),
+    "uvx": ("qvn", (("", "--directory"),), ()),
+    "poetry": ("qvnhV", (("C", "--directory"),), ()),
+    "parallel": ("", (("", "--wd"), ("", "--workdir")), ()),
+    "su": ("fmp", (), (("l", "--login"),)),
+    "runuser": ("fmp", (), (("l", "--login"),)),
+}
+#: Words that are no option of that kind and leave the command anywhere all the same: a login
+#: by a bare dash, and each found file's directory (``find``'s own words are matched whole).
+_ANYWHERE_WORDS: Mapping[str, frozenset[str]] = {
+    "su": frozenset({"-"}),
+    "runuser": frozenset({"-"}),
+    "find": frozenset({"-execdir", "-okdir"}),
+}
+_NEW_ROOT = frozenset({"chroot"})
 
 #: The tools that name the one file they act on, and the argument that names it.
 _PATH_KEYS = {
@@ -393,17 +482,114 @@ def serial_device_path(path: str, cwd: str) -> str | None:
     return None
 
 
-def _moves_to(cmd: SimpleCommand) -> str | None | bool:
-    """Where a command moves the shell, if it does.
+def _option_in(word: str, flags: str, short: str, long: str) -> tuple[bool, str | None]:
+    """Whether the option word ``word`` is ``-short`` or ``long``, and the value glued to it.
 
-    A written target; ``None`` for a move only running decides; ``False`` for a command that
-    moves nowhere.
+    As a program's own option reader takes it: among a run of short options after any of
+    ``flags`` (those that take no value), or as any start of the long name (``--split`` is
+    ``--split-string``). A word that is no option is neither.
     """
-    argv = unwrap(cmd.argv)
-    if not argv or command_key(argv[0]) not in _CD:
+    if word.startswith("--"):
+        name, glued, value = word.partition("=")
+        return len(name) > 2 and long.startswith(name), (value if glued else None)
+    if not word.startswith("-"):
+        return False, None
+    for n, char in enumerate(word[1:], 1):
+        if char == short:
+            return True, word[n + 1 :] or None
+        if char not in flags:
+            return False, None
+    return False, None
+
+
+def _hides_the_program(argv: Sequence[str], index: int, wrapper: str, taken: bool) -> bool:
+    """Whether the wrapper's option at ``index`` may have left its value where the program is."""
+    word = argv[index]
+    if taken or word in ("-", "--"):
         return False
-    stepped = len(cmd.argv) - len(argv)
+    flags, values, long_flags = _WRAPPERS.get(wrapper, ("", "", frozenset()))
+    if word.startswith("--"):
+        return "=" not in word and word not in long_flags
+    for n, char in enumerate(word[1:], 1):
+        if char in values:
+            # Its value is the next word unless it is glued to the option.
+            return n + 1 == len(word)
+        if char not in flags:
+            return True
+    return False
+
+
+def _value_at(
+    argv: Sequence[str], index: int, glued: str | None, unread: frozenset[int]
+) -> str | None:
+    """An option's value: glued to the option at ``index``, or the next word; ``None`` unread."""
+    at = index if glued is not None else index + 1
+    target = glued if glued is not None else (argv[at] if at < len(argv) else None)
+    return None if target is None or at in unread else target
+
+
+def _moving_option(
+    program: str, argv: Sequence[str], index: int, unread: frozenset[int]
+) -> tuple[bool, str | None] | None:
+    """Whether the word at ``index`` moves the command ``program`` runs, and where to.
+
+    ``None`` for a word that does not; else ``(True, target)``, the target ``None`` where only
+    running decides it or no word says it, as for a new root or a login.
+    """
+    word = argv[index]
+    if word in _ANYWHERE_WORDS.get(program, ()):
+        return True, None
+    flags, to, anywhere = _MOVING.get(program, ("", (), ()))
+    for short, long in to:
+        named, glued = _option_in(word, flags, short, long)
+        if named:
+            return True, _value_at(argv, index, glued, unread)
+    if any(_option_in(word, flags, short, long)[0] for short, long in anywhere):
+        return True, None
+    return None
+
+
+def _runner_moves(argv: Sequence[str], stepped: int, unread: frozenset[int]) -> list[str | None]:
+    """The moves a program that runs a command makes by any of its words, from ``argv`` on."""
+    key = command_key(argv[0])
+    if key in _NEW_ROOT:
+        return [None]
+    relative = frozenset(u - stepped for u in unread)
+    found = (_moving_option(key, argv, n, relative) for n in range(1, len(argv)))
+    return [move[1] for move in found if move is not None]
+
+
+def _moves_to(cmd: SimpleCommand) -> str | None | bool:
+    """Where a command moves the shell, or the program it runs, if it does.
+
+    A written target; ``None`` for a move only running decides, one that goes where no word
+    says, or more than one; ``False`` for a command that moves nowhere. ``cd`` and its kin move
+    the shell; a wrapper's or a runner's own option (``env -C``, ``sudo -D``, ``uv
+    --directory``) moves the program it runs, and ``find -execdir``, ``chroot``, ``sudo -R``
+    and a login (``su -``) leave it anywhere.
+    """
     unread = cmd.dynamic | cmd.expanding
+    moves: list[str | None] = []
+    options = wrapper_options(cmd.argv)
+    for index, wrapper, _ in options:
+        move = _moving_option(wrapper, cmd.argv, index, unread)
+        if move is not None:
+            moves.append(move[1])
+    argv = unwrap(cmd.argv)
+    stepped = len(cmd.argv) - len(argv)
+    if argv and command_key(argv[0]) in _CD:
+        moves.append(_cd_target(argv, stepped, unread))
+    if argv:
+        among = any(_hides_the_program(cmd.argv, *option) for option in options)
+        for n in range(len(argv) if _searched(argv, among) else 1):
+            moves += _runner_moves(argv[n:], stepped + n, unread)
+    if not moves:
+        return False
+    return moves[0] if len(moves) == 1 else None
+
+
+def _cd_target(argv: Sequence[str], stepped: int, unread: frozenset[int]) -> str | None:
+    """The target ``cd`` and its kin are given, as written, or ``None``."""
     for n, word in enumerate(argv[1:], 1):
         if word.startswith(("-", "+")) and word not in ("-", "+"):
             continue
@@ -508,7 +694,7 @@ def _names_monitor(words: Sequence[str]) -> bool:
 
 def upload_in(program: str, words: Sequence[str]) -> bool:
     """Whether ``program``, run with ``words``, is a flasher, an upload or the serial monitor."""
-    if program in FLASHERS:
+    if program in _ONLY_A_BOARD:
         return True
     return program in BUILD_TOOLS and (_names_upload_target(words) or _names_monitor(words))
 
@@ -588,31 +774,136 @@ def refusal_of(program: str, words: Sequence[str]) -> str | None:
     return None if build_only(program, words) else NOT_BUILD.format(program=program)
 
 
-def _program_at(argv: Sequence[str]) -> tuple[int, str] | None:
-    """Where in ``argv`` a program this rule judges starts, and which one, or ``None``.
+def _module_program(module: str, at: int) -> tuple[int, str] | None:
+    """The program a module an interpreter runs is, by its package, at ``at``, or ``None``."""
+    key = command_key(module).removesuffix(".__main__")
+    if key in FLASHER_MODULES:
+        return at, key
+    package = key.split(".", 1)[0]
+    return (at, package) if package in _PROGRAMS else None
 
-    In command position always. Among the words of a program that runs its arguments, and of
-    an interpreter given it as a module, the first one found. Among any other program's
-    words it is text.
+
+def _interpreter_target(argv: Sequence[str]) -> tuple[int, str, bool] | None:
+    """Where the module or the script an interpreter runs is named, or ``None`` for neither.
+
+    The word's position, the module or script as written, and whether it is a module (``-m``,
+    after other options run together with it, or glued to the module's name).
     """
-    if not argv:
+    n = 1
+    while n < len(argv):
+        word = argv[n]
+        option = _MODULE_OPTION.fullmatch(word)
+        if option is not None:
+            if option.group(1):
+                return n, option.group(1), True
+            return (n + 1, argv[n + 1], True) if n + 1 < len(argv) else None
+        if _PYTHON_CODE.fullmatch(word):
+            return None
+        if _PYTHON_VALUE.fullmatch(word):
+            n += 2
+            continue
+        if word.startswith("-"):
+            n += 1
+            continue
+        return n, word, False
+    return None
+
+
+def _run_by_interpreter(argv: Sequence[str]) -> tuple[int, str] | None:
+    """Where an interpreter's words name a program this rule judges, and which, or ``None``.
+
+    The module it is given (a package's ``__main__`` included), or the script it runs, when
+    that script is such a program by its name.
+    """
+    target = _interpreter_target(argv)
+    if target is None:
         return None
+    n, named, module = target
+    if module:
+        return _module_program(named, n)
+    key = command_key(named)
+    return (n, key) if key in _PROGRAMS else None
+
+
+def _program_here(argv: Sequence[str]) -> tuple[int, str] | None:
+    """The program this rule judges that ``argv`` runs in command position, or ``None``."""
     head = command_key(argv[0])
     if head in _PROGRAMS:
         return 0, head
     if _MODULE_RUNNERS.fullmatch(head):
-        for n, word in enumerate(argv[1:], 1):
-            if word == "-m" and n + 1 < len(argv) and command_key(argv[n + 1]) in _PROGRAMS:
-                return n + 1, command_key(argv[n + 1])
-            if word.startswith("-m") and command_key(word[2:]) in _PROGRAMS:
-                return n, command_key(word[2:])
-        return None
-    # The git rule's own list of programs that run their arguments: one list for both rules.
-    if head in git_ops._RUNNERS:
-        for n, word in enumerate(argv[1:], 1):
-            if command_key(word) in _PROGRAMS:
-                return n, command_key(word)
+        return _run_by_interpreter(argv)
     return None
+
+
+def _searched(argv: Sequence[str], among: bool) -> bool:
+    """Whether a program is searched for among ``argv``'s words, not only in command position.
+
+    Behind a wrapper's option whose value may stand where the program is (``among``), and among
+    the words of a program that runs its arguments: the git rule's own list of them, one list
+    for both rules.
+    """
+    return among or command_key(argv[0]) in git_ops._RUNNERS
+
+
+def _program_at(argv: Sequence[str], *, among: bool = False) -> tuple[int, str] | None:
+    """Where in ``argv`` a program this rule judges starts, and which one, or ``None``.
+
+    In command position always, an interpreter's module or script included. Where it is
+    searched for (:func:`_searched`), the first one found. Among any other program's words it
+    is text.
+    """
+    if not argv:
+        return None
+    found = _program_here(argv)
+    if found is not None or not _searched(argv, among):
+        return found
+    for n in range(1, len(argv)):
+        inner = _program_here(argv[n:])
+        if inner is not None:
+            return n + inner[0], inner[1]
+    return None
+
+
+def _named_late(
+    argv: Sequence[str], stepped: int, unread: frozenset[int], *, among: bool
+) -> str | None:
+    """The reason a program named only when the command runs is refused, or ``None``.
+
+    Wherever a program could stand (:func:`_program_at`), the module or script an interpreter
+    there runs among them, a word only running decides is read as the build tool or a flasher:
+    given an upload, the build tool's monitor or a flasher's words it is refused as an upload,
+    and given the build tool's tests, its debugger or its devices as a word that may not be
+    left to running. With any other words, or none, it passes: what it runs is the OS layer's.
+    """
+    if not argv:
+        return None
+    for n in range(len(argv) if _searched(argv, among) else 1):
+        late = [n] if stepped + n in unread else []
+        if _MODULE_RUNNERS.fullmatch(command_key(argv[n])):
+            target = _interpreter_target(argv[n:])
+            if target is not None and stepped + n + target[0] in unread:
+                late.append(n + target[0])
+        for at in late:
+            words = argv[at + 1 :]
+            if upload_in("pio", words) or _flasher_words(words):
+                return UPLOAD
+            opened = _read_options(words, 0, _BUILD_TOOL[0], positionals=None)
+            first = words[opened[0]] if opened is not None and opened[0] < len(words) else ""
+            if first.casefold() in _LATE_USES:
+                return DYNAMIC
+    return None
+
+
+def _flasher_words(words: Sequence[str]) -> bool:
+    """Whether ``words`` carry a flasher's options (:data:`_FLASHER_OPTION`, :data:`_PART_OPTION`).
+
+    Any ``-U``, or ``-p`` beside ``-U``, ``-e`` or ``-c``. Every occurrence counts, whatever its
+    value; the flasher's grammar is not modelled, so a program named only when the command runs
+    and given other words passes here, and the OS layer's device denial is what holds for it.
+    """
+    if any(word.startswith(_FLASHER_OPTION) for word in words):
+        return True
+    return _PART_OPTION in words and bool(_BESIDE_A_PART & set(words))
 
 
 def _check_command(cmd: SimpleCommand, places: Sequence[str]) -> str | None:
@@ -621,14 +912,18 @@ def _check_command(cmd: SimpleCommand, places: Sequence[str]) -> str | None:
         device = serial_device_in(text, places)
         if device is not None:
             return DEVICE.format(device=device)
+    options = wrapper_options(cmd.argv)
+    for index, wrapper, _ in options:
+        split = _option_in(cmd.argv[index], _WRAPPERS["env"][0], "S", "--split-string")
+        if wrapper == "env" and split[0]:
+            return SPLIT
     argv = unwrap(cmd.argv)
     unread = cmd.dynamic | cmd.expanding
     stepped = len(cmd.argv) - len(argv)
-    found = _program_at(argv)
+    among = any(_hides_the_program(cmd.argv, *option) for option in options)
+    found = _program_at(argv, among=among)
     if found is None:
-        # A program named only when the command runs, given an upload target all the same.
-        named_late = bool(argv) and stepped in unread
-        return UPLOAD if named_late and _names_upload_target(argv[1:]) else None
+        return _named_late(argv, stepped, unread, among=among)
     start, program = found
     words = argv[start + 1 :]
     if upload_in(program, words):

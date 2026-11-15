@@ -663,7 +663,7 @@ def test_a_denial_named_by_a_pattern_is_refused_for_a_server(
         server_read_denied(config, platform)
 
 
-# ---- a server's own variables, directories and links (task 12) -------------------------------
+# ---- a server's own variables, directories and links ---------------------------------------------
 
 
 def _store(root: Path) -> Path:

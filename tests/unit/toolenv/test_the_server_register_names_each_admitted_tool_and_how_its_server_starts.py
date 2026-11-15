@@ -47,7 +47,7 @@ STORES = ("platforms", "packages", "lib")
 # ---- the register ----------------------------------------------------------------------------
 
 
-def test_the_register_admits_exactly_the_ruled_tools_of_two_servers() -> None:
+def test_the_register_admits_two_servers_each_with_exactly_its_named_tools() -> None:
     register = load_register()
     assert set(register.servers) == {"control", "mujoco"}
     assert set(register.servers["control"].tools) == CONTROL

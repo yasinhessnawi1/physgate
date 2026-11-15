@@ -765,25 +765,50 @@ def unwrap(argv: tuple[str, ...]) -> tuple[str, ...]:
     ``!``, ``coproc``, ``function name``) is stepped over the same way, so ``{ git …; }``
     and ``if git …`` are ``git …``.
     """
+    return _unwrapped(argv)[0]
+
+
+def wrapper_options(argv: tuple[str, ...]) -> list[tuple[int, str, bool]]:
+    """Each option :func:`unwrap` steps over on its way to the command, in order.
+
+    Each as ``(index, wrapper, taken)``: where the option word stands in ``argv``, the name of
+    the wrapper it belongs to (:func:`command_key`), and whether :func:`unwrap` took the word
+    after it as the option's value. It knows the value of only the options it names, so after
+    any other option that takes one, the first word it returns is that value and not the
+    program: a check that must know which program runs reads these.
+    """
+    return _unwrapped(argv)[1]
+
+
+def _unwrapped(argv: tuple[str, ...]) -> tuple[tuple[str, ...], list[tuple[int, str, bool]]]:
+    """:func:`unwrap`'s command and :func:`wrapper_options`'s options, from one walk."""
+    options: list[tuple[int, str, bool]] = []
+    at = 0
     while argv:
         if argv[0] in _RESERVED_PREFIXES:
-            argv = argv[1:]
+            argv, at = argv[1:], at + 1
             continue
         if argv[0] == "function":
-            argv = argv[2:]
+            argv, at = argv[2:], at + 2
             continue
         head = command_key(argv[0])
         if head not in _RUNS_ITS_ARGUMENTS:
-            return argv
+            return argv, options
         rest = list(argv[1:])
+        at += 1
         while rest and (rest[0].startswith("-") or _is_assignment(rest[0])):
             flag = rest.pop(0)
-            if head == "env" and flag in ("-u", "-C", "-S") and rest:
+            taken = bool(rest) and (
+                (head == "env" and flag in ("-u", "-C", "-S")) or (head == "nice" and flag == "-n")
+            )
+            if flag.startswith("-"):
+                options.append((at, head, taken))
+            at += 1
+            if taken:
                 rest.pop(0)
-            if head == "nice" and flag == "-n" and rest:
-                rest.pop(0)
+                at += 1
         argv = tuple(rest)
-    return argv
+    return argv, options
 
 
 def _expand_runners(sub: SimpleCommand, out: list[SimpleCommand], depth: int) -> None:

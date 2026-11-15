@@ -28,7 +28,9 @@ def _models() -> ModelStrings:
     )
 
 
-def test_a_new_run_records_that_its_sessions_were_denied_the_search_tool(tmp_path: Path) -> None:
+def test_a_run_the_rig_makes_records_its_sessions_denied_the_search_tool(tmp_path: Path) -> None:
+    # The rig's own default, written as a new run writes it: that the command takes the
+    # setting from the sessions' deny, and from nothing else, is the run configuration's row.
     made = config("run-a", target_repo(tmp_path), "electrical", claude_version="2.1.322")
     assert getattr(made, "tool_search", None) == "denied"
     path = tmp_path / "run.json"

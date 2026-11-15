@@ -9,11 +9,13 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import pytest
 
+from physgate.toolenv import manifest as walking
 from physgate.toolenv.exceptions import ToolEnvironmentError
 from physgate.toolenv.manifest import manifest, scan
 from physgate.toolenv.record import (
@@ -37,17 +39,34 @@ def _environment(tmp_path: Path) -> tuple[Path, Path, Path]:
     tool.write_text("#!/bin/sh\n")
     tool.chmod(0o755)
     (root / "lib" / "control" / "margins.py").write_text("def margin(): return 1\n")
+    # Provisioned an hour before, as a real environment is: a stat's times come from a clock
+    # that moves once a tick, so an edit of the same size made within the tick the file was
+    # written in would keep every time the scan reads, and a row would test the clock.
+    an_hour_ago = time.time() - 3600
+    for path in (root, *root.rglob("*")):
+        os.utime(path, (an_hour_ago, an_hour_ago), follow_symlinks=False)
     return root, python, tool
 
 
-def _runner(root: Path, *, physgate: bool = False, prefix: str | None = None) -> Runner:
-    answer = {
+def _runner(
+    root: Path,
+    *,
+    physgate: bool = False,
+    prefix: str | None = None,
+    changes: dict[str, object] | None = None,
+) -> Runner:
+    answer: dict[str, object] = {
         "version": "3.12.9",
         "prefix": prefix or str(root),
         "base_prefix": str(root),
+        "exec_prefix": str(root),
+        "base_exec_prefix": str(root),
+        # The standard library's archive is on the path whether or not it exists.
+        "path": [str(root / "lib" / "python312.zip"), str(root / "lib")],
         "physgate": physgate,
         "distributions": [["control", "0.10.1"], ["numpy", "2.1.2"]],
     }
+    answer.update(changes or {})
 
     def run(argv: Sequence[str]) -> str | None:
         if argv[1:2] == ["--version"]:
@@ -106,6 +125,16 @@ def test_a_write_that_puts_the_modification_time_back_is_still_seen(tmp_path: Pa
     require_unchanged(env, at_start)
     library = root / "lib" / "control" / "margins.py"
     before = os.stat(library)
+    # Setting a file's times stamps its change time with the clock as it is, which moves once a
+    # tick; a session writes long after its environment was provisioned. So the edit waits
+    # until a change would be stamped later than the file's last one, or the row tests the tick.
+    tick = tmp_path / "tick"
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        tick.write_text("x")
+        if os.stat(tick).st_ctime_ns > before.st_ctime_ns:
+            break
+        time.sleep(0.001)
     library.write_text("def margin(): return 3\n")  # same size, other bytes
     os.utime(library, ns=(before.st_atime_ns, before.st_mtime_ns))
     with pytest.raises(ToolEnvironmentError):
@@ -345,3 +374,220 @@ def test_a_loop_of_links_ends_in_a_refusal_not_a_hang(tmp_path: Path) -> None:
     worker.join(timeout=30)
     assert outcome, "following a loop of links did not end"
     assert isinstance(outcome[0], ToolEnvironmentError), outcome
+
+
+# ---- the interpreter, by its own name only ----------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["python", "python3", "Python"])
+def test_a_native_tool_with_the_interpreter_s_name_is_refused(tmp_path: Path, name: str) -> None:
+    root, python, tool = _environment(tmp_path)
+    with pytest.raises(ToolEnvironmentError, match="interpreter's name"):
+        measure(
+            str(python), [str(root)], native={name: str(tool)}, forbidden={}, runner=_runner(root)
+        )
+
+
+def test_a_native_tool_named_python_does_not_switch_off_the_interpreter_s_checks(
+    tmp_path: Path,
+) -> None:
+    # The interpreter named outside the roots is refused (above); a tool by the name the
+    # interpreter was judged under must not take its place in the judgement.
+    root, python, tool = _environment(tmp_path)
+    shelf = tmp_path / "shelf"
+    shelf.mkdir()
+    (shelf / "python3").symlink_to(python)
+
+    def measured() -> object:
+        return measure(
+            str(shelf / "python3"),
+            [str(root)],
+            native={"python": str(tool)},
+            forbidden={},
+            runner=_runner(root),
+        )
+
+    raised = _raised(measured)
+    assert isinstance(raised, ToolEnvironmentError), raised
+
+
+# ---- the code the interpreter loads lies in the roots -----------------------------------
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"base_prefix": "/usr"},
+        {"exec_prefix": "/usr"},
+        {"base_exec_prefix": "/usr"},
+        {"path": ["ROOT/lib", "/usr/lib/python3.12"]},
+        {"path": ["/usr/lib/python312.zip", "ROOT/lib"]},
+        {"path": ["", "ROOT/lib"]},
+        {"path": ["lib"]},
+    ],
+    ids=repr,
+)
+def test_code_the_interpreter_loads_from_outside_the_roots_is_refused(
+    tmp_path: Path, change: dict[str, object]
+) -> None:
+    root, python, tool = _environment(tmp_path)
+    placed = {
+        key: (
+            [entry.replace("ROOT", str(root)) for entry in value]
+            if isinstance(value, list)
+            else value
+        )
+        for key, value in change.items()
+    }
+    with pytest.raises(ToolEnvironmentError, match="outside"):
+        _measure(root, python, tool, runner=_runner(root, changes=placed))
+
+
+@pytest.mark.parametrize("missing", ["base_prefix", "exec_prefix", "base_exec_prefix", "path"])
+def test_an_answer_that_does_not_say_where_its_code_comes_from_is_refused(
+    tmp_path: Path, missing: str
+) -> None:
+    root, python, tool = _environment(tmp_path)
+    good = _runner(root)
+
+    def run(argv: Sequence[str]) -> str | None:
+        answer = good(argv)
+        if argv[1:2] == ["--version"] or answer is None:
+            return answer
+        found = json.loads(answer)
+        del found[missing]
+        return json.dumps(found)
+
+    with pytest.raises(ToolEnvironmentError, match="has no"):
+        _measure(root, python, tool, runner=run)
+
+
+# ---- roots, as they are walked ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "spelt", ["{root}/", "{root}/.", "/{root}", "{parent}/./env", "{parent}/x/../env"]
+)
+def test_a_root_not_spelt_plainly_is_refused_when_measured(tmp_path: Path, spelt: str) -> None:
+    # Recorded as named; a record a session writes names its roots plainly, so a run measured
+    # on another spelling could seal nothing. Refused here, not at the first record.
+    root, python, tool = _environment(tmp_path)
+    named = spelt.format(root=root, parent=root.parent)
+    with pytest.raises(ToolEnvironmentError, match="plain"):
+        measure(str(python), [named], native={}, forbidden={}, runner=_runner(root))
+
+
+def test_a_root_named_twice_is_refused(tmp_path: Path) -> None:
+    root, python, tool = _environment(tmp_path)
+    with pytest.raises(ToolEnvironmentError, match="twice"):
+        measure(str(python), [str(root), str(root)], native={}, forbidden={}, runner=_runner(root))
+
+
+# ---- a walk that cannot finish is refused, never a bare system error ---------------------
+
+
+def test_a_directory_the_walk_cannot_read_is_refused(tmp_path: Path) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("the superuser reads every directory")
+    root, _, _ = _environment(tmp_path)
+    hidden = root / "lib" / "hidden"
+    hidden.mkdir()
+    (hidden / "planted.py").write_text("import os\n")
+    hidden.chmod(0)
+    try:
+        for walk in (manifest, scan):
+            with pytest.raises(ToolEnvironmentError, match="walked"):
+                walk([root])
+    finally:
+        hidden.chmod(0o755)
+
+
+def test_an_entry_that_vanishes_while_walked_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _, _ = _environment(tmp_path)
+    first, second = root / "lib" / "a.py", root / "lib" / "b.py"
+    first.write_text("a = 1\n")
+    second.write_text("b = 1\n")
+    real = walking._check
+
+    def vanishing(path: str, found: os.stat_result, roots: Sequence[str]) -> None:
+        real(path, found, roots)
+        if path == str(first) and second.exists():
+            second.unlink()
+
+    monkeypatch.setattr(walking, "_check", vanishing)
+    for walk in (manifest, scan):
+        second.write_text("b = 1\n")
+
+        def walked(walk: Callable[[Sequence[Path]], object] = walk) -> object:
+            return walk([root])
+
+        raised = _raised(walked)
+        assert isinstance(raised, ToolEnvironmentError), raised
+
+
+def test_a_file_swapped_for_a_pipe_while_walked_is_refused_without_waiting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _, _ = _environment(tmp_path)
+    target = root / "lib" / "control" / "margins.py"
+    real = walking._check
+
+    def swapping(path: str, found: os.stat_result, roots: Sequence[str]) -> None:
+        real(path, found, roots)
+        if path == str(target):
+            target.unlink()
+            os.mkfifo(target)
+
+    monkeypatch.setattr(walking, "_check", swapping)
+    outcome: list[BaseException | None] = []
+
+    def walk() -> None:
+        outcome.append(_raised(lambda: manifest([root])))
+
+    thread = threading.Thread(target=walk, daemon=True)
+    thread.start()
+    thread.join(10)
+    if thread.is_alive():
+        # Let the waiting open through, so the thread ends.
+        os.close(os.open(target, os.O_WRONLY | os.O_NONBLOCK))
+        thread.join(10)
+        pytest.fail("the walk waited on a pipe put in a file's place")
+    assert isinstance(outcome[0], ToolEnvironmentError), outcome
+
+
+def test_every_recorded_field_is_what_was_measured_where_it_really_is(tmp_path: Path) -> None:
+    # The interpreter, a native tool and the prefix are each named through a link: the record
+    # keeps the names as named and everything else where it really is, and counts what it walked.
+    root, python, tool = _environment(tmp_path)
+    real_python = root / "bin" / "python3.12"
+    python.rename(real_python)
+    python.symlink_to("python3.12")
+    linked_tool = root / "bin" / "gcc"
+    linked_tool.symlink_to("avr-gcc")
+    (root / "current").symlink_to("lib")
+    env = measure(
+        str(python),
+        [str(root)],
+        native={"gcc": str(linked_tool)},
+        forbidden={},
+        runner=_runner(root, prefix=str(root / "current")),
+    )
+    assert env.interpreter == str(python)
+    assert env.resolved == os.path.realpath(real_python) != env.interpreter
+    assert env.prefix == os.path.realpath(root / "lib") != str(root / "current")
+    assert [(t.name, t.path) for t in env.native_tools] == [("gcc", str(linked_tool))]
+    assert env.native_tools[0].resolved == os.path.realpath(tool) != str(linked_tool)
+    assert env.roots == (str(root),)
+    entries, size = 1, 0
+    for directory, dirs, files in os.walk(root):
+        for name in dirs + files:
+            entries += 1
+            path = os.path.join(directory, name)
+            if os.path.isfile(path) and not os.path.islink(path):
+                size += os.lstat(path).st_size
+    walked = manifest([root])
+    assert env.total_bytes == walked.total_bytes == size > 0
+    assert env.entries == walked.entries == entries
+    assert env.manifest_digest == walked.digest

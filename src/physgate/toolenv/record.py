@@ -44,7 +44,8 @@ Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 PROBE = (
     "import importlib.metadata as m, importlib.util as u, json, sys;"
     "print(json.dumps({'version': sys.version.split()[0], 'prefix': sys.prefix,"
-    "'base_prefix': sys.base_prefix,"
+    "'base_prefix': sys.base_prefix, 'exec_prefix': sys.exec_prefix,"
+    "'base_exec_prefix': sys.base_exec_prefix, 'path': sys.path,"
     "'physgate': u.find_spec('physgate') is not None,"
     "'distributions': sorted({(d.metadata['Name'] or '', d.version or '')"
     " for d in m.distributions()})}))"
@@ -53,6 +54,12 @@ PROBE = (
 MAX_ANSWER_BYTES = 1 << 20
 #: How long the interpreter or a tool has to answer.
 ANSWER_TIMEOUT_S = 60
+#: The names a native tool may not have: the interpreter's, as this module and the session's
+#: wiring know it. A tool by one of them would be judged in its place, or stand in for it.
+INTERPRETER_NAMES = frozenset({"python", "python3"})
+#: Where the interpreter's code is loaded from, as the probe answers: every one must lie
+#: inside the roots, or code every session runs would be outside the manifest.
+_IMPORT_PLACES = ("prefix", "base_prefix", "exec_prefix", "base_exec_prefix")
 
 #: Runs a program with arguments and returns its standard output, or ``None`` if it failed.
 Runner = Callable[[Sequence[str]], str | None]
@@ -127,6 +134,16 @@ def _under(path: str, root: str) -> bool:
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
+def _inside(path: str, roots: Sequence[str]) -> bool:
+    """Whether ``path``, where it really is, lies inside one of ``roots``, where they really are."""
+    return any(_under(os.path.realpath(path), os.path.realpath(root)) for root in roots)
+
+
+def _plain(root: str) -> bool:
+    """Whether a root is spelt as the record and the series writer hold it: plain, absolute."""
+    return not root.startswith("//") and os.path.normpath(root) == root
+
+
 def _overlaps(root: str, place: Path) -> bool:
     spellings = {os.path.abspath(place), os.path.realpath(place)}
     return any(_under(root, p) or _under(p, root) for p in spellings)
@@ -186,21 +203,37 @@ def measure(
     a description to each place the environment may not lie in or hold.
 
     Raises:
-        ToolEnvironmentError: a path is not absolute; a root overlaps a forbidden place; the
-            interpreter or a native tool lies outside the roots, is not executable or does not
-            answer; the interpreter can import the harness; or the manifest refuses an entry.
+        ToolEnvironmentError: a path is not absolute; a root is not spelt plainly or is named
+            twice; a root overlaps a forbidden place; a native tool has the interpreter's name;
+            the interpreter or a native tool lies outside the roots, is not executable or does
+            not answer; the interpreter can import the harness, or loads code from outside the
+            roots; or the manifest refuses an entry.
     """
     for path in (interpreter, *roots, *native.values()):
         if not os.path.isabs(path):
             msg = "the tool environment is named by absolute paths"
             raise ToolEnvironmentError(msg, path=path)
     for root in roots:
+        # Recorded as named, so named as it is walked: a spelling that normalising changes
+        # would be refused by every record the run's sessions write, found only then.
+        if not _plain(root):
+            msg = "a root of the tool environment is not spelt as a plain absolute path"
+            raise ToolEnvironmentError(msg, root=root)
+    if len(set(roots)) != len(roots):
+        msg = "a root of the tool environment is named twice"
+        raise ToolEnvironmentError(msg, roots=",".join(roots))
+    for root in roots:
         for what, place in forbidden.items():
             if _overlaps(os.path.abspath(root), place) or _overlaps(os.path.realpath(root), place):
                 msg = f"the tool environment overlaps {what}"
                 raise ToolEnvironmentError(msg, root=root, place=str(place))
-    named = {"python": interpreter, **native}
-    for name, path in named.items():
+    for name in native:
+        if name.casefold() in INTERPRETER_NAMES:
+            msg = "a native tool of the tool environment has the interpreter's name"
+            raise ToolEnvironmentError(msg, tool=name)
+    # The interpreter by a key no caller names, so no native tool can stand in its place.
+    named = [("the interpreter", interpreter), *native.items()]
+    for name, path in named:
         # Named, not only resolved, inside a root: every link on the way to the program is
         # then an entry of the manifest and of the scan, so repointing one is seen. A name
         # outside the roots could be repointed after this check with nothing to notice it.
@@ -222,9 +255,7 @@ def measure(
     if not (isinstance(version, str) and isinstance(prefix, str) and os.path.isabs(prefix)):
         msg = "the interpreter's answer has no version or no absolute prefix"
         raise ToolEnvironmentError(msg, interpreter=interpreter)
-    if not any(_under(os.path.realpath(prefix), os.path.realpath(r)) for r in roots):
-        msg = "the interpreter's prefix lies outside the tool environment's roots"
-        raise ToolEnvironmentError(msg, prefix=prefix)
+    _require_imports_inside(found, roots)
     try:
         tools = tuple(
             NativeTool(
@@ -252,6 +283,32 @@ def measure(
         # What the environment says is data: anything the record cannot hold refuses it.
         msg = "the tool environment answered something the record cannot hold"
         raise ToolEnvironmentError(msg, error=str(exc.errors()[0].get("msg", ""))[:200]) from None
+
+
+def _require_imports_inside(found: Mapping[str, object], roots: Sequence[str]) -> None:
+    """Refuse an interpreter that loads code from outside the roots.
+
+    Its prefixes (the standard library's among them, which a virtual environment's base names)
+    and every entry of its import path, each where it really is. An empty entry is the working
+    directory, and a relative one is read from it: neither is inside. An archive on the path
+    (the standard library's zip) is judged by its own path.
+    """
+    for key in _IMPORT_PLACES:
+        place = found.get(key)
+        if not isinstance(place, str):
+            msg = f"the interpreter's answer has no {key}"
+            raise ToolEnvironmentError(msg)
+        if not (os.path.isabs(place) and _inside(place, roots)):
+            msg = f"the interpreter's {key} lies outside the tool environment's roots"
+            raise ToolEnvironmentError(msg, place=place)
+    path = found.get("path")
+    if not (isinstance(path, list) and all(isinstance(entry, str) for entry in path)):
+        msg = "the interpreter's answer has no import path"
+        raise ToolEnvironmentError(msg)
+    for entry in path:
+        if not (os.path.isabs(entry) and _inside(entry, roots)):
+            msg = "an entry of the interpreter's import path lies outside the tool environment"
+            raise ToolEnvironmentError(msg, entry=entry)
 
 
 def require_same(
