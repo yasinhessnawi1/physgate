@@ -26,18 +26,31 @@ containment and the real program are the integration test's. Read here:
   in a folder made new for the call and removed after it;
 - the record is read strictly; the core names no tool and starts no process (the runner is the
   OS layer's, whose wrapper is named in code and found on absolute folders only); the refusal
-  kind is classed everywhere.
+  kind is classed everywhere;
+- what the machine does to a regeneration (a wrapper program gone, a folder that cannot be made
+  or written, git that cannot read the commit, a record that cannot be read, a bound passed) is
+  a refusal with a short reason, never a raise, and the loop rejects the attempt on it as on any
+  refusal; a fault of the code is never taken as a pass;
+- the check says how many sets it made again, on its result and on its line: none when nothing
+  was to check, absent when it was refused before the exports;
+- the core refuses a name outside the safe shape before any run, and puts the end of the
+  options before the first path it gives the command;
+- the runner bounds the error stream and what is written into the folder, runs the program in a
+  session of its own, and ends everything it started.
 """
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import time
 import typing
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -46,11 +59,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks"))
 from hook_helpers import make_store, node  # noqa: E402
+from loop_fakes import FakeChanges, Rig, plan  # noqa: E402
 
 from physgate.orchestrator import escalation_state, events, ports, repair  # noqa: E402
 from physgate.orchestrator.apply import GitChangeChecker  # noqa: E402
-from physgate.orchestrator.exceptions import InvocationError  # noqa: E402
+from physgate.orchestrator.exceptions import GitError, InvocationError  # noqa: E402
 from physgate.orchestrator.merge import RunGit, commit_attempt  # noqa: E402
+from physgate.series.seal import SessionSeries  # noqa: E402
 from physgate.toolenv.record import ToolEnvironment  # noqa: E402
 
 try:
@@ -80,7 +95,10 @@ _ENV = {
 #: The stand-in program: the three kinds from ``part`` and ``open`` lines, or as a word tells.
 REGEN = r"""
 import json, os, sys, time
-source, module, name = sys.argv[1:4]
+args = sys.argv[1:]
+if args[:1] == ["--"]:
+    args = args[1:]
+source, module, name = args[:3]
 text = open(source, encoding="utf-8").read()
 if "SUBSHEET" in text:
     sys.exit(3)
@@ -513,12 +531,13 @@ def test_a_commit_touching_nothing_in_the_module_asks_for_nothing(tmp_path: Path
     run, commit = attempt(tmp_path, {"modules/a.txt": b"1\n"})
     base = _git(run.repo, "rev-parse", "main")
     try:
-        refusal = derived.held_exports(
+        held = derived.held_exports(
             run.repo, base, commit, MODULE, environment=environment, runner=Runs()
         )
     except Exception as exc:  # noqa: BLE001 - what escapes the check is the finding
         raise AssertionError(f"the check refuses or passes, and never raises: {exc!r}") from None
-    assert (refusal, asked) == (None, [])
+    told = (getattr(held, "refusal", "no refusal field"), getattr(held, "regenerated", None))
+    assert (told, asked) == ((None, 0), [])
 
 
 def test_which_files_are_sources_is_read_once_the_environment_holds(tmp_path: Path) -> None:
@@ -597,6 +616,9 @@ def test_a_failed_regeneration_s_folder_is_removed_too(tmp_path: Path) -> None:
         (recipe(products=[".erc.json", ".net", ".csv", ".step"]), "product"),
         (recipe(timeout_s=0), "timeout"),
         (recipe(extra=1), "extra"),
+        # The core places the end of the options itself, once: a record that places one too
+        # would hand the program a second, which it reads as a path.
+        (recipe(argv=["{interpreter}", "-I", "{root}/regen.py", "--", "{source}"]), "options"),
     ],
 )
 def test_a_record_entry_outside_its_shape_is_refused(
@@ -760,3 +782,376 @@ def test_running_out_of_the_check_s_deadline_refuses(
     assert found.refused_by == "exports", (found.refused_by, found.reason)
     assert found.reason is not None and "deadline" in found.reason, found.reason
     assert len(runs.calls) == 1
+
+
+# ---- what the machine does to a regeneration: a refusal with a short reason, never a raise -----
+
+SOURCE = f"{MODULE}/board.kicad_sch"
+
+
+def _raised(call: Callable[[], object]) -> BaseException | None:
+    try:
+        call()
+    except Exception as exc:  # noqa: BLE001 - every kind is wanted here
+        return exc
+    return None
+
+
+def said_of(found: ports.ChangeCheck, source: str = SOURCE) -> str:
+    """The refusal's words after the source's path: what it says went wrong, held short."""
+    reason = refused(found, source)
+    said = reason.split(source, 1)[1]
+    assert len(said) <= 300, len(said)
+    return said
+
+
+class Raising(Runs):
+    """A runner that raises ``error`` in place of running the command."""
+
+    def __init__(self, error: BaseException) -> None:
+        super().__init__()
+        self.error = error
+
+    def __call__(self, argv: Sequence[str], work: Path, *rest: Any) -> tuple[int | None, str]:
+        self.calls.append({"argv": list(argv), "work": Path(work)})
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    ("error", "kind"),
+    [
+        (FileNotFoundError(errno.ENOENT, "No such file or directory", "bwrap"), "FileNotFoundError"),
+        (PermissionError(errno.EACCES, "Permission denied", "sandbox-exec"), "PermissionError"),
+        (OSError(errno.EIO, "Input/output error"), "OSError"),
+    ],
+    ids=["the wrapper program gone", "permission", "input-output"],
+)
+def test_a_runner_that_meets_the_machine_is_a_refusal_never_a_raise(
+    tmp_path: Path, error: OSError, kind: str
+) -> None:
+    found, runs = check_never_raising(tmp_path, made(SOUND), runs=Raising(error))
+    said = said_of(found)
+    assert kind in said and "could not be made again" in said, said
+    assert str(error.filename) not in said, said
+    assert len(runs.calls) == 1 and not runs.calls[0]["work"].exists()
+
+
+def test_a_folder_that_cannot_be_made_for_the_regeneration_is_a_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
+
+    def no_room(*_: object, **__: object) -> str:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    files = made(SOUND)
+    monkeypatch.setattr(derived, "tempfile", SimpleNamespace(mkdtemp=no_room))
+    found, runs = check_never_raising(tmp_path, files)
+    assert "No space left on device" in said_of(found)
+    assert runs.calls == []
+
+
+def _plumbed(tmp_path: Path, files: dict[str, bytes]) -> tuple[Path, str, str]:
+    """A repository whose second commit holds ``files``, written by git's plumbing alone.
+
+    A path no folder on this machine can hold is committed the way a role's session could
+    commit it: into the index and the tree, never into a working tree.
+    """
+    repo = tmp_path / "plumbed"
+    (repo / "modules").mkdir(parents=True)
+    (repo / "modules" / "a.txt").write_text("0\n")
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "start")
+    base = _git(repo, "rev-parse", "HEAD")
+    for path, data in files.items():
+        blob = subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"],
+            cwd=repo, env=_ENV, input=data, capture_output=True, check=True,
+        ).stdout.decode().strip()  # fmt: skip
+        _git(repo, "update-index", "--add", "--cacheinfo", f"100644,{blob},{path}")
+    tree = _git(repo, "write-tree")
+    return repo, base, _git(repo, "commit-tree", tree, "-p", base, "-m", "attempt")
+
+
+def _held_directly(
+    repo: Path, base: str, commit: str, record: ToolEnvironment, runs: Runs
+) -> object:
+    assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
+    try:
+        held = derived.held_exports(
+            repo, base, commit, MODULE, environment=lambda: record, runner=runs
+        )
+    except Exception as exc:  # noqa: BLE001 - what escapes the check is the finding
+        raise AssertionError(f"the check refuses or passes, and never raises: {exc!r}") from None
+    return getattr(held, "refusal", held)
+
+
+def test_a_source_too_deep_to_be_placed_in_the_fresh_folder_is_a_refusal(tmp_path: Path) -> None:
+    assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
+    deep = "/".join(["d" * 200] * 25)  # past every platform's longest path
+    source = f"{MODULE}/{deep}/board.kicad_sch"
+    files = {path: data for path, data in made(SOUND).items() if "/exports/" in path}
+    files[source] = SOUND.encode()
+    repo, base, commit = _plumbed(tmp_path, files)
+    runs = Runs()
+    refusal = _held_directly(repo, base, commit, recorded(stand_in_root(tmp_path)), runs)
+    assert isinstance(refusal, derived.ExportRefusal), refusal
+    assert refusal.subject == source
+    said = refusal.reason.split(source, 1)[1]
+    assert "could not be made again" in said and len(said) <= 300, said
+    assert runs.calls == []
+
+
+def test_a_git_read_that_fails_while_a_set_is_made_again_is_a_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
+    real = derived.git
+
+    def failing(repo: Path, *args: str, **given: Any) -> str:  # noqa: ANN401
+        if "cat-file" in args:
+            msg = "git cat-file failed: fatal: not a valid object name"
+            raise GitError(msg)
+        return real(repo, *args, **given)
+
+    monkeypatch.setattr(derived, "git", failing)
+    found, runs = check_never_raising(tmp_path, made(SOUND))
+    said = said_of(found)
+    assert "GitError" in said and "not a valid object" not in said, said
+    assert runs.calls == []
+
+
+@pytest.mark.parametrize("step", ["lstat", "read_bytes"])
+def test_a_record_that_cannot_be_read_is_a_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str
+) -> None:
+    real = getattr(Path, step)
+
+    def denied(self: Path, *args: Any, **given: Any) -> Any:  # noqa: ANN401
+        if self.name == "derived.json":
+            raise PermissionError(errno.EACCES, "Permission denied", str(self))
+        return real(self, *args, **given)
+
+    files, root = made(SOUND), stand_in_root(tmp_path)
+    monkeypatch.setattr(Path, step, denied)
+    found, runs = check_never_raising(tmp_path, files, root=root)
+    reason = refused(found, f"{MODULE}/exports/board.csv")
+    assert "record of how exports are made is refused" in reason, reason
+    assert "PermissionError" in reason, reason
+    assert runs.calls == []
+
+
+def test_a_fault_of_the_code_is_never_taken_as_a_pass(tmp_path: Path) -> None:
+    try:
+        found, _ = check(tmp_path, made(SOUND), runs=Raising(TypeError("a fault of the code")))
+    except TypeError:
+        return
+    assert found.refused_by == "exports", (found.refused_by, found.reason)
+
+
+@dataclass
+class Given(FakeChanges):
+    """The loop's change check, answering each call with a check the real checker made."""
+
+    given: list[ports.ChangeCheck] = field(default_factory=list)
+
+    def check(
+        self,
+        subtask_id: str,
+        attempt_commit: str,
+        role: str,
+        *,
+        series: SessionSeries | None = None,
+        follows: int | None = None,
+    ) -> ports.ChangeCheck:
+        super().check(subtask_id, attempt_commit, role, series=series, follows=follows)
+        return self.given[self.calls - 1]
+
+
+def test_the_loop_rejects_the_attempt_on_a_regeneration_the_machine_stopped_and_goes_on(
+    tmp_path: Path,
+) -> None:
+    stopped, _ = check_never_raising(
+        tmp_path / "stopped", made(SOUND), runs=Raising(OSError(errno.EIO, "Input/output error"))
+    )
+    passed, _ = check_never_raising(tmp_path / "passed", made(SOUND))
+    assert stopped.refused_by == "exports" and passed.refused_by is None
+    where = tmp_path / "loop"
+    where.mkdir()
+    loop = Rig(where, changes=Given(given=[stopped, passed])).open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    lines = events.read_events(where / "events.jsonl")
+    checked = [e for e in lines if isinstance(e, events.ProposalsChecked)]
+    told = [(e.attempt, e.refused_by, getattr(e, "exports_regenerated", "absent")) for e in checked]
+    assert told == [(1, "exports", 0), (2, None, 1)], told
+    assert checked[0].reason == stopped.reason
+    rejected = [e for e in lines if isinstance(e, events.AttemptRejected)]
+    assert [(e.attempt, e.finding.source, e.finding.subject) for e in rejected] == [
+        (1, "exports", SOURCE)
+    ]
+    assert not [e for e in lines if isinstance(e, events.Incident)]
+
+
+# ---- how many sets the check made again -----------------------------------------------------
+
+
+def test_the_check_says_how_many_sets_it_made_again(tmp_path: Path) -> None:
+    one, _ = check(tmp_path / "one", made(SOUND))
+    two, _ = check(tmp_path / "two", _sets_of(2))
+    none, _ = check(tmp_path / "none", {f"{MODULE}/notes.txt": b"x\n"})
+    told = [getattr(found, "exports_regenerated", "absent") for found in (one, two, none)]
+    assert told == [1, 2, 0], told
+
+
+def test_a_refusal_counts_the_sets_made_again_equal_before_it(tmp_path: Path) -> None:
+    files = _sets_of(2)
+    files[f"{MODULE}/board1.kicad_sch"] = (SOUND + "FAIL\n").encode()
+    found, runs = check(tmp_path, files)
+    assert found.refused_by == "exports", (found.refused_by, found.reason)
+    assert getattr(found, "exports_regenerated", "absent") == 1
+    assert len(runs.calls) == 2
+
+
+def test_a_check_refused_before_the_exports_are_reached_records_no_count(tmp_path: Path) -> None:
+    found, runs = check(tmp_path, {**made(SOUND), "outside.txt": b"x\n"})
+    assert found.refused_by == "write_scope", (found.refused_by, found.reason)
+    assert getattr(found, "exports_regenerated", "absent") is None
+    assert runs.calls == []
+
+
+def _checked_line(**more: object) -> dict[str, object]:
+    return {
+        "seq": 3,
+        "ts": "2026-11-15T10:00:00.000000Z",
+        "run_id": "r1",
+        "gate_mode": "on",
+        "kind": "proposals_checked",
+        "subtask_id": "s1",
+        "attempt": 1,
+        "checked_commit": "a" * 40,
+        "refused_by": None,
+        "reason": None,
+        "subject": None,
+        "graph_root": "scratch/graph",
+        **more,
+    }
+
+
+def test_the_count_is_on_the_change_check_s_line_and_an_old_line_reads_as_before() -> None:
+    assert "exports_regenerated" in ports.ChangeCheck.model_fields, "the check says its count"
+    assert "exports_regenerated" in events.ProposalsChecked.model_fields, "its line says it too"
+    old = events.ProposalsChecked.model_validate(_checked_line())
+    assert getattr(old, "exports_regenerated", "absent") is None
+    assert "exports_regenerated" not in json.loads(old.model_dump_json())
+    for count in (0, 3):
+        line = events.ProposalsChecked.model_validate(_checked_line(exports_regenerated=count))
+        assert json.loads(line.model_dump_json())["exports_regenerated"] == count
+    with pytest.raises(ValueError, match="exports_regenerated"):
+        events.ProposalsChecked.model_validate(_checked_line(exports_regenerated=-1))
+
+
+# ---- the name and the end of the options, in the core itself -------------------------------------
+
+
+@pytest.mark.parametrize(
+    "stem", ["-board", "my board", "bo\nard"], ids=["leading dash", "space", "newline"]
+)
+def test_the_core_refuses_a_name_outside_the_safe_shape_before_any_run(
+    tmp_path: Path, stem: str
+) -> None:
+    assert derived is not None, "physgate.orchestrator.derived holds the exports to the schematic"
+    run, commit = attempt(tmp_path, made(SOUND, stem=stem))
+    base = _git(run.repo, "rev-parse", "main")
+    runs = Runs()
+    refusal = _held_directly(run.repo, base, commit, recorded(stand_in_root(tmp_path)), runs)
+    assert isinstance(refusal, derived.ExportRefusal), refusal
+    assert refusal.subject == f"{MODULE}/{stem}.kicad_sch", refusal
+    assert "name" in refusal.reason, refusal.reason
+    assert runs.calls == []
+
+
+def test_the_end_of_the_options_stands_before_the_first_path_the_command_is_given(
+    tmp_path: Path,
+) -> None:
+    found, runs = check(tmp_path, made(SOUND))
+    assert found.refused_by is None, found.reason
+    (call,) = runs.calls
+    argv, work = call["argv"], call["work"]
+    source = str(work / "module" / "board.kicad_sch")
+    assert argv.count("--") == 1, argv
+    assert argv.index("--") == argv.index(source) - 1, argv
+    assert argv[:3] == [sys.executable, "-I", str(tmp_path / "root" / "regen.py")], argv
+
+
+# ---- the runner's bounds, its session, and what it leaves behind ----------------------------
+
+
+def test_a_regeneration_past_a_bound_is_a_refusal_in_the_runner_s_words(tmp_path: Path) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    bound = getattr(regeneration, "RegenerationBoundError", None)
+    assert bound is not None, "the runner says a bound was passed by an error of its own"
+    error = bound("the regeneration wrote more than 256000000 bytes into its folder")
+    found, runs = check_never_raising(tmp_path, made(SOUND), runs=Raising(error))
+    assert "more than 256000000 bytes" in said_of(found)
+
+
+def test_an_error_stream_past_its_bound_refuses_and_the_program_is_ended(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    bound = getattr(regeneration, "MAX_ERROR_BYTES", None)
+    assert isinstance(bound, int), "a stated bound on what a regeneration writes to its errors"
+    monkeypatch.setattr(regeneration, "MAX_ERROR_BYTES", 100_000)
+    loud = "import sys, time; sys.stderr.write('x' * 200_000); sys.stderr.flush(); time.sleep(30)"
+    started = time.monotonic()
+    raised = _raised(
+        lambda: regeneration._run([sys.executable, "-c", loud], tmp_path, {}, 60.0)  # noqa: SLF001
+    )
+    assert type(raised).__name__ == "RegenerationBoundError", raised
+    assert time.monotonic() - started < 20.0, "the program was waited for, not ended"
+
+
+@pytest.mark.parametrize("then", ["sleeps", "ends"])
+def test_a_regeneration_that_writes_past_the_folder_s_bound_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, then: str
+) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    bound = getattr(regeneration, "MAX_WRITTEN_BYTES", None)
+    assert isinstance(bound, int), "a stated bound on what a regeneration writes into its folder"
+    monkeypatch.setattr(regeneration, "MAX_WRITTEN_BYTES", 100_000)
+    work = tmp_path / "work"
+    (work / "deep").mkdir(parents=True)
+    rest = "time.sleep(30)" if then == "sleeps" else "pass"
+    big = f"import time; open('deep/big', 'wb').write(b'x' * 200_000); {rest}"
+    started = time.monotonic()
+    raised = _raised(
+        lambda: regeneration._run([sys.executable, "-c", big], work, {}, 60.0)  # noqa: SLF001
+    )
+    assert type(raised).__name__ == "RegenerationBoundError", raised
+    assert time.monotonic() - started < 20.0, "the program was waited for, not ended"
+
+
+def test_the_regeneration_runs_in_a_session_of_its_own(tmp_path: Path) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    said = "import os, sys; sys.stderr.write(str(os.getsid(0)))"
+    code, out = regeneration._run([sys.executable, "-c", said], tmp_path, {}, 20.0)  # noqa: SLF001
+    assert code == 0, out
+    assert out.strip() and out.strip() != str(os.getsid(0)), out
+
+
+@pytest.mark.parametrize("child", ["times out", "ends"])
+def test_nothing_the_regeneration_started_outlives_it(tmp_path: Path, child: str) -> None:
+    assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
+    marker = tmp_path / "left-behind"
+    grandchild = f"import time; time.sleep(2); open({str(marker)!r}, 'w')"
+    rest = "time.sleep(30)" if child == "times out" else "pass"
+    program = (
+        "import subprocess, sys, time; "
+        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}]); {rest}"
+    )
+    regeneration._run([sys.executable, "-c", program], tmp_path, {}, 1.0)  # noqa: SLF001
+    time.sleep(3.5)
+    assert not marker.exists(), "a process the regeneration started went on after it ended"

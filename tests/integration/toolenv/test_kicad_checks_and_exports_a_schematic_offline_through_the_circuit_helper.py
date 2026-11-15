@@ -523,10 +523,12 @@ def _held(session: Session, base: str, commit: str) -> object:
     assert regeneration is not None, "physgate.oslayer.regeneration runs the regeneration"
     repo = session.module.parents[1]
     recorded = _recorded(*session.roots)
-    return derived.held_exports(
+    held = derived.held_exports(
         repo, base, commit, "modules/board", environment=lambda: recorded,
         runner=regeneration.default_runner(),
     )  # fmt: skip
+    assert hasattr(held, "refusal"), "the check's result carries its refusal and its count"
+    return held.refusal
 
 
 def test_an_honest_set_is_regenerated_inside_the_containment_and_passes(
@@ -578,15 +580,23 @@ def test_a_changed_schematic_with_stale_exports_is_refused_at_commit(session: Se
     assert refusal.subject == "modules/board/exports/board.erc.json"  # type: ignore[attr-defined]
 
 
+@pytest.mark.parametrize(
+    "sheet",
+    [
+        '  (sheet (at 10 10) (size 20 10) (property "Sheetfile" "power.kicad_sch"))\n',
+        '  (sheet(at 10 10)(size 20 10)(property "Sheetfile" "power.kicad_sch"))\n',
+        '  (sheet"x" (at 10 10) (property "Sheetfile" "power.kicad_sch"))\n',
+    ],
+    ids=["spaced", "parenthesis", "quote"],
+)
 def test_a_schematic_that_draws_on_a_sub_sheet_is_refused_in_words_at_commit(
-    session: Session,
+    session: Session, sheet: str
 ) -> None:
     repo = session.module.parents[1]
     _made_in_session(session, open_pins=False)
     base = _commit(repo, "sound")
     schematic = session.module / "board.kicad_sch"
     text = schematic.read_text(encoding="utf-8")
-    sheet = '  (sheet (at 10 10) (size 20 10) (property "Sheetfile" "power.kicad_sch"))\n'
     schematic.write_text(text.replace("  (sheet_instances", sheet + "  (sheet_instances"), "utf-8")
     refusal = _held(session, base, _commit(repo, "sub-sheet"))
     assert refusal is not None

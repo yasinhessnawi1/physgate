@@ -364,7 +364,7 @@ def test_a_schematic_that_draws_on_a_sub_sheet_is_refused_in_words_that_say_so(
 
 def _regenerate(tmp_path: Path, schematic: Path, module: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-I", str(HELPERS / "circuit.py"), "regenerate", str(schematic),
+        [sys.executable, "-I", str(HELPERS / "circuit.py"), "regenerate", "--", str(schematic),
          str(module), "board"],
         env={**os.environ, "TMPDIR": str(tmp_path)}, capture_output=True, text=True,
         timeout=120, check=False,
@@ -413,3 +413,148 @@ def test_provisioning_records_how_the_exports_are_regenerated() -> None:
         "{name}",
     ]  # fmt: skip
     assert "sub-sheet" in entry["refusals"]["3"]
+
+
+# ---- the schematic read as one s-expression: every form of a sheet symbol, and what is not one ----
+
+#: A sheet symbol as KiCad writes it, and as a reader that ends a word at a parenthesis or a quote
+#: reads one: each draws on a sub-sheet.
+SHEET_FORMS = {
+    "spaced": '  (sheet (at 10 10) (size 20 10) (property "Sheetfile" "power.kicad_sch"))\n',
+    "parenthesis": '  (sheet(at 10 10)(size 20 10)(property "Sheetfile" "power.kicad_sch"))\n',
+    "quote": '  (sheet"x" (at 10 10) (property "Sheetfile" "power.kicad_sch"))\n',
+    "new lines": "  (\n   sheet\n (at 10 10))\n",
+    "capitals": "  (SHEET (at 10 10))\n",
+    "quoted word": '  ("sheet" (at 10 10))\n',
+}
+
+#: Files that are no one s-expression of lists, strings and words: none is read as a schematic.
+UNREADABLE = {
+    "unclosed list": "(kicad_sch (version 20250114)\n",
+    "list closed twice": "(kicad_sch (version 20250114)))\n",
+    "unclosed string": '(kicad_sch (title "board))\n',
+    "text after the list": "(kicad_sch (version 20250114))\n(version 1)\n",
+    "a word outside every list": "kicad_sch\n",
+    "empty": "",
+    "a control byte outside a string": "(kicad_sch \x01(version 20250114))\n",
+    "a byte past ASCII outside a string": "(kicad_sch (versión 20250114))\n",
+    "a comment": "(kicad_sch\n# a comment\n (version 20250114))\n",
+}
+
+#: A schematic that names a sheet without drawing on one: its sheet instances, and words in a
+#: string, escaped quotes and a letter past ASCII among them.
+NO_SUB_SHEET = (
+    "(kicad_sch (version 20250114)\n"
+    '  (text "(sheet (at 0 0)) and a \\"quoted\\" (sheet word, é" (at 0 0 0))\n'
+    '  (sheet_instances (path "/" (page "1"))))\n'
+)
+
+
+def _drawn(text: str) -> str:
+    return (
+        "(kicad_sch (version 20250114)\n" + text + '  (sheet_instances (path "/" (page "1"))))\n'
+    )
+
+
+@pytest.mark.parametrize("form", sorted(SHEET_FORMS))
+def test_every_form_of_a_sheet_symbol_is_read_as_one_and_refused(
+    circuit: ModuleType, tmp_path: Path, form: str
+) -> None:
+    assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
+    module, schematic = _module(tmp_path)
+    schematic.write_text(_drawn(SHEET_FORMS[form]), encoding="utf-8")
+    for call in (circuit.rules_check, circuit.exports):
+        raised = _raised(partial(call, schematic, module, "board"))
+        assert isinstance(raised, circuit.SubSheetRefusedError), (form, raised)
+    assert not (tmp_path / "calls.log").exists()
+
+
+@pytest.mark.parametrize("case", sorted(UNREADABLE))
+def test_a_schematic_that_cannot_be_read_as_one_s_expression_is_refused_unrun(
+    circuit: ModuleType, tmp_path: Path, case: str
+) -> None:
+    assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
+    module, schematic = _module(tmp_path)
+    schematic.write_bytes(UNREADABLE[case].encode())
+    for call in (circuit.rules_check, circuit.exports):
+        raised = _raised(partial(call, schematic, module, "board"))
+        assert isinstance(raised, circuit.HelperRefusedError), (case, raised)
+        assert not isinstance(raised, circuit.SubSheetRefusedError), (case, raised)
+        assert "s-expression" in str(raised), raised
+    assert not (tmp_path / "calls.log").exists()
+
+
+def test_a_schematic_that_only_names_a_sheet_is_exported_in_session_and_regenerated(
+    circuit: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
+    module, schematic = _module(tmp_path)
+    schematic.write_text(NO_SUB_SHEET, encoding="utf-8")
+    _canned(monkeypatch, tmp_path, _report([]))
+    for call in (circuit.rules_check, circuit.exports):
+        raised = _raised(partial(call, schematic, module, "board"))
+        assert raised is None, raised
+    done = _regenerate(tmp_path, schematic, module)
+    assert done.returncode == 0, done.stderr[-2000:]
+
+
+@pytest.mark.parametrize(
+    ("text", "code", "said"),
+    [
+        (_drawn(SHEET_FORMS["parenthesis"]), 3, "sub-sheet"),
+        (_drawn(SHEET_FORMS["quote"]), 3, "sub-sheet"),
+        (UNREADABLE["unclosed list"], 1, "s-expression"),
+    ],
+    ids=["parenthesis", "quote", "unreadable"],
+)
+def test_regenerate_refuses_what_the_session_refuses_with_its_exit_code(
+    circuit: ModuleType, tmp_path: Path, text: str, code: int, said: str
+) -> None:
+    assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
+    module, schematic = _module(tmp_path)
+    schematic.write_text(text, encoding="utf-8")
+    done = _regenerate(tmp_path, schematic, module)
+    assert done.returncode == code, done.stderr[-2000:]
+    assert said in done.stderr, done.stderr[-2000:]
+    assert not (tmp_path / "calls.log").exists()
+
+
+def test_regenerate_takes_its_paths_after_the_end_of_the_options(
+    circuit: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
+    module, schematic = _module(tmp_path)
+    _canned(monkeypatch, tmp_path, _report([]))
+    bare = subprocess.run(
+        [sys.executable, "-I", str(HELPERS / "circuit.py"), "regenerate", str(schematic),
+         str(module), "board"],
+        env={**os.environ, "TMPDIR": str(tmp_path)}, capture_output=True, text=True,
+        timeout=120, check=False,
+    )  # fmt: skip
+    assert bare.returncode == 2, bare.stderr[-2000:]
+    assert "usage" in bare.stderr, bare.stderr[-2000:]
+    assert not (tmp_path / "calls.log").exists()
+
+
+def test_the_program_s_output_is_never_held_in_memory(
+    circuit: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
+    seen: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    real = subprocess.run
+
+    def recording(*args: Any, **given: Any) -> Any:  # noqa: ANN401
+        seen.append((args, given))
+        return real(*args, **given)
+
+    module, schematic = _module(tmp_path)
+    _canned(monkeypatch, tmp_path, _report([]))
+    monkeypatch.setattr(circuit.subprocess, "run", recording)
+    circuit.rules_check(schematic, module, "board")
+    circuit.exports(schematic, module, "board")
+    runs = [given for args, given in seen if list(args[0])[1:2] == ["sch"]]
+    assert len(runs) == 4, seen
+    for given in runs:
+        assert not given.get("capture_output"), given
+        assert given.get("stdout") == subprocess.DEVNULL, given
+        assert given.get("stderr") == subprocess.DEVNULL, given
