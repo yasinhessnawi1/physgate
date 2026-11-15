@@ -20,19 +20,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal, get_args
 
 from pydantic import BaseModel
 
-from physgate.evaluation.per_role.arms.raw import canaries_sha256
+from physgate.evaluation.per_role.arms.raw import canaries_sha256, raw_bound_values
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.task import Task
 from physgate.hooks.settings import CONFIG_NAME
 from physgate.orchestrator.accounting import TokenAccount
-from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.dispatch import read_captured
 from physgate.orchestrator.events import (
+    Event,
     LeftoverRead,
     SessionEnded,
     SessionSpawned,
@@ -42,6 +43,7 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.orchestrator.session_files import FileRefused, read_beneath
 
 #: How each field of a harness run's recorded configuration bears on the raw arm, by its
 #: path: every field of a model nested in the configuration has a decision of its own, so a
@@ -101,12 +103,16 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     "reviewers": "harness",
     "skills": "harness",
     "hooks": "harness",
-    # The binary's retries and the infrastructure retry delays must be equal: retries in
-    # the binary hide requests from the raw arm's cap. The turn and wall-clock bounds are
-    # compared at the harness's times its repair budget, so neither binds before the cap.
+    # The binary's retries must be equal: retries in the binary hide requests from the raw
+    # arm's cap. The turn and wall-clock bounds are compared at the harness's times its
+    # repair budget, the raw arm's intended difference (its own module says why, and that
+    # it is an assumption).
     "bounds": "compared",
     "bounds.binary_max_retries": "compared",
-    "bounds.infra_retry_delays_s": "compared",
+    # The delays between the loop's own retries of a session the infrastructure ended. The
+    # raw session makes no such retry: a trial the machine ended is run once more whole, by
+    # the runner, after the harness run's own recorded delay.
+    "bounds.infra_retry_delays_s": "not_compared",
     "bounds.session_max_turns": "compared",
     "bounds.session_wall_clock_s": "compared",
     # The hook layer's ceiling on what a session loads always; the raw agent loads nothing
@@ -119,8 +125,9 @@ RUN_FIELDS: dict[str, RunFieldClass] = {
     # numbers are no baseline's.
     "harness": "required",
     "harness.clean": "required",
-    # ``None`` exactly when the tree is clean.
-    "harness.uncommitted_sha256": "required",
+    # The record's own schema holds it ``None`` exactly when the checkout is clean, which
+    # ``harness.clean`` requires; it has no check of its own to add.
+    "harness.uncommitted_sha256": "not_compared",
     "harness.commit": "identity",
     "reportable": "required",
     # An ablation run is never reportable, and a run that is not reportable is named already.
@@ -161,6 +168,13 @@ RAW_PINS = frozenset(
         "effort",
         "endpoint",
         "held_out",
+        # The trial's own directory, made new inside the store's work root after the harness
+        # run ended, and taken out of the held-out roots for the raw session alone: the
+        # harness run has none to hold it against, and ``held_out`` is compared whole.
+        "held_out_carved",
+        # A baseline round's own directory, made after the harness run ended and withheld from
+        # the raw session alone, for the same reason.
+        "held_out_also",
         "held_out_canaries_sha256",
         "max_output_tokens",
         "model",
@@ -196,6 +210,20 @@ class ComparisonError(PerRoleError):
     """The two arms cannot be compared from what they recorded."""
 
 
+#: The steps a run stands at, replayed from its log, once the loop has nothing left to do:
+#: every session and every review it started has ended, and each stream was scanned as it did.
+ENDED_STEPS = frozenset({"done", "halted", "escalated"})
+
+
+def next_step(events: Sequence[Event]) -> str:
+    """What the loop would do next with the run, replayed from its log as the loop replays it.
+
+    Raises:
+        CorruptEventLogError: the log does not replay as a run.
+    """
+    return replay(events).next_step().kind
+
+
 def harness_total(run_dir: Path) -> int:
     """Every token the harness run spent, each message once: roles, reviewers, decomposition.
 
@@ -209,7 +237,10 @@ def harness_total(run_dir: Path) -> int:
     - the log is empty, or the run has not ended: its last step, replayed from the log as
       the loop takes it, is not done, halted or escalated. A run killed during a review,
       during its decomposition or between sessions spawned nothing left open, and is
-      refused here.
+      refused here;
+    - the run halted where a resume continues it (the infrastructure's retries ran out, the
+      credential was refused, the OS layer would not start, or a person resolved the
+      incident it halted on): a resume continues the same attempt and spends more.
 
     Raises:
         ComparisonError: the run's token account is not complete.
@@ -236,24 +267,49 @@ def harness_total(run_dir: Path) -> int:
         msg = "a session of the run was spawned and never ended; its tokens are uncounted"
         raise ComparisonError(msg, sessions=",".join(sorted(spawned - ended)))
     try:
-        step = replay(events).next_step().kind
+        state = replay(events)
     except CorruptEventLogError as exc:
         msg = "the run's event log does not replay as a run"
         raise ComparisonError(msg, log=str(log), reason=str(exc)) from None
-    if step not in ("done", "halted", "escalated"):
+    step = state.next_step().kind
+    if step not in ENDED_STEPS:
         msg = "the run has not ended; what it would still have spent is uncounted"
         raise ComparisonError(msg, log=str(log), next_step=step)
+    if step == "halted" and state.halt_resumable():
+        msg = "the run halted for a resume; what the resume would spend is uncounted"
+        raise ComparisonError(msg, log=str(log))
     return TokenAccount.from_events(events).total().total()
 
 
-def _tools(config_file: Path) -> tuple[str, str | None, list[str]]:
+#: The most a generated session configuration or a raw arm's record is read to: far past what
+#: the installer or the arm writes.
+MAX_RECORD_BYTES = 1 << 20
+
+
+def _read(anchor: Path, names: tuple[str, ...]) -> bytes:
+    """A file a session could have reached, as the harness reads every one (``read_beneath``).
+
+    Raises:
+        OSError: the file is absent, not a regular file of its own, or larger than the bound.
+    """
+    try:
+        return read_beneath(anchor, names, limit=MAX_RECORD_BYTES)
+    except FileRefused as refused:
+        raise OSError(str(refused)) from None
+
+
+def _tools(anchor: Path, names: tuple[str, ...]) -> tuple[str, str | None, list[str]]:
     """A generated session configuration's profile, role and tool list, as it was installed.
+
+    The file is ``anchor/names...``, read from the harness's own ``anchor`` with no link
+    followed below it (:func:`_read`).
 
     Raises:
         ComparisonError: the file cannot be read, or does not have the installer's shape.
     """
+    config_file = anchor.joinpath(*names)
     try:
-        config = json.loads(config_file.read_bytes())
+        config = json.loads(_read(anchor, names))
         profile, role, tools = config["profile"], config["role"], config["tools_allowed"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
         msg = "a session's generated configuration could not be read"
@@ -272,8 +328,10 @@ def _tools(config_file: Path) -> tuple[str, str | None, list[str]]:
 def _harness_tools(run_dir: Path, role: str) -> list[list[str]]:
     """The tool list of every role session of ``role`` the run installed, one per session."""
     lists = []
-    for config_file in sorted((run_dir / "sessions").glob(f"*/session/{CONFIG_NAME}")):
-        profile, session_role, tools = _tools(config_file)
+    sessions = run_dir / "sessions"
+    for config_file in sorted(sessions.glob(f"*/session/{CONFIG_NAME}")):
+        names = (config_file.parent.parent.name, "session", CONFIG_NAME)
+        profile, session_role, tools = _tools(sessions, names)
         if profile == "role" and session_role == role:
             lists.append(tools)
     return lists
@@ -287,12 +345,8 @@ def _expected(config: RunConfig, role: str, task: Task) -> dict[str, Any]:
         "advisor": None,
         "answer": task.answer.model_dump(mode="json"),
         "auth": config.auth,
-        "bounds": {
-            "binary_max_retries": config.bounds.binary_max_retries,
-            "infra_retry_delays_s": list(config.bounds.infra_retry_delays_s),
-            "session_max_turns": config.bounds.session_max_turns * REPAIR_BUDGET,
-            "session_wall_clock_s": config.bounds.session_wall_clock_s * REPAIR_BUDGET,
-        },
+        # Every bound the run recorded, each as the raw session runs it.
+        "bounds": raw_bound_values(config.bounds),
         "brief_sha256": config.brief_sha256,
         "claude_version": config.claude_version,
         "effort": config.effort,
@@ -310,11 +364,34 @@ def _expected(config: RunConfig, role: str, task: Task) -> dict[str, Any]:
     }
 
 
-def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[str]:
+def _held(name: str, value: Any) -> Any:  # noqa: ANN401 - a pin as either arm recorded it
+    """A pin as it is held equal: without the nested fields its run field's decision leaves out.
+
+    A nested field classed otherwise than ``compared`` (the retry delays) is dropped from both
+    sides; one no decision names is kept, so it still shows as a difference.
+    """
+    if not isinstance(value, dict):
+        return value
+    return {
+        key: inner
+        for key, inner in value.items()
+        if RUN_FIELDS.get(f"{name}.{key}", "compared") == "compared"
+    }
+
+
+def differences(
+    run_dir: Path,
+    raw_dir: Path,
+    *,
+    role: str,
+    task: Task,
+    record_dir: Path | None = None,
+) -> list[str]:
     """Each way the raw arm differs from the harness run on ``task`` but the harness itself.
 
     ``run_dir`` is the harness run's directory; ``raw_dir`` is where the raw arm ran on
-    the same task and trial (its ``raw.json``, its stream and its generated settings).
+    the same task and trial (its stream and its generated settings, and its ``raw.json`` unless
+    ``record_dir`` names the directory the harness wrote that in).
     An empty list is the only fair pair.
 
     Raises:
@@ -322,8 +399,9 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
             account is not complete (:func:`harness_total`).
     """
     config = load_run_config(run_dir / "run.json")
+    kept = raw_dir if record_dir is None else record_dir
     try:
-        record: dict[str, Any] = json.loads((raw_dir / "raw.json").read_bytes())
+        record: dict[str, Any] = json.loads(_read(kept.parent, (kept.name, "raw.json")))
         pins: dict[str, Any] = record["pins"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
         msg = "the raw arm's record could not be read"
@@ -343,10 +421,12 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
     found += [
         f"{name}: the harness ran with {want!r}, the raw arm with {pins[name]!r}"
         for name, want in _expected(config, role, task).items()
-        if name in pins and pins[name] != want
+        if name in pins and _held(name, pins[name]) != _held(name, want)
     ]
     if not config.reportable:
         found.append("reportable: the harness run is not reportable; no baseline is held to it")
+    if config.ablation:
+        found.append("ablation: the harness run is an ablation run; no baseline is held to it")
     if not config.harness.clean:
         found.append("harness: the harness run's checkout was not clean")
     if hashlib.sha256(task.brief.encode()).hexdigest() != config.brief_sha256:
@@ -361,7 +441,9 @@ def differences(run_dir: Path, raw_dir: Path, *, role: str, task: Task) -> list[
         found.append(
             f"answered_by: the harness pinned {pinned!r}, the raw arm was answered by {answered!r}"
         )
-    raw_profile, _, raw_tools = _tools(raw_dir / "session" / "session" / CONFIG_NAME)
+    raw_profile, _, raw_tools = _tools(
+        raw_dir.parent, (raw_dir.name, "session", "session", CONFIG_NAME)
+    )
     if raw_profile != "baseline":
         found.append(f"profile: the raw arm was installed as {raw_profile!r}, not 'baseline'")
     harness_lists = _harness_tools(run_dir, role)

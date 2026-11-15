@@ -21,7 +21,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from physgate.evaluation.per_role.answer import MAX_ANSWER_BYTES
-from physgate.orchestrator.git import git, head_of, verified_git_dir
+from physgate.orchestrator.git import git, git_bytes, head_of, verified_git_dir
 from physgate.orchestrator.merge import RunGit
 
 #: How the extraction ended. ``contract_lost`` is no answer file anywhere a module may
@@ -71,8 +71,12 @@ def extract(repo: Path, run_id: str, answer_name: str, out: Path) -> Extraction:
     spec = f"{commit}:{path}"
     if int(git(repo, "cat-file", "-s", spec, objects_only=True, git_dir=pinned)) > MAX_ANSWER_BYTES:
         return Extraction(status="too_large", commit=commit, paths=paths)
+    # The blob's bytes as the run committed them, as the raw arm copies its answer: a text
+    # read would turn its line endings into newlines, so the scorer would read, and the
+    # record would digest, bytes the run never wrote. Decoded only to check it is text.
+    raw = git_bytes(repo, "cat-file", "blob", spec, objects_only=True, git_dir=pinned)
     try:
-        raw = git(repo, "cat-file", "blob", spec, objects_only=True, git_dir=pinned).encode()
+        raw.decode("utf-8")
     except UnicodeDecodeError:
         return Extraction(status="not_text", commit=commit, paths=paths)
     out.parent.mkdir(parents=True, exist_ok=True)

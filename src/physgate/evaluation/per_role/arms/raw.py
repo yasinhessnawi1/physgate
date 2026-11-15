@@ -12,8 +12,14 @@ every class counted (input, cache writes, cache reads, output). A watcher reads 
 session's stream as it is written, counts each message's final usage once as the run's own
 accounting does, and stops the session when the count passes the cap. Usage is known per
 message, so the session can pass the cap by at most the message in flight; the count it
-reached is recorded, never trimmed. Its turn and wall-clock bounds are a role session's,
-times the harness's repair budget, so neither bound binds before the token cap would.
+reached is recorded, never trimmed.
+
+**Its turn and wall-clock bounds** are a role session's, times the harness's repair budget: a
+fixed multiplier, recorded as the arm's one intended difference in its bounds and compared as
+such. It is an assumption, not a proof that neither bound binds before the cap: one harness run
+can give a role more sessions than the budget (attempts past it, infrastructure retries, several
+subtasks of the same role), so a long raw session can meet its turn or clock bound first. Such
+an end is the arm's own spending (``wall_clock``), recorded, never trimmed or re-run.
 
 What the session left is kept as sealed evidence: its stream, its answer, its end and a
 record of every pin the comparison with the harness arm is held to.
@@ -23,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import threading
@@ -48,6 +55,7 @@ from physgate.orchestrator.dispatch import (
     check_after_stop,
     harness_protection,
     read_captured,
+    read_session_file,
     redact,
     review_material_seen,
     runtime_git_paths,
@@ -66,6 +74,7 @@ from physgate.orchestrator.run_config import (
     ThinkingDisplay,
     endpoint_of,
 )
+from physgate.orchestrator.session_files import FileRefused, read_beneath
 from physgate.oslayer.probe import Absent, Present
 from physgate.oslayer.session_temp import make_session_temp
 from physgate.reviewers.ending import SessionEnd, await_session
@@ -129,14 +138,25 @@ class RawSetup:
     #: own directory there. Empty for the raw arm.
     write_protected: tuple[str, ...] = ()
     writable_within: tuple[str, ...] = ()
+    #: The session's own directory where it lies inside a held-out root: a protected trial's,
+    #: made in the store's work root, which every run withholds. It alone is taken out of the
+    #: held-out roots for this session (:func:`held_out_but`), as a blind check's own work is;
+    #: every other place they hold stays withheld. ``None`` where the session works outside
+    #: every held-out root. ``held_out`` stays the run's list, held equal to the harness's.
+    held_out_carved: str | None = None
+    #: Further places withheld from this session on top of the run's roots, made after the
+    #: harness run ended: a baseline round's own directory, where its finished trials and its
+    #: records lie. ``held_out`` stays the run's list, held equal to the harness's.
+    held_out_also: tuple[str, ...] = ()
 
 
 def stream_total(stream: Path) -> int:
-    """Every token the stream's messages were charged for so far, each message once."""
-    try:
-        text = stream.read_bytes().decode("utf-8", errors="replace")
-    except FileNotFoundError:
-        return 0
+    """Every token the stream's messages were charged for so far, each message once.
+
+    Read as every session file is (:func:`read_session_file`): a link, a pipe or a file with
+    another link at the stream's name raises, and the watch stops the session for it.
+    """
+    text = read_session_file(stream).decode("utf-8", errors="replace")
     _, usages, _ = read_stream(text)
     return sum(m.usage.total() for m in usages)
 
@@ -346,9 +366,58 @@ def require_stopped(watch: BudgetWatch) -> None:
         raise RawArmError(msg, end=watch.end or "", stop_error=watch.stop_error)
 
 
+#: The bounds the raw session runs at a role session's times the repair budget; every other
+#: bound it runs as the harness's role sessions do.
+MULTIPLIED_BOUNDS = ("session_max_turns", "session_wall_clock_s")
+
+
 def raw_bounds(bounds: RunBounds) -> tuple[int, float]:
     """The raw session's turn and wall-clock bounds: a role session's, times the repair budget."""
     return bounds.session_max_turns * REPAIR_BUDGET, bounds.session_wall_clock_s * REPAIR_BUDGET
+
+
+def raw_bound_values(bounds: RunBounds) -> dict[str, Any]:
+    """Every field of ``bounds`` as the raw session runs it, read from the bounds' own fields.
+
+    A bound added to the run's bounds is recorded here without a line written for it, so the
+    comparison sees it; only :data:`MULTIPLIED_BOUNDS` are multiplied, by name.
+    """
+    values: dict[str, Any] = bounds.model_dump(mode="json")
+    for name in MULTIPLIED_BOUNDS:
+        values[name] = values[name] * REPAIR_BUDGET
+    return values
+
+
+def held_out_but(roots: Iterable[str], own: Path) -> tuple[str, ...]:
+    """``roots`` with the directory ``own`` taken out: what a session working in ``own`` withholds.
+
+    A root that holds ``own`` is replaced by every entry beside the way down to it, at each level,
+    as they are now: ``own`` and the directories above it are not withheld, every other entry
+    beneath the root is. A root that does not hold ``own`` is kept as given.
+
+    Raises:
+        RawArmError: a root is ``own`` or lies in it, or a level on the way cannot be listed.
+    """
+    place = Path(os.path.realpath(own))
+    kept: set[str] = set()
+    for root in roots:
+        resolved = Path(os.path.realpath(root))
+        if resolved.is_relative_to(place):
+            msg = "a held-out root is the session's own directory or lies in it"
+            raise RawArmError(msg, root=root)
+        if not place.is_relative_to(resolved):
+            kept.add(root)
+            continue
+        here = resolved
+        for part in place.relative_to(resolved).parts:
+            try:
+                names = os.listdir(here)
+            except OSError as exc:
+                msg = "a held-out root cannot be listed, so what it holds beside the session's own"
+                raise RawArmError(msg + " directory cannot be withheld", place=str(here)) from exc
+            kept |= {str(here / name) for name in names if name != part}
+            here = here / part
+    return tuple(sorted(kept))
 
 
 def _install(
@@ -359,6 +428,13 @@ def _install(
     *,
     own_temp: Path | None = None,
 ) -> dict[str, Any]:
+    held = setup.held_out
+    if setup.held_out_carved is not None:
+        if os.path.realpath(worktree.parent) != os.path.realpath(setup.held_out_carved):
+            msg = "the session works elsewhere than the directory taken out of its held-out roots"
+            raise RawArmError(msg, carved=setup.held_out_carved)
+        held = held_out_but(setup.held_out, Path(setup.held_out_carved))
+    held = (*held, *setup.held_out_also)
     state = sdir / "state"
     state.mkdir(mode=0o700, parents=True)
     (sdir / "config").mkdir(mode=0o700, exist_ok=True)
@@ -393,7 +469,7 @@ def _install(
         # The harness checkout is protected from the raw agent and its shell reads denied:
         # what it would find there (the knowledge, the rubrics) is the harness's help.
         *harness_protection(),
-        *(arg for root in setup.held_out for arg in ("--held-out", root)),
+        *(arg for root in held for arg in ("--held-out", root)),
         *(arg for root in setup.withheld_reads for arg in ("--review-material", root)),
         *(arg for root in setup.write_protected for arg in ("--protect", root)),
         *(arg for place in setup.writable_within for arg in ("--protect-except", place)),
@@ -425,17 +501,40 @@ def _install(
     return installed
 
 
-def _take_answer(worktree: Path, task: Task, out: Path) -> str:
-    """The raw session's answer, copied for the scorer: the file the brief names, as it is."""
-    answer = worktree / task.answer.path
-    if not answer.exists() and not answer.is_symlink():
-        return "no_answer"
-    if answer.is_symlink() or not answer.is_file():
-        return "not_a_file"
-    if answer.stat().st_size > MAX_ANSWER_BYTES:
-        return "too_large"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(answer, out, follow_symlinks=False)
+def _take_answer(
+    worktree: Path, task: Task, out: Path, identity: list[tuple[int, int]] | None = None
+) -> str:
+    """The raw session's answer, copied for the scorer: the file the brief names, as it is.
+
+    The session may be able to rename or replace the directories it works in (the sandbox
+    makes its worktree writable and, with it, the directory that holds the worktree; without
+    the OS layer nothing stops its shell), so no component of the way down is followed as a
+    path: the session's place and the worktree are each opened as a directory without
+    following a link and, where ``identity`` says what was made, are the very directories
+    the runner made (device and inode); the answer's name (one plain component, by the
+    task's own pattern) is opened from the worktree's descriptor without following a link,
+    judged from that descriptor (a regular file with no other link, no larger than any answer)
+    and read from it (:func:`~physgate.orchestrator.session_files.read_beneath`).
+    ``out`` is in a directory the session never had access to, created new there.
+    """
+    if identity is not None and len(identity) != 2:
+        return "not_a_file"  # nothing to hold the directories to: refused, never taken
+    place = worktree.parent
+    try:
+        data = read_beneath(
+            place.parent,
+            (place.name, worktree.name, task.answer.path),
+            limit=MAX_ANSWER_BYTES,
+            identity=() if identity is None else (None, *identity),
+        )
+    except FileRefused as refused:
+        return {"absent": "no_answer", "too_large": "too_large"}.get(refused.kind, "not_a_file")
+    out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    made = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(made, data)
+    finally:
+        os.close(made)
     return "found"
 
 
@@ -447,6 +546,7 @@ def run_session(
     cap: int,
     files: Mapping[str, bytes] | None = None,
     check: Checkpoint | None = None,
+    identity: list[tuple[int, int]] | None = None,
 ) -> dict[str, Any]:
     """One session on ``prompt``, as the raw arm runs one, in the new directory ``work``.
 
@@ -455,7 +555,8 @@ def run_session(
     session given material to read finds it there, never in its prompt, which any process
     of the same user can list. ``check`` is asked at each reading of the stream, with the
     tokens spent so far, and the session is stopped for any reason it returns; that
-    reason is then the record's ``end``.
+    reason is then the record's ``end``. ``identity``, given, receives the device and inode of
+    ``work`` and of its worktree as they were made, for :func:`_take_answer`.
     Returns the session's record: how it ended, what it spent, and whether a held-out
     canary showed in its stream.
 
@@ -471,6 +572,8 @@ def run_session(
     work.mkdir(mode=0o700, parents=True)
     worktree.mkdir(mode=0o700)
     sdir.mkdir(mode=0o700)
+    if identity is not None:
+        identity.extend((i.st_dev, i.st_ino) for i in (work.stat(), worktree.stat()))
     subprocess.run(["git", "init", "-q"], cwd=worktree, check=True, capture_output=True)
     for name, data in (files or {}).items():
         if "/" in name or name.startswith("."):
@@ -494,22 +597,29 @@ def run_session(
         shutil.rmtree(own_temp, ignore_errors=True)
 
 
-def run_raw(task: Task, setup: RawSetup, work: Path, *, cap: int) -> dict[str, Any]:
+def run_raw(
+    task: Task, setup: RawSetup, work: Path, *, cap: int, harness: Path | None = None
+) -> dict[str, Any]:
     """Run the raw arm once on ``task`` in the new directory ``work``; its record.
 
-    ``cap`` is the harness arm's token total on the same task and trial.
+    ``cap`` is the harness arm's token total on the same task and trial. ``harness`` is an
+    existing directory the session was never given: the copied answer (``answer/``) and the
+    record (``raw.json``) are written there, so nothing the session leaves in its own place
+    can stand where the harness writes. Left out, they are written in ``work``.
 
     Raises:
         RawArmError: ``work`` exists, the session could not be set up, or its credential
             could not be removed.
     """
-    record = run_session(task.brief, setup, work, cap=cap)
+    kept = work if harness is None else harness
+    made: list[tuple[int, int]] = []
+    record = run_session(task.brief, setup, work, cap=cap, identity=made)
     record.update(
         task=task.id,
-        answer=_take_answer(work / "worktree", task, work / "answer" / task.answer.path),
+        answer=_take_answer(work / "worktree", task, kept / "answer" / task.answer.path, made),
         pins=pins(task, setup),
     )
-    write_record(work.parent, work.name, record, "raw.json")
+    write_record(kept.parent, kept.name, record, "raw.json")
     return record
 
 
@@ -664,21 +774,19 @@ def pins(task: Task, setup: RawSetup) -> dict[str, Any]:
     The tool list is not here: the comparison reads it from the session's generated
     configuration, the list the session was actually given.
     """
-    max_turns, wall_clock = raw_bounds(setup.bounds)
     return {
         # No raw session is given an advisor; a field to give one records it here.
         "advisor": None,
         "auth": setup.credential.mode,
         # As the session ran them: the binary's retries as given, the turns and the wall
         # clock a role session's times the repair budget.
-        "bounds": {
-            "binary_max_retries": setup.bounds.binary_max_retries,
-            "infra_retry_delays_s": list(setup.bounds.infra_retry_delays_s),
-            "session_max_turns": max_turns,
-            "session_wall_clock_s": wall_clock,
-        },
+        "bounds": raw_bound_values(setup.bounds),
         "endpoint": endpoint_of(setup.base_url),
         "held_out": sorted(setup.held_out),
+        # The session's own directory, taken out of those roots for it alone; ``None`` if none.
+        "held_out_carved": setup.held_out_carved,
+        # The places withheld from it besides, made after the harness run; empty if none.
+        "held_out_also": sorted(setup.held_out_also),
         # The canaries its stream was scanned for, which the harness run's must equal.
         "held_out_canaries_sha256": canaries_sha256(setup.held_out_canaries),
         "model": setup.model,
