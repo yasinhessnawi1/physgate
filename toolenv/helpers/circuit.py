@@ -221,8 +221,9 @@ def exports(
 ) -> dict[str, Any]:
     """Write ``<module>/exports/<name>.net`` and ``.csv`` from ``schematic``, and a PDF of it.
 
-    The PDF goes into the session's temporary directory (``<temp>/circuit/<name>.pdf``), named
-    in the answer by its full path, size and sha256.
+    The PDF goes into a folder made new for the call in the session's temporary directory
+    (``<temp>/circuit-<random>/<name>.pdf``), named in the answer by its full path, size and
+    sha256.
 
     Raises:
         HelperRefusedError: the name, the schematic or the module is not one, the program is
@@ -231,8 +232,8 @@ def exports(
     path, folder = _places(schematic, module)
     stem = os.path.join(folder, EXPORTS, _name(name))
     cli = _program()
-    reading = os.path.join(tempfile.gettempdir(), "circuit")
-    os.makedirs(reading, exist_ok=True)
+    # A folder made new for this call, never a fixed place a link could already stand at.
+    reading = tempfile.mkdtemp(prefix="circuit-")
     pdf = os.path.join(reading, f"{name}.pdf")
     codes = {
         "netlist": _run(
