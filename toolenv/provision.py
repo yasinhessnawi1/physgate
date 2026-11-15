@@ -8,10 +8,15 @@ Every download is held to a digest recorded before it was fetched: the interpret
 table, each wheel by ``uv.lock``, Node by ``pins.json``, each npm package by the server's
 ``package-lock.json``, and each PlatformIO package by its registry's checksum at the pinned
 version. On Linux the display libraries the CAD kernel links are fetched as distribution
-packages, each by the file name, version and sha256 in ``pins.json``. Every file is copied into
-the destination, never linked to a cache: a file with a second name outside the environment
-could be changed through that name, unseen by anything that guards the environment's own
-paths. The result is one directory:
+packages, each by the file name, version and sha256 in ``pins.json``. Three packages of the
+circuit library publish only their source: uv builds them, each source held by its sha256 in the
+lock and the build backend held by the lock's build constraints to one exact version (by version
+and the lock's cut-off date, not by digest); each wheel built is recorded by its digest and the
+digest of its file list, and refused if another backend built it. Every installed distribution's
+licence, as its metadata states it, is held to an allowed list: none may be the GPL. Every file
+is copied into the destination, never linked to a cache: a file with a second name outside the
+environment could be changed through that name, unseen by anything that guards the
+environment's own paths. The result is one directory:
 
     python/             the uv-managed interpreter
     venv/               the libraries, installed from ``uv.lock``
@@ -51,7 +56,10 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
+import zipfile
 from collections.abc import Mapping, Sequence
+from email.parser import HeaderParser
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -86,6 +94,8 @@ DESIGN_LICENCES = {
     " the harness; its symbol, footprint and template libraries CC-BY-SA-4.0 with an exception"
     " for designs made with them",
     "system libraries": "MIT, X11 and BSD families; see each package's copyright file",
+    "skidl": "MIT (and the packages it adds: MIT, BSD, Apache-2.0); the GPL circuit simulator it"
+    " asks for is overridden out of the environment and never installed",
 }
 #: The most a single download may hold.
 MAX_DOWNLOAD_BYTES = 200 << 20
@@ -928,6 +938,233 @@ def _check_design(
     return {"part": found["part"], "load_case": found["load_case"], "solve": solved}
 
 
+#: Imports the circuit library and names every module of the GPL simulator then loaded.
+CIRCUIT_CHECK = """
+import importlib.metadata as m, json, sys
+import skidl
+print(json.dumps({"skidl": m.version("skidl"),
+    "inspice_modules": sorted(k for k in sys.modules if k.split(".")[0].lower() == "inspice")}))
+"""
+
+
+def _check_circuit(dest: Path, work: Path) -> dict[str, object]:
+    """The circuit library imports at its pin and loads no module of the GPL simulator."""
+    home = work / "circuit-home"
+    home.mkdir()
+    env = base_environment(work) | {
+        "HOME": str(home),
+        "XDG_CACHE_HOME": str(home / "cache"),
+        "XDG_DATA_HOME": str(home / "data"),
+    }
+    out = run([str(dest / "venv" / "bin" / "python"), "-I", "-c", CIRCUIT_CHECK], env, cwd=home)
+    found = json.loads(out.strip().splitlines()[-1])
+    if found.get("inspice_modules"):
+        raise ProvisionError(
+            f"importing skidl loaded the GPL simulator: {found['inspice_modules']}"
+        )
+    project = (dest / "project" / "pyproject.toml").read_text(encoding="utf-8")
+    if f'"skidl=={found.get("skidl")}"' not in project:
+        raise ProvisionError(f"skidl {found.get('skidl')} is not the pinned version")
+    return dict(found)
+
+
+# ---- the licences the installed distributions state, and the packages built from source --------
+
+#: Every licence statement an installed distribution may make, exactly as its metadata words
+#: it: a ``License-Expression``, a one-line ``License`` field, or a ``License ::`` classifier.
+#: Measured from the environment as locked (every one permissive); a distribution that states
+#: anything else, or nothing, stops provisioning, so a new dependency's licence is read first.
+ALLOWED_LICENCES = frozenset(
+    {
+        # License-Expression
+        "Apache-2.0", "Apache-2.0 OR BSD-2-Clause", "BSD-2-Clause", "BSD-3-Clause", "MIT",
+        "MIT-CMU", "PSF-2.0",
+        # License, one line
+        "Apache 2", "Apache 2.0", "Apache Software License", "BSD", "Dual License",
+        "ISC license", "MIT License", "MIT license", "MPL-2.0", "Public domain", "Unlicense",
+        # License classifiers
+        "License :: OSI Approved :: Apache Software License",
+        "License :: OSI Approved :: BSD License",
+        "License :: OSI Approved :: ISC License (ISCL)",
+        "License :: OSI Approved :: MIT License",
+        "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+        "License :: OSI Approved :: Python Software Foundation License",
+        "License :: Public Domain",
+    }
+)  # fmt: skip
+#: What a ``License`` field holds when it says nothing (older metadata's default).
+NO_STATEMENT = frozenset({"UNKNOWN"})
+#: Distributions whose full licence text (a ``License`` field over several lines) mentions the
+#: GPL for a part their wheel bundles, not as their own licence.
+LICENCE_TEXT_EXCEPTIONS = {
+    "numpy": "the wheel bundles the GCC runtime libraries (libgfortran under GPL-3.0 with the GCC"
+    " Runtime Library Exception, libquadmath under LGPL-2.1); its own licence is BSD-3-Clause",
+    "scipy": "the wheel bundles the GCC runtime libraries (libgfortran under GPL-3.0 with the GCC"
+    " Runtime Library Exception, libquadmath under LGPL-2.1); its own licence is BSD-3-Clause",
+    "matplotlib": "the wheel bundles FreeType, offered under its own licence or GPL-2.0-or-later"
+    " and used under its own; matplotlib's licence is PSF-based",
+}
+#: Distributions whose metadata states no licence, and the words their own licence file, in
+#: their metadata folder, opens with.
+LICENCE_FROM_FILE = {"bd-materials": "Apache License", "ocpsvg": "Apache License"}
+#: A mention of the GPL, the Affero GPL included, and neither the Lesser nor the Library GPL.
+_GPL = re.compile(r"(?<![A-Za-z])A?GPL|(?<!Lesser )(?<!Library )General Public License|Affero")
+
+
+def licence_statements(metadata: str) -> tuple[list[str], list[str]]:
+    """The licence statements of one distribution's metadata, and its full licence texts."""
+    head = HeaderParser().parsestr(metadata, headersonly=True)
+    statements = [str(value).strip() for value in head.get_all("License-Expression", [])]
+    texts = []
+    for value in head.get_all("License", []):
+        text = str(value).strip()
+        if "\n" in text:
+            texts.append(text)
+        elif text and text not in NO_STATEMENT:
+            statements.append(text)
+    statements += [
+        str(value).strip()
+        for value in head.get_all("Classifier", [])
+        if str(value).strip().startswith("License ::")
+    ]
+    return statements, texts
+
+
+def _canonical(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _licence_files(info: Path) -> list[str]:
+    """The texts of the licence files a distribution's metadata folder holds."""
+    folder = info / "licenses"
+    files = sorted(path for path in folder.rglob("*") if path.is_file()) if folder.is_dir() else []
+    return [path.read_text(encoding="utf-8", errors="replace") for path in files]
+
+
+def licence_refusals(site_packages: Path) -> list[str]:
+    """Each installed distribution whose licence statements are refused, with why.
+
+    A distribution is refused if it states no licence, if a statement or a full text of it
+    mentions the GPL (a full text only where :data:`LICENCE_TEXT_EXCEPTIONS` does not name
+    it), or if a statement is not one of :data:`ALLOWED_LICENCES`. Every distribution is read
+    and every refusal named.
+    """
+    refused = []
+    for info in sorted(site_packages.glob("*.dist-info")):
+        metadata = (info / "METADATA").read_text(encoding="utf-8", errors="replace")
+        head = HeaderParser().parsestr(metadata, headersonly=True)
+        who = f"{head.get('Name', info.name)} {head.get('Version', '?')}"
+        statements, texts = licence_statements(metadata)
+        name = _canonical(str(head.get("Name", "")))
+        excepted = name in LICENCE_TEXT_EXCEPTIONS
+        if not statements and not texts and name in LICENCE_FROM_FILE:
+            texts = _licence_files(info)
+            opening = LICENCE_FROM_FILE[name]
+            if any(text.lstrip().startswith(opening) for text in texts):
+                statements = [opening]
+        gpl = [s for s in statements if _GPL.search(s)]
+        gpl += [t for t in texts if _GPL.search(t) and not excepted]
+        off = [
+            s
+            for s in statements
+            if s not in ALLOWED_LICENCES and s not in LICENCE_FROM_FILE.values()
+        ]
+        if not statements:
+            refused.append(f"{who}: states no licence")
+        elif gpl:
+            refused.append(f"{who}: states a GPL licence: {gpl[0].splitlines()[0][:80]!r}")
+        elif off:
+            refused.append(f"{who}: states a licence off the allowed list: {off[0][:80]!r}")
+    return refused
+
+
+def check_licences(site_packages: Path) -> int:
+    """Stop provisioning if any installed distribution's licence is refused; how many were read.
+
+    Raises:
+        ProvisionError: naming every refused distribution.
+    """
+    refused = licence_refusals(site_packages)
+    if refused:
+        raise ProvisionError(f"refused by their licences: {'; '.join(refused)}")
+    return len(list(site_packages.glob("*.dist-info")))
+
+
+def build_constraints(project: Path) -> list[str]:
+    """The exact versions the project holds its build requirements to, as it names them."""
+    loaded = tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))
+    held = loaded.get("tool", {}).get("uv", {}).get("build-constraint-dependencies", [])
+    return [str(pin) for pin in held]
+
+
+def _wheel_facts(wheel: Path) -> tuple[str, str]:
+    """The generator a built wheel names, and the sha256 of the file list it carries."""
+    with zipfile.ZipFile(wheel) as archive:
+        names = archive.namelist()
+        generator = record = ""
+        for name in names:
+            if name.endswith(".dist-info/WHEEL"):
+                for line in archive.read(name).decode("utf-8", errors="replace").splitlines():
+                    if line.startswith("Generator:"):
+                        generator = line.split(":", 1)[1].strip()
+            elif name.endswith(".dist-info/RECORD"):
+                record = hashlib.sha256(archive.read(name)).hexdigest()
+    return generator, record
+
+
+def built_from_source(project: Path, cache: Path, site_packages: Path) -> dict[str, object]:
+    """Each installed package the lock holds only as source, with its source's and wheel's digests.
+
+    The source is held by the lock's sha256; the wheel built from it is read from uv's cache,
+    by its own sha256 and the sha256 of the file list inside it (which names every file it
+    installs by its digest). The build backend each wheel names must be the version the
+    project holds it to.
+
+    Raises:
+        ProvisionError: a package installed from source has not exactly one wheel built from it
+            in the cache, or its wheel names another build backend than the one held.
+    """
+    lock = tomllib.loads((project / "uv.lock").read_text(encoding="utf-8"))
+    installed = {
+        _canonical(info.name.rsplit("-", 1)[0])
+        + "=="
+        + info.name.rsplit("-", 1)[1][: -len(".dist-info")]
+        for info in site_packages.glob("*.dist-info")
+    }
+    held = {pin.split("==")[0]: pin.split("==")[1] for pin in build_constraints(project)}
+    found: dict[str, object] = {}
+    for package in lock.get("package", []):
+        name, version = str(package["name"]), str(package.get("version", ""))
+        if (
+            "sdist" not in package
+            or package.get("wheels")
+            or f"{_canonical(name)}=={version}" not in installed
+        ):
+            continue
+        wheels = [
+            path
+            for path in sorted((cache / "uv").glob(f"sdists-v*/*/{name}/{version}/*/*.whl"))
+            if path.is_file()
+        ]
+        if len(wheels) != 1:
+            raise ProvisionError(f"{name} {version}: {len(wheels)} wheels built from its source")
+        generator, record = _wheel_facts(wheels[0])
+        backend = f"setuptools ({held.get('setuptools', '?')})"
+        if generator != backend:
+            raise ProvisionError(
+                f"{name} {version} was built by {generator!r}, not the held {backend!r}"
+            )
+        found[name] = {
+            "version": version,
+            "sdist_sha256": str(package["sdist"]["hash"]).removeprefix("sha256:"),
+            "wheel": wheels[0].name,
+            "wheel_sha256": sha256_of(wheels[0]),
+            "wheel_record_sha256": record,
+            "built_by": generator,
+        }
+    return found
+
+
 # ---- the commands, and the settings they run with --------------------------------------------
 
 
@@ -1282,6 +1519,11 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
              "--project", str(dest / "project"), "--python", str(python)],
             env,
         )  # fmt: skip
+        site = next((dest / "venv" / "lib").glob("python3.*/site-packages"))
+        # Read before anything else is installed: every distribution's licence, and what was
+        # built from source, by the digests of its source and of the wheel built from it.
+        licences_read = check_licences(site)
+        built = built_from_source(dest / "project", cache, site)
         # The interpreter's own library is compiled as well, so no first import writes a
         # cache file into the environment after it was measured.
         # Its standard library only: the installation also carries Tcl's own files, one of
@@ -1312,6 +1554,9 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
             "system_libraries": system,
             "reference_models": reference,
             "licences": DESIGN_LICENCES,
+            "licences_read": licences_read,
+            "built_from_source": built,
+            "build_constraints": build_constraints(dest / "project"),
             "locks_sha256": {
                 name: sha256_of(HERE / name)
                 for name in ("pyproject.toml", "uv.lock", "pins.json", SESSION_FILE,
@@ -1322,6 +1567,7 @@ def _build(dest: Path, cache: Path, uv: str, pins: Mapping[str, object]) -> dict
                 "firmware": _check_build(dest, work),
                 "platformio_server": _check_server(dest, work),
                 "design": _check_design(dest, system, work),
+                "circuit": _check_circuit(dest, work),
             },
         }  # fmt: skip
     written = dest / "provisioned.json"
