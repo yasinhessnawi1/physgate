@@ -25,6 +25,11 @@ paths. The result is one directory:
     reference/          published CAD models a design is measured against, by their pinned digest
     provisioned.json    what was built, and what the self-check measured
 
+KiCad's command-line program, a separate program under the GPL, is built into a root of its own
+with ``--kicad-dest``, beside this one and never inside or around it: the pinned release (by
+exact size and sha256) under ``app/``, copied so that no file has a second name and every link
+resolves inside the copy, with its own ``provisioned.json``.
+
 It ends by checking itself offline (the libraries import at their pins and compute, a firmware
 fixture builds with every download refused, the PlatformIO server answers, a fixture part is
 built, exported, measured and hashed with the CAD kernel), and leaves every
@@ -77,6 +82,9 @@ DESIGN_LICENCES = {
     "cadquery-ocp-novtk": "Apache-2.0 (the bindings); LGPL-2.1 with the Open CASCADE exception "
     "(the kernel inside the wheel)",
     "scikit-fem": "BSD-3-Clause",
+    "kicad": "GPL-3.0-or-later, a separate program provisioned and run apart, never linked into"
+    " the harness; its symbol, footprint and template libraries CC-BY-SA-4.0 with an exception"
+    " for designs made with them",
     "system libraries": "MIT, X11 and BSD families; see each package's copyright file",
 }
 #: The most a single download may hold.
@@ -197,18 +205,19 @@ def require_digest(path: Path, expected: str) -> None:
         raise ProvisionError(f"{path.name}: digest {found} is not the pinned {expected}")
 
 
-def fetch(url: str, into: Path, work: Path) -> Path:
+def fetch(url: str, into: Path, work: Path, *, max_bytes: int = MAX_DOWNLOAD_BYTES) -> Path:
     """Download ``url`` into the new directory ``into``, bounded in size.
 
     ``curl`` fetches it, with the system's own certificate store; an interpreter's bundled one
-    may be missing.
+    may be missing. The bound is :data:`MAX_DOWNLOAD_BYTES`, unless a pin states the exact size
+    of its own file: that size then bounds that one download.
     """
     into.mkdir(parents=True, exist_ok=False)
     target = into / url.rsplit("/", 1)[-1]
     curl = shutil.which("curl", path="/usr/bin:/bin")
     if curl is None:
         raise ProvisionError("curl is not installed")
-    argv = [curl, "-fsSL", "--proto", "=https", "--max-filesize", str(MAX_DOWNLOAD_BYTES)]
+    argv = [curl, "-fsSL", "--proto", "=https", "--max-filesize", str(max_bytes)]
     run([*argv, "-o", str(target), url], base_environment(work))
     return target
 
@@ -452,6 +461,408 @@ def _reference_models(
         shutil.copyfile(kept, placed)
         require_digest(placed, model["sha256"])
     return models
+
+
+# ---- KiCad: a separate program, in a root of its own --------------------------------------------
+
+#: Where each machine's KiCad release is named in ``pins.json``.
+KICAD_PLATFORMS = {
+    ("Linux", "x86_64"): "linux-x86_64",
+    ("Darwin", "arm64"): "darwin-arm64",
+}
+#: The fields every KiCad pin has, and those a machine's pin may add: the image inside the Linux
+#: archive with its own digest, the parts of the tree not copied, the parts of the macOS
+#: application that are.
+KICAD_PIN_FIELDS = frozenset({"file", "url", "bytes", "sha256"})
+KICAD_PIN_OPTIONAL = frozenset({"inner", "dropped", "kept"})
+#: Where the copied release lies in the KiCad root, and the record written beside it.
+KICAD_APP = "app"
+KICAD_RECORD = "provisioned.json"
+#: The program inside the copied release on each system.
+KICAD_CLI = {
+    "Linux": ("bin", "kicad-cli"),
+    "Darwin": ("KiCad.app", "Contents", "MacOS", "kicad-cli"),
+}
+#: The most links one resolution may follow, as the system's own limit does.
+MAX_LINK_HOPS = 40
+
+
+def kicad_pin(pins: Mapping[str, object], system: str, machine: str) -> dict[str, object]:
+    """The pinned KiCad release for a machine: file name, address, exact size, sha256.
+
+    Raises:
+        ProvisionError: no release is pinned for the machine, or its pin is not exactly a
+            plain file name, the ``https`` address ending in it, a positive size in bytes and a
+            lower-case hex sha256 (with only the image, dropped or kept parts besides).
+    """
+    name = KICAD_PLATFORMS.get((system, machine))
+    kicad = pins.get("kicad")
+    pin = kicad.get(name) if isinstance(kicad, dict) and name else None
+    if not isinstance(pin, dict):
+        raise ProvisionError(f"no pinned KiCad release for {system} {machine}")
+    fields = set(pin)
+    if not KICAD_PIN_FIELDS <= fields <= KICAD_PIN_FIELDS | KICAD_PIN_OPTIONAL:
+        raise ProvisionError(
+            f"a KiCad pin names {sorted(KICAD_PIN_FIELDS)}, and of"
+            f" {sorted(KICAD_PIN_OPTIONAL)} only what its machine needs"
+        )
+    file, url, size, digest = pin["file"], pin["url"], pin["bytes"], pin["sha256"]
+    if not (isinstance(file, str) and _REFERENCE_FILE.fullmatch(file)):
+        raise ProvisionError(f"{file!r}: a KiCad pin names a file, never a path")
+    if not (isinstance(url, str) and url.startswith("https://") and url.endswith(f"/{file}")):
+        raise ProvisionError(f"{file}: a KiCad release is fetched over https by its own name")
+    if type(size) is not int or size <= 0:
+        raise ProvisionError(f"{file}: a KiCad pin states its file's size in bytes")
+    if not (isinstance(digest, str) and _SHA256.fullmatch(digest)):
+        raise ProvisionError(f"{file}: a KiCad pin holds its sha256 in lower-case hex")
+    inner = pin.get("inner")
+    if inner is not None and not (
+        isinstance(inner, dict)
+        and set(inner) == {"file", "sha256"}
+        and isinstance(inner["file"], str)
+        and _REFERENCE_FILE.fullmatch(inner["file"])
+        and isinstance(inner["sha256"], str)
+        and _SHA256.fullmatch(inner["sha256"])
+    ):
+        raise ProvisionError(f"{file}: a KiCad pin's inner image is a file name and its sha256")
+    for parts in ("dropped", "kept"):
+        listed = pin.get(parts)
+        if listed is not None and not (
+            isinstance(listed, list) and all(isinstance(part, str) for part in listed)
+        ):
+            raise ProvisionError(f"{file}: a KiCad pin's {parts} parts are a list of paths")
+    return dict(pin)
+
+
+def kicad_archive(pin: Mapping[str, object], cache: Path, work: Path) -> Path:
+    """The pinned release from the cache, or fetched once, bounded by its pin and held to it.
+
+    A download whose bytes differ is refused before it is kept, and a kept file is held to the
+    pin again before it is used; either refusal names the file and both digests.
+    """
+    file, digest, size = str(pin["file"]), str(pin["sha256"]), pin["bytes"]
+    assert isinstance(size, int)
+    kept = cache / "kicad" / file
+    if not kept.exists():
+        downloads = Path(tempfile.mkdtemp(prefix="kicad-", dir=work))
+        try:
+            fetched = fetch(str(pin["url"]), downloads / "archive", work, max_bytes=size)
+        except (ProvisionError, subprocess.TimeoutExpired) as exc:
+            raise ProvisionError(
+                f"the KiCad release {file} (sha256 {digest}) could not be fetched from"
+                f" {pin['url']}; placing that file in the cache's kicad folder lets"
+                f" provisioning go on:\n{exc}"
+            ) from None
+        require_digest(fetched, digest)
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(fetched, kept)
+    require_digest(kept, digest)
+    return kept
+
+
+def _part(source: Path, part: str) -> str:
+    """Where a part of a tree, named by a plain relative path that is there, really lies in it.
+
+    A link on the way is followed (a release may name its own top as ``usr``), and the place it
+    leads to must lie inside the tree: that place, relative to the tree, is what is returned.
+    """
+    pieces = part.split("/")
+    if part.startswith("/") or any(piece in ("", ".", "..") for piece in pieces):
+        raise ProvisionError(f"{part!r}: a part of the release is named by a plain relative path")
+    top, place = os.path.realpath(source), os.path.realpath(source / part)
+    if not os.path.lexists(source / part) or not os.path.exists(place):
+        raise ProvisionError(f"{part!r}: the release has no such part")
+    if not place.startswith(top + os.sep):
+        raise ProvisionError(f"{part!r}: a part of the release lies outside it")
+    return Path(place).relative_to(top).as_posix()
+
+
+def _within(relative: str, parts: Sequence[str]) -> bool:
+    return any(relative == part or relative.startswith(part + "/") for part in parts)
+
+
+def _resolves_inside(link: Path, root: Path) -> bool:
+    """Whether ``link`` resolves to something that exists inside ``root``, passing nowhere else.
+
+    Its text is followed one component at a time, as the system follows it, a link met on the
+    way being read before a later ``..`` applies; absolute text, a step above the root, more than
+    :data:`MAX_LINK_HOPS` links (a loop) or an end that does not exist is refused.
+    """
+    top = str(root)
+    current = str(link.parent)
+    pending = list(reversed(os.readlink(link).split("/")))
+    if os.readlink(link).startswith("/"):
+        return False
+    hops = 1
+    while pending:
+        part = pending.pop()
+        if part in ("", "."):
+            continue
+        current = os.path.dirname(current) if part == ".." else os.path.join(current, part)
+        if not (current == top or current.startswith(top + os.sep)):
+            return False
+        if os.path.islink(current):
+            hops += 1
+            text = os.readlink(current)
+            if hops > MAX_LINK_HOPS or text.startswith("/"):
+                return False
+            current = os.path.dirname(current)
+            pending.extend(reversed(text.split("/")))
+    return os.path.exists(current)
+
+
+def copy_apart(
+    source: Path,
+    into: Path,
+    dropped: Sequence[str] = (),
+    *,
+    kept: Sequence[str] | None = None,
+) -> dict[str, object]:
+    """Copy a release's tree so the environment's measure accepts it, and say what that took.
+
+    Every regular file is written anew, so a file the release gives several names (hard links)
+    becomes a file under each name with one name. A link is copied with its own text and kept
+    only where it resolves inside the copy; a link out of it, nowhere or round a loop stops the
+    copy with its name, as does anything that is not a file, a directory or a link. The parts in
+    ``dropped`` are not copied; with ``kept``, only those parts are (and the directories above
+    them). Nothing is ever linked to the source.
+
+    Raises:
+        ProvisionError: a part is not a plain relative path that is there, an entry is neither
+            a file, a directory nor a link, or a copied link does not resolve inside the copy.
+    """
+    named = {"dropped": list(dropped), "kept": None if kept is None else list(kept)}
+    dropped = [_part(source, part) for part in dropped]
+    kept = None if kept is None else [_part(source, part) for part in kept]
+    into.mkdir(parents=True, exist_ok=False)
+    files = apart = 0
+    links: list[tuple[Path, str]] = []
+    for directory, dirs, names in os.walk(source, followlinks=False):
+        here = Path(directory).relative_to(source)
+        dirs.sort()
+        for name in sorted(dirs) + sorted(names):
+            path = Path(directory, name)
+            relative = (here / name).as_posix()
+            if _within(relative, dropped):
+                if name in dirs:
+                    dirs.remove(name)
+                continue
+            whole = kept is None or _within(relative, kept)
+            above = kept is not None and any(part.startswith(relative + "/") for part in kept)
+            found = path.lstat()
+            if not (whole or (above and stat.S_ISDIR(found.st_mode))):
+                if name in dirs:
+                    dirs.remove(name)
+                continue
+            target = into / relative
+            if stat.S_ISLNK(found.st_mode):
+                if name in dirs:
+                    dirs.remove(name)
+                target.symlink_to(os.readlink(path))
+                links.append((target, relative))
+            elif stat.S_ISDIR(found.st_mode):
+                target.mkdir()
+            elif stat.S_ISREG(found.st_mode):
+                shutil.copyfile(path, target, follow_symlinks=False)
+                target.chmod(stat.S_IMODE(found.st_mode) | 0o200)
+                files += 1
+                apart += found.st_nlink > 1
+            else:
+                raise ProvisionError(
+                    f"{relative}: the release holds something that is not a file, a directory"
+                    " or a link"
+                )
+    for target, relative in links:
+        if not _resolves_inside(target, into):
+            raise ProvisionError(
+                f"{relative}: a link of the release that leads outside it, nowhere or round a"
+                f" loop ({os.readlink(target)})"
+            )
+    counts: dict[str, object] = {
+        "files": files,
+        "names_copied_apart": apart,
+        "links_kept": len(links),
+        "dropped": named["dropped"],
+    }
+    if named["kept"] is not None:
+        counts["kept"] = named["kept"]
+    return counts
+
+
+def kicad_cli(root: Path, system: str) -> Path:
+    """Where the command-line program lies in a KiCad root built on ``system``."""
+    return root.joinpath(KICAD_APP, *KICAD_CLI[system])
+
+
+def check_kicad(cli: Path, version: str, work: Path) -> dict[str, str]:
+    """Ask the program its version, with every download refused and its writes in ``work``.
+
+    Raises:
+        ProvisionError: it fails, or its first line is not the pinned version, either way it is
+            asked (the option, and the command).
+    """
+    env = base_environment(work) | {
+        "KICAD_CONFIG_HOME": str(work / "kicad-config"),
+        "HTTP_PROXY": DEAD_PROXY,
+        "HTTPS_PROXY": DEAD_PROXY,
+        "ALL_PROXY": DEAD_PROXY,
+    }
+    for name in ("home", "tmp", "kicad-config"):
+        (work / name).mkdir(exist_ok=True)
+    for asked in ("--version", "version"):
+        answer = run([str(cli), asked], env).strip().splitlines()
+        line = answer[0].strip() if answer else ""
+        if line != version:
+            raise ProvisionError(
+                f"kicad-cli {asked} answered {line!r}, not the pinned version {version}"
+            )
+    return {"version": version, "asked": "--version, version"}
+
+
+def attach_argv(image: Path, mount: Path) -> list[str]:
+    """Attach a macOS disk image read-only, shown nowhere, opening nothing in it."""
+    return [
+        "/usr/bin/hdiutil",
+        "attach",
+        "-readonly",
+        "-nobrowse",
+        "-noautoopen",
+        "-mountpoint",
+        str(mount),
+        str(image),
+    ]
+
+
+def _linux_release(archive: Path, pin: Mapping[str, object], work: Path) -> Path:
+    """Unpack the archive's one image, hold it to its digest, and let it unpack its own tree.
+
+    The image's own runtime unpacks it, with no FUSE and nothing installed; the tree it leaves
+    is the one returned.
+    """
+    inner = pin.get("inner")
+    if not isinstance(inner, dict):
+        raise ProvisionError(f"{archive.name}: the Linux pin names no inner image")
+    unpack = work / "kicad-archive"
+    unpack.mkdir()
+    try:
+        with tarfile.open(archive, "r:") as tar:
+            members = tar.getmembers()
+            names = [member.name.removeprefix("./") for member in members]
+            if names != [inner["file"]] or not members[0].isfile():
+                raise ProvisionError(f"{archive.name} holds {names}, not the one image")
+            tar.extractall(unpack, filter="data")
+    except (tarfile.TarError, OSError) as exc:
+        raise ProvisionError(f"the archive {archive.name} was refused: {exc}") from None
+    image = unpack / str(inner["file"])
+    require_digest(image, str(inner["sha256"]))
+    image.chmod(0o755)
+    out = work / "kicad-tree"
+    out.mkdir()
+    run([str(image), "--appimage-extract"], base_environment(work), cwd=out)
+    image.unlink()
+    tree = Path(os.path.realpath(out / "squashfs-root"))
+    if not (tree.is_dir() and out in tree.parents):
+        raise ProvisionError(f"{inner['file']} left no tree of its own to copy")
+    return tree
+
+
+def _macos_release(
+    archive: Path, pin: Mapping[str, object], app: Path, work: Path
+) -> dict[str, object]:
+    """Copy the kept parts of the application from the attached image, then detach it."""
+    kept = pin.get("kept")
+    if not isinstance(kept, list) or not kept:
+        raise ProvisionError(f"{archive.name}: the macOS pin names no kept parts")
+    mount = work / "kicad-image"
+    mount.mkdir()
+    run(attach_argv(archive, mount), base_environment(work))
+    try:
+        found = [
+            path
+            for path in (*mount.glob("KiCad.app"), *mount.glob("*/KiCad.app"))
+            if path.is_dir() and not path.is_symlink()
+        ]
+        if len(found) != 1:
+            raise ProvisionError(f"{archive.name} holds {len(found)} KiCad applications, not one")
+        return copy_apart(found[0], app / "KiCad.app", kept=[str(part) for part in kept])
+    finally:
+        run(["/usr/bin/hdiutil", "detach", str(mount)], base_environment(work))
+
+
+def _apart(root: Path, beside: Path) -> None:
+    """Refuse a KiCad root inside the environment's other root, around it, or the same."""
+    a, b = os.path.realpath(root), os.path.realpath(beside)
+    if a == b or a.startswith(b + os.sep) or b.startswith(a + os.sep):
+        raise ProvisionError(
+            "the KiCad root may not lie inside the environment's other root, nor hold it"
+        )
+
+
+def provision_kicad(
+    root: Path,
+    cache: Path,
+    pins: Mapping[str, object] | None = None,
+    *,
+    beside: Path | None = None,
+) -> dict[str, object]:
+    """Build the KiCad root at ``root``: the pinned release copied apart, checked, read-only.
+
+    ``beside`` is the environment's other root, which this one may not lie in or around.
+    ``pins`` defaults to ``pins.json`` beside this script; a test names others.
+    """
+    if beside is not None:
+        _apart(root, beside)
+    check_destination(root, REPO)
+    pins = load_pins() if pins is None else pins
+    system, machine = platform.system(), platform.machine()
+    pin = kicad_pin(pins, system, machine)
+    kicad = pins["kicad"]
+    assert isinstance(kicad, dict)
+    root.mkdir(parents=True, exist_ok=True)
+    cache.mkdir(parents=True, exist_ok=True)
+    try:
+        return _build_kicad(root, cache, pin, str(kicad["version"]), system)
+    except BaseException:
+        # A half-built root is never left for a run to find.
+        _remove(root)
+        raise
+
+
+def _build_kicad(
+    root: Path, cache: Path, pin: Mapping[str, object], version: str, system: str
+) -> dict[str, object]:
+    with tempfile.TemporaryDirectory(prefix="provision-kicad-") as scratch:
+        work = Path(scratch)
+        for name in ("home", "tmp"):
+            (work / name).mkdir()
+        archive = kicad_archive(pin, cache, work)
+        if system == "Linux":
+            tree = _linux_release(archive, pin, work)
+            dropped = pin.get("dropped", [])
+            assert isinstance(dropped, list)
+            copied = copy_apart(tree, root / KICAD_APP, [str(part) for part in dropped])
+            _remove(work / "kicad-tree")
+        else:
+            copied = _macos_release(archive, pin, root / KICAD_APP, work)
+        checked = check_kicad(kicad_cli(root, system), version, work)
+    require_one_name_each(root)
+    require_links_inside(root)
+    make_read_only(root)
+    root.chmod(0o755)  # until the record is written
+    record: dict[str, object] = {
+        "kicad": version,
+        "pin": dict(pin),
+        "machine": f"{platform.system()} {platform.machine()}",
+        "program": kicad_cli(root, system).relative_to(root).as_posix(),
+        "licence": DESIGN_LICENCES["kicad"],
+        "copied": copied,
+        "self_check": checked,
+    }
+    (root / KICAD_RECORD).write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    make_read_only(root)
+    return record
 
 
 def _helpers(dest: Path) -> list[str]:
@@ -920,17 +1331,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--dest", type=Path, required=True)
     parser.add_argument("--cache", type=Path, help="kept between runs; a fresh one by default")
+    parser.add_argument("--kicad-dest", type=Path, help="KiCad's own root, beside --dest")
     args = parser.parse_args(argv)
     try:
-        if args.cache is None:
-            with tempfile.TemporaryDirectory(prefix="provision-cache-") as cache:
-                record = provision(args.dest, Path(cache))
-        else:
-            record = provision(args.dest, args.cache)
+        if args.kicad_dest is not None:
+            _apart(args.kicad_dest, args.dest)
+        with tempfile.TemporaryDirectory(prefix="provision-cache-") as fresh:
+            cache = Path(fresh) if args.cache is None else args.cache
+            record = provision(args.dest, cache)
+            print(json.dumps(record["self_check"], sort_keys=True))
+            if args.kicad_dest is not None:
+                kicad = provision_kicad(args.kicad_dest, cache, beside=args.dest)
+                print(json.dumps(kicad["self_check"], sort_keys=True))
     except ProvisionError as exc:
         print(f"provisioning stopped: {exc}", file=sys.stderr)
         return 1
-    print(json.dumps(record["self_check"], sort_keys=True))
     return 0
 
 

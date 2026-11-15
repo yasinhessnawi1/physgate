@@ -28,6 +28,9 @@ jobs:
       # refuses a tool environment that lies in any of them.
       PG_ENVIRONMENT: /home/runner/pg-env/env
       PG_MEASURED: /home/runner/pg-env/measured.json
+      # KiCad's own root, beside the environment and never inside it, and its measure.
+      PG_KICAD: /home/runner/pg-env/kicad
+      PG_KICAD_MEASURED: /home/runner/pg-env/kicad-measured.json
     steps:
       # ---- the half that fetches -----------------------------------------------------
       # Each action is named by the commit its tag pointed at on the day it was read, so
@@ -79,6 +82,66 @@ jobs:
         run: |
           uv run --frozen python toolenv/provision.py \
             --dest "$PG_ENVIRONMENT" --cache "$RUNNER_TEMP/provision-downloads"
+
+      - name: Restore the KiCad release kept for these pins, where no environment was kept
+        # KiCad's release for Linux is one 317 MB archive, held to its exact size and sha256 in
+        # pins.json. It is kept here, keyed on the pins, so a change elsewhere in toolenv/ does
+        # not fetch it again: provisioning checks a kept file's digest as it does a fetched one.
+        id: kicad-release
+        if: steps.kept.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/provision-downloads/kicad
+          key: kicad-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('toolenv/pins.json') }}
+
+      - name: Build KiCad's own root beside the environment, where none was kept
+        # KiCad is a separate program (GPL-3.0-or-later), provisioned and run apart. The release
+        # is fetched by its pin, unpacked by its own runtime with no FUSE, and copied so the
+        # harness's measure accepts it: every file under each of its names with one name, a
+        # link kept only where it resolves inside the copy, the demonstration projects left
+        # out. Its program then answers the pinned version with every download refused.
+        if: steps.kept.outputs.cache-hit != 'true'
+        run: |
+          uv run --frozen python - "$PG_KICAD" "$RUNNER_TEMP/provision-downloads" \
+            "$PG_ENVIRONMENT" <<'PY'
+          import importlib.util
+          import json
+          import sys
+          from pathlib import Path
+
+          spec = importlib.util.spec_from_file_location("provision", "toolenv/provision.py")
+          assert spec is not None and spec.loader is not None
+          provision = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(provision)
+          root, cache, beside = (Path(arg) for arg in sys.argv[1:4])
+          record = provision.provision_kicad(root, cache, beside=beside)
+          print(json.dumps({"copied": record["copied"], "self_check": record["self_check"]}))
+          PY
+
+      - name: Keep the KiCad release for the next build on the same pins
+        if: steps.kept.outputs.cache-hit != 'true' && steps.kicad-release.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/provision-downloads/kicad
+          key: ${{ steps.kicad-release.outputs.cache-primary-key }}
+
+      - name: Measure KiCad's root, before anything uses it
+        # The harness's own manifest over KiCad's root alone, kept beside it like the
+        # environment's, so a restored root is held to it too.
+        if: steps.kept.outputs.cache-hit != 'true'
+        run: |
+          uv run --frozen python - "$PG_KICAD" > "$PG_KICAD_MEASURED" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          from physgate.toolenv.manifest import manifest
+
+          found = manifest([Path(sys.argv[1])])
+          print(json.dumps({"digest": found.digest, "entries": found.entries,
+                            "total_bytes": found.total_bytes}))
+          PY
+          cat "$PG_KICAD_MEASURED"
 
       - name: Keep the display-library packages for the next build on the same pins
         # Only files whose digest provisioning checked are in that folder: a mismatch stops
@@ -252,6 +315,63 @@ jobs:
           print(f"environment {now.digest}: {now.entries} entries, {now.total_bytes} bytes")
           PY
 
+      - name: KiCad's root is the one measured when it was built, and the scan's time with it
+        # Built in this run or restored: KiCad's root is held to its kept measure. Then the
+        # check made before every session, the harness's scan, is timed over the environment
+        # alone, KiCad's root alone, and both, five times each: a measurement for the record,
+        # which fails nothing.
+        run: |
+          "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync python - \
+            "$PG_ENVIRONMENT" "$PG_KICAD" "$PG_KICAD_MEASURED" <<'PY'
+          import json
+          import sys
+          import time
+          from pathlib import Path
+
+          from physgate.toolenv.manifest import manifest, scan
+
+          env, kicad, measured = (Path(arg) for arg in sys.argv[1:4])
+          kept = json.loads(measured.read_text())
+          now = manifest([kicad])
+          assert (now.digest, now.entries, now.total_bytes) == (
+              kept["digest"], kept["entries"], kept["total_bytes"]
+          ), f"measured {now}, kept {kept}"
+          print(f"KiCad root {now.digest}: {now.entries} entries, {now.total_bytes} bytes")
+          for name, roots in (("environment", [env]), ("kicad", [kicad]), ("both", [env, kicad])):
+              times = []
+              for _ in range(5):
+                  start = time.perf_counter()
+                  scan(roots)
+                  times.append(round(time.perf_counter() - start, 3))
+              print(json.dumps({"scan": name, "seconds": times}))
+          PY
+
+      - name: KiCad's command-line program runs offline from its own root at the pinned version
+        # The measure accepts KiCad's root; the program answers its pinned version with the
+        # network gone and writes nothing into its root; the harness measures the two roots
+        # together and records the program at that version. Counted as above: a skip here
+        # means the rows ran nowhere on Linux.
+        if: success() || failure()
+        env:
+          PHYSGATE_KICAD_ROOT: /home/runner/pg-env/kicad
+          PHYSGATE_TOOL_ENVIRONMENT: /home/runner/pg-env/env
+        run: |
+          status=0
+          "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync pytest -q -rs -m integration \
+            --junitxml="$RUNNER_TEMP/kicad-rows.xml" \
+            tests/integration/toolenv/test_kicad_s_command_line_program_runs_offline_from_a_root_of_its_own_at_the_pinned_version.py \
+            || status=$?
+          python3 - "$RUNNER_TEMP/kicad-rows.xml" "$status" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suite = next(ET.parse(sys.argv[1]).getroot().iter("testsuite"))
+          rows = {name: int(suite.get(name, "0")) for name in ("tests", "failures", "errors", "skipped")}
+          print(f"rows: {rows}, pytest exit {sys.argv[2]}")
+          passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
+          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 4 and passed == 4 else 1)
+          PY
+
       - name: Real sessions use the tool environment inside the OS layer, offline
         # A role session computes and builds with the environment inside bubblewrap; no
         # session writes a tool environment through the real tool path, or opens a serial
@@ -402,6 +522,23 @@ jobs:
           now = manifest([Path(sys.argv[1])])
           assert now.digest == kept["digest"], f"measured {now.digest}, built {kept['digest']}"
           print(f"environment {now.digest}, as built")
+          PY
+
+      - name: KiCad's root is unchanged by everything that ran beside it
+        if: success() || failure()
+        run: |
+          "$RUNNER_TEMP/offline" uv run --offline --frozen --no-sync python - \
+            "$PG_KICAD" "$PG_KICAD_MEASURED" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          from physgate.toolenv.manifest import manifest
+
+          kept = json.loads(Path(sys.argv[2]).read_text())
+          now = manifest([Path(sys.argv[1])])
+          assert now.digest == kept["digest"], f"measured {now.digest}, built {kept['digest']}"
+          print(f"KiCad root {now.digest}, as built")
           PY
 
       - name: A library-backed record seals on the run's environment, through the real dispatcher

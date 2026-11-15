@@ -46,5 +46,11 @@
   },
   "reference_models": [
     {"file": "balboa-balancing-robot-kit.step", "url": "https://www.pololu.com/file/0J1309/balboa-balancing-robot-kit.step", "sha256": "9208f9d329b3955eb317685ea1291f30b9ce10dbd82388ea1d5f1bad9b6726e1", "describes": "Pololu's published 3D model of the assembled Balboa 32U4 balancing robot kit, 23,531,720 bytes; measured, never shipped"}
-  ]
+  ],
+  "kicad": {
+    "version": "10.0.8",
+    "released": "2026-10-29T00:00:00Z",
+    "linux-x86_64": {"file": "kicad-10.0.8-x86_64-lite.AppImage.tar", "url": "https://kicad-downloads.s3.cern.ch/appimage/stable/kicad-10.0.8-x86_64-lite.AppImage.tar", "bytes": 316538880, "sha256": "abb59cee9f9782736c1b9a92e3ab08b31320ee01d72a6f9442a07fdef71b87d0", "inner": {"file": "kicad-10.0.8-x86_64-lite.AppImage", "sha256": "4dfc6a52f89aa072d206e466a2a1de4c5ef5975d7ef49da24e4d4db0bb40ba3b"}, "dropped": ["usr/share/kicad/demos"]},
+    "darwin-arm64": {"file": "kicad-unified-universal-10.0.8.dmg", "url": "https://github.com/KiCad/kicad-source-mirror/releases/download/10.0.8/kicad-unified-universal-10.0.8.dmg", "bytes": 1405602755, "sha256": "501d3e2933a385f1833497469f55326662df7e5d40401239826c40d6fa583f16", "kept": ["Contents/Frameworks", "Contents/MacOS", "Contents/PlugIns", "Contents/Resources", "Contents/SharedSupport/footprints", "Contents/SharedSupport/resources", "Contents/SharedSupport/schemas", "Contents/SharedSupport/symbols", "Contents/SharedSupport/template"]}
+  }
 }
