@@ -376,7 +376,9 @@ jobs:
         # A session wired to both roots runs the rules check and the exports on hand-written
         # schematics and on one SKiDL generates; the text exports repeat byte for byte; nothing
         # is written into either root; at commit the exports are regenerated from the schematic
-        # inside bubblewrap and compared. Counted as above: a skip means the rows ran nowhere.
+        # inside bubblewrap and compared (a sub-sheet refused in each of three spellings), and a
+        # new session started inside the wrapper dies with it. Counted as above: a skip means
+        # the rows ran nowhere.
         if: success() || failure()
         env:
           PHYSGATE_KICAD_ROOT: /home/runner/pg-env/kicad
@@ -395,7 +397,7 @@ jobs:
           rows = {name: int(suite.get(name, "0")) for name in ("tests", "failures", "errors", "skipped")}
           print(f"rows: {rows}, pytest exit {sys.argv[2]}")
           passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
-          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 15 and passed == 15 else 1)
+          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 18 and passed == 18 else 1)
           PY
 
       - name: Real sessions use the tool environment inside the OS layer, offline

@@ -1183,10 +1183,7 @@ def test_a_descendant_that_leaves_the_group_holding_the_error_stream_is_refused_
     loud = "for _ in range(400):\n    sys.stderr.write('x'); sys.stderr.flush(); time.sleep(0.05)"
     body = loud if said == "keeps writing" else "time.sleep(6)"
     grandchild = f"import os, sys, time\nos.setsid()\n{body}\n"
-    program = (
-        "import subprocess, sys; "
-        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}])"
-    )
+    program = f"import subprocess, sys; subprocess.Popen([sys.executable, '-c', {grandchild!r}])"
     started = time.monotonic()
     raised = _run_raised([sys.executable, "-c", program], tmp_path, 30.0)
     assert type(raised).__name__ == "RegenerationBoundError", raised
