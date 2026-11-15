@@ -136,6 +136,12 @@ DEVICE = (
     "device of the machine. The call names {device}. Work from the build's own output and "
     "from simulation."
 )
+NAMED_LATE = (
+    "A program named only when the command runs was given options this check reads as a "
+    "flasher's (-U, or -p beside -U, -e or -c), or the build tool's device words, so the "
+    "command is refused. If it is an ordinary program, name the program in the command's own "
+    "words."
+)
 ENTERING = DEVICE.format(device="the devices' directory, as the place to work from")
 NOT_BUILD = (
     "This use of {program} is refused: it is not one of its build-only uses, written with "
@@ -886,7 +892,7 @@ def _named_late(
         for at in late:
             words = argv[at + 1 :]
             if upload_in("pio", words) or _flasher_words(words):
-                return UPLOAD
+                return NAMED_LATE
             opened = _read_options(words, 0, _BUILD_TOOL[0], positionals=None)
             first = words[opened[0]] if opened is not None and opened[0] < len(words) else ""
             if first.casefold() in _LATE_USES:

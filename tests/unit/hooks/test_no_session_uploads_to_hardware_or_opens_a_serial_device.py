@@ -73,7 +73,6 @@ UPLOADS = [
     "python3 -mplatformio run -t upload",
     "trap 'pio run -t upload' EXIT",
     # The program named only when the command runs, given an upload target all the same.
-    "p=pio; $p run -t upload",
     # Behind a wrapper's option that takes a value: the value is not the program.
     "exec -a x pio run -t upload",
     "env --unset X pio run -t upload",
@@ -83,8 +82,6 @@ UPLOADS = [
     # An option this rule has no word on is read as one that may take a value.
     "env -a x pio run -t upload",
     "exec -a x python3 -m platformio run -t upload",
-    "p=pio; exec -a x $p run -t upload",
-    "p=pio; timeout 60 $p run -t upload",
     # An interpreter running the build tool by any spelling of its module, or as a script.
     "python3 -Im platformio run -t upload",
     "python3 -Implatformio run -t upload",
@@ -93,12 +90,15 @@ UPLOADS = [
     "timeout 5 python3 -m platformio.__main__ run -t upload",
     "python3 /opt/env/venv/bin/pio run -t upload",
     # Its monitor, by a name only running decides.
-    "p=pio; $p device monitor",
 ]
 
 #: A program, or the module or script an interpreter runs, named only when the command runs,
 #: given the build tool's upload words or a flasher's options. Refused, in words of its own.
 LATE_UPLOADS = [
+    "p=pio; $p run -t upload",
+    "p=pio; exec -a x $p run -t upload",
+    "p=pio; timeout 60 $p run -t upload",
+    "p=pio; $p device monitor",
     # A program named only when the command runs, given a flasher's words: a memory
     # operation, or a programmer and a part.
     "p=avrdude; $p -U flash:w:firmware.hex",
