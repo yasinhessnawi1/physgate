@@ -10,8 +10,9 @@ taken away. Read here, on the pinned release:
 - the netlist holds the nets and parts, the parts list one row per part; the PDF, one page,
   is in the session's temporary directory and not in the module;
 - a second run gives the same bytes for the three text exports;
-- a SKiDL script generates a schematic from the pinned libraries with tags and a placement seed
-  set, twice, and the two differ in identifiers alone (the generator draws one at random); the
+- a SKiDL script generates a schematic from the pinned libraries with tags, a placement seed and
+  the interpreter's string hashing fixed, twice, and the two differ in identifiers alone (the
+  generator draws one at random); the
   rules check runs on it and its findings are reported, not judged;
 - nothing is written into either root, and in the test's own folder nothing outside the
   session's temporary directory, its home and the module.
@@ -355,45 +356,48 @@ generate_schematic(filepath=sys.argv[1], top_name="divider", title="divider", se
 """
 
 
+def _generated(session: Session, script: Path, out: Path, more: dict[str, str]) -> bytes:
+    out.mkdir()
+    done = subprocess.run(
+        [*session.prefix, "python3", "-I", str(script), str(out)],
+        cwd=session.module,
+        env=session.env | more,
+        capture_output=True,
+        text=True,
+        timeout=900,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr[-3000:]
+    schematics = sorted(out.rglob("*.kicad_sch"))
+    assert len(schematics) == 1, schematics
+    return schematics[0].read_bytes()
+
+
 def test_a_skidl_script_generates_one_schematic_twice_but_for_its_identifiers_and_is_checked(
     session: Session,
 ) -> None:
     script = session.module / "divider.py"
     script.write_text(SKIDL, encoding="utf-8")
-    generated: list[bytes] = []
-    for n in (1, 2):
-        out = session.module / f"gen{n}"
-        out.mkdir()
-        done = subprocess.run(
-            [*session.prefix, "python3", "-I", str(script), str(out)],
-            cwd=session.module,
-            env=session.env,
-            capture_output=True,
-            text=True,
-            timeout=900,
-            check=False,
-        )
-        assert done.returncode == 0, done.stderr[-3000:]
-        schematics = sorted(out.rglob("*.kicad_sch"))
-        assert len(schematics) == 1, schematics
-        generated.append(schematics[0].read_bytes())
-    # Measured: with tags and a placement seed set, two runs differ only in identifiers (the
-    # generator draws the root sheet's at random, and every symbol's instance path holds it).
-    differing = [
-        (a, b)
-        for a, b in zip(generated[0].splitlines(), generated[1].splitlines(), strict=True)
-        if a != b
-    ]
-    assert all(UUID.search(a) and UUID.sub(b"", a) == UUID.sub(b"", b) for a, b in differing), (
-        differing[:4]
-    )
-    assert _identifiers_in_order(generated[0]) == _identifiers_in_order(generated[1])
+    # Measured on CI: with tags and a placement seed alone, two runs placed the parts apart
+    # (files of different lengths). With the interpreter's string hashing fixed as well, the
+    # generator's one random draw is left: the root sheet's identifier, which every symbol's
+    # instance path holds.
+    seeded = [_generated(session, script, session.module / f"seed{n}", {}) for n in (1, 2)]
+    fixed = {"PYTHONHASHSEED": "0"}
+    generated = [_generated(session, script, session.module / f"gen{n}", fixed) for n in (1, 2)]
+    told = f"tags and seed alone gave the same bytes but for identifiers: {_alike(*seeded)}"
+    assert _alike(*generated), told
     schematic = next((session.module / "gen1").rglob("*.kicad_sch"))
     found = _helper(session, "rules_check", schematic, "divider")
     counts = found["counts"]
     assert isinstance(counts, dict)
     assert isinstance(_value(counts["total"]), int)
     assert found["kind"] == "rules_check"
+
+
+def _alike(first: bytes, second: bytes) -> bool:
+    """Whether two files are the same bytes once each identifier is named by its order."""
+    return _identifiers_in_order(first) == _identifiers_in_order(second)
 
 
 def test_nothing_is_written_into_either_root_or_outside_the_session_s_places(
