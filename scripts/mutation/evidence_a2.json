@@ -1,0 +1,391 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_runs_route_names_each_run_s_kind_flags_and_pins.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_compare_route_answers_the_comparison_or_its_refusal.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_catches_route_counts_each_kind_of_run_apart.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py",
+   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py"
+  ]
+ },
+ {
+  "name": "place_keeps_no_reason",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "    kept = {key: str(context[key]) for key in REFUSAL_CONTEXT if key in context}\n    return {\"root\": str(position)",
+  "new": "    kept: dict[str, str] = {}\n    return {\"root\": str(position)",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_compare_route_answers_the_comparison_or_its_refusal.py"
+  ]
+ },
+ {
+  "name": "place_names_no_record",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "\"name\": name, \"record\": record, **kept}",
+  "new": "\"name\": name, **kept}",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_compare_route_answers_the_comparison_or_its_refusal.py"
+  ]
+ },
+ {
+  "name": "refused_link_becomes_422",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "    if isinstance(exc, PathRefusedError):\n        return PathRefusedError(",
+  "new": "    if exc is None:\n        return PathRefusedError(",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
+  ]
+ },
+ {
+  "name": "refused_link_keeps_its_path",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        return PathRefusedError(str(exc), **_place(position, name, record, exc))",
+  "new": "        return PathRefusedError(str(exc), **{**exc.context, **_place(position, name, record, exc)})",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
+  ]
+ },
+ {
+  "name": "read_missing_log_named_as_config",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        raise RunRefusedError(msg, **_place(position, name, EVENTS)) from None",
+  "new": "        raise RunRefusedError(msg, **_place(position, name, RUN_CONFIG)) from None",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_runs_route_names_each_run_s_kind_flags_and_pins.py"
+  ]
+ },
+ {
+  "name": "named_reads_another_root",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "    return _read(context, int(root), name, run_dir)",
+  "new": "    return _read(context, int(root) + 1, name, run_dir)",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_compare_route_answers_the_comparison_or_its_refusal.py"
+  ]
+ },
+ {
+  "name": "source_kind_always_development",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        \"kind\": kind_of(run.config),\n        \"harness_commit\"",
+  "new": "        \"kind\": \"development\",\n        \"harness_commit\"",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_compare_route_answers_the_comparison_or_its_refusal.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_catches_route_counts_each_kind_of_run_apart.py"
+  ]
+ },
+ {
+  "name": "source_manifest_from_config",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        \"manifest_id\": run.manifest_id,\n        \"kind\": kind_of(run.config),\n        \"harness_commit\"",
+  "new": "        \"manifest_id\": run.config.run_id,\n        \"kind\": kind_of(run.config),\n        \"harness_commit\"",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_compare_route_answers_the_comparison_or_its_refusal.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_catches_route_counts_each_kind_of_run_apart.py"
+  ]
+ },
+ {
+  "name": "line_streams_past_the_allowlist",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "run.path, attributions, resolve=context.allowlist.resolve, seals=",
+  "new": "run.path, attributions, resolve=Path, seals=",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
+  ]
+ },
+ {
+  "name": "line_ignores_the_seals",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "seals=stream_seals(run.log)\n",
+  "new": "seals={}\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "line_reads_no_calls",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        return price_events(run.config, run.manifest_id, run.log, sheet, calls=calls)",
+  "new": "        return price_events(run.config, run.manifest_id, run.log, sheet, calls=None)",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "line_sheet_refusal_drops_the_date",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        refused.context[\"date\"] = date\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "sum_tokens_last_call_only",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "            tokens[key] = tokens.get(key, 0) + count",
+  "new": "            tokens[key] = count",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "sum_usd_first_call_only",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        \"usd\": str(sum(call.usd for call in chosen)),",
+  "new": "        \"usd\": str(chosen[0].usd),",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "sum_lower_bound_every_call",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        \"lower_bound\": any(call.attribution in named for call in chosen),",
+  "new": "        \"lower_bound\": all(call.attribution in named for call in chosen),",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "sum_of_nothing_is_zero",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "    if not chosen:\n        return None\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "row_never_a_lower_bound",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "    return {**call.model_dump(mode=\"json\"), \"lower_bound\": call.attribution in named}",
+  "new": "    return {**call.model_dump(mode=\"json\"), \"lower_bound\": False}",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "spend_ttl_unread_ignored",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "(*held.unread, *held.ttl_unread)",
+  "new": "(*held.ttl_unread,)",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "spend_reviews_into_a_role",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        end = ended.get(who) if kind == \"session\" else None",
+  "new": "        end = ended.get(who) if kind != \"reviewer\" else next(iter(ended.values()))",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "spend_session_attempt_dropped",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "                        \"attempt\": end.attempt,\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "spend_roles_unordered_empty_kept",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "    order = [role for role in dict.fromkeys(role_of.values()) if role in roles]",
+  "new": "    order = list(dict.fromkeys(role_of.values()))",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "spend_left_over_into_review",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "apart[APART.get(kind, LEFT_OVER)].append(call)",
+  "new": "apart[APART.get(kind, \"review\")].append(call)",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "spend_view_unlabelled",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        \"view\": VIEW,\n",
+  "new": "        \"view\": \"\",\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "spend_line_not_sent",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "\"line\": line.model_dump(mode=\"json\"), **_spend",
+  "new": "\"line\": {}, **_spend",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py"
+  ]
+ },
+ {
+  "name": "compare_candidate_as_baseline",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "            side_by_side = self.census.compare(a.path, b.path)",
+  "new": "            side_by_side = self.census.compare(b.path, a.path)",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_compare_route_answers_the_comparison_or_its_refusal.py"
+  ]
+ },
+ {
+  "name": "compare_refusal_drifted_whole",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "            drifted = [path for path in exc.context.get(\"drifted\", \"\").split(\",\") if path]",
+  "new": "            drifted = [exc.context.get(\"drifted\", \"\")]",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_compare_route_answers_the_comparison_or_its_refusal.py"
+  ]
+ },
+ {
+  "name": "compare_refusal_200",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "            return json_response(answer, 422)",
+  "new": "            return json_response(answer)",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_compare_route_answers_the_comparison_or_its_refusal.py"
+  ]
+ },
+ {
+  "name": "compare_b_not_read",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        b = _named(context, params[\"b_root\"], params[\"b_name\"])",
+  "new": "        b = a",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_compare_route_answers_the_comparison_or_its_refusal.py"
+  ]
+ },
+ {
+  "name": "catches_summed_across_kinds",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "                \"rows\": [row.model_dump(mode=\"json\") for row in self.census.catches(events[kind])],",
+  "new": "                \"rows\": [row.model_dump(mode=\"json\") for row in self.census.catches([e for k in KINDS for e in events[k]])],",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_catches_route_counts_each_kind_of_run_apart.py"
+  ]
+ },
+ {
+  "name": "catches_ablation_first",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "KINDS: tuple[Kind, ...] = (\"reportable\", \"development\", \"ablation\")",
+  "new": "KINDS: tuple[Kind, ...] = (\"ablation\", \"reportable\", \"development\")",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_catches_route_counts_each_kind_of_run_apart.py"
+  ]
+ },
+ {
+  "name": "catches_unread_counted_nowhere_dropped",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "                unread.append({\"root\": position, \"name\": name, **refusal(exc)})\n                continue\n            except OrchestratorError",
+  "new": "                continue\n            except OrchestratorError",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_catches_route_counts_each_kind_of_run_apart.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
+  ]
+ },
+ {
+  "name": "catches_runs_not_named",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "            runs[kind].append(_source(run))\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_catches_route_counts_each_kind_of_run_apart.py"
+  ]
+ },
+ {
+  "name": "catches_keeps_a_kind_s_last_run_only",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "            events[kind].extend(found)\n",
+  "new": "            events[kind] = found\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_catches_route_counts_each_kind_of_run_apart.py"
+  ]
+ },
+ {
+  "name": "compose_hands_in_no_catch_count",
+  "file": "src/physgate/cli.py",
+  "old": "    catches=catches.catches,\n",
+  "new": "    catches=lambda events: [],\n",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_catches_route_counts_each_kind_of_run_apart.py"
+  ]
+ },
+ {
+  "name": "routes_drop_the_comparison",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "        Route(\"GET\", COMPARE, \"read\", Comparison(census)),\n",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py"
+  ]
+ },
+ {
+  "name": "baseline_last",
+  "file": "src/physgate/evaluation/evidence.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/evaluation/observe_rig.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_runs_route_names_each_run_s_kind_flags_and_pins.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_spend_route_sums_each_role_s_sessions_as_a_view.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_compare_route_answers_the_comparison_or_its_refusal.py",
+   "tests/unit/evaluation/evidence/test_the_evidence_catches_route_counts_each_kind_of_run_apart.py",
+   "tests/unit/ui/test_every_route_refuses_a_planted_link_out_of_its_roots.py",
+   "tests/unit/ui/test_the_served_table_is_the_product_s_and_what_the_root_registers.py"
+  ]
+ }
+]
