@@ -420,13 +420,21 @@ def test_the_measure_refuses_the_release_and_accepts_the_copy(tmp_path: Path) ->
 @pytest.mark.parametrize(
     ("name", "text"),
     [
-        ("outside", "../../elsewhere"),
+        ("outside", "../elsewhere"),
+        ("through", "../copy/launcher"),
         ("absolute", "/usr/lib"),
         ("nowhere", "no-such-file"),
         ("loop-a", "loop-b"),
         ("into-dropped", "share/demos/one"),
     ],
-    ids=["leads-outside", "absolute", "leads-nowhere", "loops", "into-a-dropped-part"],
+    ids=[
+        "leads-outside-to-a-file-there",
+        "passes-outside-on-the-way-back-in",
+        "absolute",
+        "leads-nowhere",
+        "loops",
+        "into-a-dropped-part",
+    ],
 )
 def test_a_link_the_measure_would_refuse_stops_the_copy_with_its_name(
     tmp_path: Path, name: str, text: str
