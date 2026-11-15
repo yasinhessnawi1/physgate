@@ -23,7 +23,9 @@ pytestmark = pytest.mark.integration
 #: The environment's programs that reach no board, as its venv/bin lists them: the interpreter
 #: and the scripts that activate it, the package installer, the libraries' own tools (arrays,
 #: fonts, encodings, tables, an ELF reader, a listing of the serial ports that opens none, the
-#: CAD library's DXF tool and a source highlighter), and the servers behind the build tool's home
+#: CAD library's DXF tool and a source highlighter; the circuit library's converters between a
+#: netlist, a board file, a schematic and its Python, its part search over the pinned libraries,
+#: and a Markdown parser its console output brings), and the servers behind the build tool's home
 #: screen (HTTP, websockets, JSON-RPC). The CAD library's interactive consoles are guarded.
 REACHES_NO_BOARD = frozenset(
     {
@@ -34,6 +36,7 @@ REACHES_NO_BOARD = frozenset(
         "f2py", "numpy-config", "fonttools", "pyftmerge", "pyftsubset", "ttx", "idna",
         "normalizer", "tabulate", "readelf.py", "pyserial-ports",
         "ezdxf", "pygmentize",
+        "kinet2pcb", "netlist_to_skidl", "skidl-part-search", "schematizer", "markdown-it",
         "bottle", "bottle.py", "uvicorn", "websockets", "async-json-rpc-server",
     }
 )  # fmt: skip

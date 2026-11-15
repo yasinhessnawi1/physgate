@@ -5,6 +5,9 @@ requires-python = "==3.12.9"
 [options]
 exclude-newer = "2026-10-24T00:00:00Z"
 
+[manifest]
+overrides = [{ name = "inspice", marker = "sys_platform == 'never'" }]
+
 [[package]]
 name = "absl-py"
 version = "2.5.1"
@@ -138,6 +141,15 @@ sdist = { url = "https://files.pythonhosted.org/packages/fd/11/b524cbd9bbdaca586
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/d1/a3652fe2c19134d0d15922177821d863cbd7e842d53a21bbe7e8e3a1b5ac/certifi-2026.10.23-py3-none-any.whl", hash = "sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1", size = 135082 },
 ]
+
+[[package]]
+name = "cffi"
+version = "2.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pycparser", marker = "implementation_name != 'PyPy'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9e/ef/008a1939e372c06329a3fce4279c02f328488f3526744906eeec3da7ad5f/cffi-2.1.1.tar.gz", hash = "sha256:dd31f52ea1086513bb9df30f8fcee9b8918323ae067a3d5b78bc826a000712be", size = 530807 }
 
 [[package]]
 name = "chardet"
@@ -288,6 +300,27 @@ wheels = [
 ]
 
 [[package]]
+name = "deprecation"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5a/d3/8ae2869247df154b64c1884d7346d412fed0c49df84db635aab2d1c40e62/deprecation-2.1.0.tar.gz", hash = "sha256:72b3bde64e5d778694b0cf68178aed03d15e15477116add3fb773e581f9518ff", size = 173788 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/02/c3/253a89ee03fc9b9682f1541728eb66db7db22148cd94f89ab22528cd1e1b/deprecation-2.1.0-py2.py3-none-any.whl", hash = "sha256:a10811591210e1fb0e768a8c25517cabeabcba6f0bf96564f8ff45189f90b14a", size = 11178 },
+]
+
+[[package]]
+name = "diskcache"
+version = "5.6.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/21/1c1ffc1a039ddcc459db43cc108658f32c57d271d7289a2794e401d0fdb6/diskcache-5.6.3.tar.gz", hash = "sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc", size = 67916 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/27/4570e78fc0bf5ea0ca45eb1de3818a23787af9b390c0b0a0033a1b8236f9/diskcache-5.6.3-py3-none-any.whl", hash = "sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19", size = 45550 },
+]
+
+[[package]]
 name = "etils"
 version = "1.14.0"
 source = { registry = "https://pypi.org/simple" }
@@ -379,6 +412,15 @@ wheels = [
 ]
 
 [[package]]
+name = "graphviz"
+version = "0.21"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/b3/3ac91e9be6b761a4b30d66ff165e54439dcd48b83f4e20d644867215f6ca/graphviz-0.21.tar.gz", hash = "sha256:20743e7183be82aaaa8ad6c93f8893c923bd6658a04c32ee115edb3c8a835f78", size = 200434 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/4c/e0ce1ef95d4000ebc1c11801f9b944fa5910ecc15b5e351865763d8657f8/graphviz-0.21-py3-none-any.whl", hash = "sha256:54f33de9f4f911d7e84e4191749cac8cc5653f815b06738c54db9a15ab8b1e42", size = 47300 },
+]
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -388,12 +430,45 @@ wheels = [
 ]
 
 [[package]]
+name = "h5py"
+version = "3.16.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/db/33/acd0ce6863b6c0d7735007df01815403f5589a21ff8c2e1ee2587a38f548/h5py-3.16.0.tar.gz", hash = "sha256:a0dbaad796840ccaa67a4c144a0d0c8080073c34c76d5a6941d6818678ef2738", size = 446526 }
+
+[[package]]
+name = "hierplace"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/01/1d98cd0e18ab5485850f1b30c28ad4e8a768dfe43a2852c2efaf6c369775/hierplace-1.1.0.tar.gz", hash = "sha256:1386717bb9e6759d9b319013d6edd0f568b717f834e29d9d804ab5cc4c0d0ad0", size = 313737 }
+
+[[package]]
 name = "idna"
 version = "3.20"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f5/08/8eea9d4b8302028f3abb2c0813953f7aec26d33b7a8960ed760e65ff29fa/idna-3.20.tar.gz", hash = "sha256:a7db850025b95ded1eae8a46181a1a6c56c92c96f0e2b005d9ff8dc0210cab44", size = 216463 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/58/a2/bb081bab032533a855d44de1d56f8e8426114ff1ba5d1f07a438a0a654f8/idna-3.20-py3-none-any.whl", hash = "sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c", size = 69583 },
+]
+
+[[package]]
+name = "inspice"
+version = "1.7.0.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cffi" },
+    { name = "diskcache" },
+    { name = "h5py" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "ply" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/40/1d/f0ab2f8da123f08df69d7c291749a940d3f97aa74c722802e8e65ce62273/inspice-1.7.0.7.tar.gz", hash = "sha256:6fddd6ade36bc74d3065349b74050d8f1670623bbd6bb4283809417e62b0a247", size = 266924 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/c1/d16c6ecfc91326b045e3eafa30711dd1f1c52f9c74be7ee61ab087fb821e/inspice-1.7.0.7-py3-none-any.whl", hash = "sha256:3722fe7040977f60ae9ec2f84a4fb78759f840eda04cc0c8835237bf7c0db7b8", size = 256759 },
 ]
 
 [[package]]
@@ -454,6 +529,16 @@ wheels = [
 ]
 
 [[package]]
+name = "kinet2pcb"
+version = "1.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "hierplace" },
+    { name = "simp-sexp" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/98/a8/2e1fead21b6bd2a8bf1bdf4e4e40829e397b1fd34ff200fd25e6bf9f07e0/kinet2pcb-1.1.4.tar.gz", hash = "sha256:9374a09ba58f64895b5e47c972b20315d624e06eec48925df26a308e2746f661", size = 201452 }
+
+[[package]]
 name = "kiwisolver"
 version = "1.5.1"
 source = { registry = "https://pypi.org/simple" }
@@ -487,6 +572,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/04/87/47504d69f0f36841670d12ce3fe1668025bad74d83ed361ead378f626fed/lib3mf-2.5.0-py3-none-macosx_10_9_universal2.whl", hash = "sha256:f7dc57ea22214fa92dac728ba66e58c4b24b775d467888262a820338d7d84145", size = 2216305 },
     { url = "https://files.pythonhosted.org/packages/88/83/8b987ba95ac0ed9cc7e9c407a579bf43eff6349b1792b4a66c992ce4f76b/lib3mf-2.5.0-py3-none-manylinux2014_x86_64.whl", hash = "sha256:b4c00033c47cfeac93b7daa069fb46e8dea4391d5522b79cd6e9f6af75e33013", size = 1575000 },
     { url = "https://files.pythonhosted.org/packages/a9/b3/7a844247dfa1f0b24de6fa0425afb808dd1feeef2d05d6335170433c1071/lib3mf-2.5.0-py3-none-win_amd64.whl", hash = "sha256:e378470855d634708c6ae7f2f2c6fcd89e4996350de86020849e7b2d51ffe6ac", size = 857560 },
+]
+
+[[package]]
+name = "markdown-it-py"
+version = "4.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "mdurl" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/ff/7841249c247aa650a76b9ee4bbaeae59370dc8bfd2f6c01f3630c35eb134/markdown_it_py-4.2.0.tar.gz", hash = "sha256:04a21681d6fbb623de53f6f364d352309d4094dd4194040a10fd51833e418d49", size = 82454 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b3/81/4da04ced5a082363ecfa159c010d200ecbd959ae410c10c0264a38cac0f5/markdown_it_py-4.2.0-py3-none-any.whl", hash = "sha256:9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a", size = 91687 },
 ]
 
 [[package]]
@@ -546,6 +643,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bd/c0/9f7c9a46090390368a4d7bcb76bb87a4a36c421e4c0792cdb53486ffac7a/matplotlib_inline-0.2.2.tar.gz", hash = "sha256:72f3fe8fce36b70d4a5b612f899090cd0401deddc4ea90e1572b9f4bfb058c79", size = 8150 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/41/09/5b161152e2d90f7b87f781c2e1267494aef9c32498df793f73ad0a0a494a/matplotlib_inline-0.2.2-py3-none-any.whl", hash = "sha256:3c821cf1c209f59fb2d2d64abbf5b23b67bcb2210d663f9918dd851c6da1fcf6", size = 9534 },
+]
+
+[[package]]
+name = "mdurl"
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979 },
 ]
 
 [[package]]
@@ -687,6 +793,7 @@ design = [
     { name = "build123d" },
     { name = "cadquery-ocp-novtk" },
     { name = "scikit-fem" },
+    { name = "skidl" },
 ]
 
 [package.metadata]
@@ -703,6 +810,7 @@ design = [
     { name = "build123d", specifier = "==0.13.0" },
     { name = "cadquery-ocp-novtk", specifier = "==8.0.1.1.0" },
     { name = "scikit-fem", specifier = "==12.0.2" },
+    { name = "skidl", specifier = "==3.0.0" },
 ]
 
 [[package]]
@@ -772,6 +880,15 @@ wheels = [
 ]
 
 [[package]]
+name = "ply"
+version = "3.11"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/69/882ee5c9d017149285cab114ebeab373308ef0f874fcdac9beb90e0ac4da/ply-3.11.tar.gz", hash = "sha256:00c7c1aaa88358b9c765b6d3000c6eec0ba42abca5351b095321aef446081da3", size = 159130 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/58/35da89ee790598a0700ea49b2a66594140f44dec458c07e8e3d4979137fc/ply-3.11-py2.py3-none-any.whl", hash = "sha256:096f9b8350b65ebd2fd1346b12452efe5b9607f7482813ffca50c22722a807ce", size = 49567 },
+]
+
+[[package]]
 name = "prompt-toolkit"
 version = "3.0.53"
 source = { registry = "https://pypi.org/simple" }
@@ -823,6 +940,15 @@ version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/26/e1/45116bb0bf9b8f36569f2a0b7c0d11374bfadcdd790c0135a20058a6dc72/py_lib3mf-2.5.0-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5c55ecae456769c8fca2bbaf98f2352794638435020e31162df0ba421d241d6d", size = 1632925 },
+]
+
+[[package]]
+name = "pycparser"
+version = "3.12"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/27/eeb9f307bf07060f3d9f9aa0fb8c15b01bdfded0a941e4b2719c7f94cacd/pycparser-3.12.tar.gz", hash = "sha256:f03387877eab82ce01bbdfd0ba7252ee55a90b1c708d5129e2ce915475cf1db6", size = 158785 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/ae/315bbeee126a769cbde43cf4908acb4b40408d8bf8bbf334dd7368d8dadf/pycparser-3.12-py3-none-any.whl", hash = "sha256:a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e", size = 62600 },
 ]
 
 [[package]]
@@ -897,6 +1023,12 @@ wheels = [
 ]
 
 [[package]]
+name = "pyyaml"
+version = "6.0.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/pyyaml-6.0.3.tar.gz", hash = "sha256:d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f", size = 130960 }
+
+[[package]]
 name = "requests"
 version = "2.34.2"
 source = { registry = "https://pypi.org/simple" }
@@ -909,6 +1041,31 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf/requests-2.34.2.tar.gz", hash = "sha256:f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed", size = 142856 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl", hash = "sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0", size = 73075 },
+]
+
+[[package]]
+name = "rich"
+version = "15.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "markdown-it-py" },
+    { name = "pygments" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c0/8f/0722ca900cc807c13a6a0c696dacf35430f72e0ec571c4275d2371fca3e9/rich-15.0.0.tar.gz", hash = "sha256:edd07a4824c6b40189fb7ac9bc4c52536e9780fbbfbddf6f1e2502c31b068c36", size = 230680 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/82/3b/64d4899d73f91ba49a8c18a8ff3f0ea8f1c1d75481760df8c68ef5235bf5/rich-15.0.0-py3-none-any.whl", hash = "sha256:33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb", size = 310654 },
+]
+
+[[package]]
+name = "schematizer"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "simp-sexp" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/19/18/8820538c3236df87039f97823a3add80cbae1a43f1b8c5372d6a2af31d9b/schematizer-0.2.0.tar.gz", hash = "sha256:d82d3b70d88ffa10dacdb35b1142781145a500caff909eaad3827fd1d3028424", size = 158027 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/79/61/5efe9637e063887d09d3baaf01f37437fd49271063c5528d4eca33a31656/schematizer-0.2.0-py3-none-any.whl", hash = "sha256:0d435486a5cfb4ac85788a2d6d988efcd5ca9e8c600a6c8c03e8f919f3b94614", size = 160473 },
 ]
 
 [[package]]
@@ -974,6 +1131,15 @@ wheels = [
 ]
 
 [[package]]
+name = "simp-sexp"
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/67/e34c5dabe185f0e7f30f349a0a0dd611a916f7f2c0316ee92699165827f8/simp_sexp-0.3.1.tar.gz", hash = "sha256:fe85fad291079ab5bca181c228282e25bc0df70741c0dee593a4216b87980b5a", size = 17834 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/05/2b/93fcb851dfaeeb478c1b4a23a961f248161ea2ceb96c585f4f4f74e1728c/simp_sexp-0.3.1-py3-none-any.whl", hash = "sha256:3ba5a43e8c322e6631748b798c953016bb4f7884bcaf42bcf76e9c6c5a0a1db1", size = 12360 },
+]
+
+[[package]]
 name = "six"
 version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -981,6 +1147,22 @@ sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050 },
 ]
+
+[[package]]
+name = "skidl"
+version = "3.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "deprecation" },
+    { name = "graphviz" },
+    { name = "inspice", marker = "sys_platform == 'never'" },
+    { name = "kinet2pcb" },
+    { name = "ply" },
+    { name = "rich" },
+    { name = "schematizer" },
+    { name = "simp-sexp" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5a/ba/08a77ab7c4a68feaedb4e2b9da6c1fff5190d449a127efe22e0684bc18b0/skidl-3.0.0.tar.gz", hash = "sha256:265f2b188a87c4e7190a46e08ac76e8e010b00232aef5093f5d801e062885b0e", size = 3985768 }
 
 [[package]]
 name = "stack-data"
