@@ -109,3 +109,92 @@ def test_the_environment_is_a_function_of_the_parameter() -> None:
     assert reviewer_env is not None, "the reviewer's environment is not a function of the flag"
     assert reviewer_env("off") == {"DISABLE_COMPACT": "1"}
     assert reviewer_env("on") == {}
+
+
+# --- what the hook layer's installer is asked for ---------------------------------------------
+
+
+def _installer_argv(tmp_path: Path, compaction: str, monkeypatch: Any) -> list[str]:  # noqa: ANN401
+    import physgate.reviewers.claude as claude
+    from physgate.reviewers.scan import ScanHit
+
+    asked: list[list[str]] = []
+
+    def run(argv: list[str], **_: object) -> object:
+        asked.append(argv)
+        printed = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": {}}
+        return SimpleNamespace(returncode=0, stdout=json.dumps(printed), stderr="")
+
+    monkeypatch.setattr(claude, "subprocess", SimpleNamespace(run=run))
+    binary = tmp_path / "bin" / "claude"
+    reviewer = ClaudeReviewer(
+        role="electrical",
+        setup=_setup(tmp_path, binary, compaction),
+        rubric=Rubric(role="electrical", text="r", sha256="0" * 64),
+    )
+    read = tmp_path / "read"
+    hit = ScanHit(kind="disabled_checks", evidence="toolu_01", what="a check switched off")
+    packet = cast(
+        Packet,
+        SimpleNamespace(
+            read_root=str(read),
+            required_reading=(str(read / "transcript-01-of-01.md"), str(read / "rubric.md")),
+            indicators=(hit,),
+        ),
+    )
+    sdir = tmp_path / "session"
+    sdir.mkdir()
+    reviewer._install(packet, sdir, tmp_path / "temp")
+    (argv,) = asked
+    return argv
+
+
+def test_under_on_the_installer_is_given_the_rubric_and_the_note(
+    tmp_path: Path, monkeypatch: Any  # noqa: ANN401
+) -> None:
+    import physgate.reviewers.claude as claude
+    from physgate.reviewers.scan import ScanHit
+
+    argv = _installer_argv(tmp_path, "on", monkeypatch)
+    read = tmp_path / "read"
+    after = argv.index("--after-compaction")
+    assert argv[after + 1] == str(read / "rubric.md")
+    note = argv[argv.index("--compaction-note") + 1]
+    hit = ScanHit(kind="disabled_checks", evidence="toolu_01", what="a check switched off")
+    assert note == claude.compaction_note(read, (hit,))
+
+
+def test_under_off_the_installer_is_asked_for_what_it_always_was(
+    tmp_path: Path, monkeypatch: Any  # noqa: ANN401
+) -> None:
+    argv = _installer_argv(tmp_path, "off", monkeypatch)
+    assert "--after-compaction" not in argv
+    assert "--compaction-note" not in argv
+
+
+def test_the_installer_command_carries_both_into_the_session_s_request(
+    tmp_path: Path, monkeypatch: Any  # noqa: ANN401
+) -> None:
+    from physgate.hooks import cli
+
+    requests: list[Any] = []
+
+    def install(request: Any, registry: object) -> object:  # noqa: ANN401
+        requests.append(request)
+        return SimpleNamespace(
+            settings_path="s", config_path="c", spawn_args=(), spawn_env={}, network_unenforced=None
+        )
+
+    monkeypatch.setattr(cli, "install", install)
+    rubric = str(tmp_path / "read" / "rubric.md")
+    base = [
+        "hooks", "install", "--profile", "reviewer", "--worktree", str(tmp_path / "w"),
+        "--state-dir", str(tmp_path / "state"), "--target", str(tmp_path / "t"),
+        "--claude-config-dir", str(tmp_path / "c"), "--ceiling", "1000",
+        "--read-root", str(tmp_path / "read"), "--reading", rubric,
+    ]  # fmt: skip
+    assert cli.main([*base, "--after-compaction", rubric, "--compaction-note", "N"]) == 0
+    assert cli.main(base) == 0
+    on, off = requests
+    assert (on.after_compaction, on.compaction_note) == ((rubric,), "N")
+    assert (off.after_compaction, off.compaction_note) == ((), None)

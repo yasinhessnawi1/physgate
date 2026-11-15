@@ -270,3 +270,33 @@ def test_without_the_fields_a_compaction_changes_nothing_of_the_check(
     reading.session_start(_start("compact"), config)
     assert _verdict(config).allow
     assert _compactions(config) == 0
+
+
+def test_the_lean_validator_refuses_what_the_schema_refuses(
+    tmp_path: Path, files: dict[str, Path]
+) -> None:
+    from hook_helpers import config_dict
+
+    rubric, transcript = str(files["rubric"]), str(files["transcript"])
+    reviewer: dict[str, Any] = {"profile": "reviewer", "role": None}
+    cases = {
+        "role": {"required_reading": [rubric], "after_compaction": [rubric]},
+        "unlisted": {**reviewer, "required_reading": [transcript], "after_compaction": [rubric]},
+        "note-alone": {**reviewer, "required_reading": [rubric], "after_compaction": []},
+    }
+    for name, fields in cases.items():
+        data = json.dumps(config_dict(tmp_path / name, **fields, compaction_note=NOTE)).encode()
+        with pytest.raises(lean.LeanValidationError, match="compaction"):
+            lean.parse_config(data)
+        with pytest.raises(ValueError, match="compaction"):
+            SessionConfig.model_validate_json(data)
+    without_note = {
+        **reviewer,
+        "required_reading": [rubric],
+        "after_compaction": [rubric],
+    }
+    data = json.dumps(config_dict(tmp_path / "no-note", **without_note)).encode()
+    with pytest.raises(lean.LeanValidationError, match="compaction"):
+        lean.parse_config(data)
+    with pytest.raises(ValueError, match="compaction"):
+        SessionConfig.model_validate_json(data)
