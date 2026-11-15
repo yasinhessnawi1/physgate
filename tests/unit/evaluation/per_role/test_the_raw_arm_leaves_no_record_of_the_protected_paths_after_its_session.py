@@ -31,7 +31,8 @@ PROTECTED_ID = "control.held-out-stand-in-7f3a09"
 
 #: A session that does what the sentinel's first hook does: it writes the record of the
 #: protected paths, and a file beside it that is no record of them, in its own session's
-#: hook state, then ends.
+#: hook state, then ends. Beside it, the hook state of two more sessions: one that kept
+#: nothing, listed first, and one that started over under a new id and kept its own record.
 RECORDING = f"""
 id=""; prev=""
 for a in "$@"; do [ "$prev" = "--session-id" ] && id="$a"; prev="$a"; done
@@ -41,6 +42,9 @@ printf '%s' '{{"revert": {{"/store/control/v1/held_out/{PROTECTED_ID}/task.json"
   > "$dir/baseline.json"
 printf '%s' '{{"sealed": ["{PROTECTED_ID}"]}}' > "$dir/.baseline.json.tmp"
 printf '%s' '{{}}' > "$dir/blobs/index.json"
+mkdir -p ../session/state/sessions/-earlier ../session/state/sessions/zz-later/sentinel
+printf '%s' '{{"withheld": {{"{PROTECTED_ID}": []}}}}' \
+  > ../session/state/sessions/zz-later/sentinel/baseline.json
 echo '{{"type":"result","subtype":"success","usage":{{}}}}'
 """
 
@@ -71,13 +75,16 @@ def _sentinel_dirs(work: Path) -> list[Path]:
 def test_after_the_session_no_file_of_it_names_a_protected_path(tmp_path: Path) -> None:
     work = tmp_path / "work"
     raw.run_raw(TASK, _setup(tmp_path, _script(tmp_path / "claude", RECORDING)), work, cap=10**9)
-    # Not vacuous: the session made its record where the sentinel keeps it.
-    (sentinel,) = _sentinel_dirs(work)
+    # Not vacuous: the sessions made their records where the sentinel keeps them.
+    sentinels = _sentinel_dirs(work)
+    assert len(sentinels) == 2, sentinels
     assert _holders(work) == [], "a file the session left names a protected path"
-    assert not (sentinel / "baseline.json").exists()
-    assert not (sentinel / ".baseline.json.tmp").exists()
+    for sentinel in sentinels:
+        assert not (sentinel / "baseline.json").exists(), sentinel
+        assert not (sentinel / ".baseline.json.tmp").exists(), sentinel
     # Only the record goes: what lies beside it names no protected path and stays.
-    assert (sentinel / "blobs" / "index.json").read_text() == "{}"
+    (own,) = [s for s in sentinels if s.parent.name != "zz-later"]
+    assert (own / "blobs" / "index.json").read_text() == "{}"
 
 
 @pytest.mark.parametrize(
