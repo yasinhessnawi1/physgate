@@ -230,7 +230,7 @@ def test_the_folder_and_suffixes_are_the_ones_the_design_helpers_write() -> None
     # The helpers never import the harness, so folder and suffixes are read from their source:
     # the CAD helper writes the part's exports, the circuit helper KiCad's four.
     written: set[str] = set()
-    candidates = (".step", ".stl", ".dxf", ".svg", ".pdf", ".erc.json", ".net", ".csv")
+    candidates = (".step", ".stl", ".dxf", ".svg", ".erc.json", ".net", ".csv")
     for helper in ("geometry.py", "circuit.py"):
         path = REPO / "toolenv" / "helpers" / helper
         tree = (

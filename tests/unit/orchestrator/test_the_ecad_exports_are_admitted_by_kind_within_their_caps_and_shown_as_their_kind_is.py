@@ -1,19 +1,19 @@
-"""KiCad's four exports are admitted at commit by their own checks, under caps, and shown by kind.
+"""KiCad's three text exports are admitted at commit by their own checks, under caps, in the diff.
 
-A module's circuit is evidence in four files the circuit helper writes into ``exports/``:
-KiCad's rules-check report (``.erc.json``), its netlist (``.net``), the parts list (``.csv``)
-and a PDF of the schematic (``.pdf``). Read here:
+A module's circuit is evidence in three files the circuit helper writes into ``exports/``:
+KiCad's rules-check report (``.erc.json``), its netlist (``.net``) and the parts list
+(``.csv``). Read here:
 
 - each kind has its own check of the bytes: the report is KiCad's JSON report (its schema, its
   version, its sheets of findings); the netlist KiCad's S-expression export, balanced, with its
   design, components and nets; the parts list a CSV with the helper's fixed header and every
-  row of that many fields; the PDF from ``%PDF-`` to ``%%EOF`` with at least one page. A file of
-  another kind under the right suffix is refused;
+  row of that many fields. A file of another kind under the right suffix is refused, and so is
+  one no reader can parse: a check never raises, whatever the bytes;
 - each kind has a stated cap, checked at commit: one byte over is refused, never cut;
-- in the review packet the three texts stay in git's diff, as every other committed file a
-  role writes does, byte for byte; the PDF leaves the diff as one line (its size, sha256 and
-  page count) only when the commit-time rule admitted it, and the line says its text is not
-  shown and why.
+- in the review packet the three stay in git's diff, as every other committed file a role
+  writes does, byte for byte, and nothing names them on a line of their own;
+- a role commits no PDF: a reviewer is not shown a PDF's text, so a ``.pdf`` in ``exports/`` is
+  no export and refused, as it was before these kinds.
 """
 
 from __future__ import annotations
@@ -22,7 +22,8 @@ import hashlib
 import json
 import os
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -49,7 +50,6 @@ CAPS = {
     ".erc.json": 1_000_000,
     ".net": 1_000_000,
     ".csv": 200_000,
-    ".pdf": 2_000_000,
 }
 
 REPORT = (
@@ -114,21 +114,8 @@ PARTS = (
 )
 
 
-def _pdf(pages: int = 1, *, pad: int = 0) -> bytes:
-    objects = [b"<< /Type /Catalog /Pages 2 0 R >>"]
-    kids = " ".join(f"{3 + n} 0 R" for n in range(pages)).encode()
-    objects.append(b"<< /Type /Pages /Kids [" + kids + b"] /Count %d >>" % pages)
-    objects += [b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] >>"] * pages
-    body = b"%PDF-1.5\n"
-    for number, content in enumerate(objects, 1):
-        body += b"%d 0 obj\n" % number + content + b"\nendobj\n"
-    if pad:
-        body += b"%" + b"x" * (pad - 2) + b"\n"
-    return body + b"trailer\n<< /Root 1 0 R >>\n%%EOF\n"
-
-
-PDF = _pdf()
-KINDS = {".erc.json": REPORT, ".net": NETLIST, ".csv": PARTS, ".pdf": PDF}
+KINDS = {".erc.json": REPORT, ".net": NETLIST, ".csv": PARTS}
+NOT_EXPORT = getattr(merge, "NOT_AN_EXPORT", "(the reason for a stray file is not written)")
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -160,6 +147,14 @@ def _commit(tmp_path: Path, after: Mapping[str, bytes]) -> tuple[Path, str, str]
     return repo, base, _git(repo, "rev-parse", "HEAD")
 
 
+def _answer(call: Callable[[], object]) -> object:
+    """What ``call`` answered, or what it raised: a check that raises fails an assertion here."""
+    try:
+        return call()
+    except Exception as exc:  # noqa: BLE001 - every kind is wanted here
+        return exc
+
+
 def _found(tmp_path: Path, after: Mapping[str, bytes]) -> list[str]:
     repo, base, commit = _commit(tmp_path, after)
     return write_scope_violations(repo, base, commit, MODULE)
@@ -168,7 +163,7 @@ def _found(tmp_path: Path, after: Mapping[str, bytes]) -> list[str]:
 # ---- the kinds, their checks and their caps -----------------------------------------------------
 
 
-def test_the_four_ecad_kinds_are_exports_beside_the_cad_ones() -> None:
+def test_the_three_ecad_kinds_are_exports_beside_the_cad_ones() -> None:
     assert set(exports.EXPORT_SUFFIXES) == {".step", ".stl", *CAPS}
     for suffix in CAPS:
         assert exports.is_export(f"{EXPORTS}/board{suffix}"), suffix
@@ -188,7 +183,7 @@ def test_each_kind_s_check_accepts_what_the_helper_writes(tmp_path: Path, suffix
     assert _found(tmp_path, {path: KINDS[suffix]}) == []
 
 
-def test_all_four_are_admitted_together_in_one_attempt(tmp_path: Path) -> None:
+def test_all_three_are_admitted_together_in_one_attempt(tmp_path: Path) -> None:
     after = {f"{EXPORTS}/board{suffix}": body for suffix, body in KINDS.items()}
     assert _found(tmp_path, after) == []
 
@@ -207,10 +202,13 @@ WRONG = [
     (".csv", PARTS + b'"R2","1k"\n'),
     (".csv", NETLIST),
     (".csv", b"\xff\xfe" + PARTS),
-    (".pdf", PDF[:-7]),
-    (".pdf", b"%PDF-1.5\ntrailer\n%%EOF\n"),
-    (".pdf", NETLIST),
-    (".pdf", b"%!PS-Adobe-3.0\n" + PDF),
+    # Bytes no reader parses: each check answers "not this kind" and raises nothing.
+    (".erc.json", b"[" * 100_000 + b"]" * 100_000),
+    (".erc.json", b"\xff" + REPORT),
+    (".net", b"\xc3\x28" + NETLIST),
+    (".net", NETLIST.replace(b'"10k"', b'"10k')),
+    (".csv", PARTS + b'"R2","' + b"9" * 131_073 + b'","x","1",""\n'),
+    (".csv", PARTS + b'"R2","unclosed\n'),
 ]
 
 
@@ -219,15 +217,15 @@ def test_another_kind_under_the_right_suffix_is_refused(
     tmp_path: Path, suffix: str, body: bytes
 ) -> None:
     path = f"{EXPORTS}/board{suffix}"
-    assert exports.summary(path, body) is None
-    assert _found(tmp_path, {path: body}) == [f"{path} ({INVALID})"]
+    told = _answer(lambda: exports.summary(path, body))
+    assert told is None, told
+    found = _answer(lambda: _found(tmp_path, {path: body}))
+    assert found == [f"{path} ({INVALID})"]
 
 
 def _at_size(suffix: str, size: int) -> bytes:
     """A valid export of ``suffix`` padded to exactly ``size`` bytes."""
-    if suffix == ".pdf":
-        body = _pdf(pad=size - len(PDF))
-    elif suffix == ".csv":
+    if suffix == ".csv":
         row, last = b'"R9","1k","R_0603","1",""\n', b'"R0","","x","1",""\n'
         rows = (size - len(PARTS) - 2 * len(last)) // len(row)
         value = b"9" * (size - len(PARTS) - rows * len(row) - len(last))
@@ -265,64 +263,50 @@ def test_a_file_of_its_cap_is_admitted_and_one_byte_more_is_refused_not_cut(
 # ---- what the review packet shows of each kind --------------------------------------------------
 
 
-def test_the_packet_shows_the_three_texts_as_git_s_diff_and_the_pdf_as_one_line(
+def test_the_packet_shows_the_three_texts_as_git_s_diff_and_names_none_on_a_line(
     tmp_path: Path,
 ) -> None:
     after = {f"{EXPORTS}/board{suffix}": body for suffix, body in KINDS.items()}
     repo, base, commit = _commit(tmp_path, after)
+    # The commit-time rule admits none of them to leave the diff.
     admitted = admitted_exports(repo, base, commit, MODULE)
-    pdf_path = f"{EXPORTS}/board.pdf"
-    # The commit-time rule admits the PDF alone to leave the diff: the texts stay in it.
-    assert [(item.path, item.sha256) for item in admitted] == [
-        (pdf_path, hashlib.sha256(PDF).hexdigest())
-    ]
-    shown = packet._diff(repo, base, commit, frozenset((a.path, a.sha256) for a in admitted))
-    texts = [f"{EXPORTS}/board{suffix}" for suffix in (".csv", ".erc.json", ".net")]
+    assert admitted == ()
+    every = frozenset((path, hashlib.sha256(body).hexdigest()) for path, body in after.items())
     plain = subprocess.run(
-        [
-            "git",
-            "diff",
-            "--no-color",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--text",
-            base,
-            commit,
-            "--",
-            *texts,
-        ],  # fmt: skip
+        ["git", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--text", base, commit],
         cwd=repo,
         env=_ENV,
         capture_output=True,
         check=True,
     ).stdout
-    # Each text exactly as git's diff gives every committed file: nothing marked, folded or cut.
-    assert shown.startswith(plain)
+    # Each text exactly as git's diff gives every committed file: nothing marked, folded, cut
+    # or named on a line of its own, even were the packet handed all three as admitted.
+    for given in (frozenset(), every):
+        shown = packet._diff(repo, base, commit, given)
+        assert shown == plain
+        assert packet.EXPORTS_HEADER.encode() not in shown
     for body in (REPORT, NETLIST, PARTS):
         for text_line in body.splitlines():
-            assert b"+" + text_line in shown.splitlines(), text_line
-    rest = shown[len(plain) :].decode()
-    assert rest.splitlines()[0] == packet.EXPORTS_HEADER
-    (line,) = rest.splitlines()[1:]
-    digest = hashlib.sha256(PDF).hexdigest()
-    assert line.startswith(
-        f"exported file {json.dumps(pdf_path)}: added, {len(PDF)} bytes, sha256 {digest}; "
-        "PDF 1.5, 1 page;"
-    ), line
-    assert "text is not shown" in line and "netlist" in line, line
-    assert b"%PDF" not in shown
+            assert b"+" + text_line in plain.splitlines(), text_line
 
 
-def test_a_pdf_the_commit_time_rule_did_not_admit_stays_in_the_diff(tmp_path: Path) -> None:
-    repo, base, commit = _commit(tmp_path, {f"{EXPORTS}/board.pdf": PDF})
-    shown = packet._diff(repo, base, commit, frozenset())
-    assert b"%PDF-1.5" in shown
-    assert packet.EXPORTS_HEADER.encode() not in shown
+@pytest.mark.parametrize(
+    "body", [b"%PDF-1.5\n1 0 obj\n<< /Type /Page >>\nendobj\ntrailer\n%%EOF\n", b"anything"]
+)
+def test_a_pdf_in_the_exports_folder_is_no_export_and_is_refused(
+    tmp_path: Path, body: bytes
+) -> None:
+    path = f"{EXPORTS}/board.pdf"
+    assert not exports.is_export(path)
+    assert exports.summary(path, body) is None
+    assert _found(tmp_path, {path: body}) == [f"{path} ({NOT_EXPORT})"]
 
 
-def test_the_pdf_s_page_count_is_read_from_its_pages() -> None:
-    told = exports.summary(f"{EXPORTS}/board.pdf", _pdf(3))
-    assert told == "PDF 1.5, 3 pages", told
+def test_no_check_raises_whatever_the_bytes() -> None:
+    for suffix in KINDS:
+        for body in (b"", b"\x00" * 64, b'"' * 200_000, b"(" * 100_000, b"{" * 100_000):
+            told = _answer(partial(exports.summary, f"{EXPORTS}/board{suffix}", body))
+            assert told is None, (suffix, told)
 
 
 @pytest.mark.parametrize("suffix", [".erc.json", ".net", ".csv"])

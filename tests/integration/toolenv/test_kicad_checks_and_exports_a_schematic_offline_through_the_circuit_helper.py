@@ -7,7 +7,8 @@ taken away. Read here, on the pinned release:
 
 - a hand-written schematic built from the pinned symbols, every pin joined: the rules check's
   exit code and counts; the same with two pins left open: the open pins counted by type;
-- the netlist holds the nets and parts, the parts list one row per part, the PDF one page;
+- the netlist holds the nets and parts, the parts list one row per part; the PDF, one page,
+  is in the session's temporary directory and not in the module;
 - a second run gives the same bytes for the three text exports;
 - a SKiDL script generates a schematic from the pinned libraries with tags set, twice, and the
   two are the same bytes; the rules check runs on it and its findings are reported, not judged;
@@ -295,7 +296,7 @@ def test_two_open_pins_are_counted_by_type_and_the_exit_code_is_the_program_s(
 def test_the_netlist_parts_list_and_pdf_hold_the_circuit(session: Session) -> None:
     found = _helper(session, "exports", _schematic(session, open_pins=False), "board")
     names = [entry["file"] for entry in found["exports"]]  # type: ignore[attr-defined]
-    assert names == ["exports/board.net", "exports/board.csv", "exports/board.pdf"]
+    assert names == ["exports/board.net", "exports/board.csv"]
     netlist = (session.module / "exports" / "board.net").read_text(encoding="utf-8")
     assert netlist.startswith("(export")
     for net in ('(name "/A")', '(name "/B")'):
@@ -307,7 +308,10 @@ def test_the_netlist_parts_list_and_pdf_hold_the_circuit(session: Session) -> No
     rows = (session.module / "exports" / "board.csv").read_text(encoding="utf-8").splitlines()
     assert rows[0] == '"Reference","Value","Footprint","Quantity","DNP"'
     assert sorted(row.split(",")[0] for row in rows[1:]) == ['"J1"', '"R1"']
-    pdf = (session.module / "exports" / "board.pdf").read_bytes()
+    told = found["pdf"]
+    assert isinstance(told, dict)
+    assert Path(told["file"]) == session.temp / "circuit" / "board.pdf"
+    pdf = Path(told["file"]).read_bytes()
     assert pdf.startswith(b"%PDF-") and pdf.rstrip().endswith(b"%%EOF")
     assert len(re.findall(rb"/Type\s*/Page(?![s\w])", pdf)) == 1
 
@@ -387,7 +391,6 @@ def test_nothing_is_written_into_either_root_or_outside_the_session_s_places(
         "board.csv",
         "board.erc.json",
         "board.net",
-        "board.pdf",
     ]
 
 

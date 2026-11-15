@@ -19,6 +19,7 @@ import json
 import os
 import stat
 import sys
+import tempfile
 from collections.abc import Callable, Iterator
 from functools import partial
 from pathlib import Path
@@ -184,14 +185,24 @@ def test_findings_past_the_bound_are_counted_but_not_listed_and_texts_are_cut(
 
 
 def test_the_exports_are_named_by_size_and_digest_with_dates_and_source_set(
-    circuit: ModuleType, tmp_path: Path
+    circuit: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert hasattr(circuit, "rules_check"), "the tool environment has no circuit helper"
     module, schematic = _module(tmp_path)
+    temp = tmp_path / "session-temp"
+    temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp))
     found = circuit.exports(schematic, module, "board")
     assert found["kind"] == "ecad_exports"
     names = [entry["file"] for entry in found["exports"]]
-    assert names == ["exports/board.net", "exports/board.csv", "exports/board.pdf"]
+    assert names == ["exports/board.net", "exports/board.csv"]
+    # The PDF is the session's own reading, in its temporary directory: a role commits none.
+    pdf = found["pdf"]
+    assert pdf["file"] == str(temp / "circuit" / "board.pdf")
+    body = Path(pdf["file"]).read_bytes()
+    assert body.startswith(b"%PDF-")
+    assert pdf["sha256"] == hashlib.sha256(body).hexdigest()
+    assert sorted(p.name for p in (module / "exports").iterdir()) == ["board.csv", "board.net"]
     for entry in found["exports"]:
         body = (module / entry["file"]).read_bytes()
         assert entry["sha256"] == hashlib.sha256(body).hexdigest()

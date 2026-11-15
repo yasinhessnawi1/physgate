@@ -212,7 +212,9 @@ def test_the_kinds_of_result_and_their_fields_are_a_closed_list(result_file: Mod
         "rules_check": sorted(
             ["schema", "kind", "schematic", "report", "exit_code", "counts", "findings", "tool"]
         ),
-        "ecad_exports": sorted(["schema", "kind", "schematic", "exports", "exit_codes", "tool"]),
+        "ecad_exports": sorted(
+            ["schema", "kind", "schematic", "exports", "pdf", "exit_codes", "tool"]
+        ),
     }
     named = {name for fields in result_file.FIELDS.values() for name in fields}
     assert not named & set(result_file.JUDGEMENT_WORDS)
@@ -998,6 +1000,7 @@ ALLOWED_IMPORTS = {
     "shutil",
     "subprocess",
     "sys",
+    "tempfile",
     "typing",
     "build123d",
     "numpy",
