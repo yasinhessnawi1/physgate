@@ -394,7 +394,7 @@ jobs:
           rows = {name: int(suite.get(name, "0")) for name in ("tests", "failures", "errors", "skipped")}
           print(f"rows: {rows}, pytest exit {sys.argv[2]}")
           passed = rows["tests"] - rows["failures"] - rows["errors"] - rows["skipped"]
-          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 6 and passed == 6 else 1)
+          sys.exit(0 if sys.argv[2] == "0" and rows["tests"] == 8 and passed == 8 else 1)
           PY
 
       - name: Real sessions use the tool environment inside the OS layer, offline

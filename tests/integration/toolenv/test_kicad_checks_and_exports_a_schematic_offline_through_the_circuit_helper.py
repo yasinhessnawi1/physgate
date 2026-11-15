@@ -36,6 +36,7 @@ from pathlib import Path
 import pytest
 from design_fixtures import offline_prefix
 
+from physgate.orchestrator import exports
 from physgate.toolenv.manifest import scan
 from physgate.toolenv.record import ToolEnvironment
 from physgate.toolenv.session import wire
@@ -316,6 +317,21 @@ def test_the_netlist_parts_list_and_pdf_hold_the_circuit(session: Session) -> No
     pdf = Path(told["file"]).read_bytes()
     assert pdf.startswith(b"%PDF-") and pdf.rstrip().endswith(b"%%EOF")
     assert len(re.findall(rb"/Type\s*/Page(?![s\w])", pdf)) == 1
+
+
+@pytest.mark.parametrize("open_pins", [False, True])
+def test_the_helper_s_real_exports_are_the_kinds_the_commit_time_rule_admits_under_their_caps(
+    session: Session, open_pins: bool
+) -> None:
+    schematic = _schematic(session, open_pins=open_pins)
+    _helper(session, "rules_check", schematic, "board")
+    _helper(session, "exports", schematic, "board")
+    for suffix in TEXT_EXPORTS:
+        body = (session.module / "exports" / f"board{suffix}").read_bytes()
+        path = f"modules/board/exports/board{suffix}"
+        assert exports.is_export(path), suffix
+        assert exports.summary(path, body) is not None, (suffix, body[:300])
+        assert len(body) <= exports.EXPORT_CAPS[suffix], (suffix, len(body))
 
 
 def test_a_second_run_gives_the_same_bytes_for_the_three_text_exports(session: Session) -> None:
