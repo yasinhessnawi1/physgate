@@ -352,8 +352,9 @@ def declared_refusal(
 
 #: The fields of a node that holds a declared quantity that no role's write may change, beside
 #: the declared quantities themselves: what the person's part was declared on. Its
-#: ``constrains`` stays the owner's: the parts writer creates a component's node with no edge,
-#: and only the role that owns the node joins it to the module whose relations read it.
+#: ``constrains`` the owner may add to but never take from: the parts writer creates a
+#: component's node with no edge, only the role that owns the node joins it to the module whose
+#: relations read it, and an edge taken away would take the declared value out of them.
 DECLARED_NODE_FIELDS: Final = ("kind", "domain")
 
 
@@ -364,8 +365,10 @@ def declared_node_refusal(
 
     Its quantities first, as :func:`declared_refusal` reads them; then, where the held node holds
     a declared quantity, ``declared_fixed`` naming each of :data:`DECLARED_NODE_FIELDS` the
-    revision changes. The hook, apply and the store each ask this, so a role is told the same
-    at every layer.
+    revision changes and each edge of the held ``constrains`` the revision leaves out (an edge
+    removed, or replaced by another). An edge added, or the same edges in another order, is the
+    owner's to write. The hook, apply and the store each ask this, so a role is told the same at
+    every layer.
     """
     quantities: dict[str, Any] = {} if held is None else dict(held.get("quantities") or {})
     found = declared_refusal(quantities, dict(written.get("quantities") or {}))
@@ -374,7 +377,12 @@ def declared_node_refusal(
     if not any(isinstance(q, dict) and q.get("declared") is not None for q in quantities.values()):
         return None
     moved = tuple(field for field in DECLARED_NODE_FIELDS if written.get(field) != held.get(field))
-    return (REJECT_DECLARED_FIXED, moved) if moved else None
+    # Not a list (a malformed proposal the node check refuses later) keeps no edge.
+    kept = written.get("constrains")
+    kept = kept if isinstance(kept, list) else []
+    edges = held.get("constrains") or ()
+    taken = tuple(f"the edge to {edge}" for edge in edges if edge not in kept)
+    return (REJECT_DECLARED_FIXED, moved + taken) if moved or taken else None
 
 
 def forged_sources(payload: dict[str, Any]) -> tuple[str, ...]:
@@ -408,8 +416,9 @@ def declared_message(reason: str, names: tuple[str, ...]) -> str:
     if reason == REJECT_DECLARED_FIXED:
         return (
             f"{told}: a declared part is fixed by a person. Write the node with each declared "
-            "quantity exactly as it stands (value, unit, source and record) and its kind and "
-            "domain as they are, and keep to quantities of your own beside it."
+            "quantity exactly as it stands (value, unit, source and record), its kind and "
+            "domain as they are and every edge in its constrains kept (you may add one), and "
+            "keep to quantities of your own beside it."
         )
     return (
         f"{told}: a quantity is declared only by a person's recorded decision, never by a session. "

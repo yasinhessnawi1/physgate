@@ -21,10 +21,11 @@ role register who owns each duty and passes the answer in, or says by name that 
 checks ownership alone.
 
 And it names a change that touches a quantity a person declared, with the store's own two
-reasons: one changed or dropped is ``declared_fixed``, one added is ``declared_forged``. The store
-refuses both from every writer but ``declare``, so such a change did not pass it. The parts
-writer's own revisions are admitted by name. A store holds no declared quantity unless one was
-declared, so the frozen workload's changes are named as before.
+reasons: one changed or dropped is ``declared_fixed``, one added is ``declared_forged``; the kind or
+domain of the node it sits on changed, or an edge taken from that node, is ``declared_fixed`` too.
+The store refuses each from every writer but ``declare``, so such a change did not pass it. The
+parts writer's own revisions are admitted by name. A store holds no declared quantity unless one
+was declared, so the frozen workload's changes are named as before.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from physgate.state.protocol import REJECT_CROSS_ROLE, NodeChange
 from physgate.state.schema import (
     REJECT_DECLARED_FIXED,
     REJECT_DECLARED_FORGED,
-    declared_refusal,
+    declared_node_refusal,
     validate_node_id,
 )
 from physgate.state.store import Store
@@ -243,20 +244,20 @@ def divergence(
 def _declared_touched(store: Store, change: NodeChange) -> tuple[str, str] | None:
     """The store's reason ``change`` touches a declared quantity, with what it means; or ``None``.
 
-    Read against the node as it stood before the change (nothing, for a create), as the store's
-    own guard reads it.
+    Read against the node as it stood before the change (nothing, for a create) by the store's
+    own guard, so a declared node's kind, domain or a taken edge is named as the store refuses it.
     """
     earlier = [rev for rev in store.history(change.node_id) if rev < change.revision]
-    before = store.payload_at(max(earlier)).get("quantities", {}) if earlier else {}
-    after = store.payload_at(change.revision).get("quantities", {})
-    touched = declared_refusal(before, after)
+    before = store.payload_at(max(earlier)) if earlier else None
+    touched = declared_node_refusal(before, store.payload_at(change.revision))
     if touched is None:
         return None
     reason, names = touched
     done = "changed or dropped" if reason == REJECT_DECLARED_FIXED else "added"
     return reason, (
-        f"{', '.join(names)} {done}; a declared quantity is written only from a person's "
-        "recorded decision, by the parts writer, and the store refuses it from any other writer"
+        f"{', '.join(names)} {done}; a declared quantity, and the kind, domain and edges of the "
+        "node it sits on, are written only from a person's recorded decision, by the parts "
+        "writer, and the store refuses them from any other writer (a role may add an edge)"
     )
 
 

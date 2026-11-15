@@ -33,8 +33,10 @@ order, so a refused proposal is refused for the reason the store would give:
    the decision behind it is ``declared_forged``;
 8. a session leaves each declared quantity as it stands and declares none: a
    quantity added or turned into a declared one is ``declared_forged``, one
-   changed or dropped is ``declared_fixed``, and the message names it and says
-   declared parts are fixed by a person, so the session repairs the proposal;
+   changed or dropped is ``declared_fixed``, as is the kind or domain of the node
+   holding one changed or an edge taken from its ``constrains`` (one may be added),
+   and the message names it and says declared parts are fixed by a person, so the
+   session repairs the proposal;
 9. no quantity's name shadows one a relation reads: a name the catalogue lacks
    that is a misspelling of a relation's quantity (``stall_currnt``,
    ``currentlimit``, ``supported_mas``: within two insertions or deletions of a

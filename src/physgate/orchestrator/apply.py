@@ -315,7 +315,8 @@ def _content_refusal(payload: Payload, path: str, held: Payload | None) -> None:
     The hook's order after ownership: a quantity that is not a value with a unit, a source
     and a writer (the reserved source without its decision is a forgery); a declared quantity
     added, changed or dropped against the ``held`` node, or the kind or domain of a node holding
-    one changed; a name that shadows a relation's quantity; the node as a whole.
+    one changed or an edge taken from its ``constrains``; a name that shadows a relation's
+    quantity; the node as a whole.
 
     Raises:
         ProposalRefusedError: the first of these ``payload`` breaks.
