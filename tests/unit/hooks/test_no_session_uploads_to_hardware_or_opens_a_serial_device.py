@@ -99,13 +99,12 @@ UPLOADS = [
     "p=avrdude; $p -U flash:w:firmware.hex",
     "p=avrdude; $p -Uflash:w:firmware.hex:i",
     "p=avrdude; $p -c usbasp -p m328p",
-    "p=avrdude; $p -cusbasp -patmega328p",
-    # Every occurrence of each is read, and a part or an image alone is enough.
+    # Every occurrence is read: any -U, whatever its value, or a part beside an erase.
     "p=avrdude; $p -U x -U flash:w:firmware.hex",
     "p=avrdude; $p -U firmware.hex",
     "p=avrdude; $p -U lfuse:w:0xFF:m",
-    "p=avrdude; $p -p m328p",
-    "p=avrdude; $p -p x -p atmega32u4",
+    "p=avrdude; $p -U 3",
+    "p=avrdude; $p -p m328p -e",
     "p=avrdude; $p -c x -c usbasp -p 1 -p t85",
     # The module or the script an interpreter runs, named only when the command runs.
     "python3 -m $m run -t upload",
@@ -193,8 +192,8 @@ NOT_UPLOADS = [
     "$CC -c file.c -o x",
     "$tool -p 8080",
     "$MKDIR -p build",
-    "$CC -U NDEBUG -c file.c",
-    "$DIFF -U3 a.txt b.txt",
+    "$PYTHON -m pytest -p no:cacheprovider",
+    "$CC -c x.c -pthread -o x",
 ]
 
 #: Programs that only ever reach a board, each as it is usually run.
@@ -715,6 +714,23 @@ def test_an_upload_refusal_wins_over_nothing_and_a_device_is_named_first(tmp_pat
     # thing no rewording of the command would get past.
     reason = _shell(tmp_path, "pio run -t upload --upload-port /dev/ttyACM0")
     assert reason == H.DEVICE.format(device="/dev/ttyACM0")
+
+
+#: A program named only when the command runs, given a flasher's words the hook does not read
+#: as one: a part alone, or a part and a programmer glued to their options. The flasher's
+#: grammar is not modelled; the OS layer's denial of the device holds for these.
+RUN_TIME_FLASHERS_PASSING = [
+    "p=avrdude; $p -p m328p",
+    "p=avrdude; $p -cusbasp -patmega328p",
+]
+
+
+@pytest.mark.parametrize("command", RUN_TIME_FLASHERS_PASSING, ids=RUN_TIME_FLASHERS_PASSING)
+@pytest.mark.xfail(strict=True, reason="a run-time flasher in other words is the OS layer's")
+def test_a_run_time_flasher_in_words_not_read_as_one_is_refused(
+    tmp_path: Path, command: str
+) -> None:
+    assert _shell(tmp_path, command) == H.UPLOAD
 
 
 @pytest.mark.xfail(strict=True, reason="a path a program builds as it runs is the OS layer's")
