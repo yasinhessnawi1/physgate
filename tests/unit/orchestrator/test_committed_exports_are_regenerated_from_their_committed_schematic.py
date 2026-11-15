@@ -516,8 +516,8 @@ def test_a_commit_touching_nothing_in_the_module_asks_for_nothing(tmp_path: Path
         refusal = derived.held_exports(
             run.repo, base, commit, MODULE, environment=environment, runner=Runs()
         )
-    except TypeError as exc:
-        raise AssertionError(f"the check takes the environment and a runner alone: {exc}") from None
+    except Exception as exc:  # noqa: BLE001 - what escapes the check is the finding
+        raise AssertionError(f"the check refuses or passes, and never raises: {exc!r}") from None
     assert (refusal, asked) == (None, [])
 
 
@@ -607,6 +607,14 @@ def test_a_record_entry_outside_its_shape_is_refused(
     with pytest.raises(derived.DerivedError):
         derived.read_derivations(recorded(root))
     assert why
+
+
+def test_a_held_record_outside_its_shape_refuses_the_change(tmp_path: Path) -> None:
+    root = stand_in_root(tmp_path, recipe(timeout_s=0))
+    found, runs = check(tmp_path, made(SOUND), root=root)
+    reason = refused(found, f"{MODULE}/exports/board.csv")
+    assert "record of how exports are made is refused" in reason
+    assert runs.calls == []
 
 
 def test_two_roots_deriving_the_same_kind_are_refused(tmp_path: Path) -> None:
