@@ -45,6 +45,7 @@ from baseline_fixtures import (
 from physgate.evaluation.baseline import runner
 from physgate.evaluation.baseline.runner import BASELINE_DIR, PLACE, BaselineError, run_baseline
 from physgate.evaluation.observe.cost import load_price_sheet
+from physgate.evaluation.tiers import store as store_module
 from physgate.evaluation.tiers.store import WORKING, role_root, work_root
 from physgate.evaluation.tiers.task import Task
 from physgate.orchestrator.processes import started_at
@@ -231,10 +232,22 @@ time.sleep(120)
 """
 
 
-@pytest.mark.parametrize("group", ["the session's", "own"])
+@pytest.mark.parametrize(
+    ("group", "sessions_read"),
+    [("the session's", True), ("own", True), ("the session's", False)],
+    ids=["in-its-group", "in-a-group-of-its-own", "in-its-group-no-session-ids"],
+)
 def test_a_session_whose_leader_has_ended_but_whose_child_runs_still_refuses(
-    tmp_path: Path, made: StandInStore, group: str
+    tmp_path: Path,
+    made: StandInStore,
+    group: str,
+    sessions_read: bool,  # noqa: FBT001 - a parameter of the row
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The leader's child runs on, in its group or in a group of its own.
+
+    The session id finds either; where no process's session id can be read, its group does.
+    """
     store = copied(made, tmp_path / "store")
     sid = str(uuid.uuid4())
     pids = tmp_path / "child"
@@ -257,7 +270,14 @@ def test_a_session_whose_leader_has_ended_but_whose_child_runs_still_refuses(
         leader.kill()
         leader.wait()
         assert started_at(child) is not None, "the child did not outlive its leader"
+        if not sessions_read:
+
+            def unread(_pid: int) -> int:
+                raise PermissionError(errno.EPERM, os.strerror(errno.EPERM))
+
+            monkeypatch.setattr(os, "getsid", unread)
         outcome = _new_trial(store)
+        monkeypatch.undo()
     finally:
         if child:
             with contextlib.suppress(ProcessLookupError):
@@ -283,7 +303,7 @@ def test_a_session_directory_without_its_process_facts_refuses_in_words(
     assert _work(store) == work, "the refusal made something in the work root"
 
 
-@pytest.mark.parametrize("planted", ["fifo", "link", "directory"])
+@pytest.mark.parametrize("planted", ["fifo", "link", "directory", "no-process"])
 def test_something_else_at_the_facts_name_refuses_at_once(
     left_trial: tuple[StandInStore, Left], planted: str
 ) -> None:
@@ -297,8 +317,10 @@ def test_something_else_at_the_facts_name_refuses_at_once(
     elif planted == "link":
         (at.parent / "elsewhere.json").write_text(facts)
         at.symlink_to(at.parent / "elsewhere.json")
-    else:
+    elif planted == "directory":
         at.mkdir()
+    else:
+        at.write_text("{}")
     outcome: list[object] = []
     asking = threading.Thread(target=lambda: outcome.append(_new_trial(store)), daemon=True)
     asking.start()
@@ -331,3 +353,14 @@ def test_a_volume_on_which_the_lock_cannot_be_taken_refuses_with_the_round_s_rea
     assert os.strerror(errno.ENOLCK) in str(outcome), outcome
     assert _work(store) == work, "the refusal made something in the work root"
     assert _records(store) == records, "the refusal left a record of work"
+
+
+def test_a_process_table_that_cannot_be_read_refuses_in_words(
+    left_trial: tuple[StandInStore, Left], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, _left = left_trial
+    monkeypatch.setattr(store_module, "process_rows", lambda: None)
+    outcome = _new_trial(store)
+    assert isinstance(outcome, BaselineError), f"made with no table to judge by: {outcome!r}"
+    assert outcome.context.get("refused_because") == "session_lives", outcome.context
+    assert "process table could not be read" in str(outcome), outcome

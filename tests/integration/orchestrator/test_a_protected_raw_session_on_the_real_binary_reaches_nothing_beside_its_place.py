@@ -62,7 +62,7 @@ from physgate.evaluation.baseline.runner import (  # noqa: E402
     setup_from_run,
 )
 from physgate.evaluation.observe.cost import load_price_sheet  # noqa: E402
-from physgate.evaluation.per_role.arms.raw import RawSetup  # noqa: E402
+from physgate.evaluation.per_role.arms.raw import RawSetup, run_raw  # noqa: E402
 from physgate.evaluation.tiers.store import work_root  # noqa: E402
 from physgate.evaluation.tiers.task import Role, Task  # noqa: E402
 from physgate.hooks import reasons  # noqa: E402
@@ -80,8 +80,6 @@ NO_CACHE_WRITES = {"cache_creation_input_tokens": 0}
 MARKED = "marked.txt"
 #: The worktree's own file, written by the session first and read back by every later shell.
 OWN = "own.txt"
-#: The groups of attempts, one row each.
-GROUPS = ("beside", "late", "by_the_place", "in_the_place", "hard_link", "write", "move")
 #: The hook layer's refusals, by the rule's name: each reason's opening words, as a tool result
 #: quotes them.
 HOOK_RULES = {
@@ -294,6 +292,25 @@ def _attempts(
         f"{cwd}/../{in_place.parent.name}/{MARKED}",
         marks["in_the_place"],
     )
+    # The session's own directory, beside the worktree in its place: its records, its login.
+    own_session = places["own_session"]
+    found += [
+        Attempt(
+            "own_session",
+            "read",
+            tool("Read", file_path=str(own_session)),
+            str(own_session),
+            marks["own_session"],
+        ),
+        Attempt(
+            "own_session",
+            "hidden_shell",
+            _shell(cwd, f"cat {_hidden(own_session)} 2>&1"),
+            str(own_session),
+            marks["own_session"],
+            shell=True,
+        ),
+    ]
     # A hard link the session makes in its worktree to a marked file outside it, then read.
     for n, (group, target) in enumerate(
         (("late", late), ("by_the_place", by_place), ("in_the_place", in_place))
@@ -317,6 +334,7 @@ def _attempts(
                 tool("Read", file_path=link),
                 str(target),
                 marks[group],
+                extra={"link": link, "made_by": f"{group}_link_shell"},
             )
         )
     # A write to each late entry: the marked file itself, and a new file beside it.
@@ -453,8 +471,12 @@ def _round(root: Path, install_bin: Path) -> Round:
                     in_the_place=trial / PLACE / f"late-{secrets.token_hex(4)}" / MARKED,
                 )
                 for group, path in places.items():
-                    path.parent.mkdir(mode=0o700, exist_ok=True)
-                    path.write_text(marks[group])
+                    if group != "beside":  # made before the install, by the arm below
+                        path.parent.mkdir(mode=0o700, exist_ok=True)
+                        path.write_text(marks[group])
+                # The session's own directory, beside its worktree: its records and its login.
+                places["own_session"] = Path(cwd).parent / "session" / "process.json"
+                marks["own_session"] = _read_or_empty(str(places["own_session"]))
                 try:
                     with runner.trial_place(made.store, "control", late_round, late_name):
                         state["refused"] = ""
@@ -502,9 +524,17 @@ def _round(root: Path, install_bin: Path) -> Round:
                 base_url=url,
             )
 
+        def arm(task: Task, given: RawSetup, work: Path, **kw: Any) -> dict[str, Any]:  # noqa: ANN401
+            # The harness's directory beside the place is marked before the session is installed:
+            # an entry there at the install, which the hooks' list names and keeps as it was.
+            harness = kw["harness"]
+            (harness / MARKED).write_text(marks["beside"])
+            return run_raw(task, given, work, **kw)
+
         # The rows read what the trial left, whether the round was refused or not.
         with contextlib.suppress(Exception):
             run_baseline(
+                arm=arm,
                 store=made.store,
                 role="control",
                 version=made.version,
@@ -521,6 +551,17 @@ def _round(root: Path, install_bin: Path) -> Round:
     for attempt, result in zip(planned, results[1:], strict=False):
         attempt.result = result
         attempt.met = _met(attempt, own)
+    by_label = {(a.group, a.label): a for a in planned}
+    for attempt in planned:
+        made_by = by_label.get((attempt.group, str(attempt.extra.get("made_by"))))
+        if (
+            made_by is not None
+            and made_by.met.startswith("os:")
+            and not os.path.lexists(str(attempt.extra["link"]))
+            and "File does not exist" in attempt.result
+        ):
+            # The link was never made (its shell met the OS layer's denial): nothing to read.
+            attempt.met = f"{made_by.met} (no link was made to read)"
     marks_after = {
         f"{a.group}/{a.label}": _read_or_empty(a.path)
         for a in planned
@@ -621,6 +662,13 @@ def test_an_entry_made_inside_the_place_beside_the_worktree_is_reached_by_no_rou
 ) -> None:
     """The hook layer allows the whole place; the OS layer opens the worktree alone in it."""
     _held(trial, "in_the_place", record_property)
+
+
+def test_the_session_s_own_directory_beside_its_worktree_is_reached_by_no_route(
+    trial: Round, record_property: Callable[[str, object], None]
+) -> None:
+    """Its login and its records lie in its place, beside the worktree."""
+    _held(trial, "own_session", record_property)
 
 
 def test_a_hard_link_the_session_makes_to_a_marked_file_reaches_nothing(
