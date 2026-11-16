@@ -460,17 +460,25 @@ export interface Comparison {
   readonly baseline: RunNumbers;
   readonly candidate: RunNumbers;
   readonly differsIn: readonly string[];
+  /** What the comparison says beside its numbers: a tier version seen since a run, in words. */
+  readonly notes: readonly string[];
 }
 
 export function evidenceComparison(value: unknown): Comparison {
   const c = exact(value, "a comparison", ["a", "b", "comparison"]);
-  const side = exact(c.comparison, "a side by side", ["baseline", "candidate", "differs_in"]);
+  const side = exact(
+    c.comparison,
+    "a side by side",
+    ["baseline", "candidate", "differs_in"],
+    ["notes"],
+  );
   return {
     a: evidenceSource(c.a),
     b: evidenceSource(c.b),
     baseline: runNumbers(side.baseline),
     candidate: runNumbers(side.candidate),
     differsIn: texts(side.differs_in, "the settings that differ"),
+    notes: Object.hasOwn(side, "notes") ? texts(side.notes, "the comparison's notes") : [],
   };
 }
 
