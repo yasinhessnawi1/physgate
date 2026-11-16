@@ -92,7 +92,22 @@ export function windowIsNarrow(): boolean {
   }
 }
 
-/** Red stub: replaced by the fix. */
-export function followNarrow(_listener: (narrow: boolean) => void): () => void {
-  return () => undefined;
+/**
+ * Call ``listener`` with whether the window is narrow each time it crosses the narrow width, so
+ * the navigation follows a window resized after the page opened. Returns what stops it.
+ */
+export function followNarrow(listener: (narrow: boolean) => void): () => void {
+  let query: MediaQueryList;
+  try {
+    query = window.matchMedia(`(max-width: ${String(NARROW_MAX_PX)}px)`);
+  } catch {
+    return () => undefined;
+  }
+  const changed = (event: { readonly matches: boolean }) => {
+    listener(navStartsCollapsed(event.matches));
+  };
+  query.addEventListener("change", changed);
+  return () => {
+    query.removeEventListener("change", changed);
+  };
 }

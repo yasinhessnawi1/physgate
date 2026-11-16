@@ -1,4 +1,4 @@
-import { navStartsCollapsed, windowIsNarrow } from "./prefs";
+import { followNarrow, navStartsCollapsed, windowIsNarrow } from "./prefs";
 import {
   type ComponentType,
   type CSSProperties,
@@ -110,6 +110,8 @@ export function Shell({
   const contentRef = useRef<HTMLElement>(null);
   const registry = usePaletteRegistry();
   const [navCollapsed, setNavCollapsed] = useState(() => navStartsCollapsed(windowIsNarrow()));
+  // A window resized across the narrow width after the page opened: the menu follows it.
+  useEffect(() => followNarrow(setNavCollapsed), []);
   const [dockOpen, setDockOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [noticesOpen, setNoticesOpen] = useState(false);

@@ -992,6 +992,11 @@
   height: var(--size-touch-min);
 }
 
+/* The brief's short digest on Home's run list stays on one line. */
+.pg-runs-brief {
+  white-space: nowrap;
+}
+
 /* -- below 760 px: a row's value wraps rather than pushing the page sideways ----------------- */
 @media (max-width: 760px) {
   .pg-row-value,
