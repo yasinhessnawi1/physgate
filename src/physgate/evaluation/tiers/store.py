@@ -102,7 +102,8 @@ from physgate.evaluation.tiers.manifest import (
     tier_record,
 )
 from physgate.evaluation.tiers.task import Role
-from physgate.orchestrator.processes import ProcessTableError, is_session
+from physgate.orchestrator.dispatch import _seconds, process_rows
+from physgate.orchestrator.session_files import FileRefused, read_beneath
 
 #: The one root per role that holds what sessions wrote: the pool and the sessions' streams.
 WITHHELD = "withheld"
@@ -184,90 +185,116 @@ class WorkRootUnlockable(Exception):  # noqa: N818 - a state of the volume, not 
 
 
 _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-#: The file the raw arm writes beside a session it spawned: its pid, start time and session id.
-PROCESS_FACTS = "process.json"
-#: The directory beneath a place that holds a session's own files, the facts among them.
+#: Where a round's protected trials lie beneath the role's withheld root, and the start of each
+#: trial's directory's name in the work root (``baseline-<round>-<name>``).
+BASELINE_DIR = "baseline"
+#: Inside a trial's directory: the session's own place (the harness's directory lies beside it).
+PLACE = "place"
+#: The directory of a session's own files inside its place (a blind check's place is its work).
 SESSION_DIR = "session"
+#: The file the raw arm writes there when it spawns the session: its pid, start time and id.
+PROCESS_FACTS = "process.json"
+#: More than any process facts the raw arm writes; a larger file is not its.
+FACTS_LIMIT = 4096
 
 
-def _facts_at(top: int, parts: Sequence[str]) -> dict[str, Any] | None:
-    """The process facts at ``parts`` beneath the directory ``top``, or ``None``.
+def _place_of(entry: str) -> tuple[str, ...]:
+    """The names from the work root down to the session's place in its ``entry``."""
+    return (entry, PLACE) if entry.startswith(f"{BASELINE_DIR}-") else (entry,)
 
-    Every step is opened without following a link, so a link planted at any of them is read as
-    nothing. Facts that cannot be read whole are none.
+
+def _facts(root: Path, place: tuple[str, ...]) -> dict[str, Any] | str:
+    """The process facts the raw arm wrote in ``place``'s session directory, or why none are read.
+
+    Exactly the file the raw arm writes, opened as every harness file in a session's place is
+    (:func:`.orchestrator.session_files.open_beneath`): no link followed on the way, no wait on a
+    named pipe, a regular file with one link only, read once and bounded.
     """
-    opened: list[int] = []
+    names = (*place, SESSION_DIR, PROCESS_FACTS)
     try:
-        here = top
-        for part in parts[:-1]:
-            here = os.open(part, _DIRECTORY, dir_fd=here)
-            opened.append(here)
-        fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=here)
-        with os.fdopen(fd, "rb") as facts:
-            found = json.loads(facts.read(1 << 16))
-    except (OSError, ValueError):
-        return None
-    finally:
-        for fd in reversed(opened):
-            os.close(fd)
-    return found if isinstance(found, dict) else None
+        found = json.loads(read_beneath(root, names, limit=FACTS_LIMIT))
+    except FileRefused as exc:
+        return f"its process facts cannot be read ({exc})"
+    except ValueError:
+        return "its process facts are not a record"
+    if not isinstance(found, dict):
+        return "its process facts are not a record"
+    pid, started, sid = found.get("pid"), found.get("started"), found.get("session_id")
+    if not (isinstance(pid, int) and pid > 1 and isinstance(started, str) and isinstance(sid, str)):
+        return "its process facts do not name a process"
+    return {"pid": pid, "started": started, "session_id": sid}
 
 
-def _places_of_sessions(root: int) -> Iterator[tuple[str, dict[str, Any]]]:
-    """Each session's process facts in the work root open at ``root``, with the entry they lie in.
+def _session_runs(pid: int, started: str) -> bool | None:
+    """Whether anything of the session the facts name runs: ``None`` if that cannot be told.
 
-    A blind check's session keeps its files in ``<entry>/session``, a baseline trial's in
-    ``<entry>/<place>/session``: both are looked at, for every entry there.
+    The session was spawned leading a process group and a session (in the POSIX sense) of its
+    own, each with its pid as id. It runs while its leader does (that pid with that start time),
+    or while any process started since it is in its group or its session: the Bash tool's
+    commands leave the group but not the session, and neither id is handed out again while a
+    process holds it. A process that holds the pid with another start time is not the session,
+    and then neither its group nor its session can be: that pid was reused once both were empty.
     """
-    for entry in sorted(os.listdir(root)):
-        found = _facts_at(root, (entry, SESSION_DIR, PROCESS_FACTS))
-        if found is not None:
-            yield entry, found
-        try:
-            here = os.open(entry, _DIRECTORY, dir_fd=root)
-        except OSError:
+    rows = process_rows()
+    if rows is None:
+        return None
+    since = _seconds(started)
+    for p, _pgid, state, lstart in rows:
+        if p == pid and not state.startswith("Z"):
+            return lstart == started
+    for p, pgid, state, lstart in rows:
+        if state.startswith("Z"):
             continue
-        try:
-            inner = sorted(os.listdir(here))
-        finally:
-            os.close(here)
-        for name in inner:
-            found = _facts_at(root, (entry, name, SESSION_DIR, PROCESS_FACTS))
-            if found is not None:
-                yield f"{entry}/{name}", found
+        at = _seconds(lstart)
+        if since is not None and at is not None and at < since:
+            continue
+        if pgid == pid:
+            return True
+        with contextlib.suppress(OSError):
+            if os.getsid(p) == pid:
+                return True
+    return False
 
 
 def living_session(store: Path, role: Role) -> str | None:
-    """Words naming a session of an earlier trial or check in the role's work root that still runs.
+    """Words naming a session of an earlier trial or check in the role's work root that may run.
 
     The hold on the work root is a lock the kernel drops when its holder ends, so a runner killed
-    outright leaves its session running with nothing held. Each session's process facts lie
-    beside its place in the work root (its pid, the start time ``ps`` gave it and its session
-    id): a session runs still when a process of that pid and start time runs whose command line
-    carries that session id (:func:`.orchestrator.processes.is_session`), never merely a reused
-    pid. ``None``: none runs (or the work root is not there yet). A process table that cannot be
-    read is no answer, and is said in words, never taken for "none runs".
+    outright leaves its session running with nothing held. Every place in the work root that has
+    a session directory is looked at: the raw arm wrote there, when it spawned the session, its
+    pid, the start time ``ps`` gave it and its session id. The session runs while its leader or
+    any process of its group or session does (:func:`_session_runs`), never merely a reused pid.
+    Facts that are missing or cannot be read, and a process table that cannot be read, are no
+    answer: each is said in words, never taken for "none runs". ``None``: no session there runs
+    (or the work root is not there yet).
+
+    The facts lie in the session's own directory, which neither layer lets the session write;
+    the runner keeps no copy of them elsewhere.
     """
+    root = work_root(store, role)
     try:
-        root = os.open(work_root(store, role), _DIRECTORY)
+        entries = sorted(os.listdir(root))
     except FileNotFoundError:
         return None
-    try:
-        for where, facts in _places_of_sessions(root):
-            pid, started, sid = facts.get("pid"), facts.get("started"), facts.get("session_id")
-            if not isinstance(pid, int) or not isinstance(sid, str):
-                continue
-            try:
-                lives = is_session(pid, started if isinstance(started, str) else None, sid)
-            except ProcessTableError as exc:
-                return (
-                    f"whether the session at {where} in the role's work root (pid {pid}) still "
-                    f"runs cannot be told: {exc}"
-                )
-            if lives:
-                return f"the session at {where} in the role's work root (pid {pid}) still runs"
-    finally:
-        os.close(root)
+    for entry in entries:
+        place = _place_of(entry)
+        where = "/".join(place)
+        if not os.path.lexists(os.path.join(root, *place, SESSION_DIR)):
+            continue
+        facts = _facts(root, place)
+        if isinstance(facts, str):
+            return (
+                f"whether the session at {where} in the role's work root still runs cannot be "
+                f"told: {facts}"
+            )
+        runs = _session_runs(facts["pid"], facts["started"])
+        if runs is None:
+            return (
+                f"whether the session at {where} in the role's work root (pid {facts['pid']}) "
+                "still runs cannot be told: the process table could not be read"
+            )
+        if runs:
+            return f"the session at {where} in the role's work root (pid {facts['pid']}) still runs"
     return None
 
 

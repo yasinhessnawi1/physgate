@@ -124,6 +124,12 @@ from physgate.evaluation.tiers.canaries import store_canaries
 from physgate.evaluation.tiers.heldout import tier_digest
 from physgate.evaluation.tiers.manifest import TierSet, read_version
 from physgate.evaluation.tiers.store import (
+    BASELINE_DIR as BASELINE_DIR,
+)
+from physgate.evaluation.tiers.store import (
+    PLACE as PLACE,
+)
+from physgate.evaluation.tiers.store import (
     WORKING,
     WorkRootHeld,
     WorkRootUnlockable,
@@ -162,8 +168,6 @@ from physgate.orchestrator.run_config import (
 from physgate.orchestrator.session_files import FileRefused, open_beneath, read_bounded
 from physgate.oslayer.probe import Absent, Present
 
-#: Where a round's protected trials lie, beneath the role's withheld root.
-BASELINE_DIR = "baseline"
 #: Where a round's finished visible trials lie, beneath the round's own directory.
 WORK = "work"
 #: The differences a development round is held to without refusing: the harness run's own
@@ -171,8 +175,7 @@ WORK = "work"
 DEVELOPMENT_DIFFERENCES = frozenset({"reportable", "harness"})
 TRIALS = "trials.jsonl"
 SCORE = "score.json"
-#: Inside a trial's directory: the session's own place, and the harness's (never the session's).
-PLACE = "place"
+#: Inside a trial's directory, beside the session's own place (``PLACE``): the harness's.
 HARNESS = "harness"
 
 #: A trial's tier: one of a version's three, or ``external`` for an external set's.
