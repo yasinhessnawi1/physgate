@@ -11,7 +11,7 @@
  * longer running. Where either is missing, nothing is claimed and the run reads as going.
  */
 import type { RunStatus } from "../api/run";
-import type { RunEnd } from "../screens/home/runEnd";
+import { type RunEnd, runEndWords } from "../screens/home/runEnd";
 import { instant } from "./runs";
 
 /**
@@ -86,6 +86,46 @@ export interface Standing {
   readonly detail: string | null;
 }
 
+/** Each halt reason a run records, as a plain sentence. */
+export const HALT_SENTENCES: Readonly<Record<string, string>> = {
+  decomposition_failed: "Halted: the brief could not be split into subtasks.",
+  incident: "Halted: the harness recorded an incident and stopped the run.",
+  infrastructure_exhausted: "Halted: an agent's session would not run, and every retry was used.",
+  credential_refused: "Halted: the account's sign-in was refused.",
+  os_layer_unavailable: "Halted: the sandbox the agents run in would not start.",
+  disk_full: "Halted: the disk was full.",
+  role_not_built: "Halted: the run needs an agent role that is not built yet.",
+  usage_limit: "Waiting for the usage limit to reset; a resume after it goes on.",
+};
+
+/** A module as a person names it: its subtask id without the digest the plan gave it. */
+export function moduleName(subtask: string): string {
+  return subtask.replace(/-[0-9a-f]{6}$/, "").replace(/-/g, " ");
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${String(n)} ${n === 1 ? one : many}`;
+
+/** How an ended run ended, in one short sentence. */
+export function endSentence(end: RunEnd): string {
+  if (end.kind === "complete") return "Complete: every module is declared complete.";
+  if (end.kind === "all-merged")
+    return "Ended: every subtask merged and the whole-design gate passed.";
+  if (end.waiting !== null && end.waiting > 0)
+    return `Ended with ${plural(end.waiting, "decision")} still waiting for a person.`;
+  if (end.announced !== null && end.announced !== end.planned)
+    return "Ended: its log does not list every subtask the plan announced.";
+  if (end.withheld !== null)
+    return `Ended: the ${moduleName(end.withheld.module)} module was not completed.`;
+  if (end.waiting === null && end.setAside > 0)
+    return `Ended: ${plural(end.setAside, "subtask")} set aside for a person.`;
+  if (end.planned === 0) return "Ended: nothing was planned.";
+  if (end.merged < end.planned)
+    return `Ended: ${String(end.merged)} of ${plural(end.planned, "subtask")} merged.`;
+  if (end.gate === "not-run") return "Ended: the whole design was not gated.";
+  if (end.gate === "not-pass") return "Ended: the whole-design gate did not pass.";
+  return "Ended.";
+}
+
 /**
  * Where ``status``'s run stands, in words; ``end`` is how an ended run ended, read from its log and
  * queue (``runEnd``), or ``null`` when they were not read.
@@ -95,10 +135,49 @@ export function standingOf(
   end: RunEnd | null,
   now: number = Date.now(),
 ): Standing {
-  return {
-    phase: phaseOf(status, now),
-    word: null,
-    sentence: null,
-    detail: end === null ? null : null,
-  };
+  const phase = phaseOf(status, now);
+  switch (phase) {
+    case "going":
+      return { phase, word: null, sentence: null, detail: null };
+    case "stopped": {
+      const silence = silenceS(status, now) ?? 0;
+      const longest = status.longestStepS ?? 0;
+      return {
+        phase,
+        word: null,
+        sentence: STOPPED_WORDS,
+        detail:
+          `Its last record was written ${durationWords(silence)} ago. While a run is going it ` +
+          `writes one at least every ${durationWords(longest)}, so no process of it is running.`,
+      };
+    }
+    case "waiting-person":
+      return { phase, word: null, sentence: WAITING_WORDS, detail: null };
+    case "waiting-limit":
+    case "halted": {
+      const halt = status.halted;
+      if (halt === null) return { phase, word: null, sentence: "Halted.", detail: null };
+      return {
+        phase,
+        word: null,
+        sentence: HALT_SENTENCES[halt.reason] ?? `Halted: ${halt.reason.replace(/_/g, " ")}.`,
+        detail: phase === "waiting-limit" ? null : `${halt.reason}: ${halt.detail}`,
+      };
+    }
+    case "halt-owed":
+      return {
+        phase,
+        word: null,
+        sentence: "Halted: the harness recorded an incident; the run stops there.",
+        detail: status.owedHalt === null ? null : `Halt owed · ${status.owedHalt.cause}`,
+      };
+    case "done":
+      if (end === null) return { phase, word: null, sentence: "Ended.", detail: null };
+      return {
+        phase,
+        word: end.kind === "complete" ? "Complete" : "Ended",
+        sentence: endSentence(end),
+        detail: end.kind === "ended" ? runEndWords(end) : null,
+      };
+  }
 }

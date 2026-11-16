@@ -15,8 +15,10 @@ import { type RunConfig, runConfig, type RunListing, runListing } from "../../ap
 import { type RunStatus, runStatus } from "../../api/run";
 import type { Source } from "../../design/components/data/source";
 import { type RunLabel, runLabels } from "../../words/runs";
-import { type Phase, phaseOf } from "../../words/standing";
-import { useJson } from "./read";
+import { queueListing } from "../../api/queue";
+import { type Phase, phaseOf, type Standing, standingOf } from "../../words/standing";
+import { runEnd, waitingFor } from "../home/runEnd";
+import { useJson, useLines } from "./read";
 import { useResult } from "./useResult";
 
 /** How many runs' logs a screen reads for their labels before the person asks for all. */
@@ -153,6 +155,8 @@ export interface ChosenRun {
   readonly showAll: () => void;
   readonly allShown: boolean;
   readonly again: () => void;
+  /** Where the chosen run stands, in words, once its status is read. */
+  readonly standing: Standing | undefined;
 }
 
 /** The run the query names, or the first readable one, with its configuration and status. */
@@ -165,6 +169,25 @@ export function useChosenRun(query: URLSearchParams): ChosenRun {
   const base = chosen === undefined ? null : runBase(chosen);
   const config = useJson(base === null ? null : `${base}/config`, runConfig);
   const status = useJson(base === null ? null : `${base}/status`, runStatus);
+  // An ended run's words need its log and queue: read only for a run that has ended.
+  const ended = status.result?.ok === true && status.result.value.kind === "done";
+  const endEvents = useLines(ended && base !== null ? `${base}/events` : null, runEvent);
+  const endQueue = useJson(ended && base !== null ? `${base}/queue` : null, queueListing);
+  const standing = useMemo(() => {
+    if (status.result?.ok !== true) return undefined;
+    const value = status.result.value;
+    const events = endEvents.result;
+    const queue = endQueue.result;
+    const end =
+      value.kind === "done" && events?.ok === true && queue !== null
+        ? runEnd(
+            events.value,
+            waitingFor(queue.ok ? queue.value.open : null, value.superseded),
+            value.completion,
+          )
+        : null;
+    return standingOf(value, end);
+  }, [status.result, endEvents.result, endQueue.result]);
   const [all, setAll] = useState(false);
   const starts = useStarts(listed, all, chosen);
   const labels = useLabels(listed, starts);
@@ -184,5 +207,6 @@ export function useChosenRun(query: URLSearchParams): ChosenRun {
       config.again();
       status.again();
     },
+    standing,
   };
 }

@@ -18,8 +18,8 @@ import { type Source, sourceAttribute } from "../../design/components/data/sourc
 import { Term } from "../../design/components/help/Term";
 import { InProgressBadge } from "../../design/components/status/InProgressBadge";
 import { RunPhaseBadge } from "../../design/components/status/RunPhaseBadge";
+import { Detail } from "../../design/components/status/RunStanding";
 import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
-import { StatusTag } from "../../design/components/status/StatusTag";
 import { OsLayerBadge } from "../../design/components/system/OsLayerBadge";
 import { GateModeBadge } from "../../design/components/verdict/GateMode";
 import { Tally } from "../../design/components/verdict/Tally";
@@ -33,18 +33,10 @@ import { EngineWords } from "../common/engine";
 import { useJson, useLines } from "../common/read";
 import { RowView } from "../common/RowView";
 import { type Row, rowsOf } from "../common/rows";
-import {
-  haltedWords,
-  haltOwedWords,
-  runBase,
-  runKey,
-  runSource,
-  useLabels,
-  useRunList,
-} from "../common/runs";
-import { phaseOf, STOPPED_WORDS, WAITING_WORDS } from "../../words/standing";
+import { runBase, runKey, runSource, useLabels, useRunList } from "../common/runs";
+import { phaseOf, standingOf } from "../../words/standing";
 import { NoRunsYet } from "./NoRunsYet";
-import { runEnd, runEndWords, waitingFor } from "./runEnd";
+import { type RunEnd, runEnd, waitingFor } from "./runEnd";
 import { activeRun, readTargets, type RunRead, startOfRead, useRunReads } from "./data";
 import {
   STRIP_STATES,
@@ -127,33 +119,27 @@ function RunName({
 export function statusWords(read: RunRead | undefined, now: number = Date.now()) {
   if (read === undefined) return <span className="pg-muted">Reading…</span>;
   if (!read.status.ok) return <span className="pg-muted">Where it stands was not read</span>;
-  const phase = phaseOf(read.status.value, now);
+  const status = read.status.value;
+  const phase = phaseOf(status, now);
   if (phase === "going") return <InProgressBadge />;
-  if (phase === "stopped")
-    return (
-      <span className="pg-status">
-        <RunPhaseBadge phase="stopped" /> {STOPPED_WORDS}
-      </span>
-    );
-  if (phase === "waiting-person")
-    return (
-      <span className="pg-status">
-        <RunPhaseBadge phase="waiting-person" /> {WAITING_WORDS}
-      </span>
-    );
-  const owed = haltOwedWords(read.status.value);
-  if (owed !== null) return <span className="pg-status">{owed}</span>;
-  const halted = haltedWords(read.status.value);
-  if (halted !== null) return <span className="pg-status">{halted}</span>;
-  // A log that could not be read cannot show a run complete: it is not claimed.
-  if (!read.events.ok) return <span className="pg-status">Ended · its log was not read</span>;
-  const open = waitingFor(
-    read.queue.ok ? read.queue.value.open : null,
-    read.status.value.superseded,
+  let end: RunEnd | null = null;
+  if (phase === "done") {
+    // A log that could not be read cannot show a run complete: it is not claimed.
+    if (!read.events.ok) return <span className="pg-status">Ended · its log was not read</span>;
+    const open = waitingFor(read.queue.ok ? read.queue.value.open : null, status.superseded);
+    end = runEnd(read.events.value, open, status.completion);
+  }
+  const standing = standingOf(status, end, now);
+  return (
+    <div className="pg-run-standing">
+      <RunPhaseBadge
+        phase={standing.phase}
+        {...(standing.word === null ? {} : { word: standing.word })}
+      />{" "}
+      <span className="pg-standing-sentence">{standing.sentence}</span>
+      <Detail text={standing.detail} />
+    </div>
   );
-  const end = runEnd(read.events.value, open, read.status.value.completion);
-  if (end.kind === "complete") return <StatusTag status="complete" />;
-  return <span className="pg-status">{runEndWords(end)}</span>;
 }
 
 function Runs({

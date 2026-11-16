@@ -385,9 +385,10 @@ export default function DesignGraph({ setHeader, query }: ViewProps) {
         osLayer: configValue.osLayer,
         inProgress: going,
         phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, phase, label, setHeader, graph.result]);
+  }, [runs, config, configValue, going, phase, chosen.standing, label, setHeader, graph.result]);
   if (runs === null) return <LoadingState reading="the run list" />;
   if (!runs.ok)
     return (

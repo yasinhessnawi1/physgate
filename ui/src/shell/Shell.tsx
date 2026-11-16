@@ -18,6 +18,7 @@ import { SourceChip } from "../design/components/data/SourceChip";
 import { Icon } from "../design/components/icons/Icon";
 import { InProgressBadge } from "../design/components/status/InProgressBadge";
 import { RunPhaseBadge } from "../design/components/status/RunPhaseBadge";
+import { RunStanding } from "../design/components/status/RunStanding";
 import { EmptyState, LoadingState } from "../design/components/status/States";
 import { OsLayerBadge } from "../design/components/system/OsLayerBadge";
 import { GateModeBadge } from "../design/components/verdict/GateMode";
@@ -355,7 +356,10 @@ export function Shell({
                     )}
                     {header.gateMode !== undefined && <GateModeBadge mode={header.gateMode} />}
                     {header.phase !== undefined && header.phase !== "going" ? (
-                      <RunPhaseBadge phase={header.phase} />
+                      <RunPhaseBadge
+                        phase={header.phase}
+                        {...(header.standing?.word == null ? {} : { word: header.standing.word })}
+                      />
                     ) : (
                       header.inProgress === true && <InProgressBadge />
                     )}
@@ -428,6 +432,7 @@ export function Shell({
                 aria-labelledby="pg-page-title"
                 ref={contentRef}
               >
+                {header?.standing !== undefined && <RunStanding standing={header.standing} />}
                 {content}
               </main>
               {hasInspector && (

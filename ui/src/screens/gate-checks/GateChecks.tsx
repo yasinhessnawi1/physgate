@@ -55,9 +55,10 @@ export default function GateChecks({ setHeader, query }: ViewProps) {
         osLayer: configValue.osLayer,
         inProgress: going,
         phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, phase, label, setHeader, checks.result]);
+  }, [runs, config, configValue, going, phase, chosen.standing, label, setHeader, checks.result]);
   if (runs === null) return <LoadingState reading="the run list" />;
   if (!runs.ok)
     return (

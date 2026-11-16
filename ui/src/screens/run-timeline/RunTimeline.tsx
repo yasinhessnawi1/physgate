@@ -91,9 +91,21 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
         osLayer: configValue.osLayer,
         inProgress: going,
         phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, phase, label, setHeader, events.result, checks.result]);
+  }, [
+    runs,
+    config,
+    configValue,
+    going,
+    phase,
+    chosen.standing,
+    label,
+    setHeader,
+    events.result,
+    checks.result,
+  ]);
 
   const rows = useMemo(
     () =>

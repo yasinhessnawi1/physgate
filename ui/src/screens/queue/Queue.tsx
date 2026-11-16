@@ -150,9 +150,10 @@ export default function Queue({ setHeader, query }: ViewProps) {
         osLayer: configValue.osLayer,
         inProgress: going,
         phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, phase, label, setHeader, listing]);
+  }, [runs, config, configValue, going, phase, chosen.standing, label, setHeader, listing]);
 
   if (runs === null) return <LoadingState reading="the run list" />;
   if (!runs.ok)

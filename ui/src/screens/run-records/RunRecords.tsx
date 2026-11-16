@@ -484,9 +484,10 @@ export default function RunRecords({ setHeader, query }: ViewProps) {
         osLayer: configValue.osLayer,
         inProgress: going,
         phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, phase, label, setHeader]);
+  }, [runs, config, configValue, going, phase, chosen.standing, label, setHeader]);
   if (runs === null) return <LoadingState reading="the run list" />;
   if (!runs.ok)
     return (

@@ -1844,3 +1844,45 @@ kbd,
 .pg-edge-cross {
   stroke-dasharray: 5 4;
 }
+
+/* -- a run's standing: its badge, one short sentence, the record's words on demand ---------- */
+.pg-standing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-badge);
+  background: var(--color-surface);
+}
+
+.pg-run-standing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+.pg-standing-sentence {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pg-standing-detail {
+  flex-basis: 100%;
+  min-width: 0;
+  color: var(--color-text-2);
+}
+
+.pg-standing-detail > summary {
+  width: max-content;
+  cursor: pointer;
+}
+
+.pg-standing-full {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}

@@ -254,9 +254,10 @@ export function SimulationScreen({
         osLayer: configValue.osLayer,
         inProgress: going,
         phase,
+        standing: chosen.standing,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, phase, label, setHeader, listing.result]);
+  }, [runs, config, configValue, going, phase, chosen.standing, label, setHeader, listing.result]);
   const lede = <p className="pg-screen-lead">{SERIES_COPY.lede}</p>;
   if (runs === null)
     return (
