@@ -254,7 +254,8 @@ def test_a_root_inside_the_place_is_refused(rig: Path) -> None:
 
 def test_a_worktree_outside_the_place_is_refused(rig: Path) -> None:
     (rig / "work" / "trial" / "elsewhere").mkdir()
-    assert _refused(rig, worktree=str(rig / "work" / "trial" / "elsewhere"))
+    # Refused for the place itself, before any later check would meet a root around the worktree.
+    assert "own place" in _refused(rig, worktree=str(rig / "work" / "trial" / "elsewhere"))
 
 
 def test_a_place_that_is_a_link_is_refused(rig: Path) -> None:
