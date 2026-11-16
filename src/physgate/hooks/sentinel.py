@@ -73,6 +73,7 @@ that is missing, or a record that holds it whole where a place apart is named, r
 from __future__ import annotations
 
 import contextlib
+import errno
 import fcntl
 import hashlib
 import json
@@ -289,29 +290,42 @@ APART_FIELDS = ("hidden", "sealed", "withheld")
 KEPT_APART = "kept_apart"
 
 
-def held_apart(place: str) -> None:
-    """Refuse a place apart that is not the run's own: a real directory, no link, mode 0700.
+_APART_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
-    The dispatcher makes it so before the install, and every check reads it again (a resume's
-    end check among them), so a place swapped for a link, opened to others or removed is never
-    written through or made again here.
+
+def opened_apart(place: str) -> int:
+    """A descriptor on the place apart, once it is shown to be the run's own; the caller closes it.
+
+    Opened with no link followed and judged on the descriptor itself (a directory, this user's,
+    mode 0700), so what is judged is what every read, write and replace of a part then goes
+    through (``dir_fd``): nothing swapped in at the path afterwards is reached. The dispatcher
+    makes the place so before the install; it is never made here.
 
     Raises:
         ValueError: it is not there, is a link or not a directory, is another user's, or its
             mode is not 0700.
     """
     try:
-        st = os.lstat(place)
+        fd = os.open(place, _APART_DIRECTORY)
     except OSError as exc:
-        msg = f"the place apart {place} is not there ({exc.strerror}); it is not made again here"
+        msg = f"the place apart {place} is not a directory of its own, not a link ({exc.strerror})"
         raise ValueError(msg) from None
-    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
-        msg = f"the place apart {place} is not a directory of its own (a link is not one)"
-        raise ValueError(msg)
-    if st.st_uid != os.geteuid() or stat.S_IMODE(st.st_mode) != 0o700:
-        mode = stat.S_IMODE(st.st_mode)
+    st = os.fstat(fd)
+    mode = stat.S_IMODE(st.st_mode)
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or mode != 0o700:
+        os.close(fd)
         msg = f"the place apart {place} is not private to this user (mode {mode:o})"
         raise ValueError(msg)
+    return fd
+
+
+def held_apart(place: str) -> None:
+    """Refuse a place apart that is not the run's own (:func:`opened_apart`).
+
+    Raises:
+        ValueError: as :func:`opened_apart`.
+    """
+    os.close(opened_apart(place))
 
 
 def _entry_json(entry: Entry) -> list[Any]:
@@ -341,8 +355,6 @@ class _State:
             OSError: the record says its part is kept apart, and it cannot be read there.
             ValueError: the record and the configuration disagree on whether a part is apart.
         """
-        if self.apart is not None:
-            held_apart(self.apart)
         if not os.path.exists(self.path):
             return None
         with open(self.path) as handle:
@@ -357,8 +369,7 @@ class _State:
         if not kept_apart:
             msg = "a place apart is named, and the record holds its protected entries whole"
             raise ValueError(msg)
-        with open(self.apart_path) as handle:
-            self.apart_text = handle.read()
+        self.apart_text = self._read_apart()
         part: dict[str, Any] = json.loads(self.apart_text)
         loaded["revert"] = loaded["revert"] | part["revert"]
         for name in APART_FIELDS:
@@ -386,20 +397,70 @@ class _State:
             # would change nothing, on the call that is most common.
             return text
         directory, name = os.path.split(path)
+        if self.apart is not None and directory == self.apart:
+            self._write_apart(self.apart, name, text)
+            return text
+        os.makedirs(directory, mode=0o700, exist_ok=True)
         tmp = os.path.join(directory, f".{name}.tmp")
-        if directory == self.apart:
-            # The place apart is never made here (:func:`held_apart`), nor a link followed in it.
-            with contextlib.suppress(FileNotFoundError):
-                os.unlink(tmp)
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-            with os.fdopen(fd, "w") as handle:
-                handle.write(text)
-        else:
-            os.makedirs(directory, mode=0o700, exist_ok=True)
-            with open(tmp, "w") as handle:
-                handle.write(text)
+        with open(tmp, "w") as handle:
+            handle.write(text)
         os.replace(tmp, path)
         return text
+
+    def _read_apart(self) -> str:
+        """The session's part, read through the place apart's own descriptor, no link followed.
+
+        Raises:
+            ValueError: the place is not the run's own, or the part is a link or no file.
+            OSError: the part is not there.
+        """
+        if self.apart is None or self.apart_path is None:
+            msg = "no place apart is named to read the record's part from"
+            raise ValueError(msg)
+        place = opened_apart(self.apart)
+        try:
+            try:
+                fd = os.open(
+                    os.path.basename(self.apart_path),
+                    os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    dir_fd=place,
+                )
+            except OSError as exc:
+                if exc.errno != errno.ELOOP:
+                    raise
+                msg = f"the session's part in the place apart {self.apart} is a link"
+                raise ValueError(msg) from None
+            with os.fdopen(fd) as handle:
+                if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                    msg = f"the session's part in the place apart {self.apart} is not a file"
+                    raise ValueError(msg)
+                return handle.read()
+        finally:
+            os.close(place)
+
+    @staticmethod
+    def _write_apart(apart: str, name: str, text: str) -> None:
+        """Write the part as ``name`` in the place apart ``apart``, all through its descriptor.
+
+        The temporary twin is made new (a link or file left at its name is removed first, never
+        followed) and moved over the part within the same directory: nothing put at the place's
+        path after it was judged is written through.
+
+        Raises:
+            ValueError: the place is not the run's own (:func:`opened_apart`).
+        """
+        place = opened_apart(apart)
+        tmp = f".{name}.tmp"
+        try:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp, dir_fd=place)
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+            fd = os.open(tmp, flags, 0o600, dir_fd=place)
+            with os.fdopen(fd, "w") as handle:
+                handle.write(text)
+            os.replace(tmp, name, src_dir_fd=place, dst_dir_fd=place)
+        finally:
+            os.close(place)
 
 
 def _lock(directory: str) -> int:

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -111,8 +112,11 @@ def _installed(root: Path, profile: str, layer: bool) -> str:
 def test_a_session_given_neither_option_is_installed_byte_for_byte_as_before(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str, layer: bool
 ) -> None:
-    # The survivor reaper is wanted on one platform only: held the same on both.
+    # The survivor reaper is wanted on one platform only, and the series outbox's reason is worded
+    # for the platform's mechanism: both held as on macOS, where the digests were taken, so the
+    # row holds the same bytes on every host (each OS-layer profile is built for both platforms).
     monkeypatch.setattr(reaper_install, "wanted", lambda platform="": True)
+    monkeypatch.setattr(sys, "platform", "darwin")
     made = _installed(_rig(tmp_path), profile, layer)
     assert PLACEHOLDER in made  # not vacuous: the rig's paths are what was installed
     assert hashlib.sha256(made.encode()).hexdigest() == BEFORE[profile, layer], made[:2000]

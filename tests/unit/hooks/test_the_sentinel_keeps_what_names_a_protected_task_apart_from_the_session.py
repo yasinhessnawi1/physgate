@@ -296,3 +296,42 @@ def test_a_link_at_the_part_s_temporary_name_is_never_written_through(root: Path
     assert _check(root, "SessionStart") == "allow"
     assert outside.read_text() == "not the sentinel's\n", "the part was written through a link"
     assert not (root / "apart" / f"{SESSION}.json").is_symlink()
+
+
+def test_a_place_swapped_for_a_link_after_it_was_judged_is_never_written_through(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Between the place's check and the part's write: the write goes where the check looked."""
+    elsewhere = root / "elsewhere"
+    elsewhere.mkdir(mode=0o700)
+    real = sentinel.opened_apart
+
+    def judged_then_swapped(place: str) -> int:
+        fd = real(place)
+        os.rename(place, root / "apart-judged")
+        os.symlink(elsewhere, place)
+        return fd
+
+    monkeypatch.setattr(sentinel, "opened_apart", judged_then_swapped)
+    _check(root, "SessionStart")
+    assert list(elsewhere.iterdir()) == [], "the part was written through the swapped-in link"
+    assert [p.name for p in (root / "apart-judged").iterdir()] == [f"{SESSION}.json"]
+
+
+def test_a_part_that_is_itself_a_link_is_refused(root: Path) -> None:
+    assert _check(root, "SessionStart") == "allow"
+    part = root / "apart" / f"{SESSION}.json"
+    copy = root / "outside-part.json"
+    copy.write_bytes(part.read_bytes())
+    part.unlink()
+    os.symlink(copy, part)
+    assert "is a link" in _refusal(root, "PostToolUse")
+
+
+def test_a_place_apart_of_another_owner_refuses(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _check(root, "SessionStart") == "allow"
+    owner = os.geteuid()
+    monkeypatch.setattr(os, "geteuid", lambda: owner + 1)
+    assert "place apart" in _refusal(root, "PostToolUse")
