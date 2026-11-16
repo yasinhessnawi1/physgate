@@ -115,6 +115,10 @@ def test_a_removed_register_refuses_every_reader_and_writer(
     assert _refused(lambda: scan(made.store, "control")) is not None, (
         f"with {removed} gone a writer starts a register in its place"
     )
+    # A hand mark appends without reading the register first: it too refuses.
+    assert _refused(lambda: _mark(made, "opened it again")) is not None, (
+        f"with {removed} gone a hand mark starts a register in its place"
+    )
     if removed == "both files":
         assert not (withheld / "register.jsonl").exists(), "a writer started a new register"
 
