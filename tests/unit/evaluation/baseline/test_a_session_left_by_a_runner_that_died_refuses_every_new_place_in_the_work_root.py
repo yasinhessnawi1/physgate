@@ -13,11 +13,14 @@ own reason, never a bare ``OSError``; nothing is made either way.
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import json
 import os
+import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from collections.abc import Iterator
@@ -201,16 +204,114 @@ def test_a_session_that_has_ended_refuses_nothing(left_trial: tuple[StandInStore
     assert _new_trial(store) == "made", "an ended session's facts refused a new trial"
 
 
-def test_facts_that_name_another_process_refuse_nothing(
+def test_facts_whose_pid_was_reused_by_a_later_process_refuse_nothing(
     left_trial: tuple[StandInStore, Left],
 ) -> None:
-    """A pid that runs now but is not that session (its command line names another id)."""
+    """The pid runs now, but with another start time: not that session, nor its group."""
     store, left = left_trial
     facts_file = left.entry / PLACE / "session" / "process.json"
     facts = json.loads(facts_file.read_text())
-    facts["session_id"] = str(uuid.uuid4())
+    facts["started"] = "Mon Jan  1 00:00:00 2001"
     facts_file.write_text(json.dumps(facts))
-    assert _new_trial(store) == "made", "a process that is not the session refused a new trial"
+    assert _new_trial(store) == "made", "a reused pid was taken for the session"
+
+
+#: A stand-in session that starts one child, in the session's group or in a group of its own
+#: (as the Bash tool runs a command), writes the child's pid, and waits.
+WITH_A_CHILD = """
+import os, subprocess, sys, time
+own_group = sys.argv[2] == "own"
+child = subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(120)"],
+    process_group=0 if own_group else None,
+)
+with open(sys.argv[1], "w") as out:
+    out.write(str(child.pid))
+time.sleep(120)
+"""
+
+
+@pytest.mark.parametrize("group", ["the session's", "own"])
+def test_a_session_whose_leader_has_ended_but_whose_child_runs_still_refuses(
+    tmp_path: Path, made: StandInStore, group: str
+) -> None:
+    store = copied(made, tmp_path / "store")
+    sid = str(uuid.uuid4())
+    pids = tmp_path / "child"
+    leader = subprocess.Popen(  # noqa: S603 - this interpreter, fixed arguments
+        [sys.executable, "-c", WITH_A_CHILD, str(pids), group, "--session-id", sid],
+        start_new_session=True,
+    )
+    child = 0
+    try:
+        started = None
+        for _ in range(400):
+            started = started or started_at(leader.pid)
+            if started and pids.is_file() and pids.read_text().strip():
+                child = int(pids.read_text())
+                break
+            time.sleep(0.05)
+        assert started and child, "the stand-in session did not start its child"
+        entry = work_root(store.store, "control") / f"{BASELINE_DIR}-dead-0001-1"
+        _leave(entry, entry / PLACE / "session", leader, started, sid)
+        leader.kill()
+        leader.wait()
+        assert started_at(child) is not None, "the child did not outlive its leader"
+        outcome = _new_trial(store)
+    finally:
+        if child:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child, signal.SIGKILL)
+        leader.kill()
+        leader.wait()
+    assert isinstance(outcome, BaselineError), f"made beside a living child: {outcome!r}"
+    assert outcome.context.get("refused_because") == "session_lives", outcome.context
+    assert "still runs" in str(outcome), outcome
+
+
+def test_a_session_directory_without_its_process_facts_refuses_in_words(
+    left_trial: tuple[StandInStore, Left],
+) -> None:
+    """The facts removed: whether the session runs cannot be told, so nothing is made."""
+    store, left = left_trial
+    (left.entry / PLACE / "session" / "process.json").unlink()
+    work = _work(store)
+    outcome = _new_trial(store)
+    assert isinstance(outcome, BaselineError), f"made with no facts to judge by: {outcome!r}"
+    assert outcome.context.get("refused_because") == "session_lives", outcome.context
+    assert "cannot be told" in str(outcome), outcome
+    assert _work(store) == work, "the refusal made something in the work root"
+
+
+@pytest.mark.parametrize("planted", ["fifo", "link", "directory"])
+def test_something_else_at_the_facts_name_refuses_at_once(
+    left_trial: tuple[StandInStore, Left], planted: str
+) -> None:
+    """A named pipe there would hang an open that waits on it: the row fails on a timeout."""
+    store, left = left_trial
+    at = left.entry / PLACE / "session" / "process.json"
+    facts = at.read_text()
+    at.unlink()
+    if planted == "fifo":
+        os.mkfifo(at)
+    elif planted == "link":
+        (at.parent / "elsewhere.json").write_text(facts)
+        at.symlink_to(at.parent / "elsewhere.json")
+    else:
+        at.mkdir()
+    outcome: list[object] = []
+    asking = threading.Thread(target=lambda: outcome.append(_new_trial(store)), daemon=True)
+    asking.start()
+    asking.join(timeout=20)
+    if asking.is_alive() and planted == "fifo":
+        # Let the hung open go, so the thread ends; the row has failed already.
+        with contextlib.suppress(OSError):
+            os.close(os.open(at, os.O_WRONLY | os.O_NONBLOCK))
+    assert not asking.is_alive(), "the facts' open hung on what was planted there"
+    (found,) = outcome
+    assert isinstance(found, BaselineError), f"made beside an unjudged session: {found!r}"
+    assert found.context.get("refused_because") == "session_lives", found.context
+    assert "cannot be told" in str(found), found
 
 
 def test_a_volume_on_which_the_lock_cannot_be_taken_refuses_with_the_round_s_reason(
