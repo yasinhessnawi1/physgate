@@ -506,7 +506,10 @@ async function showOperator() {
       () => invoke("set_operator", { name: null }).catch(failed),
     );
   input.onkeydown = (event) => {
-    if (event.key === "Enter") $("operator-save").click();
+    if (event.key !== "Enter") return;
+    // The same keystroke must not reach the confirmation this opens: its first button is Cancel.
+    event.preventDefault();
+    $("operator-save").click();
   };
 }
 
