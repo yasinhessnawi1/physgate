@@ -920,6 +920,45 @@ def mark_exposed(store: Path, role: Role, version: str, *, by: str, reason: str)
     _append(withheld_root(store, role), REGISTER, [payload])
 
 
+def record_measurement(store: Path, role: Role, version: str, *, measured: str, key: str) -> int:
+    """Count one scoring of ``version``'s protected tiers whose result anyone sees.
+
+    ``key`` names what was measured (a vector's digest). Returns the version's measurement
+    count with this one.
+
+    Raises:
+        ExposureError: the version is not one of the role's, the line is not one the register
+            holds, or the register refuses the write.
+    """
+    known = versions(store, role)
+    if version not in known:
+        msg = f"the role has no version {version[:_PREFIX]}"
+        raise _refuse("version_unknown", msg)
+    payload = {
+        "kind": "measurement",
+        "measured": measured,
+        "key": key,
+        "date": _today(),
+        **_version_fields(known[version]),
+    }
+    try:
+        Measurement.model_validate({**payload, "n": 0, "prev": _ZERO})
+    except ValidationError as exc:
+        msg = "the measurement is not a line the register holds"
+        raise _refuse("measurement_not_a_line", msg) from exc
+    _append(withheld_root(store, role), REGISTER, [payload])
+    return sum(1 for line in measurements(store, role) if line.version == version)
+
+
+def measurements(store: Path, role: Role) -> list[Measurement]:
+    """Every measurement line of the role's register, held to its head.
+
+    Raises:
+        ExposureError: the register refuses as read.
+    """
+    return [line for line in register_lines(store, role) if isinstance(line, Measurement)]
+
+
 def add_run_root(store: Path, role: Role, root: Path) -> bool:
     """Add ``root`` to the role's run roots; whether it was not there already.
 

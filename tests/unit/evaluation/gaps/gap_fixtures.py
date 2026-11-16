@@ -111,6 +111,18 @@ class Measured:
     tasks: tuple[Task, ...]
 
 
+#: The withheld places' digests as each store's runs were made, all before anything is
+#: measured: a run records the digest of every root it withholds, the role's withheld root
+#: among them, which each measurement then changes.
+_AS_RUN: dict[Path, list[str]] = {}
+
+
+def _as_run(made: StandInStore) -> list[str]:
+    from physgate.evaluation.tiers.heldout import tier_digest
+
+    return _AS_RUN.setdefault(made.store, [tier_digest(Path(root)) for root in made.held_out])
+
+
 def measured(
     made: StandInStore,
     tier: str,
@@ -127,6 +139,7 @@ def measured(
     ``where``.
     """
     passes = PASSES[tier] if outcome is None else outcome
+    changes.setdefault("held_out_sha256", _as_run(made))
     chosen = made.tasks[tier][:tasks]
     entries: list[tuple[Path, int]] = []
     records = []
