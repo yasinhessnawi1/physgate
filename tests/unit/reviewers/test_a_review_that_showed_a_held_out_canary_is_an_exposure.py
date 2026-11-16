@@ -25,6 +25,7 @@ from physgate.orchestrator.exceptions import (
     InvocationError,
     ReviewUnavailableError,
 )
+from physgate.orchestrator.protocols import MessageUsage, Usage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.rubric import Rubric
@@ -67,6 +68,7 @@ def _review(
     tampered: str | None = None,
     totals_hold: bool = True,
     gone: bool = False,
+    line: MessageUsage | None = None,
 ) -> object:
     read = tmp_path / "rs" / "review" / "read"
     read.mkdir(parents=True)
@@ -80,10 +82,11 @@ def _review(
         stdout.write_text(json.dumps(tool_output) + "\n")
     captured = SimpleNamespace(result=None, usage=(), answered={MODEL}, tampered=tampered)
 
-    def totals(*_a: Any, **_k: Any) -> None:  # noqa: ANN401
+    def totals(*_a: Any, **_k: Any) -> MessageUsage | None:  # noqa: ANN401
         if not totals_hold:
             msg = "the result's totals are not the messages'"
             raise AccountingError(msg)
+        return line
 
     monkeypatch.setattr(claude, "binary_version", lambda binary: VERSION)
     monkeypatch.setattr(claude, "review_dir", lambda root, sid: tmp_path / "rs" / "review")
@@ -125,6 +128,22 @@ def test_a_review_that_showed_a_held_out_canary_raises_an_exposure_first(
     assert raised.value.reviewer_model == MODEL
     assert raised.value.session_id
     assert CANARY[:8] not in str(raised.value)
+
+
+def test_an_exposed_review_raises_with_its_compaction_s_own_usage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spent = Usage(
+        input_tokens=70_001,
+        output_tokens=301,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    line = MessageUsage(message_id="compaction-1", usage=spent, compaction=True)
+    with pytest.raises(HeldOutExposedError) as raised:
+        _review(tmp_path, monkeypatch, f"read: <!-- {CANARY} -->", line=line)
+    # The compaction's call was spent before the exposure was found: it is counted with it.
+    assert line in raised.value.usage, "an exposed review's compaction is not counted"
 
 
 def test_a_canary_shown_in_another_form_is_an_exposure_too(

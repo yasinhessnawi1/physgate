@@ -361,3 +361,31 @@ def test_compaction_on_is_still_refused_on_a_pin_where_it_was_not_measured(
         claude.claude_reviewers(replace(_setup(tmp_path, "on"), claude_version=UNMEASURED))
     off = claude.claude_reviewers(replace(_setup(tmp_path, "off"), claude_version=UNMEASURED))
     assert set(off) == {ROLE}
+
+
+def test_a_reviewer_built_directly_is_refused_compaction_on_a_pin_where_it_was_not_measured(
+    tmp_path: Path,
+) -> None:
+    from physgate.orchestrator.exceptions import ReviewerNotRegisteredError
+    from physgate.reviewers.rubric import Rubric
+
+    rubric = Rubric(role=ROLE, text="r", sha256="0" * 64)
+    # Every path that builds a reviewer goes through its constructor, not only the run's.
+    refused: Exception | None = None
+    try:
+        ClaudeReviewer(
+            role=ROLE,
+            setup=replace(_setup(tmp_path, "on"), claude_version=UNMEASURED),
+            rubric=rubric,
+        )
+    except ReviewerNotRegisteredError as exc:
+        refused = exc
+    assert refused is not None, "a reviewer built directly compacts on an unmeasured pin"
+    assert "review_compaction" in str(refused)
+    for version in MEASURED:
+        ClaudeReviewer(
+            role=ROLE, setup=replace(_setup(tmp_path, "on"), claude_version=version), rubric=rubric
+        )
+    ClaudeReviewer(
+        role=ROLE, setup=replace(_setup(tmp_path, "off"), claude_version=UNMEASURED), rubric=rubric
+    )
