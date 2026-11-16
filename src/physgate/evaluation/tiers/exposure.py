@@ -423,15 +423,22 @@ def start_logs(withheld: Path) -> None:
         os.close(fd)
 
 
-def _append(withheld: Path, name: str, payloads: Sequence[Mapping[str, Any]]) -> int:
+def _append(
+    withheld: Path,
+    name: str,
+    payloads: Sequence[Mapping[str, Any]],
+    *,
+    check: Callable[[list[bytes]], None] | None = None,
+) -> int:
     """Append ``payloads`` to the log ``name`` in ``withheld``, chained, and move its head.
 
     The log is read and held to its head under the lock first, so nothing is appended to a log
-    that has been cut. Returns the number of lines the log then holds.
+    that has been cut; ``check``, when given, is shown the lines read there, under the lock, and
+    refuses by raising. Returns the number of lines the log then holds.
 
     Raises:
         ExposureError: the write is asked for inside a harness session; the withheld root is
-            missing or a link; or the log refuses as read.
+            missing or a link; the log refuses as read; or ``check`` refuses.
     """
     _refuse_inside_a_session()
     fd = _dir_fd(withheld)
@@ -447,6 +454,8 @@ def _append(withheld: Path, name: str, payloads: Sequence[Mapping[str, Any]]) ->
                 # Removed: a new log here would read as one with nothing recorded.
                 raise _missing(name)
             lines = found or []
+            if check is not None:
+                check(lines)
             prev = _digest(lines[-1]) if lines else _ZERO
             written: list[bytes] = []
             for at, payload in enumerate(payloads, start=len(lines)):
@@ -924,11 +933,13 @@ def record_measurement(store: Path, role: Role, version: str, *, measured: str, 
     """Count one scoring of ``version``'s protected tiers whose result anyone sees.
 
     ``key`` names what was measured (a vector's digest). Returns the version's measurement
-    count with this one.
+    count with this one. A version marked exposed is refused, judged under the register's lock
+    from the lines read there and the run roots' exposures read just before: an exposure
+    recorded after a caller's own check and before this line is not missed.
 
     Raises:
-        ExposureError: the version is not one of the role's, the line is not one the register
-            holds, or the register refuses the write.
+        ExposureError: the version is not one of the role's or is marked exposed, the line is
+            not one the register holds, or the register refuses the write.
     """
     known = versions(store, role)
     if version not in known:
@@ -946,7 +957,26 @@ def record_measurement(store: Path, role: Role, version: str, *, measured: str, 
     except ValidationError as exc:
         msg = "the measurement is not a line the register holds"
         raise _refuse("measurement_not_a_line", msg) from exc
-    _append(withheld_root(store, role), REGISTER, [payload])
+    found = frozenset(v for finding in found_exposures(store, role) for v in finding.versions)
+
+    def unexposed(lines: list[bytes]) -> None:
+        exposed = set(found)
+        for at, raw in enumerate(lines):
+            try:
+                line = _REGISTER_LINE.validate_json(raw)
+            except ValidationError as exc:
+                msg = f"line {at} of the register is none of its kinds"
+                raise _refuse("register_unreadable", msg) from exc
+            if line.kind == "exposure":
+                exposed.add(line.version)
+        if version in exposed:
+            msg = (
+                f"the version {version[:_PREFIX]} is marked exposed as the register reads now; "
+                "the measurement is not counted"
+            )
+            raise _refuse("version_exposed", msg)
+
+    _append(withheld_root(store, role), REGISTER, [payload], check=unexposed)
     return sum(1 for line in measurements(store, role) if line.version == version)
 
 

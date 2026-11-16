@@ -228,6 +228,15 @@ def census(
             commits.add(config.harness.commit)
         if config.account is not None:
             accounts.add(config.account.name)
+    if any(count > 1 for count in pairs.values()):
+        msg = "a task's trial is numbered twice in the run set: each trial of a task is run once"
+        raise _refuse("trial_repeated", msg)
+    numbered: dict[str, set[int]] = {}
+    for task, trial in pairs:
+        numbered.setdefault(task, set()).add(trial)
+    if any(trials != set(range(len(trials))) for trials in numbered.values()):
+        msg = "a task's trials are not numbered from 0, one after another"
+        raise _refuse("trials_not_numbered", msg)
     recorded: Counter[tuple[str, int]] = Counter()
     for item in records:
         if item.arm != arm:
