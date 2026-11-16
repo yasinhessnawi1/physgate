@@ -135,10 +135,10 @@ from physgate.evaluation.tiers.store import (
     WorkRootUnlockable,
     holding_work_root,
     leftover_refusal,
-    living_session,
     make_role_root,
     protected_tier_refusal,
     role_root,
+    running_session,
     spelling_refusal,
     spelt_as_on_disk,
     version_dir,
@@ -634,7 +634,7 @@ def run_baseline(
         raise BaselineError(msg, out=str(out), refused_because="out_not_spelt_as_on_disk")
     # Before anything else of the store is read: a session an earlier runner left running in the
     # work root (that runner killed outright, its hold gone with it) refuses the round in words.
-    living = living_session(store, role)
+    living = running_session(store, role)
     if living is not None:
         msg = f"{living}: no round starts while a session left in the work root still runs"
         raise BaselineError(msg, refused_because="session_lives")

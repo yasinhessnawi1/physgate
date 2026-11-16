@@ -102,11 +102,11 @@ from physgate.evaluation.tiers.store import (
     check_root_refusal,
     holding_work_root,
     leftover_refusal,
-    living_session,
     make_role_root,
     pool_dir,
     protected_tier_refusal,
     role_root,
+    running_session,
     spelling_refusal,
     version_dir,
     withheld_refusal,
@@ -1256,7 +1256,7 @@ def blind_check(
     require_author_model(setup.model, implementer_model)
     # First: a session an earlier runner left running in the work root (killed outright, its
     # hold gone with it) refuses the check in words, before the work it left is judged.
-    living = living_session(store, role)
+    living = running_session(store, role)
     if living is not None:
         msg = f"{living}: no check is made while a session left in the work root still runs"
         raise AuthoringError(msg, refused_because="session_lives", store=str(store))

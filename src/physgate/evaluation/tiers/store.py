@@ -256,26 +256,20 @@ def _session_runs(pid: int, started: str) -> bool | None:
     return False
 
 
-def living_session(store: Path, role: Role) -> str | None:
-    """Words naming a session of an earlier trial or check in the role's work root that may run.
+def _left_sessions(store: Path, role: Role) -> Iterator[tuple[bool | None, str]]:
+    """Each session's place in the role's work root: whether it runs (``None``: unknown), in words.
 
-    The hold on the work root is a lock the kernel drops when its holder ends, so a runner killed
-    outright leaves its session running with nothing held. Every place in the work root that has
-    a session directory is looked at: the raw arm wrote there, when it spawned the session, its
-    pid, the start time ``ps`` gave it and its session id. The session runs while its leader or
-    any process of its group or session does (:func:`_session_runs`), never merely a reused pid.
-    Facts that are missing or cannot be read, and a process table that cannot be read, are no
-    answer: each is said in words, never taken for "none runs". ``None``: no session there runs
-    (or the work root is not there yet).
-
-    The facts lie in the session's own directory, which neither layer lets the session write;
-    the runner keeps no copy of them elsewhere.
+    Every place there that has a session directory is looked at: the raw arm wrote there, when it
+    spawned the session, its pid, the start time ``ps`` gave it and its session id. The session
+    runs while its leader or any process of its group or session does (:func:`_session_runs`),
+    never merely a reused pid. Facts that are missing or cannot be read, and a process table that
+    cannot be read, are no answer: unknown, never "it has ended".
     """
     root = work_root(store, role)
     try:
         entries = sorted(os.listdir(root))
     except FileNotFoundError:
-        return None
+        return
     for entry in entries:
         place = _place_of(entry)
         where = "/".join(place)
@@ -283,19 +277,50 @@ def living_session(store: Path, role: Role) -> str | None:
             continue
         facts = _facts(root, place)
         if isinstance(facts, str):
-            return (
-                f"whether the session at {where} in the role's work root still runs cannot be "
-                f"told: {facts}"
+            yield (
+                None,
+                (
+                    f"whether the session at {where} in the role's work root still runs cannot be "
+                    f"told: {facts}"
+                ),
             )
+            continue
         runs = _session_runs(facts["pid"], facts["started"])
         if runs is None:
-            return (
-                f"whether the session at {where} in the role's work root (pid {facts['pid']}) "
-                "still runs cannot be told: the process table could not be read"
+            yield (
+                None,
+                (
+                    f"whether the session at {where} in the role's work root (pid {facts['pid']}) "
+                    "still runs cannot be told: the process table could not be read"
+                ),
             )
-        if runs:
-            return f"the session at {where} in the role's work root (pid {facts['pid']}) still runs"
-    return None
+        elif runs:
+            yield (
+                True,
+                f"the session at {where} in the role's work root (pid {facts['pid']}) still runs",
+            )
+
+
+def living_session(store: Path, role: Role) -> str | None:
+    """Words naming a session in the role's work root that runs or may run, or ``None``.
+
+    For the holder of the work root, before it makes anything there: a session an earlier runner
+    left running (that runner killed outright, its lock gone with it), or one whose facts or the
+    process table cannot be read (:func:`_left_sessions`), refuses. ``None``: none there runs.
+
+    The facts lie in the session's own directory, which neither layer lets the session write;
+    the runner keeps no copy of them elsewhere.
+    """
+    return next((words for runs, words in _left_sessions(store, role) if runs is not False), None)
+
+
+def running_session(store: Path, role: Role) -> str | None:
+    """Words naming a session in the role's work root that is known to run still, or ``None``.
+
+    For a round's or a check's start, where any entry left in the work root is refused already
+    as work left (:func:`leftover_refusal`): a session known to run there is said first, as such.
+    """
+    return next((words for runs, words in _left_sessions(store, role) if runs), None)
 
 
 @contextlib.contextmanager
