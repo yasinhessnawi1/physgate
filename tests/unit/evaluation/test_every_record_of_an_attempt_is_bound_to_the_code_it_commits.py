@@ -67,6 +67,31 @@ CHANGED_HELPER = (
 )
 #: A committed helper, loaded and unchanged: the control case.
 COMMITTED_HELPER = PRELUDE + WRITE_HELPER + RECORD
+#: Records a draft, changes the helper the draft loaded, and records again under a new id:
+#: the draft's code is no longer the module's, the later record's is.
+RERUN_AFTER_EDIT = (
+    PRELUDE
+    + """sys.dont_write_bytecode = True
+with open(os.path.join(module, "helper.py"), "w") as f:
+    f.write("PEAK = 0.0500\\n")
+sys.path.insert(0, module)
+import importlib
+import helper
+series_writer.record("draft", title="Stand-in draft, not a simulation", axis="time",
+    x=("time", "s", [0.0, 0.01, 0.02]), traces=[("position", "m", [0.0, helper.PEAK, 0.05])],
+    inputs={"seed": (7, "dimensionless")})
+"""
+    + WRITE_HELPER
+    + "importlib.reload(helper)\n"
+    + RECORD
+)
+#: As above, and the outbox also holds a file that is no record at all.
+RERUN_AND_A_STRAY_FILE = (
+    RERUN_AFTER_EDIT
+    + """with open(os.path.join(here, ".physgate", "series", "notes.txt"), "w") as f:
+    f.write("not a record\\n")
+"""
+)
 
 
 @pytest.fixture(autouse=True)
@@ -124,16 +149,52 @@ def test_loaded_code_the_attempt_does_not_commit_refuses_the_record(tmp_path: Pa
     assert "helper.py" in checked.reason and "did not commit" in checked.reason
 
 
-def test_a_loaded_file_changed_after_the_record_was_written_refuses_the_record(
+def _set_aside(ended: SessionEnded) -> list[tuple[str, str]]:
+    return [(e.name, e.reason) for e in ended.series.discarded if e.name.endswith(".json")]
+
+
+def test_a_quantity_naming_a_record_whose_loaded_file_changed_refuses_the_attempt(
     tmp_path: Path,
 ) -> None:
     events = _run(tmp_path, script=CHANGED_HELPER)
     ended = next(e for e in events if isinstance(e, SessionEnded))
     assert ended.series.records == ()
-    (refused,) = ended.series.refused
-    assert refused.name == "step.json"
-    assert "helper.py changed after the record was written" in refused.reason
-    assert _first_check(events).refused_by == "series"
+    assert ended.series.refused == ()
+    ((name, reason),) = _set_aside(ended)
+    assert name == "step.json"
+    assert "helper.py changed after the record was written" in reason
+    checked = _first_check(events)
+    assert checked.refused_by == "series", checked
+    assert checked.reason is not None
+    assert "names the record step, which this attempt did not seal" in checked.reason
+    assert not [e for e in events if isinstance(e, Merged)]
+
+
+def test_a_record_superseded_by_a_later_run_of_changed_code_does_not_refuse_the_attempt(
+    tmp_path: Path,
+) -> None:
+    events = _run(tmp_path, script=RERUN_AFTER_EDIT)
+    ended = [e for e in events if isinstance(e, SessionEnded)]
+    for session in ended:
+        assert [r.record_id for r in session.series.records] == ["step"]
+        assert session.series.refused == ()
+        ((name, reason),) = _set_aside(session)
+        assert name == "draft.json"
+        assert "helper.py changed after the record was written" in reason
+    assert [c.refused_by for c in events if isinstance(c, ProposalsChecked)] == [None, None]
+    assert len([e for e in events if isinstance(e, Merged)]) == 2
+
+
+def test_a_record_refused_for_another_reason_still_refuses_the_attempt(tmp_path: Path) -> None:
+    events = _run(tmp_path, script=RERUN_AND_A_STRAY_FILE)
+    ended = next(e for e in events if isinstance(e, SessionEnded))
+    assert [r.record_id for r in ended.series.records] == ["step"]
+    assert [e.name for e in ended.series.refused] == ["notes.txt"]
+    checked = _first_check(events)
+    assert checked.refused_by == "series", checked
+    assert checked.reason is not None
+    assert "notes.txt: not a record's name" in checked.reason
+    assert "draft" not in checked.reason
 
 
 def test_committed_loaded_code_unchanged_is_admitted(tmp_path: Path) -> None:

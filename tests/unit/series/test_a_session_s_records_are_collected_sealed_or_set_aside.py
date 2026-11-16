@@ -178,15 +178,68 @@ def test_a_record_whose_code_loaded_from_outside_the_module_is_refused(
     assert "outside the module ran: modules/power/elsewhere.py" in reason
 
 
-def test_a_record_whose_script_changed_after_it_was_written_is_refused(
+def _set_aside(base: Path, series: SessionSeries) -> list[tuple[str, str]]:
+    assert list(_outbox(base).iterdir()) == []
+    return [(e.name, e.reason) for e in series.discarded if not e.name.startswith(CACHE)]
+
+
+def test_a_record_whose_script_changed_after_it_was_written_is_discarded_not_sealed(
     tmp_path: Path, run_dir: Path
 ) -> None:
     base = worktree(tmp_path)
     _written(base)
     with (base / MODULE / "sim.py").open("a") as script:
         script.write("# edited after the run\n")
+    series = _collect(base, run_dir)
+    assert series.records == ()
+    assert series.refused == ()
+    ((name, reason),) = _set_aside(base, series)
+    assert name == "step_nominal.json"
+    assert "modules/control/sim.py changed after the record was written" in reason
+    assert (run_dir / "series" / DISCARDED_DIR / "session-1" / "step_nominal.json").is_file()
+    assert not record_path(run_dir, "control-1", 1, "session-1", "step_nominal").exists()
+
+
+def test_a_record_superseded_by_a_later_run_of_changed_code_is_discarded_and_the_later_sealed(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _written(base, record_id="step_draft")
+    (base / MODULE / "helper.py").write_text("GAIN = 3.0\n")
+    _written(base, record_id="step_nominal")
+    series = _collect(base, run_dir)
+    assert [r.record_id for r in series.records] == ["step_nominal"]
+    assert series.refused == ()
+    ((name, reason),) = _set_aside(base, series)
+    assert name == "step_draft.json"
+    assert "modules/control/helper.py changed after the record was written" in reason
+    assert (run_dir / "series" / DISCARDED_DIR / "session-1" / "step_draft.json").is_file()
+    assert not record_path(run_dir, "control-1", 1, "session-1", "step_draft").exists()
+
+
+def test_a_changed_record_that_also_ran_code_from_outside_the_module_is_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    outside = base / "modules" / "power"
+    outside.mkdir(parents=True)
+    (outside / "elsewhere.py").write_text("VALUE = 1\n")
+    _written(base, extra=f"sys.path.insert(0, {str(outside)!r})\nimport elsewhere")
+    with (base / MODULE / "sim.py").open("a") as script:
+        script.write("# edited after the run\n")
     reason = _refused_reason(base, run_dir, "step_nominal.json")
-    assert "changed after the record was written" in reason
+    assert "outside the module ran: modules/power/elsewhere.py" in reason
+
+
+def test_a_record_whose_writer_changed_after_it_was_written_is_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _written(base)
+    with (base / ".physgate" / "lib" / "series_writer.py").open("a") as writer:
+        writer.write("# edited after the run\n")
+    reason = _refused_reason(base, run_dir, "step_nominal.json")
+    assert ".physgate/lib/series_writer.py changed after the record was written" in reason
 
 
 def test_a_record_with_a_second_name_is_refused(tmp_path: Path, run_dir: Path) -> None:
