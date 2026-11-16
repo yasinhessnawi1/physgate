@@ -234,6 +234,14 @@ export function runStatus(value: unknown): RunStatus {
         text(v, "an item id"),
       ]),
     ),
+    lastLineAt:
+      s.last_line_at === undefined || s.last_line_at === null
+        ? null
+        : text(s.last_line_at, "a time"),
+    longestStepS:
+      typeof s.longest_step_s === "number" && Number.isFinite(s.longest_step_s)
+        ? s.longest_step_s
+        : null,
   };
 }
 

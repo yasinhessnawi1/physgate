@@ -10,8 +10,8 @@
  * ``QUIET_MARGIN_S`` more for the work around a session's end, was left by a process that is no
  * longer running. Where either is missing, nothing is claimed and the run reads as going.
  */
-import type { RunStatus } from "../../api/run";
-import { instant } from "../../words/runs";
+import type { RunStatus } from "../api/run";
+import { instant } from "./runs";
 
 /**
  * The time past the longest step before a silent log is read as stopped: the stop of a session at
@@ -34,9 +34,16 @@ export type Phase =
   | "halt-owed"
   | "done";
 
+/** What a stopped run is said to be, in full. */
+export const STOPPED_WORDS = "Stopped. The run ended without recording why; nothing is running.";
+/** What a run waiting on a person's decision is said to be. */
+export const WAITING_WORDS = "Waiting for a person's decision; nothing runs until then.";
+
 /** Whether the log has been silent longer than a living run is, at ``now`` (ms since the epoch). */
-export function silentTooLong(_status: RunStatus, _now: number): boolean {
-  return false;
+export function silentTooLong(status: RunStatus, now: number): boolean {
+  const silence = silenceS(status, now);
+  const longest = status.longestStepS ?? null;
+  return silence !== null && longest !== null && silence > longest + QUIET_MARGIN_S;
 }
 
 /** Where the run stands, at ``now``. */
@@ -45,6 +52,8 @@ export function phaseOf(status: RunStatus, now: number = Date.now()): Phase {
   if (status.halted !== null || status.kind === "halted")
     return status.halted?.reason === "usage_limit" ? "waiting-limit" : "halted";
   if (status.kind === "done") return "done";
+  // The loop returns at these steps: nothing runs until a person decides and the run is resumed.
+  if (status.kind === "wait" || status.kind === "escalated") return "waiting-person";
   if (silentTooLong(status, now)) return "stopped";
   return "going";
 }

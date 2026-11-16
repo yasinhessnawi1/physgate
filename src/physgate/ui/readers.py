@@ -322,10 +322,15 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
     """Where the run stands: the loop's next step, a halt owed or taken, and each completion.
 
     Also each subtask that waits for sizing's closing pass, and each contract item a reopen
-    superseded with the item whose decision reopened its module, as replay holds them.
+    superseded with the item whose decision reopened its module, as replay holds them; and when
+    the log last wrote, beside the longest a living run goes without writing a line: a session
+    it spawned is stopped at the run's session wall clock and its end written, and a retry waits
+    a recorded delay. A page tells from the two a run whose process is gone, writing nothing.
     """
     run_dir = run_dir_of(context, params)
-    state = replay(read_events(_file(context, run_dir, EVENTS)))
+    log = read_events(_file(context, run_dir, EVENTS))
+    state = replay(log)
+    bounds = load_run_config(_file(context, run_dir, RUN_CONFIG)).bounds
     step = state.next_step()
     halted, owed = state.halted, state.owed_halt()
     return json_response(
@@ -345,6 +350,8 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
             "completion": _completion(state),
             "waiting": [s for s in state.order if state.subtasks[s].status == "waiting"],
             "superseded": dict(state.superseded),
+            "last_line_at": log[-1].model_dump(mode="json")["ts"] if log else None,
+            "longest_step_s": max((bounds.session_wall_clock_s, *bounds.infra_retry_delays_s)),
         }
     )
 

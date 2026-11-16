@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import unquote
 
+from physgate.orchestrator.events import parse_events
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.queue import LAST_ROUND
 from physgate.orchestrator.run_config import load_run_config
@@ -76,6 +77,8 @@ PARAMETERS: Mapping[str, re.Pattern[str]] = {
 
 #: The run's configuration file, whose presence makes a directory a run directory.
 RUN_CONFIG = "run.json"
+#: A run's event log, by its name in the run directory.
+EVENTS = "events.jsonl"
 
 Method = Literal["GET", "POST"]
 
@@ -289,8 +292,36 @@ def run_directories(allowlist: Allowlist) -> list[tuple[int, str, Path]]:
     return found
 
 
+#: The most of a log's first line read to tell when the run started; a run_started line is a few
+#: kilobytes, so a longer one is no line this package wrote, and the start is not told.
+FIRST_LINE_LIMIT = 1 << 16
+
+
+def _started(context: Context, run_dir: Path) -> str | None:
+    """When the run's log began: its first line's time, read through the event model.
+
+    ``None`` when the run has no log or no complete first line yet, or its first line is not one
+    this package could have written; only that one line is read, so a page can name and order
+    every run without reading every log.
+    """
+    try:
+        path = context.allowlist.resolve(run_dir / EVENTS)
+        with path.open("rb") as handle:
+            first = handle.readline(FIRST_LINE_LIMIT)
+    except (FileNotFoundError, PathRefusedError):
+        return None
+    try:
+        found = parse_events(first, log=str(path))
+    except OrchestratorError:
+        return None
+    return found[0].model_dump(mode="json")["ts"] if found else None
+
+
 def runs(context: Context, params: Mapping[str, str]) -> Response:
-    """The runs the roots hold, each with its run id and manifest id, or why it is unreadable."""
+    """The runs the roots hold, each with its run id and manifest id, or why it is unreadable.
+
+    Each readable run also names when its log began (``started``), or ``None``.
+    """
     listed: list[dict[str, object]] = []
     for position, name, run_dir in run_directories(context.allowlist):
         entry: dict[str, object] = {"root": position, "name": name}
@@ -306,6 +337,7 @@ def runs(context: Context, params: Mapping[str, str]) -> Response:
                 "os_layer": (
                     None if config.os_layer is None else config.os_layer.model_dump(mode="json")
                 ),
+                "started": _started(context, run_dir),
             }
         listed.append(entry)
     return json_response({"runs": listed})

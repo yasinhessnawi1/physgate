@@ -8,7 +8,7 @@ import { activeRun } from "../home/data";
 import { statusWords } from "../home/Home";
 import { foldLedger, stateWords } from "../run-records/ledgerRows";
 import { inProgress } from "./runs";
-import { phaseOf } from "./standing";
+import { phaseOf } from "../../words/standing";
 
 const NOW = Date.parse("2026-11-16T22:26:00Z");
 const MINUTE = 60_000;

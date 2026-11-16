@@ -17,6 +17,7 @@ import { SourceChip } from "../../design/components/data/SourceChip";
 import { type Source, sourceAttribute } from "../../design/components/data/source";
 import { Term } from "../../design/components/help/Term";
 import { InProgressBadge } from "../../design/components/status/InProgressBadge";
+import { RunPhaseBadge } from "../../design/components/status/RunPhaseBadge";
 import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
 import { StatusTag } from "../../design/components/status/StatusTag";
 import { OsLayerBadge } from "../../design/components/system/OsLayerBadge";
@@ -35,13 +36,13 @@ import { type Row, rowsOf } from "../common/rows";
 import {
   haltedWords,
   haltOwedWords,
-  inProgress,
   runBase,
   runKey,
   runSource,
   useLabels,
   useRunList,
 } from "../common/runs";
+import { phaseOf, STOPPED_WORDS, WAITING_WORDS } from "../../words/standing";
 import { NoRunsYet } from "./NoRunsYet";
 import { runEnd, runEndWords, waitingFor } from "./runEnd";
 import { activeRun, readTargets, type RunRead, startOfRead, useRunReads } from "./data";
@@ -123,10 +124,23 @@ function RunName({
   );
 }
 
-export function statusWords(read: RunRead | undefined, _now: number = Date.now()) {
+export function statusWords(read: RunRead | undefined, now: number = Date.now()) {
   if (read === undefined) return <span className="pg-muted">Reading…</span>;
   if (!read.status.ok) return <span className="pg-muted">Where it stands was not read</span>;
-  if (inProgress(read.status.value)) return <InProgressBadge />;
+  const phase = phaseOf(read.status.value, now);
+  if (phase === "going") return <InProgressBadge />;
+  if (phase === "stopped")
+    return (
+      <span className="pg-status">
+        <RunPhaseBadge phase="stopped" /> {STOPPED_WORDS}
+      </span>
+    );
+  if (phase === "waiting-person")
+    return (
+      <span className="pg-status">
+        <RunPhaseBadge phase="waiting-person" /> {WAITING_WORDS}
+      </span>
+    );
   const owed = haltOwedWords(read.status.value);
   if (owed !== null) return <span className="pg-status">{owed}</span>;
   const halted = haltedWords(read.status.value);

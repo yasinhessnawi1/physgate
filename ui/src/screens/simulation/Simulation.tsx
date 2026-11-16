@@ -33,7 +33,7 @@ import { runErrorTitle, SERIES_COPY } from "../../words/series";
 import { useJson, useLines } from "../common/read";
 import { subtaskNames } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
-import { inProgress, runKey, runSource, useChosenRun } from "../common/runs";
+import { phaseOfResult, runKey, runSource, useChosenRun } from "../common/runs";
 import { BoundTable, rowAnchor } from "./BoundTable";
 import { chooseView, groupsOf } from "./model";
 import { Rail } from "./Rail";
@@ -239,7 +239,8 @@ export function SimulationScreen({
   const listing = useJson(base === null ? null : seriesRoute(base), seriesListing);
   const events = useLines(base === null ? null : `${base}/events`, runEvent);
   const configValue = config?.ok === true ? config.value : undefined;
-  const going = status?.ok === true && inProgress(status.value);
+  const phase = phaseOfResult(status);
+  const going = phase === "going";
   useEffect(() => {
     if (runs?.ok === true && runs.value.length === 0)
       setHeader({ title: SERIES_COPY.title, runState: "none" });
@@ -252,9 +253,10 @@ export function SimulationScreen({
         gateMode: configValue.gateMode,
         osLayer: configValue.osLayer,
         inProgress: going,
+        phase,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, label, setHeader, listing.result]);
+  }, [runs, config, configValue, going, phase, label, setHeader, listing.result]);
   const lede = <p className="pg-screen-lead">{SERIES_COPY.lede}</p>;
   if (runs === null)
     return (

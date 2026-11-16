@@ -15,6 +15,7 @@ import { type RunConfig, runConfig, type RunListing, runListing } from "../../ap
 import { type RunStatus, runStatus } from "../../api/run";
 import type { Source } from "../../design/components/data/source";
 import { type RunLabel, runLabels } from "../../words/runs";
+import { type Phase, phaseOf } from "../../words/standing";
 import { useJson } from "./read";
 import { useResult } from "./useResult";
 
@@ -60,14 +61,17 @@ export function haltedWords(status: RunStatus): string | null {
   return HALT_WORDS[status.halted.reason] ?? `Halted · ${status.halted.reason}`;
 }
 
-/** Whether the run is still going: its next step is neither done, nor a halt taken or owed. */
-export function inProgress(status: RunStatus, _now: number = Date.now()): boolean {
-  return (
-    status.kind !== "done" &&
-    status.halted === null &&
-    status.kind !== "halted" &&
-    status.owedHalt === null
-  );
+/**
+ * Whether the run is still going: its next step is work, neither done, a halt taken or owed, nor
+ * a person's decision, and its log is not silent longer than a living run is (``phaseOf``).
+ */
+export function inProgress(status: RunStatus, now: number = Date.now()): boolean {
+  return phaseOf(status, now) === "going";
+}
+
+/** Where the run a screen shows stands, or ``undefined`` until its status is read. */
+export function phaseOfResult(status: Result<RunStatus> | null): Phase | undefined {
+  return status?.ok === true ? phaseOf(status.value) : undefined;
 }
 
 // Each run's start, read once per page: its log's run_started line, or nothing when the log

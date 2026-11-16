@@ -24,7 +24,7 @@ import { nodeLabel, quantityLabel } from "../../words/humanise";
 import { recordAddress } from "../common/addresses";
 import { useJson, useLines } from "../common/read";
 import { RunSwitcher } from "../common/RunSwitcher";
-import { inProgress, runKey, runSource, useChosenRun } from "../common/runs";
+import { phaseOfResult, runKey, runSource, useChosenRun } from "../common/runs";
 import { DiffView } from "./DiffView";
 import { missingTargets } from "./edges";
 import { NodeInspector } from "./NodeInspector";
@@ -370,7 +370,8 @@ export default function DesignGraph({ setHeader, query }: ViewProps) {
   const graph = useJson(route, graphAt);
   const checks = useLines(base === null ? null : `${base}/gate-checks`, gateCheck);
   const configValue = config?.ok === true ? config.value : undefined;
-  const going = status?.ok === true && inProgress(status.value);
+  const phase = phaseOfResult(status);
+  const going = phase === "going";
   useEffect(() => {
     if (runs?.ok === true && runs.value.length === 0)
       setHeader({ title: "Design graph", runState: "none" });
@@ -383,9 +384,10 @@ export default function DesignGraph({ setHeader, query }: ViewProps) {
         gateMode: configValue.gateMode,
         osLayer: configValue.osLayer,
         inProgress: going,
+        phase,
         ...(label === undefined ? {} : { run: label }),
       });
-  }, [runs, config, configValue, going, label, setHeader, graph.result]);
+  }, [runs, config, configValue, going, phase, label, setHeader, graph.result]);
   if (runs === null) return <LoadingState reading="the run list" />;
   if (!runs.ok)
     return (

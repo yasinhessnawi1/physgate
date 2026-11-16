@@ -9,6 +9,7 @@
  * stands, which names each subtask that waits for sizing's closing pass. Nothing is inferred past them. A stage the latest attempt has not recorded reads "not
  * run" only when the attempt is over; while the run is on that attempt it reads "not yet".
  */
+import { phaseOf } from "../../words/standing";
 import type { RunEvent } from "../../api/events";
 import type { QueueListing } from "../../api/queue";
 import type { LedgerLine } from "../../api/records";
@@ -48,6 +49,8 @@ export type SubtaskState =
   | { readonly kind: "repairing"; readonly rejected: number; readonly attempt: number }
   /** The run's next step is this subtask, with no rejection before it. */
   | { readonly kind: "in-progress"; readonly attempt: number }
+  /** The run's next step is this subtask, but nothing runs: the run stopped with no end recorded. */
+  | { readonly kind: "stopped"; readonly attempt: number }
   /** The latest attempt was rejected and the run is not on this subtask. */
   | { readonly kind: "rejected"; readonly attempt: number }
   | { readonly kind: "not-started" }
@@ -108,7 +111,7 @@ function rejectedAt(events: readonly RunEvent[], id: string, attempt: number): b
 function stateOf(
   id: string,
   latest: LedgerLine,
-  { events, status, queue }: FoldContext,
+  { events, status, queue, now }: FoldContext,
 ): SubtaskState {
   if (latest.mergeCommit !== null) return { kind: "merged", commit: latest.mergeCommit };
   if (status?.waiting.includes(id) === true) return { kind: "closing-pass" };
@@ -124,6 +127,8 @@ function stateOf(
   }
   const k = latest.attempts;
   const current = status !== null && status.halted === null && status.subtask === id;
+  if (current && phaseOf(status, now) === "stopped")
+    return { kind: "stopped", attempt: Math.max(k, 1) };
   if (current && status.kind === "attempt") {
     if (k > 0 && rejectedAt(events, id, k))
       return { kind: "repairing", rejected: k, attempt: k + 1 };
@@ -245,6 +250,8 @@ export function stateWords(state: SubtaskState): string {
       return `Rejected at attempt ${String(state.rejected)}; repairing in attempt ${String(state.attempt)}`;
     case "in-progress":
       return `In progress: attempt ${String(state.attempt)}`;
+    case "stopped":
+      return `Stopped at attempt ${String(state.attempt)}; nothing is running`;
     case "rejected":
       return `Rejected at attempt ${String(state.attempt)}. Not merged.`;
     case "not-started":
