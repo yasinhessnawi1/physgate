@@ -81,6 +81,7 @@ def _lean_config(data: bytes) -> dict[str, Any] | None:
         "required_reading",
         "always_loaded",
         "tools_allowed",
+        "after_compaction",
     ):
         out[name] = list(out[name])
     return out

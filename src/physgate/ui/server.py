@@ -371,9 +371,10 @@ def make_server(
 ) -> UIServer:
     """A server on ``bind``:``port`` answering ``routes``, with the guard installed.
 
-    ``routes`` is for the tests that plant a route, and ``timeout_s`` for the test that
-    crosses it; the command always serves the table with the default. A new action token is
-    made for every server; no route serves it, and ``operator_url`` carries it.
+    ``routes`` is the table the command serves (``table.served()``), or one a test plants a
+    route in; the default is the product's own. ``timeout_s`` is for the test that crosses it.
+    A new action token is made for every server; no route serves it, and ``operator_url``
+    carries it.
 
     Raises:
         StartupRefusedError: the address is not loopback, the operator's name is refused, or

@@ -214,6 +214,7 @@ def config(repo: Path, run_id: str = RUN_ID) -> RunConfig:
         brief_sha256=brief_sha256(),
         models=models(),
         parts_on_hand="on",
+        review_compaction="off",
         queue_decisions="act",
         os_layer=PRESENT,
     )

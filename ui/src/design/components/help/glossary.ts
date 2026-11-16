@@ -211,6 +211,30 @@ export const GLOSSARY = {
       "What the run's tokens would cost at the provider's published prices on a dated price sheet. It is not a bill.",
     group: "Drafts and records",
   },
+  "lower-bound": {
+    term: "Lower bound",
+    means:
+      "A figure that is at least this much: some of what it adds up could not be read whole, so the true figure may be higher.",
+    group: "Drafts and records",
+  },
+  "reportable-run": {
+    term: "Reportable run",
+    means:
+      "A run whose numbers may be reported as results. It starts only from a clean commit of the harness, so every number it produces names the code.",
+    group: "Drafts and records",
+  },
+  "development-run": {
+    term: "Development run",
+    means:
+      "A run that is neither reportable nor an ablation run: made while building or checking the harness. Its numbers are shown, marked not reportable.",
+    group: "Drafts and records",
+  },
+  "ablation-run": {
+    term: "Ablation run",
+    means:
+      "A run with one part of the harness switched off, to measure what removing that part changes. It is held to the rules a reportable run is held to, and is never reportable.",
+    group: "Drafts and records",
+  },
   library: {
     term: "Library",
     means:

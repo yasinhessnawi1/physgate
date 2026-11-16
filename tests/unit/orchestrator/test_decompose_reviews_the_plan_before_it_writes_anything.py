@@ -43,6 +43,7 @@ REVIEWING = {
     **PARAMS,
     "design_review": "observe",
     "parts_on_hand": "off",
+    "review_compaction": "off",
     "models": {**PARAMS["models"], "reviewers": {"electrical": DESIGN, "design": DESIGN}},  # type: ignore[dict-item]
 }
 

@@ -395,6 +395,9 @@ def _model_of(attribution: str, config: RunConfig, events: list[Event]) -> str:
         roles = {e.subtask_id: e.assigned_role for e in events if isinstance(e, SubtaskPlanned)}
         for e in events:
             if isinstance(e, SessionEnded) and e.session_id == who:
+                if e.subtask_id not in roles:
+                    msg = f"a session ended on subtask {e.subtask_id!r}, which no line planned"
+                    raise ManifestError(msg, attribution=attribution)
                 return config.models.roles[roles[e.subtask_id]]
         return _role_model(config, who)
     msg = "tokens attributed to routing have no model to price them at"

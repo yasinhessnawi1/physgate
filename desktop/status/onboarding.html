@@ -4,52 +4,57 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>physgate</title>
-    <link rel="stylesheet" href="status.css" />
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="fonts.css" />
     <link rel="stylesheet" href="onboarding.css" />
     <script src="onboarding.js" defer></script>
   </head>
   <body class="onboarding">
-    <section id="intro" class="intro" hidden aria-label="Welcome">
+    <section id="welcome" class="intro" hidden aria-label="Welcome">
       <img id="intro-film" alt="physgate: design, gate, review" />
-      <button id="skip" class="skip" type="button">Skip</button>
+      <button id="skip" class="pg-btn pg-btn-browse skip" type="button">Skip</button>
     </section>
 
-    <main id="operator" class="setup operator" hidden aria-label="Operator name">
-      <h1>Who decides here?</h1>
-      <p class="lead">
-        Approvals and rejections made in the app are recorded under this name, the same way
-        as every other decision on the approval queue.
-      </p>
+    <main id="operator-page" class="setup operator" hidden aria-label="Operator name">
+      <span class="mark" aria-hidden="true"></span>
+      <div class="heading">
+        <h1 id="operator-title" tabindex="-1">Who decides here?</h1>
+        <p class="lead">
+          Approvals and rejections made in the app are recorded under this name, the same way
+          as every other decision on the approval queue.
+        </p>
+      </div>
       <label for="operator-name">Your name</label>
       <div class="row">
         <input id="operator-name" type="text" autocomplete="name" maxlength="64" spellcheck="false" />
-        <button id="operator-save" class="primary" type="button">Decide as This Name</button>
+        <button id="operator-save" class="pg-btn pg-btn-act" type="button">Decide as this name…</button>
+      </div>
+      <div class="row">
+        <button id="operator-skip" class="pg-btn pg-btn-act" type="button">Stay read-only…</button>
       </div>
       <p class="quiet-note">
-        Or <button id="operator-skip" class="quiet" type="button">stay read-only</button>: the UI then
-        shows everything and decides nothing. physgate → Operator Name… changes this later.
+        Read-only: the UI then shows everything and decides nothing. physgate → Operator Name…
+        changes this later.
       </p>
       <p id="operator-problem" class="problem" role="alert" hidden></p>
     </main>
 
     <div id="setup" class="setup" hidden>
       <header class="steps" aria-label="Setup steps">
-        <span class="mark" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 3l8 4v6c0 4-3.5 7-8 8-4.5-1-8-4-8-8V7z" /><path d="M9 12l2 2 4-4" />
-          </svg>
-        </span>
-        <ol>
-          <li>Welcome</li>
+        <span class="mark" aria-hidden="true"></span>
+        <ol class="progress">
+          <li class="done">Welcome</li>
           <li aria-current="step">Engine</li>
           <li>Operator UI</li>
         </ol>
+        <span class="step-count">Step 2 of 3</span>
       </header>
 
-      <main class="engine">
-        <h1>Connect the engine</h1>
-        <p class="lead">physgate's roles run on a model. Choose how they reach it.</p>
+      <main class="engine" aria-labelledby="engine-title">
+        <div class="heading">
+          <h1 id="engine-title" tabindex="-1">Connect the engine</h1>
+          <p class="lead">physgate's roles run on a model. Choose how they reach it.</p>
+        </div>
         <p class="notice" role="note">
           Runs use Claude Code today. What you choose here is stored for later: a run still
           uses the credential and models its own parameters name, and the evaluation runs keep
@@ -60,11 +65,28 @@
         <div id="panel" class="panel" aria-live="polite"></div>
 
         <footer class="actions">
-          <button id="later" class="quiet" type="button">Set Up Later</button>
-          <button id="continue" class="primary" type="button" disabled>Continue to the Operator UI</button>
+          <button id="later" class="pg-btn pg-btn-ghost" type="button">Set up later</button>
+          <button id="continue" class="pg-btn pg-btn-act" type="button" disabled>Continue to the operator UI…</button>
         </footer>
         <p id="problem" class="problem" role="alert" hidden></p>
       </main>
     </div>
+
+    <dialog id="confirm" class="pg-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-summary">
+      <div class="pg-dialog-head">
+        <h2 id="confirm-title" class="pg-dialog-title"></h2>
+        <p id="confirm-summary" class="pg-dialog-summary"></p>
+      </div>
+      <div class="pg-dialog-body">
+        <div class="pg-writes">
+          <span class="pg-writes-label">Writes</span>
+          <p id="confirm-writes" class="pg-writes-line"></p>
+        </div>
+      </div>
+      <div class="pg-dialog-foot">
+        <button id="confirm-cancel" class="pg-btn pg-btn-browse" type="button">Cancel</button>
+        <button id="confirm-ok" class="pg-btn pg-btn-act" type="button"></button>
+      </div>
+    </dialog>
   </body>
 </html>

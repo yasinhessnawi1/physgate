@@ -4,6 +4,8 @@
  * list and never imports a screen itself, so a later screen is one folder and one line here.
  */
 import { type ComponentType, lazy } from "react";
+// The thesis-only views arrive through the build's slot, never by an import of their folder.
+import { THESIS_VIEWS } from "virtual:physgate-thesis-views";
 
 import type { IconName } from "../design/components/icons/Icon";
 import type { AreaId } from "../shell/areas";
@@ -99,6 +101,9 @@ export const VIEWS: readonly ViewDef[] = [
     icon: "chart-line",
     component: lazy(() => import("./simulation/Simulation")),
   },
+  // The thesis-only views, from the build's slot: none when the build has no thesis folder. The
+  // slot's list is the thesis folder's, typed there as views of this registry.
+  ...(THESIS_VIEWS as readonly ViewDef[]),
   // How this app is set up, at the navigation's foot.
   {
     group: "settings",

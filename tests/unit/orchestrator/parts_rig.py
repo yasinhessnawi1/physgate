@@ -171,6 +171,7 @@ def rig(
         "queue_decisions": "act",
         "os_layer": plan_hold_rig.PRESENT,
         "parts_on_hand": parts,
+        "review_compaction": "off",
     }
     return Rig(
         run_dir,

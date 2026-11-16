@@ -2839,6 +2839,7 @@ class Loop:
                     attribution=f"reviewer:{review.session_id}",
                     message_id=message.message_id,
                     usage=message.usage,
+                    compaction=message.compaction,
                 )
             )
         # An earlier attempt is judged only where the verdict confirmed or dismissed every one of
@@ -3075,6 +3076,7 @@ class Loop:
                             attribution=f"reviewer:{exc.session_id}",
                             message_id=message.message_id,
                             usage=message.usage,
+                            compaction=message.compaction,
                         )
                     )
                 self._halt_for(subtask_id, "held_out_read")
@@ -3087,6 +3089,7 @@ class Loop:
                             attribution=f"reviewer:{exc.session_id or 'none'}",
                             message_id=message.message_id,
                             usage=message.usage,
+                            compaction=message.compaction,
                         )
                     )
                 if self._review_held(subtask_id, exc.session_id, exc.managed):
@@ -3108,6 +3111,7 @@ class Loop:
                         reviewer_model=exc.reviewer_model,
                         spec_defects=exc.spec_defects,
                         managed=exc.managed,
+                        compactions=exc.compactions,
                     )
                 )
                 if not retry:
@@ -3144,6 +3148,7 @@ class Loop:
                         attribution=f"reviewer:{review.session_id}",
                         message_id=message.message_id,
                         usage=message.usage,
+                        compaction=message.compaction,
                     )
                 )
         detail = f"review session {session_id or 'none'} {changed}"

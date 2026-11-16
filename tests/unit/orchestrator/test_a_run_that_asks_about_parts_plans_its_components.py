@@ -609,6 +609,7 @@ def test_the_call_asks_exactly_when_the_run_s_configuration_does(
     run_roles = ("electrical",)  # the helper configuration's one role
     asking = {
         "parts_on_hand": "on",
+        "review_compaction": "off",
         "queue_decisions": "act",
         "os_layer": Present(mechanism="seatbelt", claude_version="2.1.301"),
     }
@@ -742,6 +743,7 @@ def _planned(
     switch: dict[str, Any] = (
         {
             "parts_on_hand": "on",
+            "review_compaction": "off",
             "queue_decisions": "act",
             "os_layer": Present(mechanism="seatbelt", claude_version="2.1.301"),
         }

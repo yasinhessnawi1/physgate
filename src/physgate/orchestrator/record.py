@@ -551,6 +551,7 @@ class RunRecord:
             queue_decisions=self._said()[0],
             design_review=self._said()[1],
             parts_on_hand=self._said()[2],
+            review_compaction="on" if self.config.review_compaction == "on" else None,
             # Each named only where the run differs from what every run before the switch did.
             reviewers=None if self.config.reviewers == "paired" else self.config.reviewers,
             skills=None if self.config.skills == "on" else self.config.skills,
@@ -642,6 +643,7 @@ class RunRecord:
                 attribution=f"reviewer:{reviewed.session_id or 'none'}",
                 message_id=message.message_id,
                 usage=message.usage,
+                compaction=message.compaction,
             )
         if reviewed.exposed:
             # The held-out tier counts as exposed (ARCH-141): the exposure, then one halt, and

@@ -601,6 +601,7 @@ def _reviewed(
                         session_id=exc.session_id,
                         reviewer_model=exc.reviewer_model,
                         spec_defects=exc.spec_defects,
+                        compactions=exc.compactions,
                     )
                 )
             tries.append(_Try(exc.cause, waited, started, ended))
