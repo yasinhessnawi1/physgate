@@ -27,7 +27,6 @@ import pytest
 from ui_evidence_rig import EvidenceRuns, evidence_runs
 from ui_rig import context_over, evaluation_rig, fake_ui, serving
 
-from physgate.evaluation import evidence
 from physgate.orchestrator.events import (
     SessionEnded,
     SubtaskPlanned,
@@ -289,8 +288,9 @@ def test_a_session_ended_on_a_subtask_never_planned_is_a_row_apart_and_never_a_5
             "trajectory_seal": None,
         }
     )
-    reading = evidence.read_events
-    monkeypatch.setattr(evidence, "read_events", lambda path: [*reading(path), unplanned])
+    monkeypatch.setattr(
+        "physgate.evaluation.evidence.read_events", lambda path: [*read_events(path), unplanned]
+    )
     with serving(context_over(root, ui_root=built["ui"])) as live:
         status, _, body = live.request("GET", _spend(PRICED))
     assert status == 200, body

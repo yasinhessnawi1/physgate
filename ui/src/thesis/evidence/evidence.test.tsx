@@ -489,7 +489,7 @@ describe("the gate's catches", () => {
       for (const own of [a, b, c])
         expect(shown.has(String(own)), `a kind's own count ${String(own)}`).toBe(true);
       const totals = [a + b, a + c, b + c, a + b + c];
-      for (const total of totals) expect(shown.has(String(total)), `${String(total)}`).toBe(false);
+      for (const total of totals) expect(shown.has(String(total)), String(total)).toBe(false);
     }
     expect(text(host)).not.toMatch(/\b(total|altogether|in all|overall|combined|sum)\b/i);
     expect(host.querySelectorAll("tfoot, [data-total]").length).toBe(0);
