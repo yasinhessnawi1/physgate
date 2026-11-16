@@ -217,3 +217,86 @@ def test_a_root_named_withheld_is_set_aside_only_beside_its_own_role_s_protected
         )
         configs.append(read_manifest(run).config)
     assert drift(*configs) == ["held_out_sha256"]
+
+
+def _two_roles(tmp_path: Path) -> list[str]:
+    """Both roles' roots in one store, each role's withheld and work roots then its tiers."""
+    roots = list(_store_roots(tmp_path))
+    return roots + [r.replace("/control/", "/firmware/") for r in roots]
+
+
+def _changed_beside(digests: list[str], roots: list[str]) -> list[str]:
+    """``digests`` with every withheld and work root's changed, as a write beneath them does."""
+    return [
+        "a" * 64 if Path(r).name in ("withheld", "work") else d
+        for r, d in zip(roots, digests, strict=True)
+    ]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "a trailing slash",
+        "two roles, both roots written beneath",
+        "two roles, one role's withheld root unnamed",
+        "one tier only, both runs",
+        "one tier only, one run",
+        "the withheld root by a current-directory step",
+        "the withheld root through a link to the store",
+        "the withheld root by a parent step",
+    ],
+)
+def test_spellings_two_roles_and_one_tier_compare_equal_only_when_they_are(
+    tmp_path: Path, case: str
+) -> None:
+    # Two runs compare equal only when each names the same protected tiers by the same digests
+    # and the same roots beside them; a spelling the rule cannot place keeps its digest, so it
+    # reads as drift, never as equal.
+    repo = target_repo(tmp_path)
+    roots = list(_store_roots(tmp_path))
+    digests = ["8" * 64, "9" * 64, *TIERS_AS_RECORDED]
+    theirs: tuple[list[str], list[str]] | None = None
+    want = ["held_out_sha256"]
+    if case == "a trailing slash":
+        slashed = [r + "/" if i < 2 else r for i, r in enumerate(roots)]
+        theirs = (slashed, _changed_beside(digests, slashed))
+        want = []
+    elif case.startswith("two roles"):
+        roots = _two_roles(tmp_path)
+        digests = digests + ["6" * 64, "7" * 64, "5" * 64, "2" * 64]
+        if case.endswith("written beneath"):
+            want = []
+        else:
+            theirs = (roots[:4] + roots[5:], digests[:4] + digests[5:])
+    elif case.startswith("one tier only"):
+        roots, digests = roots[:3], digests[:3]
+        if case.endswith("both runs"):
+            want = []
+        else:
+            full = list(_store_roots(tmp_path))
+            theirs = (full, ["8" * 64, "9" * 64, *TIERS_AS_RECORDED])
+    else:
+        store = tmp_path / "store"
+        if case.endswith("current-directory step"):
+            # The same root to the letter once read as a path: set aside like the plain one.
+            roots[0] = f"{store}/control/./withheld"
+            want = []
+        elif case.endswith("link to the store"):
+            store.mkdir(exist_ok=True)
+            (tmp_path / "link").symlink_to(store)
+            roots[0] = roots[0].replace(str(store), str(tmp_path / "link"))
+        else:
+            roots[0] = f"{store}/control/x/../withheld"
+    if theirs is None:
+        theirs = (roots, _changed_beside(digests, roots))
+    configs = []
+    for name, (held, sha) in (("base", (roots, digests)), ("cand", theirs)):
+        run = fake_run(
+            tmp_path,
+            name,
+            repo,
+            overrides={"held_out": tuple(held), "held_out_sha256": tuple(sha)},
+        )
+        configs.append(read_manifest(run).config)
+    assert drift(*configs) == want
+    assert drift(*reversed(configs)) == want
