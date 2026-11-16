@@ -67,7 +67,10 @@ def _vector(made: StandInStore, tier: str, m: Measured) -> Path:
 def _append(
     tmp_path: Path, made: StandInStore, trend: Path, name: str = "a"
 ) -> tuple[int, dict[str, Any]]:
-    visible = measured(made, "visible", tmp_path / f"v{name}")
+    # A second run set starts its tasks from another commit, so its runs, and their manifest
+    # ids, are not the first set's.
+    other: dict[str, Any] = {} if name == "a" else {"target_head": "d" * 40}
+    visible = measured(made, "visible", tmp_path / f"v{name}", **other)
     held = _vector(made, "held_out", measured(made, "held_out", tmp_path / f"h{name}"))
     valid = _vector(made, "validation", measured(made, "validation", tmp_path / f"w{name}"))
     path = tmp_path / f"design-{name}.json"
