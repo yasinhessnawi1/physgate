@@ -15,6 +15,7 @@ stopped. Every credential is a dummy, and no file's content is read: only its na
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
 import os
@@ -61,6 +62,7 @@ login() { printf '%s' '{"dummy": "not-a-credential"}' > "$CLAUDE_CONFIG_DIR/.cre
 case "$ON_TERM" in
   ignore) trap '' TERM ;;
   rewrite) trap 'login; exit 143' TERM ;;
+  writer) trap '( while :; do login; sleep 0.05; done ) & exit 143' TERM ;;
 esac
 login
 : > "$READY"
@@ -127,7 +129,8 @@ class Started:
         return started_at(self.tool) == self.tool_started
 
     def end_session_from_outside(self) -> None:
-        if self.running():
+        # Its whole group, whether its leader still runs or not: what it started is in it.
+        with contextlib.suppress(OSError):
             os.killpg(self.pid, signal.SIGKILL)
         if self.tool_running():
             os.killpg(self.tool, signal.SIGKILL)
@@ -205,6 +208,18 @@ def test_a_session_that_writes_its_login_again_as_it_stops_leaves_none(
     assert ended(run.process) == -signal.SIGTERM, run.said()
     assert credential_files(run.run_dir) == []
     assert not run.running()
+
+
+def test_a_process_the_session_starts_as_it_stops_is_ended_with_its_group(
+    tmp_path: Path, started: list[Started]
+) -> None:
+    run = Started(tmp_path, on_term="writer")
+    started.append(run)
+    run.process.send_signal(signal.SIGTERM)
+    assert ended(run.process) == -signal.SIGTERM, run.said()
+    # A writer left in the session's group would have written the login file again by now.
+    time.sleep(0.5)
+    assert credential_files(run.run_dir) == [], "a process left in the session's group wrote it"
 
 
 def test_a_run_killed_during_its_stop_s_grace_has_already_removed_the_files(
