@@ -168,7 +168,14 @@ export function Drifted({ refusal, drifted }: { refusal: Refusal; drifted: reado
           </li>
         ))}
       </ul>
-      <p className="pg-state-body">{refusal.error}</p>
+      {drifted.includes("target_head") && (
+        <p className="pg-state-body">{EVIDENCE_COPY.driftFromCommits}</p>
+      )}
+      <p className="pg-state-body">{EVIDENCE_COPY.driftPossible}</p>
+      <details className="pg-standing-detail">
+        <summary className="pg-hit">{EVIDENCE_COPY.driftServer}</summary>
+        <p className="pg-standing-full">{refusal.error}</p>
+      </details>
     </section>
   );
 }
