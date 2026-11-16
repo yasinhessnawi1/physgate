@@ -28,7 +28,7 @@ describe("the comparison's refusal says what is true for these runs", () => {
     const host = shown(["target_head"]);
     const text = visible(host);
     expect(host.querySelector("h2")?.textContent).toBe(
-      "These two runs cannot be compared: they did not start from the same place with the same settings",
+      "These two runs cannot be compared: they did not start from the same place",
     );
     expect(text).toContain("They started from different commits of the target repository");
     expect(text).toContain(

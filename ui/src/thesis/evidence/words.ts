@@ -75,12 +75,21 @@ export const EVIDENCE_COPY = {
   comparisonRefused: "The comparison could not be read",
   driftTitle:
     "These two runs cannot be compared: they did not start from the same place with the same settings",
+  driftTitleStart: "These two runs cannot be compared: they did not start from the same place",
+  driftTitleSettings: "These two runs cannot be compared: they were run with different settings",
   driftLead:
-    "Set side by side, their numbers could differ because of where each started, not because of the harness, so no number of either run is shown. What differs:",
+    "Set side by side, their numbers could differ because of what differs between them, not because of what is being measured, so no number of either run is shown. What differs:",
   driftFromCommits:
     "They started from different commits of the target repository, so each worked on a different design.",
+  driftFromBriefs: "They were given different briefs, so each was asked for a different design.",
   driftPossible:
     "A comparison is possible between two runs of the same brief that start from the same commit, with every setting the same but the one being measured (for example the gate on in one and off in the other).",
+  tiersTitle:
+    "These two runs cannot be compared: they were measured on different versions of the evaluation tasks",
+  tiersLead:
+    "Each run records the version of the evaluation tasks it was measured on. These two record different versions, or one records none, or a record of one cannot be read, so no number of either run is shown.",
+  tiersPossible:
+    "A comparison is possible between two runs measured on the same version of the evaluation tasks.",
   driftServer: "The server's words",
   differsIn: "The reported settings that differ:",
   differsNone: "No reported setting differs.",

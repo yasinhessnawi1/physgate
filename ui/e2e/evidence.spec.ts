@@ -298,7 +298,7 @@ test("two runs compared through the choosers, and a drifted pair refused with no
   await settle(page);
   const refused = panel.locator('[role="alert"]');
   await expect(refused).toContainText(
-    "These two runs cannot be compared: they did not start from the same place with the same settings",
+    "These two runs cannot be compared: they were run with different settings",
   );
   await expect(refused).toContainText("The model that plans the subtasks");
   await expect(refused).toContainText("The output token limit");
