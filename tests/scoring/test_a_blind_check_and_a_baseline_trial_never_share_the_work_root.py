@@ -13,6 +13,7 @@ from it too.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import os
 from pathlib import Path
@@ -70,6 +71,7 @@ def _records(store: Path) -> list[str]:
 def test_a_check_is_refused_while_a_trial_s_session_lives_and_makes_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A trial that lives already has its record of work, which refuses the check, or its hold."""
     plan, version = _held_tier(tmp_path, monkeypatch)
     fake = FakeSession(_answers)
     monkeypatch.setattr(author_session, "run_session", fake)
@@ -78,10 +80,41 @@ def test_a_check_is_refused_while_a_trial_s_session_lives_and_makes_nothing(
         assert work == [trial_dir.name] and records == [working.name]
         outcome = _check(tmp_path, version, fake)
         assert isinstance(outcome, AuthoringError), f"the check was not refused: {outcome!r}"
-        assert outcome.context.get("refused_because") == "session_lives", outcome.context
+        assert outcome.context.get("refused_because") in {"work_left", "session_lives"}
         assert fake.calls == [], "a check's session was started beside the trial's"
         assert _work(plan.store) == work, "the refused check made something in the work root"
         assert _records(plan.store) == records, "the refused check left a record of work"
+
+
+def test_a_trial_made_after_the_check_s_last_look_for_work_left_still_refuses_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The window the record of work leaves: the trial comes after the check's last look for it.
+
+    The check looks for work left before it reads its tasks; a trial made after that, just before
+    the check's own record of work, is refused to it by the hold alone.
+    """
+    plan, version = _held_tier(tmp_path, monkeypatch)
+    fake = FakeSession(_answers)
+    monkeypatch.setattr(author_session, "run_session", fake)
+    real = author_session.bundle
+    with contextlib.ExitStack() as living:
+        made: list[tuple[Path, Path]] = []
+
+        def read_then_a_trial_came(tier: Path) -> dict[str, dict[str, Any]]:
+            tasks = real(tier)
+            made.append(living.enter_context(runner.trial_place(plan.store, "control", *TRIAL)))
+            return tasks
+
+        monkeypatch.setattr(author_session, "bundle", read_then_a_trial_came)
+        outcome = _check(tmp_path, version, fake)
+        assert made, "no trial came while the check was set up: the row shows nothing"
+        assert isinstance(outcome, AuthoringError), f"the check was not refused: {outcome!r}"
+        assert outcome.context.get("refused_because") == "session_lives", outcome.context
+        assert fake.calls == [], "a check's session was started beside the trial's"
+        ((trial_dir, working),) = made
+        assert _work(plan.store) == [trial_dir.name], "the refused check made something there"
+        assert _records(plan.store) == [working.name], "the refused check left a record of work"
 
 
 def test_a_trial_is_refused_while_a_check_s_session_lives_and_makes_nothing(
