@@ -239,12 +239,7 @@ test("the runs: each kind its own section, ablation last, each run tagged, the u
   const runs = await page
     .locator("th[data-run]")
     .evaluateAll((all) => all.map((h) => h.getAttribute("data-run")));
-  expect(runs).toEqual([
-    "0/ev-reportable",
-    "0/ev-development",
-    "0/ev-drifted",
-    "0/ev-ablation",
-  ]);
+  expect(runs).toEqual(["0/ev-reportable", "0/ev-development", "0/ev-drifted", "0/ev-ablation"]);
   await expect(kinds.nth(2)).toContainText(
     "Ablation run: measures what removing a part changes; never reportable",
   );
