@@ -149,7 +149,7 @@ function SideBySide({ compared }: { readonly compared: Comparison }) {
 }
 
 /** A comparison refused over drifted settings: the sentence and the settings in words, no number. */
-function Drifted({ refusal, drifted }: { refusal: Refusal; drifted: readonly string[] }) {
+export function Drifted({ refusal, drifted }: { refusal: Refusal; drifted: readonly string[] }) {
   return (
     <section
       className="pg-state pg-state-error evidence-drifted"
