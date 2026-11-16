@@ -180,13 +180,7 @@ def test_decomposition_review_and_routing_are_apart_and_never_in_a_role(
     spend, line = _answered(built)
     in_roles = {row["attribution"] for role in spend["roles"] for row in role["sessions"]}
     assert all(a.startswith("session:") for a in in_roles)
-    assert set(spend["apart"]) == {
-        "decomposition",
-        "review",
-        "routing",
-        "left_over",
-        "unplanned",
-    }
+    assert set(spend["apart"]) == {"decomposition", "review", "routing", "left_over"}
     reviews = [c for c in line["calls"] if c["attribution"].startswith("reviewer:")]
     assert reviews, "the fixture's run has no review priced"
     review = spend["apart"]["review"]
@@ -196,7 +190,7 @@ def test_decomposition_review_and_routing_are_apart_and_never_in_a_role(
     # No review root is named to the server, so no reviewer's result is read: a lower bound.
     assert review["sum"]["lower_bound"] is True
     # The stand-in plan made no decomposition call and routing spends nothing: no sum at all.
-    for empty in ("decomposition", "routing", "left_over", "unplanned"):
+    for empty in ("decomposition", "routing", "left_over"):
         assert spend["apart"][empty] == {"calls": [], "sum": None}, empty
     priced = {c["attribution"] for c in line["calls"]}
     apart = {row["attribution"] for group in spend["apart"].values() for row in group["calls"]}
@@ -258,7 +252,7 @@ def test_a_session_the_log_records_no_end_for_is_apart_and_in_no_role(
     assert "session:left-behind" not in reviewed
 
 
-def test_a_session_ended_on_a_subtask_never_planned_is_a_row_apart_and_never_a_500(
+def test_a_session_ended_on_a_subtask_never_planned_is_refused_with_its_reason_and_never_a_500(
     built: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "priced"
@@ -293,16 +287,11 @@ def test_a_session_ended_on_a_subtask_never_planned_is_a_row_apart_and_never_a_5
     )
     with serving(context_over(root, ui_root=built["ui"])) as live:
         status, _, body = live.request("GET", _spend(PRICED))
-    assert status == 200, body
-    spend = json.loads(body)
-    assert "session:unplanned-end" in {c["attribution"] for c in spend["line"]["calls"]}
-    apart = spend["apart"]["unplanned"]
-    assert [c["attribution"] for c in apart["calls"]] == ["session:unplanned-end"]
-    assert apart["sum"] is not None
-    assert apart["sum"]["tokens"] == _tokens(apart["calls"])
-    in_roles = {row["session_id"] for role in spend["roles"] for row in role["sessions"]}
-    assert "unplanned-end" not in in_roles
-    assert spend["apart"]["left_over"] == {"calls": [], "sum": None}
+    assert status == 422, body
+    refused = json.loads(body)
+    assert set(refused) == {"error", "root", "name", "record"}, refused
+    assert (refused["root"], refused["name"]) == ("0", PRICED)
+    assert "never-planned" in refused["error"], refused
 
 
 def test_an_unknown_run_is_not_found_by_its_place(built: dict[str, Any]) -> None:

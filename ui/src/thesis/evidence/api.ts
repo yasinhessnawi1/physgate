@@ -312,7 +312,7 @@ function roleSpend(value: unknown): RoleSpend {
 }
 
 /** The groups of calls the server sends apart from the roles. */
-export const APART = ["decomposition", "review", "routing", "left_over", "unplanned"] as const;
+export const APART = ["decomposition", "review", "routing", "left_over"] as const;
 export type ApartGroup = (typeof APART)[number];
 
 /** A group's calls and their sum; ``null`` when the group holds no call. */
@@ -378,7 +378,6 @@ export function evidenceSpend(value: unknown): Spend {
       review: apart(groups.review),
       routing: apart(groups.routing),
       left_over: apart(groups.left_over),
-      unplanned: apart(groups.unplanned),
     },
   };
 }

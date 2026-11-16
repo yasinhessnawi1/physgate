@@ -160,7 +160,6 @@ export const SPEND = {
     review: { sum: null, calls: [] },
     routing: { sum: null, calls: [] },
     left_over: { sum: null, calls: [] },
-    unplanned: { sum: null, calls: [] },
   },
 };
 

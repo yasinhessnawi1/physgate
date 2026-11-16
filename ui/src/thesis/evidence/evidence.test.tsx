@@ -370,7 +370,7 @@ describe("the spend", () => {
 
   it("says a group apart from the roles that holds no call in words, never a zero", async () => {
     const host = await mount("tab=spend&run=0/ev-development");
-    for (const group of ["review", "routing", "left_over", "unplanned"] as const) {
+    for (const group of ["review", "routing", "left_over"] as const) {
       const apart = section(host, APART_WORDS[group].title);
       expect(text(apart)).toContain(APART_WORDS[group].none);
       expect(apart?.querySelector("table")).toBeNull();

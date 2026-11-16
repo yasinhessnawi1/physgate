@@ -137,10 +137,6 @@ export const APART_WORDS: Readonly<Record<ApartGroup, { title: string; none: str
     title: "Sessions with no recorded end",
     none: "No session without a recorded end was priced in this run.",
   },
-  unplanned: {
-    title: "Sessions that ended on a subtask no line planned",
-    none: "No session that ended on an unplanned subtask was priced in this run.",
-  },
 };
 
 /** How a cost line was priced, in words. */
