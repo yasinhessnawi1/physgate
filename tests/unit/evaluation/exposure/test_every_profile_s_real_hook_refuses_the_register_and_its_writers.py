@@ -5,7 +5,9 @@ its held-out roots, as every run on the role names them, and its generated ``Pre
 is run as Claude Code runs it, a fresh interpreter fed the event. A read or a write of either log
 or its head, and a shell command that reads one or runs any of the three writers on the role's
 withheld root, is refused, and refused as the held-out tier where the kind of session has the
-tool at all (a tool it does not have is refused by its tool list first).
+tool at all (a tool it does not have is refused by its tool list first). The orchestrator's own
+harness sessions are by design allowed to read the held-out tier, never to write it
+(``HELD_OUT_READERS_REFUSED``), so for that kind only the writes and the writers are asked.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from exposure_fixtures import StandInStore, stand_in_store, with_run_root
 
 from physgate.evaluation.tiers.store import withheld_root
 from physgate.hooks.config import Profile
+from physgate.hooks.paths import HELD_OUT_READERS_REFUSED
 from physgate.hooks.reasons import HELD_OUT_REASON
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import PROFILE_TOOLS, InstallRequest, install
@@ -91,18 +94,24 @@ def test_each_kind_of_session_s_real_hook_refuses_the_register_its_roots_and_its
 ) -> None:
     command, worktree = _install(tmp_path / "session", profile, made)
     withheld = withheld_root(made.store, "control")
-    calls: list[tuple[str, dict[str, str]]] = []
+    reads: list[tuple[str, dict[str, str]]] = []
+    writes: list[tuple[str, dict[str, str]]] = []
     for name in LOGS:
         target = str(withheld / name)
-        calls += [
+        reads += [
             ("Read", {"file_path": target}),
-            ("Write", {"file_path": target, "content": "x\n"}),
             ("Bash", {"command": f"cat {target}", "description": "read it"}),
+        ]
+        writes += [
+            ("Write", {"file_path": target, "content": "x\n"}),
             ("Bash", {"command": f": > {target}", "description": "empty it"}),
         ]
     for writer in ("scan-exposures", "mark-exposed", "add-run-root"):
         typed = f"physgate tiers {writer} --withheld {withheld}"
-        calls.append(("Bash", {"command": typed, "description": "run a writer"}))
+        writes.append(("Bash", {"command": typed, "description": "run a writer"}))
+    refused_reads = profile in HELD_OUT_READERS_REFUSED
+    assert refused_reads or profile == "orchestrator", f"{profile} may read the held-out tier"
+    calls = [*reads, *writes] if refused_reads else writes
     allowed = set(PROFILE_TOOLS[profile])  # type: ignore[index]
     for tool, tool_input in calls:
         said = _decision(command, worktree, tool, tool_input)

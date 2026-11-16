@@ -7,9 +7,10 @@
   refused in words that say so. A reader holds the logs under the writers' lock, shared.
 - **Late:** a baseline round re-reads the register at its start, so a version exposed after its
   harness runs started is refused; ``compare`` says in words when a run's version is exposed now.
-- **Hidden:** a run made beneath another run is scanned; a run made inside another run's own
-  places is refused; a link to a directory in a run root is not followed, and leaves the root
-  not fully read, which refuses adding it and is said by the scan.
+- **Hidden:** nothing inside a run directory is entered or parsed, so a file a session planted in
+  its worktree is never opened; a run made inside another run leaves the root not fully read,
+  and so does a link to a directory, which is not followed: adding such a root is refused and
+  the scan says so; a measured run made inside another run is refused; the bounds still hold.
 - **Unchecked:** a raw record that looked for no canary on a validation or held-out task is an
   exposure of unknown extent, recorded and shown apart from a confirmed one.
 - **Saved first:** a scan given roots reads them whatever the run-roots log holds; a registered
@@ -21,7 +22,10 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import importlib
+import io
 import json
+import os
 import shutil
 import sys
 from collections.abc import Callable
@@ -198,13 +202,70 @@ def test_compare_says_when_a_run_s_version_is_exposed_now(
 # ------------------------------------------------------------------------------------- hidden
 
 
-def test_a_run_made_beneath_another_run_is_scanned(tmp_path: Path, made: StandInStore) -> None:
+def test_a_run_made_inside_another_run_leaves_the_root_not_fully_read(
+    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
     runs = with_run_root(made, tmp_path / "runs")
     outer = harness_run(runs, made.tasks["visible"][1], made)
-    inner = harness_run(outer / "later", made.tasks["visible"][2], made, ended=False)
+    inner = harness_run(outer, made.tasks["visible"][2], made, ended=False)
     incident_in(inner)
+    withheld = str(withheld_root(made.store, "control"))
+    code, said = _tiers(capsys, "scan-exposures", "--withheld", withheld)
+    assert code == 1, f"a run inside a run was taken as read: {said}"
+    assert said.get("not_fully_read") == [str(runs)], said
+    assert said.get("unread_places") == [f"{outer.name}/{inner.name}"], said
+    assert said.get("added") == 0, "a run inside a run was parsed"
+    fresh = tmp_path / "more-runs"
+    harness_run(harness_run(fresh, made.tasks["visible"][1], made), made.tasks["visible"][2], made)
+    found = _refused(lambda: api(f"{EXPOSURE}.add_run_root")(made.store, "control", fresh))
+    assert found is not None and found[0] == "run_root_not_fully_read", found
+
+
+def test_a_run_json_a_session_planted_in_its_worktree_is_never_opened(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs = with_run_root(made, tmp_path / "runs")
+    outer = harness_run(runs, made.tasks["visible"][1], made)
+    for place in ("worktrees", "scratch"):
+        planted = outer / place / "x"
+        planted.mkdir(parents=True)
+        (planted / "run.json").write_text("not a run")
+        (planted / "raw.json").write_text('{"held_out_seen": true}')
+    opened: list[str] = []
+    real_os_open, real_io_open = os.open, io.open
+
+    def os_open(path: Any, *args: Any, **kwargs: Any) -> int:  # noqa: ANN401
+        opened.append(str(path))
+        return real_os_open(path, *args, **kwargs)
+
+    def io_open(path: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        opened.append(str(path))
+        return real_io_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", os_open)
+    monkeypatch.setattr(io, "open", io_open)
+    report = api(f"{EXPOSURE}.scan_exposures")(made.store, "control")
+    inside = [p for p in opened if str(outer / "worktrees") in p or str(outer / "scratch") in p]
+    assert inside == [], f"a file a session left in a run was opened: {inside}"
+    assert (report.added, report.unread) == (0, ()), report
     exposed = api(f"{EXPOSURE}.exposed_versions")(made.store, "control")
-    assert made.version in exposed, "a run beneath another run is never scanned"
+    assert made.version not in exposed, "a file a session left in its worktree was read"
+
+
+def test_the_walk_s_bounds_hold_outside_runs(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs = with_run_root(made, tmp_path / "runs")
+    deep = runs.joinpath(*["d"] * 4)
+    deep.mkdir(parents=True)
+    module = importlib.import_module(EXPOSURE)
+    monkeypatch.setattr(module, "MOST_DEPTH", 3)
+    found = _refused(lambda: module.exposed_versions(made.store, "control"))
+    assert found is not None and "deeper" in found[1], found
+    monkeypatch.setattr(module, "MOST_DEPTH", 8)
+    monkeypatch.setattr(module, "MOST_ENTRIES", 3)
+    found = _refused(lambda: module.exposed_versions(made.store, "control"))
+    assert found is not None and "entries" in found[1], found
 
 
 def test_a_measured_run_made_inside_another_run_s_own_places_is_refused(
