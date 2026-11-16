@@ -153,7 +153,8 @@ def test_an_output_past_the_bound_per_boundary_raises() -> None:
 
 
 def test_a_result_without_totals_is_not_held_and_gives_no_line() -> None:
-    for result in ({}, None, {"modelUsage": {}}):
+    results: tuple[dict[str, Any] | None, ...] = ({}, None, {"modelUsage": {}})
+    for result in results:
         assert _try(result, MESSAGES, compactions=1, message_id="compaction-1") is None
 
 

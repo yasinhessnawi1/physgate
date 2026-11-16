@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 
 import pytest
+from packet_fixture import Attempt
 from test_a_later_review_reads_each_earlier_marker_with_the_lines_around_it import (
     END,
     HIT,
@@ -36,7 +37,7 @@ from physgate.reviewers.transcript import PREAMBLE
 _FENCE = re.compile(rb"(?:<<<DATA ([0-9a-f]{16}) .*|DATA ([0-9a-f]{16})>>>)\r?\n?")
 
 
-def _two_sessions(tmp_path: Path) -> tuple[Packet, Path, object]:
+def _two_sessions(tmp_path: Path) -> tuple[Packet, Path, Attempt]:
     """Two earlier sessions, each with markers, enough of them to fill more than one part."""
     sessions = []
     for first in (1, 400):

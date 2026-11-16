@@ -37,7 +37,7 @@ def _lines(tmp_path: Path) -> list[TokensUsed]:
 
 
 def _run(tmp_path: Path, reviewer: FakeReviewer) -> None:
-    rig = Rig(tmp_path, reviewer=reviewer)  # type: ignore[arg-type]
+    rig = Rig(tmp_path, reviewer=reviewer)
     loop = rig.open()
     loop.start(plan("s1"))
     loop.run()
