@@ -79,7 +79,7 @@ def test_one_task_per_tier_matches_the_hand_table(
         assert said[gap]["interval"] is None, "one task gave an interval"
         assert "one task: no interval" in said[gap]["words"]
     assert any("held out: 1 task, so this rate is that task's outcome" in n for n in said["notes"])
-    assert "noise floor" in said["optimiser_overfit"]["label"]
+    assert "noise floor" in (said["optimiser_overfit"]["label"] or ""), said
     for tier in ("visible", "validation", "held_out"):
         assert "/" in said[tier]["rate"] and said[tier]["rate"].startswith(
             f"{said[tier]['passed']}/{said[tier]['n']}"

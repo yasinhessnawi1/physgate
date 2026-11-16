@@ -163,6 +163,8 @@ def census(
 ) -> Census:
     """The tier's runs and records under the counting rule, or the reason they are refused.
 
+    ``arm`` is the arm every record must be of; its callers refuse the raw arm first.
+
     Raises:
         GapsError: the rule refuses them; it names a run by its place in the run set only.
         ExposureError: the register cannot be read whole.
@@ -171,8 +173,6 @@ def census(
     from physgate.evaluation.observe.manifest import manifest_id_of, read_run_events
     from physgate.evaluation.tiers.exposure import exposed_versions, versions
 
-    if arm != "harness":
-        raise _refuse("raw_arm_has_no_run_sets", RAW_ARM)
     if version not in versions(store, role):
         raise _refuse("version_unknown", f"the role has no version {version[:8]}")
     if version in exposed_versions(store, role):
