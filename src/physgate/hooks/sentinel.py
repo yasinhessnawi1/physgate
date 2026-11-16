@@ -297,9 +297,9 @@ def opened_apart(place: str) -> int:
     """A descriptor on the place apart, once it is shown to be the run's own; the caller closes it.
 
     Opened with no link followed and judged on the descriptor itself (a directory, this user's,
-    mode 0700), so what is judged is what every read, write and replace of a part then goes
-    through (``dir_fd``): nothing swapped in at the path afterwards is reached. The dispatcher
-    makes the place so before the install; it is never made here.
+    permission bits 0700), so what is judged is what every read, write and replace of a part
+    then goes through (``dir_fd``): nothing swapped in at the path afterwards is reached. The
+    dispatcher makes the place so before the install; it is never made here.
 
     Raises:
         ValueError: it is not there, is a link or not a directory, is another user's, or its
@@ -311,7 +311,9 @@ def opened_apart(place: str) -> int:
         msg = f"the place apart {place} is not a directory of its own, not a link ({exc.strerror})"
         raise ValueError(msg) from None
     st = os.fstat(fd)
-    mode = stat.S_IMODE(st.st_mode)
+    # Its permission bits: read, write and search for this user alone. A set-group-id bit, which
+    # a directory takes from its parent on some hosts, opens nothing to anyone else.
+    mode = st.st_mode & 0o777
     if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or mode != 0o700:
         os.close(fd)
         msg = f"the place apart {place} is not private to this user (mode {mode:o})"

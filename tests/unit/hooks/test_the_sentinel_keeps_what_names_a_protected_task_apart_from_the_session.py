@@ -335,3 +335,11 @@ def test_a_place_apart_of_another_owner_refuses(
     owner = os.geteuid()
     monkeypatch.setattr(os, "geteuid", lambda: owner + 1)
     assert "place apart" in _refusal(root, "PostToolUse")
+
+
+def test_a_place_apart_that_took_its_parent_s_set_group_id_bit_is_taken(root: Path) -> None:
+    """The bit some hosts pass down to a new directory opens nothing to anyone else."""
+    (root / "apart").chmod(0o2700)
+    if (root / "apart").stat().st_mode & 0o2000 == 0:
+        pytest.skip("this host does not keep a set-group-id bit on a directory here")
+    assert _check(root, "SessionStart") == "allow"

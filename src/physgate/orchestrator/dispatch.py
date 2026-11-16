@@ -341,8 +341,12 @@ def place_apart(run_dir: Path) -> Path:
     """
     apart = run_dir / SENTINEL_APART_DIR
     run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with contextlib.suppress(FileExistsError):
+    try:
         os.mkdir(apart, 0o700)
+    except FileExistsError:
+        pass  # judged below as it is: never changed here
+    else:
+        os.chmod(apart, 0o700)  # as made, whatever bits the parent passes down
     try:
         held_apart(str(apart))
     except ValueError as exc:
