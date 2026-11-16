@@ -73,3 +73,14 @@ def _mean_of_first(sample: Sequence[Sequence[float]]) -> float:
 
 def _gap(sample: Sequence[Sequence[float]]) -> float:
     return statistics.fmean(sample[0]) - statistics.fmean(sample[1])
+
+
+def gap_between(
+    first: Sequence[float], second: Sequence[float], *, seed: int, label: str, draws: int
+) -> tuple[float, tuple[float, float]]:
+    """The gap between two tiers' per-task rates, and its task-cluster bootstrap interval.
+
+    The one gap computation: ``physgate gaps`` and the per-role report both take it from here.
+    """
+    interval = cluster_bootstrap([first, second], _gap, seed=seed, label=label, draws=draws)
+    return statistics.fmean(first) - statistics.fmean(second), interval

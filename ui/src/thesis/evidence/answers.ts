@@ -200,6 +200,7 @@ export const COMPARED = {
     baseline: numbers("ev-development"),
     candidate: numbers("ev-ablation", { hooks: "off", ablation: true, wall_clock_s: 9.25 }),
     differs_in: ["ablation", "hooks"],
+    notes: [],
   },
 };
 

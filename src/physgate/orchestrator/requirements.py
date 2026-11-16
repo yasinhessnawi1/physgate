@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 from physgate.orchestrator.run_config import RunConfig
 from physgate.oslayer.probe import Absent, Present
@@ -33,6 +34,9 @@ class RunFacts:
     #: requirement on how a run is configured is asked of a new run, and a run recorded before
     #: the requirement existed is not refused on resume for not meeting it.
     new_run: bool = False
+    #: The run's directory, resolved: where its records are, judged by a requirement on where
+    #: a run is made. ``None`` where a caller has no run directory to show.
+    run_dir: Path | None = None
 
 
 #: A requirement: ``None`` if the run may start, else why it may not.

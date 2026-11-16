@@ -785,7 +785,13 @@ def _decompose(args: argparse.Namespace, *, registrations: Registrations | None 
     if why is not None:
         return _fail(why)
     refused = refusals(
-        RunFacts(config=config, os_layer=config.os_layer, shell_sessions=True, new_run=True)
+        RunFacts(
+            config=config,
+            os_layer=config.os_layer,
+            shell_sessions=True,
+            new_run=True,
+            run_dir=args.run_dir.resolve(),
+        )
     )
     if refused:
         return _fail("the run may not start", requirements="; ".join(refused))
@@ -1018,7 +1024,9 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     layer = dispatcher.os_layer()
     # Said here; refused by the loop, which records the layer's line first.
     _say_os_layer(layer, config.network, allowed=os_layer_refusal(config, layer) is None)
-    refused = refusals(RunFacts(config=config, os_layer=layer, shell_sessions=True))
+    refused = refusals(
+        RunFacts(config=config, os_layer=layer, shell_sessions=True, run_dir=run_dir)
+    )
     if refused:
         loop.close()
         keeper.close()

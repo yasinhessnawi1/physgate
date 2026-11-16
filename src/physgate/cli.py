@@ -1,11 +1,11 @@
-"""The ``physgate`` command: hooks, orchestrator, observability, instruments, tiers and the UI."""
+"""The ``physgate`` command: hooks, orchestrator, observability, instruments, tiers, gaps, UI."""
 
 from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
 
-from physgate.evaluation import evidence, tierset_cli
+from physgate.evaluation import evidence, gaps_cli, tierset_cli
 from physgate.evaluation import requirements as evaluation_requirements
 from physgate.evaluation.baseline import cli as baseline_cli
 from physgate.evaluation.inject import cli as inject_cli
@@ -61,6 +61,7 @@ def main(
     inject_cli.add_parser(subparsers, registrations)
     per_role_cli.add_parser(subparsers)
     tierset_cli.add_parser(subparsers)
+    gaps_cli.add_parser(subparsers)
     baseline_cli.add_parser(subparsers)
     ui_cli.add_parser(subparsers)
     args = parser.parse_args(argv)

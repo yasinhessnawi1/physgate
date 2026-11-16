@@ -6,6 +6,7 @@
     "compare",
     "cost",
     "decompose",
+    "gaps",
     "gate-events",
     "generalist",
     "hooks",

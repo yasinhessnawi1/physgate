@@ -52,7 +52,12 @@ from typing import Annotated, Literal
 
 from pydantic import Field, StringConstraints, ValidationError, model_validator
 
-from physgate.evaluation.gaps.stats import _gap, _mean_of_first, cluster_bootstrap, wilson
+from physgate.evaluation.gaps.stats import (
+    _mean_of_first,
+    cluster_bootstrap,
+    gap_between,
+    wilson,
+)
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.base import Identifier, _Frozen
 from physgate.evaluation.tiers.task import Role, TaskId, Tier
@@ -644,15 +649,15 @@ def _gaps(design: Design, role: Role, by_suite: Mapping[str, list[TrialRecord]])
         theirs = _of_arm(by_suite[unseen.name], arm)
         a = _per_task(mine, seen.tasks)
         b = _per_task(theirs, unseen.tasks)
-        low, high = cluster_bootstrap(
-            [a, b], _gap, seed=design.seed, label=f"gap:{role}:{arm}", draws=design.draws
+        gap, (low, high) = gap_between(
+            a, b, seed=design.seed, label=f"gap:{role}:{arm}", draws=design.draws
         )
         rows.append(
             [
                 ARM_NAMES[arm],
                 _rate(sum(r.outcome == "pass" for r in mine), len(mine)),
                 _rate(sum(r.outcome == "pass" for r in theirs), len(theirs)),
-                f"{_points(statistics.fmean(a) - statistics.fmean(b))} points",
+                f"{_points(gap)} points",
                 f"{_span(low, high)} points",
             ]
         )

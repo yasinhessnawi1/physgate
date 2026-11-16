@@ -15,7 +15,10 @@ refusal is a fresh baseline under the candidate's pins.
 
 It refuses as well when the two runs were not asked the same thing from the same
 place: another brief, another commit of the target, other session bounds, another
-always-loaded ceiling, another network setting or another held-out tier.
+always-loaded ceiling, another network setting or another held-out tier. And when they were
+measured on different tier versions: the evaluation's record beside each run,
+``evaluation/tiers.json``, names the version and each tier's digest; absent from both, nothing
+is held; present in one only, differing, or not a record, the comparison is refused.
 
 What an ablation changes on purpose is reported beside the numbers, never
 refused: the gate mode and every other flag, the run's kind, the OS layer, the
@@ -34,12 +37,14 @@ provider changing the model behind an unchanged string.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
+from physgate.evaluation.baseline.record import TIERS_RECORD, TiersRecord
 from physgate.evaluation.observe.exceptions import CompareRefusedError, ManifestError
 from physgate.evaluation.observe.manifest import read_run_events
 from physgate.evaluation.observe.trace import read_traces
@@ -175,6 +180,9 @@ class SideBySide(_Frozen):
     candidate: RunNumbers
     #: The reported settings that differ between the two, by field name.
     differs_in: tuple[str, ...]
+    #: What a reader must know before taking the numbers, in words: the tier version both runs
+    #: were measured on has been seen since, or whether it was cannot be told.
+    notes: tuple[str, ...] = ()
 
 
 def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
@@ -205,6 +213,57 @@ def _at(config: RunConfig, path: str) -> Any:  # noqa: ANN401 - each field's own
     for part in path.split("."):
         value = getattr(value, part)
     return value
+
+
+def _tiers(run_dir: Path) -> TiersRecord | None:
+    """The tier version recorded beside the run, ``evaluation/tiers.json``; ``None`` if none.
+
+    Raises:
+        CompareRefusedError: the record is there and is not one, so the version it names cannot
+            be held against the other run's.
+    """
+    path = Path(run_dir) / TIERS_RECORD
+    if not os.path.lexists(path):
+        return None
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as handle:
+            return TiersRecord.model_validate_json(handle.read(1024 * 1024))
+    except (OSError, ValidationError):
+        msg = "a run's tier record is not one, so the version it was measured on is unknown"
+        raise CompareRefusedError(msg, drifted=TIERS_RECORD.as_posix()) from None
+
+
+def _exposed_now(run_dir: Path, config: RunConfig) -> str | None:
+    """In words, when the tier version recorded beside the run is marked exposed now; else ``None``.
+
+    The run was checked as it started; its version may have been seen since. The register is
+    read in the store the run's held-out roots lie in. Nothing is refused here: the comparison
+    stands, with what is known about its tiers said beside it.
+    """
+    from physgate.evaluation.per_role.exceptions import PerRoleError
+    from physgate.evaluation.tiers.exposure import exposed_versions
+    from physgate.evaluation.tiers.store import role_roots
+
+    tiers = _tiers(run_dir)
+    if tiers is None:
+        return None
+    for store, role in role_roots(tuple(config.held_out)):
+        if role != tiers.role:
+            continue
+        try:
+            exposed = exposed_versions(store, role)
+        except PerRoleError:
+            return (
+                f"whether the tier version {tiers.version[:8]} has been seen since cannot be "
+                "told: its register cannot be read whole"
+            )
+        if tiers.version in exposed:
+            return (
+                f"the tier version {tiers.version[:8]} has been exposed since: these numbers are "
+                "no measurement on it"
+            )
+    return None
 
 
 def _config(run_dir: Path) -> RunConfig:
@@ -268,10 +327,18 @@ def compare(baseline: Path, candidate: Path) -> SideBySide:
             "the baseline under the candidate's before comparing"
         )
         raise CompareRefusedError(msg, drifted=",".join(drifted))
+    if _tiers(baseline) != _tiers(candidate):
+        msg = (
+            "the runs were measured on different tier versions, or one names a tier version and "
+            "the other none: they are no comparison"
+        )
+        raise CompareRefusedError(msg, drifted=TIERS_RECORD.as_posix())
     a, b = mine.model_dump(), theirs.model_dump()
     differs: list[Any] = [k for k in REPORTED if a[k] != b[k]]
+    notes = [_exposed_now(baseline, mine), _exposed_now(candidate, theirs)]
     return SideBySide(
         baseline=_numbers(baseline, mine),
         candidate=_numbers(candidate, theirs),
         differs_in=tuple(differs),
+        notes=tuple(dict.fromkeys(n for n in notes if n is not None)),
     )

@@ -152,6 +152,10 @@ class RawSetup:
     #: harness run ended: a baseline round's own directory, where its finished trials and its
     #: records lie. ``held_out`` stays the run's list, held equal to the harness's.
     held_out_also: tuple[str, ...] = ()
+    #: The digests of the harness run's held-out roots, as its record holds them: what names
+    #: the versions this session's stream would expose. Recorded beside the pins, not among
+    #: them; empty where the session is no raw arm of a run.
+    held_out_sha256: tuple[str, ...] = ()
     #: Roots withheld from the session whole, by rule, but for its own place there (the
     #: directory holding its worktree): a blind check's store. A protected trial's root is
     #: added from the run's held-out roots that hold ``held_out_carved``. Whatever is made in
@@ -646,6 +650,9 @@ def run_raw(
         task=task.id,
         answer=_take_answer(work / "worktree", task, kept / "answer" / task.answer.path, made),
         pins=pins(task, setup),
+        # The harness run's held-out digests, which name the versions a canary in this stream
+        # exposes; the run's own record, not a pin the pair is held equal on.
+        held_out_sha256=list(setup.held_out_sha256),
     )
     write_record(kept.parent, kept.name, record, "raw.json")
     return record

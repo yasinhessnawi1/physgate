@@ -118,6 +118,21 @@ describe("the comparison's guard", () => {
     );
   });
 
+  it("takes the notes the comparison says beside its numbers, and none when it says none", () => {
+    const note = "the tier version 0123abcd is marked exposed as the register reads now";
+    const read = (value: unknown): readonly string[] | string => {
+      try {
+        return evidenceComparison(value).notes;
+      } catch (error) {
+        return error instanceof ShapeError ? `refused: ${error.message}` : "raised";
+      }
+    };
+    expect(read({ ...COMPARED, comparison: { ...COMPARED.comparison, notes: [note] } })).toEqual([
+      note,
+    ]);
+    expect(read(COMPARED)).toEqual([]);
+  });
+
   it("refuses a run's numbers with a field missing or one it does not know", () => {
     const { baseline } = COMPARED.comparison;
     for (const numbers of [without(baseline, "sessions"), { ...baseline, held_out: [] }])
