@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import fcntl
 import json
 import os
 import signal
@@ -44,7 +45,6 @@ from baseline_fixtures import (
 from physgate.evaluation.baseline import runner
 from physgate.evaluation.baseline.runner import BASELINE_DIR, PLACE, BaselineError, run_baseline
 from physgate.evaluation.observe.cost import load_price_sheet
-from physgate.evaluation.tiers import store as store_module
 from physgate.evaluation.tiers.store import WORKING, role_root, work_root
 from physgate.evaluation.tiers.task import Task
 from physgate.orchestrator.processes import started_at
@@ -324,7 +324,7 @@ def test_a_volume_on_which_the_lock_cannot_be_taken_refuses_with_the_round_s_rea
     def no_locks(_fd: int, _op: int) -> None:
         raise OSError(errno.ENOLCK, os.strerror(errno.ENOLCK))
 
-    monkeypatch.setattr(store_module.fcntl, "flock", no_locks)
+    monkeypatch.setattr(fcntl, "flock", no_locks)
     outcome = _new_trial(store)
     assert isinstance(outcome, BaselineError), f"not the round's own refusal: {outcome!r}"
     assert outcome.context.get("refused_because") == "work_root_unlockable", outcome.context

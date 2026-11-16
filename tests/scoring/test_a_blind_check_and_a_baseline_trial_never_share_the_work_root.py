@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import errno
+import fcntl
 import json
 import os
 import subprocess
@@ -39,7 +40,6 @@ from physgate.evaluation.baseline import runner
 from physgate.evaluation.baseline.runner import BASELINE_DIR, PLACE, BaselineError
 from physgate.evaluation.per_role import author_session
 from physgate.evaluation.per_role.author_session import blind_check
-from physgate.evaluation.tiers import store as store_module
 from physgate.evaluation.tiers.authoring import AuthoringError
 from physgate.evaluation.tiers.canaries import root_canaries
 from physgate.evaluation.tiers.store import WORKING, role_root, work_root
@@ -219,7 +219,7 @@ def test_a_check_on_a_volume_where_the_lock_cannot_be_taken_is_refused_with_its_
     def no_locks(_fd: int, _op: int) -> None:
         raise OSError(errno.ENOLCK, os.strerror(errno.ENOLCK))
 
-    monkeypatch.setattr(store_module.fcntl, "flock", no_locks)
+    monkeypatch.setattr(fcntl, "flock", no_locks)
     try:
         outcome = _check(tmp_path, version, fake)
     except Exception as exc:  # noqa: BLE001 - the row asserts what it was
