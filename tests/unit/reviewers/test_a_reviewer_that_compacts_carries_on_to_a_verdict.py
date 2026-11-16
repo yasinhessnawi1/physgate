@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import inspect
 import json
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -324,3 +324,40 @@ def test_compaction_on_is_refused_at_the_start_on_a_pin_where_it_was_not_measure
     assert set(claude.claude_reviewers(_setup(tmp_path, "off"))) == {ROLE}
     monkeypatch.setattr(claude, "COMPACTION_MEASURED_PINS", frozenset({VERSION}))
     assert set(claude.claude_reviewers(_setup(tmp_path, "on"))) == {ROLE}
+
+
+#: The pins on which every row the release of compaction needs passed: the measured boundary,
+#: schema, accounting, session-start and resume rows, the accounting rows of a compacting
+#: review, what a compaction carries, and a review that reads its rubric by the note's range.
+MEASURED = ("2.1.301", "2.1.322")
+#: A pinned binary on which a reviewer's compaction was never measured.
+UNMEASURED = "2.1.272"
+
+
+@pytest.mark.parametrize("version", MEASURED)
+def test_compaction_on_starts_on_a_pin_where_it_was_measured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: str
+) -> None:
+    from physgate.orchestrator.exceptions import ReviewerNotRegisteredError
+
+    monkeypatch.setattr(claude, "load_rubric", lambda root, role: SimpleNamespace(role=role))
+    refused: ReviewerNotRegisteredError | None = None
+    try:
+        started = claude.claude_reviewers(replace(_setup(tmp_path, "on"), claude_version=version))
+    except ReviewerNotRegisteredError as exc:
+        refused, started = exc, {}
+    assert refused is None, f"review_compaction: on is refused on {version}, where it was measured"
+    assert set(started) == {ROLE}
+
+
+def test_compaction_on_is_still_refused_on_a_pin_where_it_was_not_measured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.orchestrator.exceptions import ReviewerNotRegisteredError
+
+    monkeypatch.setattr(claude, "load_rubric", lambda root, role: SimpleNamespace(role=role))
+    assert UNMEASURED not in claude.COMPACTION_MEASURED_PINS
+    with pytest.raises(ReviewerNotRegisteredError, match="review_compaction"):
+        claude.claude_reviewers(replace(_setup(tmp_path, "on"), claude_version=UNMEASURED))
+    off = claude.claude_reviewers(replace(_setup(tmp_path, "off"), claude_version=UNMEASURED))
+    assert set(off) == {ROLE}
