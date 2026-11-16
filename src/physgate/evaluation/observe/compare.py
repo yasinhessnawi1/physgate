@@ -19,7 +19,9 @@ always-loaded ceiling, another network setting or another held-out tier. A held-
 compared by the digests each run recorded of its roots (:func:`compared_digests`), less those of
 a tier-set store's withheld and work roots: they hold no task of a version, only what is written
 beside the tiers (the register, the vectors, the gap trend, the baseline rounds' records, the
-blind check's work), so any such write would make two honest runs read as drifted. And when
+blind check's work), so any such write would make two honest runs read as drifted. Whether a
+run named those two roots is compared all the same (:func:`compared_held_out`): a run that did
+not name them did not withhold what lies there from its sessions. And when
 they were measured on different tier versions: the evaluation's record beside each run,
 ``evaluation/tiers.json``, names the version and each tier's digest; absent from both, nothing
 is held; present in one only, differing, or not a record, the comparison is refused.
@@ -83,7 +85,8 @@ DRIFT: tuple[str, ...] = (
     "bounds",
     "token_ceiling",
     "network",
-    # Compared as :func:`compared_digests`: the protected tiers' digests, not every root's.
+    # Compared as :func:`compared_held_out`: the protected tiers' digests, not every root's,
+    # and whether each role root's withheld and work roots were named.
     "held_out_sha256",
 )
 
@@ -191,6 +194,21 @@ class SideBySide(_Frozen):
     notes: tuple[str, ...] = ()
 
 
+def _role_roots_with_tiers(roots: list[PurePath]) -> set[PurePath]:
+    """The role roots, by the spelling recorded, of which ``roots`` names a protected tier."""
+    from physgate.evaluation.tiers.manifest import VERSION_NAME
+    from physgate.evaluation.tiers.store import PROTECTED
+
+    roles = set(get_args(Role))
+    return {
+        root.parent.parent
+        for root in roots
+        if root.name in PROTECTED
+        and VERSION_NAME.fullmatch(root.parent.name) is not None
+        and root.parent.parent.name in roles
+    }
+
+
 def compared_digests(config: RunConfig) -> tuple[str, ...]:
     """The held-out digests ``config`` is compared on, in the order recorded.
 
@@ -205,18 +223,10 @@ def compared_digests(config: RunConfig) -> tuple[str, ...]:
     on disk, so a run recorded before this rule is compared by it as it stands. A run's
     configuration pairs one digest with each root, or it is not one.
     """
-    from physgate.evaluation.tiers.manifest import VERSION_NAME
-    from physgate.evaluation.tiers.store import PROTECTED, WITHHELD, WORK
+    from physgate.evaluation.tiers.store import WITHHELD, WORK
 
     roots = [PurePath(entry) for entry in config.held_out]
-    roles = set(get_args(Role))
-    with_tiers = {
-        root.parent.parent
-        for root in roots
-        if root.name in PROTECTED
-        and VERSION_NAME.fullmatch(root.parent.name) is not None
-        and root.parent.parent.name in roles
-    }
+    with_tiers = _role_roots_with_tiers(roots)
     return tuple(
         digest
         for root, digest in zip(roots, config.held_out_sha256, strict=True)
@@ -224,18 +234,49 @@ def compared_digests(config: RunConfig) -> tuple[str, ...]:
     )
 
 
+def named_beside_tiers(config: RunConfig) -> tuple[tuple[str, bool, bool], ...]:
+    """Whether ``config`` named the withheld and work roots of each role root it names a tier of.
+
+    One ``(role, withheld named, work named)`` for each such role root, sorted. A run that did
+    not name either root did not withhold what lies there (the pool, the authoring and check
+    streams, the blind check's work) from its sessions, so it was not run as one that did, though
+    the two roots' digests are set aside (:func:`compared_digests`). The role root is told by its
+    role, not by where the store lay, as the digests are compared and not the paths.
+    """
+    from physgate.evaluation.tiers.store import WITHHELD, WORK
+
+    roots = [PurePath(entry) for entry in config.held_out]
+    named = set(roots)
+    return tuple(
+        sorted(
+            (role_root.name, role_root / WITHHELD in named, role_root / WORK in named)
+            for role_root in _role_roots_with_tiers(roots)
+        )
+    )
+
+
+def compared_held_out(
+    config: RunConfig,
+) -> tuple[tuple[str, ...], tuple[tuple[str, bool, bool], ...]]:
+    """The held-out roots as two runs are compared on them.
+
+    The digests of :func:`compared_digests`, and :func:`named_beside_tiers`.
+    """
+    return compared_digests(config), named_beside_tiers(config)
+
+
 def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
     """Every field of :data:`DRIFT` the candidate does not share with the baseline, by path.
 
     A set of model strings is compared name by name: a role or a reviewer present in one run
-    only is named like one pinned to another string. The held-out digests are compared as
-    :func:`compared_digests` gives them.
+    only is named like one pinned to another string. The held-out roots are compared as
+    :func:`compared_held_out` gives them.
     """
     drifted = []
     for path in DRIFT:
         mine, theirs = _at(baseline, path), _at(candidate, path)
         if path == "held_out_sha256":
-            mine, theirs = compared_digests(baseline), compared_digests(candidate)
+            mine, theirs = compared_held_out(baseline), compared_held_out(candidate)
         if isinstance(mine, dict) and isinstance(theirs, dict):
             drifted += [
                 f"{path}.{key}"
