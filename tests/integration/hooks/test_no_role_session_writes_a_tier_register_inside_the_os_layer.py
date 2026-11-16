@@ -212,9 +212,9 @@ def test_without_the_layer_the_steps_write_there_which_shows_the_probe_works(
     tmp_path: Path, store: StandInStore
 ) -> None:
     # Each step reaches the logs: the place lists them and the log reads. The scan ran to its
-    # end, the hand mark passed its terminal check and wrote its line, and the direct write
-    # landed; the sentinel could not put back a log no session may read, which is why each
-    # step had a session of its own.
+    # end, the hand mark passed its terminal check and wrote its line, the vector writer read
+    # that line, and the direct write landed; the sentinel could not put back a log no session
+    # may read, which is why each step had a session of its own.
     withheld = _withheld(store)
     before = _contents(withheld)
     told = _each_in_its_own_session(tmp_path, store, layer=False)
@@ -224,5 +224,9 @@ def test_without_the_layer_the_steps_write_there_which_shows_the_probe_works(
         assert _line(text, "read") == "ok", text
     assert "exit 0" in told[0], told
     assert "exit 0" in told[1] and "marked" in told[1], told
+    # The vector writer reads the register before it opens its inputs, so its refusal here is
+    # the version the hand mark (two steps before) marked exposed: it read the register whole.
+    # Inside the layer the same read is what refuses it as missing (Linux).
+    assert STEPS[3] == "gaps vector" and "version_exposed" in told[3], told
     assert "wrote" in told[-1], told
     assert _contents(withheld)["register.jsonl"] != before["register.jsonl"], told
