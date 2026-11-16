@@ -10,9 +10,13 @@ Both are logs that are only ever appended to, and nothing removes a line: no com
 version. Each line carries its place (``n``) and the digest of the line before it (``prev``),
 and a head file beside the log (``<name>.head``) records how many lines the log held after the
 last append and the digest of the last of them. A reader holds the log to both: a line out of
-its place, a broken chain, fewer lines than the head records, or a head with no log (or a log
-with no head) refuses, so a shortened register never reads as one with nothing exposed. A log
-with neither file is empty: a role whose register was never written.
+its place, a broken chain, fewer or more lines than the head records (more: a write cut off
+between the two), or a head with no log (or a log with no head) refuses, so a shortened register
+never reads as one with nothing exposed. Both logs are made empty, with their heads, as a
+version is written (:func:`start_logs`), so once a role holds a version, a log, a head or the
+withheld root that is gone refuses too (``register_missing``): it was removed. Readers take the
+writers' lock shared. **A stated limit:** whoever can write the withheld root can shorten a log
+and write its head again to match; the place is the hold against that.
 
 The register's lines name a version by its id and its protected tiers' digests, and a key that
 is a digest (of the incident's run and offset, or of the record's place): never a task id, a
@@ -20,7 +24,11 @@ brief, a canary or an outcome. A hand mark carries the person who made it and wh
 
 - **exposure:** a ``held_out_read`` incident in the event log of a run under one of the role's
   run roots; a raw-arm record, under the run roots or beneath the withheld root's baseline
-  records, whose ``held_out_seen`` is not false; or a mark made by a person at a terminal. An
+  records, whose ``held_out_seen`` is not false (``null``, nobody looked, on a validation or
+  held-out task found by its brief: an exposure of unknown extent, ``raw_record_unchecked``,
+  shown apart); or a mark made by a person at a terminal. A run made beneath another run is
+  walked to, but not one inside the places the harness makes in a run for its sessions; a link
+  to a directory is not followed, and its root is reported as not read whole. An
   incident names no root, so the run's held-out digests name the versions it marks: every
   version of the role whose validation or held-out tier the run recorded. A run or record that
   names none marks every version of the role.
@@ -47,8 +55,8 @@ import os
 import secrets
 import stat
 import tempfile
-from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -89,6 +97,12 @@ MOST_DEPTH = 8
 MOST_ENTRIES = 200_000
 #: What a hand mark's reason must at least hold: more than one bare word.
 FEWEST_REASON_WORDS = 2
+#: The most characters a hand mark's name or reason holds, each.
+MOST_TEXT = 500
+#: The places the harness makes inside a run directory for its sessions' work and its own
+#: records: a walk does not enter them. A session writes in its worktree and its scratch, so
+#: what lies there is no run of the harness's, and a file planted there is not read as one.
+RUN_PLACES = frozenset({"worktrees", "store", "scratch", "sessions", "decomposition"})
 _PREFIX = 8
 
 Key = Sha256
@@ -112,7 +126,9 @@ class Exposure(_Line):
     version: Sha256
     held_out: Sha256
     validation: Sha256
-    source: Literal["incident", "raw_record", "hand"]
+    #: ``raw_record_unchecked``: a raw session on a validation or held-out task looked for no
+    #: canary, so whether it showed one cannot be told: an exposure of unknown extent.
+    source: Literal["incident", "raw_record", "raw_record_unchecked", "hand"]
     key: Key
     by: Text | None = None
     reason: Text | None = None
@@ -213,17 +229,37 @@ def _read_at(dir_fd: int, name: str, most: int) -> bytes | None:
         os.close(fd)
 
 
-def _lines_of(dir_fd: int, name: str) -> list[bytes]:
+def _has_version(role_root_dir: Path) -> bool:
+    """Whether the role's root holds a version; one that cannot be listed is taken as holding one."""
+    try:
+        return any(VERSION_NAME.fullmatch(n) for n in os.listdir(role_root_dir))
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+
+
+def _missing(name: str) -> ExposureError:
+    msg = (
+        f"the {name} log is gone while the role has a version, and a version is never written "
+        "without it: it was removed, and what it recorded cannot be read"
+    )
+    return _refuse("register_missing", msg)
+
+
+def _lines_of(dir_fd: int, name: str) -> list[bytes] | None:
     """The lines of the log ``name`` under ``dir_fd``, each with its newline, held to its head.
+
+    ``None`` when neither the log nor its head is there.
 
     Raises:
         ExposureError: the log or its head is missing beside the other, unreadable, cut, out of
-            its chain, or holds fewer lines than its head records.
+            its chain, or holds fewer or more lines than its head records.
     """
     data = _read_at(dir_fd, name + LOG_SUFFIX, MOST_LOG_BYTES)
     head_bytes = _read_at(dir_fd, name + HEAD_SUFFIX, MOST_RECORD_BYTES)
     if data is None and head_bytes is None:
-        return []
+        return None
     if data is None or head_bytes is None:
         msg = f"the {name} log and its head are not both there, so lines may have been removed"
         raise _refuse("register_unreadable", msg)
@@ -250,6 +286,13 @@ def _lines_of(dir_fd: int, name: str) -> list[bytes]:
             "lines have been removed"
         )
         raise _refuse("register_unreadable", msg)
+    if len(lines) > head.lines:
+        msg = (
+            f"the {name} log holds {len(lines) - head.lines} line(s) past its head: a write was "
+            "cut off between the log and its head, so whether those lines were meant cannot be "
+            "told; a person compares them with what was being recorded and writes the head again"
+        )
+        raise _refuse("register_unreadable", msg)
     last = _digest(lines[head.lines - 1]) if head.lines else _ZERO
     if last != head.last:
         msg = f"the {name} log's line {head.lines - 1} is not the one its head records"
@@ -258,18 +301,41 @@ def _lines_of(dir_fd: int, name: str) -> list[bytes]:
 
 
 def _read_log(withheld: Path, name: str) -> list[bytes]:
-    """The lines of the log ``name`` in ``withheld``, held to its head; none if neither is there.
+    """The lines of the log ``name`` in ``withheld``, held to its head, under the shared lock.
+
+    A role with no version yet has no log, which reads as empty. Once the role holds a version
+    the log is there (:func:`start_logs`), so a log, a head or a withheld root that is gone
+    refuses: it was removed, never empty.
 
     Raises:
-        ExposureError: as :func:`_lines_of`, or ``withheld`` is a link.
+        ExposureError: as :func:`_lines_of`; ``withheld`` is a link; or the log is gone while the
+            role holds a version.
     """
     fd = _dir_fd(withheld)
     if fd is None:
+        if _has_version(withheld.parent):
+            raise _missing(name)
         return []
     try:
-        return _lines_of(fd, name)
+        try:
+            lock = os.open(
+                name + LOCK_SUFFIX, os.O_RDONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=fd
+            )
+        except OSError as exc:
+            raise _refuse("register_unreadable", f"the {name} lock cannot be taken: {exc}") from exc
+        try:
+            # Shared with every other reader, never with a writer: no log is read half-appended.
+            fcntl.flock(lock, fcntl.LOCK_SH)
+            lines = _lines_of(fd, name)
+        finally:
+            os.close(lock)
     finally:
         os.close(fd)
+    if lines is None:
+        if _has_version(withheld.parent):
+            raise _missing(name)
+        return []
+    return lines
 
 
 #: What the harness puts in every role and baseline session's environment, as its hook
@@ -299,6 +365,61 @@ def _refuse_inside_a_session() -> None:
         raise _refuse("inside_a_session", msg)
 
 
+def _write_head(dir_fd: int, name: str, total: int, last: str) -> None:
+    """Replace the head of the log ``name`` whole: ``total`` lines, the last digesting to ``last``."""
+    head = canonical_json({"format": 1, "lines": total, "last": last})
+    partial = f".{name}{HEAD_SUFFIX}.{secrets.token_hex(8)}"
+    out = os.open(
+        partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd
+    )
+    try:
+        os.write(out, head)
+        os.fsync(out)
+    finally:
+        os.close(out)
+    os.replace(partial, name + HEAD_SUFFIX, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    os.fsync(dir_fd)
+
+
+def start_logs(withheld: Path) -> None:
+    """Make the role's two logs, empty with their heads, where neither file of a pair is there.
+
+    Called as a version is written, before it is there, so a role never holds a version without
+    its logs, and a log removed later refuses every reader and writer (:func:`_read_log`). A
+    pair that is there is left as it is; one file of a pair alone refuses.
+
+    Raises:
+        ExposureError: ``withheld`` is missing or a link, or a pair refuses as read.
+    """
+    fd = _dir_fd(withheld)
+    if fd is None:
+        msg = f"{withheld} is not there; the role's root is made with it"
+        raise _refuse("register_unreadable", msg)
+    try:
+        for name in (REGISTER, RUN_ROOTS):
+            lock = os.open(
+                name + LOCK_SUFFIX, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=fd
+            )
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                if _lines_of(fd, name) is not None:
+                    continue
+                log = os.open(
+                    name + LOG_SUFFIX,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=fd,
+                )
+                os.close(log)
+                _write_head(fd, name, 0, _ZERO)
+            finally:
+                os.close(lock)
+    except OSError as exc:
+        raise _refuse("register_unreadable", f"the logs cannot be made: {exc}") from exc
+    finally:
+        os.close(fd)
+
+
 def _append(withheld: Path, name: str, payloads: Sequence[Mapping[str, Any]]) -> int:
     """Append ``payloads`` to the log ``name`` in ``withheld``, chained, and move its head.
 
@@ -318,7 +439,11 @@ def _append(withheld: Path, name: str, payloads: Sequence[Mapping[str, Any]]) ->
         lock = os.open(name + LOCK_SUFFIX, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=fd)
         try:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            lines = _lines_of(fd, name)
+            found = _lines_of(fd, name)
+            if found is None and _has_version(withheld.parent):
+                # Removed: a new log here would read as one with nothing recorded.
+                raise _missing(name)
+            lines = found or []
             prev = _digest(lines[-1]) if lines else _ZERO
             written: list[bytes] = []
             for at, payload in enumerate(payloads, start=len(lines)):
@@ -326,32 +451,22 @@ def _append(withheld: Path, name: str, payloads: Sequence[Mapping[str, Any]]) ->
                 line = canonical_json({**payload, "n": at, "prev": prev})
                 written.append(line)
                 prev = _digest(line)
-            if written:
-                log = os.open(
-                    name + LOG_SUFFIX,
-                    os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW,
-                    0o600,
-                    dir_fd=fd,
-                )
-                try:
-                    os.write(log, b"".join(written))
-                    os.fsync(log)
-                finally:
-                    os.close(log)
+            # The log is made with its first head, even with nothing in it: a head never stands
+            # without its log.
+            log = os.open(
+                name + LOG_SUFFIX,
+                os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=fd,
+            )
+            try:
+                os.write(log, b"".join(written))
+                os.fsync(log)
+            finally:
+                os.close(log)
             total = len(lines) + len(written)
-            if written or not lines:
-                head = canonical_json({"format": 1, "lines": total, "last": prev})
-                partial = f".{name}{HEAD_SUFFIX}.{secrets.token_hex(8)}"
-                out = os.open(
-                    partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd
-                )
-                try:
-                    os.write(out, head)
-                    os.fsync(out)
-                finally:
-                    os.close(out)
-                os.replace(partial, name + HEAD_SUFFIX, src_dir_fd=fd, dst_dir_fd=fd)
-                os.fsync(fd)
+            if written or found is None:
+                _write_head(fd, name, total, prev)
             return total
         finally:
             os.close(lock)
@@ -423,48 +538,72 @@ class Finding:
     """An exposure found in a run root or the withheld root's records, recorded or not."""
 
     key: str
-    source: Literal["incident", "raw_record"]
+    source: Literal["incident", "raw_record", "raw_record_unchecked"]
     versions: frozenset[str]
 
 
-def _walk(root: Path, out_runs: list[Path], out_records: list[Path], seen: list[int]) -> None:
+@dataclass
+class _Walk:
+    """What a walk of the roots found, and what of them it could not read."""
+
+    runs: list[Path]
+    records: list[Path]
+    seen: int = 0
+    #: Roots holding a link to a directory, which is not followed: not read whole.
+    unread: list[Path] = field(default_factory=list)
+    #: Roots that are not there.
+    missing: list[Path] = field(default_factory=list)
+
+
+def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
     """Every run directory and raw record beneath ``root``, no link followed, bounded.
 
-    A directory holding a run's configuration is a run, and is not entered further: what its
-    sessions left in their worktrees is no run of the harness's.
+    A run directory is walked on below, for a run made beneath it, but not into the places the
+    harness makes in it for its sessions' work (:data:`RUN_PLACES`). A link to a directory is
+    not followed, and ``root`` is recorded as not read whole; a ``required`` root that is not
+    there is recorded as missing, never read as empty.
 
     Raises:
         ExposureError: the walk goes past its bounds, or a directory cannot be listed.
     """
     stack = [(root, 0)]
+    unread = False
     while stack:
         here, depth = stack.pop()
         try:
             with os.scandir(here) as entries:
                 listed = list(entries)
         except FileNotFoundError:
+            if here == root and required:
+                walk.missing.append(root)
             continue
         except OSError as exc:
             msg = f"{here} cannot be listed, so a run in it cannot be ruled out"
             raise _refuse("register_unreadable", msg) from exc
-        seen[0] += len(listed)
-        if seen[0] > MOST_ENTRIES:
+        walk.seen += len(listed)
+        if walk.seen > MOST_ENTRIES:
             msg = f"the run roots hold more than {MOST_ENTRIES} entries"
             raise _refuse("register_unreadable", msg)
         names = {e.name: e for e in listed}
         run = names.get(RUN_RECORD)
-        if run is not None and run.is_file(follow_symlinks=False):
-            out_runs.append(here)
-            continue
+        is_run = run is not None and run.is_file(follow_symlinks=False)
+        if is_run:
+            walk.runs.append(here)
         record = names.get(RAW_RECORD)
-        if record is not None and not record.is_dir(follow_symlinks=False):
-            out_records.append(here / RAW_RECORD)
+        if not is_run and record is not None and not record.is_dir(follow_symlinks=False):
+            walk.records.append(here / RAW_RECORD)
         for entry in listed:
-            if entry.is_dir(follow_symlinks=False):
-                if depth + 1 > MOST_DEPTH:
-                    msg = f"the run roots hold directories deeper than {MOST_DEPTH}"
-                    raise _refuse("register_unreadable", msg)
-                stack.append((Path(entry.path), depth + 1))
+            if entry.is_symlink():
+                unread = unread or entry.is_dir(follow_symlinks=True)
+                continue
+            if not entry.is_dir(follow_symlinks=False) or (is_run and entry.name in RUN_PLACES):
+                continue
+            if depth + 1 > MOST_DEPTH:
+                msg = f"the run roots hold directories deeper than {MOST_DEPTH}"
+                raise _refuse("register_unreadable", msg)
+            stack.append((Path(entry.path), depth + 1))
+    if unread:
+        walk.unread.append(root)
 
 
 def _named_by(digests: Iterable[str], known: Mapping[str, TierSet]) -> frozenset[str]:
@@ -494,7 +633,56 @@ def _run_findings(run: Path, known: Mapping[str, TierSet]) -> list[Finding]:
     ]
 
 
-def _record_finding(path: Path, known: Mapping[str, TierSet]) -> Finding | None:
+def _protected_briefs(store: Path, role: Role) -> dict[str, frozenset[str]]:
+    """Each brief digest of a validation or held-out task of the role, and the versions holding it.
+
+    Raises:
+        ExposureError: a task of a version cannot be read; only its tier is said.
+    """
+    root = role_root(store, role)
+    try:
+        names = sorted(n for n in os.listdir(root) if VERSION_NAME.fullmatch(n))
+    except OSError as exc:
+        raise _refuse("version_unknown", f"the role's root cannot be listed: {exc}") from exc
+    found: dict[str, set[str]] = {}
+    for name in names:
+        for tier in PROTECTED:
+            here = root / name / tier
+            try:
+                entries = sorted(p for p in here.iterdir() if p.is_dir() and not p.is_symlink())
+                for entry in entries:
+                    brief = parse_task((entry / "task.json").read_bytes()).brief
+                    found.setdefault(_digest(brief.encode()), set()).add(name)
+            except (OSError, PerRoleError) as exc:
+                # The error may name the task; only the tier is said.
+                msg = f"a task of the {tier} tier of {name[:_PREFIX]} cannot be read"
+                raise _refuse("version_unknown", msg) from exc
+    return {brief: frozenset(versions) for brief, versions in found.items()}
+
+
+def _unchecked(
+    record: Mapping[str, Any],
+    named: Sequence[str],
+    known: Mapping[str, TierSet],
+    briefs: Callable[[], Mapping[str, frozenset[str]]],
+) -> frozenset[str]:
+    """The versions a raw record that looked for no canary may have exposed; none for a visible task.
+
+    Only a validation or held-out task has a canary, so only a session on one can show one. The
+    task is found by the brief digest the record pins; a record pinning none could be on any.
+    """
+    pins = record.get("pins")
+    brief = pins.get("brief_sha256") if isinstance(pins, dict) else None
+    if not isinstance(brief, str):
+        return _named_by(named, known)
+    return briefs().get(brief, frozenset())
+
+
+def _record_finding(
+    path: Path,
+    known: Mapping[str, TierSet],
+    briefs: Callable[[], Mapping[str, frozenset[str]]],
+) -> Finding | None:
     fd = _dir_fd(path.parent)
     if fd is None:
         return None
@@ -510,36 +698,66 @@ def _record_finding(path: Path, known: Mapping[str, TierSet]) -> Finding | None:
         raise _refuse("register_unreadable", "a raw record cannot be read") from exc
     if not isinstance(record, dict):
         raise _refuse("register_unreadable", "a raw record is not a record")
-    # Only a record that says no canary showed, or that none was looked for, is no exposure:
-    # one that says nothing, or anything else, is read as one.
+    # Only a record that says no canary showed is no exposure. One that looked for none is an
+    # exposure of unknown extent where its task is a validation or held-out one; one that says
+    # nothing, or anything else, is read as an exposure.
     seen = record.get("held_out_seen", _MISSING)
-    if seen is False or seen is None:
+    if seen is False:
         return None
     digests = record.get("held_out_sha256")
     named = [d for d in digests if isinstance(d, str)] if isinstance(digests, list) else []
-    return Finding(_digest(f"raw\0{path}".encode()), "raw_record", _named_by(named, known))
+    key = _digest(f"raw\0{path}".encode())
+    if seen is None:
+        marked = _unchecked(record, named, known, briefs)
+        return Finding(key, "raw_record_unchecked", marked) if marked else None
+    return Finding(key, "raw_record", _named_by(named, known))
+
+
+@dataclass(frozen=True)
+class Survey:
+    """What the roots hold now: the exposures, and the roots not there or not read whole."""
+
+    findings: tuple[Finding, ...]
+    missing: tuple[Path, ...]
+    unread: tuple[Path, ...]
+
+
+def survey(store: Path, role: Role, roots: Sequence[Path]) -> Survey:
+    """Every exposure beneath ``roots`` and the role's withheld baseline records, now.
+
+    Raises:
+        ExposureError: a version, a run or a record cannot be read whole, or the walk goes past
+            its bounds.
+    """
+    known = versions(store, role)
+    walk = _Walk(runs=[], records=[])
+    for root in roots:
+        _walk(root, walk, required=True)
+    _walk(withheld_root(store, role) / BASELINE_RECORDS, walk, required=False)
+    cache: list[Mapping[str, frozenset[str]]] = []
+
+    def briefs() -> Mapping[str, frozenset[str]]:
+        if not cache:
+            cache.append(_protected_briefs(store, role))
+        return cache[0]
+
+    found: list[Finding] = []
+    for run in sorted(set(walk.runs)):
+        found += _run_findings(run, known)
+    for record in sorted(set(walk.records)):
+        finding = _record_finding(record, known, briefs)
+        if finding is not None:
+            found.append(finding)
+    return Survey(tuple(found), tuple(walk.missing), tuple(walk.unread))
 
 
 def _findings(store: Path, role: Role, roots: Sequence[Path]) -> list[Finding]:
     """Every exposure beneath ``roots`` and the role's withheld baseline records, now.
 
     Raises:
-        ExposureError: a root, a version, a run or a record cannot be read whole.
+        ExposureError: as :func:`survey`.
     """
-    known = versions(store, role)
-    runs: list[Path] = []
-    records: list[Path] = []
-    seen = [0]
-    for root in [*roots, withheld_root(store, role) / BASELINE_RECORDS]:
-        _walk(root, runs, records, seen)
-    found: list[Finding] = []
-    for run in sorted(set(runs)):
-        found += _run_findings(run, known)
-    for record in sorted(set(records)):
-        finding = _record_finding(record, known)
-        if finding is not None:
-            found.append(finding)
-    return found
+    return list(survey(store, role, roots).findings)
 
 
 def found_exposures(store: Path, role: Role) -> list[Finding]:
@@ -551,16 +769,33 @@ def found_exposures(store: Path, role: Role) -> list[Finding]:
     return _findings(store, role, run_roots(store, role))
 
 
-def exposed_versions(store: Path, role: Role) -> frozenset[str]:
-    """Every version of the role the register marks exposed, as freshly scanned; it writes nothing.
+def exposure_sources(store: Path, role: Role) -> dict[str, frozenset[str]]:
+    """Each version the register marks exposed, as freshly scanned, and by what; it writes nothing.
+
+    A source of ``raw_record_unchecked`` alone is an exposure of unknown extent: nobody looked.
 
     Raises:
         ExposureError: the register, the run roots or what they hold cannot be read whole.
     """
-    recorded = {line.version for line in register_lines(store, role) if line.kind == "exposure"}
+    found: dict[str, set[str]] = {}
+    for line in register_lines(store, role):
+        if line.kind == "exposure":
+            found.setdefault(line.version, set()).add(line.source)
     for finding in found_exposures(store, role):
-        recorded |= finding.versions
-    return frozenset(recorded)
+        for version in finding.versions:
+            found.setdefault(version, set()).add(finding.source)
+    return {version: frozenset(sources) for version, sources in found.items()}
+
+
+def exposed_versions(store: Path, role: Role) -> frozenset[str]:
+    """Every version of the role the register marks exposed, as freshly scanned; it writes nothing.
+
+    An exposure of unknown extent is one: a version nobody can say was not seen is not measured.
+
+    Raises:
+        ExposureError: the register, the run roots or what they hold cannot be read whole.
+    """
+    return frozenset(exposure_sources(store, role))
 
 
 def _version_fields(manifest: TierSet) -> dict[str, str]:
@@ -571,8 +806,22 @@ def _version_fields(manifest: TierSet) -> dict[str, str]:
     }
 
 
-def record_scan(store: Path, role: Role) -> tuple[int, int]:
-    """Append one exposure line per finding and version not yet recorded; (added, already).
+@dataclass(frozen=True)
+class ScanReport:
+    """What a scan recorded, and the roots it could not read whole or found gone."""
+
+    added: int
+    already: int
+    missing: tuple[Path, ...]
+    unread: tuple[Path, ...]
+
+
+def scan_exposures(store: Path, role: Role, roots: Sequence[Path] | None = None) -> ScanReport:
+    """Append one exposure line per finding and version not yet recorded.
+
+    ``roots``, when given, are scanned in place of the run-roots log, which is not read: so the
+    exposures in a role's runs can be recorded before a broken log is replaced. A root that is
+    gone, or that holds a link to a directory, is reported, never read as empty or whole.
 
     Raises:
         ExposureError: the scan or the append refuses.
@@ -582,7 +831,8 @@ def record_scan(store: Path, role: Role) -> tuple[int, int]:
     recorded = {(line.key, line.version) for line in lines if line.kind == "exposure"}
     new: list[dict[str, Any]] = []
     already = 0
-    for finding in found_exposures(store, role):
+    surveyed = survey(store, role, run_roots(store, role) if roots is None else roots)
+    for finding in surveyed.findings:
         for version in sorted(finding.versions):
             if (finding.key, version) in recorded:
                 already += 1
@@ -597,7 +847,17 @@ def record_scan(store: Path, role: Role) -> tuple[int, int]:
                 }
             )
     _append(withheld_root(store, role), REGISTER, new)
-    return len(new), already
+    return ScanReport(len(new), already, surveyed.missing, surveyed.unread)
+
+
+def record_scan(store: Path, role: Role) -> tuple[int, int]:
+    """Scan the role's run roots and record what is new (:func:`scan_exposures`); (added, already).
+
+    Raises:
+        ExposureError: the scan or the append refuses.
+    """
+    report = scan_exposures(store, role)
+    return report.added, report.already
 
 
 def _today() -> str:
@@ -613,6 +873,9 @@ def mark_exposed(store: Path, role: Role, version: str, *, by: str, reason: str)
     """
     if not by.strip():
         raise _refuse("hand_mark_names_no_one", "a hand mark names the person who makes it")
+    if len(by.strip()) > MOST_TEXT or len(reason.strip()) > MOST_TEXT:
+        msg = f"a hand mark's name and its reason are each at most {MOST_TEXT} characters"
+        raise _refuse("hand_mark_too_long", msg)
     if len(reason.split()) < FEWEST_REASON_WORDS:
         raise _refuse("hand_mark_without_a_reason", "a hand mark says why, in more than a word")
     known = versions(store, role)
@@ -630,7 +893,12 @@ def mark_exposed(store: Path, role: Role, version: str, *, by: str, reason: str)
         "date": date,
         **_version_fields(known[version]),
     }
-    Exposure.model_validate({**payload, "n": 0, "prev": _ZERO})
+    try:
+        Exposure.model_validate({**payload, "n": 0, "prev": _ZERO})
+    except ValidationError as exc:
+        # What was given is not repeated: only that it is not a line the register holds.
+        msg = "the hand mark is not a line the register holds"
+        raise _refuse("hand_mark_not_a_line", msg) from exc
     _append(withheld_root(store, role), REGISTER, [payload])
 
 
@@ -661,11 +929,17 @@ def add_run_root(store: Path, role: Role, root: Path) -> bool:
     if real in roots:
         return False
     try:
-        _findings(store, role, [*roots, real])
+        surveyed = survey(store, role, [*roots, real])
     except ExposureError as exc:
         why = exc.context.get("refused_because", "register_unreadable")
         msg = f"with {root} among the run roots every scan would refuse ({why}): {exc}"
         raise _refuse("run_root_would_refuse_the_scan", msg) from exc
+    if real in surveyed.unread:
+        msg = (
+            f"{root} holds a link to a directory, which a scan does not follow, so a run behind it "
+            "would never be read"
+        )
+        raise _refuse("run_root_not_fully_read", msg)
     _append(withheld_root(store, role), RUN_ROOTS, [{"kind": "run_root", "path": str(real)}])
     return True
 
@@ -750,6 +1024,19 @@ def _scan_refusal(
     return None
 
 
+def _inside_a_run(run_dir: Path, roots: Sequence[Path]) -> bool:
+    """Whether a directory between ``run_dir`` and the run root it lies beneath holds a run."""
+    for root in roots:
+        if not run_dir.is_relative_to(root):
+            continue
+        for parent in run_dir.parents:
+            if parent == root or not parent.is_relative_to(root):
+                break
+            if (parent / RUN_RECORD).is_file():
+                return True
+    return False
+
+
 def version_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str] | None:
     """Why a measured run with held-out roots may not start or go on: a reason and its words.
 
@@ -823,6 +1110,11 @@ def _version_refusal(config: RunConfig, run_dir: Path | None) -> tuple[str, str]
         return "run_outside_run_roots", (
             "the run's directory lies beneath none of the role's run roots, where the register "
             "finds every run"
+        )
+    if _inside_a_run(run_dir.resolve(), roots):
+        return "run_inside_a_run", (
+            "the run's directory lies inside another run's directory, where a scan may not reach "
+            "it; a measured run is made beside the others"
         )
     named = {
         tier: entry

@@ -179,6 +179,9 @@ class SideBySide(_Frozen):
     candidate: RunNumbers
     #: The reported settings that differ between the two, by field name.
     differs_in: tuple[str, ...]
+    #: What a reader must know before taking the numbers, in words: the tier version both runs
+    #: were measured on has been seen since, or whether it was cannot be told.
+    notes: tuple[str, ...] = ()
 
 
 def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
@@ -228,6 +231,38 @@ def _tiers(run_dir: Path) -> TiersRecord | None:
     except (OSError, ValidationError):
         msg = "a run's tier record is not one, so the version it was measured on is unknown"
         raise CompareRefusedError(msg, drifted=TIERS_RECORD.as_posix()) from None
+
+
+def _exposed_now(run_dir: Path, config: RunConfig) -> str | None:
+    """In words, when the tier version recorded beside the run is marked exposed now; else ``None``.
+
+    The run was checked as it started; its version may have been seen since. The register is
+    read in the store the run's held-out roots lie in. Nothing is refused here: the comparison
+    stands, with what is known about its tiers said beside it.
+    """
+    from physgate.evaluation.per_role.exceptions import PerRoleError
+    from physgate.evaluation.tiers.exposure import exposed_versions
+    from physgate.evaluation.tiers.store import role_roots
+
+    tiers = _tiers(run_dir)
+    if tiers is None:
+        return None
+    for store, role in role_roots(tuple(config.held_out)):
+        if role != tiers.role:
+            continue
+        try:
+            exposed = exposed_versions(store, role)
+        except PerRoleError:
+            return (
+                f"whether the tier version {tiers.version[:8]} has been seen since cannot be "
+                "told: its register cannot be read whole"
+            )
+        if tiers.version in exposed:
+            return (
+                f"the tier version {tiers.version[:8]} has been exposed since: these numbers are "
+                "no measurement on it"
+            )
+    return None
 
 
 def _config(run_dir: Path) -> RunConfig:
@@ -299,8 +334,10 @@ def compare(baseline: Path, candidate: Path) -> SideBySide:
         raise CompareRefusedError(msg, drifted=TIERS_RECORD.as_posix())
     a, b = mine.model_dump(), theirs.model_dump()
     differs: list[Any] = [k for k in REPORTED if a[k] != b[k]]
+    notes = [_exposed_now(baseline, mine), _exposed_now(candidate, theirs)]
     return SideBySide(
         baseline=_numbers(baseline, mine),
         candidate=_numbers(candidate, theirs),
         differs_in=tuple(differs),
+        notes=tuple(dict.fromkeys(n for n in notes if n is not None)),
     )

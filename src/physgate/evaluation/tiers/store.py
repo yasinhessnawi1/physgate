@@ -634,8 +634,15 @@ def write_version(
         AuthoringError: the split refuses, the version exists (``version_exists``), a spent
             pool is left (``pool_left``), or what was written cannot be removed or renamed
             (loudly, naming what to remove by hand).
+        ExposureError: the role's register or run roots cannot be made, or refuse as read.
     """
+    # The exposure register reads this module; it is reached when a version is written.
+    from physgate.evaluation.tiers.exposure import start_logs
+
     make_role_root(root)
+    # Before the version is there: a role never holds a version without its two logs, so a log
+    # removed later is told from one never written.
+    start_logs(root / WITHHELD)
     temporary = root / f"{TEMPORARY}{secrets.token_hex(8)}"
     os.mkdir(temporary, 0o700)
     try:

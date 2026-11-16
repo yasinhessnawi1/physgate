@@ -25,8 +25,11 @@ off: every run on the role withholds that root, so its hooks refuse a command na
 its OS layer denies a write beneath it, whatever started the write. Each writer also refuses
 inside a harness session's environment, as defence in depth only.
 
-- ``physgate tiers scan-exposures --withheld W`` records every exposure the role's run roots
-  hold that the register does not, and prints the counts added and already recorded.
+- ``physgate tiers scan-exposures --withheld W [--roots DIR ...]`` records every exposure the
+  role's run roots (or the ``--roots`` given, read in place of a run-roots log that may be
+  broken) hold that the register does not, and prints the counts added and already recorded. A
+  root that is gone, or that holds a link to a directory (not followed), is named and said in
+  words, and the command exits 1.
 - ``physgate tiers mark-exposed --withheld W --version V --by NAME --reason TEXT`` marks a
   version exposed by hand, for a read no hook sees: a person's. As a second measure for that
   person, it asks for a terminal (``not_at_a_terminal``) and a name; neither is what stops a
@@ -67,6 +70,8 @@ def add_parser(subparsers: Any) -> None:
             sub.add_argument("--reason", required=True)
         elif name == "add-run-root":
             sub.add_argument("--path", type=Path, required=True)
+        else:
+            sub.add_argument("--roots", type=Path, nargs="+")
         sub.set_defaults(func=_write)
 
 
@@ -78,7 +83,7 @@ def status(store: Path) -> dict[str, Any]:
         ExposureError: a role's register, its run roots or what they hold cannot be read whole.
     """
     from physgate.evaluation.tiers.authoring import TIERS
-    from physgate.evaluation.tiers.exposure import ExposureError, exposed_versions
+    from physgate.evaluation.tiers.exposure import ExposureError, exposure_sources
     from physgate.evaluation.tiers.manifest import VERSION_NAME, TierSetError, read_version
     from physgate.evaluation.tiers.manifest import staleness as stale
     from physgate.evaluation.tiers.store import leftovers, role_root
@@ -93,11 +98,12 @@ def status(store: Path) -> dict[str, Any]:
             else []
         )
         unread: str | None = None
+        exposed: dict[str, frozenset[str]] = {}
         try:
-            exposed = exposed_versions(store, role) if names else frozenset()
+            exposed = exposure_sources(store, role) if names else {}
         except ExposureError as exc:
             # Whether any version of the role was seen cannot be told: none reads as fresh.
-            exposed, unread = frozenset(), exc.context.get("refused_because", "register_unreadable")
+            unread = exc.context.get("refused_because", "register_unreadable")
         for name in names:
             why = unread
             try:
@@ -113,7 +119,9 @@ def status(store: Path) -> dict[str, Any]:
             stale_tiers, because = list(found.tiers), list(found.because)
             if name in exposed:
                 stale_tiers = sorted({*stale_tiers, "held_out"})
-                because.append("exposed")
+                # Nobody looked, apart from a confirmed read: both keep the version unmeasured.
+                unchecked = exposed[name] == {"raw_record_unchecked"}
+                because.append("exposed_unchecked" if unchecked else "exposed")
             versions.append(
                 {
                     "role": role,
@@ -166,8 +174,21 @@ def _write(args: argparse.Namespace) -> int:
     args.role = role
     try:
         if args.tiers_command == "scan-exposures":
-            added, already = exposure.record_scan(store, args.role)
-            said = {"added": added, "already": already}
+            roots = None if args.roots is None else [p.resolve() for p in args.roots]
+            report = exposure.scan_exposures(store, args.role, roots)
+            said = {
+                "added": report.added,
+                "already": report.already,
+                "missing_roots": [str(p) for p in report.missing],
+                "not_fully_read": [str(p) for p in report.unread],
+            }
+            if report.missing or report.unread:
+                said["warning"] = (
+                    "a run root is gone or holds a link to a directory the scan does not "
+                    "follow: the runs there were not read, and their exposures are not recorded"
+                )
+                print(json.dumps(said, sort_keys=True))
+                return 1
         elif args.tiers_command == "mark-exposed":
             # A second measure for a person, never what stops a session (which can make a
             # terminal of its own): the place does, beneath a root every run withholds.

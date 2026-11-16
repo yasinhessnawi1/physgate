@@ -8,7 +8,8 @@ which a person writes and keeps anywhere, holds no held-out or validation id.
 
 **Everything is refused before any session starts** (:func:`plan`), and before any
 credential is read: a store a split or a session's work has not left clean; a version that
-is not what its manifest says, or two of whose tasks share a brief; an entry whose run no
+is not what its manifest says, or two of whose tasks share a brief, or that the register, read
+now, marks exposed (a run may have seen it since the harness runs started); an entry whose run no
 task of the version was given, that is listed twice, whose run recorded another endpoint
 than the operator's (the record's endpoint is compared, never a destination for the
 credential), whose run does not withhold the protected places of every role's root in the
@@ -361,6 +362,7 @@ def plan(
         directory = version_dir(store, role, version)
         source = read_version(directory)
         tasks = _tasks(directory)
+        _require_unexposed(store, role, version)
     else:
         assert external is not None  # one of the two, checked above
         source, tasks = _external_tasks(store, role, external)
@@ -420,6 +422,31 @@ def plan(
         binary_seen = config.binary
         planned.append(Planned(index, entry, config, task, tier, cap))
     return source, planned
+
+
+def _require_unexposed(store: Path, role: Role, version: str) -> None:
+    """Refuse a round on a version the register, read now, marks exposed.
+
+    Its harness runs were checked as each started; one may have been seen since (another run's
+    held-out read), and a round held to it would count it.
+
+    Raises:
+        BaselineError: the version is exposed, or the register cannot be read whole.
+    """
+    from physgate.evaluation.tiers.exposure import exposed_versions
+
+    try:
+        exposed = exposed_versions(store, role)
+    except PerRoleError as exc:
+        reason = exc.context.get("refused_because", "register_unreadable")
+        msg = "the register cannot be read whole, so whether the version was seen cannot be told"
+        raise BaselineError(msg, refused_because=reason) from None
+    if version in exposed:
+        msg = (
+            f"the version {version[:8]} has been seen since its harness runs started; no round "
+            "is held to it until a new version is generated"
+        )
+        raise BaselineError(msg, refused_because="version_exposed")
 
 
 def _listed(store: Path) -> set[str]:
