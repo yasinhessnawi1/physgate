@@ -63,14 +63,20 @@ def _withheld(store: StandInStore) -> Path:
 
 
 def _each_in_its_own_session(tmp_path: Path, store: StandInStore, *, layer: bool) -> list[str]:
-    """What each step said, every step run in a fresh session of its own."""
+    """What each step said, every step run in a fresh session of its own.
+
+    A call follows each step: where the step wrote what the sentinel cannot put back, the
+    session's end is refused too, and the binary's next request, with that refusal, then
+    stands in for the last call's result, not for the step's.
+    """
     (tmp_path / "runs").mkdir(exist_ok=True)
+    after = tool("Bash", command="true", description="after the step")
     said: list[str] = []
     for n, step in enumerate(_steps(tmp_path, store.version)):
         with make_layout(tmp_path / f"session{n}") as made:
-            run = run_session(replace(made, held=_withheld(store)), [step], layer=layer)
+            run = run_session(replace(made, held=_withheld(store)), [step, after], layer=layer)
         told = run["told"]
-        assert isinstance(told, list) and len(told) == 1, told
+        assert isinstance(told, list) and len(told) == 2, told
         said.append(str(told[0]))
     return said
 
