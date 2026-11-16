@@ -139,52 +139,81 @@ export const APART_WORDS: Readonly<Record<ApartGroup, { title: string; none: str
   },
 };
 
+/** How a cost line was priced, in words. */
+const BASIS_WORDS: Readonly<Record<string, string>> = {
+  list_price: "At list price",
+  list_price_estimate: "A list-price estimate",
+};
+
 /** The cost line's basis and sheet: "A list-price estimate, at the price sheet of 2026-11-01." */
 export function basisWords(basis: string, date: string): string {
-  void basis;
-  void date;
-  return "";
+  return `${BASIS_WORDS[basis] ?? basis}, at the price sheet of ${date}.`;
 }
 
 /** The sheet the spend is priced at, named. */
 export function pricedAtWords(date: string): string {
-  void date;
-  return "";
+  return `Priced at the price sheet of ${date}, the newest the server holds.`;
 }
 
 /** What could not be read of a run, in a sentence: its record and the reader's own words. */
 export function unreadWords(row: UnreadRun): string {
-  void row;
-  return "";
+  const where = row.offset === null ? "" : ` at offset ${row.offset}`;
+  const reason = row.reason === null ? "" : ` (${row.reason})`;
+  return `Its ${row.record} could not be read${where}: ${row.error}${reason}.`;
 }
 
 /** The title of a refused spend. */
 export function spendRefusedWords(name: string): string {
-  void name;
-  return "";
+  return `The spend of ${name} could not be read`;
 }
 
 /** A count out of another: "1 of 2". */
 export function kOfN(k: number, n: number): string {
-  void k;
-  void n;
-  return "";
+  return `${String(k)} of ${String(n)}`;
 }
+
+/** The settings a comparison is refused over, in words. */
+const DRIFT_WORDS: Readonly<Record<string, string>> = {
+  "models.decomposition": "The model that plans the subtasks",
+  effort: "The effort setting",
+  max_output_tokens: "The output token limit",
+  thinking_display: "How thinking is shown",
+  role_python: "The Python the roles run",
+  claude_version: "The session binary's version",
+  binary: "The session binary",
+  git_binary: "The Git binary",
+  endpoint: "The endpoint",
+  brief_sha256: "The brief",
+  target_head: "The target repository's starting commit",
+  bounds: "The bounds table",
+  token_ceiling: "The token ceiling",
+  network: "The network the sessions may reach",
+  held_out_sha256: "the tasks each run withheld differ",
+};
 
 /** A drifted setting in words; a role's or a reviewer's model names its role. */
 export function driftWords(path: string): string {
-  void path;
-  return "";
+  const known = DRIFT_WORDS[path];
+  if (known !== undefined) return known;
+  const role = /^models\.roles\.(.+)$/.exec(path)?.[1];
+  if (role !== undefined) return `The model the ${role} role runs on`;
+  const reviewer = /^models\.reviewers\.(.+)$/.exec(path)?.[1];
+  if (reviewer !== undefined) return `The model the ${reviewer} reviewer runs on`;
+  return path;
 }
 
 /** A recorded setting's name, leading: `max_output_tokens` reads "Max output tokens". */
 export function settingLabel(path: string): string {
-  void path;
-  return "";
+  const words = path
+    .split(/[._]/)
+    .filter((part) => part !== "")
+    .join(" ");
+  return words === "" ? path : `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
 }
 
 /** A recorded value as written: a string as it is, anything else as its JSON. */
 export function valueWords(value: unknown): string {
-  void value;
-  return "";
+  if (value === null || value === undefined) return EVIDENCE_COPY.notRecorded;
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
 }
