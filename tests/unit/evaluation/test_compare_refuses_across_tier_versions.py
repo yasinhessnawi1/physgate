@@ -144,17 +144,33 @@ def test_runs_whose_protected_tier_digest_differs_are_refused_as_drifted(
         assert "held_out_sha256" in refusal.value.context["drifted"].split(",")
 
 
-@pytest.mark.parametrize("beside", ["no protected tier", "another role's tiers"])
+@pytest.mark.parametrize(
+    "beside",
+    [
+        "no protected tier",
+        "another role's tiers",
+        "a root not named as a role",
+        "a tier of no version",
+        "a visible tier",
+    ],
+)
 def test_a_root_named_withheld_is_set_aside_only_beside_its_own_role_s_protected_tier(
     tmp_path: Path, beside: str
 ) -> None:
     # A root called withheld or work that no protected tier of its own role's root stands
     # beside is a held-out root like any other, and is compared.
     repo = target_repo(tmp_path)
-    withheld, work, *tiers = _store_roots(tmp_path)
-    if beside == "another role's tiers":
-        tiers = [t.replace("/control/", "/firmware/") for t in tiers]
-    roots = (withheld, work) if beside == "no protected tier" else (withheld, work, *tiers)
+    roots = list(_store_roots(tmp_path))
+    if beside == "no protected tier":
+        roots = roots[:2]
+    elif beside == "another role's tiers":
+        roots[2:] = [t.replace("/control/", "/firmware/") for t in roots[2:]]
+    elif beside == "a root not named as a role":
+        roots = [r.replace("/control/", "/elsewhere/") for r in roots]
+    elif beside == "a tier of no version":
+        roots[2:] = [t.replace("1" * 64, "v1") for t in roots[2:]]
+    else:
+        roots[2:] = [roots[2].replace("/validation", "/visible")]
     rest = TIERS_AS_RECORDED[: len(roots) - 2]
     configs = []
     for name, first in (("base", "8"), ("cand", "a")):
@@ -162,7 +178,7 @@ def test_a_root_named_withheld_is_set_aside_only_beside_its_own_role_s_protected
             tmp_path,
             name,
             repo,
-            overrides={"held_out": roots, "held_out_sha256": (first * 64, "9" * 64, *rest)},
+            overrides={"held_out": tuple(roots), "held_out_sha256": (first * 64, "9" * 64, *rest)},
         )
         configs.append(read_manifest(run).config)
     assert drift(*configs) == ["held_out_sha256"]

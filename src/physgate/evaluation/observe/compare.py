@@ -202,16 +202,13 @@ def compared_digests(config: RunConfig) -> tuple[str, ...]:
     Every other root is compared: each protected tier, a held-out root outside any store, and a
     root that holds a role's root whole (its digest covers the withheld root, so runs either
     side of a write there still read as drifted). Only what the run recorded is read, nothing
-    on disk, so a run recorded before this rule is compared by it as it stands. A run whose
-    digests do not pair one to one with its roots is compared on all of them.
+    on disk, so a run recorded before this rule is compared by it as it stands. A run's
+    configuration pairs one digest with each root, or it is not one.
     """
     from physgate.evaluation.tiers.manifest import VERSION_NAME
     from physgate.evaluation.tiers.store import PROTECTED, WITHHELD, WORK
 
     roots = [PurePath(entry) for entry in config.held_out]
-    digests = tuple(config.held_out_sha256)
-    if len(roots) != len(digests):
-        return digests
     roles = set(get_args(Role))
     with_tiers = {
         root.parent.parent
@@ -222,7 +219,7 @@ def compared_digests(config: RunConfig) -> tuple[str, ...]:
     }
     return tuple(
         digest
-        for root, digest in zip(roots, digests, strict=True)
+        for root, digest in zip(roots, config.held_out_sha256, strict=True)
         if not (root.name in (WITHHELD, WORK) and root.parent in with_tiers)
     )
 
