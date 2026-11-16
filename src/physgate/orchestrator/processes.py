@@ -156,6 +156,11 @@ def _signal(proc: Proc, sig: int) -> None:
             return
 
 
+def signal_if_same(proc: Proc, sig: int) -> None:
+    """Send ``sig`` to ``proc`` only while it is still the process that was seen."""
+    _signal(proc, sig)
+
+
 def kill_own(process: subprocess.Popen[bytes]) -> None:
     """SIGKILL a session this process spawned and has not reaped, with its whole group.
 

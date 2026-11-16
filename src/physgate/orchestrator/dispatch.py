@@ -142,6 +142,7 @@ from physgate.orchestrator.session_files import (
     read_beneath,
     read_bounded,
 )
+from physgate.orchestrator.stop_signals import track
 from physgate.orchestrator.trajectory import (
     Seal,
     forged_tail,
@@ -204,6 +205,10 @@ def spawn_held(
     precede the session). Any failure there stops the held process, which has run nothing,
     and raises. Returns the process and its start time.
 
+    From its spawn the process, and the credential files in ``credential_dirs`` (the session's
+    hook state and configuration directories), are held for a stop signal of the run's
+    (``stop_signals``): one that lands while the session lives ends it and removes them.
+
     Nothing is spawned with an environment through which a shell startup file could reach a
     shell the binary starts outside the sandbox (``shell_startup.held_or_refused``): held here,
     where every session of the harness is spawned, on the environment as it stands.
@@ -232,6 +237,7 @@ def spawn_held(
         raise
     finally:
         os.close(hold)
+    track(process, credential_dirs)
     try:
         started = started_at(process.pid)
         if started is None:
@@ -2062,6 +2068,7 @@ class ClaudeDispatcher:
                 session_id=session_id,
                 on_spawn=on_spawn,
                 while_held=while_held,
+                credential_dirs=(sdir / "state", sdir / "config"),
             )
             (roots,) = held
             # However the session ends, nothing it started is left running before any git
