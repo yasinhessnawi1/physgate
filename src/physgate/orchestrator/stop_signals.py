@@ -25,20 +25,19 @@ import contextlib
 import json
 import os
 import signal
-import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from types import FrameType
+from typing import Protocol
 
 from physgate.orchestrator.credentials import hold_login, remove_held_secrets, remove_secrets
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.processes import (
-    PS_TIMEOUT_S,
     Proc,
-    ProcessTableError,
+    running_session_ids,
     signal_if_same,
     started_at,
     tree,
@@ -54,11 +53,19 @@ REAP_S = 2.0
 
 _Handler = Callable[[int, FrameType | None], object] | int | signal.Handlers | None
 
+
+class _Child(Protocol):
+    """What the stop reads of a spawned session: a ``subprocess.Popen``'s pid and returncode."""
+
+    pid: int
+    returncode: int | None
+
+
 #: Every session this process spawned, until it is reaped.
-_live: list[subprocess.Popen[bytes]] = []
+_live: list[_Child] = []
 
 
-def track(process: subprocess.Popen[bytes], login_dir: Path | None) -> None:
+def track(process: _Child, login_dir: Path | None) -> None:
     """Hold a just-spawned session for a stop signal: its process, and its login file.
 
     ``login_dir`` is the session's configuration directory, where the binary keeps its login
@@ -180,42 +187,6 @@ def on_stop_signals() -> Iterator[None]:
     finally:
         for each, before in found.items():
             signal.signal(each, before)
-
-
-def running_session_ids() -> frozenset[str]:
-    """The session id every running process names on its command line (``--session-id <id>``).
-
-    A session's own command line carries its id, from its held start on. Any process may name
-    an id, so this says only which sessions may be running, never that one is.
-
-    Raises:
-        ProcessTableError: ``ps`` could not be run, failed, or listed no process of this one's.
-    """
-    try:
-        done = subprocess.run(
-            ["ps", "-axww", "-o", "pid=,command="],
-            capture_output=True,
-            text=True,
-            check=False,
-            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-            timeout=PS_TIMEOUT_S,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        msg = f"ps could not be run: {exc!r}"
-        raise ProcessTableError(msg) from exc
-    ids: set[str] = set()
-    pids: set[str] = set()
-    for line in done.stdout.splitlines():
-        words = line.split()
-        if not words:
-            continue
-        pids.add(words[0])
-        pairs = zip(words, words[1:], strict=False)
-        ids.update(after for before, after in pairs if before == "--session-id")
-    if done.returncode != 0 or str(os.getpid()) not in pids:
-        msg = f"ps exited {done.returncode} and did not list this process"
-        raise ProcessTableError(msg)
-    return frozenset(ids)
 
 
 def remove_left_credentials(run_dir: Path) -> tuple[str, ...]:

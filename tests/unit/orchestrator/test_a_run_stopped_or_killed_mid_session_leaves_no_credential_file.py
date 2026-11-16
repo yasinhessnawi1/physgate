@@ -30,7 +30,7 @@ import pytest
 
 from physgate.cli import main
 from physgate.orchestrator import cli as orchestrator_cli
-from physgate.orchestrator import dispatch, stop_signals
+from physgate.orchestrator import dispatch, processes, stop_signals
 from physgate.orchestrator.cli import Registrations
 from physgate.orchestrator.credentials import (
     KEY_FILE,
@@ -318,7 +318,7 @@ def test_a_failed_listing_or_one_without_this_process_is_no_listing(
     def ps(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(argv, code, stdout=listed, stderr="")
 
-    monkeypatch.setattr(stop_signals.subprocess, "run", ps)
+    monkeypatch.setattr(processes.subprocess, "run", ps)
     try:
         stop_signals.running_session_ids()
     except ProcessTableError:

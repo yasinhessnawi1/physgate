@@ -156,6 +156,42 @@ def _signal(proc: Proc, sig: int) -> None:
             return
 
 
+def running_session_ids() -> frozenset[str]:
+    """The session id every running process names on its command line (``--session-id <id>``).
+
+    A session's own command line carries its id, from its held start on. Any process may name
+    an id, so this says only which sessions may be running, never that one is.
+
+    Raises:
+        ProcessTableError: ``ps`` could not be run, failed, or listed no process of this one's.
+    """
+    try:
+        done = subprocess.run(
+            ["ps", "-axww", "-o", "pid=,command="],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+            timeout=PS_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        msg = f"ps could not be run: {exc!r}"
+        raise ProcessTableError(msg) from exc
+    ids: set[str] = set()
+    pids: set[str] = set()
+    for line in done.stdout.splitlines():
+        words = line.split()
+        if not words:
+            continue
+        pids.add(words[0])
+        pairs = zip(words, words[1:], strict=False)
+        ids.update(after for before, after in pairs if before == "--session-id")
+    if done.returncode != 0 or str(os.getpid()) not in pids:
+        msg = f"ps exited {done.returncode} and did not list this process"
+        raise ProcessTableError(msg)
+    return frozenset(ids)
+
+
 def signal_if_same(proc: Proc, sig: int) -> None:
     """Send ``sig`` to ``proc`` only while it is still the process that was seen."""
     _signal(proc, sig)

@@ -33,6 +33,7 @@ C = "src/physgate/orchestrator/credentials.py"
 D = "src/physgate/orchestrator/dispatch.py"
 CLI = "src/physgate/orchestrator/cli.py"
 R = "src/physgate/reviewers/claude.py"
+P = "src/physgate/orchestrator/processes.py"
 
 #: (name, rule, file, old, new)
 MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
@@ -164,11 +165,11 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "",
     ),
     ("no-early-sweep", "c", CLI, "    remove_left_credentials(args.run_dir.resolve())\n", ""),
-    ("listing-wrong-flag", "c", S, 'if before == "--session-id")', 'if before != "--session-id")'),
+    ("listing-wrong-flag", "c", P, 'if before == "--session-id")', 'if before != "--session-id")'),
     (
         "listing-failure-taken",
         "c",
-        S,
+        P,
         "    if done.returncode != 0 or str(os.getpid()) not in pids:",
         "    if done.returncode != 0 and str(os.getpid()) not in pids:",
     ),
