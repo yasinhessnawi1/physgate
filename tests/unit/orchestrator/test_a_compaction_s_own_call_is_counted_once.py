@@ -140,8 +140,12 @@ def test_an_output_past_the_bound_per_boundary_raises() -> None:
 
 
 def test_a_result_without_totals_is_not_held_and_gives_no_line() -> None:
-    assert _counter()({}, MESSAGES, compactions=1, message_id="compaction-1") is None
-    assert _counter()(None, MESSAGES, compactions=1, message_id="compaction-1") is None
+    for result in ({}, None, {"modelUsage": {}}):
+        try:
+            got = _counter()(result, MESSAGES, compactions=1, message_id="compaction-1")
+        except AccountingError as exc:
+            got = exc
+        assert got is None
 
 
 def _line(**extra: Any) -> dict[str, Any]:  # noqa: ANN401 - a line's own fields
@@ -171,3 +175,21 @@ def test_the_mark_is_left_out_of_every_line_that_is_no_compaction() -> None:
     except ValidationError:
         marked = {}
     assert marked.get("compaction") is True
+
+
+def test_the_output_bound_is_per_boundary_too() -> None:
+    bound = accounting.COMPACTION_OUTPUT_BOUND
+    twice = _usage(2, 2 * bound)
+    assert _counter()(_result(twice), MESSAGES, compactions=2, message_id="c") is not None
+    with pytest.raises(AccountingError):
+        _counter()(_result(_usage(2, 2 * bound + 1)), MESSAGES, compactions=2, message_id="c")
+
+
+def test_the_input_bound_counts_every_input_field_and_not_the_output() -> None:
+    bound = accounting.COMPACTION_INPUT_BOUND
+    # The output is held to its own bound only: a large output does not count as input.
+    spread = _usage(bound // 2, accounting.COMPACTION_OUTPUT_BOUND, bound // 4, bound // 4)
+    assert _counter()(_result(spread), MESSAGES, compactions=1, message_id="c") is not None
+    with pytest.raises(AccountingError):
+        over = _usage(bound // 2, 0, bound // 4, bound // 4 + 1)
+        _counter()(_result(over), MESSAGES, compactions=1, message_id="c")

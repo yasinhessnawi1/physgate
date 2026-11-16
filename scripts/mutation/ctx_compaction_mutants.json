@@ -1,0 +1,191 @@
+[
+ {
+  "name": "baseline_first",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c01-zero-branch-on-one",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    if compactions == 0:\n",
+  "new": "    if compactions == 1:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c02-zero-branch-unchecked",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "        require_matching_totals(result, usages)\n        return None\n",
+  "new": "        return None\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c03-negative-allowed-by-one",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "        if difference[field] < 0:\n",
+  "new": "        if difference[field] < -1:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c04-input-sum-wrong-field",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    read = sum(v for f, v in difference.items() if f != \"output_tokens\")\n",
+  "new": "    read = sum(v for f, v in difference.items() if f != \"input_tokens\")\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c05-input-bound-inclusive",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    if read > compactions * COMPACTION_INPUT_BOUND:\n",
+  "new": "    if read >= compactions * COMPACTION_INPUT_BOUND:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c06-input-bound-not-per-boundary",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    if read > compactions * COMPACTION_INPUT_BOUND:\n",
+  "new": "    if read > COMPACTION_INPUT_BOUND:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c07-output-bound-inclusive",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    if written > compactions * COMPACTION_OUTPUT_BOUND:\n",
+  "new": "    if written >= compactions * COMPACTION_OUTPUT_BOUND:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c08-output-bound-not-per-boundary",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    if written > compactions * COMPACTION_OUTPUT_BOUND:\n",
+  "new": "    if written > COMPACTION_OUTPUT_BOUND:\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c09-zero-difference-gives-a-line",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    if not any(difference.values()):\n        return None\n",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c10-line-unmarked",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "usage=Usage(**difference), compaction=True)",
+  "new": "usage=Usage(**difference))",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c11-input-bound-value",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "COMPACTION_INPUT_BOUND = 1_000_000\n",
+  "new": "COMPACTION_INPUT_BOUND = 1_000_001\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c12-output-bound-value",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "COMPACTION_OUTPUT_BOUND = 64_000\n",
+  "new": "COMPACTION_OUTPUT_BOUND = 64_001\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c13-no-totals-not-none",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "    if not isinstance(per_model, dict) or not per_model:\n        return None\n    counted",
+  "new": "    if not isinstance(per_model, dict):\n        return None\n    counted",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c14-event-mark-kept-when-false",
+  "file": "src/physgate/orchestrator/events.py",
+  "old": "    compaction: bool = Field(default=False, exclude_if=lambda v: not v)\n",
+  "new": "    compaction: bool = False\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c15-usage-mark-kept-when-false",
+  "file": "src/physgate/orchestrator/protocols.py",
+  "old": "    compaction: bool = Field(default=False, exclude_if=lambda v: not v)\n",
+  "new": "    compaction: bool = False\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ },
+ {
+  "name": "c16-loop-site-2839-unmarked",
+  "file": "src/physgate/orchestrator/loop.py",
+  "old": "                    attribution=f\"reviewer:{review.session_id}\",\n                    message_id=message.message_id,\n                    usage=message.usage,\n                    compaction=message.compaction,\n",
+  "new": "                    attribution=f\"reviewer:{review.session_id}\",\n                    message_id=message.message_id,\n                    usage=message.usage,\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_review_s_compaction_line_is_on_the_log_marked_and_counted_once.py"
+  ]
+ },
+ {
+  "name": "c17-loop-site-3076-unmarked",
+  "file": "src/physgate/orchestrator/loop.py",
+  "old": "                            attribution=f\"reviewer:{exc.session_id}\",\n                            message_id=message.message_id,\n                            usage=message.usage,\n                            compaction=message.compaction,\n",
+  "new": "                            attribution=f\"reviewer:{exc.session_id}\",\n                            message_id=message.message_id,\n                            usage=message.usage,\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_review_s_compaction_line_is_on_the_log_marked_and_counted_once.py"
+  ]
+ },
+ {
+  "name": "c18-loop-site-3089-unmarked",
+  "file": "src/physgate/orchestrator/loop.py",
+  "old": "                            attribution=f\"reviewer:{exc.session_id or 'none'}\",\n                            message_id=message.message_id,\n                            usage=message.usage,\n                            compaction=message.compaction,\n",
+  "new": "                            attribution=f\"reviewer:{exc.session_id or 'none'}\",\n                            message_id=message.message_id,\n                            usage=message.usage,\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_review_s_compaction_line_is_on_the_log_marked_and_counted_once.py"
+  ]
+ },
+ {
+  "name": "c19-loop-site-3148-unmarked",
+  "file": "src/physgate/orchestrator/loop.py",
+  "old": "                        attribution=f\"reviewer:{review.session_id}\",\n                        message_id=message.message_id,\n                        usage=message.usage,\n                        compaction=message.compaction,\n",
+  "new": "                        attribution=f\"reviewer:{review.session_id}\",\n                        message_id=message.message_id,\n                        usage=message.usage,\n",
+  "tests": [
+   "tests/unit/orchestrator/test_a_review_s_compaction_line_is_on_the_log_marked_and_counted_once.py"
+  ]
+ },
+ {
+  "name": "baseline_last",
+  "file": "src/physgate/orchestrator/accounting.py",
+  "old": "",
+  "new": "",
+  "tests": [
+   "tests/unit/orchestrator/test_a_compaction_s_own_call_is_counted_once.py"
+  ]
+ }
+]
