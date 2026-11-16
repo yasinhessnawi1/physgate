@@ -755,7 +755,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     if refusal is not None:
         raise ValueError(refusal)
     for path in request.withheld_whole:
-        own, interpreter = _own_in_place(request)
+        excepted, interpreter = _own_in_place(request)
         # Assigned, not defaulted: refused to every read and write but the session's worktree in
         # its own place, whatever is made there later, the rest of the place included: the OS
         # layer opens the worktree alone, and the two layers say the same. Put back as it was if
@@ -765,8 +765,8 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         watch = protected[path][1] if path in protected else "none"
         protected[path] = (WITHHELD_WHOLE_REASON, watch)
         reads[path] = "denied"
-        read_exceptions[path] = (own, *interpreter)
-        root_exceptions[path] = tuple(dict.fromkeys((*root_exceptions.get(path, ()), own)))
+        read_exceptions[path] = (excepted, *interpreter)
+        root_exceptions[path] = tuple(dict.fromkeys((*root_exceptions.get(path, ()), excepted)))
     answer_keys = sorted({str(worktree / "corpora"), *request.answer_keys})
     for path in answer_keys:
         protected.setdefault(path, (ANSWER_KEY_REASON, "revert"))
