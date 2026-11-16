@@ -95,14 +95,18 @@ from physgate.evaluation.tiers.store import (
     AUTHOR_EVIDENCE,
     CHECK_EVIDENCE,
     WORKING,
+    WorkRootHeld,
+    WorkRootUnlockable,
     author_evidence,
     check_evidence,
     check_root_refusal,
+    holding_work_root,
     leftover_refusal,
     make_role_root,
     pool_dir,
     protected_tier_refusal,
     role_root,
+    running_session,
     spelling_refusal,
     version_dir,
     withheld_refusal,
@@ -1136,6 +1140,67 @@ def read_answers(path: Path, keys: Sequence[str]) -> dict[str, _Answer] | None:
     return answers if sorted(answers) == sorted(keys) else None
 
 
+def _checked(
+    store: Path,
+    role: Role,
+    setup: RawSetup,
+    work: Path,
+    tasks: dict[str, dict[str, Any]],
+    files: dict[str, bytes],
+    canaries: Sequence[str],
+    cap: int,
+) -> tuple[dict[str, Any], dict[str, _Answer] | None]:
+    """The check's session, its record and its answers, while the work root is held."""
+    root = role_root(store, role)
+    record: dict[str, Any] | None = None
+    working = _working(root, CHECK_EVIDENCE, work)
+    before = _looked_at(root, work)
+    changed: list[str] = []
+    refused: AuthoringError | None = None
+    raised: BaseException | None = None
+    try:
+        try:
+            ran = record = run_session(
+                CHECK_BRIEF.format(count=len(tasks)), setup, work, cap=cap, files=files
+            )
+            _require_unseen(ran, canaries, "its answer is not taken")
+            _require_none_came(store, canaries, "its answer is not taken")
+            answers = read_answers(work / "worktree" / "answers.json", list(tasks))
+        except AuthoringError as exc:
+            refused = raised = exc
+            raise
+        except BaseException as exc:
+            raised = exc
+            raise
+        finally:
+            # However the session ended (an answer, an error, a timeout, a stop): the role's
+            # root is looked at again, and anything changed but the check's own work refuses,
+            # its record kept for a person. A refusal already raised keeps its own reason.
+            changed = _changed(before, _looked_at(root, work))
+            session = _ending(raised)
+            if changed:
+                _held_for_a_person(working, work, changed, session)
+            if changed and refused is None:
+                tops = sorted({c.split(":")[0].split("/")[0] for c in changed})
+                msg = (
+                    f"the role's root changed while the check ran ({'; '.join(changed[:8])}); "
+                    "its answer is not taken, and its record stays for a person to look at "
+                    f"(the session {session})"
+                )
+                raise AuthoringError(
+                    msg,
+                    refused_because=_why(tops),
+                    changed=" | ".join(tops),
+                    session_ended=session,
+                )
+    finally:
+        # The work holds the held-out tasks it was given: it never stays outside the root.
+        _closed(_keep_evidence(work, record, check_evidence(store, role)))
+        if not changed:
+            working.unlink()
+    return ran, answers
+
+
 def blind_check(
     store: Path,
     role: Role,
@@ -1174,7 +1239,9 @@ def blind_check(
     kept its own reason).
 
     Raises:
-        AuthoringError: the checking model is the implementers', ``work`` is inside a
+        AuthoringError: the checking model is the implementers', a session an earlier runner
+            left in the work root still runs or another holds it (``session_lives``), the
+            volume refuses the work root's lock (``work_root_unlockable``), ``work`` is inside a
             held-out root, the session does not withhold the tier, the role's withheld root or
             a protected tier under the role's root, or names one spelt otherwise than on disk,
             the store holds a pool or a version still being written, work an earlier session
@@ -1187,13 +1254,22 @@ def blind_check(
         PerRoleError: a task in the tier does not load.
     """
     require_author_model(setup.model, implementer_model)
+    # First: a session an earlier runner left running in the work root (killed outright, its
+    # hold gone with it) refuses the check in words, before the work it left is judged.
+    living = running_session(store, role)
+    if living is not None:
+        msg = f"{living}: no check is made while a session left in the work root still runs"
+        raise AuthoringError(msg, refused_because="session_lives", store=str(store))
     root = role_root(store, role)
     # Its tools write nowhere in the store but its own work: not a task copy in the role's
     # root, not a version, not another role's root.
+    # Nor does it read anything there but its own work, whenever it was made: the whole store is
+    # withheld from it by rule, but for its work (the lists below are a second measure).
     setup = dataclasses.replace(
         setup,
         write_protected=(*setup.write_protected, str(store.resolve())),
         writable_within=(*setup.writable_within, str(work.resolve())),
+        withheld_whole=(*setup.withheld_whole, str(store.resolve())),
     )
     tier = version_dir(store, role, version) / "held_out"
     roots = [Path(r) for r in (*setup.held_out, *setup.withheld_reads)]
@@ -1217,52 +1293,27 @@ def blind_check(
     _require_looking(canaries, setup)
     tasks = bundle(tier)
     files = {"tasks.json": json.dumps(tasks, sort_keys=True, indent=1).encode()}
-    record: dict[str, Any] | None = None
-    working = _working(root, CHECK_EVIDENCE, work)
-    before = _looked_at(root, work)
-    changed: list[str] = []
-    refused: AuthoringError | None = None
-    raised: BaseException | None = None
+    # The work root is held from before its record of work until its work is out of the root, as a
+    # baseline trial holds it: neither is made beside the other's living session.
     try:
-        try:
-            record = run_session(
-                CHECK_BRIEF.format(count=len(tasks)), setup, work, cap=cap, files=files
-            )
-            _require_unseen(record, canaries, "its answer is not taken")
-            _require_none_came(store, canaries, "its answer is not taken")
-            answers = read_answers(work / "worktree" / "answers.json", list(tasks))
-        except AuthoringError as exc:
-            refused = raised = exc
-            raise
-        except BaseException as exc:
-            raised = exc
-            raise
-        finally:
-            # However the session ended (an answer, an error, a timeout, a stop): the role's
-            # root is looked at again, and anything changed but the check's own work refuses,
-            # its record kept for a person. A refusal already raised keeps its own reason.
-            changed = _changed(before, _looked_at(root, work))
-            session = _ending(raised)
-            if changed:
-                _held_for_a_person(working, work, changed, session)
-            if changed and refused is None:
-                tops = sorted({c.split(":")[0].split("/")[0] for c in changed})
-                msg = (
-                    f"the role's root changed while the check ran ({'; '.join(changed[:8])}); "
-                    "its answer is not taken, and its record stays for a person to look at "
-                    f"(the session {session})"
-                )
-                raise AuthoringError(
-                    msg,
-                    refused_because=_why(tops),
-                    changed=" | ".join(tops),
-                    session_ended=session,
-                )
-    finally:
-        # The work holds the held-out tasks it was given: it never stays outside the root.
-        _closed(_keep_evidence(work, record, check_evidence(store, role)))
-        if not changed:
-            working.unlink()
+        with holding_work_root(store, role):
+            record, answers = _checked(store, role, setup, work, tasks, files, canaries, cap)
+    except WorkRootHeld as exc:
+        msg = (
+            "another session's place in the role's work root is held (a baseline trial's or "
+            "another check's): no check is made beside it while that session lives"
+        )
+        if str(exc):
+            msg += f" ({exc})"
+        raise AuthoringError(msg, refused_because="session_lives", store=str(store)) from None
+    except WorkRootUnlockable as exc:
+        msg = (
+            "the role's work root cannot be held on its volume (the lock call failed: "
+            f"{exc}): no check is made where a trial could be made beside it"
+        )
+        raise AuthoringError(
+            msg, refused_because="work_root_unlockable", store=str(store)
+        ) from None
     if answers is None:
         return {"tasks": len(tasks), "answered": False, "session": _spent(record)}
     flagged = sorted(key for key, a in answers.items() if not all(getattr(a, q) for q in QUESTIONS))

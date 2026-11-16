@@ -22,7 +22,9 @@ subtasks of the same role), so a long raw session can meet its turn or clock bou
 an end is the arm's own spending (``wall_clock``), recorded, never trimmed or re-run.
 
 What the session left is kept as sealed evidence: its stream, its answer, its end and a
-record of every pin the comparison with the harness arm is held to.
+record of every pin the comparison with the harness arm is held to. What is not kept is the
+hook sentinel's record of the protected paths, which names every entry beneath the withheld
+roots: it is removed with the credential once the end check has read it.
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from physgate.evaluation.tiers.task import Task
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.credentials import (
     Credential,
+    open_in_session,
     remove_secrets,
     write_key_helper,
     write_login,
@@ -64,6 +67,7 @@ from physgate.orchestrator.dispatch import (
     spawn_held,
     write_record,
 )
+from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.processes import kill_own, stop_tree
 from physgate.orchestrator.role_python import RolePython, session_bin
@@ -148,6 +152,11 @@ class RawSetup:
     #: harness run ended: a baseline round's own directory, where its finished trials and its
     #: records lie. ``held_out`` stays the run's list, held equal to the harness's.
     held_out_also: tuple[str, ...] = ()
+    #: Roots withheld from the session whole, by rule, but for its own place there (the
+    #: directory holding its worktree): a blind check's store. A protected trial's root is
+    #: added from the run's held-out roots that hold ``held_out_carved``. Whatever is made in
+    #: such a root after the install is withheld as what was there before (``--withheld-whole``).
+    withheld_whole: tuple[str, ...] = ()
 
 
 def stream_total(stream: Path) -> int:
@@ -420,6 +429,19 @@ def held_out_but(roots: Iterable[str], own: Path) -> tuple[str, ...]:
     return tuple(sorted(kept))
 
 
+def _withheld_whole(setup: RawSetup, place: Path) -> tuple[str, ...]:
+    """The roots withheld whole from a session whose own place is ``place``, where it really is.
+
+    Those the caller names, and every held-out root of a protected trial that holds its place
+    (``held_out_carved``); each named where it really is, as the place is.
+    """
+    real = Path(os.path.realpath(place))
+    roots = list(setup.withheld_whole)
+    if setup.held_out_carved is not None:
+        roots += [r for r in setup.held_out if real.is_relative_to(os.path.realpath(r))]
+    return tuple(dict.fromkeys(os.path.realpath(r) for r in roots))
+
+
 def _install(
     setup: RawSetup,
     worktree: Path,
@@ -435,6 +457,7 @@ def _install(
             raise RawArmError(msg, carved=setup.held_out_carved)
         held = held_out_but(setup.held_out, Path(setup.held_out_carved))
     held = (*held, *setup.held_out_also)
+    whole = _withheld_whole(setup, worktree.parent)
     state = sdir / "state"
     state.mkdir(mode=0o700, parents=True)
     (sdir / "config").mkdir(mode=0o700, exist_ok=True)
@@ -470,6 +493,11 @@ def _install(
         # what it would find there (the knowledge, the rubrics) is the harness's help.
         *harness_protection(),
         *(arg for root in held for arg in ("--held-out", root)),
+        # And the roots that hold the session's own place, withheld whole by rule but for that
+        # place: an entry made in them after the install, by anything, is on no list above and
+        # withheld all the same.
+        *(arg for root in whole for arg in ("--withheld-whole", root)),
+        *(["--own-place", os.path.realpath(worktree.parent)] if whole else []),
         *(arg for root in setup.withheld_reads for arg in ("--review-material", root)),
         *(arg for root in setup.write_protected for arg in ("--protect", root)),
         *(arg for place in setup.writable_within for arg in ("--protect-except", place)),
@@ -724,12 +752,20 @@ def _session(
             on_spawn=None,
             while_held=while_held,
         )
-        watch = BudgetWatch(stdout, cap, process, started, checkpoint)
-        watch.start()
         try:
-            ended = await_session(process, started, wall_clock)
-        finally:
-            watch.stop()
+            watch = BudgetWatch(stdout, cap, process, started, checkpoint)
+            watch.start()
+            try:
+                ended = await_session(process, started, wall_clock)
+            finally:
+                watch.stop()
+        except BaseException:
+            # A way out while the session may still run (a watch that cannot start, a wait that
+            # fails or is interrupted): it is killed with its group and reaped first, so the
+            # caller's cleanup never runs beside a living session, whose next hook would take a
+            # new record of the protected paths after the old one was removed.
+            kill_own(process)
+            raise
     seconds = time.monotonic() - began
     require_stopped(watch)
     after = check_after_stop(check, session_id, worktree, env, sdir / "state")
@@ -751,6 +787,10 @@ def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> No
         remove_secrets(sdir / "state", sdir / "config")
     except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
         errors.append(repr(exc))
+    try:
+        remove_sentinel_records(sdir / "state")
+    except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
+        errors.append(repr(exc))
     for stream in streams:
         try:
             redact(stream, secret)
@@ -759,8 +799,81 @@ def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> No
     if errors:
         record = {"error": "; ".join(errors).replace(secret, "[redacted]")}
         write_record(work.parent, work.name, record, "cleanup.json")
-        msg = "the raw session's credential could not be removed: " + record["error"]
+        msg = "the raw session's credential, or the sentinel's record of its protected paths, "
+        msg += "could not be removed: " + record["error"]
         raise RawArmError(msg, work=str(work))
+
+
+#: The hook sentinel's record of the protected paths as the session started, and the temporary
+#: name it is written under first: each lists every entry beneath the session's withheld roots
+#: by its path (a protected task's directory is its id), with its size, times and digest.
+SENTINEL_RECORDS = ("baseline.json", ".baseline.json.tmp")
+_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def _beneath(fd: int, name: str) -> int | None:
+    """A descriptor on the directory ``name`` in ``fd``, never through a link; ``None`` if absent.
+
+    Raises:
+        InvocationError: ``name`` is a link or not a directory.
+    """
+    try:
+        return os.open(name, _DIRECTORY, dir_fd=fd)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        msg = "a directory of the session's hook state is a link or not a directory; not followed"
+        raise InvocationError(msg, name=name, error=str(exc.strerror)) from None
+
+
+def remove_sentinel_records(state_dir: Path) -> None:
+    """Remove the sentinel's record of the protected paths from every session in ``state_dir``.
+
+    Its last reader is the end check after the stop (:func:`check_after_stop`); after it the
+    record is no one's input, and kept it would name the protected tasks wherever the session's
+    directory goes next. The hook state is reached as the credential's files are
+    (:func:`open_in_session`), each directory beneath it opened without following a link; a
+    link at a record's own name is removed, which removes nothing it points at. What lies beside
+    the record (the bytes kept of files the session may read, their index, what was moved
+    aside) names no protected path, and stays.
+
+    Raises:
+        InvocationError: a directory on the way is a link or not a directory, or a record
+            could not be removed; it may still be there.
+    """
+    top = open_in_session(state_dir)
+    if top is None:
+        return
+    try:
+        sessions = _beneath(top, "sessions")
+        if sessions is None:
+            return
+        try:
+            for name in sorted(os.listdir(sessions)):
+                own = _beneath(sessions, name)
+                if own is None:
+                    continue
+                try:
+                    sentinel = _beneath(own, "sentinel")
+                finally:
+                    os.close(own)
+                if sentinel is None:
+                    continue
+                try:
+                    for record in SENTINEL_RECORDS:
+                        try:
+                            os.unlink(record, dir_fd=sentinel)
+                        except FileNotFoundError:
+                            continue
+                        except OSError as exc:
+                            msg = "the sentinel's record of the protected paths was not removed"
+                            raise InvocationError(msg, error=str(exc.strerror)) from None
+                finally:
+                    os.close(sentinel)
+        finally:
+            os.close(sessions)
+    finally:
+        os.close(top)
 
 
 def canaries_sha256(canaries: Iterable[str]) -> str:

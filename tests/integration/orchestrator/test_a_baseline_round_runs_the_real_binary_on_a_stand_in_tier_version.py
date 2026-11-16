@@ -103,10 +103,15 @@ def _snapshot(path: Path) -> bool:
 
     The snapshot lists each entry beneath the withheld roots by path, so a protected task's
     directory, and so its id. It lies in the hook layer's own state beneath the session's
-    directories, which the session's tools are refused (``sessions_root``): no input the session
-    is given. The rows below set it aside by name and hold it apart in a row of its own.
+    directories, which the session's tools are refused (``sessions_root``), and the raw arm
+    removes it once the end check has read it: no session's outlives it, anywhere.
     """
     return path.name == "baseline.json" and path.parent.name == "sentinel" and "state" in path.parts
+
+
+def _sentinel_kept(trial: Path) -> bool:
+    """Whether a trial's session had the sentinel keep its state, where its snapshot was."""
+    return any(d.is_dir() for d in (trial / "place").rglob("sentinel"))
 
 
 @dataclass(frozen=True)
@@ -229,7 +234,8 @@ def test_a_round_on_the_real_binary_tells_each_session_its_brief_alone_and_keeps
         counts = record.counts[tier]  # type: ignore[index]
         assert (counts.trials, counts.passed, counts.excluded) == (1, 1, 0), tier
     # Protected trials, whole, beneath the withheld root; their sessions' own files hold nothing
-    # of their tasks but the sentinel's snapshot; the visible one in the round's directory.
+    # of their tasks, the sentinel's snapshot gone with the session; the visible one in the
+    # round's directory.
     beneath = withheld_root(made.store, "control") / BASELINE_DIR / record.id
     assert len(list(beneath.glob("*/harness/raw.json"))) == 2
     sessions = [
@@ -240,8 +246,9 @@ def test_a_round_on_the_real_binary_tells_each_session_its_brief_alone_and_keeps
         if p.is_file() and not p.is_symlink()
     ]
     assert any(p.name == "stdout.jsonl" for p in sessions)
-    assert any(_snapshot(p) for p in sessions), "the snapshot is not where it is set aside"
-    for path in (p for p in sessions if not _snapshot(p)):
+    assert all(_sentinel_kept(t) for t in beneath.iterdir() if t.is_dir()), "no sentinel ran"
+    assert not [p for p in sessions if _snapshot(p)], "a sentinel's snapshot outlived its session"
+    for path in sessions:
         data = path.read_bytes()
         assert not [m for m in forbidden if m.encode() in data], _where(
             path, beneath, data, forbidden
@@ -255,25 +262,18 @@ def test_a_round_on_the_real_binary_tells_each_session_its_brief_alone_and_keeps
     assert not list(role_root(made.store, "control").glob("*.working"))
     assert {out / TRIALS, out / BASELINE_RECORD, out / TIERS_RECORD} <= set(round_.written)
     for path, data in round_.written.items():
-        if not _snapshot(path):
-            assert not [m for m in forbidden if m.encode() in data], f"{path} names a task"
+        assert not [m for m in forbidden if m.encode() in data], f"{path} names a task"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "Open, and to be closed before the first real round: the hook sentinel's change-detection "
-        "snapshot of the withheld roots keeps, for each protected entry, its path (and so a "
-        "protected task's id), its file name, size, mtime and sha256, though none of its content; "
-        "a visible trial's raw session leaves that snapshot in the round's visible directory, and "
-        "every harness role session takes the same snapshot in its run directory."
-    ),
-)
 def test_no_session_s_sentinel_snapshot_in_a_visible_place_names_a_protected_task(
     round_: Round,
 ) -> None:
-    snapshots = [(p, d) for p, d in round_.written.items() if _snapshot(p)]
-    assert snapshots, "the visible trial's session left no snapshot"
-    for path, data in snapshots:
-        assert not [m for m in round_.forbidden if m.encode() in data], f"{path} names a task"
+    """The sentinel's snapshot names every protected task by path: none is left in a visible place.
+
+    The visible trial's session had the sentinel keep its state (the directory is there), and
+    nothing of it that names a protected task was moved out with the trial.
+    """
+    (visible,) = list((round_.out / "work").iterdir())
+    assert _sentinel_kept(visible), "the visible trial's session had no sentinel"
+    left = [p for p in round_.written if _snapshot(p)]
+    assert left == [], left

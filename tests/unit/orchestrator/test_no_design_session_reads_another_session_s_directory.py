@@ -237,10 +237,11 @@ def test_the_dispatcher_s_install_names_the_run_s_sessions(
 
 @pytest.mark.parametrize("profile", PROFILES)
 def test_a_search_path_from_its_interpreter_s_directory_reads_nothing_and_is_not_refused(
-    base: Path, profile: str
+    base: Path, profile: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The run's named interpreter is linked in the session's own directory, where no command of
-    # the session writes, and its search path starts there: ``$PATH`` expanded names no file.
+    # the session writes, and its search path starts there: ``$PATH`` expanded names no file. The
+    # hook inherits the session's search path, which the dispatcher starts with that directory.
     from physgate.hooks.settings import InstallRequest, build_config, current_installation
 
     own = base / "run" / "sessions" / SID
@@ -264,6 +265,7 @@ def test_a_search_path_from_its_interpreter_s_directory_reads_nothing_and_is_not
         ),
         current_installation(),
     )
+    monkeypatch.setenv("PATH", f"{own / 'bin'}:/usr/bin:/bin")
     wt = str(worktree)
     for allowed in (f"{own / 'bin'}:/usr/bin:/bin", str(own / "bin" / "absent")):
         assert paths.protection(allowed, wt, config, writing=False) is None, allowed
