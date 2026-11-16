@@ -71,6 +71,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import hashlib
+import json
 import os
 import secrets
 import shutil
@@ -101,6 +102,7 @@ from physgate.evaluation.tiers.manifest import (
     tier_record,
 )
 from physgate.evaluation.tiers.task import Role
+from physgate.orchestrator.processes import ProcessTableError, is_session
 
 #: The one root per role that holds what sessions wrote: the pool and the sessions' streams.
 WITHHELD = "withheld"
@@ -171,10 +173,102 @@ def make_role_root(root: Path) -> Path:
 
 
 class WorkRootHeld(Exception):  # noqa: N818 - a state, not a fault
-    """Another session's place in the role's work root is held: nothing may be made beside it."""
+    """Another session's place in the role's work root is held: nothing may be made beside it.
+
+    Its words, when it has any, say which session still runs there.
+    """
+
+
+class WorkRootUnlockable(Exception):  # noqa: N818 - a state of the volume, not a fault here
+    """The work root's volume refuses the lock that holds it: nothing may be made there."""
 
 
 _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+#: The file the raw arm writes beside a session it spawned: its pid, start time and session id.
+PROCESS_FACTS = "process.json"
+#: The directory beneath a place that holds a session's own files, the facts among them.
+SESSION_DIR = "session"
+
+
+def _facts_at(top: int, parts: Sequence[str]) -> dict[str, Any] | None:
+    """The process facts at ``parts`` beneath the directory ``top``, or ``None``.
+
+    Every step is opened without following a link, so a link planted at any of them is read as
+    nothing. Facts that cannot be read whole are none.
+    """
+    opened: list[int] = []
+    try:
+        here = top
+        for part in parts[:-1]:
+            here = os.open(part, _DIRECTORY, dir_fd=here)
+            opened.append(here)
+        fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=here)
+        with os.fdopen(fd, "rb") as facts:
+            found = json.loads(facts.read(1 << 16))
+    except (OSError, ValueError):
+        return None
+    finally:
+        for fd in reversed(opened):
+            os.close(fd)
+    return found if isinstance(found, dict) else None
+
+
+def _places_of_sessions(root: int) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Each session's process facts in the work root open at ``root``, with the entry they lie in.
+
+    A blind check's session keeps its files in ``<entry>/session``, a baseline trial's in
+    ``<entry>/<place>/session``: both are looked at, for every entry there.
+    """
+    for entry in sorted(os.listdir(root)):
+        found = _facts_at(root, (entry, SESSION_DIR, PROCESS_FACTS))
+        if found is not None:
+            yield entry, found
+        try:
+            here = os.open(entry, _DIRECTORY, dir_fd=root)
+        except OSError:
+            continue
+        try:
+            inner = sorted(os.listdir(here))
+        finally:
+            os.close(here)
+        for name in inner:
+            found = _facts_at(root, (entry, name, SESSION_DIR, PROCESS_FACTS))
+            if found is not None:
+                yield f"{entry}/{name}", found
+
+
+def living_session(store: Path, role: Role) -> str | None:
+    """Words naming a session of an earlier trial or check in the role's work root that still runs.
+
+    The hold on the work root is a lock the kernel drops when its holder ends, so a runner killed
+    outright leaves its session running with nothing held. Each session's process facts lie
+    beside its place in the work root (its pid, the start time ``ps`` gave it and its session
+    id): a session runs still when a process of that pid and start time runs whose command line
+    carries that session id (:func:`.orchestrator.processes.is_session`), never merely a reused
+    pid. ``None``: none runs (or the work root is not there yet). A process table that cannot be
+    read is no answer, and is said in words, never taken for "none runs".
+    """
+    try:
+        root = os.open(work_root(store, role), _DIRECTORY)
+    except FileNotFoundError:
+        return None
+    try:
+        for where, facts in _places_of_sessions(root):
+            pid, started, sid = facts.get("pid"), facts.get("started"), facts.get("session_id")
+            if not isinstance(pid, int) or not isinstance(sid, str):
+                continue
+            try:
+                lives = is_session(pid, started if isinstance(started, str) else None, sid)
+            except ProcessTableError as exc:
+                return (
+                    f"whether the session at {where} in the role's work root (pid {pid}) still "
+                    f"runs cannot be told: {exc}"
+                )
+            if lives:
+                return f"the session at {where} in the role's work root (pid {pid}) still runs"
+    finally:
+        os.close(root)
+    return None
 
 
 @contextlib.contextmanager
@@ -185,10 +279,14 @@ def holding_work_root(store: Path, role: Role) -> Iterator[None]:
     copy of protected tasks, while a session works there; one made while the other's session
     lives is an entry that session's install never saw. Each makes its place only while it holds
     the root and holds it until its place is out: a lock on the root's directory, released on
-    every way out of the body and by the kernel when the process ends, so it cannot go stale.
+    every way out of the body and by the kernel when the process ends, so it never outlives
+    the runner that took it. A session that does (its runner killed outright) is found by its
+    process facts once the lock is taken (:func:`living_session`), and refuses as a held root.
 
     Raises:
-        WorkRootHeld: the work root is held already; nothing is made.
+        WorkRootHeld: the work root is held already, or a session left in it still runs;
+            nothing is made.
+        WorkRootUnlockable: the volume refuses the lock call itself; nothing is made.
     """
     make_role_root(role_root(store, role))
     fd = os.open(work_root(store, role), _DIRECTORY)
@@ -197,6 +295,11 @@ def holding_work_root(store: Path, role: Role) -> Iterator[None]:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise WorkRootHeld from None
+        except OSError as exc:
+            raise WorkRootUnlockable(exc.strerror or repr(exc)) from None
+        living = living_session(store, role)
+        if living is not None:
+            raise WorkRootHeld(living)
         yield
     finally:
         os.close(fd)

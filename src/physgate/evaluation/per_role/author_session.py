@@ -96,11 +96,13 @@ from physgate.evaluation.tiers.store import (
     CHECK_EVIDENCE,
     WORKING,
     WorkRootHeld,
+    WorkRootUnlockable,
     author_evidence,
     check_evidence,
     check_root_refusal,
     holding_work_root,
     leftover_refusal,
+    living_session,
     make_role_root,
     pool_dir,
     protected_tier_refusal,
@@ -1237,7 +1239,9 @@ def blind_check(
     kept its own reason).
 
     Raises:
-        AuthoringError: the checking model is the implementers', ``work`` is inside a
+        AuthoringError: the checking model is the implementers', a session an earlier runner
+            left in the work root still runs or another holds it (``session_lives``), the
+            volume refuses the work root's lock (``work_root_unlockable``), ``work`` is inside a
             held-out root, the session does not withhold the tier, the role's withheld root or
             a protected tier under the role's root, or names one spelt otherwise than on disk,
             the store holds a pool or a version still being written, work an earlier session
@@ -1250,6 +1254,12 @@ def blind_check(
         PerRoleError: a task in the tier does not load.
     """
     require_author_model(setup.model, implementer_model)
+    # First: a session an earlier runner left running in the work root (killed outright, its
+    # hold gone with it) refuses the check in words, before the work it left is judged.
+    living = living_session(store, role)
+    if living is not None:
+        msg = f"{living}: no check is made while a session left in the work root still runs"
+        raise AuthoringError(msg, refused_because="session_lives", store=str(store))
     root = role_root(store, role)
     # Its tools write nowhere in the store but its own work: not a task copy in the role's
     # root, not a version, not another role's root.
@@ -1288,12 +1298,22 @@ def blind_check(
     try:
         with holding_work_root(store, role):
             record, answers = _checked(store, role, setup, work, tasks, files, canaries, cap)
-    except WorkRootHeld:
+    except WorkRootHeld as exc:
         msg = (
             "another session's place in the role's work root is held (a baseline trial's or "
             "another check's): no check is made beside it while that session lives"
         )
+        if str(exc):
+            msg += f" ({exc})"
         raise AuthoringError(msg, refused_because="session_lives", store=str(store)) from None
+    except WorkRootUnlockable as exc:
+        msg = (
+            "the role's work root cannot be held on its volume (the lock call failed: "
+            f"{exc}): no check is made where a trial could be made beside it"
+        )
+        raise AuthoringError(
+            msg, refused_because="work_root_unlockable", store=str(store)
+        ) from None
     if answers is None:
         return {"tasks": len(tasks), "answered": False, "session": _spent(record)}
     flagged = sorted(key for key, a in answers.items() if not all(getattr(a, q) for q in QUESTIONS))

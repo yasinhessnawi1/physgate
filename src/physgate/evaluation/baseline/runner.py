@@ -126,8 +126,10 @@ from physgate.evaluation.tiers.manifest import TierSet, read_version
 from physgate.evaluation.tiers.store import (
     WORKING,
     WorkRootHeld,
+    WorkRootUnlockable,
     holding_work_root,
     leftover_refusal,
+    living_session,
     make_role_root,
     protected_tier_refusal,
     role_root,
@@ -528,8 +530,13 @@ def trial_place(store: Path, role: Role, round_id: str, name: str) -> Iterator[t
     trial's creation is refused before anything is made. A second measure beside the rule that
     withholds the work root whole from the session but for its own place.
 
+    A session whose runner was killed outright holds nothing, but its process facts lie beside
+    its place: while it still runs, the creation is refused just the same.
+
     Raises:
-        BaselineError: ``session_lives``: another place in the work root is held; nothing made.
+        BaselineError: ``session_lives``: another place in the work root is held, or a session
+            left there still runs; ``work_root_unlockable``: the volume refuses the lock call.
+            Nothing is made.
     """
     root = role_root(store, role)
     try:
@@ -538,12 +545,20 @@ def trial_place(store: Path, role: Role, round_id: str, name: str) -> Iterator[t
             working = _working(root, f"{BASELINE_DIR}-{name}", trial_dir)
             trial_dir.mkdir(mode=0o700, parents=True)
             yield trial_dir, working
-    except WorkRootHeld:
+    except WorkRootHeld as exc:
         msg = (
             "another session's place in the role's work root is held (a trial's or a blind "
             "check's): no trial is made beside it while that session lives"
         )
+        if str(exc):
+            msg += f" ({exc})"
         raise BaselineError(msg, refused_because="session_lives") from None
+    except WorkRootUnlockable as exc:
+        msg = (
+            "the role's work root cannot be held on its volume (the lock call failed: "
+            f"{exc}): no trial is made where a second one could be made beside it"
+        )
+        raise BaselineError(msg, refused_because="work_root_unlockable") from None
 
 
 def _secure(work: Path, place: Path) -> None:
@@ -614,6 +629,12 @@ def run_baseline(
             "disk, so every session is withheld the spelling that is there"
         )
         raise BaselineError(msg, out=str(out), refused_because="out_not_spelt_as_on_disk")
+    # Before anything else of the store is read: a session an earlier runner left running in the
+    # work root (that runner killed outright, its hold gone with it) refuses the round in words.
+    living = living_session(store, role)
+    if living is not None:
+        msg = f"{living}: no round starts while a session left in the work root still runs"
+        raise BaselineError(msg, refused_because="session_lives")
     source, planned = plan(
         store, role, version, runs, base_url=base_url, development=development, external=external
     )
