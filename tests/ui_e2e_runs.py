@@ -18,6 +18,11 @@ that is a link inside the library, and a staged file not named as staging names 
 browser tests start ``physgate ui`` over the root this prints, with that library, so what they
 check is the real server reading real records.
 
+The Evidence screen's runs (see ``ui_evidence_rig``) are made under ``evidence/runs`` beside the
+root, never in it, with the reportable run's held-out tier beside them: each kind of run, a
+drifted run, and two the server cannot read. The Evidence screen's browser tests start a server
+of their own over that root, so the other screens' tests read none of them.
+
 Usage: ``uv run python tests/ui_e2e_runs.py <directory>``. The directory is emptied first.
 """
 
@@ -29,6 +34,7 @@ import sys
 from pathlib import Path
 
 from stand_in_roles import register
+from ui_evidence_rig import evidence_runs
 from ui_library_rig import build_library
 from ui_rig import contract_run, escalated_run, evaluation_rig, real_runs, unavailable_run
 from ui_series_rig import series_runs
@@ -132,6 +138,7 @@ def main(argv: list[str]) -> int:
     escalated(out, runs)
     settings_runs(out, runs)
     series_runs(out, runs)
+    evidence_runs(out / "evidence")
     library(out)
     print(runs, flush=True)
     return 0
