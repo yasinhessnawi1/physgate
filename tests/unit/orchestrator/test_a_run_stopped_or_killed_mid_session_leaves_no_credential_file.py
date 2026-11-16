@@ -23,6 +23,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -46,7 +47,6 @@ from physgate.reviewers import claude as reviewers
 
 HERE = Path(__file__).resolve().parent
 CHILD = HERE / "credential_stop_child.py"
-SESSION_ID = "0b6f3c1e-5d7a-4f63-9a51-credentialrow"
 NAMES = frozenset({LOGIN_FILE, KEY_FILE, KEY_HELPER})
 #: The secrets the stand-in run process is never handed.
 CREDENTIAL_VARIABLES = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
@@ -94,7 +94,10 @@ class Started:
     def __init__(self, tmp_path: Path, *, seeded: bool = True, on_term: str = "default") -> None:
         self.tmp_path = tmp_path
         self.run_dir = tmp_path / "run"
-        self.sdir = self.run_dir / "sessions" / SESSION_ID
+        # Its own id: a row in another worker runs a session at the same time, and the listing
+        # tells sessions apart by their ids alone.
+        self.session_id = str(uuid.uuid4())
+        self.sdir = self.run_dir / "sessions" / self.session_id
         self.sdir.mkdir(parents=True)
         fake = tmp_path / "fake-claude"
         fake.write_text(FAKE_BINARY)
@@ -290,7 +293,7 @@ def test_with_no_process_listing_a_resume_removes_nothing(
     assert stop_signals.remove_left_credentials(run.run_dir) == ()
     assert credential_files(run.run_dir) == before
     monkeypatch.undo()
-    assert stop_signals.remove_left_credentials(run.run_dir) == (SESSION_ID,)
+    assert stop_signals.remove_left_credentials(run.run_dir) == (run.session_id,)
     assert credential_files(run.run_dir) == []
 
 
@@ -299,9 +302,9 @@ def test_a_running_session_s_id_is_listed_and_a_gone_one_s_is_not(
 ) -> None:
     run = Started(tmp_path)
     started.append(run)
-    assert SESSION_ID in stop_signals.running_session_ids()
+    assert run.session_id in processes.running_session_ids()
     run.close()
-    assert SESSION_ID not in stop_signals.running_session_ids()
+    assert run.session_id not in processes.running_session_ids()
 
 
 @pytest.mark.parametrize(
@@ -318,9 +321,9 @@ def test_a_failed_listing_or_one_without_this_process_is_no_listing(
     def ps(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(argv, code, stdout=listed, stderr="")
 
-    monkeypatch.setattr(processes.subprocess, "run", ps)
+    monkeypatch.setattr(subprocess, "run", ps)
     try:
-        stop_signals.running_session_ids()
+        processes.running_session_ids()
     except ProcessTableError:
         refused = True
     else:
