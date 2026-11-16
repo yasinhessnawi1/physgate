@@ -6,12 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CANARY,
   CATCHES,
+  catchRow,
   COMMIT,
   COMPARED,
   DIGEST,
   DRIFTED,
   readRow,
   RUNS,
+  source,
   SPEND,
   TAMPERED,
   UNREADABLE,
@@ -179,13 +181,28 @@ describe("the screen", () => {
     expect(document.querySelector(".pg-btn-act, .pg-btn-reject, dialog, form")).toBeNull();
   });
 
-  it("shows no headline figure on any tab", async () => {
+  it("shows no headline figure on any tab: every number belongs to one run or one kind", async () => {
     for (const tab of ["runs", "spend", "compare", "catches"]) {
       const search = tab === "compare" ? "tab=compare&a=0/ev-development&b=0/ev-ablation" : "";
       const host = await mount(search === "" ? `tab=${tab}` : search);
       expect(host.querySelector(`section[data-tab="${tab}"]`), tab).not.toBeNull();
-      expect(host.querySelector(".pg-quantity-lg"), tab).toBeNull();
       expect(text(host).toLowerCase(), tab).not.toMatch(/state[\s-]*of[\s-]*the[\s-]*art/);
+      const attributed: string[] = [];
+      const loose: string[] = [];
+      for (const el of host.querySelectorAll("*")) {
+        const own = [...el.childNodes]
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent ?? "")
+          .join(" ")
+          .replace(/\d{4}-\d{2}-\d{2}/g, "");
+        if (!/\d/.test(own)) continue;
+        const owner = el.closest(
+          "[data-source], [data-run], [data-kind], [data-check], table, select, [role='alert']",
+        );
+        (owner === null ? loose : attributed).push(own.trim());
+      }
+      expect(loose, `${tab}: a number held by no run and no kind`).toEqual([]);
+      expect(attributed.length, `${tab}: the check saw no number at all`).toBeGreaterThan(0);
     }
   });
 });
@@ -249,6 +266,26 @@ describe("the runs, side by side", () => {
     );
     expect(rows.some((r) => r.includes("Max output tokens") && r.includes("64000"))).toBe(true);
     expect(rows.some((r) => r.includes("Harness commit") && r.includes(COMMIT))).toBe(true);
+  });
+
+  it("keeps two runs of one name under two roots as two distinct, labelled columns", async () => {
+    const first = readRow("run-01", "development", "2");
+    const second = { ...readRow("run-01", "development", "3"), root: 1 };
+    serve({ "/api/evidence/runs": [200, { runs: [first, second] }] });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const host = await mount();
+    const heads = [...host.querySelectorAll("th[data-run]")];
+    expect(heads.map((h) => h.getAttribute("data-run"))).toEqual(["0/run-01", "1/run-01"]);
+    expect(heads.map((h) => text(h.querySelector(".evidence-run-name")))).toEqual([
+      "run-01",
+      "run-01",
+    ]);
+    expect(text(heads[0])).toContain("Root 0");
+    expect(text(heads[1])).toContain("Root 1");
+    expect(text(heads[0])).not.toContain("Root 1");
+    for (const row of host.querySelectorAll("tbody tr:not(.evidence-group)"))
+      expect(row.children.length, text(row)).toBe(3);
+    expect(errors.mock.calls.map((c) => String(c[0])).join("\n")).not.toMatch(/same key/);
   });
 
   it("lists a run it could not read with its record and reason, and none of its settings", async () => {
@@ -419,6 +456,43 @@ describe("the gate's catches", () => {
     expect(host.querySelectorAll("tfoot").length).toBe(0);
     const rows = [...host.querySelectorAll("tr[data-check]")];
     expect(rows.length).toBe(3);
+  });
+
+  it("shows no total of any count across kinds, whatever element would draw it", async () => {
+    // Every count differs from every other and from every sum of two or three of its column's
+    // counts, so a number on the page that is such a sum can only be a total across kinds.
+    const row = (base: number, name: string) => ({
+      ...catchRow("on", null, name, 0),
+      checks_run: base + 1,
+      blocking_failures: base + 2,
+      reviewer_had_passed: base + 3,
+      reviewer_had_failed: base + 4,
+      no_review: base + 5,
+      artefacts_caught: base + 6,
+      caught_after_reviewer_passed: base + 7,
+    });
+    const bases = [100, 200, 400] as const;
+    const distinct = {
+      ...CATCHES,
+      kinds: CATCHES.kinds.map((k, i) => ({
+        ...k,
+        runs: k.runs.length === 0 ? [source("ev-ablation", "ablation", "1")] : k.runs,
+        rows: [row(bases[i] ?? 0, "all")],
+      })),
+    };
+    serve({ "/api/evidence/catches": [200, distinct] });
+    const host = await mount("tab=catches");
+    expect(sections(host)).toEqual(["reportable", "development", "ablation"]);
+    const shown = new Set(text(host).match(/\d+/g) ?? []);
+    for (const offset of [1, 2, 3, 4, 5, 6, 7]) {
+      const [a, b, c] = [bases[0] + offset, bases[1] + offset, bases[2] + offset];
+      for (const own of [a, b, c])
+        expect(shown.has(String(own)), `a kind's own count ${String(own)}`).toBe(true);
+      const totals = [a + b, a + c, b + c, a + b + c];
+      for (const total of totals) expect(shown.has(String(total)), `${String(total)}`).toBe(false);
+    }
+    expect(text(host)).not.toMatch(/\b(total|altogether|in all|overall|combined|sum)\b/i);
+    expect(host.querySelectorAll("tfoot, [data-total]").length).toBe(0);
   });
 
   it("shows a rate only as k of n", async () => {

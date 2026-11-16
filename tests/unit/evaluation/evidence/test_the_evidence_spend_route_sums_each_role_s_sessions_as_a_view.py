@@ -27,6 +27,7 @@ import pytest
 from ui_evidence_rig import EvidenceRuns, evidence_runs
 from ui_rig import context_over, evaluation_rig, fake_ui, serving
 
+from physgate.evaluation import evidence
 from physgate.orchestrator.events import (
     SessionEnded,
     SubtaskPlanned,
@@ -250,6 +251,52 @@ def test_a_session_the_log_records_no_end_for_is_apart_and_in_no_role(
     assert spend["apart"]["review"]["calls"], "the reviews stay where they were"
     reviewed = {c["attribution"] for c in spend["apart"]["review"]["calls"]}
     assert "session:left-behind" not in reviewed
+
+
+def test_a_session_ended_on_a_subtask_never_planned_is_a_row_apart_and_never_a_500(
+    built: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "priced"
+    shutil.copytree(built["priced"] / PRICED, root / PRICED, symlinks=True)
+    log_path = root / PRICED / "events.jsonl"
+    log = read_events(log_path)
+    spent = next(
+        e for e in log if isinstance(e, TokensUsed) and e.attribution.startswith("session:")
+    )
+    ghost = spent.model_copy(
+        update={
+            "seq": log[-1].seq + 1,
+            "attribution": "session:unplanned-end",
+            "message_id": "m-unplanned",
+        }
+    )
+    with log_path.open("a") as out:
+        out.write(ghost.model_dump_json() + "\n")
+    # The log's own reader refuses such a session end, so the reader the screen calls is handed
+    # one: the answer must hold for a record the screen could ever be given.
+    ended = next(e for e in log if isinstance(e, SessionEnded))
+    unplanned = ended.model_copy(
+        update={
+            "seq": ghost.seq + 1,
+            "session_id": "unplanned-end",
+            "subtask_id": "never-planned",
+            "trajectory_seal": None,
+        }
+    )
+    reading = evidence.read_events
+    monkeypatch.setattr(evidence, "read_events", lambda path: [*reading(path), unplanned])
+    with serving(context_over(root, ui_root=built["ui"])) as live:
+        status, _, body = live.request("GET", _spend(PRICED))
+    assert status == 200, body
+    spend = json.loads(body)
+    assert "session:unplanned-end" in {c["attribution"] for c in spend["line"]["calls"]}
+    apart = spend["apart"]["unplanned"]
+    assert [c["attribution"] for c in apart["calls"]] == ["session:unplanned-end"]
+    assert apart["sum"] is not None
+    assert apart["sum"]["tokens"] == _tokens(apart["calls"])
+    in_roles = {row["session_id"] for role in spend["roles"] for row in role["sessions"]}
+    assert "unplanned-end" not in in_roles
+    assert spend["apart"]["left_over"] == {"calls": [], "sum": None}
 
 
 def test_an_unknown_run_is_not_found_by_its_place(built: dict[str, Any]) -> None:
