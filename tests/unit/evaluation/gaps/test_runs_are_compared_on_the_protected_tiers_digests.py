@@ -113,8 +113,13 @@ def test_a_changed_protected_tier_is_drift(
     tier = Path(made.held_out[HELD_OUT])
     task = next(p for p in sorted(tier.iterdir()) if p.is_dir())
     was = _now(made)
-    (task / "notes.txt").write_text("a byte the version was not written with\n")
+    # A run recorded while the tier held other bytes; the tier is then put back, so the version
+    # reads whole again and only the recorded digest differs.
+    extra = task / "notes.txt"
+    extra.write_text("a byte the version was not written with\n")
     changed = _now(made)
+    extra.unlink()
+    assert _now(made) == was
     assert changed[HELD_OUT] != was[HELD_OUT]
     assert changed[:HELD_OUT] == was[:HELD_OUT], "only the held-out tier was changed"
     after = measured(made, "visible", tmp_path / "v1", held_out_sha256=changed)
