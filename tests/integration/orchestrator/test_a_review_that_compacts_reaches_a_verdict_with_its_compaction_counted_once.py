@@ -78,8 +78,13 @@ KEYS = ("inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInp
 NOTE_RANGE = re.compile(
     r"rubric\.md again in full with the Read tool, from offset (\d+) with limit (\d+);"
 )
-#: What a review whose rubric is carried and read again with no range ends in, per pin.
-PLAIN_REREAD_OF_A_CARRIED_RUBRIC = {"2.1.301": "no_verdict", "2.1.322": "pass"}
+#: What a review whose rubric is carried and read again with no range ends in, per pin: on
+#: 2.1.301 no verdict, the verdict refused until the session ends, which the adapter names as
+#: the turns running out or as the rubric not read in full.
+PLAIN_REREAD_OF_A_CARRIED_RUBRIC = {
+    "2.1.301": frozenset({"no_verdict", "reading_incomplete"}),
+    "2.1.322": frozenset({"pass"}),
+}
 #: The suite's rubric with no newline after its last line.
 NO_FINAL_NEWLINE = Rubric(
     role="control",
@@ -277,14 +282,14 @@ def test_a_reviewer_that_reads_its_carried_rubric_with_no_range_ends_as_measured
     expected = PLAIN_REREAD_OF_A_CARRIED_RUBRIC.get(binary_version(binary))
     assert expected is not None, f"nothing was measured on {binary_version(binary)}"
     outcome, session = _review(tmp_path, install, binary, [verdict()], by_range=False, carried=True)
-    if expected == "pass":
+    if expected == {"pass"}:
         assert isinstance(outcome, ReviewResult), repr(outcome)
         assert outcome.verdict == "pass" and outcome.compactions == 1
         return
     # 2.1.301: the re-read answers that the file is unchanged, with no lines the reading hook
     # can record, so the verdict is refused until the session runs out of turns.
     assert isinstance(outcome, ReviewUnavailableError), repr(outcome)
-    assert outcome.cause == expected
+    assert outcome.cause in expected
     plain = _rubric_reads(session)[1]
     assert plain["type"] == "file_unchanged" and set(plain["file"]) == {"filePath"}
 

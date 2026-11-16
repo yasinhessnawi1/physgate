@@ -509,15 +509,16 @@ def unavailable_end(
 
 #: What a reviewer whose run allows compaction is told when its session starts again after one,
 #: in place of its required reading (the reading hook's note, ARCH-060, ARCH-020). Approved by
-#: the owner as written, its line breaks included; ``{hits}`` is :data:`COMPACTION_HITS` where
-#: the review has markers to judge, and empty otherwise.
+#: the owner as written, its line breaks included, with the rubric's range named as the owner
+#: decided on 16.11.2026; ``{lines}`` is :func:`read_tool_lines` of the rubric, and ``{hits}`` is
+#: :data:`COMPACTION_HITS` where the review has markers to judge, and empty otherwise.
 COMPACTION_NOTE = (
     "Your conversation was compacted: what you read before this point is now a summary, not the "
     "files.\n"
     "Every file under {read}/ can still be read again with the Read tool. Before you give your "
     "verdict,\n"
-    "read {read}/rubric.md again in full; your verdict is refused until you have. Judge every "
-    "item of\n"
+    "read {read}/rubric.md again in full with the Read tool, from offset 1 with limit {lines}; "
+    "your verdict is refused until you have. Judge every item of\n"
     "the rubric from the material, and read again any part your summary does not hold in enough "
     "detail\n"
     "to judge it. {hits}"
@@ -531,16 +532,30 @@ COMPACTION_HITS = (
 )
 
 
-def compaction_note(read: Path, hits: tuple[ScanHit, ...]) -> str:
-    """The note a reviewer is told after a compaction, for its read root and its markers."""
-    lines = "\n".join(
+def read_tool_lines(data: bytes) -> int:
+    """How many lines the Read tool counts in ``data``: one more than its newlines.
+
+    Measured on both pins: the empty line after a final newline is counted, so a file of 19
+    newlines has 20 lines with or without a final newline. A Read from line 1 with this limit
+    returns every line, which the reading hook records as a read in full; and, being a range,
+    it is not one the binary answers as unchanged after a compaction has carried the file.
+    """
+    return data.count(b"\n") + 1
+
+
+def compaction_note(read: Path, hits: tuple[ScanHit, ...], lines: int) -> str:
+    """The note a reviewer is told after a compaction.
+
+    For its read root, its markers, and its rubric's ``lines`` as the Read tool counts them.
+    """
+    listed = "\n".join(
         f"- {hit.kind}, evidence {hit.evidence}"
         + ("" if hit.attempt is None else f", attempt {hit.attempt}")
         + f": {hit.what}"
         for hit in hits
     )
-    told = COMPACTION_HITS.format(lines=lines) if hits else ""
-    return COMPACTION_NOTE.format(read=read, hits=told)
+    told = COMPACTION_HITS.format(lines=listed) if hits else ""
+    return COMPACTION_NOTE.format(read=read, lines=lines, hits=told)
 
 
 #: What a resumed session is told when its verdict was refused: the check's own reason.
@@ -1040,12 +1055,17 @@ class ClaudeReviewer:
         compaction: list[str] = []
         if self._setup.review_compaction == "on":
             # Read again after each compaction: the rubric, which the verdict's schema names only
-            # by its item ids. The note is told in place of the required reading.
+            # by its item ids. The note is told in place of the required reading, and names the
+            # rubric's range as the packet wrote it.
             compaction = [
                 "--after-compaction",
                 str(read / RUBRIC_NAME),
                 "--compaction-note",
-                compaction_note(read, to_answer(packet)),
+                compaction_note(
+                    read,
+                    to_answer(packet),
+                    lines=read_tool_lines((read / RUBRIC_NAME).read_bytes()),
+                ),
             ]
         argv = [
             str(self._setup.install_bin),
