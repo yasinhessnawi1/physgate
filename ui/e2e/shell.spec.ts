@@ -21,6 +21,7 @@ const VIEWS = [
   "Gate checks",
   "Run records",
   "Simulation",
+  "Evidence",
   "Library",
   "Glossary",
   "Settings",
