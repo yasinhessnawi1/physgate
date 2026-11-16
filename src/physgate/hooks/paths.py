@@ -310,6 +310,25 @@ def _resolved(path: str, cwd: str) -> str:
 HELD_OUT_READERS_REFUSED = ("role", "reviewer", "baseline")
 
 
+def _search_path(spelling: str, places: list[str]) -> bool:
+    """Whether ``spelling`` is a search-path list led by one of ``places``, as ``$PATH`` expands.
+
+    The leading entry is one of ``places`` and a directory on this process's own search path (the
+    session's, which the hook inherits); every further entry is absolute or empty.
+    """
+    head, colon, rest = spelling.partition(":")
+    head = head.rstrip("/")
+    if not colon or head not in places:
+        return False
+    searched = {
+        s.rstrip("/")
+        for e in os.environ.get("PATH", "").split(os.pathsep)
+        if e
+        for s in _spellings(e)
+    }
+    return head in searched and all(not e or e.startswith("/") for e in rest.split(":"))
+
+
 def _own_reading(path: str, place: str) -> bool:
     """Whether ``path`` is the file ``place`` names, or beneath it, and so read after all.
 
@@ -318,15 +337,16 @@ def _own_reading(path: str, place: str) -> bool:
     file with a second name: a link made in the session's own directory to another session's file
     is not the file it was given to read.
 
-    Every allowance lies where no command of the session writes (never in its home), so a path
-    there that does not exist reads nothing and cannot be made: it is no refusal. Nor is a
-    search-path list that starts with one (``<bin>:/usr/bin``, as ``$PATH`` expands), which names
-    no file of its own there.
+    A path there that does not exist reads nothing: it is no refusal. Nor is a search-path list
+    led by an allowance that is a directory on this session's own search path (the interpreter's
+    directory, ``<bin>:/usr/bin``, as ``$PATH`` expands), each further entry absolute or empty:
+    it names no file of its own there. No other allowance has that form, so a sibling named
+    ``worktree:x`` is not the worktree.
     """
     places = [p.rstrip("/") for p in _spellings(place)]
 
     def beneath(spelling: str) -> bool:
-        return any(_under(spelling, p) or spelling.startswith(p + ":") for p in places)
+        return any(_under(spelling, p) for p in places) or _search_path(spelling, places)
 
     if not (beneath(path) and beneath(os.path.realpath(path))):
         return False
