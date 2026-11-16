@@ -152,13 +152,15 @@ def test_runs_whose_protected_tier_digest_differs_are_refused_as_drifted(
         "a root not named as a role",
         "a tier of no version",
         "a visible tier",
+        "the version named whole",
     ],
 )
 def test_a_root_named_withheld_is_set_aside_only_beside_its_own_role_s_protected_tier(
     tmp_path: Path, beside: str
 ) -> None:
     # A root called withheld or work that no protected tier of its own role's root stands
-    # beside is a held-out root like any other, and is compared.
+    # beside is a held-out root like any other, and is compared; so is any other root of the
+    # role's root.
     repo = target_repo(tmp_path)
     roots = list(_store_roots(tmp_path))
     if beside == "no protected tier":
@@ -169,8 +171,11 @@ def test_a_root_named_withheld_is_set_aside_only_beside_its_own_role_s_protected
         roots = [r.replace("/control/", "/elsewhere/") for r in roots]
     elif beside == "a tier of no version":
         roots[2:] = [t.replace("1" * 64, "v1") for t in roots[2:]]
-    else:
+    elif beside == "a visible tier":
         roots[2:] = [roots[2].replace("/validation", "/visible")]
+    else:
+        # Beside its own tiers, the version's directory is compared: it holds them.
+        roots[0] = str(Path(roots[2]).parent)
     rest = TIERS_AS_RECORDED[: len(roots) - 2]
     configs = []
     for name, first in (("base", "8"), ("cand", "a")):
