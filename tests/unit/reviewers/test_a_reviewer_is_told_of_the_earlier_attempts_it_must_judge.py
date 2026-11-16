@@ -32,7 +32,7 @@ REASON_SENTENCE = (
 AFTER_SHA256 = "f59a02b457c470c2db09e8c0151452bc84a6e973437ba8a347f8de29e5194e21"
 
 #: The reading-list lines for the earlier attempts, and the clause of the earlier markers'
-#: paragraph that says where they are shown, as the owner approved them (15.11.2026).
+#: paragraph that says where they are shown, held byte for byte as a reviewer reads them.
 EXCERPTS_LINE = (
     ": for each marker found in earlier attempts of this subtask that no review judged, the tool "
     "call and its result with the lines around them, each headed by the earlier part and lines it "

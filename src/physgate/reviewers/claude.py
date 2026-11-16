@@ -89,6 +89,7 @@ from physgate.orchestrator.dispatch import (
     write_record,
 )
 from physgate.orchestrator.exceptions import (
+    AccountingError,
     HeldOutExposedError,
     InvocationError,
     ReviewerNotRegisteredError,
@@ -510,10 +511,12 @@ def unavailable_end(
 
 
 #: What a reviewer whose run allows compaction is told when its session starts again after one,
-#: in place of its required reading (the reading hook's note, ARCH-060, ARCH-020). Approved by
-#: the owner as written, its line breaks included, with the rubric's range named as the owner
-#: decided on 16.11.2026; ``{lines}`` is :func:`read_tool_lines` of the rubric, and ``{hits}`` is
-#: :data:`COMPACTION_HITS` where the review has markers to judge, and empty otherwise.
+#: in place of its required reading (the reading hook's note, ARCH-060, ARCH-020). Held to this
+#: text byte for byte, its line breaks included, as what a reviewer reads is part of what a run
+#: measures. It names the rubric's range because a Read with no range of a file the compaction
+#: carried is answered as unchanged on 2.1.301, with nothing the reading hook can record; a read
+#: by the range returns the file. ``{lines}`` is :func:`read_tool_lines` of the rubric, and
+#: ``{hits}`` is :data:`COMPACTION_HITS` where the review has markers to judge, else empty.
 COMPACTION_NOTE = (
     "Your conversation was compacted: what you read before this point is now a summary, not the "
     "files.\n"
@@ -623,6 +626,8 @@ class ClaudeReviewer:
         Raises:
             ReviewError: ``setup`` pins no reviewer model for ``role``, or ``rubric``
                 is another role's.
+            ReviewerNotRegisteredError: ``review_compaction: on`` on a pin where a reviewer's
+                compaction was not measured (:func:`require_measured_compaction`).
         """
         model = setup.models.get(role)
         if model is None:
@@ -631,6 +636,8 @@ class ClaudeReviewer:
         if rubric.role != role:
             msg = "a reviewer judges with its own role's rubric"
             raise ReviewError(msg, role=role, rubric=rubric.role)
+        # Here, where every path that builds a reviewer passes, not only the run's.
+        require_measured_compaction(setup)
         self._role = role
         self._model = model
         self._setup = setup
@@ -911,26 +918,34 @@ class ClaudeReviewer:
         captured = read_captured(stdout, data)
         result = captured.result
         usage = (*prior, *captured.usage)
-        # Before anything else is concluded from the review: an exposure is recorded
-        # whatever else its end shows. The canary itself is never named.
-        if canary_seen(data, frozenset(self._setup.held_out_canaries)):
-            msg = f"held-out material in the stream of review session {session_id}"
-            raise HeldOutExposedError(
-                msg, session_id=session_id, reviewer_model=self._model, usage=usage
-            )
+        exposed = canary_seen(data, frozenset(self._setup.held_out_canaries))
         text = data.decode(errors="replace")
         here = compactions_in(text)
         # A compaction's own call is in the totals and in no message: where this invocation's
         # stream shows a boundary, the difference is that call's usage, one line of its own
-        # (an earlier invocation's line is in ``prior``, so a resume counts only its own).
-        line = compaction_line(
-            result,
-            usage,
-            compactions=len(here),
-            message_id=f"compaction-{len(prior_compacted) + 1}",
-        )
+        # (an earlier invocation's line is in ``prior``, so a resume counts only its own). It
+        # was spent whatever the review shows, an exposure included. A boundary with no result
+        # has no totals to read it from, and stays uncounted.
+        try:
+            line = compaction_line(
+                result,
+                usage,
+                compactions=len(here),
+                message_id=f"compaction-{len(prior_compacted) + 1}",
+            )
+        except AccountingError:
+            # An exposure is recorded whatever else its end shows, a broken account included.
+            if not exposed:
+                raise
+            line = None
         if line is not None:
             usage = (*usage, line)
+        # Before anything else is concluded from the review. The canary itself is never named.
+        if exposed:
+            msg = f"held-out material in the stream of review session {session_id}"
+            raise HeldOutExposedError(
+                msg, session_id=session_id, reviewer_model=self._model, usage=usage
+            )
         answered = sorted(captured.answered - {SYNTHETIC_MODEL})
         if answered and answered != [self._model]:
             msg = "the review was answered by a model other than the pinned one"

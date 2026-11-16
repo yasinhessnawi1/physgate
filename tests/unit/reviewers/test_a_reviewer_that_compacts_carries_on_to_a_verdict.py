@@ -30,7 +30,6 @@ from test_the_reviewer_judges_an_unissued_revision_by_the_one_line_contract impo
     MODEL,
     REPO,
     ROLE,
-    VERSION,
     _answer,
 )
 
@@ -44,6 +43,8 @@ from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup, unavailable
 from physgate.reviewers.contract import WRAPPER
 from physgate.reviewers.rubric import load_rubric
 
+#: A pin on which a reviewer's compaction was measured: a reviewer is refused ``on`` elsewhere.
+VERSION = "2.1.301"
 VALID = _answer(not_evaluable_item=False)
 INVALID = _answer(not_evaluable_item=True)
 COMPLETED = {"type": "result", "is_error": False, "terminal_reason": "completed"}

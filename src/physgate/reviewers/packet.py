@@ -79,9 +79,11 @@ refused when the packet is built.
 What a review must read in full before it may answer is listed in
 :attr:`Packet.required_reading`, and the hook layer refuses the verdict until it
 has: every part of the file listing, of the transcript, of the diff and of the series
-listing, the earlier markers' excerpts (the earlier attempts' whole streams where the scan
-found no marker in them), the rubric, the issued specification, integration's issued state and
-the person's order when there is one, and the library files.
+listing, the earlier markers' excerpts (each marker's call with its whole result block and
+the lines around it, so the bound is per marker, not a cap on the part; a marker whose call
+cannot be found brings its whole session; the earlier attempts' whole streams only where no
+earlier attempt carries a marker), the rubric, the issued specification, integration's
+issued state and the person's order when there is one, and the library files.
 
 The packet's own record (``packet.json``) sits beside ``read/``, outside it: it
 holds every digest above and the observable indicators the trajectory shows

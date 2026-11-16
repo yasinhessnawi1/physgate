@@ -1,8 +1,9 @@
 """After a compaction a reviewer is told where its material is and which markers it must judge.
 
-The note is the owner's text, as approved (its line breaks included): it says that what was
-read is now a summary, that every file can be read again, that the verdict is refused until
-the rubric has been read again in full, and it names again every marker the verdict must judge,
+The note is held byte for byte, its line breaks included, as what a reviewer reads is part
+of what a run measures: it says that what was read is now a summary, that every file can be
+read again, that the verdict is refused until the rubric has been read again in full, by a
+range the Read tool returns whole, and it names again every marker the verdict must judge,
 each line in the prompt's own format, an earlier attempt's with its attempt. It is held, as the
 prompt is, to none of the words that would tell a reader it is being evaluated.
 """
