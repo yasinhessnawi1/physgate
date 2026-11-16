@@ -70,7 +70,7 @@ def main(sdir: Path, fake: Path, *, seeded: bool, on_term: str) -> int:
                 session_id=session_id,
                 on_spawn=None,
                 while_held=while_held,
-                credential_dirs=(state, config),
+                login_dir=config,
             )
             return process.wait()
 

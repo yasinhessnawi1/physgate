@@ -374,9 +374,9 @@ def test_each_command_that_spawns_a_session_runs_under_the_guard(
     assert seen == [stop_signals._on_stop]
 
 
-def test_every_session_spawn_holds_its_credential_s_directories() -> None:
-    assert "credential_dirs=" in inspect.getsource(dispatch.ClaudeDispatcher._run_session)
-    assert "credential_dirs=" in inspect.getsource(reviewers.ClaudeReviewer._spawn)
+def test_every_session_spawn_holds_its_login_file() -> None:
+    assert "login_dir=" in inspect.getsource(dispatch.ClaudeDispatcher._run_session)
+    assert "login_dir=" in inspect.getsource(reviewers.ClaudeReviewer._spawn)
 
 
 def test_the_guard_handles_each_stop_signal_and_puts_back_what_it_found() -> None:
@@ -396,3 +396,24 @@ def test_a_stop_signal_the_launcher_ignored_stays_ignored() -> None:
             assert signal.getsignal(signal.SIGTERM) not in (signal.SIG_DFL, signal.SIG_IGN)
     finally:
         signal.signal(signal.SIGHUP, before)
+
+
+def test_a_left_session_reached_only_through_a_link_leaves_the_others_removed(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    _state_a, config_a = _session_dirs(run_dir / "sessions" / "a")
+    _state_b, config_b = _session_dirs(run_dir / "sessions" / "b")
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "elsewhere" / LOGIN_FILE).write_text("{}")
+    config_a.rmdir()
+    config_a.symlink_to(tmp_path / "elsewhere")
+    (config_b / LOGIN_FILE).write_text("{}")
+    try:
+        cleared = stop_signals.remove_left_credentials(run_dir)
+    except Exception as exc:
+        raise AssertionError(f"the resume's removal raised {exc!r}") from exc
+    # The link is not followed; the leftovers' stop refuses it, as it always did.
+    assert cleared == ("b",)
+    assert (tmp_path / "elsewhere" / LOGIN_FILE).exists()
+    assert not (config_b / LOGIN_FILE).exists()

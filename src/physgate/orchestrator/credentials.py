@@ -104,9 +104,8 @@ def _hold(directory: Path, names: tuple[str, ...]) -> None:
     _held[directory] = _held.get(directory, frozenset()) | frozenset(names)
 
 
-def hold_session(state_dir: Path, config_dir: Path) -> None:
-    """Hold a spawned session's credential files for a stop signal, whoever writes them."""
-    _hold(state_dir, (KEY_FILE, KEY_HELPER))
+def hold_login(config_dir: Path) -> None:
+    """Hold a spawned session's login file for a stop signal, whoever writes it: the binary too."""
     _hold(config_dir, (LOGIN_FILE,))
 
 

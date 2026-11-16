@@ -32,11 +32,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from types import FrameType
 
-from physgate.orchestrator.credentials import (
-    hold_session,
-    remove_held_secrets,
-    remove_secrets,
-)
+from physgate.orchestrator.credentials import hold_login, remove_held_secrets, remove_secrets
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.processes import (
     PS_TIMEOUT_S,
@@ -51,8 +47,6 @@ STOP_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 #: How long the run's sessions have to end on SIGTERM before SIGKILL.
 GRACE_S = 5.0
 _WAIT_S = 0.05
-#: How long a session is waited for after its SIGKILL.
-_REAP_S = 2.0
 
 _Handler = Callable[[int, FrameType | None], object] | int | signal.Handlers | None
 
@@ -60,13 +54,14 @@ _Handler = Callable[[int, FrameType | None], object] | int | signal.Handlers | N
 _live: list[subprocess.Popen[bytes]] = []
 
 
-def track(process: subprocess.Popen[bytes], credential_dirs: tuple[Path, Path] | None) -> None:
-    """Hold a just-spawned session for a stop signal: its process, and its credential's files.
+def track(process: subprocess.Popen[bytes], login_dir: Path | None) -> None:
+    """Hold a just-spawned session for a stop signal: its process, and its login file.
 
-    ``credential_dirs`` is the session's hook state and configuration directories.
+    ``login_dir`` is the session's configuration directory, where the binary keeps its login
+    file; the files the harness writes are held as it writes them (``credentials``).
     """
-    if credential_dirs is not None:
-        hold_session(*credential_dirs)
+    if login_dir is not None:
+        hold_login(login_dir)
     _live[:] = [p for p in _live if p.returncode is None]
     _live.append(process)
 
@@ -85,10 +80,9 @@ def end_live_sessions(grace_s: float = GRACE_S) -> int:
 
     Each one's tree is collected while it runs, then its group gets SIGTERM. After the grace,
     whatever is left of each tree gets SIGKILL, and so does each group whose leader is still
-    unreaped, whose pid and group are then still its own (``processes.kill_own``); it is reaped
-    if it ends within :data:`_REAP_S`.
-    Reaped with ``os.waitpid``, never ``Popen.wait``: the signal may have landed inside the
-    run's own wait on the same process, which holds that process's lock.
+    unreaped, whose pid and group are then still its own (``processes.kill_own``). Reaped with
+    ``os.waitpid``, never ``Popen.wait``: the signal may have landed inside the run's own wait
+    on the same process, which holds that process's lock.
     """
     live = [p for p in _live if p.returncode is None]
     trees: list[list[Proc]] = []
@@ -111,10 +105,6 @@ def end_live_sessions(grace_s: float = GRACE_S) -> int:
         if process.pid not in reaped and not _reaped(process.pid):
             with contextlib.suppress(OSError):
                 os.killpg(process.pid, signal.SIGKILL)
-            # Bounded: a process the kernel holds past its SIGKILL is not waited for.
-            killed = time.monotonic() + _REAP_S
-            while not _reaped(process.pid) and time.monotonic() < killed:
-                time.sleep(_WAIT_S)
     _live.clear()
     return len(live)
 
@@ -204,7 +194,10 @@ def remove_left_credentials(run_dir: Path) -> tuple[str, ...]:
     """
     try:
         sdirs = sorted(
-            p for p in (run_dir / "sessions").iterdir() if p.is_dir() and not p.is_symlink()
+            # A link at a session's name is refused by the removal itself, never followed.
+            p
+            for p in (run_dir / "sessions").iterdir()
+            if p.is_dir()
         )
         running = running_session_ids()
     except OSError:
