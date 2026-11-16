@@ -194,6 +194,7 @@ def spawn_held(
     session_id: str,
     on_spawn: SpawnHook | None,
     while_held: Callable[[int, str], None],
+    credential_dirs: tuple[Path, Path] | None = None,
 ) -> tuple[subprocess.Popen[bytes], str]:
     """Spawn a session held (:data:`HELD`), record it, and only then let it run.
 
