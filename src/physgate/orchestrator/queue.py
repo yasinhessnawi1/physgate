@@ -1634,7 +1634,7 @@ def decisions_file_bytes(run_dir: Path) -> bytes:
     return b"" if data is None else data
 
 
-def _events_of_run(run_dir: Path) -> list[Event] | None:
+def events_of_run(run_dir: Path) -> list[Event] | None:
     """The run's event log, read without writing; ``None`` when there is none.
 
     Raises:
@@ -1724,7 +1724,7 @@ def session_windows(run_dir: Path) -> list[tuple[int, int | None, str]]:
 
     From the event log (:func:`windows_of`). No event log, no windows.
     """
-    events = _events_of_run(run_dir)
+    events = events_of_run(run_dir)
     return [] if events is None else windows_of(events)
 
 
@@ -1747,7 +1747,7 @@ def queue_listing(
         CorruptEventLogError: the event log does.
     """
     view = read_queue(run_dir)
-    events = _events_of_run(run_dir) or []
+    events = events_of_run(run_dir) or []
     windows = windows_of(events)
     taken = _taken_of(events)
     decided = []
@@ -2011,7 +2011,7 @@ def item_view(
     if not 0 <= position < len(view.items):
         return None
     item = view.items[position]
-    events = _events_of_run(run_dir) or []
+    events = events_of_run(run_dir) or []
     statuses = trajectory_statuses(item, events, read_stream)
     return ItemView(
         position=position,
@@ -2040,7 +2040,7 @@ def statuses_now(run_dir: Path, item_id: str) -> tuple[TrajectoryStatus, ...]:
     item = next((i for i in view.items if i.item_id == item_id), None)
     if item is None:
         raise _not_open(item_id, Path(run_dir) / QUEUE_NAME)
-    events = _events_of_run(run_dir) or []
+    events = events_of_run(run_dir) or []
     with _stream_reader(run_dir, None) as reader:
         return trajectory_statuses(item, events, reader)
 

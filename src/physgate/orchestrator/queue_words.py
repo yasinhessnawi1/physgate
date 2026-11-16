@@ -11,10 +11,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from physgate.orchestrator.events import Position, read_events
+from physgate.orchestrator.events import Position
 from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.queue import (
-    EVENTS_NAME,
     ItemConsequence,
     OnChoose,
     OnReject,
@@ -22,6 +21,7 @@ from physgate.orchestrator.queue import (
     QueueResolution,
     WhyRecordOnly,
     earlier_round,
+    events_of_run,
     raised_again_problem,
     read_queue,
 )
@@ -178,10 +178,15 @@ def decision_sentences(
         if position in refused:
             continue
         what = _PART.get(position) or _choose(consequence, effect)
-        if effect in ("retry", "fix"):
+        if effect in ("retry", "fix", "resize"):
             what += (
                 " If your note makes the order too long to review, the subtask ends rejected "
                 "instead."
+            )
+        elif effect == "reopen":
+            what += (
+                " If the order to reopen it is too long to review, nothing is reopened and the "
+                "decision is only recorded."
             )
         said[f"choose_{position}"] = f"Choosing {_POSITION[position]}: {what}"
     said["note"] = NOTE
@@ -212,25 +217,44 @@ def with_what_each_decision_does(listing: dict[str, object], run_dir: Path) -> d
     """
     open_items = listing["open"]
     assert isinstance(open_items, list)  # noqa: S101 - queue_listing's own shape
-    log = run_dir / EVENTS_NAME
-    try:
-        superseded = set(replay(read_events(log)).superseded) if log.is_file() else set()
-    except CorruptEventLogError:
-        return listing
+    # The log the listing was just made from, read under the same cap, not read again.
+    events = events_of_run(run_dir)
+    superseded: set[str] = set()
+    if events is not None:
+        try:
+            superseded = set(replay(events).superseded)
+        except CorruptEventLogError:
+            return {**listing, "open": [_unreplayable(entry) for entry in open_items]}
     view = read_queue(run_dir)
     resolved = {decision.item_id: decision for _, decision in view.decisions}
-    said = {
-        item.item_id: sentences
-        for item in view.open_items()
-        if item.item_id not in superseded
-        and (sentences := decision_sentences(item, refused=_refused(item, resolved))) is not None
-    }
+    items = {item.item_id: item for item in view.open_items()}
+    out: list[object] = []
+    for entry in open_items:
+        item = items.get(entry["item_id"])
+        if item is None or item.consequence is None:
+            out.append(entry)
+        elif item.item_id in superseded:
+            out.append(
+                {
+                    **entry,
+                    "why_no_sentences": (
+                        "a reopen superseded this item, so a decision on it is only recorded"
+                    ),
+                }
+            )
+        else:
+            said = decision_sentences(item, refused=_refused(item, resolved))
+            out.append({**entry, "what_each_decision_does": said})
+    return {**listing, "open": out}
+
+
+def _unreplayable(entry: dict[str, object]) -> dict[str, object]:
+    """``entry``, saying why it has no sentences when it states a consequence."""
+    if entry.get("consequence") is None:
+        return entry
     return {
-        **listing,
-        "open": [
-            {**entry, "what_each_decision_does": said[entry["item_id"]]}
-            if entry["item_id"] in said
-            else entry
-            for entry in open_items
-        ],
+        **entry,
+        "why_no_sentences": (
+            "the run's log could not be replayed, so what a decision does is not stated"
+        ),
     }

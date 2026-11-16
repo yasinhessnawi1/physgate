@@ -382,9 +382,12 @@ export function effectWords(c: Consequence): readonly Effect[] {
     const what =
       PART_CHOICE[position] ??
       chooseWords(c, effect).replace(/^Choose: /, "") +
-        (effect === "retry" || effect === "fix"
+        (effect === "retry" || effect === "fix" || effect === "resize"
           ? " If your note makes the order too long to review, the subtask ends rejected instead."
-          : "");
+          : effect === "reopen"
+            ? " If the order to reopen it is too long to review, nothing is reopened and the " +
+              "decision is only recorded."
+            : "");
     return { key: position, text: `Choosing ${label?.toLowerCase() ?? position}: ${what}` };
   });
   return [
