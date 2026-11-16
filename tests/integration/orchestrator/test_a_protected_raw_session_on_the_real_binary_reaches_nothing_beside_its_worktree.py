@@ -287,8 +287,8 @@ def _attempts(
         f"{cwd}/../../{by_place.parent.name}/{MARKED}",
         marks["by_the_place"],
     )
-    # Inside the place, beside the worktree, made after the install: the hook layer allows the
-    # whole place, the OS layer opens the worktree alone.
+    # Inside the place, beside the worktree, made after the install: both layers open the
+    # worktree alone, never the place.
     found += _reads(
         "in_the_place",
         cwd,
