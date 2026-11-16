@@ -119,15 +119,19 @@ def _packet(
     library = tmp_path / "harness"
     write_fixture(library, ("cross", "control"))
     review = tmp_path / "reviews" / "r0123456789ab"
-    packet = build_packet(
-        review,
-        artefact,
-        repo=attempt.worktree,
-        base_commit=attempt.spec_commit,
-        rubric=RUBRIC,
-        library=library,
-        spec=None,
-    )
+    try:
+        packet = build_packet(
+            review,
+            artefact,
+            repo=attempt.worktree,
+            base_commit=attempt.spec_commit,
+            rubric=RUBRIC,
+            library=library,
+            spec=None,
+        )
+    except PacketError as exc:
+        # Every stand-in here is one the harness must issue: a refusal fails the row as such.
+        raise AssertionError(f"the harness refused a packet it must issue: {exc}") from exc
     return packet, review / "read", attempt
 
 
