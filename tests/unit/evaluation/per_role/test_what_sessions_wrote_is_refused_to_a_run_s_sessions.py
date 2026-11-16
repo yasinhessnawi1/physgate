@@ -202,7 +202,7 @@ def test_a_check_s_session_is_refused_all_of_the_role_s_root_but_its_own_work(
 def test_a_check_s_session_is_refused_every_other_role_s_root(tmp_path: Path, profile: str) -> None:
     base = tmp_path.resolve()
     store = base / "private" / "store"
-    for role in ("control", "firmware"):
+    for role in ("control", "firmware", "whole_run"):
         for tier in ("visible", "held_out", "validation"):
             (store / role / VERSION / tier).mkdir(parents=True)
     other = store / "firmware" / "withheld" / "check" / "c-1" / "stdout.jsonl"
@@ -215,7 +215,11 @@ def test_a_check_s_session_is_refused_every_other_role_s_root(tmp_path: Path, pr
     policy = sandbox_policy(config, home=str(base / "outside" / "home"), temp_dir="/tmp/pg-ot")
     deny_read = policy.settings["sandbox"]["filesystem"]["denyRead"]
     wt = str(base / "wt")
-    for place in (other, store / "firmware" / VERSION / "visible"):
+    for place in (
+        other,
+        store / "firmware" / VERSION / "visible",
+        store / "whole_run" / VERSION / "visible",
+    ):
         target, where = str(place), place.relative_to(base)
         assert paths.protection(target, wt, config, writing=False), (
             f"a control check's {profile} session's file tool may read {where}"

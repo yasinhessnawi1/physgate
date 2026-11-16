@@ -212,6 +212,9 @@ class Suite(_Frozen):
         if "harness" not in self.arms or "raw" not in self.arms:
             msg = f"the suite {self.name!r} compares nothing without the harness and the raw arm"
             raise ValueError(msg)
+        if self.role == "whole_run":
+            msg = f"the suite {self.name!r} is of a whole run: this report has no whole-run section"
+            raise ValueError(msg)
         return self
 
 
