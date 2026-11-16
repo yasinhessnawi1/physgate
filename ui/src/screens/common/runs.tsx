@@ -14,7 +14,7 @@ import { runEvent, startedAt } from "../../api/events";
 import { type RunConfig, runConfig, type RunListing, runListing } from "../../api/records";
 import { type RunStatus, runStatus } from "../../api/run";
 import type { Source } from "../../design/components/data/source";
-import { type RunLabel, runLabels } from "../../words/runs";
+import { orderRuns, type RunLabel, runLabels } from "../../words/runs";
 import { queueListing } from "../../api/queue";
 import { type Phase, phaseOf, type Standing, standingOf } from "../../words/standing";
 import { runEnd, waitingFor } from "../home/runEnd";
@@ -89,9 +89,12 @@ function startOf(base: string): Promise<string | null> {
   return found;
 }
 
-/** The run list, read once per screen. */
+/** The run list, read once per screen, newest start first (``orderRuns``). */
 export function useRunList(): Result<readonly RunListing[]> | null {
-  return useResult(() => getJson("/api/runs", runListing), "/api/runs");
+  return useResult(
+    () => getJson("/api/runs", (value) => orderRuns(runListing(value))),
+    "/api/runs",
+  );
 }
 
 /**
@@ -136,7 +139,7 @@ export function useLabels(
           key: runKey(run),
           name: run.name,
           runId: run.runId,
-          started: starts.get(runKey(run)) ?? null,
+          started: run.started ?? starts.get(runKey(run)) ?? null,
         })),
       ),
     [runs, starts],

@@ -84,6 +84,10 @@ export function runListing(value: unknown): readonly RunListing[] {
       gateMode: failed ? null : gateMode(run.gate_mode),
       osLayer: failed ? null : osLayer(run.os_layer),
       error: failed ? text(run.error, "a refusal") : null,
+      started:
+        failed || run.started === undefined || run.started === null
+          ? null
+          : text(run.started, "a start time"),
     };
   });
 }

@@ -151,67 +151,56 @@ export function Runs({
   readonly reads: ReadonlyMap<string, RunRead>;
   readonly labels: ReadonlyMap<string, RunLabel>;
 }) {
-  // Grouped by the brief each run read, by its digest: a view, since no project record exists.
-  const groups = new Map<string, RunListing[]>();
+  // One list in the run list's order, newest start first: grouped, dates would jump.
+  const listed: { run: RunListing; read: RunRead }[] = [];
   const unread: RunListing[] = [];
   for (const run of runs) {
     const read = reads.get(runKey(run));
-    if (run.error !== null || read === undefined || !read.config.ok) {
-      unread.push(run);
-      continue;
-    }
-    const brief = read.config.value.briefSha256;
-    groups.set(brief, [...(groups.get(brief) ?? []), run]);
+    if (run.error !== null || read === undefined || !read.config.ok) unread.push(run);
+    else listed.push({ run, read });
   }
   return (
     <section className="pg-card pg-panel" aria-label="Runs">
       <header className="pg-panel-head">
         <h2 className="pg-panel-title">Runs</h2>
-        <span className="pg-panel-note">View: grouped by brief</span>
+        <span className="pg-panel-note">View: newest first</span>
       </header>
-      <div className="pg-table-wrap" role="region" aria-label="Runs, grouped by brief" tabIndex={0}>
-        <table className="pg-table pg-runs-table" aria-label="Runs, grouped by brief">
+      <div className="pg-table-wrap" role="region" aria-label="Runs, newest first" tabIndex={0}>
+        <table className="pg-table pg-runs-table" aria-label="Runs, newest first">
           <thead>
             <tr>
               <th scope="col">Run</th>
-              <th scope="col">Gate mode</th>
               <th scope="col">Where it stands</th>
+              <th scope="col">Gate mode</th>
               <th scope="col">
                 <Term term="os-layer">OS layer</Term>
               </th>
-              <th scope="col">Folder</th>
+              <th scope="col">Brief</th>
             </tr>
           </thead>
-          {[...groups.entries()].map(([brief, members]) => (
-            <tbody key={brief}>
-              <tr className="pg-group-row">
-                <th scope="rowgroup" colSpan={5}>
-                  Runs of one brief{" "}
-                  <span className="pg-panel-note">
-                    <Term term="digest">brief digest</Term>{" "}
-                    <Id value={brief.slice(0, 12)} copy={false} />
-                  </span>
-                </th>
+          <tbody>
+            {listed.map(({ run, read }) => (
+              <tr key={runKey(run)}>
+                <td>
+                  <a className="pg-run-row-link pg-hit" href={runHref("run-timeline", run)}>
+                    <RunName label={labels.get(runKey(run))} fallback={`Run ${run.name}`} />
+                  </a>
+                </td>
+                <td>{statusWords(read)}</td>
+                <td>{run.gateMode !== null && <GateModeBadge mode={run.gateMode} />}</td>
+                <td>
+                  <OsLayerBadge layer={run.osLayer} />
+                </td>
+                <td>
+                  {read.config.ok && (
+                    <span title="The digest of the brief the run read: runs of one brief share it">
+                      <Id value={read.config.value.briefSha256.slice(0, 8)} copy={false} />
+                    </span>
+                  )}
+                </td>
               </tr>
-              {members.map((run) => (
-                <tr key={runKey(run)}>
-                  <td>
-                    <a className="pg-run-row-link pg-hit" href={runHref("run-timeline", run)}>
-                      <RunName label={labels.get(runKey(run))} fallback={`Run ${run.name}`} />
-                    </a>
-                  </td>
-                  <td>{run.gateMode !== null && <GateModeBadge mode={run.gateMode} />}</td>
-                  <td>{statusWords(reads.get(runKey(run)))}</td>
-                  <td>
-                    <OsLayerBadge layer={run.osLayer} />
-                  </td>
-                  <td>
-                    <Id value={run.name} copy={false} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          ))}
+            ))}
+          </tbody>
         </table>
       </div>
       {unread.length > 0 && (
