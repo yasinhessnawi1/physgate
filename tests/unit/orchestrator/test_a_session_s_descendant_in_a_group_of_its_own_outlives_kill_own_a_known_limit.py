@@ -8,7 +8,9 @@ runs. A descendant that stayed in the session's group is killed with it.
 
 This row shows what survives today, so a change to it is seen; it is a known limit, not a
 guarantee. What reaches the rest is the process tree collected by parent pid while the session
-still lives (``stop_tree``), which the resume uses.
+still lives (``stop_tree``), which the resume uses. And a descendant that called ``setsid`` (a
+session and a group of its own) is found neither by the kill nor by the work root's check for a
+living session, which looks through the session's group and its POSIX session.
 """
 
 from __future__ import annotations

@@ -103,6 +103,7 @@ from physgate.evaluation.tiers.manifest import (
 )
 from physgate.evaluation.tiers.task import Role
 from physgate.orchestrator.dispatch import _seconds, process_rows
+from physgate.orchestrator.processes import ProcessTableError, command_of
 from physgate.orchestrator.session_files import FileRefused, read_beneath
 
 #: The one root per role that holds what sessions wrote: the pool and the sessions' streams.
@@ -225,28 +226,49 @@ def _facts(root: Path, place: tuple[str, ...]) -> dict[str, Any] | str:
     return {"pid": pid, "started": started, "session_id": sid}
 
 
-def _session_runs(pid: int, started: str) -> bool | None:
+#: How far apart, in seconds, two readings of one process's start time may lie and still be one
+#: start: ``ps`` derives it from the boot time on Linux, which moves when the clock is adjusted.
+START_TOLERANCE_S = 5.0
+
+
+def _near(lstart: str, started: str) -> bool:
+    """Whether two start times ``ps`` printed are one start, within :data:`START_TOLERANCE_S`."""
+    at, since = _seconds(lstart), _seconds(started)
+    if at is None or since is None:
+        return lstart == started
+    return abs(at - since) <= START_TOLERANCE_S
+
+
+def _session_runs(pid: int, started: str, session_id: str) -> bool | None:
     """Whether anything of the session the facts name runs: ``None`` if that cannot be told.
 
     The session was spawned leading a process group and a session (in the POSIX sense) of its
-    own, each with its pid as id. It runs while its leader does (that pid with that start time),
-    or while any process started since it is in its group or its session: the Bash tool's
-    commands leave the group but not the session, and neither id is handed out again while a
-    process holds it. A process that holds the pid with another start time is not the session,
-    and then neither its group nor its session can be: that pid was reused once both were empty.
+    own, each with its pid as id. It runs while its leader does, or while any other process is in
+    its group or its session: the Bash tool's commands leave the group but not the session, and
+    no process older than the session can be in either. The process at the leader's pid is the
+    leader when its start time is the recorded one (within :data:`START_TOLERANCE_S`), or, when
+    the clock was stepped or the time zone changed since, when its command line carries the
+    session's id; otherwise that pid was reused and the process there is not counted, but the
+    group and the session are still looked through for anything of the session's left there.
+    A known limit: a descendant that called ``setsid`` (a session and a group of its own) is
+    found by neither.
     """
     rows = process_rows()
     if rows is None:
         return None
-    since = _seconds(started)
     for p, _pgid, state, lstart in rows:
-        if p == pid and not state.startswith("Z"):
-            return lstart == started
-    for p, pgid, state, lstart in rows:
-        if state.startswith("Z"):
+        if p != pid or state.startswith("Z"):
             continue
-        at = _seconds(lstart)
-        if since is not None and at is not None and at < since:
+        if _near(lstart, started):
+            return True
+        try:
+            line = command_of(pid)
+        except ProcessTableError:
+            return None
+        if line is not None and session_id in line.split():
+            return True
+    for p, pgid, state, _lstart in rows:
+        if p == pid or state.startswith("Z"):
             continue
         if pgid == pid:
             return True
@@ -285,7 +307,7 @@ def _left_sessions(store: Path, role: Role) -> Iterator[tuple[bool | None, str]]
                 ),
             )
             continue
-        runs = _session_runs(facts["pid"], facts["started"])
+        runs = _session_runs(facts["pid"], facts["started"], facts["session_id"])
         if runs is None:
             yield (
                 None,
