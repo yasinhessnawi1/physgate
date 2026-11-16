@@ -305,11 +305,16 @@ def test_a_running_session_s_id_is_listed_and_a_gone_one_s_is_not(
 
 
 @pytest.mark.parametrize(
-    ("code", "listed"), [(1, f"{os.getpid()} python\n"), (0, "1 /sbin/init --session-id x\n")]
+    ("code", "listed"),
+    [(1, "{own} python\n"), (0, "1 /sbin/init --session-id x\n")],
+    ids=["failed", "without-this-process"],
 )
 def test_a_failed_listing_or_one_without_this_process_is_no_listing(
     monkeypatch: pytest.MonkeyPatch, code: int, listed: str
 ) -> None:
+    # This process's pid at run time: a test's id is the same in every worker that collects it.
+    listed = listed.format(own=os.getpid())
+
     def ps(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(argv, code, stdout=listed, stderr="")
 
