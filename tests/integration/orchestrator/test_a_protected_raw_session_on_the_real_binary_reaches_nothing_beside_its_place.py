@@ -490,10 +490,14 @@ def _round(root: Path, install_bin: Path) -> Round:
                     _shell(cwd, f'echo {own} > "{cwd}/{OWN}" && cat "{cwd}/{OWN}"'),
                     *(a.step for a in planned),
                 ]
+                # Where the writes begin (one that went through would change a mark).
+                state["writes"] = 1 + next(
+                    n for n, a in enumerate(planned) if a.group in {"write", "move"}
+                )
             steps: list[dict[str, Any]] = state["steps"]
-            if done >= len(steps) and "after" not in state:
-                # The last attempt has been answered and the session still runs: the test reads
-                # every mark again at the path each attempt used, before anything is moved.
+            if done >= state["writes"] and "after" not in state:
+                # Every read has been answered, no write tried yet, and the session still runs:
+                # the test reads every mark again at the path each attempt used.
                 state["after"] = True
                 for attempt in planned:
                     if attempt.group not in {"write", "move"}:
