@@ -109,8 +109,13 @@ def test_each_kind_of_session_s_real_hook_refuses_the_register_its_roots_and_its
             ("Write", {"file_path": target, "content": "x\n"}),
             ("Bash", {"command": f": > {target}", "description": "empty it"}),
         ]
-    for writer in ("scan-exposures", "mark-exposed", "add-run-root"):
-        typed = f"physgate tiers {writer} --withheld {withheld}"
+    for writer in (
+        "tiers scan-exposures",
+        "tiers mark-exposed",
+        "tiers add-run-root",
+        "gaps vector",
+    ):
+        typed = f"physgate {writer} --withheld {withheld}"
         writes.append(("Bash", {"command": typed, "description": "run a writer"}))
     refused_reads = profile in HELD_OUT_READERS_REFUSED
     assert refused_reads or profile == "orchestrator", f"{profile} may read the held-out tier"

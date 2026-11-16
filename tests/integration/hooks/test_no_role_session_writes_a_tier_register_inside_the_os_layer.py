@@ -4,8 +4,9 @@ The register and the run roots lie beneath the role's withheld root, which every
 role withholds. The first layer refuses a command that names it; these steps build the path at
 run time inside an interpreter fed a program, which the shell parser cannot see, so whatever
 stops them is the OS layer. One step writes the register directly; the others run each of the
-three writers with the harness's session markers taken out of their environment, as a session
-can, so the writers' own refusal inside a session does not stop them either. The hand mark is
+four writers (the register's three and the gaps vector's) with the harness's session markers
+taken out of their environment, as a session can, so the writers' own refusal inside a session
+does not stop them either. The hand mark is
 run on a terminal of the step's own making, for a version the store holds, so its terminal check
 and its version check pass and only the layer is left to stop it.
 
@@ -74,11 +75,17 @@ def _each_in_its_own_session(tmp_path: Path, store: StandInStore, *, layer: bool
     return said
 
 
+#: Each writer of the withheld place, by its command and the arguments after ``--withheld``.
+STEPS = ("scan-exposures", "mark-exposed", "add-run-root", "gaps vector", "write")
+
+
 def _writers(version: str) -> tuple[tuple[str, ...], ...]:
     return (
-        ("scan-exposures",),
-        ("mark-exposed", "--version", version, "--by", "someone", "--reason", "two words"),
-        ("add-run-root", "--path"),
+        ("tiers", "scan-exposures"),
+        ("tiers", "mark-exposed", "--version", version, "--by", "someone", "--reason", "two words"),
+        ("tiers", "add-run-root", "--path"),
+        # The vector writer reads the run set and the records beneath the same place.
+        ("gaps", "vector", "--version", version, "--tier", "held_out"),
     )
 
 
@@ -125,10 +132,15 @@ def _steps(root: Path, version: str) -> list[dict[str, object]]:
             + "RUN = 'import sys; from physgate.cli import main; sys.exit(main(sys.argv[1:]))'\n"
             + "env = {k: v for k, v in os.environ.items() if not k.startswith('CLAUDE_CODE_')}\n"
             # The harness's interpreter, which the first layer refuses by name, written reversed.
-            + f"argv = [{sys.executable[::-1]!r}[::-1], '-c', RUN, 'tiers', {writer[0]!r}, "
-            + f"'--withheld', w, *{writer[1:]!r}]\n"
+            + f"argv = [{sys.executable[::-1]!r}[::-1], '-c', RUN, *{writer[:2]!r}, "
+            + f"'--withheld', w, *{writer[2:]!r}]\n"
             + (f"argv.append({str(root / 'runs')!r})\n" if writer[-1] == "--path" else "")
-            + (on_a_terminal if writer[0] == "mark-exposed" else piped)
+            + (
+                "argv += ['--runs', os.path.join(w, 'r.json'), '--trials', os.path.join(w, 't')]\n"
+                if writer[0] == "gaps"
+                else ""
+            )
+            + (on_a_terminal if writer[1] == "mark-exposed" else piped)
         )
     steps.append(direct)
     return [tool("Bash", command=python(p), description=f"step {n}") for n, p in enumerate(steps)]
@@ -164,11 +176,9 @@ def test_inside_the_layer_no_step_writes_beneath_the_withheld_root(
     before = _contents(withheld)
     assert "register.jsonl" in before, before
     told = _each_in_its_own_session(tmp_path, store, layer=True)
-    assert len(told) == 4, told
+    assert len(told) == len(STEPS), told
     masked = sys.platform.startswith("linux")
-    for step, text in zip(
-        ("scan-exposures", "mark-exposed", "add-run-root", "write"), told, strict=True
-    ):
+    for step, text in zip(STEPS, told, strict=True):
         probe, read = _line(text, "probe"), _line(text, "read")
         if masked:
             # The layer masks the place: it lists empty, and the log does not read.
@@ -202,7 +212,7 @@ def test_without_the_layer_the_steps_write_there_which_shows_the_probe_works(
     withheld = _withheld(store)
     before = _contents(withheld)
     told = _each_in_its_own_session(tmp_path, store, layer=False)
-    assert len(told) == 4, told
+    assert len(told) == len(STEPS), told
     for text in told:
         assert "register.jsonl" in _line(text, "probe"), text
         assert _line(text, "read") == "ok", text
