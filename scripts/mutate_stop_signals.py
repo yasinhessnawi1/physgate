@@ -8,8 +8,11 @@ file. A kill is a failing assertion only: an error, a collection failure or a ti
 not. The unmutated tree is run first and last, and both must pass.
 
 Not mutated: the handler's ``os._exit`` after its own signal (reached only if the signal is not
-delivered), and ``_reaped``'s ``ChildProcessError`` branch (reached only when another wait
-reaped the session between two of its lines).
+delivered); ``_reaped``'s ``ChildProcessError`` branch and ``_running``'s unreadable table
+(reached only when another wait reaped the session between two of its lines, or ``ps`` fails);
+the bounded wait after SIGKILL for each session and its group, whose end no row can see
+before the run process itself has ended; and keeping a session unreaped through the grace, which
+only keeps its pid from being handed to another group before the group's SIGKILL.
 """
 
 from __future__ import annotations
@@ -33,7 +36,6 @@ R = "src/physgate/reviewers/claude.py"
 
 #: (name, rule, file, old, new)
 MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
-    # a. A stop signal ends the run's sessions and removes their files, within a bound.
     (
         "track-no-login",
         "a",
@@ -61,9 +63,10 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "full-grace-always",
         "a",
         S,
-        "    while len(reaped) < len(live) and time.monotonic() < deadline:",
+        "    while len(ended) < len(live) and time.monotonic() < deadline:",
         "    while time.monotonic() < deadline:",
     ),
+    ("running-always", "a", S, "        return started_at(pid) is not None", "        return True"),
     (
         "no-tree-kill",
         "a",
@@ -75,11 +78,9 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "no-group-kill",
         "a",
         S,
-        "                os.killpg(process.pid, signal.SIGKILL)",
-        "                pass",
+        "            os.killpg(process.pid, signal.SIGKILL)",
+        "            pass",
     ),
-    ("reaped-always", "a", S, "    return done == pid", "    return True"),
-    ("reaped-never", "a", S, "    return done == pid", "    return False"),
     (
         "no-first-removal",
         "a",
@@ -127,7 +128,6 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
     ),
     ("role-login-dropped", "a", D, '                login_dir=sdir / "config",\n', ""),
     ("review-login-dropped", "a", R, "                login_dir=config,\n", ""),
-    # b. What this process wrote is held until its session's end removed it.
     (
         "login-not-held",
         "b",
@@ -163,7 +163,6 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "    _held.pop(state_dir, None)\n    _held.pop(config_dir, None)\n",
         "",
     ),
-    # c. The next command removes the files of the sessions nothing runs as, first.
     ("no-early-sweep", "c", CLI, "    remove_left_credentials(args.run_dir.resolve())\n", ""),
     ("listing-wrong-flag", "c", S, 'if before == "--session-id")', 'if before != "--session-id")'),
     (
