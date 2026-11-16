@@ -193,8 +193,9 @@ def test_a_record_whose_script_changed_after_it_was_written_is_discarded_not_sea
     series = _collect(base, run_dir)
     assert series.records == ()
     assert series.refused == ()
-    ((name, reason),) = _set_aside(base, series)
-    assert name == "step_nominal.json"
+    found = _set_aside(base, series)
+    assert [name for name, _ in found] == ["step_nominal.json"]
+    reason = found[0][1]
     assert "modules/control/sim.py changed after the record was written" in reason
     assert (run_dir / "series" / DISCARDED_DIR / "session-1" / "step_nominal.json").is_file()
     assert not record_path(run_dir, "control-1", 1, "session-1", "step_nominal").exists()
@@ -210,8 +211,9 @@ def test_a_record_superseded_by_a_later_run_of_changed_code_is_discarded_and_the
     series = _collect(base, run_dir)
     assert [r.record_id for r in series.records] == ["step_nominal"]
     assert series.refused == ()
-    ((name, reason),) = _set_aside(base, series)
-    assert name == "step_draft.json"
+    found = _set_aside(base, series)
+    assert [name for name, _ in found] == ["step_draft.json"]
+    reason = found[0][1]
     assert "modules/control/helper.py changed after the record was written" in reason
     assert (run_dir / "series" / DISCARDED_DIR / "session-1" / "step_draft.json").is_file()
     assert not record_path(run_dir, "control-1", 1, "session-1", "step_draft").exists()

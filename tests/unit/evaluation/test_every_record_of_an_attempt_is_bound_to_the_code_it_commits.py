@@ -160,8 +160,9 @@ def test_a_quantity_naming_a_record_whose_loaded_file_changed_refuses_the_attemp
     ended = next(e for e in events if isinstance(e, SessionEnded))
     assert ended.series.records == ()
     assert ended.series.refused == ()
-    ((name, reason),) = _set_aside(ended)
-    assert name == "step.json"
+    found = _set_aside(ended)
+    assert [name for name, _ in found] == ["step.json"]
+    reason = found[0][1]
     assert "helper.py changed after the record was written" in reason
     checked = _first_check(events)
     assert checked.refused_by == "series", checked
@@ -178,8 +179,9 @@ def test_a_record_superseded_by_a_later_run_of_changed_code_does_not_refuse_the_
     for session in ended:
         assert [r.record_id for r in session.series.records] == ["step"]
         assert session.series.refused == ()
-        ((name, reason),) = _set_aside(session)
-        assert name == "draft.json"
+        found = _set_aside(session)
+        assert [name for name, _ in found] == ["draft.json"]
+        reason = found[0][1]
         assert "helper.py changed after the record was written" in reason
     assert [c.refused_by for c in events if isinstance(c, ProposalsChecked)] == [None, None]
     assert len([e for e in events if isinstance(e, Merged)]) == 2
