@@ -118,6 +118,17 @@ describe("the comparison's guard", () => {
     );
   });
 
+  it("takes the notes the comparison says beside its numbers, and none when it says none", () => {
+    const note = "the tier version 0123abcd is marked exposed as the register reads now";
+    const said = evidenceComparison({
+      ...COMPARED,
+      comparison: { ...COMPARED.comparison, notes: [note] },
+    });
+    const plain = evidenceComparison(COMPARED);
+    expect("notes" in said ? said.notes : undefined).toEqual([note]);
+    expect("notes" in plain ? plain.notes : undefined).toEqual([]);
+  });
+
   it("refuses a run's numbers with a field missing or one it does not know", () => {
     const { baseline } = COMPARED.comparison;
     for (const numbers of [without(baseline, "sessions"), { ...baseline, held_out: [] }])
