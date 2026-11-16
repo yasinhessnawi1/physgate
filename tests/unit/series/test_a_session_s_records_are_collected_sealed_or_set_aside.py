@@ -204,7 +204,7 @@ def test_a_record_superseded_by_a_later_run_of_changed_code_is_discarded_and_the
     tmp_path: Path, run_dir: Path
 ) -> None:
     base = worktree(tmp_path)
-    _written(base, record_id="step_draft")
+    _written(base, name="draft.py", record_id="step_draft")
     (base / MODULE / "helper.py").write_text("GAIN = 3.0\n")
     _written(base, record_id="step_nominal")
     series = _collect(base, run_dir)
