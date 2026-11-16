@@ -1,0 +1,215 @@
+{
+  "$comment": "Every call the desktop app's onboarding page makes into the app, in order, for each flow, as [command, arguments]. Taken from the page before its restyle and held unchanged after it: a flow that calls something else, with other arguments or in another order, fails. Where a write asks for a confirmation, the list is the one after confirming.",
+  "the welcome, skipped": [
+    ["onboarding_state", {}],
+    ["intro_seen", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}]
+  ],
+  "the welcome, played to its end": [
+    ["onboarding_state", {}],
+    ["intro_seen", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}]
+  ],
+  "no Claude Code": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}]
+  ],
+  "install Claude Code": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["claude_code_install", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}]
+  ],
+  "sign in": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["sign_in_start", {}],
+    ["sign_in_status", {}],
+    ["sign_in_return", {}],
+    ["sign_in_status", {}],
+    ["sign_in_status", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}]
+  ],
+  "sign in, stopped": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["sign_in_start", {}],
+    ["sign_in_status", {}],
+    ["sign_in_cancel", {}],
+    ["sign_in_status", {}]
+  ],
+  "sign in in Terminal": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["sign_in_in_terminal", {}],
+    ["store_secret", { "secret": "subscription_token", "value": "stand-in-token-0000" }],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}]
+  ],
+  "forget the token": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["forget_secret", { "secret": "subscription_token" }],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}]
+  ],
+  "API key: keep, test and forget": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["onboarding_state", {}],
+    ["store_secret", { "secret": "api_key", "value": "stand-in-key-0000" }],
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["test_api_key", {}],
+    ["forget_secret", { "secret": "api_key" }],
+    ["onboarding_state", {}],
+    ["onboarding_state", {}]
+  ],
+  "choose an engine: the Claude API": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["onboarding_state", {}],
+    [
+      "choose_engine",
+      {
+        "engine": "claude-api",
+        "implementer": "claude-opus-5-5",
+        "reviewer": "claude-haiku-4-5-20251001"
+      }
+    ],
+    ["finish_onboarding", {}]
+  ],
+  "choose an engine: Claude Code": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["choose_engine", { "engine": "claude-code", "implementer": null, "reviewer": null }],
+    ["finish_onboarding", {}]
+  ],
+  "the engines not available yet": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["device_report", {}]
+  ],
+  "set up later": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["finish_onboarding", {}]
+  ],
+  "operator name": [
+    ["onboarding_state", {}],
+    ["operator_state", {}],
+    ["set_operator", { "name": "Ada Lovelace" }]
+  ],
+  "stay read-only": [
+    ["onboarding_state", {}],
+    ["operator_state", {}],
+    ["set_operator", { "name": null }]
+  ],
+  "error: keeping the token from Terminal is refused": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["store_secret", { "secret": "subscription_token", "value": "stand-in-token-0000" }]
+  ],
+  "error: keeping the API key is refused": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["onboarding_state", {}],
+    ["store_secret", { "secret": "api_key", "value": "stand-in-key-0000" }]
+  ],
+  "error: choosing the engine is refused": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["choose_engine", { "engine": "claude-code", "implementer": null, "reviewer": null }]
+  ],
+  "error: the sign-in does not start": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["sign_in_start", {}]
+  ],
+  "error: the sign-in's poll reports it failed": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["sign_in_start", {}],
+    ["sign_in_status", {}]
+  ],
+  "error: the installer does not start": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["claude_code_install", {}]
+  ],
+  "error: the key test is refused": [
+    ["onboarding_state", {}],
+    ["onboarding_state", {}],
+    ["claude_code_detect", {}],
+    ["onboarding_state", {}],
+    ["sign_in_status", {}],
+    ["onboarding_state", {}],
+    ["test_api_key", {}]
+  ],
+  "error: the operator name is refused": [
+    ["onboarding_state", {}],
+    ["operator_state", {}],
+    ["set_operator", { "name": "Ada Lovelace" }]
+  ]
+}

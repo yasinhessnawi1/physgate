@@ -33,22 +33,23 @@ the internet, so macOS opens it without a warning.
      - **If Claude Code is missing,** the app opens Terminal with Anthropic's official
        installer when you click. Terminal prints the installer's command
        (`curl -fsSL https://claude.ai/install.sh | bash`) and runs it only once you press
-       Return there. The app downloads nothing itself. Then **Check Again**.
-     - **Sign In** runs `claude setup-token` inside the app and opens your browser. The
+       Return there. The app downloads nothing itself. Then **Check again**.
+     - **Sign in** runs `claude setup-token` inside the app and opens your browser. The
        token it prints goes straight into the macOS Keychain and is never shown. If that
        doesn't work, **Sign in in Terminal instead** runs it in Terminal, and you paste the
        token into a masked field.
    - **The Claude API**, with an API key.
-     - Paste the key into the masked field. It goes into the Keychain, and nothing is sent
-       anywhere.
-     - **Test Key — contacts Anthropic** makes one request, only when you click it, and says
+     - Paste the key into the masked field, then **Keep key…**: a confirmation names what is
+       written before the key goes into the Keychain, and nothing is sent anywhere.
+     - **Test key (contacts Anthropic)** makes one request, only when you click it, and says
        whether Anthropic accepts the key.
      - Choose an implementing and a reviewing model. They must differ.
 
-   Other providers, and a model run on this Mac, are listed as **not available yet**. The
+   Other providers, and a model run on this Mac, are listed as **Not yet**. The
    local-model card shows what this Mac could run (chip, memory, GPU cores, free disk, and
-   which models would fit), but nothing is downloaded. **Set Up Later** skips the step,
-   and **physgate → Engine…** returns to it.
+   which models would fit), but nothing is downloaded. **Continue to the operator UI…**
+   asks first, naming the engine (and its models) it keeps. **Set up later** skips the
+   step, and **physgate → Engine…** returns to it.
 3. **The operator UI.** The app serves `~/physgate-runs` without asking. It makes the
    folder on the first start (readable by you only), uses it as it is afterwards, and
    refuses it if it is a link. With no runs yet, the operator UI opens as usual and shows
@@ -70,8 +71,9 @@ own parameters name, and runs on an API key still ask the owner before they spen
   who decides here. It suggests the macOS account's full name and keeps the answer in the
   settings. It then starts `physgate ui --operator <name>`, so approvals and rejections
   made in the app are recorded under that name. physgate → Operator Name… changes it.
-- **"Stay read-only" is also an answer.** The UI then reads everything and decides nothing,
-  and each launch says so, with how to set a name.
+- **"Stay read-only" is also an answer.** It asks first, because it writes the operator
+  setting. The UI then reads everything and decides nothing, and each launch says so, with
+  how to set a name.
 - **The action token stays in memory.** The server prints the operator's address, with
   this start's action token in its fragment (`#act=…`), and the app opens exactly that
   address. The address is held in memory only: never written to a log or a file, never put
