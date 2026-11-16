@@ -349,6 +349,7 @@ def place_apart(run_dir: Path) -> Path:
         raise InvocationError(str(exc), place=str(apart)) from None
     return apart
 
+
 #: The run's own records, in the run directory. The session's working directory is
 #: one level below it, so none of these contains the worktree.
 #: The run's records a role session may not write and the sentinel puts back. ``series`` holds

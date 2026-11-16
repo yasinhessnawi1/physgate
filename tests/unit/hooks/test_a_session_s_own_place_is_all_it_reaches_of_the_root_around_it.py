@@ -214,6 +214,8 @@ def test_the_os_layer_denies_the_root_and_opens_the_worktree_alone(
 
     assert covered(rig / "work" / LATE / MARKED, fs["denyRead"]), fs["denyRead"]
     assert covered(_worktree(rig) / "README.md", fs["allowRead"]), fs["allowRead"]
+    # Written as the working directory always is, named where the root around it is denied.
+    assert covered(_worktree(rig) / "new.txt", fs["allowWrite"]), fs["allowWrite"]
     for kept in ("state", "config", "session"):
         assert not covered(place / "session" / kept / "x", fs["allowRead"]), (kept, fs)
     assert not covered(rig / "work" / LATE / MARKED, fs["allowRead"]), fs["allowRead"]

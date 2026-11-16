@@ -287,3 +287,12 @@ def test_a_place_apart_changed_before_a_later_check_refuses_it(root: Path, chang
     else:
         (root / "apart").chmod(0o755)
     assert "place apart" in _refusal(root, "SessionEnd")
+
+
+def test_a_link_at_the_part_s_temporary_name_is_never_written_through(root: Path) -> None:
+    outside = root / "outside-target.json"
+    outside.write_text("not the sentinel's\n")
+    os.symlink(outside, root / "apart" / f".{SESSION}.json.tmp")
+    assert _check(root, "SessionStart") == "allow"
+    assert outside.read_text() == "not the sentinel's\n", "the part was written through a link"
+    assert not (root / "apart" / f"{SESSION}.json").is_symlink()

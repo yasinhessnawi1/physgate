@@ -366,10 +366,9 @@ class _State:
         return loaded
 
     def save(self, base: dict[str, Any]) -> None:
-        if self.apart_path is None or self.apart is None:
+        if self.apart_path is None:
             self.loaded_text = self._write(self.path, json.dumps(base, sort_keys=True))
             return
-        held_apart(self.apart)
         hidden = set(base["hidden"])
         own = {k: v for k, v in base.items() if k not in APART_FIELDS}
         own["revert"] = {p: e for p, e in base["revert"].items() if p not in hidden}
