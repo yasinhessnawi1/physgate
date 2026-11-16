@@ -59,6 +59,11 @@ def _printed(run: Path, capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
     return printed
 
 
+def _as_printed(listing: dict[str, object]) -> dict[str, Any]:
+    """``listing`` as the command prints it: JSON, with tuples as lists."""
+    return json.loads(json.dumps(listing, sort_keys=True))  # type: ignore[no-any-return]
+
+
 def _run_with(tmp_path: Path, *items: QueueItem) -> Path:
     run = tmp_path / "run"
     run.mkdir()
@@ -83,7 +88,7 @@ def test_the_listing_prints_those_sentences_and_changes_nothing_else(
     (entry,) = printed["open"]
     assert entry.get(SAYS) == row["sentences"]
     # The served listing is the same lines: the sentences are all the command adds.
-    served = queue_listing(run)
+    served = _as_printed(queue_listing(run))
     plain = {k: v for k, v in entry.items() if k != SAYS}
     assert {**printed, "open": [plain]} == served
 
@@ -93,7 +98,7 @@ def test_an_item_that_states_no_consequence_is_listed_exactly_as_before(
 ) -> None:
     run = _run_with(tmp_path, _item(None))
     printed = _printed(run, capsys)
-    assert printed == queue_listing(run)
+    assert printed == _as_printed(queue_listing(run))
     (entry,) = printed["open"]
     assert "consequence" not in entry
     assert SAYS not in entry
@@ -113,9 +118,9 @@ def test_a_superseded_contract_item_says_nothing_of_what_a_choice_does(
 ) -> None:
     rig = reopened(tmp_path, monkeypatch)
     stored = next(i for i in read_queue(rig.run_dir).items if i.item_id == OTHER)
-    # The line still says the producer's choice reopens a module; the run will not do that.
+    # The line still says a choice reopens a module; the run will not do that.
     assert stored.consequence is not None and stored.consequence.on_choose is not None
-    assert stored.consequence.on_choose["producer"] == "reopen"
+    assert "reopen" in stored.consequence.on_choose.values()
     entries = {e["item_id"]: e for e in _printed(rig.run_dir, capsys)["open"]}
     assert OTHER in entries
     assert SAYS not in entries[OTHER]

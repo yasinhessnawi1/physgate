@@ -88,6 +88,27 @@ export function Decide({
   );
   usePaletteEntries(entries);
 
+  // A choice is offered where its button can be pressed; the domain's value needs a held seal.
+  const positionWhy = (position: Position): string | null =>
+    position === "domain" ? (why ?? (unsealed ? UNSEALED_WORDS.domain : null)) : why;
+  // Beside the buttons: what each decision that can be taken now will do, from the item's own
+  // record; on an item a reopen superseded, only what the run does with a decision on it.
+  const consequence = view.item.consequence;
+  const live = (key: string): boolean =>
+    key === "approve"
+      ? approveWhy === null
+      : key === "reject"
+        ? why === null
+        : key === "note"
+          ? true
+          : positionWhy(key as Position) === null;
+  const stated = consequence === null ? [] : effectWords(consequence).filter((e) => live(e.key));
+  const shown: readonly { readonly key: string; readonly text: string }[] =
+    supersededBy !== undefined
+      ? [{ key: "superseded", text: supersededOutcome(supersededBy) }]
+      : stated.length > 1
+        ? stated
+        : [];
   const choices = view.item.consequence === null ? null : consequenceWords(view.item.consequence);
   const approveLabel = choices?.approveLabel ?? "Approve…";
   const confirmation = (verb: Verb, position?: Position): Confirmation => {
@@ -177,9 +198,7 @@ export function Decide({
             variant="act"
             label={`Choose ${POSITION_WORDS[position].toLowerCase()}…`}
             confirm={confirmation("choose", position)}
-            disabledBecause={
-              position === "domain" ? (why ?? (unsealed ? UNSEALED_WORDS.domain : null)) : why
-            }
+            disabledBecause={positionWhy(position)}
             open={opened === position}
             onOpenChange={(open) => {
               setOpened(open ? position : null);
@@ -187,9 +206,9 @@ export function Decide({
           />
         ))}
       </div>
-      {view.item.consequence !== null && (
+      {shown.length > 0 && (
         <ul className="pg-queue-effects">
-          {effectWords(view.item.consequence, view.item.source).map((effect) => (
+          {shown.map((effect) => (
             <li key={effect.key} data-verb={effect.key}>
               {effect.text}
             </li>

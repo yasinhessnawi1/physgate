@@ -80,7 +80,7 @@ interface Options {
 function decide(c: Record<string, unknown> | null, options: Options = {}): HTMLElement {
   const data = raw(c, options.source);
   if (options.unsealed === true)
-    data.trajectories = [{ link: "/r/x", session_id: "s-1", status: "altered" }];
+    data.trajectories = [{ link: "/r/x", session_id: "s-1", status: "tampered" }];
   const view = itemView(data);
   const host = document.createElement("div");
   document.body.append(host);
@@ -143,14 +143,14 @@ function recordOf(c: Record<string, unknown>): Consequence {
     scanHits: 0,
     scanHitAttempts: [],
     judgedEarlier: [],
-    onChoose: (c.on_choose ?? null) as Consequence["onChoose"],
+    onChoose: c.on_choose ?? null,
   } as Consequence;
 }
 
 describe("the sentences are the ones the command line says", () => {
   it.each(ROWS.map((r) => [r.name, r] as const))("%s", (_name, row) => {
     const said = Object.fromEntries(
-      effectWords(recordOf(row.consequence), row.source as never).map((e) => [
+      effectWords(recordOf(row.consequence)).map((e) => [
         e.key === "approve" || e.key === "reject" || e.key === "note" ? e.key : `choose_${e.key}`,
         e.text,
       ]),
@@ -167,7 +167,8 @@ describe("what each decision will do, beside the buttons", () => {
     );
     expect(beside(host, "approve")).toBe(
       "Approving records your decision and closes this item for good. It will not merge this " +
-        `attempt, because ${"the physics gate refused the attempt, and a person overrides the reviewer alone"}.`,
+        "attempt, because the physics gate refused the attempt, and a person overrides the " +
+        "reviewer alone.",
     );
     expect(beside(host, "note")).toContain("cannot be edited or undone");
   });

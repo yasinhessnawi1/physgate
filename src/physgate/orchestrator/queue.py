@@ -1146,7 +1146,8 @@ def raised_again_id(item_id: str) -> str | None:
     return None if held is None else f"{held[0]}-r{held[1] + 1}"
 
 
-def _earlier_round(item_id: str) -> str | None:
+def earlier_round(item_id: str) -> str | None:
+    """The id of the item the part's previous round was listed under; ``None`` for round one."""
     held = parts_round(item_id)
     if held is None or held[1] < 2:
         return None
@@ -2294,7 +2295,7 @@ def _decide(dir_fd: int, run_dir: Path, record: QueueResolution, shown: ShownIte
             msg = "a part's item is decided by choosing have, make or find, and by nothing else"
             raise QueueError(msg, item=record.item_id)
         if records.items[record.item_id].source == "parts":
-            before = _earlier_round(record.item_id)
+            before = earlier_round(record.item_id)
             problem = raised_again_problem(
                 records.resolved.get(before) if before is not None else None,
                 record.position,

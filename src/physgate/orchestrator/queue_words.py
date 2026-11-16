@@ -9,14 +9,23 @@ is guessed. Nothing here decides anything or writes any record.
 
 from __future__ import annotations
 
-from physgate.orchestrator.events import Position
+from pathlib import Path
+
+from physgate.orchestrator.events import Position, read_events
+from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.queue import (
+    EVENTS_NAME,
     ItemConsequence,
     OnChoose,
     OnReject,
     QueueItem,
+    QueueResolution,
     WhyRecordOnly,
+    earlier_round,
+    raised_again_problem,
+    read_queue,
 )
+from physgate.orchestrator.replay import replay
 
 _WHY: dict[WhyRecordOnly, str] = {
     "gate": "the physics gate refused the attempt, and a person overrides the reviewer alone",
@@ -33,15 +42,35 @@ _WHY: dict[WhyRecordOnly, str] = {
     "legacy": "the item was listed before items said what a decision does",
 }
 
+#: What an order that is too long to review does to an order a person's note goes into.
+_TOO_LONG = (
+    "unless your note makes the order too long to review, when the subtask ends rejected instead"
+)
+
 _REJECT: dict[OnReject, str] = {
-    "retry": "Rejecting spends this attempt, and the next attempt starts from your note.",
+    "retry": (
+        f"Rejecting spends this attempt, and the next attempt starts from your note, {_TOO_LONG}."
+    ),
     "fix": (
-        "Rejecting orders one fix by a fresh session, the subtask's last attempt. If it is not "
-        "accepted, the subtask ends rejected."
+        "Rejecting orders one fix by a fresh session, the subtask's last attempt, "
+        f"{_TOO_LONG}. If the fix is not accepted, the subtask ends rejected."
     ),
     "end_subtask": "Rejecting ends the subtask as rejected. Nothing of it is merged.",
     "end_run": "Rejecting ends the run with no module dispatched.",
     "record_only": "",
+}
+
+#: Said once under the sentences: what no decision can be, and what the run may do with it.
+NOTE = (
+    "A decision cannot be edited or undone, and the item closes. The run may hold it until an "
+    "operator confirms it."
+)
+
+#: A part's choices by position: the record says declare or find, not which of the three.
+_PART: dict[str, str] = {
+    "have": "the part is one you have, and what you stated of it is fixed.",
+    "make": "the part is one you make, and what you stated of it is fixed.",
+    "find": "the part is sourced and sized as before.",
 }
 
 _POSITION: dict[Position, str] = {
@@ -77,8 +106,8 @@ _CHOOSE: dict[OnChoose, str] = {
         "contract is tested again once it is merged."
     ),
     "record_only": "the decision is recorded, and nothing in the run acts on it.",
-    "declare": "the part is one you have or make, and what you stated of it is fixed.",
-    "find": "the part is sourced and sized as before.",
+    "declare": "",
+    "find": "",
 }
 
 
@@ -108,9 +137,12 @@ def _choose(consequence: ItemConsequence, effect: OnChoose) -> str:
     return f"{_CHOOSE['reopen']} {found}: {', '.join(named)}."
 
 
-def decision_sentences(item: QueueItem) -> dict[str, str] | None:
-    """What each decision on ``item`` will do, by verb (and ``choose_<position>``).
+def decision_sentences(
+    item: QueueItem, *, refused: frozenset[str] = frozenset()
+) -> dict[str, str] | None:
+    """What each decision on ``item`` will do, by verb (and ``choose_<position>``), then a note.
 
+    ``refused`` names positions the item's own decision refuses, which are not described.
     ``None`` where the item states no consequence: nothing is then said that the record does
     not say.
     """
@@ -120,28 +152,85 @@ def decision_sentences(item: QueueItem) -> dict[str, str] | None:
     if consequence.on_approve == "release":
         approve = "Approving releases the hold, and the plan runs as it stands."
     elif consequence.on_approve == "merge_attempt":
-        commit = (
-            ""
-            if consequence.attempt_commit is None
-            else f" (commit {consequence.attempt_commit[:12]})"
-        )
+        sha = consequence.attempt_commit
+        commit = "" if sha is None else f" (commit {sha[:12]})"
         approve = (
-            f"Approving puts attempt {consequence.attempt}{commit} into the run, merged "
-            "exactly as shown."
+            f"Approving puts attempt {consequence.attempt}{commit} into the run, merged exactly "
+            "as shown, unless the merge conflicts or is refused, when an incident is recorded "
+            "and nothing is merged."
         )
     else:
         what = "merge or change anything" if consequence.attempt is None else "merge this attempt"
         approve = (
-            f"Approving records your decision. It will not {what}, because {_why(consequence)}."
+            "Approving records your decision and closes this item for good. "
+            f"It will not {what}, because {_why(consequence)}."
         )
     if consequence.on_reject == "record_only":
         reason = "" if consequence.why_record_only is None else f", because {_why(consequence)}"
-        reject = f"Rejecting records your decision. It will not change anything in the run{reason}."
+        reject = (
+            "Rejecting records your decision and closes this item for good. "
+            f"It will not change anything in the run{reason}."
+        )
     else:
         reject = _REJECT[consequence.on_reject]
     said = {"approve": approve, "reject": reject}
     for position, effect in (consequence.on_choose or {}).items():
-        said[f"choose_{position}"] = (
-            f"Choosing {_POSITION[position]}: {_choose(consequence, effect)}"
-        )
+        if position in refused:
+            continue
+        what = _PART.get(position) or _choose(consequence, effect)
+        if effect in ("retry", "fix"):
+            what += (
+                " If your note makes the order too long to review, the subtask ends rejected "
+                "instead."
+            )
+        said[f"choose_{position}"] = f"Choosing {_POSITION[position]}: {what}"
+    said["note"] = NOTE
     return said
+
+
+def _refused(item: QueueItem, resolved: dict[str, QueueResolution]) -> frozenset[str]:
+    """The positions a part raised again refuses: ``find``, once it was had or made."""
+    if item.source != "parts":
+        return frozenset()
+    before = earlier_round(item.item_id)
+    earlier = resolved.get(before) if before is not None else None
+    return frozenset(
+        position
+        for position in ("find",)
+        if raised_again_problem(earlier, position, None) is not None
+    )
+
+
+def with_what_each_decision_does(listing: dict[str, object], run_dir: Path) -> dict[str, object]:
+    """``listing``, each open item that states a consequence saying what each decision will do.
+
+    The sentences are made from the item's own record and added to what ``queue list`` prints
+    only; the queue's lines, and the listing the operator UI serves, are as they were. An item
+    a reopen superseded is given none, since the run records a decision on it and does nothing
+    else; where the run's log cannot be replayed, none is given either, since nothing says
+    which items it superseded.
+    """
+    open_items = listing["open"]
+    assert isinstance(open_items, list)  # noqa: S101 - queue_listing's own shape
+    log = run_dir / EVENTS_NAME
+    try:
+        superseded = set(replay(read_events(log)).superseded) if log.is_file() else set()
+    except CorruptEventLogError:
+        return listing
+    view = read_queue(run_dir)
+    resolved = {decision.item_id: decision for _, decision in view.decisions}
+    said = {
+        item.item_id: sentences
+        for item in view.open_items()
+        if item.item_id not in superseded
+        and (sentences := decision_sentences(item, refused=_refused(item, resolved))) is not None
+    }
+    return {
+        **listing,
+        "open": [
+            {**entry, "what_each_decision_does": said[entry["item_id"]]}
+            if entry["item_id"] in said
+            else entry
+            for entry in open_items
+        ],
+    }
