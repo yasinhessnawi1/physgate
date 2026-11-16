@@ -94,7 +94,11 @@ OS_DENIALS = {
     "permission denied": "permission_denied",
     "read-only file system": "read_only",
     "no such file or directory": "hidden",
+    # Linux: the worktree is a mount point in the sandbox, which no rename moves.
+    "device or resource busy": "mount_point",
 }
+#: What the binary says to a Read of a file it has read already, unchanged: the content reached it.
+ALREADY_READ = "file unchanged since your last Read"
 _RC = re.compile(r"@@rc=(\d+)")
 _CONTROL = re.compile(r"@@control=(\S*)")
 
@@ -416,6 +420,8 @@ def _met(attempt: Attempt, own: str) -> str:
     told = attempt.result
     if attempt.mark and attempt.mark in told:
         return "reached"
+    if not attempt.shell and ALREADY_READ in told:
+        return "reached:read before, unchanged"
     flat = " ".join(told.split())
     for rule, opening in HOOK_RULES.items():
         if opening and opening in flat:
