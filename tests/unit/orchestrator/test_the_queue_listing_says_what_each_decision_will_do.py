@@ -14,10 +14,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from parts_rig import RUN_ID, body, decide, item, item_id, listed
 from test_a_reopen_supersedes_the_other_items_on_its_module import OTHER, reopened
 
 from physgate.cli import main
+from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.queue import (
     QUEUE_NAME,
     ApprovalQueue,
@@ -124,19 +124,24 @@ def test_a_superseded_contract_item_says_nothing_of_what_a_choice_does(
     entries = {e["item_id"]: e for e in _printed(rig.run_dir, capsys)["open"]}
     assert OTHER in entries
     assert SAYS not in entries[OTHER]
-
-
-def test_a_choice_the_item_refuses_is_not_described(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run = listed(tmp_path / "run", item())
-    again = item().model_copy(update={"item_id": item_id(1, 2)})
-    assert not isinstance(decide(run, item_id(1), "have", body({"mass": (1, "kg")})), Exception), (
-        "the first round is decided"
+    assert entries[OTHER]["why_no_sentences"] == (
+        "a reopen superseded this item, so a decision on it is only recorded"
     )
-    ApprovalQueue(run / QUEUE_NAME).add(again)
-    (entry,) = [e for e in _printed(run, capsys)["open"] if e["item_id"] == item_id(1, 2)]
-    said = entry[SAYS]
-    assert RUN_ID in entry["run_id"]
-    assert "choose_have" in said and "choose_make" in said
-    assert "choose_find" not in said
+
+
+def test_a_log_that_cannot_be_replayed_says_why_no_item_has_sentences(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = _run_with(tmp_path, _item(ROWS[0]["consequence"], ROWS[0]["source"]))
+    (run / "events.jsonl").write_bytes(b"")
+
+    def refuse(_events: object) -> object:
+        msg = "the run-event log does not replay as a run"
+        raise CorruptEventLogError(msg)
+
+    monkeypatch.setattr("physgate.orchestrator.queue_words.replay", refuse)
+    (entry,) = _printed(run, capsys)["open"]
+    assert SAYS not in entry
+    assert entry["why_no_sentences"] == (
+        "the run's log could not be replayed, so what a decision does is not stated"
+    )

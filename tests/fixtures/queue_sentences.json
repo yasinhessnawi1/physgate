@@ -231,7 +231,7 @@
    "approve": "Approving records your decision and closes this item for good. It will not merge or change anything, because for an item of this kind a decision is recorded and changes nothing in the run.",
    "reject": "Rejecting records your decision and closes this item for good. It will not change anything in the run, because for an item of this kind a decision is recorded and changes nothing in the run.",
    "choose_sizing": "Choosing sizing's value: one fix is made by a fresh session in the subtask's working copy, told sizing's value as the graph holds it and your note if you write one. It is the subtask's last attempt; if it is not accepted, the subtask ends rejected. If your note makes the order too long to review, the subtask ends rejected instead.",
-   "choose_domain": "Choosing the domain's value: the subtask waits while sizing's closing pass is ordered to write the domain's value into the graph; once that pass is merged, this attempt is judged again from its finished session, with no new session. If the pass writes another value, the dispute is ruled again.",
+   "choose_domain": "Choosing the domain's value: the subtask waits while sizing's closing pass is ordered to write the domain's value into the graph; once that pass is merged, this attempt is judged again from its finished session, with no new session. If the pass writes another value, the dispute is ruled again. If your note makes the order too long to review, the subtask ends rejected instead.",
    "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
   }
  },
@@ -278,7 +278,7 @@
   "sentences": {
    "approve": "Approving records your decision and closes this item for good. It will not merge or change anything, because for an item of this kind a decision is recorded and changes nothing in the run.",
    "reject": "Rejecting records your decision and closes this item for good. It will not change anything in the run, because for an item of this kind a decision is recorded and changes nothing in the run.",
-   "choose_producer": "Choosing the producer's work: the other module is reopened for one more attempt, its next or its one fix, told the interface's values it does not hold. Its earlier merge stays on the record, and the contract is tested again once it is merged.",
+   "choose_producer": "Choosing the producer's work: the other module is reopened for one more attempt, its next or its one fix, told the interface's values it does not hold. Its earlier merge stays on the record, and the contract is tested again once it is merged. If the order to reopen it is too long to review, nothing is reopened and the decision is only recorded.",
    "choose_consumer": "Choosing the consumer's work: the decision is recorded, and nothing in the run acts on it.",
    "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
   }
@@ -307,7 +307,7 @@
   "sentences": {
    "approve": "Approving records your decision and closes this item for good. It will not merge or change anything, because for an item of this kind a decision is recorded and changes nothing in the run.",
    "reject": "Rejecting records your decision and closes this item for good. It will not change anything in the run, because for an item of this kind a decision is recorded and changes nothing in the run.",
-   "choose_producer": "Choosing the producer's work: the other module is reopened for one more attempt, its next or its one fix, told the interface's values it does not hold. Its earlier merge stays on the record, and the contract is tested again once it is merged. A review of the module it reopens confirmed a reward-hacking indicator: attempt 1 (feature_isolation).",
+   "choose_producer": "Choosing the producer's work: the other module is reopened for one more attempt, its next or its one fix, told the interface's values it does not hold. Its earlier merge stays on the record, and the contract is tested again once it is merged. A review of the module it reopens confirmed a reward-hacking indicator: attempt 1 (feature_isolation). If the order to reopen it is too long to review, nothing is reopened and the decision is only recorded.",
    "choose_consumer": "Choosing the consumer's work: the decision is recorded, and nothing in the run acts on it.",
    "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
   }
