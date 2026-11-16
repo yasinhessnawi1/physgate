@@ -51,6 +51,8 @@ STOP_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 #: How long the run's sessions have to end on SIGTERM before SIGKILL.
 GRACE_S = 5.0
 _WAIT_S = 0.05
+#: How long a session is waited for after its SIGKILL.
+_REAP_S = 2.0
 
 _Handler = Callable[[int, FrameType | None], object] | int | signal.Handlers | None
 
@@ -83,7 +85,8 @@ def end_live_sessions(grace_s: float = GRACE_S) -> int:
 
     Each one's tree is collected while it runs, then its group gets SIGTERM. After the grace,
     whatever is left of each tree gets SIGKILL, and so does each group whose leader is still
-    unreaped, whose pid and group are then still its own (``processes.kill_own``); it is reaped.
+    unreaped, whose pid and group are then still its own (``processes.kill_own``); it is reaped
+    if it ends within :data:`_REAP_S`.
     Reaped with ``os.waitpid``, never ``Popen.wait``: the signal may have landed inside the
     run's own wait on the same process, which holds that process's lock.
     """
@@ -108,17 +111,16 @@ def end_live_sessions(grace_s: float = GRACE_S) -> int:
         if process.pid not in reaped and not _reaped(process.pid):
             with contextlib.suppress(OSError):
                 os.killpg(process.pid, signal.SIGKILL)
-            with contextlib.suppress(OSError):
-                os.waitpid(process.pid, 0)
+            # Bounded: a process the kernel holds past its SIGKILL is not waited for.
+            killed = time.monotonic() + _REAP_S
+            while not _reaped(process.pid) and time.monotonic() < killed:
+                time.sleep(_WAIT_S)
     _live.clear()
     return len(live)
 
 
 def _on_stop(signum: int, _frame: FrameType | None) -> None:
-    # A second signal does not cut the removal short; nothing here returns to the run.
-    for each in STOP_SIGNALS:
-        with contextlib.suppress(OSError, ValueError):
-            signal.signal(each, signal.SIG_IGN)
+    # Nothing here returns to the run. A second signal runs this again, inside, to the same end.
     remove_held_secrets()
     ended = end_live_sessions()
     remove_held_secrets()
@@ -141,7 +143,7 @@ def on_stop_signals() -> Iterator[None]:
     if threading.current_thread() is not threading.main_thread():
         yield
         return
-    found: dict[int, _Handler] = {}
+    found: dict[signal.Signals, _Handler] = {}
     for signum in STOP_SIGNALS:
         handler = signal.getsignal(signum)
         if handler == signal.SIG_IGN:
@@ -151,8 +153,8 @@ def on_stop_signals() -> Iterator[None]:
     try:
         yield
     finally:
-        for signum, handler in found.items():
-            signal.signal(signum, handler)
+        for each, before in found.items():
+            signal.signal(each, before)
 
 
 def running_session_ids() -> frozenset[str]:

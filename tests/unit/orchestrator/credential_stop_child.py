@@ -1,10 +1,13 @@
 """A stand-in run process for the credential rows: one session spawned as the run spawns one.
 
-``python credential_stop_child.py <session dir> <fake binary> <seeded> <ignore term>``. With
+``python credential_stop_child.py <session dir> <fake binary> <seeded> <on term>``. With
 ``seeded`` it first puts the credential where the harness puts it, in both modes' files; the fake
-binary then writes its own login file in its configuration directory, says it is ready and runs
-until it is stopped. The process waits on the session under the run's stop-signal guard, as a run
-does, until a signal ends it. Every credential here is a dummy: no real one is ever loaded.
+binary then starts a tool in a process group of its own (as the Bash tool runs a command),
+writes its own login file in its configuration directory, says it is ready and runs until it is
+stopped. ``on term`` is what the fake does on SIGTERM: ``default`` (it ends), ``ignore``, or
+``rewrite`` (it writes its login file again, then ends). The process waits on the session under
+the run's stop-signal guard, as a run does, until a signal ends it. Every credential here is a
+dummy: no real one is ever loaded.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ from physgate.orchestrator.stop_signals import on_stop_signals
 DUMMY = "dummy-not-a-credential"
 
 
-def session_env(sdir: Path, *, ignore_term: bool) -> dict[str, str]:
+def session_env(sdir: Path, *, on_term: str) -> dict[str, str]:
     """An environment the spawn accepts: a home and a ZDOTDIR no startup file is in."""
     home, zdotdir = sdir / "home", sdir.parent.parent / "zdotdir"
     (home / ".zshrc").mkdir(parents=True, exist_ok=True)
@@ -33,11 +36,13 @@ def session_env(sdir: Path, *, ignore_term: bool) -> dict[str, str]:
         "ZDOTDIR": str(zdotdir),
         "CLAUDE_CONFIG_DIR": str(sdir / "config"),
         "READY": str(sdir / "ready"),
-        "IGNORE_TERM": "1" if ignore_term else "0",
+        "ON_TERM": on_term,
+        "TOOL_PID": str(sdir / "tool.pid"),
+        "PY": sys.executable,
     }
 
 
-def main(sdir: Path, fake: Path, *, seeded: bool, ignore_term: bool) -> int:
+def main(sdir: Path, fake: Path, *, seeded: bool, on_term: str) -> int:
     # As a run in the foreground of a terminal has them, whatever this test was started under.
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     signal.signal(signal.SIGINT, signal.default_int_handler)
@@ -59,7 +64,7 @@ def main(sdir: Path, fake: Path, *, seeded: bool, ignore_term: bool) -> int:
             process, _ = spawn_held(
                 [str(fake), "--session-id", session_id],
                 cwd=sdir,
-                env=session_env(sdir, ignore_term=ignore_term),
+                env=session_env(sdir, on_term=on_term),
                 out=out,
                 err=err,
                 session_id=session_id,
@@ -71,5 +76,5 @@ def main(sdir: Path, fake: Path, *, seeded: bool, ignore_term: bool) -> int:
 
 
 if __name__ == "__main__":
-    _sdir, _fake, _seeded, _ignore = sys.argv[1:5]
-    sys.exit(main(Path(_sdir), Path(_fake), seeded=_seeded == "1", ignore_term=_ignore == "1"))
+    _sdir, _fake, _seeded, _on_term = sys.argv[1:5]
+    sys.exit(main(Path(_sdir), Path(_fake), seeded=_seeded == "1", on_term=_on_term))
