@@ -35,8 +35,15 @@ from exposure_fixtures import StandInStore, stand_in_store  # noqa: E402
 
 pytestmark = pytest.mark.integration
 
-#: What the operating system says when the layer refuses an open or a write.
-DENIALS = ("Operation not permitted", "Permission denied", "Read-only file system")
+#: What the operating system says when the layer refuses a listing, an open or a write; a layer
+#: that hides a withheld directory leaves it absent inside the sandbox. The row without the
+#: layer shows the same path is there, so absence inside is the layer's doing.
+DENIALS = (
+    "Operation not permitted",
+    "Permission denied",
+    "Read-only file system",
+    "No such file or directory",
+)
 
 
 @pytest.fixture
@@ -64,7 +71,11 @@ def _steps(layout: Layout, version: str) -> list[dict[str, object]]:
     # The withheld root is joined from pieces at run time, so the first layer cannot see it.
     joined = (
         "import os, pty, subprocess\n"
-        f"w = os.path.join({str(layout.root)!r}, 'outside', 'st', 'control', 'with' + 'held')\n"
+        f"w = os.path.join({str(layout.root)!r}, 'outside', 'st', 'st' + 'ore', 'control', "
+        "'with' + 'held')\n"
+        # What the operating system itself says of the place, before any writer runs.
+        "try:\n    os.listdir(w); print('probe: listed')\n"
+        "except OSError as e:\n    print('probe:', e.strerror)\n"
     )
     direct = joined + (
         "try:\n    open(os.path.join(w, 'register.jsonl'), 'a').write('marker'); print('wrote')\n"
@@ -131,9 +142,10 @@ def test_inside_the_layer_no_step_writes_beneath_the_withheld_root(
     assert isinstance(told, list) and len(told) == 4, told
     for step, said in zip(("scan-exposures", "mark-exposed", "add-run-root"), told, strict=False):
         text = str(said)
+        probe = text.split("probe:", 1)[-1].splitlines()[0]
+        assert any(d in probe for d in DENIALS), f"the layer did not deny {step}'s place: {text}"
         assert "exit 0" not in text, f"{step} ran to its end inside the layer: {text}"
         assert "not_at_a_terminal" not in text, f"{step} was stopped by its terminal check: {text}"
-        assert any(d in text for d in DENIALS), f"{step} was not stopped by the layer: {text}"
     assert "denied:" in str(told[-1]) and "wrote" not in str(told[-1]), told[-1]
     assert any(d in str(told[-1]) for d in DENIALS), told[-1]
     assert _contents(layout) == before, "a step changed what lies beneath the withheld root"
@@ -148,6 +160,7 @@ def test_without_the_layer_the_steps_write_there_which_shows_the_probe_works(
     run = run_session(layout, _steps(layout, store.version), layer=False)
     told = run["told"]
     assert isinstance(told, list) and len(told) == 4, told
+    assert all("probe: listed" in str(said) for said in told), told
     assert "exit 0" in str(told[0]), told
     assert "exit 0" in str(told[1]) and "marked" in str(told[1]), told
     assert "wrote" in str(told[-1]), told
