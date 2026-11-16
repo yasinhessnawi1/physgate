@@ -12,8 +12,9 @@ on an interface node's id in the schema, and the sentence giving that form in th
 prompt; and in the prompt, the gate's quantity names, generated from its catalogue, and who
 writes interface nodes; and since 03.11.2026, where the gate has a bound and what forms each of its
 relations, generated from the tables and the catalogue it loads; and since the catalogue widening
-of 04.11.2026, its new names and kinds. A change to either for such a run is a change to what
-every ordinary run sends, and turns this red.
+of 04.11.2026, its new names and kinds; and since 16.11.2026, the paragraph saying a plan states
+interfaces and criteria, never a solution's law or coefficients. A change to either for such a run
+is a change to what every ordinary run sends, and turns this red.
 """
 
 from __future__ import annotations
@@ -49,20 +50,24 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: words; every other byte as before
 #: (test_the_widened_catalogue_adds_its_names_to_the_prompt_and_nothing_else); and, since
 #: 12.11.2026, the one sentence on how a unit is spelt, after the words that ask for a unit
-#: (test_the_decomposition_prompt_states_how_a_unit_is_spelt). Before that sentence:
+#: (test_the_decomposition_prompt_states_how_a_unit_is_spelt); and, since 16.11.2026, the
+#: paragraph after the words that ask for the modules and interfaces, saying a specification
+#: states interfaces and criteria and never a solution's law or coefficients
+#: (test_the_plan_states_interfaces_and_criteria_never_a_solution_s_law). Before that paragraph:
+#: cd9d3713e8dd..., 66e80cd16451... and 6fd51bcf6f3a.... Before the unit sentence:
 #: c14dba963d6c..., ad94ba0d6bbe... and d713661a9904.... At 470b3f34,
 #: before that sentence: ca0317a59ce7..., 8abeae4b5f23... and 44175ad46745...; before the
 #: widening, since 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
 #: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
 PROMPT_SHA256 = {
-    ("control", "firmware"): "cd9d3713e8dd9f7417686af3897cafbcc4eaa7c0b5554f2967174fb54165211c",
-    ("electrical",): "66e80cd16451939cf8ab9fefe9e0d683ede5c3b8ac3e9251c7078db6d9c93d8a",
+    ("control", "firmware"): "7394c68115d39dfda9e067ea080cc4bcf5e21a8c1409e108f0c2fd9bef8202eb",
+    ("electrical",): "044c69c7b62193e66a8fb0900838dad7544d45fdaab28a4f28d16446d6c182c4",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "6fd51bcf6f3a5b8fe9c1983c48148122206053d0d92fe7a139aa1a07460bd4db",
+    ): "0e879c749f64bbfeaca98ed2d81ba5f435697157014995e42db8ef8484e0ffd0",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -80,6 +85,14 @@ PROMPT = (
     "Each node's id is two or more parts joined by dots, each of lowercase "
     "letters, digits and underscores only, the first beginning with a letter, such as "
     '"pump.flow_rate".\n\n'
+    "A specification states its module's interfaces and acceptance criteria, never the internal "
+    "law, structure or coefficients of a solution the brief does not itself fix; a reference "
+    "implementation the brief cites is a source of numbers only, and an interface node holds "
+    "signals, units, rates and limits, never a solution's tuned parameters. Where the brief "
+    "requires one module to implement what another designs, such as firmware running the "
+    "control law that was analysed, the designing module comes first in the plan and writes its "
+    "design on a node of its own, and the implementing module's acceptance criteria compare its "
+    "implementation with that node as merged.\n\n"
     # The catalogue's names, from the catalogue: a copy here would hold the test to a list the
     # catalogue no longer keeps. The digests above hold the bytes.
     f"{catalogue_sentence()}\n\n"
