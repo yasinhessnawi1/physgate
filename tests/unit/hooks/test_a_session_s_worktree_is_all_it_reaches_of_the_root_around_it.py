@@ -263,14 +263,14 @@ def test_the_interpreter_s_directory_is_the_one_other_thing_it_reads_there(
 
 
 def test_a_sibling_whose_name_starts_as_the_worktree_s_is_refused(rig: Path) -> None:
-    """``worktree:x``, ``worktree2``, ``worktree.bak`` beside the worktree: none is the worktree.
+    """``worktree:x``, ``worktree:/x``, ``worktree2``, ``worktree.bak``: none is the worktree.
 
     The search-path form (a directory then ``:``) belongs to the interpreter's directory alone.
     """
     place = rig / "work" / "trial" / "place"
-    names = ("worktree:x", "worktree2", "worktree.bak")
+    names = ("worktree:x", "worktree:/x", "worktree2", "worktree.bak")
     for name in names:
-        (place / name).mkdir()
+        (place / name).mkdir(parents=True)
         (place / name / MARKED).write_text("beside, with a name like the worktree's\n")
     config = _config(rig)
     wt = str(_worktree(rig))
