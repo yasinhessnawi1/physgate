@@ -181,11 +181,14 @@ def _write(args: argparse.Namespace) -> int:
                 "already": report.already,
                 "missing_roots": [str(p) for p in report.missing],
                 "not_fully_read": [str(p) for p in report.unread],
+                "unread_places": list(report.places),
             }
             if report.missing or report.unread:
                 said["warning"] = (
-                    "a run root is gone or holds a link to a directory the scan does not "
-                    "follow: the runs there were not read, and their exposures are not recorded"
+                    "a run root is gone, holds a link to a directory the scan does not follow, "
+                    "or holds a directory inside a run that looks like a run, which the scan "
+                    "does not read: the runs there were not read, and their exposures are not "
+                    "recorded"
                 )
                 print(json.dumps(said, sort_keys=True))
                 return 1

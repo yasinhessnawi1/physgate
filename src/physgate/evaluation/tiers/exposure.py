@@ -26,9 +26,9 @@ brief, a canary or an outcome. A hand mark carries the person who made it and wh
   run roots; a raw-arm record, under the run roots or beneath the withheld root's baseline
   records, whose ``held_out_seen`` is not false (``null``, nobody looked, on a validation or
   held-out task found by its brief: an exposure of unknown extent, ``raw_record_unchecked``,
-  shown apart); or a mark made by a person at a terminal. A run made beneath another run is
-  walked to, but not one inside the places the harness makes in a run for its sessions; a link
-  to a directory is not followed, and its root is reported as not read whole. An
+  shown apart); or a mark made by a person at a terminal. Nothing inside a run directory is
+  entered or parsed (the harness holds no run inside a run); a directory there that looks like
+  a run, and a link to a directory anywhere, leave the root reported as not read whole. An
   incident names no root, so the run's held-out digests name the versions it marks: every
   version of the role whose validation or held-out tier the run recorded. A run or record that
   names none marks every version of the role.
@@ -99,10 +99,11 @@ MOST_ENTRIES = 200_000
 FEWEST_REASON_WORDS = 2
 #: The most characters a hand mark's name or reason holds, each.
 MOST_TEXT = 500
-#: The places the harness makes inside a run directory for its sessions' work and its own
-#: records: a walk does not enter them. A session writes in its worktree and its scratch, so
-#: what lies there is no run of the harness's, and a file planted there is not read as one.
-RUN_PLACES = frozenset({"worktrees", "store", "scratch", "sessions", "decomposition"})
+#: The places inside a run directory where the harness holds runs of its own: a walk enters
+#: these alone there. The harness makes no run inside another run, so there are none, and a
+#: walk enters nothing inside a run directory: a session writes in its worktree and its
+#: scratch, so nothing there is parsed.
+NESTED_RUN_PLACES: frozenset[str] = frozenset()
 _PREFIX = 8
 
 Key = Sha256
@@ -549,8 +550,11 @@ class _Walk:
     runs: list[Path]
     records: list[Path]
     seen: int = 0
-    #: Roots holding a link to a directory, which is not followed: not read whole.
+    #: Roots not read whole: they hold a link to a directory, which is not followed, or a
+    #: directory inside a run that looks like a run, which is not read.
     unread: list[Path] = field(default_factory=list)
+    #: Where in those roots, by position beneath the root; never what is there.
+    places: list[str] = field(default_factory=list)
     #: Roots that are not there.
     missing: list[Path] = field(default_factory=list)
 
@@ -558,16 +562,17 @@ class _Walk:
 def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
     """Every run directory and raw record beneath ``root``, no link followed, bounded.
 
-    A run directory is walked on below, for a run made beneath it, but not into the places the
-    harness makes in it for its sessions' work (:data:`RUN_PLACES`). A link to a directory is
-    not followed, and ``root`` is recorded as not read whole; a ``required`` root that is not
-    there is recorded as missing, never read as empty.
+    Inside a run directory the walk enters only :data:`NESTED_RUN_PLACES` and parses nothing
+    else. A directory there that holds a run's configuration is neither read nor ignored: its
+    root is recorded as not read whole, with its position. A link to a directory is not
+    followed, and its root is recorded so too. A ``required`` root that is not there is
+    recorded as missing, never read as empty.
 
     Raises:
         ExposureError: the walk goes past its bounds, or a directory cannot be listed.
     """
     stack = [(root, 0)]
-    unread = False
+    places: list[str] = []
     while stack:
         here, depth = stack.pop()
         try:
@@ -593,17 +598,25 @@ def _walk(root: Path, walk: _Walk, *, required: bool) -> None:
         if not is_run and record is not None and not record.is_dir(follow_symlinks=False):
             walk.records.append(here / RAW_RECORD)
         for entry in listed:
+            where = Path(entry.path)
             if entry.is_symlink():
-                unread = unread or entry.is_dir(follow_symlinks=True)
+                if entry.is_dir(follow_symlinks=True):
+                    places.append(where.relative_to(root).as_posix())
                 continue
-            if not entry.is_dir(follow_symlinks=False) or (is_run and entry.name in RUN_PLACES):
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+            if is_run and entry.name not in NESTED_RUN_PLACES:
+                # Not entered and nothing in it parsed; one that looks like a run is said.
+                if os.path.lexists(where / RUN_RECORD):
+                    places.append(where.relative_to(root).as_posix())
                 continue
             if depth + 1 > MOST_DEPTH:
                 msg = f"the run roots hold directories deeper than {MOST_DEPTH}"
                 raise _refuse("register_unreadable", msg)
             stack.append((Path(entry.path), depth + 1))
-    if unread:
+    if places:
         walk.unread.append(root)
+        walk.places += sorted(places)
 
 
 def _named_by(digests: Iterable[str], known: Mapping[str, TierSet]) -> frozenset[str]:
@@ -720,6 +733,8 @@ class Survey:
     findings: tuple[Finding, ...]
     missing: tuple[Path, ...]
     unread: tuple[Path, ...]
+    #: Where in the unread roots, by position; never what is there.
+    places: tuple[str, ...] = ()
 
 
 def survey(store: Path, role: Role, roots: Sequence[Path]) -> Survey:
@@ -748,7 +763,7 @@ def survey(store: Path, role: Role, roots: Sequence[Path]) -> Survey:
         finding = _record_finding(record, known, briefs)
         if finding is not None:
             found.append(finding)
-    return Survey(tuple(found), tuple(walk.missing), tuple(walk.unread))
+    return Survey(tuple(found), tuple(walk.missing), tuple(walk.unread), tuple(walk.places))
 
 
 def _findings(store: Path, role: Role, roots: Sequence[Path]) -> list[Finding]:
@@ -814,6 +829,7 @@ class ScanReport:
     already: int
     missing: tuple[Path, ...]
     unread: tuple[Path, ...]
+    places: tuple[str, ...] = ()
 
 
 def scan_exposures(store: Path, role: Role, roots: Sequence[Path] | None = None) -> ScanReport:
@@ -847,7 +863,7 @@ def scan_exposures(store: Path, role: Role, roots: Sequence[Path] | None = None)
                 }
             )
     _append(withheld_root(store, role), REGISTER, new)
-    return ScanReport(len(new), already, surveyed.missing, surveyed.unread)
+    return ScanReport(len(new), already, surveyed.missing, surveyed.unread, surveyed.places)
 
 
 def record_scan(store: Path, role: Role) -> tuple[int, int]:
@@ -936,8 +952,9 @@ def add_run_root(store: Path, role: Role, root: Path) -> bool:
         raise _refuse("run_root_would_refuse_the_scan", msg) from exc
     if real in surveyed.unread:
         msg = (
-            f"{root} holds a link to a directory, which a scan does not follow, so a run behind it "
-            "would never be read"
+            f"{root} holds a link to a directory, which a scan does not follow, or a directory "
+            "inside a run that looks like a run, which a scan does not read, so a run there would "
+            "never be read"
         )
         raise _refuse("run_root_not_fully_read", msg)
     _append(withheld_root(store, role), RUN_ROOTS, [{"kind": "run_root", "path": str(real)}])
