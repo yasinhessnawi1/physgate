@@ -592,7 +592,9 @@ const ERROR_FLOWS: readonly Flow[] = [
       await engineStepDrawn(page, flow, 4);
       await button(page, /^open in terminal/i).click();
       await upTo(page, flow, 5);
-      await expect(page.locator("#problem")).toContainText("stand-in refusal of claude_code_install");
+      await expect(page.locator("#problem")).toContainText(
+        "stand-in refusal of claude_code_install",
+      );
     },
   },
   {
