@@ -75,6 +75,10 @@ interface Fixture {
   /** How many times `sign_in_status` answers "running" after a sign-in starts. */
   readonly running: number;
   readonly operator: { readonly current: string | null; readonly suggested: string | null };
+  /** The commands the app refuses: each is recorded, then rejected, as a failed call is. */
+  readonly rejects: readonly string[];
+  /** Whether the sign-in's poll, once it stops running, reports `failed` and not `stored`. */
+  readonly fails: boolean;
 }
 
 const MISSING: Claude = {
@@ -105,6 +109,8 @@ function fixture(changes: Partial<Fixture> = {}): Fixture {
     claude: SIGNED_OUT,
     running: 2,
     operator: { current: null, suggested: "Ada Lovelace" },
+    rejects: [],
+    fails: false,
     ...changes,
   };
 }
@@ -167,6 +173,7 @@ function stub(given: Fixture): void {
         polls += 1;
         if (polls <= given.running)
           return { phase: "running", lines: ["Opening your browser to sign in…"], message: null };
+        if (given.fails) return { phase: "failed", lines: [], message: "Sign-in did not finish." };
         kept.subscription_token = true;
         return { phase: "stored", lines: [], message: "Kept in the macOS Keychain." };
       case "store_secret":
@@ -188,6 +195,8 @@ function stub(given: Fixture): void {
   const app = {
     invoke: (cmd: string, args?: Record<string, unknown>): Promise<unknown> => {
       calls.push([cmd, JSON.parse(JSON.stringify(args ?? null)) as unknown]);
+      if (given.rejects.includes(cmd))
+        return Promise.reject(new Error(`stand-in refusal of ${cmd}`));
       return Promise.resolve(answer(cmd, args ?? {}));
     },
   };
@@ -503,6 +512,133 @@ const FLOWS: readonly Flow[] = [
   },
 ];
 
+// -- error paths: begin (a proof builds its own spec from here to the end marker) ------------
+
+/** The first calls of an engine step, as the page draws it, and of the operator step. */
+const ENGINE_5 = 5;
+
+const ERROR_FLOWS: readonly Flow[] = [
+  {
+    name: "error: keeping the token from Terminal is refused",
+    step: "engine",
+    given: fixture({ rejects: ["store_secret"] }),
+    walk: async (page, flow) => {
+      await engineStepDrawn(page, flow, ENGINE_5);
+      await page.locator("#sign-in summary").click();
+      await page.locator('#sign-in input[type="password"]').fill(TOKEN);
+      await button(page, /^keep token/i).click();
+      await confirmIfAsked(page);
+      await upTo(page, flow, 6);
+      await expect(page.locator("#problem")).toContainText("stand-in refusal of store_secret");
+    },
+  },
+  {
+    name: "error: keeping the API key is refused",
+    step: "engine",
+    given: fixture({ rejects: ["store_secret"] }),
+    walk: async (page, flow) => {
+      await engineStepDrawn(page, flow, ENGINE_5);
+      await card(page, "Claude API").click();
+      await upTo(page, flow, 6);
+      await page.locator('#panel input[type="password"]').fill(KEY);
+      await button(page, /^keep key/i).click();
+      await confirmIfAsked(page);
+      await upTo(page, flow, 7);
+      await expect(page.locator("#problem")).toContainText("stand-in refusal of store_secret");
+    },
+  },
+  {
+    name: "error: choosing the engine is refused",
+    step: "engine",
+    given: fixture({ claude: SIGNED_IN, kept: TOKEN_KEPT, rejects: ["choose_engine"] }),
+    walk: async (page, flow) => {
+      await engineStepDrawn(page, flow, ENGINE_5);
+      await expect(page.locator("#continue")).toBeEnabled();
+      await page.locator("#continue").click();
+      await confirmIfAsked(page);
+      await upTo(page, flow, 6);
+      await expect(page.locator("#problem")).toContainText("stand-in refusal of choose_engine");
+    },
+  },
+  {
+    name: "error: the sign-in does not start",
+    step: "engine",
+    given: fixture({ rejects: ["sign_in_start"] }),
+    walk: async (page, flow) => {
+      await engineStepDrawn(page, flow, ENGINE_5);
+      await button(page, /^sign in…?$/i).click();
+      await upTo(page, flow, 6);
+      await expect(page.locator("#problem")).toContainText("stand-in refusal of sign_in_start");
+      await page.clock.runFor(2100);
+    },
+  },
+  {
+    name: "error: the sign-in's poll reports it failed",
+    step: "engine",
+    given: fixture({ running: 0, fails: true }),
+    walk: async (page, flow) => {
+      await engineStepDrawn(page, flow, ENGINE_5);
+      await button(page, /^sign in…?$/i).click();
+      await upTo(page, flow, 7);
+      await expect(page.locator("#progress")).toContainText("Sign-in did not finish.");
+      await page.clock.runFor(2100);
+    },
+  },
+  {
+    name: "error: the installer does not start",
+    step: "engine",
+    given: fixture({ claude: MISSING, rejects: ["claude_code_install"] }),
+    walk: async (page, flow) => {
+      await engineStepDrawn(page, flow, 4);
+      await button(page, /^open in terminal/i).click();
+      await upTo(page, flow, 5);
+      await expect(page.locator("#problem")).toContainText("stand-in refusal of claude_code_install");
+    },
+  },
+  {
+    name: "error: the key test is refused",
+    step: "engine",
+    given: fixture({ kept: KEY_KEPT, rejects: ["test_api_key"] }),
+    walk: async (page, flow) => {
+      await engineStepDrawn(page, flow, ENGINE_5);
+      await card(page, "Claude API").click();
+      await upTo(page, flow, 6);
+      await button(page, /^test key/i).click();
+      await upTo(page, flow, 7);
+      await expect(page.locator("#test-result")).toContainText("stand-in refusal of test_api_key");
+    },
+  },
+  {
+    name: "error: the operator name is refused",
+    step: "operator",
+    given: fixture({ rejects: ["set_operator"] }),
+    walk: async (page, flow) => {
+      await operatorDrawn(page, flow);
+      await button(page, /^decide as this name/i).click();
+      await confirmIfAsked(page);
+      await upTo(page, flow, 3);
+      await expect(page.locator("#operator-problem")).toContainText(
+        "That name can't be used: Error: stand-in refusal of set_operator.",
+      );
+    },
+  },
+];
+
+test.describe("an error from the app changes no call: the page makes the calls it always made", () => {
+  for (const flow of ERROR_FLOWS) {
+    test(flow.name, async ({ page }) => {
+      const seen = await rig(page, flow.given);
+      await open(page, flow.step);
+      await flow.walk(page, flow.name);
+      await settle();
+      expect(await calls(page)).toEqual(recorded(flow.name));
+      await holds(page, seen, flow.name);
+    });
+  }
+});
+
+// -- error paths: end ------------------------------------------------------------------------
+
 /** What every view of the page holds to: its own origin only, no violation, no command. */
 async function holds(page: Page, seen: Rig, where: string) {
   expect(seen.outbound, where).toEqual([]);
@@ -516,7 +652,7 @@ const notComment = (key: string): boolean => key !== "$comment";
 
 test.describe("each flow calls into the app exactly as the page did before its restyle", () => {
   test("every recorded flow has a walk, and every walk a recorded list", () => {
-    const walked = FLOWS.map((f) => f.name).sort();
+    const walked = [...FLOWS, ...ERROR_FLOWS].map((f) => f.name).sort();
     expect(walked).toEqual(Object.keys(RECORDED).filter(notComment).sort());
   });
 
@@ -704,7 +840,7 @@ test.describe("the page under the app's policy", () => {
     const seen = await rig(page, given);
     await open(page, "operator");
     await expect(page.locator("#operator-name")).toHaveValue("<b>Ada</b> Lovelace");
-    await expect(page.locator("#operator b")).toHaveCount(0);
+    await expect(page.locator("#operator-page b")).toHaveCount(0);
     await holds(page, seen, "planted operator");
   });
 });
@@ -849,5 +985,88 @@ test.describe("the engine step, by keyboard", () => {
     await open(page, "operator");
     const heading = page.getByRole("heading", { level: 1, name: "Who decides here?" });
     await expect(heading).toBeFocused();
+  });
+});
+
+test.describe("a trigger other than a plain click makes the calls a click makes", () => {
+  /** Two confirmations in one task: the second lands on a dialog the first has closed. */
+  const twice = (page: Page) =>
+    confirmation(page)
+      .locator(".pg-btn-act")
+      .evaluate((ok) => {
+        (ok as HTMLElement).click();
+        (ok as HTMLElement).click();
+      });
+
+  test("a dialog confirmed twice at once makes its call once: the engine", async ({ page }) => {
+    const flow = "choose an engine: Claude Code";
+    const seen = await rig(page, fixture({ claude: SIGNED_IN, kept: TOKEN_KEPT }));
+    await open(page, "engine");
+    await engineStepDrawn(page, flow, 5);
+    await page.locator("#continue").click();
+    await expect(confirmation(page)).toBeVisible();
+    await twice(page);
+    await settle();
+    expect(await calls(page)).toEqual(recorded(flow));
+    await holds(page, seen, flow);
+  });
+
+  test("a dialog confirmed twice at once makes its call once: the operator", async ({ page }) => {
+    const flow = "operator name";
+    const seen = await rig(page, fixture());
+    await open(page, "operator");
+    await operatorDrawn(page, flow);
+    await button(page, /^decide as this name/i).click();
+    await expect(confirmation(page)).toBeVisible();
+    await twice(page);
+    await settle();
+    expect(await calls(page)).toEqual(recorded(flow));
+    await holds(page, seen, flow);
+  });
+
+  test("an arrow key onto the Claude API makes the calls clicking its card makes", async ({
+    page,
+  }) => {
+    const flow = "API key: keep, test and forget";
+    const seen = await rig(page, fixture());
+    await open(page, "engine");
+    await engineStepDrawn(page, flow, 5);
+    await card(page, "Claude Code").focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(card(page, "Claude API")).toHaveAttribute("aria-checked", "true");
+    await upTo(page, flow, 6);
+    await settle();
+    expect(await calls(page)).toEqual(recorded(flow).slice(0, 6));
+    await holds(page, seen, "an arrow key onto the Claude API");
+  });
+
+  test("an arrow key onto a model on this Mac makes the calls clicking its card makes", async ({
+    page,
+  }) => {
+    const flow = "the engines not available yet";
+    const seen = await rig(page, fixture());
+    await open(page, "engine");
+    await engineStepDrawn(page, flow, 5);
+    await card(page, "Claude Code").focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(card(page, "A model on this Mac")).toHaveAttribute("aria-checked", "true");
+    await upTo(page, flow, 6);
+    await settle();
+    expect(await calls(page)).toEqual(recorded(flow));
+    await holds(page, seen, "an arrow key onto a model on this Mac");
+  });
+
+  test("Enter in the operator name makes the calls clicking its button makes", async ({ page }) => {
+    const flow = "operator name";
+    const seen = await rig(page, fixture());
+    await open(page, "operator");
+    await operatorDrawn(page, flow);
+    await page.locator("#operator-name").focus();
+    await page.keyboard.press("Enter");
+    await confirmIfAsked(page);
+    await upTo(page, flow, 3);
+    await settle();
+    expect(await calls(page)).toEqual(recorded(flow));
+    await holds(page, seen, "Enter in the operator name");
   });
 });
