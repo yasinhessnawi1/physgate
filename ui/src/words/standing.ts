@@ -181,3 +181,12 @@ export function standingOf(
       };
   }
 }
+
+/**
+ * Why a queue item on this run offers no decision, in one line, or ``null`` when it does: while
+ * the run is going or waits on a person. On a run that has ended, stopped or halted, nothing is
+ * running to take a decision up, so none is offered: a click would only write into a closed run.
+ */
+export function decisionClosedWords(_phase: Phase): string | null {
+  return null;
+}

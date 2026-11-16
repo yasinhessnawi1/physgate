@@ -38,6 +38,7 @@ export function QueueItem({
   source,
   subtaskName,
   supersededBy,
+  closed = null,
   children,
 }: {
   readonly view: ItemView;
@@ -46,6 +47,8 @@ export function QueueItem({
   readonly subtaskName: string;
   /** The item whose choice reopened a module this one is about, when a reopen superseded it. */
   readonly supersededBy?: string | undefined;
+  /** Why the run offers no decision on this item (``decisionClosedWords``), or ``null``. */
+  readonly closed?: string | null;
   readonly children?: ReactNode;
 }) {
   const { item } = view;
