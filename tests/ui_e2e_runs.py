@@ -11,7 +11,9 @@ Queue view's tests (see ``QUEUE_RUNS``), and one more run that acts on decisions
 ``run-esc-act``, whose item says what each verb will do. Two more record the OS layer and a
 network with none requested, for the Settings view's tests (see ``SETTINGS_RUNS``): the layer
 present, so the request is enforced, and the layer absent, so it is not. The runs whose control
-sessions record simulations come after them (see ``ui_series_rig``), for the Simulation screen.
+sessions record simulations come after them (see ``ui_series_rig``), for the Simulation screen,
+and two runs of the scripted run on the reference brief held for their parts (see
+``ui_parts_rig``), for the parts decision's tests.
 Beside the runs, never inside them, ``knowledge`` is a curated library holding every state a
 library file can be in (see ``ui_library_rig``), with two files a reader refuses: a skill file
 that is a link inside the library, and a staged file not named as staging names a candidate. The
@@ -36,6 +38,7 @@ from pathlib import Path
 from stand_in_roles import register
 from ui_evidence_rig import evidence_runs
 from ui_library_rig import build_library
+from ui_parts_rig import parts_runs
 from ui_rig import contract_run, escalated_run, evaluation_rig, real_runs, unavailable_run
 from ui_series_rig import series_runs
 from ui_three_mode_rig import cut_after_first_gate_stage, three_mode_runs, two_domain_run
@@ -138,6 +141,7 @@ def main(argv: list[str]) -> int:
     escalated(out, runs)
     settings_runs(out, runs)
     series_runs(out, runs)
+    parts_runs(out, runs)
     evidence_runs(out / "evidence")
     library(out)
     print(runs, flush=True)
