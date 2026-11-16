@@ -80,7 +80,7 @@ def _review(
         stdout.write_text(json.dumps(tool_output) + "\n")
     captured = SimpleNamespace(result=None, usage=(), answered={MODEL}, tampered=tampered)
 
-    def totals(*_a: Any) -> None:  # noqa: ANN401
+    def totals(*_a: Any, **_k: Any) -> None:  # noqa: ANN401
         if not totals_hold:
             msg = "the result's totals are not the messages'"
             raise AccountingError(msg)
@@ -98,7 +98,7 @@ def _review(
     monkeypatch.setattr(claude, "remove_secrets", lambda *a: None)
     monkeypatch.setattr(claude, "redact", lambda *a: None)
     monkeypatch.setattr(claude, "read_captured", lambda path, data=None: captured)
-    monkeypatch.setattr(claude, "require_matching_totals", totals)
+    monkeypatch.setattr(claude, "compaction_line", totals)
     monkeypatch.setattr(claude, "verdict_schema", lambda *a, **k: {})
     monkeypatch.setattr(claude, "contract_text", lambda *a, **k: "c")
     rubric = Rubric(role="control", text="r", sha256="0" * 64)
