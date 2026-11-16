@@ -63,15 +63,20 @@ def _paragraphs(prompt: str) -> list[str]:
     return [p for p in prompt.split("\n\n") if "law, structure or coefficients" in p]
 
 
+def _rule(prompt: str) -> str:
+    """The one paragraph that states the rule; a prompt with none or two fails on an assertion."""
+    found = _paragraphs(prompt)
+    assert len(found) == 1, found
+    return found[0]
+
+
 @pytest.mark.parametrize("parts", [False, True], ids=["no parts", "parts"])
 @pytest.mark.parametrize("run_roles", RUN_ROLES, ids=", ".join)
 def test_every_prompt_states_the_rule_once_in_one_paragraph(
     run_roles: tuple[str, ...], parts: bool
 ) -> None:
     prompt = prompt_for(BRIEF, run_roles, parts=parts)
-    found = _paragraphs(prompt)
-    assert len(found) == 1, found
-    (paragraph,) = found
+    paragraph = _rule(prompt)
     for words in SAID:
         assert words in paragraph, (words, paragraph)
     assert "\n" not in paragraph
@@ -83,7 +88,7 @@ def test_the_rule_follows_the_request_for_modules_and_interfaces_and_precedes_th
 ) -> None:
     prompt = prompt_for(BRIEF, run_roles)
     paragraphs = prompt.split("\n\n")
-    (rule,) = _paragraphs(prompt)
+    rule = _rule(prompt)
     asked = next(i for i, p in enumerate(paragraphs) if p.startswith("For each module give"))
     assert paragraphs.index(rule) == asked + 1
     assert prompt.index(rule) < prompt.index("Answer by calling StructuredOutput once.")
@@ -92,12 +97,12 @@ def test_the_rule_follows_the_request_for_modules_and_interfaces_and_precedes_th
 
 def test_the_rule_is_the_same_words_for_every_set_of_roles() -> None:
     # Generated from nothing the run plans: the same paragraph whatever its roles.
-    said = {_paragraphs(prompt_for(BRIEF, run_roles))[0] for run_roles in RUN_ROLES}
+    said = {_rule(prompt_for(BRIEF, run_roles)) for run_roles in RUN_ROLES}
     assert len(said) == 1, said
 
 
 @pytest.mark.parametrize("run_roles", RUN_ROLES, ids=", ".join)
 def test_a_replan_is_told_the_rule_too(run_roles: tuple[str, ...]) -> None:
-    (rule,) = _paragraphs(prompt_for(BRIEF, run_roles))
+    rule = _rule(prompt_for(BRIEF, run_roles))
     again = replan_prompt(BRIEF, run_roles, pairs.integrated(), ReplanFindings("found", False))
     assert again.count(rule) == 1
