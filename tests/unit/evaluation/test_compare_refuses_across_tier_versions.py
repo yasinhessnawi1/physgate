@@ -130,6 +130,36 @@ def test_runs_whose_withheld_and_work_roots_alone_differ_are_compared(tmp_path: 
     compare(candidate, baseline)
 
 
+@pytest.mark.parametrize("named", ["neither root", "the withheld root only", "the work root only"])
+def test_a_run_that_did_not_name_the_withheld_or_work_root_is_drift(
+    tmp_path: Path, named: str
+) -> None:
+    # A run that left either root unnamed did not withhold what lies there (the pool, the
+    # authoring and check streams, the blind check's work) from its sessions: those roots'
+    # digests are set aside, whether the run named them is not.
+    repo = target_repo(tmp_path)
+    roots = _store_roots(tmp_path)
+    digests = ("8" * 64, "9" * 64, *TIERS_AS_RECORDED)
+    kept = {"neither root": (2, 3), "the withheld root only": (0, 2, 3)}.get(named, (1, 2, 3))
+    baseline = _on_store(tmp_path, repo, "base", digests)
+    candidate = fake_run(
+        tmp_path,
+        "cand",
+        repo,
+        overrides={
+            "held_out": tuple(roots[i] for i in kept),
+            "held_out_sha256": tuple(digests[i] for i in kept),
+        },
+    )
+    mine, theirs = read_manifest(baseline).config, read_manifest(candidate).config
+    assert drift(mine, theirs) == ["held_out_sha256"]
+    assert drift(theirs, mine) == ["held_out_sha256"]
+    for one, other in ((baseline, candidate), (candidate, baseline)):
+        with pytest.raises(CompareRefusedError) as refusal:
+            compare(one, other)
+        assert "held_out_sha256" in refusal.value.context["drifted"].split(",")
+
+
 @pytest.mark.parametrize("tier", ["validation", "held_out"])
 def test_runs_whose_protected_tier_digest_differs_are_refused_as_drifted(
     tmp_path: Path, tier: str

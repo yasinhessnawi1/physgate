@@ -137,6 +137,38 @@ def test_a_changed_protected_tier_is_drift(
     assert code == 1 and said.get("refused_because") == "drift", said
 
 
+@pytest.mark.parametrize("unnamed", ["the visible runs", "one run of the set"])
+def test_runs_that_did_not_name_the_withheld_and_work_roots_are_drift(
+    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str], unnamed: str
+) -> None:
+    # Those runs' sessions could read the pool and the authoring and check streams: they were
+    # not run as the runs that named both roots were.
+    held = _vector(
+        made, "held_out", measured(made, "held_out", tmp_path / "h", held_out_sha256=_now(made))
+    )
+    named = measured(made, "visible", tmp_path / "v0", held_out_sha256=_now(made))
+    tiers_only = measured(
+        made,
+        "visible",
+        tmp_path / "v1",
+        held_out=list(made.held_out[VALIDATION:]),
+        held_out_sha256=_now(made)[VALIDATION:],
+    )
+    assert drift(_config(named), _config(tiers_only)) == ["held_out_sha256"]
+    assert drift(_config(tiers_only), _config(named)) == ["held_out_sha256"]
+    body = design(made, named, validation_tasks=None)
+    runs, trials = tiers_only.runs, tiers_only.trials
+    if unnamed == "one run of the set":
+        mixed = json.loads(named.runs.read_text())
+        mixed["trials"][-1]["run_dir"] = str(tiers_only.run_dirs[-1])
+        runs = tmp_path / "mixed" / "runs.json"
+        runs.parent.mkdir()
+        runs.write_text(json.dumps(mixed))
+        trials = named.trials
+    code, said = _gaps(capsys, tmp_path, runs, trials, held, body=body)
+    assert code == 1 and said.get("refused_because") == "drift", said
+
+
 def _earlier_rule(config: RunConfig) -> str:
     """The configuration digest as the vector writer made it before: every recorded digest."""
     dumped = config.model_dump(mode="json")
