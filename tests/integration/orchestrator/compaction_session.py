@@ -22,7 +22,7 @@ import subprocess
 import sys
 import threading
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -74,6 +74,22 @@ with open(sys.argv[1], "a", encoding="utf-8") as out:
 print(json.dumps({{"hookSpecificOutput": {{"hookEventName": "SessionStart",
     "additionalContext": {PROBE_CONTEXT!r} + str(data.get("source"))}}}}))
 """
+#: What the read probe records of each Read's result: its type, its keys, and its ``file``
+#: object's fields, the content by its length only.
+_READ_PROBE = """\
+import json, sys
+data = json.load(sys.stdin)
+result = data.get("tool_response")
+shape = {"input": data.get("tool_input")}
+if isinstance(result, dict):
+    shape["type"] = result.get("type")
+    shape["keys"] = sorted(result)
+    file = result.get("file")
+    if isinstance(file, dict):
+        shape["file"] = {k: len(v) if k == "content" else v for k, v in file.items()}
+with open(sys.argv[1], "a", encoding="utf-8") as out:
+    out.write(json.dumps(shape) + "\\n")
+"""
 #: What the endpoint answers a compaction request with, unless a row names another answer.
 SUMMARY = {"text": "<summary>The session so far.</summary>", "usage": COMPACT_USAGE}
 
@@ -95,10 +111,20 @@ def body_text(body: dict[str, Any]) -> str:
 class CompactingApi(FakeMessagesApi):
     """The scripted endpoint, with the compaction request answered as ``compact_reply``."""
 
-    def __init__(self, script: Script, compact_reply: dict[str, Any]) -> None:
-        """Serve ``script``; answer each compaction request with ``compact_reply``."""
+    def __init__(
+        self,
+        script: Script,
+        compact_reply: dict[str, Any],
+        count_tokens: Callable[[dict[str, Any]], int] | None = None,
+    ) -> None:
+        """Serve ``script``; answer each compaction request with ``compact_reply``.
+
+        ``count_tokens`` answers a token-count request from its body; by default every count
+        is 1, as the scripted endpoint's own.
+        """
         super().__init__(script)
         self.compact_reply = compact_reply
+        self.count_tokens = count_tokens or (lambda _body: 1)
         #: Every request's body, in the order they arrived, and whether it was a compaction.
         self.bodies: list[dict[str, Any]] = []
         self.compaction_requests: list[int] = []
@@ -133,7 +159,8 @@ def serving(api: CompactingApi) -> Iterator[str]:
             raw = self.rfile.read(int(self.headers.get("content-length", 0)))
             status = 200
             if "count_tokens" in self.path:
-                body, ctype = b'{"input_tokens": 1}', "application/json"
+                counted = api.count_tokens(json.loads(raw or b"{}"))
+                body, ctype = json.dumps({"input_tokens": counted}).encode(), "application/json"
             else:
                 body, ctype = api.answer(self.path, self.headers, json.loads(raw or b"{}"))
                 if ctype == "application/json":
@@ -207,8 +234,13 @@ class Ran:
 class Session:
     """A session's directories, kept across a resume, and how to invoke the binary on them."""
 
-    def __init__(self, binary: str, work: Path, *, probe: bool = True) -> None:
-        """Make ``work``'s ``home``, ``config`` and ``cwd``, and the probe hook's settings."""
+    def __init__(
+        self, binary: str, work: Path, *, probe: bool = True, read_probe: bool = False
+    ) -> None:
+        """Make ``work``'s ``home``, ``config`` and ``cwd``, and the probe hooks' settings.
+
+        ``read_probe`` installs a hook after each Read that records the shape of its result.
+        """
         self.binary = binary
         self.work = work
         self.version = binary_version(binary)
@@ -225,6 +257,14 @@ class Session:
             settings["hooks"] = {
                 "SessionStart": [{"hooks": [{"type": "command", "command": command}]}]
             }
+        self.read_log = work / "read-results.jsonl"
+        if read_probe:
+            script = work / "read_probe.py"
+            script.write_text(_READ_PROBE)
+            command = f"{sys.executable} -I {script} {self.read_log}"
+            settings.setdefault("hooks", {})["PostToolUse"] = [
+                {"matcher": "Read", "hooks": [{"type": "command", "command": command}]}
+            ]
         self.settings = work / "settings.json"
         self.settings.write_text(json.dumps(settings))
 
@@ -233,6 +273,12 @@ class Session:
         if not self.hook_log.exists():
             return ()
         return tuple(json.loads(line) for line in self.hook_log.read_text().splitlines() if line)
+
+    def read_results(self) -> list[dict[str, Any]]:
+        """The shape of each Read's result so far, as the read probe recorded it."""
+        if not self.read_log.exists():
+            return []
+        return [json.loads(line) for line in self.read_log.read_text().splitlines() if line]
 
     def run(  # noqa: PLR0913 - one invocation, with everything it is given
         self,
@@ -243,13 +289,15 @@ class Session:
         prompt: str = PROMPT,
         env: dict[str, str] | None = None,
         max_turns: int = 20,
+        count_tokens: Callable[[dict[str, Any]], int] | None = None,
     ) -> Ran:
         """Invoke the binary once on ``steps``, served one per request whatever the conversation.
 
-        ``resume`` resumes this session (``--resume``) instead of starting it.
+        ``resume`` resumes this session (``--resume``) instead of starting it; ``count_tokens``
+        answers the binary's token-count requests (by default, 1 each).
         """
         served = iter(steps)
-        api = CompactingApi(Script(main=[]), compact_reply or SUMMARY)
+        api = CompactingApi(Script(main=[]), compact_reply or SUMMARY, count_tokens)
         api.on_request = lambda _t, _c, _d: next(served, text("done"))
         with serving(api) as url:
             session_env = isolated_env(
