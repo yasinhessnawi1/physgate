@@ -68,11 +68,14 @@ its own role's pool, which its session withholds (:func:`leftovers`).
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
+import json
 import os
 import secrets
 import shutil
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, get_args
@@ -99,6 +102,9 @@ from physgate.evaluation.tiers.manifest import (
     tier_record,
 )
 from physgate.evaluation.tiers.task import Role
+from physgate.orchestrator.dispatch import _seconds, process_rows
+from physgate.orchestrator.processes import ProcessTableError, command_of
+from physgate.orchestrator.session_files import FileRefused, read_beneath
 
 #: The one root per role that holds what sessions wrote: the pool and the sessions' streams.
 WITHHELD = "withheld"
@@ -166,6 +172,211 @@ def make_role_root(root: Path) -> Path:
     for name in (WITHHELD, WORK):
         (root / name).mkdir(mode=0o700, exist_ok=True)
     return root
+
+
+class WorkRootHeld(Exception):  # noqa: N818 - a state, not a fault
+    """Another session's place in the role's work root is held: nothing may be made beside it.
+
+    Its words, when it has any, say which session still runs there.
+    """
+
+
+class WorkRootUnlockable(Exception):  # noqa: N818 - a state of the volume, not a fault here
+    """The work root's volume refuses the lock that holds it: nothing may be made there."""
+
+
+_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+#: Where a round's protected trials lie beneath the role's withheld root, and the start of each
+#: trial's directory's name in the work root (``baseline-<round>-<name>``).
+BASELINE_DIR = "baseline"
+#: Inside a trial's directory: the session's own place (the harness's directory lies beside it).
+PLACE = "place"
+#: The directory of a session's own files inside its place (a blind check's place is its work).
+SESSION_DIR = "session"
+#: The file the raw arm writes there when it spawns the session: its pid, start time and id.
+PROCESS_FACTS = "process.json"
+#: More than any process facts the raw arm writes; a larger file is not its.
+FACTS_LIMIT = 4096
+
+
+def _place_of(entry: str) -> tuple[str, ...]:
+    """The names from the work root down to the session's place in its ``entry``."""
+    return (entry, PLACE) if entry.startswith(f"{BASELINE_DIR}-") else (entry,)
+
+
+def _facts(root: Path, place: tuple[str, ...]) -> dict[str, Any] | str:
+    """The process facts the raw arm wrote in ``place``'s session directory, or why none are read.
+
+    Exactly the file the raw arm writes, opened as every harness file in a session's place is
+    (:func:`.orchestrator.session_files.open_beneath`): no link followed on the way, no wait on a
+    named pipe, a regular file with one link only, read once and bounded.
+    """
+    names = (*place, SESSION_DIR, PROCESS_FACTS)
+    try:
+        found = json.loads(read_beneath(root, names, limit=FACTS_LIMIT))
+    except FileRefused as exc:
+        return f"its process facts cannot be read ({exc})"
+    except ValueError:
+        return "its process facts are not a record"
+    if not isinstance(found, dict):
+        return "its process facts are not a record"
+    pid, started, sid = found.get("pid"), found.get("started"), found.get("session_id")
+    if not (isinstance(pid, int) and pid > 1 and isinstance(started, str) and isinstance(sid, str)):
+        return "its process facts do not name a process"
+    return {"pid": pid, "started": started, "session_id": sid}
+
+
+#: How far apart, in seconds, two readings of one process's start time may lie and still be one
+#: start: ``ps`` derives it from the boot time on Linux, which moves when the clock is adjusted.
+START_TOLERANCE_S = 5.0
+
+
+def _near(lstart: str, started: str) -> bool:
+    """Whether two start times ``ps`` printed are one start, within :data:`START_TOLERANCE_S`."""
+    at, since = _seconds(lstart), _seconds(started)
+    if at is None or since is None:
+        return lstart == started
+    return abs(at - since) <= START_TOLERANCE_S
+
+
+def _session_runs(pid: int, started: str, session_id: str) -> bool | None:
+    """Whether anything of the session the facts name runs: ``None`` if that cannot be told.
+
+    The session was spawned leading a process group and a session (in the POSIX sense) of its
+    own, each with its pid as id. It runs while its leader does, or while any other process is in
+    its group or its session: the Bash tool's commands leave the group but not the session, and
+    no process older than the session can be in either. The process at the leader's pid is the
+    leader when its start time is the recorded one (within :data:`START_TOLERANCE_S`), or, when
+    the clock was stepped or the time zone changed since, when its command line carries the
+    session's id; otherwise that pid was reused and the process there is not counted, but the
+    group and the session are still looked through for anything of the session's left there.
+    A known limit: a descendant that called ``setsid`` (a session and a group of its own) is
+    found by neither.
+    """
+    rows = process_rows()
+    if rows is None:
+        return None
+    for p, _pgid, state, lstart in rows:
+        if p != pid or state.startswith("Z"):
+            continue
+        if _near(lstart, started):
+            return True
+        try:
+            line = command_of(pid)
+        except ProcessTableError:
+            return None
+        if line is not None and session_id in line.split():
+            return True
+    for p, pgid, state, _lstart in rows:
+        if p == pid or state.startswith("Z"):
+            continue
+        if pgid == pid:
+            return True
+        with contextlib.suppress(OSError):
+            if os.getsid(p) == pid:
+                return True
+    return False
+
+
+def _left_sessions(store: Path, role: Role) -> Iterator[tuple[bool | None, str]]:
+    """Each session's place in the role's work root: whether it runs (``None``: unknown), in words.
+
+    Every place there that has a session directory is looked at: the raw arm wrote there, when it
+    spawned the session, its pid, the start time ``ps`` gave it and its session id. The session
+    runs while its leader or any process of its group or session does (:func:`_session_runs`),
+    never merely a reused pid. Facts that are missing or cannot be read, and a process table that
+    cannot be read, are no answer: unknown, never "it has ended".
+    """
+    root = work_root(store, role)
+    try:
+        entries = sorted(os.listdir(root))
+    except FileNotFoundError:
+        return
+    for entry in entries:
+        place = _place_of(entry)
+        where = "/".join(place)
+        if not os.path.lexists(os.path.join(root, *place, SESSION_DIR)):
+            continue
+        facts = _facts(root, place)
+        if isinstance(facts, str):
+            yield (
+                None,
+                (
+                    f"whether the session at {where} in the role's work root still runs cannot be "
+                    f"told: {facts}"
+                ),
+            )
+            continue
+        runs = _session_runs(facts["pid"], facts["started"], facts["session_id"])
+        if runs is None:
+            yield (
+                None,
+                (
+                    f"whether the session at {where} in the role's work root (pid {facts['pid']}) "
+                    "still runs cannot be told: the process table could not be read"
+                ),
+            )
+        elif runs:
+            yield (
+                True,
+                f"the session at {where} in the role's work root (pid {facts['pid']}) still runs",
+            )
+
+
+def living_session(store: Path, role: Role) -> str | None:
+    """Words naming a session in the role's work root that runs or may run, or ``None``.
+
+    For the holder of the work root, before it makes anything there: a session an earlier runner
+    left running (that runner killed outright, its lock gone with it), or one whose facts or the
+    process table cannot be read (:func:`_left_sessions`), refuses. ``None``: none there runs.
+
+    The facts lie in the session's own directory, which neither layer lets the session write;
+    the runner keeps no copy of them elsewhere.
+    """
+    return next((words for runs, words in _left_sessions(store, role) if runs is not False), None)
+
+
+def running_session(store: Path, role: Role) -> str | None:
+    """Words naming a session in the role's work root that is known to run still, or ``None``.
+
+    For a round's or a check's start, where any entry left in the work root is refused already
+    as work left (:func:`leftover_refusal`): a session known to run there is said first, as such.
+    """
+    return next((words for runs, words in _left_sessions(store, role) if runs), None)
+
+
+@contextlib.contextmanager
+def holding_work_root(store: Path, role: Role) -> Iterator[None]:
+    """The role's work root, held for one session's place in it while the body runs.
+
+    A baseline trial and a blind check each make a place of their own in the work root, with a
+    copy of protected tasks, while a session works there; one made while the other's session
+    lives is an entry that session's install never saw. Each makes its place only while it holds
+    the root and holds it until its place is out: a lock on the root's directory, released on
+    every way out of the body and by the kernel when the process ends, so it never outlives
+    the runner that took it. A session that does (its runner killed outright) is found by its
+    process facts once the lock is taken (:func:`living_session`), and refuses as a held root.
+
+    Raises:
+        WorkRootHeld: the work root is held already, or a session left in it still runs;
+            nothing is made.
+        WorkRootUnlockable: the volume refuses the lock call itself; nothing is made.
+    """
+    make_role_root(role_root(store, role))
+    fd = os.open(work_root(store, role), _DIRECTORY)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise WorkRootHeld from None
+        except OSError as exc:
+            raise WorkRootUnlockable(exc.strerror or repr(exc)) from None
+        living = living_session(store, role)
+        if living is not None:
+            raise WorkRootHeld(living)
+        yield
+    finally:
+        os.close(fd)
 
 
 def check_roots(store: Path, role: Role, work: Path) -> list[Path]:
@@ -416,8 +627,12 @@ def protected_tier_refusal(
     )
 
 
-def _spelt_as_on_disk(path: Path) -> bool:
+def spelt_as_on_disk(path: Path) -> bool:
     """Whether every part of ``path`` that exists is spelt as its directory lists it.
+
+    The rule every root a run withholds is held to (:func:`spelling_refusal`), and any other
+    place withheld by its name: on a volume that ignores case, another case names the same
+    place, and a name-matched protection given one spelling may not match the other.
 
     Raises:
         OSError: a directory on the way cannot be listed, so the spelling cannot be judged.
@@ -448,7 +663,7 @@ def spelling_refusal(
     wrong: list[str] = []
     for path in named:
         try:
-            if not _spelt_as_on_disk(path):
+            if not spelt_as_on_disk(path):
                 wrong.append(str(path))
         except OSError as exc:
             wrong.append(f"{path} (cannot be judged: {exc})")

@@ -95,7 +95,7 @@ from typing import Any, Literal
 
 from physgate.hooks.config import ExperimentRule, SessionConfig
 from physgate.hooks.graph import COMPLETION_DIR, DISPUTES_DIR, PROPOSALS_DIR
-from physgate.hooks.reasons import SESSION_TEMPS_REASON
+from physgate.hooks.reasons import SESSION_TEMPS_REASON, WITHHELD_WHOLE_REASON
 
 #: What the OS layer does with each path field of the session configuration.
 FIELD_RULES: dict[str, str] = {
@@ -203,8 +203,18 @@ def sandbox_policy(
         # As the kernel finds it: /var is /private/var on macOS, and either may be spelt.
         return any(_under(os.path.realpath(place), os.path.realpath(root)) for root in roots)
 
+    # A root withheld whole but for the session's worktree there (a protected trial's, a blind
+    # check's): the one read-denied root a worktree may lie in, where it is that root's exception.
+    # The worktree alone is opened again, as the hooks except it alone, never the place, which
+    # holds the session's own login and hook records: an opening re-opens everything beneath it.
+    around = {
+        r.path
+        for r in config.protected_roots
+        if r.reason == WITHHELD_WHOLE_REASON
+        and any(real_under(config.worktree, (place,)) for place in r.read_exceptions)
+    }
     for place in (config.worktree, temp_dir):
-        others = read_denied - temps if place == temp_dir else read_denied
+        others = read_denied - temps if place == temp_dir else read_denied - around
         if real_under(place, others):
             what = "worktree" if place == config.worktree else "temporary directory"
             msg = f"the session's {what} ({place}) is inside a read-denied path"
@@ -214,10 +224,15 @@ def sandbox_policy(
     # inside a read-denied root (the run's sessions/), and its temporary directory inside the
     # parent of every session's: opened again.
     allow_read = sorted(
-        place for place in {home, temp_dir, *readable} if real_under(place, read_denied)
+        place
+        for place in {home, temp_dir, *readable, *([config.worktree] if around else [])}
+        if real_under(place, read_denied)
     )
     # Written by the session's commands, as its home is, where it lies in a denied parent.
-    own_writes = (temp_dir,) if real_under(temp_dir, temps) else ()
+    own_writes: tuple[str, ...] = (temp_dir,) if real_under(temp_dir, temps) else ()
+    # And the worktree, where it lies in a root withheld whole: named as the home is, so the layer
+    # that denies the root around it keeps it writable as the working directory always is.
+    own_writes += (config.worktree,) if around else ()
     settings: dict[str, Any] = {
         "sandbox": {
             "enabled": True,

@@ -45,7 +45,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 from physgate.hooks import withheld
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import compactions, outstanding
-from physgate.hooks.sentinel import _frozen_experiment_paths
+from physgate.hooks.sentinel import _frozen_experiment_paths, held_apart
 from physgate.hooks.settings import CONFIG_NAME, SETTINGS_NAME
 from physgate.hooks.shell_startup import held_or_refused
 from physgate.hooks.snapshot import Signature, file_digest, signature
@@ -319,6 +319,39 @@ def withheld_paths(run_dir: Path) -> tuple[Path, ...]:
     params = recorded_params(run_dir)
     named = tuple(run_dir / name for name in WITHHELD_RECORDS)
     return (*named, params) if params is not None else named
+
+
+#: The run's place apart from every session's own directory, where each role session's sentinel
+#: keeps the part of its record that names the protected entries (a held-out task's directory,
+#: which is its id, and each file's digest): a session's directory can lie later where people and
+#: other sessions read; this place no role session reads or writes on any layer. Resume's checks
+#: read it there, as the session's own checks did.
+SENTINEL_APART_DIR = "sentinel-apart"
+
+
+def place_apart(run_dir: Path) -> Path:
+    """The run's place apart for the sentinel's record, made where it is not there yet.
+
+    Made private, with the run's directory where that is not there yet. One that is there is
+    taken only as the run's own: a real directory, no link, this user's, mode 0700; the sentinel
+    holds it to the same at every check, a resume's among them.
+
+    Raises:
+        InvocationError: it is there as anything else; nothing is installed.
+    """
+    apart = run_dir / SENTINEL_APART_DIR
+    run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        os.mkdir(apart, 0o700)
+    except FileExistsError:
+        pass  # judged below as it is: never changed here
+    else:
+        os.chmod(apart, 0o700)  # as made, whatever bits the parent passes down
+    try:
+        held_apart(str(apart))
+    except ValueError as exc:
+        raise InvocationError(str(exc), place=str(apart)) from None
+    return apart
 
 
 #: The run's own records, in the run directory. The session's working directory is
@@ -1679,6 +1712,10 @@ class ClaudeDispatcher:
         # there; the OS layer opens its home to its commands, and its binary reads its
         # configuration itself.
         protect += ["--sessions-root", str(self._run.run_dir / "sessions")]
+        # Beside the session directories, never in one: made before the install, so the layers
+        # refuse a place that is there.
+        apart = place_apart(self._run.run_dir)
+        protect += ["--sentinel-apart", str(apart)]
         # A session in the target's worktree has nothing of its own in the harness
         # checkout, and the live gate reads from it.
         protect += harness_protection()

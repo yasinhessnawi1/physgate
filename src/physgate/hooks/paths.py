@@ -79,9 +79,11 @@ from physgate.hooks.reasons import (
     HOOK_STATE_REASON,
     OUTSIDE_REVIEW_REASON,
     REVIEW_MATERIAL_REASON,
+    SENTINEL_APART_REASON,
     SESSION_TEMPS_REASON,
     SESSIONS_REASON,
     WITHHELD_REASON,
+    WITHHELD_WHOLE_REASON,
 )
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 
@@ -308,6 +310,25 @@ def _resolved(path: str, cwd: str) -> str:
 HELD_OUT_READERS_REFUSED = ("role", "reviewer", "baseline")
 
 
+def _search_path(spelling: str, places: list[str]) -> bool:
+    """Whether ``spelling`` is a search-path list led by one of ``places``, as ``$PATH`` expands.
+
+    The leading entry is one of ``places`` and a directory on this process's own search path (the
+    session's, which the hook inherits); every further entry is absolute or empty.
+    """
+    head, colon, rest = spelling.partition(":")
+    head = head.rstrip("/")
+    if not colon or head not in places:
+        return False
+    searched = {
+        s.rstrip("/")
+        for e in os.environ.get("PATH", "").split(os.pathsep)
+        if e
+        for s in _spellings(e)
+    }
+    return head in searched and all(not e or e.startswith("/") for e in rest.split(":"))
+
+
 def _own_reading(path: str, place: str) -> bool:
     """Whether ``path`` is the file ``place`` names, or beneath it, and so read after all.
 
@@ -316,15 +337,16 @@ def _own_reading(path: str, place: str) -> bool:
     file with a second name: a link made in the session's own directory to another session's file
     is not the file it was given to read.
 
-    Every allowance lies where no command of the session writes (never in its home), so a path
-    there that does not exist reads nothing and cannot be made: it is no refusal. Nor is a
-    search-path list that starts with one (``<bin>:/usr/bin``, as ``$PATH`` expands), which names
-    no file of its own there.
+    A path there that does not exist reads nothing: it is no refusal. Nor is a search-path list
+    led by an allowance that is a directory on this session's own search path (the interpreter's
+    directory, ``<bin>:/usr/bin``, as ``$PATH`` expands), each further entry absolute or empty:
+    it names no file of its own there. No other allowance has that form, so a sibling named
+    ``worktree:x`` is not the worktree.
     """
     places = [p.rstrip("/") for p in _spellings(place)]
 
     def beneath(spelling: str) -> bool:
-        return any(_under(spelling, p) or spelling.startswith(p + ":") for p in places)
+        return any(_under(spelling, p) for p in places) or _search_path(spelling, places)
 
     if not (beneath(path) and beneath(os.path.realpath(path))):
         return False
@@ -409,6 +431,10 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
         # reads of its own there, nor the temporary directory every Claude Code session of the
         # user shares, which holds the other sessions' task outputs, nor another session's own
         # temporary directory, but for the session's own.
+        # Nor the run's place apart, where the sentinel keeps what names the protected entries.
+        # Nor a root withheld whole but for the session's worktree there, whatever was made in
+        # it after the install, the rest of its own place included: only its worktree (and the
+        # directory of its interpreter, named exactly), exactly as spelt, is read.
         # Claude Code's directory in the session's scratch home is read by none either: what
         # is there is not the session's, and the OS layer denies the shell's reads alike.
         for root in config.protected_roots:
@@ -420,6 +446,8 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool, shell: bool = Fa
                     in (
                         WITHHELD_REASON,
                         SESSIONS_REASON,
+                        SENTINEL_APART_REASON,
+                        WITHHELD_WHOLE_REASON,
                         CLAUDE_TEMP_REASON,
                         SESSION_TEMPS_REASON,
                         HOME_CLAUDE_REASON,

@@ -75,12 +75,12 @@ jobs:
         # version, because the hook contract was measured on that version.
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
-          PHYSGATE_BYPASS_LOG: ${{ github.workspace }}/bypass.jsonl
+          PHYSGATE_BYPASS_LOG: ${{ runner.temp }}/bypass.jsonl
         run: uv run pytest -q -m integration tests/integration/hooks
 
       - name: Every attempt, one line each
         if: always()
-        run: cat bypass.jsonl || echo "no attempts were recorded"
+        run: cat "$RUNNER_TEMP/bypass.jsonl" || echo "no attempts were recorded"
 
       - name: Each platform's binary digest, from the tarballs the lockfile pins
         # The development machine, CI and the server run different builds of one version. Each
@@ -170,7 +170,7 @@ jobs:
         # above.
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
-          PHYSGATE_OSLAYER_REPORT: ${{ github.workspace }}/oslayer-report
+          PHYSGATE_OSLAYER_REPORT: ${{ runner.temp }}/oslayer-report
         run: >
           uv run pytest -q -rs -m integration
           tests/integration/hooks/test_a_role_session_runs_inside_the_os_layer.py
@@ -190,16 +190,18 @@ jobs:
         if: success() || failure()
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
-          PHYSGATE_OSLAYER_REPORT: ${{ github.workspace }}/oslayer-report
+          PHYSGATE_OSLAYER_REPORT: ${{ runner.temp }}/oslayer-report
           PHYSGATE_REQUIRE_OS_LAYER: "1"
         shell: bash
+        # Its reports go to the runner's temporary directory, never into the checkout, as the
+        # other steps' do: a file written there reads as a different harness to a later measure.
         run: |
           set -o pipefail
           uv run pytest -q -rA -m integration \
             tests/integration/hooks/test_no_role_session_writes_a_tier_register_inside_the_os_layer.py \
-            --junitxml=tier-register-os-layer.xml | tee tier-register-os-layer.txt
-          grep -c '<skipped' tier-register-os-layer.xml && exit 1 || true
-          tail -n 1 tier-register-os-layer.txt | grep -Eq '^2 passed in [0-9.]+s'
+            --junitxml="$RUNNER_TEMP/tier-register-os-layer.xml" | tee "$RUNNER_TEMP/tier-register-os-layer.txt"
+          grep -c '<skipped' "$RUNNER_TEMP/tier-register-os-layer.xml" && exit 1 || true
+          tail -n 1 "$RUNNER_TEMP/tier-register-os-layer.txt" | grep -Eq '^2 passed in [0-9.]+s'
 
       - name: A small volume of its own for the row that fills one
         # The row that puts a session's transcripts on a full volume needs a volume small
@@ -218,10 +220,14 @@ jobs:
         # A step of its own because pytest's --ignore also drops a file named on the command
         # line beneath the ignored directory, so the files above cannot share this
         # invocation. It runs whether or not the step above passed.
+        # Its reports go to the runner's temporary directory, never into the checkout: the
+        # suite measures the checkout once at its start, and a run a row resumes in a
+        # process of its own measures it again, so a file written there between the two
+        # reads as a different harness.
         if: success() || failure()
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
-          PHYSGATE_OSLAYER_REPORT: ${{ github.workspace }}/oslayer-report
+          PHYSGATE_OSLAYER_REPORT: ${{ runner.temp }}/oslayer-report
           PHYSGATE_FULL_VOLUME: /mnt/pg-small
         run: uv run pytest -q -rs -m integration tests --ignore=tests/integration/hooks
 
@@ -231,7 +237,7 @@ jobs:
         if: success() || failure()
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/${{ matrix.pin.rig }}/node_modules/@anthropic-ai/claude-code-linux-x64/claude
-          PHYSGATE_OSLAYER_REPORT: ${{ github.workspace }}/oslayer-report
+          PHYSGATE_OSLAYER_REPORT: ${{ runner.temp }}/oslayer-report
           UV_PROJECT_ENVIRONMENT: .venv-evaluation
         # Both rows must pass: pytest's own exit code fails the step (pipefail), and its summary
         # line must read exactly "2 passed", so a skip, an error or a deselect fails it too.
@@ -240,12 +246,12 @@ jobs:
           set -o pipefail
           uv run --frozen --group evaluation pytest -q -rs -m integration \
             tests/integration/orchestrator/test_the_task_author_and_the_blind_check_run_on_the_real_binary.py \
-            | tee author-and-check.txt
-          tail -n 1 author-and-check.txt | grep -Eq '^2 passed in [0-9.]+s'
+            | tee "$RUNNER_TEMP/author-and-check.txt"
+          tail -n 1 "$RUNNER_TEMP/author-and-check.txt" | grep -Eq '^2 passed in [0-9.]+s'
 
       - name: What the layer refused, and what it cost
         if: always()
-        run: cat oslayer-report/*.json || echo "no report was written"
+        run: cat "$RUNNER_TEMP"/oslayer-report/*.json || echo "no report was written"
 
       - name: What any session's end found after its stop, where it did not settle
         if: always()
