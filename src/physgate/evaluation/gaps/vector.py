@@ -29,7 +29,7 @@ VECTORS = "gaps"
 #: root's digest, the role's withheld root's among them, which any register line, vector or
 #: trend line changes; from form 2 it holds the protected tiers' only, as ``compare`` does. A
 #: form-1 vector is still read, and refused where it would be compared.
-VECTOR_FORMAT = 2
+VECTOR_FORMAT: Literal[2] = 2
 #: The most bytes a vector is read to: a vector of a tier of thousands of tasks is far less.
 MOST_VECTOR_BYTES = 1024 * 1024
 
