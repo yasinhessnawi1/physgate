@@ -182,6 +182,11 @@ export function standingOf(
   }
 }
 
+/** Red stub: replaced by the fix. */
+export function decisionPendingWords(_phase: Phase): string | null {
+  return null;
+}
+
 /**
  * Why a queue item on this run offers no decision, in one line, or ``null`` when it does: while
  * the run is going or waits on a person. On a run that has ended, stopped or halted, nothing is

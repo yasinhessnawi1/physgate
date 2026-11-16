@@ -184,6 +184,10 @@ export interface RunStatus {
   readonly lastLineAt?: string | null;
   /** The longest a living run goes without writing a line, in seconds, as the server bounds it. */
   readonly longestStepS?: number | null;
+  /** Red stub. */
+  readonly silentS?: number | null;
+  /** Red stub. */
+  readonly silenceBoundS?: number | null;
 }
 
 function moduleCompletion(value: unknown): ModuleCompletion {

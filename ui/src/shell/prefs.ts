@@ -91,3 +91,8 @@ export function windowIsNarrow(): boolean {
     return false;
   }
 }
+
+/** Red stub: replaced by the fix. */
+export function followNarrow(_listener: (narrow: boolean) => void): () => void {
+  return () => undefined;
+}

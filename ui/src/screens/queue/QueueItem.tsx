@@ -29,6 +29,7 @@ import {
   takenWords,
 } from "../../words/queue";
 import { clockTime, utc } from "../../words/runs";
+import type { Phase } from "../../words/standing";
 import { ActorTag } from "../common/ActorTag";
 import { SEAL_TAG, sealLine } from "./model";
 
@@ -39,6 +40,7 @@ export function QueueItem({
   subtaskName,
   supersededBy,
   closed = null,
+  phase: _phase,
   children,
 }: {
   readonly view: ItemView;
@@ -49,6 +51,8 @@ export function QueueItem({
   readonly supersededBy?: string | undefined;
   /** Why the run offers no decision on this item (``decisionClosedWords``), or ``null``. */
   readonly closed?: string | null;
+  /** Red stub: where the run stands. */
+  readonly phase?: Phase | undefined;
   readonly children?: ReactNode;
 }) {
   const { item } = view;

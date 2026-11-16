@@ -45,3 +45,8 @@ export function useLines<T>(path: string | null, guard: (value: unknown) => T): 
   );
   return { result, route: path, again };
 }
+
+/** Red stub: replaced by the fix. */
+export const STATUS_EVERY_MS = 60_000;
+/** Red stub: reads once, as ``useJson`` does. */
+export const useLiveJson = useJson;

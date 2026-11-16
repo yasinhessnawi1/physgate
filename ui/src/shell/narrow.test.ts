@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { NARROW_MAX_PX, navStartsCollapsed } from "./prefs";
+import { followNarrow, NARROW_MAX_PX, navStartsCollapsed } from "./prefs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SHELL_CSS = readFileSync(join(HERE, "shell.css"), "utf8");
@@ -52,4 +52,29 @@ describe("a narrow window (390 px) shows the page, not the menu, and never scrol
     const rules = narrowRules(SCREENS_CSS, NARROW_MAX_PX);
     expect(rules).toMatch(/\.pg-row-value,\s*\.pg-quantity\s*\{[^}]*white-space: normal/);
   });
+
+  it("the navigation follows the window across the narrow width after the page has opened", () => {
+    const listeners: ((event: { matches: boolean }) => void)[] = [];
+    const query = {
+      matches: false,
+      addEventListener: (_: string, listener: (event: { matches: boolean }) => void) => {
+        listeners.push(listener);
+      },
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal("window", { matchMedia: () => query });
+    const seen: boolean[] = [];
+    const stop = followNarrow((narrow) => {
+      seen.push(narrow);
+    });
+    for (const listener of listeners) listener({ matches: true });
+    for (const listener of listeners) listener({ matches: false });
+    expect(seen).toEqual([true, false]);
+    stop();
+    expect(query.removeEventListener).toHaveBeenCalled();
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });

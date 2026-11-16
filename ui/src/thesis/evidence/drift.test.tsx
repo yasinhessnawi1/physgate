@@ -43,4 +43,31 @@ describe("the comparison's refusal says what is true for these runs", () => {
     expect(host.querySelector("details")?.textContent).toContain(SERVER);
     expect(visible(host)).not.toContain("re-run");
   });
+
+  it("two runs measured on different tier versions: that reason, in words, and no file path", () => {
+    const host = shown(["evaluation/tiers.json"]);
+    const text = visible(host);
+    expect(host.querySelector("h2")?.textContent).toBe(
+      "These two runs cannot be compared: they were measured on different versions of the evaluation tasks",
+    );
+    expect(text).toContain(
+      "A comparison is possible between two runs measured on the same version of the evaluation tasks.",
+    );
+    expect(text).not.toContain("evaluation/tiers.json");
+    expect(text).not.toContain("same place");
+    expect(text).not.toContain("started");
+    expect(text).not.toContain("start from");
+  });
+
+  it("runs on different models or limits: settings, never where each started", () => {
+    const host = shown(["models.decomposition", "max_output_tokens"]);
+    const text = visible(host);
+    expect(host.querySelector("h2")?.textContent).toBe(
+      "These two runs cannot be compared: they were run with different settings",
+    );
+    expect(text).toContain("The model that plans the subtasks");
+    expect(text).not.toContain("same place");
+    expect(text).not.toContain("where each started");
+    expect(text).not.toContain("different commits");
+  });
 });

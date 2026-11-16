@@ -1,10 +1,19 @@
 // @vitest-environment happy-dom
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import type { RunListing } from "../../api/records";
 import type { RunRead } from "./data";
 import { Runs } from "./Home";
+
+const SCREENS_CSS = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "screens.css"),
+  "utf8",
+);
 
 const listing = (name: string, started: string): RunListing => ({
   root: 0,
@@ -57,5 +66,20 @@ describe("Home's run list reads in one order, newest first, never grouped so dat
     expect(html.indexOf("bench-12")).toBeLessThan(html.indexOf("bench-4"));
     expect(html).toContain(">Brief<");
     expect(html.match(/data-phase="halted"/g)?.length).toBe(2);
+  });
+
+  it("the brief's digest stays on one line in its column", () => {
+    const run = listing("bench-12", "2026-11-16T19:52:00Z");
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(
+      <Runs
+        runs={[run]}
+        reads={new Map([["0/bench-12", read(run, "c".repeat(64))]])}
+        labels={new Map()}
+      />,
+    );
+    const cell = host.querySelector("td.pg-runs-brief");
+    expect(cell?.textContent ?? "").toContain("cccccccc");
+    expect(SCREENS_CSS).toMatch(/\.pg-runs-brief\s*\{[^}]*white-space: nowrap/);
   });
 });
