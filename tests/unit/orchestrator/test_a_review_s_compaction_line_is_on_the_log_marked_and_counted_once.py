@@ -4,19 +4,23 @@ The reviewer adds the usage of its session's compaction calls to its account as 
 as a compaction (the binary counts that call in its totals and in no message). The loop records
 every line of a review's account as a token line attributed to the reviewer, so the compaction
 line is on the log with its mark, beside the session's messages without one, and the run's
-account counts it once: on a verdict, and on a review that is no verdict.
+account counts it once: on a verdict, on a review that is no verdict, on a review that showed
+held-out material, and on a verdict held because the review ran under other conditions than its
+run began with.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from loop_fakes import FakeReviewer, Rig, plan
+from loop_fakes import FakeDispatcher, FakeReviewer, Rig, plan
 
 from physgate.orchestrator.accounting import TokenAccount
-from physgate.orchestrator.events import TokensUsed, read_events
-from physgate.orchestrator.exceptions import ReviewUnavailableError
+from physgate.orchestrator.events import Incident, TokensUsed, read_events
+from physgate.orchestrator.exceptions import HeldOutExposedError, ReviewUnavailableError
+from physgate.orchestrator.managed import ObservedTraffic, SessionManaged
 from physgate.orchestrator.protocols import MessageUsage, ReviewResult, Usage
+from physgate.orchestrator.record import DecompositionSummary
 
 
 def _usage(i: int, o: int) -> Usage:
@@ -82,4 +86,73 @@ def test_a_review_that_is_no_verdict_keeps_its_compaction_line_marked(tmp_path: 
         compactions=1,
     )
     _run(tmp_path, FakeReviewer(unavailable={1: unavailable}))
+    _held(tmp_path)
+
+
+def test_a_review_that_showed_held_out_material_keeps_its_compaction_line_marked(
+    tmp_path: Path,
+) -> None:
+    exposure = HeldOutExposedError(
+        "held-out material in the stream of review session rev-1",
+        session_id="rev-1",
+        reviewer_model="claude-opus-5-5",
+        usage=SPENT,
+    )
+    _run(tmp_path, FakeReviewer(unavailable={1: exposure}))  # type: ignore[dict-item]
+    (incident,) = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, Incident)]
+    assert incident.cause == "held_out_read"
+    _held(tmp_path)
+
+
+#: What the run began with, and a review that saw a served catalog under it.
+SEEN = ObservedTraffic(
+    served_catalog="off", served_catalog_reason="not_first_party", feature_flags="not reported off"
+)
+SAME = SessionManaged(observed_traffic=SEEN, managed_drift=None, policy_limits_sha256=None)
+SERVED = SAME.model_copy(
+    update={
+        "observed_traffic": SEEN.model_copy(
+            update={"served_catalog": "not reported off", "served_catalog_reason": None}
+        )
+    }
+)
+
+
+def test_a_verdict_held_for_other_conditions_keeps_its_compaction_line_marked(
+    tmp_path: Path,
+) -> None:
+    result = ReviewResult(
+        verdict="pass",
+        finding="the change is sound",
+        reviewer_model="claude-opus-5-5",
+        session_id="rev-1",
+        usage=SPENT,
+        compactions=1,
+        managed=(SERVED,),
+    )
+    rig = Rig(
+        tmp_path,
+        reviewer=FakeReviewer(results={1: result}),
+        dispatcher=FakeDispatcher(traffic={1: SEEN}),
+    )
+    loop = rig.open()
+    loop.record.start(
+        plan("s1"),
+        decomposed=DecompositionSummary(
+            session_id="d1",
+            model="claude-sonnet-5",
+            num_turns=1,
+            subtasks=1,
+            interface_nodes=("iface.bus",),
+            spec_commit="a" * 40,
+            head_revision=1,
+            observed_traffic=SEEN,
+        ),
+    )
+    loop.close()
+    loop = rig.open()
+    assert loop.run().kind == "halted"
+    loop.close()
+    (incident,) = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, Incident)]
+    assert incident.cause == "managed_settings_changed"
     _held(tmp_path)
