@@ -57,7 +57,7 @@ from typing import Any
 from physgate.flags import ReviewCompaction
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
 from physgate.lines import split_lines
-from physgate.orchestrator.accounting import require_matching_totals
+from physgate.orchestrator.accounting import compaction_line
 from physgate.orchestrator.budget import (
     PROMPT_TOO_LONG,
     STRUCTURED_OUTPUT_EXHAUSTED,
@@ -901,14 +901,25 @@ class ClaudeReviewer:
             raise HeldOutExposedError(
                 msg, session_id=session_id, reviewer_model=self._model, usage=usage
             )
-        require_matching_totals(result, usage)
+        text = data.decode(errors="replace")
+        here = compactions_in(text)
+        # A compaction's own call is in the totals and in no message: where this invocation's
+        # stream shows a boundary, the difference is that call's usage, one line of its own
+        # (an earlier invocation's line is in ``prior``, so a resume counts only its own).
+        line = compaction_line(
+            result,
+            usage,
+            compactions=len(here),
+            message_id=f"compaction-{len(prior_compacted) + 1}",
+        )
+        if line is not None:
+            usage = (*usage, line)
         answered = sorted(captured.answered - {SYNTHETIC_MODEL})
         if answered and answered != [self._model]:
             msg = "the review was answered by a model other than the pinned one"
             raise InvocationError(msg, asked=self._model, answered=",".join(answered))
-        text = data.decode(errors="replace")
         refusals = prior_refusals + schema_refusals(text)
-        compacted = (*prior_compacted, *compactions_in(text))
+        compacted = (*prior_compacted, *here)
 
         def ended(
             cause: UnavailableCause, detail: str, defects: tuple[SpecDefect, ...] = ()

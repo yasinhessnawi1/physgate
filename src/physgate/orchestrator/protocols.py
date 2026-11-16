@@ -90,6 +90,10 @@ class MessageUsage(_Frozen):
 
     message_id: NonEmptyStr
     usage: Usage
+    #: The binary's own call that wrote a compaction's summary: in its totals and in no message
+    #: of its stream, so it is read as the difference between the two (``accounting``). Left out
+    #: of every other line, so each keeps its bytes.
+    compaction: bool = Field(default=False, exclude_if=lambda v: not v)
 
 
 #: A session's captured stream of events, or a written account of a revision.

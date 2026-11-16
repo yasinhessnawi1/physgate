@@ -563,6 +563,10 @@ class TokensUsed(_Event):
     #: Read from a session a killed orchestrator left behind, whose stream has no
     #: result: its last message may be cut off, and nothing checks the sum.
     partial: bool = False
+    #: The usage of a review session's compaction calls, which the binary counts in its totals
+    #: and shows as no message: one line per invocation that compacted. Left out of every other
+    #: line, so each keeps its bytes.
+    compaction: bool = Field(default=False, exclude_if=lambda v: not v)
 
 
 class SessionEnded(_Event):

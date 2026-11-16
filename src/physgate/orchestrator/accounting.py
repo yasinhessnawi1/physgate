@@ -76,6 +76,68 @@ def require_matching_totals(
             raise AccountingError(msg, field=field, account=str(counted), result=str(charged))
 
 
+#: The most one compaction call may add to the binary's input totals (fresh, cache read and cache
+#: written together): the context window both pinned binaries report for the reviewer's model
+#: (``modelUsage.contextWindow``, 1,000,000). The call reads the conversation it summarises,
+#: which the window bounds.
+COMPACTION_INPUT_BOUND = 1_000_000
+#: The most one compaction call may add to the output totals: the output cap both pinned binaries
+#: report for the reviewer's model (``modelUsage.maxOutputTokens``, 64,000).
+COMPACTION_OUTPUT_BOUND = 64_000
+
+
+def compaction_line(
+    # The binary's result object: an untyped boundary, only its totals are read.
+    result: Mapping[str, object] | None,
+    usages: Iterable[MessageUsage],
+    *,
+    compactions: int,
+    message_id: str,
+) -> MessageUsage | None:
+    """The usage of an invocation's compaction calls as one line, or ``None`` if there is none.
+
+    The call that writes a compaction's summary is counted in the result's ``modelUsage`` and is
+    no message of the stream (measured on both pinned binaries). So where the invocation's stream
+    shows ``compactions`` boundaries, the totals less every message counted so far (``usages``,
+    an earlier invocation's compaction line included) is those calls' usage, counted once. Where
+    the stream shows none, the totals are held to the messages as :func:`require_matching_totals`
+    holds them. A result without totals has nothing to hold the messages against.
+
+    Raises:
+        AccountingError: a difference without a boundary; a field the totals charge less than
+            the messages; more than ``compactions`` calls could add.
+    """
+    usages = tuple(usages)
+    if compactions == 0:
+        require_matching_totals(result, usages)
+        return None
+    per_model = (result or {}).get("modelUsage")
+    if not isinstance(per_model, dict) or not per_model:
+        return None
+    counted = _ZERO
+    for message in usages:
+        counted = _plus(counted, message.usage)
+    difference: dict[str, int] = {}
+    for field, key in _MODEL_USAGE_FIELDS.items():
+        charged = sum(int(m.get(key) or 0) for m in per_model.values() if isinstance(m, dict))
+        account = int(getattr(counted, field))
+        difference[field] = charged - account
+        if difference[field] < 0:
+            msg = "the binary's totals are less than the per-message account"
+            raise AccountingError(msg, field=field, account=str(account), result=str(charged))
+    read = sum(v for f, v in difference.items() if f != "output_tokens")
+    if read > compactions * COMPACTION_INPUT_BOUND:
+        msg = "more input than the compactions the stream shows could have read"
+        raise AccountingError(msg, compactions=str(compactions), difference=str(read))
+    written = difference["output_tokens"]
+    if written > compactions * COMPACTION_OUTPUT_BOUND:
+        msg = "more output than the compactions the stream shows could have written"
+        raise AccountingError(msg, compactions=str(compactions), difference=str(written))
+    if not any(difference.values()):
+        return None
+    return MessageUsage(message_id=message_id, usage=Usage(**difference), compaction=True)
+
+
 class TokenAccount:
     """Tokens per attribution, deduplicated by message id."""
 

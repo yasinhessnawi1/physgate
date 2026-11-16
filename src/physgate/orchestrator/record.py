@@ -643,6 +643,7 @@ class RunRecord:
                 attribution=f"reviewer:{reviewed.session_id or 'none'}",
                 message_id=message.message_id,
                 usage=message.usage,
+                compaction=message.compaction,
             )
         if reviewed.exposed:
             # The held-out tier counts as exposed (ARCH-141): the exposure, then one halt, and

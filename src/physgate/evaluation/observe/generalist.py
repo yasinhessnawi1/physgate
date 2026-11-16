@@ -252,6 +252,7 @@ def review_retried_once(
                         attribution=f"reviewer:{exc.session_id or 'none'}",
                         message_id=message.message_id,
                         usage=message.usage,
+                        compaction=message.compaction,
                     )
                 )
             retry = exc.cause == "infrastructure" and not retried
@@ -377,6 +378,7 @@ def run_generalist(
                     attribution=f"reviewer:{result.session_id}",
                     message_id=message.message_id,
                     usage=message.usage,
+                    compaction=message.compaction,
                 )
             )
         ran = log.append(
