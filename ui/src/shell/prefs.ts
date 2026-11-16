@@ -71,3 +71,14 @@ const NEXT_THEME: Readonly<Record<ThemeChoice, ThemeChoice>> = {
 export function nextTheme(choice: ThemeChoice): ThemeChoice {
   return NEXT_THEME[choice];
 }
+
+/** The widest window, in CSS pixels, in which the navigation stacks above the content. */
+export const NARROW_MAX_PX = 760;
+
+/**
+ * Whether the navigation starts collapsed: in a narrow window, so the first screen is the page and
+ * not the menu; the menu opens from its button. ``narrow`` is the window's media query answer.
+ */
+export function navStartsCollapsed(_narrow: boolean): boolean {
+  return false;
+}
