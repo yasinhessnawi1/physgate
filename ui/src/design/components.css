@@ -113,6 +113,11 @@ kbd,
   color: var(--color-text);
 }
 
+.pg-at-least {
+  margin-right: 0.3em;
+  color: var(--color-text-2);
+}
+
 .pg-quantity-unit {
   color: var(--color-text-3);
   margin-left: 0.3em;

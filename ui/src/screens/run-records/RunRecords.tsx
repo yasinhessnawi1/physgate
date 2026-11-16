@@ -246,6 +246,7 @@ function Records({
                 source={source}
                 size="lg"
                 partial={going || cost.result.value.partial}
+                atLeast={cost.result.value.lowerBound}
               />
               <Figure
                 {...cost.result.value.nok}
@@ -253,6 +254,7 @@ function Records({
                 source={source}
                 size="lg"
                 partial={going || cost.result.value.partial}
+                atLeast={cost.result.value.lowerBound}
               />
             </div>
           </>

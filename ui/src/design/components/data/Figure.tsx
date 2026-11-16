@@ -63,6 +63,7 @@ export function Figure(props: FigureProps) {
       className="pg-figure"
       {...(source === null ? {} : { "data-source": sourceAttribute(source) })}
     >
+      {props.atLeast === true && <span className="pg-at-least">at least</span>}
       <Quantity
         value={props.value}
         unit={props.unit}

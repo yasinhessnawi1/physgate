@@ -70,7 +70,7 @@ describe("a cost that is a lower bound says so beside its figure", () => {
     const html = renderToStaticMarkup(<TokensCard tokens={TOKENS} cost={cost} source={SOURCE} />);
     expect(html).toContain("Lower bound: the cost may be higher.");
     expect(html).toContain("2 calls counted at the lowest rate");
-    expect(html).toContain("the reviews' records are kept where this app does not read");
+    expect(html).toContain("the records of the reviews are kept where this app does not read");
   });
 
   it("says nothing of a bound when every call was read", () => {

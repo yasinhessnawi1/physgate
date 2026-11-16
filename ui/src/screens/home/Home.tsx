@@ -89,7 +89,7 @@ export function CostSoFar({
 }) {
   return (
     <span className="pg-figure-line">
-      <Figure {...cost.usd} decimals={2} source={source} partial />
+      <Figure {...cost.usd} decimals={2} source={source} partial atLeast={cost.lowerBound} />
       <span className="pg-panel-note">
         price sheet of {cost.pricesDate}
         <CostCaveat cost={cost} />
