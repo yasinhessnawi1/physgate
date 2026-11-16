@@ -1,10 +1,10 @@
-"""A protected trial's raw session on the real binary: nothing beside its own place is reached.
+"""A protected trial's raw session on the real binary: nothing beside its worktree is reached.
 
 No model is called and no real credential is read: the endpoint is the scripted one, the key its
 dummy, the tasks stand-ins. One held-out trial runs through the real raw arm under this
 machine's OS layer, in its own directory in the store's withheld work root. The session is
-withheld the work root whole, by rule, but for its own place there; the OS layer opens the
-worktree alone inside that place.
+withheld the work root whole, by rule, but for its worktree in its own place there, on both
+layers: the hooks' exception and the OS layer's opening are the worktree alone.
 
 While the session runs, the test (not the session, not the runner) marks four places: the
 harness's directory beside the session's place, there at the install; a new entry in the work

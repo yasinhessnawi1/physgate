@@ -1,15 +1,18 @@
-"""A session given its own place in a root withheld whole reaches nothing else of that root.
+"""A session given its own place in a root withheld whole reaches its worktree there, nothing else.
 
 A protected trial's raw session, and a blind check's, works in a place of its own inside a root
 every run withholds (the store's work root, the store). A list of what lies beside that place,
 taken at the install, misses an entry made there later. So the root is withheld whole, by rule,
-but for the session's own place: on the hook layer for the file tools and the shell, whatever
-spelling reaches it (``..``, a link the session makes, another case where the volume ignores
-case), and on the OS layer for both platforms' profiles, where the root is denied and the
-session's worktree alone is opened again (never the whole place, which holds its login and its
-hook records). An entry made in the root after the install is refused like any other.
+but for the session's worktree in its place: on the hook layer for the file tools and the shell,
+whatever spelling reaches it (``..``, a link the session makes, another case where the volume
+ignores case), and on the OS layer for both platforms' profiles, where the root is denied and the
+worktree alone is opened again. The two layers say the same thing: the rest of the place (the
+session's login, its hook records, and anything made there beside the worktree, before the
+install or after it) is refused to every file tool and every shell. The one other thing the
+session reads there is named exactly, on both layers: the directory of the interpreter its
+commands run (holding ``python3``, a link to the recorded interpreter), when it has one.
 
-The allowance is held exactly, as every allowance of the hook layer is: inside its own place a
+The allowance is held exactly, as every allowance of the hook layer is: inside its worktree a
 Read of a symbolic link, or of a file with a second name, is refused too. A known cost, kept.
 
 The two options are taken only together, and only with the place a real directory, no link on
@@ -174,7 +177,7 @@ def test_what_the_place_holds_beside_the_worktree_stays_refused(rig: Path) -> No
         assert paths.protection(str(path), wt, config, writing=False) is not None, path
 
 
-def test_a_read_of_a_link_or_a_second_name_inside_the_own_place_is_refused(rig: Path) -> None:
+def test_a_read_of_a_link_or_a_second_name_inside_the_worktree_is_refused(rig: Path) -> None:
     """The known cost of an exact allowance: even when it points at the session's own file."""
     config = _config(rig)
     wt = _worktree(rig)
@@ -188,11 +191,75 @@ def test_a_read_of_a_link_or_a_second_name_inside_the_own_place_is_refused(rig: 
 def test_the_root_is_withheld_by_one_rule_never_put_back(rig: Path) -> None:
     config = _config(rig)
     place = str(rig / "work" / "trial" / "place")
+    wt = str(_worktree(rig))
     (root,) = [r for r in config.protected_roots if r.path == str(rig / "work")]
     assert root.reads == "denied" and root.watch == "none", root
-    assert root.read_exceptions == (place,), root
-    assert place in root.exceptions, root
+    # The worktree is the one exception, to reads and to writes, as the OS layer's is.
+    assert root.read_exceptions == (wt,), root
+    assert wt in root.exceptions and place not in root.exceptions, root
     assert paths.read_refused(str(rig / "work" / "anything"), config)
+
+
+def _beside(root: Path) -> Path:
+    """An entry made inside the place, beside the worktree, after the install."""
+    beside = root / "work" / "trial" / "place" / LATE
+    beside.mkdir()
+    (beside / MARKED).write_text("made beside the worktree\n")
+    return beside / MARKED
+
+
+def test_an_entry_inside_the_place_beside_the_worktree_is_refused_to_every_file_tool(
+    rig: Path,
+) -> None:
+    """As the OS layer refuses every shell there: the worktree, not the place, is the session's."""
+    config = _config(rig)
+    beside = _beside(rig)
+    wt = str(_worktree(rig))
+    place = rig / "work" / "trial" / "place"
+    assert beside.read_text()  # not vacuous: it is there to read
+    for spelling in (str(beside), f"../{LATE}/{MARKED}", f"{wt}/../{LATE}/{MARKED}"):
+        assert paths.protection(spelling, wt, config, writing=False) is not None, spelling
+        assert paths.protection(spelling, wt, config, writing=True) is not None, spelling
+    # Nor is anything new made there, beside the worktree, or the place itself listed.
+    for made in (place / "new.txt", place / "new" / "deeper.txt"):
+        assert paths.protection(str(made), wt, config, writing=True) is not None, made
+    assert paths.protection(str(place), wt, config, writing=False) is not None
+
+
+def test_an_entry_inside_the_place_beside_the_worktree_is_refused_to_every_shell(
+    rig: Path,
+) -> None:
+    config = _config(rig)
+    beside = _beside(rig)
+    wt = str(_worktree(rig))
+    for command in (
+        f"cat {beside}",
+        f"cat ../{LATE}/{MARKED}",
+        "ls ..",
+        f"echo x > ../{LATE}/new.txt",
+    ):
+        assert shell_paths.check(parse(command)[0], wt, config) is not None, command
+
+
+def test_the_interpreter_s_directory_is_the_one_other_thing_it_reads_there(
+    rig: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Named exactly, as the OS layer names it: its commands run ``python3`` from there."""
+    sdir = rig / "work" / "trial" / "place" / "session"
+    bin_dir = sdir / "bin"
+    bin_dir.mkdir()
+    config = _config(rig, os_layer_readable=(str(bin_dir),))
+    wt = str(_worktree(rig))
+    (root,) = [r for r in config.protected_roots if r.path == str(rig / "work")]
+    assert root.read_exceptions == (wt, str(bin_dir)), root
+    assert str(bin_dir) not in root.exceptions, root  # read, never written
+    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
+    for command in (f"ls {bin_dir}", "echo $PATH", 'export PATH="$PATH:/opt/x"'):
+        assert shell_paths.check(parse(command)[0], wt, config) is None, command
+    # Nothing else of the session's directory comes with it.
+    for command in (f"ls {sdir}", f"ls {sdir / 'state'}", f"cat {sdir / 'config' / 'x'}"):
+        assert shell_paths.check(parse(command)[0], wt, config) is not None, command
+    assert paths.protection(str(bin_dir / "x"), wt, config, writing=True) is not None
 
 
 @pytest.mark.parametrize("platform", ["darwin", "linux"])
