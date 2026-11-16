@@ -228,7 +228,7 @@ def _two_roles(tmp_path: Path) -> list[str]:
 def _changed_beside(digests: list[str], roots: list[str]) -> list[str]:
     """``digests`` with every withheld and work root's changed, as a write beneath them does."""
     return [
-        "a" * 64 if Path(r).name in ("withheld", "work") else d
+        "a" * 64 if Path(r).name.endswith(("withheld", "work")) else d
         for r, d in zip(roots, digests, strict=True)
     ]
 
@@ -244,6 +244,7 @@ def _changed_beside(digests: list[str], roots: list[str]) -> list[str]:
         "the withheld root by a current-directory step",
         "the withheld root through a link to the store",
         "the withheld root by a parent step",
+        "a root whose name merely ends in withheld",
     ],
 )
 def test_spellings_two_roles_and_one_tier_compare_equal_only_when_they_are(
@@ -285,8 +286,10 @@ def test_spellings_two_roles_and_one_tier_compare_equal_only_when_they_are(
             store.mkdir(exist_ok=True)
             (tmp_path / "link").symlink_to(store)
             roots[0] = roots[0].replace(str(store), str(tmp_path / "link"))
-        else:
+        elif case.endswith("parent step"):
             roots[0] = f"{store}/control/x/../withheld"
+        else:
+            roots[0] = f"{store}/control/notwithheld"
     if theirs is None:
         theirs = (roots, _changed_beside(digests, roots))
     configs = []
