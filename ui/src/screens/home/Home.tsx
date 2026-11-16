@@ -123,7 +123,7 @@ function RunName({
   );
 }
 
-export function statusWords(read: RunRead | undefined) {
+export function statusWords(read: RunRead | undefined, _now: number = Date.now()) {
   if (read === undefined) return <span className="pg-muted">Reading…</span>;
   if (!read.status.ok) return <span className="pg-muted">Where it stands was not read</span>;
   if (inProgress(read.status.value)) return <InProgressBadge />;

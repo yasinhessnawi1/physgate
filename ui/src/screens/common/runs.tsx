@@ -61,7 +61,7 @@ export function haltedWords(status: RunStatus): string | null {
 }
 
 /** Whether the run is still going: its next step is neither done, nor a halt taken or owed. */
-export function inProgress(status: RunStatus): boolean {
+export function inProgress(status: RunStatus, _now: number = Date.now()): boolean {
   return (
     status.kind !== "done" &&
     status.halted === null &&

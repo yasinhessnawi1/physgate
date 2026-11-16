@@ -86,6 +86,8 @@ export interface FoldContext {
   /** The approval queue's listing, or ``null`` when it was not read. */
   readonly queue: QueueListing | null;
   readonly budget: number | null;
+  /** The time the run's standing is judged at, in ms since the epoch: now, unless a test says. */
+  readonly now?: number;
 }
 
 /** The subtask ids in plan order: as planned, then any the ledger names that the log did not. */

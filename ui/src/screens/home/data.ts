@@ -63,7 +63,10 @@ export function startOfRead(read: RunRead): string | null {
 }
 
 /** The latest-started run among those read that is still going, if any. */
-export function activeRun(reads: readonly RunRead[]): RunRead | undefined {
+export function activeRun(
+  reads: readonly RunRead[],
+  _now: number = Date.now(),
+): RunRead | undefined {
   return reads
     .filter((r) => r.status.ok && inProgress(r.status.value))
     .sort((a, b) => (startOfRead(b) ?? "").localeCompare(startOfRead(a) ?? ""))[0];

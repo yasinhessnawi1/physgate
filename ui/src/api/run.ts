@@ -180,6 +180,10 @@ export interface RunStatus {
   readonly waiting: readonly string[];
   /** Each contract item a reopen superseded, by id: the item whose decision reopened its module. */
   readonly superseded: Readonly<Record<string, string>>;
+  /** When the log's last line was written, or ``null`` when it holds none. */
+  readonly lastLineAt?: string | null;
+  /** The longest a living run goes without writing a line, in seconds, as the server bounds it. */
+  readonly longestStepS?: number | null;
 }
 
 function moduleCompletion(value: unknown): ModuleCompletion {
