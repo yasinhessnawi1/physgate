@@ -25,6 +25,7 @@ from test_the_raw_arm_s_credential_is_handled_as_a_role_session_s import _script
 
 from physgate.evaluation.per_role.arms import raw
 from physgate.evaluation.tiers.task import parse_task
+from physgate.orchestrator import dispatch
 
 TASK = parse_task(json.dumps(own_task()).encode())
 SLEEPS = "sleep 60\n"
@@ -50,7 +51,7 @@ def test_nothing_is_cleaned_up_until_the_session_is_stopped_and_reaped(
 ) -> None:
     spawned: list[subprocess.Popen[bytes]] = []
     at_cleanup: list[int | None] = []
-    real_spawn, real_clean = raw.spawn_held, raw._clean
+    real_spawn, real_clean = dispatch.spawn_held, raw._clean
 
     def spawn(*a: Any, **k: Any) -> Any:  # noqa: ANN401
         process, started = real_spawn(*a, **k)

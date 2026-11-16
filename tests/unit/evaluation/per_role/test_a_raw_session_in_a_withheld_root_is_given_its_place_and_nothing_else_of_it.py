@@ -82,7 +82,7 @@ def test_a_root_given_whole_by_the_caller_is_passed_whole_with_the_place(
     )
     setup = dataclasses.replace(
         _setup(tmp_path, _script(tmp_path / "claude", "true\n")),
-        withheld_whole=(str(store),),  # type: ignore[call-arg]
+        withheld_whole=(str(store),),
     )
     seen = capture_installer(monkeypatch)
     raw._install(setup, place / "worktree", place / "session", None)
