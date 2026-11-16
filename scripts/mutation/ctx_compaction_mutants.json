@@ -150,7 +150,8 @@
   "new": "                    attribution=f\"reviewer:{review.session_id}\",\n                    message_id=message.message_id,\n                    usage=message.usage,\n",
   "tests": [
    "tests/unit/orchestrator/test_a_review_s_compaction_line_is_on_the_log_marked_and_counted_once.py",
-   "tests/unit/orchestrator/loop_fakes.py"
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
   ]
  },
  {
@@ -160,7 +161,8 @@
   "new": "                            attribution=f\"reviewer:{exc.session_id}\",\n                            message_id=message.message_id,\n                            usage=message.usage,\n",
   "tests": [
    "tests/unit/orchestrator/test_a_review_s_compaction_line_is_on_the_log_marked_and_counted_once.py",
-   "tests/unit/orchestrator/loop_fakes.py"
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
   ]
  },
  {
@@ -170,7 +172,8 @@
   "new": "                            attribution=f\"reviewer:{exc.session_id or 'none'}\",\n                            message_id=message.message_id,\n                            usage=message.usage,\n",
   "tests": [
    "tests/unit/orchestrator/test_a_review_s_compaction_line_is_on_the_log_marked_and_counted_once.py",
-   "tests/unit/orchestrator/loop_fakes.py"
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
   ]
  },
  {
@@ -180,7 +183,8 @@
   "new": "                        attribution=f\"reviewer:{review.session_id}\",\n                        message_id=message.message_id,\n                        usage=message.usage,\n",
   "tests": [
    "tests/unit/orchestrator/test_a_review_s_compaction_line_is_on_the_log_marked_and_counted_once.py",
-   "tests/unit/orchestrator/loop_fakes.py"
+   "tests/unit/orchestrator/loop_fakes.py",
+   "tests/unit/orchestrator/orch_helpers.py"
   ]
  },
  {
