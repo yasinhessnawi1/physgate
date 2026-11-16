@@ -159,9 +159,11 @@ from physgate.reviewers.verdict import Unavailable, judge, to_result
 COMPACT_BOUNDARY = "compact_boundary"
 #: The pins on which a reviewer's compaction was measured end to end at the scripted endpoint:
 #: the boundary and its fields, the verdict tool offered after it, how the compaction call's
-#: tokens are counted, and the session-start hook after it. A run with ``review_compaction: on``
-#: on any other pin is refused before anything runs. None yet: those measurements are owed.
-COMPACTION_MEASURED_PINS: frozenset[str] = frozenset()
+#: tokens are counted, the session-start hook after it, a resume after it, what it carries of
+#: the files read before it, and a review that reads its rubric again by the note's range and
+#: reaches its verdict. A run with ``review_compaction: on`` on any other pin is refused before
+#: anything runs.
+COMPACTION_MEASURED_PINS: frozenset[str] = frozenset({"2.1.301", "2.1.322"})
 #: The binary's context limits, which it groups as one: a request too long for the window, its own
 #: check before sending one, and its stop on a compaction that cannot keep up. With compaction
 #: off a review that outgrows its window ends at the binary's own check; with it on, at a
