@@ -483,7 +483,14 @@ describe("the gate's catches", () => {
     serve({ "/api/evidence/catches": [200, distinct] });
     const host = await mount("tab=catches");
     expect(sections(host)).toEqual(["reportable", "development", "ablation"]);
-    const shown = new Set(text(host).match(/\d+/g) ?? []);
+    const shown = new Set<string>();
+    for (const el of host.querySelectorAll("*")) {
+      const own = [...el.childNodes]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent ?? "")
+        .join(" ");
+      for (const found of own.match(/\d+/g) ?? []) shown.add(found);
+    }
     for (const offset of [1, 2, 3, 4, 5, 6, 7]) {
       const [a, b, c] = [bases[0] + offset, bases[1] + offset, bases[2] + offset];
       for (const own of [a, b, c])
