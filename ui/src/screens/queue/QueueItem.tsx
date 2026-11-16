@@ -118,7 +118,13 @@ export function QueueItem({
               {supersededWords(supersededBy)}
             </p>
           )}
-          {children}
+          {closed === null ? (
+            children
+          ) : (
+            <p className="pg-queue-closed" role="note">
+              {closed}
+            </p>
+          )}
         </>
       )}
       <section className="pg-card pg-panel" aria-label="What you are deciding on">

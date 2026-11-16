@@ -187,6 +187,19 @@ export function standingOf(
  * the run is going or waits on a person. On a run that has ended, stopped or halted, nothing is
  * running to take a decision up, so none is offered: a click would only write into a closed run.
  */
-export function decisionClosedWords(_phase: Phase): string | null {
-  return null;
+export function decisionClosedWords(phase: Phase): string | null {
+  const why = "so no decision is offered here: nothing is running to take it up.";
+  switch (phase) {
+    case "going":
+    case "waiting-person":
+      return null;
+    case "done":
+      return `This run has ended, ${why}`;
+    case "stopped":
+      return `This run stopped with no end recorded, ${why}`;
+    case "halted":
+    case "halt-owed":
+    case "waiting-limit":
+      return `This run is halted, ${why}`;
+  }
 }
