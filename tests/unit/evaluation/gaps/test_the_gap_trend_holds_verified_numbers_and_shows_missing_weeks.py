@@ -44,14 +44,9 @@ def made(tmp_path: Path) -> StandInStore:
     return stand_in_store(tmp_path / "st")
 
 
-def _read(trend: Path, made: StandInStore) -> Any:  # noqa: ANN401
+def _read(trend: Path, made: StandInStore, role: str = "control") -> Any:  # noqa: ANN401
     """The reader, given the store and the role by its caller."""
-    reader = api(READ)
-    try:
-        return reader(trend, store=made.store, role="control")
-    except TypeError:
-        # The reader as it was took the store from each line: the rows judge what it gives.
-        return reader(trend)
+    return api(READ)(trend, store=made.store, role=role)
 
 
 def _reason(exc: BaseException) -> str:
@@ -155,14 +150,41 @@ def test_a_line_whose_number_was_edited_is_refused(
     assert _reason(caught.value) == "trend_broken", caught.value
 
 
-def test_a_dropped_last_line_is_refused(tmp_path: Path, made: StandInStore) -> None:
+def test_a_dropped_last_line_is_refused_in_words_that_say_the_repair(
+    tmp_path: Path, made: StandInStore
+) -> None:
     trend = tmp_path / "gaps.jsonl"
+    head = withheld_root(made.store, "control") / "trend.head"
     assert _append(tmp_path, made, trend, "a")[0] == 0
     assert _append(tmp_path, made, trend, "b")[0] == 0
     trend.write_text(trend.read_text().splitlines(keepends=True)[0])
     with pytest.raises(Exception) as caught:
         _read(trend, made)
     assert _reason(caught.value) == "trend_broken", caught.value
+    said = str(caught.value)
+    assert "removed" in said and "head" in said and "starts again" in said, said
+    trend.unlink()  # one repair the words say: the trend and its head go, and it starts again
+    head.unlink()
+    assert _read(trend, made) == ()
+    assert _append(tmp_path, made, trend, "c")[0] == 0
+    assert len(_read(trend, made)) == 1
+
+
+def test_a_line_of_another_role_is_refused_under_a_head_that_matches(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    # The control role's trend and head, copied beneath the firmware role's withheld root: the
+    # chain and the head hold, and only the line's own role tells it is not firmware's.
+    trend = tmp_path / "gaps.jsonl"
+    assert _append(tmp_path, made, trend)[0] == 0
+    other = withheld_root(made.store, "firmware")
+    other.mkdir(parents=True)
+    head = withheld_root(made.store, "control") / "trend.head"
+    (other / "trend.head").write_bytes(head.read_bytes())
+    with pytest.raises(Exception) as caught:
+        _read(trend, made, "firmware")
+    assert _reason(caught.value) == "trend_broken", caught.value
+    assert "another role's" in str(caught.value), caught.value
 
 
 def test_the_register_read_is_the_caller_s_store_never_one_a_line_names(

@@ -243,25 +243,30 @@ def test_the_interval_does_not_depend_on_the_vector_s_order(
         assert len(seen) == 1, f"one count in five orders gave {len(seen)} {gap} intervals"
 
 
-def test_runs_made_either_side_of_a_vector_write_are_refused_as_drift(
+def test_runs_made_either_side_of_a_vector_write_are_counted_together(
     tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     # Each run records the digest of every root it withholds as it is made, the role's withheld
-    # root among them; writing a vector beneath that root changes it. So visible runs made
-    # before the held-out tier's vector was written agree with it, and those made after are
-    # refused as drift. No digest is pinned here.
+    # root among them; writing a vector beneath that root changes it. Runs are compared on the
+    # protected tiers' digests only, so visible runs made before the held-out tier's vector was
+    # written and those made after are both counted with it. No digest is pinned here.
     from physgate.evaluation.tiers.heldout import tier_digest
 
     def now() -> list[str]:
         return [tier_digest(Path(root)) for root in made.held_out]
+
+    def recorded(m: Measured) -> list[str]:
+        run = json.loads((m.run_dirs[0] / "run.json").read_text())
+        return list(run["held_out_sha256"])
 
     before = measured(made, "visible", tmp_path / "v0", held_out_sha256=now())
     held = _vector(
         made, "held_out", measured(made, "held_out", tmp_path / "h", held_out_sha256=now())
     )
     after = measured(made, "visible", tmp_path / "v1", held_out_sha256=now())
+    assert recorded(before)[0] != recorded(after)[0], "the vector left the withheld root as it was"
     body = design(made, before, validation_tasks=None)
     code, said = _gaps(capsys, tmp_path, body, before, held, None)
     assert code == 0, said
     code, said = _gaps(capsys, tmp_path, body, after, held, None)
-    assert code == 1 and said.get("refused_because") == "drift", said
+    assert code == 0, said

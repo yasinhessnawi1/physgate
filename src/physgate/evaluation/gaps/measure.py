@@ -40,7 +40,14 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from physgate.evaluation.gaps.stats import gap_between, wilson
-from physgate.evaluation.gaps.vector import GapsError, GapVector, Sha1, Sha256, read_vector
+from physgate.evaluation.gaps.vector import (
+    VECTOR_FORMAT,
+    GapsError,
+    GapVector,
+    Sha1,
+    Sha256,
+    read_vector,
+)
 
 Week = Annotated[str, StringConstraints(pattern=r"^[0-9]{4}-W[0-9]{2}$")]
 Count = Annotated[int, Field(ge=0)]
@@ -236,6 +243,13 @@ def _vector(
     ):
         msg = f"the {tier.replace('_', ' ')} vector is not of the design's tier, version or counts"
         raise _refuse("not_the_design", msg)
+    if vector.format != VECTOR_FORMAT:
+        msg = (
+            f"the {tier.replace('_', ' ')} vector was written under the earlier rule, whose "
+            "configuration digest held the digest of the role's whole withheld root, so it cannot "
+            "be held to the visible runs' as they are compared now; write it again from its runs"
+        )
+        raise _refuse("vector_earlier_rule", msg)
     if vector.drift_sha256 != drift:
         msg = "the protected tiers' runs were not run under the visible runs' configuration"
         raise _refuse("drift", msg)
@@ -397,7 +411,9 @@ def _held_to_head(data: bytes, head: tuple[int, str] | None, role: str) -> list[
     if len(found) < recorded:
         msg = (
             f"the trend holds {len(found)} line(s) and its head records {recorded}: lines have "
-            "been removed"
+            "been removed. A person who can write the role's withheld root puts back the lines "
+            "removed, or, if they are lost, removes the trend and its head (trend.head) together, "
+            "and the trend starts again from its next line"
         )
         raise _broken(msg)
     if len(found) > recorded:

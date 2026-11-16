@@ -25,6 +25,12 @@ from physgate.evaluation.per_role.exceptions import PerRoleError
 
 #: The directory beneath a role's withheld root that holds the role's vectors.
 VECTORS = "gaps"
+#: The vector's form as written now. In form 1 the configuration digest held every held-out
+#: root's digest, the role's withheld root's among them, which any register line, vector or
+#: trend line changes; from form 2 it holds the protected tiers' only, and whether each role
+#: root's withheld and work roots were named, as ``compare`` does. A form-1 vector is still read,
+#: and refused where it would be compared.
+VECTOR_FORMAT: Literal[2] = 2
 #: The most bytes a vector is read to: a vector of a tier of thousands of tasks is far less.
 MOST_VECTOR_BYTES = 1024 * 1024
 
@@ -54,7 +60,8 @@ class TaskOutcome(_Frozen):
 class GapVector(_Frozen):
     """A protected tier's per-task outcomes, with nothing that names a task."""
 
-    format: Literal[1]
+    #: 1 or :data:`VECTOR_FORMAT`; it says what ``drift_sha256`` was made from.
+    format: Literal[1, 2]
     role: Literal["control", "firmware"]
     arm: Literal["harness"]
     tier: Literal["held_out", "validation"]
@@ -62,7 +69,9 @@ class GapVector(_Frozen):
     tier_sha256: Sha256
     run_set_sha256: Sha256
     trials_sha256: Sha256
-    #: The digest of the configuration fields every run of the role and arm shares.
+    #: The digest of the configuration fields every run of the role and arm shares, as the
+    #: counting rule compares them: in form 1 with every held-out root's digest, from form 2 with
+    #: the protected tiers' only and whether each role root's withheld and work roots were named.
     drift_sha256: Sha256
     harness_commits: tuple[Sha1, ...] = Field(min_length=1)
     accounts: tuple[Name, ...]

@@ -111,16 +111,15 @@ class Measured:
     tasks: tuple[Task, ...]
 
 
-#: The withheld places' digests as each store's runs were made, all before anything is
-#: measured: a run records the digest of every root it withholds, the role's withheld root
-#: among them, which each measurement then changes.
-_AS_RUN: dict[Path, list[str]] = {}
-
-
 def _as_run(made: StandInStore) -> list[str]:
+    """Each root's digest as a run made now records it, the role's withheld root among them.
+
+    Nothing is pinned: every write beneath the withheld root changes its digest, and runs are
+    compared on the protected tiers' digests only, so runs made at any point compare.
+    """
     from physgate.evaluation.tiers.heldout import tier_digest
 
-    return _AS_RUN.setdefault(made.store, [tier_digest(Path(root)) for root in made.held_out])
+    return [tier_digest(Path(root)) for root in made.held_out]
 
 
 def measured(
