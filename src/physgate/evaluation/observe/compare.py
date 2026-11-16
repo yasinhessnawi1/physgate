@@ -15,8 +15,12 @@ refusal is a fresh baseline under the candidate's pins.
 
 It refuses as well when the two runs were not asked the same thing from the same
 place: another brief, another commit of the target, other session bounds, another
-always-loaded ceiling, another network setting or another held-out tier. And when they were
-measured on different tier versions: the evaluation's record beside each run,
+always-loaded ceiling, another network setting or another held-out tier. A held-out tier is
+compared by the digests each run recorded of its roots (:func:`compared_digests`), less those of
+a tier-set store's withheld and work roots: they hold no task of a version, only what is written
+beside the tiers (the register, the vectors, the gap trend, the baseline rounds' records, the
+blind check's work), so any such write would make two honest runs read as drifted. And when
+they were measured on different tier versions: the evaluation's record beside each run,
 ``evaluation/tiers.json``, names the version and each tier's digest; absent from both, nothing
 is held; present in one only, differing, or not a record, the comparison is refused.
 
@@ -39,8 +43,8 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePath
+from typing import Any, get_args
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -48,6 +52,7 @@ from physgate.evaluation.baseline.record import TIERS_RECORD, TiersRecord
 from physgate.evaluation.observe.exceptions import CompareRefusedError, ManifestError
 from physgate.evaluation.observe.manifest import read_run_events
 from physgate.evaluation.observe.trace import read_traces
+from physgate.evaluation.tiers.task import Role
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.events import (
     AttemptRejected,
@@ -78,6 +83,7 @@ DRIFT: tuple[str, ...] = (
     "bounds",
     "token_ceiling",
     "network",
+    # Compared as :func:`compared_digests`: the protected tiers' digests, not every root's.
     "held_out_sha256",
 )
 
@@ -101,7 +107,7 @@ REPORTED: tuple[str, ...] = (
 )
 
 #: Never compared: what names one run (its id and seed), where its held-out tier was and the
-#: tokens its tasks carry (the tier's digests are compared), and what is measured from the
+#: tokens its tasks carry (the tiers' digests are compared), and what is measured from the
 #: network setting and the OS layer, which are both classed above. The account is left out on
 #: purpose: runs spread over several accounts of one plan compare.
 PER_RUN: tuple[str, ...] = (
@@ -185,15 +191,54 @@ class SideBySide(_Frozen):
     notes: tuple[str, ...] = ()
 
 
+def compared_digests(config: RunConfig) -> tuple[str, ...]:
+    """The held-out digests ``config`` is compared on, in the order recorded.
+
+    Each digest the run recorded but those of a tier-set store's withheld and work roots. A root
+    is set aside when, by the spelling the run recorded, it is ``<role root>/withheld`` or
+    ``<role root>/work`` and the run also names a validation or held-out tier of a version of
+    that same role root: those two roots hold no task of a version, and every register line,
+    vector, trend line, baseline round and blind check written there changes their digests.
+    Every other root is compared: each protected tier, a held-out root outside any store, and a
+    root that holds a role's root whole (its digest covers the withheld root, so runs either
+    side of a write there still read as drifted). Only what the run recorded is read, nothing
+    on disk, so a run recorded before this rule is compared by it as it stands. A run whose
+    digests do not pair one to one with its roots is compared on all of them.
+    """
+    from physgate.evaluation.tiers.manifest import VERSION_NAME
+    from physgate.evaluation.tiers.store import PROTECTED, WITHHELD, WORK
+
+    roots = [PurePath(entry) for entry in config.held_out]
+    digests = tuple(config.held_out_sha256)
+    if len(roots) != len(digests):
+        return digests
+    roles = set(get_args(Role))
+    with_tiers = {
+        root.parent.parent
+        for root in roots
+        if root.name in PROTECTED
+        and VERSION_NAME.fullmatch(root.parent.name) is not None
+        and root.parent.parent.name in roles
+    }
+    return tuple(
+        digest
+        for root, digest in zip(roots, digests, strict=True)
+        if not (root.name in (WITHHELD, WORK) and root.parent in with_tiers)
+    )
+
+
 def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
     """Every field of :data:`DRIFT` the candidate does not share with the baseline, by path.
 
     A set of model strings is compared name by name: a role or a reviewer present in one run
-    only is named like one pinned to another string.
+    only is named like one pinned to another string. The held-out digests are compared as
+    :func:`compared_digests` gives them.
     """
     drifted = []
     for path in DRIFT:
         mine, theirs = _at(baseline, path), _at(candidate, path)
+        if path == "held_out_sha256":
+            mine, theirs = compared_digests(baseline), compared_digests(candidate)
         if isinstance(mine, dict) and isinstance(theirs, dict):
             drifted += [
                 f"{path}.{key}"

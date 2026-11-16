@@ -7,8 +7,9 @@ from before any of them is counted:
 - each run is a harness run that was measured (reportable, from a clean checkout, never an
   ablation run), listed once, and was given exactly one task of the tier, found by its brief;
 - every field of :data:`physgate.evaluation.observe.compare.DRIFT` but the two that differ by
-  task (:data:`PER_TASK`) is the same in every run; of those two, a task's runs share one
-  target commit, while tasks may start from different ones;
+  task (:data:`PER_TASK`) is the same in every run, the held-out digests as ``compare`` holds
+  them (the protected tiers', not the store's withheld and work roots'); of those two, a task's
+  runs share one target commit, while tasks may start from different ones;
 - the records are the runs, one each, by task and trial, all of the harness arm, none
   excluded; and every task was run the same number of times.
 
@@ -39,8 +40,15 @@ from typing import Any, get_args
 
 from pydantic import ValidationError
 
-from physgate.evaluation.gaps.vector import VECTORS, GapsError, GapVector, TaskOutcome, vector_key
-from physgate.evaluation.observe.compare import DRIFT
+from physgate.evaluation.gaps.vector import (
+    VECTOR_FORMAT,
+    VECTORS,
+    GapsError,
+    GapVector,
+    TaskOutcome,
+    vector_key,
+)
+from physgate.evaluation.observe.compare import DRIFT, compared_digests
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.tiers.store import WITHHELD, version_dir
 from physgate.evaluation.tiers.task import Role, canonical_json, parse_task
@@ -92,6 +100,7 @@ def _read(path: Path, what: str) -> bytes:
 
 
 def _held(config: RunConfig) -> dict[str, Any]:
+    """The fields every run of a run set shares, as they are compared; the vector's digest's."""
     dumped = config.model_dump(mode="json")
     held: dict[str, Any] = {}
     for field in HELD_EQUAL:
@@ -99,6 +108,7 @@ def _held(config: RunConfig) -> dict[str, Any]:
         for part in field.split("."):
             value = value.get(part) if isinstance(value, dict) else None
         held[field] = value
+    held["held_out_sha256"] = list(compared_digests(config))
     return held
 
 
@@ -318,7 +328,7 @@ def write_vector(
     tasks = list(found.outcomes.values())
     secrets.SystemRandom().shuffle(tasks)
     vector = GapVector(
-        format=1,
+        format=VECTOR_FORMAT,
         role=role,  # type: ignore[arg-type]
         arm="harness",
         tier=tier,  # type: ignore[arg-type]
