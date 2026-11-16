@@ -289,7 +289,7 @@ def test_a_session_ended_on_a_subtask_never_planned_is_refused_with_its_reason_a
         status, _, body = live.request("GET", _spend(PRICED))
     assert status == 422, body
     refused = json.loads(body)
-    assert set(refused) == {"error", "root", "name", "record"}, refused
+    assert set(refused) == {"error", "root", "name", "record", "date"}, refused
     assert (refused["root"], refused["name"]) == ("0", PRICED)
     assert "never-planned" in refused["error"], refused
 
