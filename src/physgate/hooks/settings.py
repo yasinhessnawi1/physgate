@@ -167,14 +167,16 @@ class InstallRequest(BaseModel):
     #: whole in the session's hook state, as a session installed before the place existed has.
     sentinel_apart: AbsolutePath | None = None
     #: Roots withheld from the session whole, by rule rather than by a list taken now, but for
-    #: ``own_place`` in each: a protected trial's session in the store's work root, a blind
-    #: check's in the store. Whatever is made in them later, by anything, is refused to every
-    #: read and write on every layer; the session's own place is not. Given with
+    #: the worktree in ``own_place``: a protected trial's session in the store's work root, a
+    #: blind check's in the store. Whatever is made in them later, by anything, is refused to
+    #: every read and write on every layer; the session's worktree is not. Given with
     #: ``own_place`` only, and both or neither.
     withheld_whole: tuple[AbsolutePath, ...] = ()
     #: The session's own place inside every ``withheld_whole`` root: a real directory, reached
-    #: through no link, holding the worktree. Its tools read and write there exactly as spelt
-    #: (no link, no file with a second name); the OS layer opens the worktree alone in it.
+    #: through no link, holding the worktree. Its tools read and write the worktree there exactly
+    #: as spelt (no link, no file with a second name), and nothing else of the place but the
+    #: directory of its interpreter, read only (``os_layer_readable`` there); the OS layer opens
+    #: the same.
     own_place: AbsolutePath | None = None
     #: The source checkout the orchestrator runs from, when it runs from one: the
     #: gate's source, the curated library and the frozen experiments the run is
@@ -346,6 +348,28 @@ def _whole_roots_refusal(request: InstallRequest) -> str | None:
     if not _beneath(os.path.realpath(request.worktree), real):
         return f"the worktree {request.worktree} does not lie in the session's own place {place}"
     return None
+
+
+def _own_in_place(request: InstallRequest) -> tuple[str, tuple[str, ...]]:
+    """What the session reaches of the roots withheld whole: its worktree, and what else it reads.
+
+    The worktree, spelt beneath the own place as the place is given (the place is checked to be
+    reached through no link, and the worktree to lie in it where it really is), is read and
+    written. Beside it, the one thing named exactly: each further place of its own the OS layer
+    opens to its commands (``os_layer_readable``: the directory of the interpreter they run)
+    that lies in the place, never in its home, where its commands write and could make a link.
+    Read only. Nothing else of the place: its login, its hook records and anything made there
+    beside the worktree are refused, as the OS layer refuses them.
+    """
+    place = str(request.own_place)  # given with the roots (checked before)
+    real = os.path.realpath(place)
+    worktree = os.path.join(place, os.path.relpath(os.path.realpath(request.worktree), real))
+    interpreter = tuple(
+        p
+        for p in request.os_layer_readable
+        if _inside(p, place) and not _inside(p, request.user_home)
+    )
+    return os.path.normpath(worktree), interpreter
 
 
 def _knowledge_root(worktree: Path) -> str:
@@ -731,16 +755,18 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     if refusal is not None:
         raise ValueError(refusal)
     for path in request.withheld_whole:
-        # Assigned, not defaulted: refused to every read and write but the session's own place,
-        # whatever is made there later. Put back as it was if it was already (a blind check's
-        # store, written by none of its tools), and otherwise never: it is not snapshotted, so
-        # an entry made there by another process is refused, not removed.
-        place = str(request.own_place)  # given together (checked above)
+        own, interpreter = _own_in_place(request)
+        # Assigned, not defaulted: refused to every read and write but the session's worktree in
+        # its own place, whatever is made there later, the rest of the place included: the OS
+        # layer opens the worktree alone, and the two layers say the same. Put back as it was if
+        # it was already (a blind check's store, written by none of its tools), and otherwise
+        # never: it is not snapshotted, so an entry made there by another process is refused,
+        # not removed.
         watch = protected[path][1] if path in protected else "none"
         protected[path] = (WITHHELD_WHOLE_REASON, watch)
         reads[path] = "denied"
-        read_exceptions[path] = (place,)
-        root_exceptions[path] = tuple(dict.fromkeys((*root_exceptions.get(path, ()), place)))
+        read_exceptions[path] = (own, *interpreter)
+        root_exceptions[path] = tuple(dict.fromkeys((*root_exceptions.get(path, ()), own)))
     answer_keys = sorted({str(worktree / "corpora"), *request.answer_keys})
     for path in answer_keys:
         protected.setdefault(path, (ANSWER_KEY_REASON, "revert"))

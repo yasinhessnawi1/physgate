@@ -92,9 +92,9 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         "--withheld-whole",
         action="append",
         default=[],
-        help="a root withheld from the session whole, by rule, but for its own place there "
-        "(--own-place): refused to every read and write on every layer, whatever is made in it "
-        "later; repeatable; given with --own-place only",
+        help="a root withheld from the session whole, by rule, but for its worktree in its own "
+        "place there (--own-place): refused to every read and write on every layer, whatever is "
+        "made in it later; repeatable; given with --own-place only",
     )
     p.add_argument(
         "--own-place",

@@ -90,11 +90,12 @@ SENTINEL_APART_REASON = (
     "with, which names what no session reads; no session reads or writes it"
 )
 
-#: Given for any tool's read or write of a root withheld whole from the session but for its own
-#: place there (the store's work root around a protected trial's place, the store around a blind
-#: check's work): whatever lies there, made before the session's install or after it.
+#: Given for any tool's read or write of a root withheld whole from the session but for its
+#: worktree there (the store's work root around a protected trial's place, the store around a
+#: blind check's work): whatever lies there, made before the session's install or after it, the
+#: rest of the session's own place included.
 WITHHELD_WHOLE_REASON = (
-    "it lies in a root withheld from this session whole, but for the session's own place there; "
+    "it lies in a root withheld from this session whole, but for the session's worktree there; "
     "nothing else in it is this session's to read or write, whenever it was made"
 )
 

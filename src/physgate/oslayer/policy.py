@@ -202,10 +202,10 @@ def sandbox_policy(
         # As the kernel finds it: /var is /private/var on macOS, and either may be spelt.
         return any(_under(os.path.realpath(place), os.path.realpath(root)) for root in roots)
 
-    # A root withheld whole but for the session's own place there (a protected trial's, a blind
-    # check's): the one read-denied root a worktree may lie in, where it lies in that place. The
-    # worktree alone is opened again, never the place, which holds the session's own login and
-    # hook records: an opening re-opens everything beneath it.
+    # A root withheld whole but for the session's worktree there (a protected trial's, a blind
+    # check's): the one read-denied root a worktree may lie in, where it is that root's exception.
+    # The worktree alone is opened again, as the hooks except it alone, never the place, which
+    # holds the session's own login and hook records: an opening re-opens everything beneath it.
     around = {
         r.path
         for r in config.protected_roots

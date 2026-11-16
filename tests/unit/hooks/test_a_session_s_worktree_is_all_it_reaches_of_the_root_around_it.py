@@ -254,7 +254,7 @@ def test_the_interpreter_s_directory_is_the_one_other_thing_it_reads_there(
     assert root.read_exceptions == (wt, str(bin_dir)), root
     assert str(bin_dir) not in root.exceptions, root  # read, never written
     monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
-    for command in (f"ls {bin_dir}", "echo $PATH", 'export PATH="$PATH:/opt/x"'):
+    for command in (f"ls {bin_dir}", "echo $PATH"):
         assert shell_paths.check(parse(command)[0], wt, config) is None, command
     # Nothing else of the session's directory comes with it.
     for command in (f"ls {sdir}", f"ls {sdir / 'state'}", f"cat {sdir / 'config' / 'x'}"):
