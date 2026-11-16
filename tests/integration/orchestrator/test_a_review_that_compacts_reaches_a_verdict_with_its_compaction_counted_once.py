@@ -69,12 +69,8 @@ def binary(request: pytest.FixtureRequest) -> str:
 
 
 def _invalid() -> dict[str, Any]:
-    """A verdict the schema takes and the check refuses: an accept with an unmet criterion."""
-    answer = verdict()
-    answer["acceptance_criteria"] = [
-        {"criterion": "1", "result": "unmet", "evidence": "m/ctl.py:1"}
-    ]
-    return answer
+    """A verdict the schema takes and the check after the session refuses: a one-word finding."""
+    return {**verdict(), "finding": "test"}
 
 
 def _review(
