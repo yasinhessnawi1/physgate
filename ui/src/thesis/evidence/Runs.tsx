@@ -7,9 +7,9 @@
 import { SourceChip } from "../../design/components/data/SourceChip";
 import { sourceAttribute } from "../../design/components/data/source";
 import { Icon } from "../../design/components/icons/Icon";
-import { KINDS, type Kind, type ReadRun, type RunRow, type UnreadRun } from "./api";
+import { KINDS, type Kind, placeKey, type ReadRun, type RunRow, type UnreadRun } from "./api";
 import { KindTag, readSource, ShortId, UnreadList } from "./parts";
-import { EVIDENCE_COPY, KIND_HEADINGS, settingLabel, valueWords } from "./words";
+import { EVIDENCE_COPY, KIND_HEADINGS, rootWords, settingLabel, valueWords } from "./words";
 
 /** A setting map flattened to its leaves: a nested map's keys are joined by dots. */
 export function leaves(
@@ -54,7 +54,7 @@ function SettingRows({
             <span className="pg-id">{path}</span>
           </th>
           {values.map((held, i) => (
-            <td key={runs[i]?.name ?? i} className="evidence-value">
+            <td key={runs[i] === undefined ? i : placeKey(runs[i])} className="evidence-value">
               {valueWords(held.get(path))}
             </td>
           ))}
@@ -80,12 +80,13 @@ function KindSection({ kind, runs }: { readonly kind: Kind; readonly runs: reado
                 <th scope="col">{EVIDENCE_COPY.setting}</th>
                 {runs.map((run) => (
                   <th
-                    key={run.name}
+                    key={placeKey(run)}
                     scope="col"
                     data-source={sourceAttribute(readSource(run))}
-                    data-run={run.name}
+                    data-run={placeKey(run)}
                   >
                     <span className="evidence-run-name">{run.name}</span>
+                    <span className="evidence-root">{rootWords(run.root)}</span>
                     <SourceChip id={readSource(run).id} commit={readSource(run).commit} compact />
                   </th>
                 ))}
@@ -95,7 +96,7 @@ function KindSection({ kind, runs }: { readonly kind: Kind; readonly runs: reado
               <tr>
                 <th scope="row">{EVIDENCE_COPY.kind}</th>
                 {runs.map((run) => (
-                  <td key={run.name}>
+                  <td key={placeKey(run)}>
                     <KindTag kind={run.kind} />
                   </td>
                 ))}
@@ -103,7 +104,7 @@ function KindSection({ kind, runs }: { readonly kind: Kind; readonly runs: reado
               <tr>
                 <th scope="row">{EVIDENCE_COPY.runId}</th>
                 {runs.map((run) => (
-                  <td key={run.name} className="evidence-value">
+                  <td key={placeKey(run)} className="evidence-value">
                     {run.runId}
                   </td>
                 ))}
@@ -111,7 +112,7 @@ function KindSection({ kind, runs }: { readonly kind: Kind; readonly runs: reado
               <tr>
                 <th scope="row">{EVIDENCE_COPY.seed}</th>
                 {runs.map((run) => (
-                  <td key={run.name} className="evidence-value">
+                  <td key={placeKey(run)} className="evidence-value">
                     {String(run.seed)}
                   </td>
                 ))}
@@ -119,7 +120,7 @@ function KindSection({ kind, runs }: { readonly kind: Kind; readonly runs: reado
               <tr>
                 <th scope="row">{EVIDENCE_COPY.manifestId}</th>
                 {runs.map((run) => (
-                  <td key={run.name}>
+                  <td key={placeKey(run)}>
                     <ShortId value={run.manifestId} />
                   </td>
                 ))}
@@ -127,7 +128,7 @@ function KindSection({ kind, runs }: { readonly kind: Kind; readonly runs: reado
               <tr>
                 <th scope="row">{EVIDENCE_COPY.configCheck}</th>
                 {runs.map((run) => (
-                  <td key={run.name}>
+                  <td key={placeKey(run)}>
                     <span className="pg-status" data-status-kind="config-holds">
                       <Icon name="lock" size={12} />
                       {EVIDENCE_COPY.configHolds}

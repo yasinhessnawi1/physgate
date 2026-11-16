@@ -257,13 +257,15 @@ class Runs:
 #: What a role's sum is, said beside it: the rows it adds are sent with it.
 VIEW = "a view: each session's priced call, summed by the role its subtask was planned for"
 #: The groups apart from the roles, by the attribution's kind; a session the log records no end
-#: for (a left-over one, read at a resume) names no subtask and so no role.
+#: for (a left-over one, read at a resume) names no subtask and so no role, and a session ended on
+#: a subtask no line planned has no role to be summed under: it is its own group, never dropped.
 APART: Mapping[str, str] = {
     "decomposition": "decomposition",
     "reviewer": "review",
     "routing": "routing",
 }
 LEFT_OVER = "left_over"
+UNPLANNED = "unplanned"
 
 
 def _line(run: _Run, context: Context, date: str) -> CostLine:
@@ -312,12 +314,15 @@ def _spend(run: _Run, line: CostLine) -> dict[str, object]:
     role_of = {e.subtask_id: e.assigned_role for e in run.log if isinstance(e, SubtaskPlanned)}
     ended = {e.session_id: e for e in run.log if isinstance(e, SessionEnded)}
     roles: dict[str, list[tuple[CallCost, SessionEnded]]] = {}
-    apart: dict[str, list[CallCost]] = {group: [] for group in (*APART.values(), LEFT_OVER)}
+    apart: dict[str, list[CallCost]] = {group: [] for group in (*APART.values(), LEFT_OVER, UNPLANNED)}
     for call in line.calls:
         kind, who = call.attribution.split(":", 1)
         end = ended.get(who) if kind == "session" else None
-        if end is not None:
-            roles.setdefault(role_of[end.subtask_id], []).append((call, end))
+        role = None if end is None else role_of.get(end.subtask_id)
+        if end is not None and role is not None:
+            roles.setdefault(role, []).append((call, end))
+        elif end is not None:
+            apart[UNPLANNED].append(call)
         else:
             apart[APART.get(kind, LEFT_OVER)].append(call)
     return {

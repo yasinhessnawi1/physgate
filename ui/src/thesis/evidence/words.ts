@@ -137,6 +137,10 @@ export const APART_WORDS: Readonly<Record<ApartGroup, { title: string; none: str
     title: "Sessions with no recorded end",
     none: "No session without a recorded end was priced in this run.",
   },
+  unplanned: {
+    title: "Sessions that ended on a subtask no line planned",
+    none: "No session that ended on an unplanned subtask was priced in this run.",
+  },
 };
 
 /** How a cost line was priced, in words. */
@@ -148,6 +152,11 @@ const BASIS_WORDS: Readonly<Record<string, string>> = {
 /** The cost line's basis and sheet: "A list-price estimate, at the price sheet of 2026-11-01." */
 export function basisWords(basis: string, date: string): string {
   return `${BASIS_WORDS[basis] ?? basis}, at the price sheet of ${date}.`;
+}
+
+/** Which root a run sits under, so two runs of one name under two roots can be told apart. */
+export function rootWords(root: number): string {
+  return `Root ${String(root)}`;
 }
 
 /** The sheet the spend is priced at, named. */

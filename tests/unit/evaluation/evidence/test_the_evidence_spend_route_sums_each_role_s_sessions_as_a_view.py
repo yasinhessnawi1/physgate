@@ -181,7 +181,13 @@ def test_decomposition_review_and_routing_are_apart_and_never_in_a_role(
     spend, line = _answered(built)
     in_roles = {row["attribution"] for role in spend["roles"] for row in role["sessions"]}
     assert all(a.startswith("session:") for a in in_roles)
-    assert set(spend["apart"]) == {"decomposition", "review", "routing", "left_over"}
+    assert set(spend["apart"]) == {
+        "decomposition",
+        "review",
+        "routing",
+        "left_over",
+        "unplanned",
+    }
     reviews = [c for c in line["calls"] if c["attribution"].startswith("reviewer:")]
     assert reviews, "the fixture's run has no review priced"
     review = spend["apart"]["review"]
@@ -191,7 +197,7 @@ def test_decomposition_review_and_routing_are_apart_and_never_in_a_role(
     # No review root is named to the server, so no reviewer's result is read: a lower bound.
     assert review["sum"]["lower_bound"] is True
     # The stand-in plan made no decomposition call and routing spends nothing: no sum at all.
-    for empty in ("decomposition", "routing", "left_over"):
+    for empty in ("decomposition", "routing", "left_over", "unplanned"):
         assert spend["apart"][empty] == {"calls": [], "sum": None}, empty
     priced = {c["attribution"] for c in line["calls"]}
     apart = {row["attribution"] for group in spend["apart"].values() for row in group["calls"]}

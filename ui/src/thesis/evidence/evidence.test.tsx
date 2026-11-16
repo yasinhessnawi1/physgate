@@ -229,10 +229,10 @@ describe("the runs, side by side", () => {
     const host = await mount();
     const heads = [...host.querySelectorAll("th[data-run]")];
     expect(heads.map((h) => h.getAttribute("data-run"))).toEqual([
-      "ev-reportable",
-      "ev-development",
-      "ev-drifted",
-      "ev-ablation",
+      "0/ev-reportable",
+      "0/ev-development",
+      "0/ev-drifted",
+      "0/ev-ablation",
     ]);
     for (const head of heads) {
       expect(head.getAttribute("data-source")).toContain("0123456");
@@ -370,7 +370,7 @@ describe("the spend", () => {
 
   it("says a group apart from the roles that holds no call in words, never a zero", async () => {
     const host = await mount("tab=spend&run=0/ev-development");
-    for (const group of ["review", "routing", "left_over"] as const) {
+    for (const group of ["review", "routing", "left_over", "unplanned"] as const) {
       const apart = section(host, APART_WORDS[group].title);
       expect(text(apart)).toContain(APART_WORDS[group].none);
       expect(apart?.querySelector("table")).toBeNull();

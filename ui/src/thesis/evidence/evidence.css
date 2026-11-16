@@ -48,6 +48,12 @@
   font-weight: 600;
 }
 
+.evidence-root {
+  display: block;
+  color: var(--color-text-2);
+  font-size: var(--type-mono-small-size);
+}
+
 .evidence-value {
   font-family: var(--font-mono);
   font-size: var(--type-mono-small-size);
