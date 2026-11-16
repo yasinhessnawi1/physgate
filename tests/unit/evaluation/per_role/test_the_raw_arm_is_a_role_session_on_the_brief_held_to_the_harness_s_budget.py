@@ -455,11 +455,12 @@ def test_a_held_out_root_inside_the_session_s_own_directory_is_refused(tmp_path:
 def test_the_real_installer_takes_a_protected_trial_s_session_in_the_store_s_work_root(
     outside_tmp: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The carved roots, through the real installer: the store withheld whole but the place.
+    """The carved roots, through the real installer: the store withheld whole but the worktree.
 
     Every other place in the work root is withheld by the list taken at the install, and the
-    store that holds the place is withheld whole, by rule, but for the session's own place:
-    the one root that holds the worktree, and only with that place as its exception.
+    store that holds the place is withheld whole, by rule, but for the session's worktree in
+    its own place: the one root that holds the worktree, and only with that worktree as its
+    exception, as the OS layer opens it alone.
     """
     import argparse
     import os
@@ -484,6 +485,6 @@ def test_the_real_installer_takes_a_protected_trial_s_session_in_the_store_s_wor
     assert roots[os.path.realpath(places["other work"])].reads == "denied"
     store = roots[os.path.realpath(outside_tmp / "store")]
     assert store.reason == WITHHELD_WHOLE_REASON and store.reads == "denied", store
-    assert store.read_exceptions == (os.path.realpath(trial),), store
+    assert store.read_exceptions == (os.path.join(os.path.realpath(trial), "worktree"),), store
     holding = [r for r in roots if os.path.realpath(trial).startswith(r + os.sep)]
     assert holding == [store.path], holding
