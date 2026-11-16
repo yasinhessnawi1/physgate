@@ -22,7 +22,7 @@ import pytest
 
 from physgate.hooks.config import Installation, SessionConfig
 from physgate.hooks.registry import REGISTRY
-from physgate.hooks.settings import InstallRequest, build_config, render_settings
+from physgate.hooks.settings import InstallRequest, build_config, config_bytes, render_settings
 from physgate.oslayer import reaper_install
 from physgate.oslayer.policy import sandbox_policy
 
@@ -93,7 +93,9 @@ def _request(root: Path, profile: str, layer: bool) -> InstallRequest:
 def _installed(root: Path, profile: str, layer: bool) -> str:
     config: SessionConfig = build_config(_request(root, profile, layer), _installation(root))
     made = {
-        "config": config.model_dump(mode="json"),
+        # As the installer writes it: the fields only a compacting reviewer has are left out
+        # when empty, so a session given neither option keeps its bytes.
+        "config": json.loads(config_bytes(config)),
         "settings": render_settings(config, str(root / "config.json"), "0" * 64, REGISTRY),
         "os_layer": {
             platform: sandbox_policy(
