@@ -301,7 +301,8 @@ def test_an_entry_made_in_the_work_root_after_the_install_is_reached_by_no_route
     # Not vacuous: the entry was there, with its mark, for the whole round.
     assert attempts.late_there == attempts.late, "the test's late entry was not there to reach"
     assert len(attempts.results) == BESIDE + LATE, "the session did not make every attempt"
-    for marker, at in (("LATE-HIDDEN", 2), ("LATE-DOTTED", 4), ("LATE-LINKED", 5)):
+    # The shells whose paths the hooks cannot read ran, and wrote what they met: refusals only.
+    for marker, at in (("LATE-HIDDEN", 2), ("LATE-LINKED", 5)):
         assert marker in attempts.results[BESIDE + at], (marker, attempts.results[BESIDE + at])
     for result in attempts.results[BESIDE:]:
         assert attempts.late not in result, "the session read an entry made after its install"
