@@ -55,9 +55,10 @@ def _steps(layout: Layout) -> list[dict[str, object]]:
     for writer in WRITERS:
         steps.append(
             joined
+            + "RUN = 'import sys; from physgate.cli import main; sys.exit(main(sys.argv[1:]))'\n"
             + "env = {k: v for k, v in os.environ.items() if not k.startswith('CLAUDE_CODE_')}\n"
             # The harness's interpreter, which the first layer refuses by name, written reversed.
-            + f"argv = [{sys.executable[::-1]!r}[::-1], '-m', 'physgate', 'tiers', {writer[0]!r}, "
+            + f"argv = [{sys.executable[::-1]!r}[::-1], '-c', RUN, 'tiers', {writer[0]!r}, "
             + f"'--withheld', w, *{writer[1:]!r}]\n"
             + (f"argv.append({str(layout.root / 'runs')!r})\n" if writer[-1] == "--path" else "")
             + "done = subprocess.run(argv, env=env, capture_output=True, text=True)\n"
