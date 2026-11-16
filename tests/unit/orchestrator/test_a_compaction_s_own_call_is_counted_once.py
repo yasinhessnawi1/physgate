@@ -72,38 +72,47 @@ def _counter() -> Callable[..., MessageUsage | None]:
     return count  # type: ignore[no-any-return]
 
 
+def _try(*args: Any, **kwargs: Any) -> MessageUsage | Exception | None:  # noqa: ANN401
+    """The reader's answer, or what it raised: so every outcome is held by an assertion."""
+    count = _counter()
+    try:
+        return count(*args, **kwargs)
+    except Exception as exc:  # noqa: BLE001 - what it raised is what the row checks
+        return exc
+
+
 def test_a_difference_with_a_boundary_is_one_line_of_that_compaction_s_usage() -> None:
-    line = _counter()(_result(CALL), MESSAGES, compactions=1, message_id="compaction-1")
-    assert line is not None
+    line = _try(_result(CALL), MESSAGES, compactions=1, message_id="compaction-1")
+    assert isinstance(line, MessageUsage)
     assert line.usage == CALL and line.message_id == "compaction-1"
     assert getattr(line, "compaction", False) is True
 
 
 def test_with_the_line_the_account_matches_the_binary_s_totals() -> None:
-    line = _counter()(_result(CALL), MESSAGES, compactions=1, message_id="compaction-1")
-    assert line is not None
+    line = _try(_result(CALL), MESSAGES, compactions=1, message_id="compaction-1")
+    assert isinstance(line, MessageUsage)
     accounting.require_matching_totals(_result(CALL), (*MESSAGES, line))
 
 
 def test_three_compactions_in_one_invocation_are_one_line_of_all_three() -> None:
     thrice = _usage(3 * 70_001, 3 * 301)
-    line = _counter()(_result(thrice), MESSAGES, compactions=3, message_id="compaction-1")
-    assert line is not None and line.usage == thrice
+    line = _try(_result(thrice), MESSAGES, compactions=3, message_id="compaction-1")
+    assert isinstance(line, MessageUsage) and line.usage == thrice
 
 
 def test_without_a_boundary_any_difference_still_raises() -> None:
-    with pytest.raises(AccountingError) as refused:
-        _counter()(_result(CALL), MESSAGES, compactions=0, message_id="compaction-1")
-    assert refused.value.context["field"] == "input_tokens"
+    refused = _try(_result(CALL), MESSAGES, compactions=0, message_id="compaction-1")
+    assert isinstance(refused, AccountingError)
+    assert refused.context["field"] == "input_tokens"
 
 
 def test_without_a_boundary_and_no_difference_there_is_no_line() -> None:
-    assert _counter()(_result(_usage(0, 0)), MESSAGES, compactions=0, message_id="c-1") is None
+    assert _try(_result(_usage(0, 0)), MESSAGES, compactions=0, message_id="c-1") is None
 
 
 def test_a_boundary_with_no_difference_adds_no_line() -> None:
     # A resume after a compaction: its earlier line is already in the account, so no new one.
-    assert _counter()(_result(_usage(0, 0)), MESSAGES, compactions=1, message_id="c-1") is None
+    assert _try(_result(_usage(0, 0)), MESSAGES, compactions=1, message_id="c-1") is None
 
 
 @pytest.mark.parametrize(
@@ -113,39 +122,39 @@ def test_a_boundary_with_no_difference_adds_no_line() -> None:
 )
 def test_a_negative_difference_in_any_field_raises(extra: Extra) -> None:
     # A field the totals charge less than the messages: not a compaction's call.
-    with pytest.raises(AccountingError):
-        _counter()(_result(extra), MESSAGES, compactions=1, message_id="compaction-1")
+    assert isinstance(
+        _try(_result(extra), MESSAGES, compactions=1, message_id="compaction-1"), AccountingError
+    )
 
 
 def test_a_difference_past_the_bound_per_boundary_raises() -> None:
     bound = getattr(accounting, "COMPACTION_INPUT_BOUND", None)
     assert bound == 1_000_000
     at = _usage(bound - 10, 0, 10)
-    assert _counter()(_result(at), MESSAGES, compactions=1, message_id="c-1") is not None
+    assert isinstance(_try(_result(at), MESSAGES, compactions=1, message_id="c-1"), MessageUsage)
     past = _usage(bound - 10, 0, 11)
-    with pytest.raises(AccountingError):
-        _counter()(_result(past), MESSAGES, compactions=1, message_id="c-1")
+    assert isinstance(
+        _try(_result(past), MESSAGES, compactions=1, message_id="c-1"), AccountingError
+    )
     # The bound is per boundary: two compactions may be twice as large.
-    assert _counter()(_result(past), MESSAGES, compactions=2, message_id="c-1") is not None
+    assert isinstance(_try(_result(past), MESSAGES, compactions=2, message_id="c-1"), MessageUsage)
 
 
 def test_an_output_past_the_bound_per_boundary_raises() -> None:
     bound = getattr(accounting, "COMPACTION_OUTPUT_BOUND", None)
     assert bound == 64_000
-    assert (
-        _counter()(_result(_usage(1, bound)), MESSAGES, compactions=1, message_id="c") is not None
+    assert isinstance(
+        _try(_result(_usage(1, bound)), MESSAGES, compactions=1, message_id="c"), MessageUsage
     )
-    with pytest.raises(AccountingError):
-        _counter()(_result(_usage(1, bound + 1)), MESSAGES, compactions=1, message_id="c")
+    assert isinstance(
+        _try(_result(_usage(1, bound + 1)), MESSAGES, compactions=1, message_id="c"),
+        AccountingError,
+    )
 
 
 def test_a_result_without_totals_is_not_held_and_gives_no_line() -> None:
     for result in ({}, None, {"modelUsage": {}}):
-        try:
-            got = _counter()(result, MESSAGES, compactions=1, message_id="compaction-1")
-        except AccountingError as exc:
-            got = exc
-        assert got is None
+        assert _try(result, MESSAGES, compactions=1, message_id="compaction-1") is None
 
 
 def _line(**extra: Any) -> dict[str, Any]:  # noqa: ANN401 - a line's own fields
@@ -180,16 +189,17 @@ def test_the_mark_is_left_out_of_every_line_that_is_no_compaction() -> None:
 def test_the_output_bound_is_per_boundary_too() -> None:
     bound = accounting.COMPACTION_OUTPUT_BOUND
     twice = _usage(2, 2 * bound)
-    assert _counter()(_result(twice), MESSAGES, compactions=2, message_id="c") is not None
-    with pytest.raises(AccountingError):
-        _counter()(_result(_usage(2, 2 * bound + 1)), MESSAGES, compactions=2, message_id="c")
+    assert isinstance(_try(_result(twice), MESSAGES, compactions=2, message_id="c"), MessageUsage)
+    assert isinstance(
+        _try(_result(_usage(2, 2 * bound + 1)), MESSAGES, compactions=2, message_id="c"),
+        AccountingError,
+    )
 
 
 def test_the_input_bound_counts_every_input_field_and_not_the_output() -> None:
     bound = accounting.COMPACTION_INPUT_BOUND
     # The output is held to its own bound only: a large output does not count as input.
     spread = _usage(bound // 2, accounting.COMPACTION_OUTPUT_BOUND, bound // 4, bound // 4)
-    assert _counter()(_result(spread), MESSAGES, compactions=1, message_id="c") is not None
-    with pytest.raises(AccountingError):
-        over = _usage(bound // 2, 0, bound // 4, bound // 4 + 1)
-        _counter()(_result(over), MESSAGES, compactions=1, message_id="c")
+    assert isinstance(_try(_result(spread), MESSAGES, compactions=1, message_id="c"), MessageUsage)
+    over = _usage(bound // 2, 0, bound // 4, bound // 4 + 1)
+    assert isinstance(_try(_result(over), MESSAGES, compactions=1, message_id="c"), AccountingError)
