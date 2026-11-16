@@ -174,3 +174,84 @@ def test_visible_runs_that_are_not_the_design_s_tasks_times_trials_are_refused(
         body = design(made, visible, validation_tasks=None) | changes
         code, said = _gaps(capsys, tmp_path, body, visible, held, None)
         assert code == 1 and said.get("refused_because") == "not_the_design", (changes, said)
+
+
+def test_one_task_written_twice_counts_two_looks(
+    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # One task: the shuffle cannot change the bytes, so both writes give one key, and the
+    # register holds two lines. Each line is a look.
+    visible = measured(made, "visible", tmp_path / "v", tasks=1)
+    held = measured(made, "held_out", tmp_path / "h", tasks=1)
+    first, second = _vector(made, "held_out", held), _vector(made, "held_out", held)
+    assert first == second, "one task's vector was written to two keys"
+    body = design(made, visible, held_out_tasks=1, validation_tasks=None)
+    code, said = _gaps(capsys, tmp_path, body, visible, second, None)
+    assert code == 0, said
+    assert said["measurements"] == 2, "two looks were counted as one"
+
+
+def test_a_key_counted_as_another_kind_of_measurement_is_not_a_vector_s(
+    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    visible = measured(made, "visible", tmp_path / "v")
+    held = _vector(made, "held_out", measured(made, "held_out", tmp_path / "h"))
+    forged = json.loads(held.read_text())
+    forged["tasks"][0]["passes"] = 2
+    raw = canonical_json(forged)
+    planted = held.with_name(f"{hashlib.sha256(raw).hexdigest()}.json")
+    planted.write_bytes(raw)
+    api("physgate.evaluation.tiers.exposure.record_measurement")(
+        made.store, "control", made.version, measured="experiment", key=planted.stem
+    )
+    code, said = _gaps(
+        capsys, tmp_path, design(made, visible, validation_tasks=None), visible, planted, None
+    )
+    assert code == 1 and said.get("refused_because") == "vector_unmeasured", said
+
+
+def test_the_interval_does_not_depend_on_the_vector_s_order(
+    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Four held-out tasks passing 0, 1, 2 and 3 of three trials: each write shuffles them, and
+    # the same counts in another order give the same interval.
+    visible = measured(made, "visible", tmp_path / "v", trials=3)
+    held = measured(made, "held_out", tmp_path / "h", tasks=4, trials=3, outcome=lambda i, t: t < i)
+    body = design(made, visible, trials=3, held_out_tasks=4, validation_tasks=None)
+    orders: dict[tuple[int, ...], Path] = {}
+    for _ in range(60):
+        path = _vector(made, "held_out", held)
+        orders.setdefault(tuple(t["passes"] for t in json.loads(path.read_text())["tasks"]), path)
+        if len(orders) == 5:
+            break
+    assert len(orders) == 5, orders
+    intervals = set()
+    for path in orders.values():
+        code, said = _gaps(capsys, tmp_path, body, visible, path, None)
+        assert code == 0, said
+        intervals.add(tuple(said["reward_hacking"]["interval"]))
+    assert len(intervals) == 1, f"one count in five orders gave {len(intervals)} intervals"
+
+
+def test_runs_made_either_side_of_a_vector_write_are_refused_as_drift(
+    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Each run records the digest of every root it withholds as it is made, the role's withheld
+    # root among them; writing a vector beneath that root changes it. So visible runs made
+    # before the held-out tier's vector was written agree with it, and those made after are
+    # refused as drift. No digest is pinned here.
+    from physgate.evaluation.tiers.heldout import tier_digest
+
+    def now() -> list[str]:
+        return [tier_digest(Path(root)) for root in made.held_out]
+
+    before = measured(made, "visible", tmp_path / "v0", held_out_sha256=now())
+    held = _vector(
+        made, "held_out", measured(made, "held_out", tmp_path / "h", held_out_sha256=now())
+    )
+    after = measured(made, "visible", tmp_path / "v1", held_out_sha256=now())
+    body = design(made, before, validation_tasks=None)
+    code, said = _gaps(capsys, tmp_path, body, before, held, None)
+    assert code == 0, said
+    code, said = _gaps(capsys, tmp_path, body, after, held, None)
+    assert code == 1 and said.get("refused_because") == "drift", said

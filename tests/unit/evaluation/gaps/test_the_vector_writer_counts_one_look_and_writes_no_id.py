@@ -239,3 +239,44 @@ def test_tasks_with_unequal_trials_are_refused(tmp_path: Path, made: StandInStor
 def test_a_run_that_is_not_reportable_is_refused(tmp_path: Path, made: StandInStore) -> None:
     m = measured(made, "held_out", tmp_path / "a", reportable=False)
     assert _refused(made, "held_out", m) == "run_not_measured"
+
+
+def test_a_task_s_trial_numbered_twice_is_refused(tmp_path: Path, made: StandInStore) -> None:
+    # Two runs of one task, both trial 0, with records to match: equal trials per task, and
+    # yet one trial counted twice.
+    m = measured(made, "held_out", tmp_path / "a")
+    records = [dict(r, trial=0) for r in _records(m)]
+    runs = [(r, 0) for r in m.run_dirs]
+    assert _refused(made, "held_out", _swap_records(_swap_runs(m, runs), records)) == (
+        "trial_repeated"
+    )
+
+
+def test_trials_not_numbered_from_zero_are_refused(tmp_path: Path, made: StandInStore) -> None:
+    m = measured(made, "held_out", tmp_path / "a")
+    records = [dict(r, trial=r["trial"] + 1) for r in _records(m)]
+    runs = [(r, 1 + i % 2) for i, r in enumerate(m.run_dirs)]
+    assert _refused(made, "held_out", _swap_records(_swap_runs(m, runs), records)) == (
+        "trials_not_numbered"
+    )
+
+
+def test_an_exposure_recorded_after_the_rule_and_before_the_count_is_seen(
+    tmp_path: Path, made: StandInStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The register is re-read for exposure under its own lock, as the measurement is counted:
+    # a hand mark made after the counting rule read it is not missed.
+    import physgate.evaluation.tiers.measure as module
+
+    m = measured(made, "held_out", tmp_path / "a")
+    rule = module.census
+
+    def then_marked(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        found = rule(*args, **kwargs)
+        api("physgate.evaluation.tiers.exposure.mark_exposed")(
+            made.store, "control", made.version, by="a person", reason="opened a task file"
+        )
+        return found
+
+    monkeypatch.setattr(module, "census", then_marked)
+    assert _refused(made, "held_out", m) == "version_exposed"
