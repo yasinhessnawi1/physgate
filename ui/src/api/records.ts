@@ -66,6 +66,8 @@ export interface RunListing {
   /** ``null`` for a run recorded before the OS layer was measured, or an unreadable one. */
   readonly osLayer: OsLayer | null;
   readonly error: string | null;
+  /** When the run's log began, as recorded; ``null`` when it has none or it was not read. */
+  readonly started?: string | null;
 }
 
 export function runListing(value: unknown): readonly RunListing[] {

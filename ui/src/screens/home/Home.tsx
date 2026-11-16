@@ -142,7 +142,7 @@ export function statusWords(read: RunRead | undefined, now: number = Date.now())
   );
 }
 
-function Runs({
+export function Runs({
   runs,
   reads,
   labels,

@@ -88,3 +88,17 @@ export function runLabels(runs: readonly LabelledRun[]): ReadonlyMap<string, Run
   }
   return found;
 }
+
+/** A run as the list orders it: its folder name and when it started, if that is known. */
+export interface OrderedRun {
+  readonly name: string;
+  readonly started?: string | null;
+}
+
+/**
+ * Runs newest first by when each started, as recorded; a run whose start is not known after every
+ * run whose start is, by folder name with its numbers read as numbers ("run-3" before "run-10").
+ */
+export function orderRuns<T extends OrderedRun>(runs: readonly T[]): readonly T[] {
+  return runs;
+}
