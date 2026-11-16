@@ -3,14 +3,13 @@
  * and each run's human label. The choice lives in the address's ``run`` query, so a link or a
  * shortcut keeps it.
  *
- * A label needs the run's first event, so each listed run's log is read once per page. Only the
- * first ``FIRST_RUNS`` runs are read before the person asks for all of them: a root with many runs
- * would otherwise make every screen read every log.
+ * A label needs the run's start, which the run list names (the time of its log's first line), so
+ * no run's log is read to label it.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-import { getJson, getLines, type Result } from "../../api/client";
-import { runEvent, startedAt } from "../../api/events";
+import { getJson, type Result } from "../../api/client";
+import { runEvent } from "../../api/events";
 import { type RunConfig, runConfig, type RunListing, runListing } from "../../api/records";
 import { type RunStatus, runStatus } from "../../api/run";
 import type { Source } from "../../design/components/data/source";
@@ -76,19 +75,6 @@ export function phaseOfResult(status: Result<RunStatus> | null): Phase | undefin
   return status?.ok === true ? phaseOf(status.value) : undefined;
 }
 
-// Each run's start, read once per page: its log's run_started line, or nothing when the log
-// cannot be read (the run then reads by its folder's name).
-const starts = new Map<string, Promise<string | null>>();
-
-function startOf(base: string): Promise<string | null> {
-  let found = starts.get(base);
-  if (found === undefined) {
-    found = getLines(`${base}/events`, runEvent).then((r) => (r.ok ? startedAt(r.value) : null));
-    starts.set(base, found);
-  }
-  return found;
-}
-
 /** The run list, read once per screen, newest start first (``orderRuns``). */
 export function useRunList(): Result<readonly RunListing[]> | null {
   return useResult(
@@ -98,33 +84,11 @@ export function useRunList(): Result<readonly RunListing[]> | null {
 }
 
 /**
- * Every listed run's start, for its label: the first ``FIRST_RUNS`` readable runs unless ``all``,
- * and always ``also`` (the chosen run), whose label the top bar shows.
+ * Every listed run's start, for its label, as the run list names it: no run's log is read for
+ * it, so a screen reads only its own run's records. Every listed run is labelled.
  */
-export function useStarts(
-  runs: readonly RunListing[],
-  all: boolean,
-  also?: RunListing,
-): ReadonlyMap<string, string | null> {
-  const [found, setFound] = useState<ReadonlyMap<string, string | null>>(new Map());
-  const readable = runs.filter((r) => r.error === null);
-  const wanted = all ? readable : readable.slice(0, FIRST_RUNS);
-  if (also !== undefined && !wanted.includes(also)) wanted.push(also);
-  const key = wanted.map(runKey).join(",");
-  useEffect(() => {
-    let live = true;
-    for (const run of wanted) {
-      void startOf(runBase(run)).then((ts) => {
-        if (live) setFound((current) => new Map(current).set(runKey(run), ts));
-      });
-    }
-    return () => {
-      live = false;
-    };
-    // The key names the runs asked for; the list is rebuilt every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  return found;
+export function useStarts(runs: readonly RunListing[]): ReadonlyMap<string, string | null> {
+  return useMemo(() => new Map(runs.map((run) => [runKey(run), run.started ?? null])), [runs]);
 }
 
 /** Every listed run's label, from the starts read so far. */
@@ -192,7 +156,7 @@ export function useChosenRun(query: URLSearchParams): ChosenRun {
     return standingOf(value, end);
   }, [status.result, endEvents.result, endQueue.result]);
   const [all, setAll] = useState(false);
-  const starts = useStarts(listed, all, chosen);
+  const starts = useStarts(listed);
   const labels = useLabels(listed, starts);
   return {
     runs,
