@@ -15,7 +15,13 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import errno
+import json
 import os
+import subprocess
+import sys
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -30,12 +36,14 @@ from test_the_task_author_s_session_is_staged_held_and_split_blind import (
 )
 
 from physgate.evaluation.baseline import runner
-from physgate.evaluation.baseline.runner import BaselineError
+from physgate.evaluation.baseline.runner import BASELINE_DIR, PLACE, BaselineError
 from physgate.evaluation.per_role import author_session
 from physgate.evaluation.per_role.author_session import blind_check
+from physgate.evaluation.tiers import store as store_module
 from physgate.evaluation.tiers.authoring import AuthoringError
 from physgate.evaluation.tiers.canaries import root_canaries
 from physgate.evaluation.tiers.store import WORKING, role_root, work_root
+from physgate.orchestrator.processes import started_at
 
 TRIAL = ("r1", "0001-1")
 
@@ -154,6 +162,73 @@ def test_a_trial_is_made_as_before_once_the_check_has_ended(
     assert isinstance(out, dict) and out.get("answered"), out
     with runner.trial_place(plan.store, "control", *TRIAL) as (trial_dir, _working):
         assert _work(plan.store) == [trial_dir.name]
+
+
+def _spawn(session_id: str) -> tuple[subprocess.Popen[bytes], str]:
+    """A process standing in for a session: its command line carries its session id."""
+    process = subprocess.Popen(  # noqa: S603 - this interpreter, fixed arguments
+        [sys.executable, "-c", "import time; time.sleep(120)", "--session-id", session_id],
+        start_new_session=True,
+    )
+    for _ in range(200):
+        started = started_at(process.pid)
+        if started is not None:
+            return process, started
+        time.sleep(0.05)
+    process.kill()
+    process.wait()
+    msg = "the stand-in session's start time could not be read"
+    raise AssertionError(msg)
+
+
+def test_a_check_is_refused_in_words_while_a_dead_runner_s_trial_session_still_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The runner was killed: no hold and (a person removed it) no record; the session runs."""
+    plan, version = _held_tier(tmp_path, monkeypatch)
+    fake = FakeSession(_answers)
+    monkeypatch.setattr(author_session, "run_session", fake)
+    sid = str(uuid.uuid4())
+    process, started = _spawn(sid)
+    try:
+        trial = work_root(plan.store, "control") / f"{BASELINE_DIR}-dead-0001-1"
+        session = trial / PLACE / "session"
+        session.mkdir(mode=0o700, parents=True)
+        facts = {"pid": process.pid, "started": started, "session_id": sid, "kind": "raw"}
+        (session / "process.json").write_text(json.dumps(facts))
+        work, records = _work(plan.store), _records(plan.store)
+        outcome = _check(tmp_path, version, fake)
+    finally:
+        process.kill()
+        process.wait()
+    assert isinstance(outcome, AuthoringError), f"the check was not refused: {outcome!r}"
+    assert outcome.context.get("refused_because") == "session_lives", outcome.context
+    assert str(process.pid) in str(outcome) and "still runs" in str(outcome), outcome
+    assert fake.calls == [], "a check's session was started beside the living one"
+    assert _work(plan.store) == work, "the refused check made something in the work root"
+    assert _records(plan.store) == records, "the refused check left a record of work"
+
+
+def test_a_check_on_a_volume_where_the_lock_cannot_be_taken_is_refused_with_its_own_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan, version = _held_tier(tmp_path, monkeypatch)
+    fake = FakeSession(_answers)
+    monkeypatch.setattr(author_session, "run_session", fake)
+
+    def no_locks(_fd: int, _op: int) -> None:
+        raise OSError(errno.ENOLCK, os.strerror(errno.ENOLCK))
+
+    monkeypatch.setattr(store_module.fcntl, "flock", no_locks)
+    try:
+        outcome = _check(tmp_path, version, fake)
+    except Exception as exc:  # noqa: BLE001 - the row asserts what it was
+        outcome = exc
+    assert isinstance(outcome, AuthoringError), f"not the check's own refusal: {outcome!r}"
+    assert outcome.context.get("refused_because") == "work_root_unlockable", outcome.context
+    assert os.strerror(errno.ENOLCK) in str(outcome), outcome
+    assert fake.calls == [], "a check's session was started without the hold"
+    assert _records(plan.store) == [], "the refused check left a record of work"
 
 
 def test_the_check_s_session_is_withheld_the_whole_store_but_its_own_work(
