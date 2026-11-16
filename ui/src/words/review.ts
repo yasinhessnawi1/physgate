@@ -15,6 +15,16 @@ const CAUSE_WORDS: Readonly<Record<string, string>> = {
   blocking_spec_defect: "the specification blocked the review",
 };
 
+/** "after 2 compactions": how many times a review's session compacted its conversation. */
+export function compactionsText(compactions: number): string {
+  return `after ${String(compactions)} compaction${compactions === 1 ? "" : "s"}`;
+}
+
+/** " · after 2 compactions" for a row's meta, or nothing for a review that never compacted. */
+export function compactionWords(compactions: number | null): string {
+  return compactions === null || compactions === 0 ? "" : ` · ${compactionsText(compactions)}`;
+}
+
 /** The cause as a clause: "the reviewer's answer did not fit the required form". */
 export function causeWords(cause: string): string {
   return CAUSE_WORDS[cause] ?? `cause recorded as ${cause}`;

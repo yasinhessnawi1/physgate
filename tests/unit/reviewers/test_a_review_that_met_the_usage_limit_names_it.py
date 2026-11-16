@@ -109,7 +109,7 @@ def _review(
     monkeypatch.setattr(claude, "remove_secrets", lambda *a: None)
     monkeypatch.setattr(claude, "redact", lambda *a: None)
     monkeypatch.setattr(claude, "read_captured", lambda path, data=None: captured)
-    monkeypatch.setattr(claude, "require_matching_totals", lambda *a: None)
+    monkeypatch.setattr(claude, "compaction_line", lambda *a, **k: None)
     monkeypatch.setattr(claude, "verdict_schema", lambda *a, **k: {})
     monkeypatch.setattr(claude, "contract_text", lambda *a, **k: "c")
     rubric = Rubric(role="control", text="r", sha256="0" * 64)

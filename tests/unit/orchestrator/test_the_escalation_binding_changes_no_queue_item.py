@@ -61,6 +61,7 @@ ADDED_FIELDS: dict[str, dict[str, Any]] = {
         "ablation": False,
         "design_review": "off",
         "parts_on_hand": "off",
+        "review_compaction": "off",
     },
     "run_started": {"escalation_backend": "rules"},
     # The series records a session left: none, in every session the golden file recorded.

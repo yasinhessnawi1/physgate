@@ -188,6 +188,7 @@ class ReviewUnavailableError(OrchestratorError):
         spec_defects: tuple[SpecDefect, ...] = (),
         usage_limit: UsageLimit | None = None,
         managed: tuple[SessionManaged, ...] = (),
+        compactions: int | None = None,
         **context: str,
     ) -> None:
         """Store the cause and what the review spent beside the message."""
@@ -203,6 +204,9 @@ class ReviewUnavailableError(OrchestratorError):
         #: Per invocation of the review's session, the conditions it ran under (see
         #: ``ReviewResult.managed``); empty on a pin whose sessions carry no such traffic.
         self.managed = managed
+        #: How many times the review's session compacted before it ended (ARCH-060); ``None``
+        #: where it never did.
+        self.compactions = compactions
 
 
 class HeldOutExposedError(OrchestratorError):

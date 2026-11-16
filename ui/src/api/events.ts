@@ -5,7 +5,8 @@
  */
 import type { GateMode } from "../design/components/verdict/GateMode";
 import { type Quantity, requireQuantity } from "../design/quantity";
-import { count, flag, list, object, oneOf, optionalText, text } from "./check";
+import { count, flag, list, object, oneOf, optionalCount, optionalText, text } from "./check";
+import { ShapeError } from "./client";
 
 /** The precedence table's levels, by the names a ruling's line holds. */
 export const LEVELS = ["gate", "person", "sizing", "queue"] as const;
@@ -63,6 +64,8 @@ export type RunEvent = Line &
         readonly finding: string | null;
         readonly reviewerModel: string | null;
         readonly sessionId: string | null;
+        /** How many times the review's session compacted before its verdict; null when none. */
+        readonly compactions: number | null;
       }
     /** A review that reached no verdict on the attempt: never a pass or a fail. */
     | {
@@ -72,6 +75,8 @@ export type RunEvent = Line &
         readonly cause: string;
         readonly detail: string | null;
         readonly reviewerModel: string | null;
+        /** How many times the review's session compacted before it ended; null when none. */
+        readonly compactions: number | null;
       }
     | {
         readonly kind: "attempt_rejected";
@@ -204,6 +209,13 @@ export interface ContractPair {
   readonly interfaces: readonly string[];
 }
 
+/** A review's compaction count: absent, or at least one, as the record writes it. */
+function compactionCount(value: unknown): number | null {
+  const found = optionalCount(value, "a compaction count");
+  if (found === 0) throw new ShapeError("a compaction count");
+  return found;
+}
+
 function contractPair(value: unknown): ContractPair {
   const p = object(value, "a contract pair");
   return {
@@ -283,6 +295,7 @@ export function runEvent(value: unknown): RunEvent {
         finding: optionalText(r.finding, "a finding"),
         reviewerModel: optionalText(r.reviewer_model, "a model"),
         sessionId: optionalText(r.session_id, "a session id"),
+        compactions: compactionCount(r.compactions),
       };
     }
     case "review_unavailable":
@@ -294,6 +307,7 @@ export function runEvent(value: unknown): RunEvent {
         cause: text(e.cause, "a cause"),
         detail: optionalText(e.detail, "a detail"),
         reviewerModel: optionalText(e.reviewer_model, "a model"),
+        compactions: compactionCount(e.compactions),
       };
     case "attempt_rejected": {
       const f = object(e.finding, "a finding");

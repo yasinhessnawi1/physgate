@@ -214,6 +214,7 @@ describe("actors come from the record, and an unmapped writer is shown as writte
           finding: null,
           reviewerModel: "claude-opus-5-5",
           sessionId: null,
+          compactions: null,
         },
         { s: "electrical" },
         models,

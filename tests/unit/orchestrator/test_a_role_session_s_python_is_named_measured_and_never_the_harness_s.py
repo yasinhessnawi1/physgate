@@ -121,6 +121,7 @@ def test_a_configuration_that_names_none_records_what_it_did_before() -> None:
         "ablation": False,
         "design_review": "off",
         "parts_on_hand": "off",
+        "review_compaction": "off",
     }
     assert RunConfig.model_validate_json(json.dumps(recorded)).role_python == named.role_python
     assert isinstance(named.role_python, RolePython)
@@ -154,6 +155,7 @@ def _params(tmp_path: Path, role_python: object) -> object:
         "ablation": False,
         "design_review": "off",
         "parts_on_hand": "off",
+        "review_compaction": "off",
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],

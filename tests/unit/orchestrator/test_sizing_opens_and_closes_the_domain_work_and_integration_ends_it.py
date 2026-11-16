@@ -130,6 +130,7 @@ def config(repo: Path, run_roles: tuple[str, ...], gate_mode: GateMode = "on") -
         ablation=False,
         design_review="off",
         parts_on_hand="off",
+        review_compaction="off",
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),

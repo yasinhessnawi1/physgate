@@ -40,6 +40,15 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     p.add_argument("--user-home", default=str(Path.home()))
     p.add_argument("--ceiling", required=True, type=int, help="token ceiling, no default")
     p.add_argument("--reading", action="append", default=[])
+    p.add_argument(
+        "--after-compaction",
+        action="append",
+        default=[],
+        help="a required file a reviewer reads again in full after each compaction",
+    )
+    p.add_argument(
+        "--compaction-note", help="what a reviewer is told when it starts again after a compaction"
+    )
     p.add_argument("--always-loaded", action="append", default=[])
     p.add_argument("--held-out", action="append", default=[])
     p.add_argument(
@@ -279,6 +288,8 @@ def _install(args: argparse.Namespace) -> int:
         os_layer_network=args.os_layer_network,
         spawns_with_canary=args.spawns_with_canary,
         hooks=args.hooks,
+        after_compaction=tuple(_abs(p) for p in args.after_compaction),
+        compaction_note=args.compaction_note,
     )
     done = install(request, REGISTRY)
     printed: dict[str, object] = {

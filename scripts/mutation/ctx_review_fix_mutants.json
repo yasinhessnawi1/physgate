@@ -1,0 +1,21 @@
+[
+ {
+  "name": "r11-constructor-without-the-refusal",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "        # Here, where every path that builds a reviewer passes, not only the run's.\n        require_measured_compaction(setup)\n",
+  "new": "",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py",
+   "tests/unit/evaluation/test_the_generalist_reviews_only_with_the_rubric_the_paired_review_used.py"
+  ]
+ },
+ {
+  "name": "r12-exposure-without-its-compaction-line",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "        if line is not None:\n            usage = (*usage, line)\n        # Before anything else is concluded from the review.",
+  "new": "        # Before anything else is concluded from the review.",
+  "tests": [
+   "tests/unit/reviewers/test_a_review_that_showed_a_held_out_canary_is_an_exposure.py"
+  ]
+ }
+]

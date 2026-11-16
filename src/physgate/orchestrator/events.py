@@ -228,6 +228,9 @@ class RunStarted(_Event):
     #: hold every dispatch until each part is decided; left out of a run that does not ask, so
     #: its line keeps its bytes.
     parts_on_hand: Literal["on"] | None = None
+    #: ``on`` in a run whose reviewers may compact their conversation (ARCH-060); left out of a
+    #: run whose reviewers may not, so its line keeps its bytes.
+    review_compaction: Literal["on"] | None = None
     #: ``generalist`` or ``off`` in a run whose role work is not reviewed by the paired
     #: specialists; left out of a run reviewed by them, so its line keeps its bytes.
     reviewers: Literal["generalist", "off"] | None = None
@@ -250,6 +253,7 @@ class RunStarted(_Event):
             "queue_decisions",
             "design_review",
             "parts_on_hand",
+            "review_compaction",
             "reviewers",
             "skills",
             "hooks",
@@ -531,6 +535,11 @@ class ReviewUnavailable(_Event):
     #: Per invocation of the review's session, on a pin whose sessions carry the catalog
     #: and flag traffic, the conditions it ran under; empty, and not written, otherwise.
     managed: tuple[SessionManaged, ...] = Field(default=(), exclude_if=lambda v: not v)
+    #: How many times the review's session compacted before it ended with no verdict
+    #: (ARCH-060); ``None``, and not written, where it never did.
+    compactions: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
     @model_validator(mode="after")
     def _only_infrastructure_is_retried(self) -> ReviewUnavailable:
@@ -554,6 +563,10 @@ class TokensUsed(_Event):
     #: Read from a session a killed orchestrator left behind, whose stream has no
     #: result: its last message may be cut off, and nothing checks the sum.
     partial: bool = False
+    #: The usage of a review session's compaction calls, which the binary counts in its totals
+    #: and shows as no message: one line per invocation that compacted. Left out of every other
+    #: line, so each keeps its bytes.
+    compaction: bool = Field(default=False, exclude_if=lambda v: not v)
 
 
 class SessionEnded(_Event):

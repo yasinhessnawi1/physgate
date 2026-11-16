@@ -53,6 +53,7 @@ REPORTED = {
     "queue_decisions",
     "design_review",
     "parts_on_hand",
+    "review_compaction",
     "reportable",
     "ablation",
     "os_layer",

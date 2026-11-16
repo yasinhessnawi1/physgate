@@ -116,6 +116,7 @@ FIELD_RULES: dict[str, str] = {
     "review_material": "write- and read-denied (the file tools are the hooks')",
     "required_reading": "readable: the session must read it",
     "always_loaded": "readable: loaded into every session",
+    "after_compaction": "not used: only a reviewer has them, and each is required reading too",
     "installation": "write-denied through the protected roots that name it",
 }
 
