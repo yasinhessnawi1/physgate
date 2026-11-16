@@ -22,6 +22,15 @@ hook that fails lets the session carry on regardless.
 
 Files are identified by device and inode, not by the spelling of their path, so
 a case variant or a symlink of a required file counts as the file itself.
+
+**After a compaction** (a reviewer whose run allows it, ARCH-060): the session-start hook,
+started with ``source: "compact"``, records the compaction and tells the session the
+configuration's note in place of the required-reading announcement, which would send it
+through its whole reading again. Each read is recorded with the number of compactions before
+it, and each file the configuration names to read again after a compaction counts as read only
+through reads made since the last one. Every other required file read in full stays read. A
+session-start hook that does not run after a compaction leaves no record of it; the adapter
+holds the stream's count of compactions to these records, so such a compaction is no verdict.
 """
 
 from __future__ import annotations
@@ -68,6 +77,15 @@ def _reads_dir(config: ConfigView, hook_input: InputView) -> str:
     return os.path.join(session_dir(config, hook_input.session_id), "reads")
 
 
+def _compactions_dir(config: ConfigView, session_id: str) -> str:
+    return os.path.join(session_dir(config, session_id), "compactions")
+
+
+def compactions(config: ConfigView, session_id: str) -> int:
+    """How many compactions of the session the session-start hook was told of."""
+    return len(read_records(_compactions_dir(config, session_id)))
+
+
 def _covered(records: list[dict[str, Any]]) -> list[tuple[int, int]]:
     """The merged line ranges ``records`` cover, as inclusive (first, last) pairs."""
     spans = sorted(
@@ -104,6 +122,8 @@ def _ranges(gaps: list[tuple[int, int]]) -> str:
 def unread_files(config: ConfigView, hook_input: InputView) -> list[tuple[str, str]]:
     """Each required file not read in full at its current content, with what is unread."""
     records = read_records(_reads_dir(config, hook_input))
+    epoch = compactions(config, hook_input.session_id) if config.after_compaction else 0
+    again = set(config.after_compaction) if epoch else set()
     missing = []
     for path in config.required_reading:
         identity = _identity(path)
@@ -112,6 +132,9 @@ def unread_files(config: ConfigView, hook_input: InputView) -> list[tuple[str, s
             continue
         dev, ino, digest, lines = identity
         mine = [r for r in records if (r["dev"], r["ino"], r["digest"]) == (dev, ino, digest)]
+        if path in again:
+            # Read again in full since the last compaction: a read before it is a summary now.
+            mine = [r for r in mine if r.get("epoch", 0) == epoch]
         gaps = unread(mine, lines)
         if gaps:
             missing.append((path, f"lines not yet read: {_ranges(gaps)} of {lines}"))
@@ -124,7 +147,15 @@ def outstanding(config: ConfigView, hook_input: InputView) -> list[str]:
 
 
 def session_start(hook_input: InputView, config: ConfigView) -> Decision:
-    """Tell the session what it must read before anything else."""
+    """Tell the session what it must read before anything else, or, after a compaction, the note.
+
+    After a compaction of a session whose configuration names files to read again, the
+    compaction is recorded and the note is the whole context: the required-reading list is not
+    announced again.
+    """
+    if hook_input.source == "compact" and config.after_compaction and config.compaction_note:
+        add_record(_compactions_dir(config, hook_input.session_id), {"source": "compact"})
+        return Decision(allow=True, context=config.compaction_note)
     if not config.required_reading:
         return ALLOW
     listing = "\n".join(f"- {p}" for p in config.required_reading)
@@ -160,10 +191,19 @@ def post_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     if identity[:2] not in required:
         return ALLOW
     dev, ino, digest, _ = identity
-    add_record(
-        _reads_dir(config, hook_input),
-        {"dev": dev, "ino": ino, "digest": digest, "start": start, "num": num, "total": total},
-    )
+    record: dict[str, Any] = {
+        "dev": dev,
+        "ino": ino,
+        "digest": digest,
+        "start": start,
+        "num": num,
+        "total": total,
+    }
+    if config.after_compaction:
+        # The number of compactions before this read, so a read before the last one can be told
+        # apart; a session that never reads again after one records what it always did.
+        record["epoch"] = compactions(config, hook_input.session_id)
+    add_record(_reads_dir(config, hook_input), record)
     return ALLOW
 
 

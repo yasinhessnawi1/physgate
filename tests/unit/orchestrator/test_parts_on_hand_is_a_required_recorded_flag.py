@@ -115,6 +115,7 @@ def test_on_is_refused_where_the_os_layer_is_absent_whatever_the_run_allows() ->
         for allowance in ("refuse", "allow"):
             refused = _config(
                 parts_on_hand="on",
+                review_compaction="off",
                 queue_decisions="act",
                 os_layer=layer,
                 os_layer_absent=allowance,

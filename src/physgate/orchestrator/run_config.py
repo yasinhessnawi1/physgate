@@ -33,6 +33,7 @@ from physgate.flags import (
     OsLayerAbsent,
     PartsOnHand,
     QueueDecisions,
+    ReviewCompaction,
     Reviewers,
     Skills,
     replans,
@@ -393,6 +394,11 @@ class RunConfig(_Frozen):
     #: (ARCH-122), a flag of the register. Required, never taken from the environment. A run
     #: recorded before the field existed asked nothing, and reads as ``off``.
     parts_on_hand: PartsOnHand
+    #: Whether a paired reviewer's session may compact its conversation when the review outgrows
+    #: its model's context window (ARCH-060), a flag of the register. Required, never taken from
+    #: the environment. A run recorded before the field existed ran every reviewer with
+    #: compaction switched off, and reads as ``off``.
+    review_compaction: ReviewCompaction
     #: Who reviews a role's work (ARCH-140), a flag of the register. Required, never taken from
     #: the environment. A run recorded before the field existed was reviewed by the paired
     #: specialists, and reads as ``paired``.
@@ -574,10 +580,10 @@ class RunConfig(_Frozen):
         ``held_out_canaries`` and ``held_out_sha256`` when empty, ``network`` when ``open``,
         ``network_enforced`` when ``None``, ``queue_decisions`` when ``record``,
         ``os_layer_absent`` when ``refuse``, ``design_review`` when ``off``, ``parts_on_hand``
-        when ``off``, ``reviewers`` when ``paired``, ``skills`` and ``hooks`` when ``on``,
-        ``ablation`` when ``False``, and ``binary`` and ``account`` when ``None``, so their
-        recorded digests still name them. A
-        run that names a binding always records it, so the binding is part of its manifest id.
+        and ``review_compaction`` when ``off``, ``reviewers`` when ``paired``, ``skills`` and
+        ``hooks`` when ``on``, ``ablation`` when ``False``, and ``binary`` and ``account`` when
+        ``None``, so their recorded digests still name them. A run that names a binding always
+        records it, so the binding is part of its manifest id.
         """
         exclude = set()
         if self.thinking_display == "omitted":
@@ -612,6 +618,8 @@ class RunConfig(_Frozen):
             exclude.add("design_review")
         if self.parts_on_hand == "off":
             exclude.add("parts_on_hand")
+        if self.review_compaction == "off":
+            exclude.add("review_compaction")
         exclude |= {
             name for name, before in BEFORE_THE_SWITCH.items() if getattr(self, name) == before
         }
@@ -745,6 +753,8 @@ def load_run_config(path: Path) -> RunConfig:
         ("design_review", "off"),
         # Recorded before the field existed: nothing was asked about parts.
         ("parts_on_hand", "off"),
+        # Recorded before the field existed: every reviewer ran with compaction switched off.
+        ("review_compaction", "off"),
         # Recorded before the switches existed: paired reviewers, the skill file and the design
         # discipline were all there, and no run was an ablation.
         *BEFORE_THE_SWITCH.items(),

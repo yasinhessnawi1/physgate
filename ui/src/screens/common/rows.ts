@@ -12,7 +12,7 @@ import type { Quantity } from "../../design/quantity";
 import { type Actor, eventActor, type Models } from "../../words/actors";
 import { checkWords } from "../../words/checks";
 import { nodeLabel, quantityLabel } from "../../words/humanise";
-import { causeWords, triesWords } from "../../words/review";
+import { causeWords, compactionWords, triesWords } from "../../words/review";
 import { setAsideWith } from "../../words/queue";
 
 export type RowEnd =
@@ -258,7 +258,7 @@ export function rowOf(
               ? `The reviewer refused attempt ${String(event.attempt)}${first === null ? "" : `: ${first.head}`}`
               : `The review of attempt ${String(event.attempt)} ended ${event.verdict}${first === null ? "" : `: ${first.head}`}`,
         more: first?.rest ?? null,
-        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)}${event.sessionId === null ? "" : ` · session ${event.sessionId}`}`,
+        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)}${event.sessionId === null ? "" : ` · session ${event.sessionId}`}${compactionWords(event.compactions)}`,
         end: { kind: "review", verdict: event.verdict },
         subtask: event.subtask,
         attempt: event.attempt,
@@ -269,7 +269,7 @@ export function rowOf(
         ...base,
         depth: 2,
         sentence: `Review of attempt ${String(event.attempt)} reached no verdict: ${causeWords(event.cause)}${triesWords(event.detail)}`,
-        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)} · cause ${event.cause}`,
+        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)} · cause ${event.cause}${compactionWords(event.compactions)}`,
         end: { kind: "review", verdict: "no verdict" },
         subtask: event.subtask,
         attempt: event.attempt,

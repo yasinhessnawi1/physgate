@@ -90,6 +90,10 @@ class MessageUsage(_Frozen):
 
     message_id: NonEmptyStr
     usage: Usage
+    #: The binary's own call that wrote a compaction's summary: in its totals and in no message
+    #: of its stream, so it is read as the difference between the two (``accounting``). Left out
+    #: of every other line, so each keeps its bytes.
+    compaction: bool = Field(default=False, exclude_if=lambda v: not v)
 
 
 #: A session's captured stream of events, or a written account of a revision.
@@ -737,6 +741,22 @@ class ReviewResult(_Frozen):
     #: and flag traffic: the conditions it ran under. Empty otherwise, and then not written
     #: at all, so a review on an earlier pin is recorded byte for byte as before.
     managed: tuple[SessionManaged, ...] = Field(default=(), exclude_if=lambda v: not v)
+    #: How many times the review's session compacted its conversation before this verdict,
+    #: across its repair resumes (ARCH-060); ``None``, and not written, where it never did, so
+    #: a review without one is recorded byte for byte as before.
+    compactions: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    #: The context size before each compaction, in tokens, as each boundary named it; empty,
+    #: and not written, where there was none or a boundary named no size.
+    compaction_pre_tokens: tuple[Count, ...] = Field(default=(), exclude_if=lambda v: not v)
+
+    @model_validator(mode="after")
+    def _sizes_are_one_per_compaction(self) -> ReviewResult:
+        if self.compaction_pre_tokens and len(self.compaction_pre_tokens) != self.compactions:
+            msg = "a review names the context size before each of its compactions, or none"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _a_verdict_is_consistent(self) -> ReviewResult:

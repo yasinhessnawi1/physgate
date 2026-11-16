@@ -60,12 +60,14 @@ def _promoted(library: Path, text: str) -> str:
     return digest
 
 
-def _paired_run(tmp_path: Path, rubric_sha256: str, verdict: ReviewVerdict = "pass") -> Path:
+def _paired_run(
+    tmp_path: Path, rubric_sha256: str, verdict: ReviewVerdict = "pass", compaction: str = "off"
+) -> Path:
     """A finished run holding one paired review, its packet record beside it."""
     repo = target_repo(tmp_path)
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    cfg = config("run-1", repo)
+    cfg = config("run-1", repo, review_compaction=compaction)
     write_run_config(run_dir / "run.json", cfg)
     artefact = Artefact(
         subtask_id="s1",
@@ -172,3 +174,20 @@ def test_a_blocked_paired_review_is_the_baseline_too(tmp_path: Path) -> None:
         _generalist(tmp_path, run_dir, library)
     assert "no paired review" not in str(raised.value)
     assert (tmp_path / "out" / "generalist.json").exists()
+
+
+def test_a_run_that_allowed_compaction_on_an_unmeasured_pin_is_refused_its_generalist(
+    tmp_path: Path,
+) -> None:
+    from physgate.orchestrator.exceptions import ReviewerNotRegisteredError
+
+    library = tmp_path / "lib"
+    # The rig's pin, 2.1.272, is one on which a reviewer's compaction was never measured.
+    run_dir = _paired_run(tmp_path, _promoted(library, RUBRIC), compaction="on")
+    raised: Exception | None = None
+    try:
+        _generalist(tmp_path, run_dir, library)
+    except Exception as exc:  # noqa: BLE001 - which end it is, is what is held
+        raised = exc
+    assert isinstance(raised, ReviewerNotRegisteredError), repr(raised)
+    assert "review_compaction" in str(raised)

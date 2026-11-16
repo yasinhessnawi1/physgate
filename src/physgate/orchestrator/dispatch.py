@@ -44,7 +44,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from physgate.hooks import withheld
 from physgate.hooks.config import SessionConfig
-from physgate.hooks.reading import outstanding
+from physgate.hooks.reading import compactions, outstanding
 from physgate.hooks.sentinel import _frozen_experiment_paths
 from physgate.hooks.settings import CONFIG_NAME, SETTINGS_NAME
 from physgate.hooks.shell_startup import held_or_refused
@@ -708,12 +708,23 @@ class _Input:
     tool_response: object = None
     agent_id: str | None = None
     error: str | None = None
+    source: str | None = None
 
 
 def read_in_full(config_path: Path, session_id: str) -> bool:
-    """The hook layer's own answer: is every required file read in full, as it is now?"""
+    """The hook layer's own answer: is every required file read in full, as it is now?
+
+    After a compaction, a file the configuration names to read again counts only through
+    reads made since the last one.
+    """
     config = SessionConfig.model_validate_json(config_path.read_bytes())
     return not outstanding(config, _Input(session_id=session_id))
+
+
+def compactions_seen(config_path: Path, session_id: str) -> int:
+    """The hook layer's own count of the session's compactions it was told of."""
+    config = SessionConfig.model_validate_json(config_path.read_bytes())
+    return compactions(config, session_id)
 
 
 @dataclass(frozen=True)

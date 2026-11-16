@@ -193,6 +193,32 @@ PARTS_ON_HAND = Flag(
     architecture="ARCH-122",
 )
 
+#: Whether a paired reviewer's session may compact its conversation. Spelled out for the type
+#: checker, as the others are; a test holds it equal to the register's entry.
+ReviewCompaction = Literal["on", "off"]
+
+REVIEW_COMPACTION = Flag(
+    name="review_compaction",
+    values=("on", "off"),
+    meanings={
+        "on": (
+            "a review session that nears its model's context window compacts its conversation "
+            "and carries on: its verdict is a verdict, recorded with the number of compactions "
+            "before it and the context size before each; after each compaction the reviewer is "
+            "told again where its material is and which markers it must judge, and its verdict "
+            "is refused until it has read the rubric again in full. A review that still "
+            "outgrows the window reaches no verdict"
+        ),
+        "off": (
+            "every review session runs with the binary's compaction switched off, and a review "
+            "that meets its window reaches no verdict: everything the run records is that of a "
+            "run before the switch existed, and every run recorded before the switch existed "
+            "reads as this"
+        ),
+    },
+    architecture="ARCH-060",
+)
+
 #: Who reviews a role's work. Spelled out for the type checker, as the others are; a test holds
 #: it equal to the register's entry.
 Reviewers = Literal["paired", "generalist", "off"]
@@ -297,6 +323,7 @@ REGISTER: tuple[Flag, ...] = (
     OS_LAYER_ABSENT,
     DESIGN_REVIEW,
     PARTS_ON_HAND,
+    REVIEW_COMPACTION,
     REVIEWERS,
     SKILLS,
     HOOKS,
