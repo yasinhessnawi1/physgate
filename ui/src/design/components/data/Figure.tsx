@@ -17,6 +17,8 @@ interface Shown {
   readonly partial?: boolean;
   /** Places to show a recorded decimal to (a cost); the exact figure stays in the hover. */
   readonly decimals?: number;
+  /** The figure is a lower bound: it reads "at least" before its number. */
+  readonly atLeast?: boolean;
 }
 
 /**
