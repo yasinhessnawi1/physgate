@@ -9,10 +9,17 @@ can, so the writers' own refusal inside a session does not stop them either. The
 run on a terminal of the step's own making, for a version the store holds, so its terminal check
 and its version check pass and only the layer is left to stop it.
 
-Each step must show the operating system's own denial, not merely fail: a writer that failed
-for another reason (an interpreter it could not run, an import that failed) proves nothing.
-Without the layer the same steps write there, which shows the probe works; the sentinel puts
-back what they wrote after each call, so that row reads what each step says.
+What the layer does to the withheld place differs by platform, so what each step must show
+does too. On macOS the layer refuses the place: each step shows the operating system's own
+denial, not merely a failure, since a writer that failed for another reason (an interpreter it
+could not run, an import that failed) proves nothing. On Linux the layer masks the place with an
+empty directory: inside it the place lists empty and a read of a log by its known path fails,
+every writer refuses because the register is missing, and a write tried there leaves the logs
+outside byte-identical.
+
+Without the layer the same probe reaches the logs: the place lists them, the log reads, and the
+steps write there. The sentinel cannot put back a log no session may read, so it refuses every
+call after the first write; each step therefore runs in a session of its own, in both rows.
 
 In a job that is meant to have the layer (``PHYSGATE_REQUIRE_OS_LAYER`` set), a machine where
 the layer cannot run fails the row instead of skipping it.
@@ -22,22 +29,21 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from fake_messages_api import tool
-from os_layer_rig import Layout, layer_here, make_layout, python, run_session
+from os_layer_rig import layer_here, make_layout, python, run_session
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "unit" / "evaluation" / "exposure"))
 from exposure_fixtures import StandInStore, stand_in_store  # noqa: E402
 
 pytestmark = pytest.mark.integration
 
-#: What the operating system says when the layer refuses a listing, an open or a write; a layer
-#: that hides a withheld directory leaves it absent inside the sandbox. The row without the
-#: layer shows the same path is there, so absence inside is the layer's doing.
+#: What the operating system says when the layer refuses a listing, an open or a write (macOS);
+#: a layer that hides a withheld directory leaves it absent inside the sandbox. The row without
+#: the layer shows the same path is there, so absence inside is the layer's doing.
 DENIALS = (
     "Operation not permitted",
     "Permission denied",
@@ -51,12 +57,21 @@ def store(tmp_path: Path) -> StandInStore:
     return stand_in_store(tmp_path / "outside" / "st")
 
 
-@pytest.fixture
-def layout(tmp_path: Path, store: StandInStore) -> Iterator[Layout]:
-    with make_layout(tmp_path) as made:
-        withheld = store.store / "control" / "withheld"
-        (tmp_path / "runs").mkdir()
-        yield replace(made, held=withheld)
+def _withheld(store: StandInStore) -> Path:
+    return store.store / "control" / "withheld"
+
+
+def _each_in_its_own_session(tmp_path: Path, store: StandInStore, *, layer: bool) -> list[str]:
+    """What each step said, every step run in a fresh session of its own."""
+    (tmp_path / "runs").mkdir(exist_ok=True)
+    said: list[str] = []
+    for n, step in enumerate(_steps(tmp_path, store.version)):
+        with make_layout(tmp_path / f"session{n}") as made:
+            run = run_session(replace(made, held=_withheld(store)), [step], layer=layer)
+        told = run["told"]
+        assert isinstance(told, list) and len(told) == 1, told
+        said.append(str(told[0]))
+    return said
 
 
 def _writers(version: str) -> tuple[tuple[str, ...], ...]:
@@ -67,18 +82,23 @@ def _writers(version: str) -> tuple[tuple[str, ...], ...]:
     )
 
 
-def _steps(layout: Layout, version: str) -> list[dict[str, object]]:
+def _steps(root: Path, version: str) -> list[dict[str, object]]:
     # The withheld root is joined from pieces at run time, so the first layer cannot see it.
     joined = (
         "import os, pty, subprocess\n"
-        f"w = os.path.join({str(layout.root)!r}, 'outside', 'st', 'st' + 'ore', 'control', "
+        f"w = os.path.join({str(root)!r}, 'outside', 'st', 'st' + 'ore', 'control', "
         "'with' + 'held')\n"
-        # What the operating system itself says of the place, before any writer runs.
-        "try:\n    os.listdir(w); print('probe: listed')\n"
+        # What the operating system itself says of the place, before any writer runs: what it
+        # lists, and whether the log reads by its known path.
+        "try:\n    print('probe: listed', sorted(os.listdir(w)))\n"
         "except OSError as e:\n    print('probe:', e.strerror)\n"
+        "try:\n"
+        "    open(os.path.join(w, 'register' + '.jsonl'), 'rb').read(1); print('read: ok')\n"
+        "except OSError as e:\n    print('read:', e.strerror)\n"
     )
     direct = joined + (
-        "try:\n    open(os.path.join(w, 'register.jsonl'), 'a').write('marker'); print('wrote')\n"
+        "try:\n"
+        "    open(os.path.join(w, 'register' + '.jsonl'), 'a').write('marker'); print('wrote')\n"
         "except OSError as e:\n    print('denied:', e.strerror)\n"
     )
     # The hand mark asks for a terminal: it is given one of the step's own making.
@@ -107,19 +127,23 @@ def _steps(layout: Layout, version: str) -> list[dict[str, object]]:
             # The harness's interpreter, which the first layer refuses by name, written reversed.
             + f"argv = [{sys.executable[::-1]!r}[::-1], '-c', RUN, 'tiers', {writer[0]!r}, "
             + f"'--withheld', w, *{writer[1:]!r}]\n"
-            + (f"argv.append({str(layout.root / 'runs')!r})\n" if writer[-1] == "--path" else "")
+            + (f"argv.append({str(root / 'runs')!r})\n" if writer[-1] == "--path" else "")
             + (on_a_terminal if writer[0] == "mark-exposed" else piped)
         )
     steps.append(direct)
     return [tool("Bash", command=python(p), description=f"step {n}") for n, p in enumerate(steps)]
 
 
-def _contents(layout: Layout) -> dict[str, bytes]:
+def _contents(withheld: Path) -> dict[str, bytes]:
     return {
-        str(p.relative_to(layout.held)): p.read_bytes()
-        for p in sorted(layout.held.rglob("*"))
+        str(p.relative_to(withheld)): p.read_bytes()
+        for p in sorted(withheld.rglob("*"))
         if p.is_file() and not p.name.endswith(".lock")
     }
+
+
+def _line(text: str, label: str) -> str:
+    return text.split(f"{label}:", 1)[-1].splitlines()[0].strip()
 
 
 @pytest.fixture
@@ -134,33 +158,55 @@ def layer() -> None:
 
 @pytest.mark.usefixtures("layer")
 def test_inside_the_layer_no_step_writes_beneath_the_withheld_root(
-    layout: Layout, store: StandInStore
+    tmp_path: Path, store: StandInStore
 ) -> None:
-    before = _contents(layout)
-    run = run_session(layout, _steps(layout, store.version), layer=True)
-    told = run["told"]
-    assert isinstance(told, list) and len(told) == 4, told
-    for step, said in zip(("scan-exposures", "mark-exposed", "add-run-root"), told, strict=False):
-        text = str(said)
-        probe = text.split("probe:", 1)[-1].splitlines()[0]
-        assert any(d in probe for d in DENIALS), f"the layer did not deny {step}'s place: {text}"
+    withheld = _withheld(store)
+    before = _contents(withheld)
+    assert "register.jsonl" in before, before
+    told = _each_in_its_own_session(tmp_path, store, layer=True)
+    assert len(told) == 4, told
+    masked = sys.platform.startswith("linux")
+    for step, text in zip(
+        ("scan-exposures", "mark-exposed", "add-run-root", "write"), told, strict=True
+    ):
+        probe, read = _line(text, "probe"), _line(text, "read")
+        if masked:
+            # The layer masks the place: it lists empty, and the log does not read.
+            assert probe == "listed []", f"the layer did not mask {step}'s place: {text}"
+            assert read != "ok" and read, f"the log read inside the layer at {step}: {text}"
+        else:
+            assert any(d in probe for d in DENIALS), (
+                f"the layer did not deny {step}'s place: {text}"
+            )
+        if step == "write":
+            # On Linux a write there lands in the mask, if anywhere: the logs outside are
+            # compared below.
+            if not masked:
+                assert "denied:" in text and "wrote" not in text, text
+                assert any(d in _line(text, "denied") for d in DENIALS), text
+            continue
         assert "exit 0" not in text, f"{step} ran to its end inside the layer: {text}"
         assert "not_at_a_terminal" not in text, f"{step} was stopped by its terminal check: {text}"
-    assert "denied:" in str(told[-1]) and "wrote" not in str(told[-1]), told[-1]
-    assert any(d in str(told[-1]) for d in DENIALS), told[-1]
-    assert _contents(layout) == before, "a step changed what lies beneath the withheld root"
+        if masked:
+            assert "register_missing" in text, f"{step} did not refuse a missing register: {text}"
+    assert _contents(withheld) == before, "a step changed what lies beneath the withheld root"
 
 
 def test_without_the_layer_the_steps_write_there_which_shows_the_probe_works(
-    layout: Layout, store: StandInStore
+    tmp_path: Path, store: StandInStore
 ) -> None:
-    # What the steps wrote is put back by the sentinel after each call, so what they say is
-    # read: the scan ran to its end, the hand mark passed its terminal check and wrote its line,
-    # and the direct write landed.
-    run = run_session(layout, _steps(layout, store.version), layer=False)
-    told = run["told"]
-    assert isinstance(told, list) and len(told) == 4, told
-    assert all("probe: listed" in str(said) for said in told), told
-    assert "exit 0" in str(told[0]), told
-    assert "exit 0" in str(told[1]) and "marked" in str(told[1]), told
-    assert "wrote" in str(told[-1]), told
+    # Each step reaches the logs: the place lists them and the log reads. The scan ran to its
+    # end, the hand mark passed its terminal check and wrote its line, and the direct write
+    # landed; the sentinel could not put back a log no session may read, which is why each
+    # step had a session of its own.
+    withheld = _withheld(store)
+    before = _contents(withheld)
+    told = _each_in_its_own_session(tmp_path, store, layer=False)
+    assert len(told) == 4, told
+    for text in told:
+        assert "register.jsonl" in _line(text, "probe"), text
+        assert _line(text, "read") == "ok", text
+    assert "exit 0" in told[0], told
+    assert "exit 0" in told[1] and "marked" in told[1], told
+    assert "wrote" in told[-1], told
+    assert _contents(withheld)["register.jsonl"] != before["register.jsonl"], told
