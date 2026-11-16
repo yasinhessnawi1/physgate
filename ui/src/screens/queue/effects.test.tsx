@@ -8,8 +8,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { itemView } from "../../api/queue";
-import { bannedIn } from "../../words/queue";
+import type { Consequence } from "../../api/queue";
+import { bannedIn, effectWords, supersededOutcome } from "../../words/queue";
 import { Decide } from "./Decide";
 import { QueueItem } from "./QueueItem";
 
@@ -66,8 +70,18 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function decide(c: Record<string, unknown> | null, source?: string): HTMLElement {
-  const view = itemView(raw(c, source));
+interface Options {
+  readonly source?: string;
+  readonly supersededBy?: string;
+  readonly holdsToken?: boolean;
+  readonly unsealed?: boolean;
+}
+
+function decide(c: Record<string, unknown> | null, options: Options = {}): HTMLElement {
+  const data = raw(c, options.source);
+  if (options.unsealed === true)
+    data.trajectories = [{ link: "/r/x", session_id: "s-1", status: "altered" }];
+  const view = itemView(data);
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -78,12 +92,14 @@ function decide(c: Record<string, unknown> | null, source?: string): HTMLElement
         decided={undefined}
         source={{ id: "run run-1", commit: "abcdef1234" }}
         subtaskName="Control module"
+        supersededBy={options.supersededBy}
       >
         <Decide
           view={view}
           runId="run-1"
           operator="yasin"
-          holdsToken
+          holdsToken={options.holdsToken ?? true}
+          supersededBy={options.supersededBy}
           send={() => new Promise(() => undefined)}
           onDecided={() => undefined}
         />
@@ -97,63 +113,79 @@ function beside(host: HTMLElement, verb: string): string {
   return host.querySelector(`.pg-queue-effects [data-verb="${verb}"]`)?.textContent ?? "";
 }
 
+function verbs(host: HTMLElement): string[] {
+  return [...host.querySelectorAll(".pg-queue-effects [data-verb]")].map(
+    (e) => e.getAttribute("data-verb") ?? "",
+  );
+}
+
+interface Row {
+  readonly name: string;
+  readonly source: string;
+  readonly consequence: Record<string, unknown>;
+  readonly sentences: Record<string, string>;
+}
+
+// The one fixture the command line's own rows read too: a change to either copy fails a row.
+const ROWS = JSON.parse(
+  readFileSync(resolve(process.cwd(), "../tests/fixtures/queue_sentences.json"), "utf8"),
+) as Row[];
+
+function recordOf(c: Record<string, unknown>): Consequence {
+  const indicators = (c.confirmed_indicators ?? []) as { attempt: number; kind: string }[];
+  return {
+    attempt: (c.attempt ?? null) as number | null,
+    attemptCommit: (c.attempt_commit ?? null) as string | null,
+    onApprove: c.on_approve,
+    onReject: c.on_reject,
+    whyRecordOnly: (c.why_record_only ?? null) as Consequence["whyRecordOnly"],
+    confirmedIndicators: indicators,
+    scanHits: 0,
+    scanHitAttempts: [],
+    judgedEarlier: [],
+    onChoose: (c.on_choose ?? null) as Consequence["onChoose"],
+  } as Consequence;
+}
+
+describe("the sentences are the ones the command line says", () => {
+  it.each(ROWS.map((r) => [r.name, r] as const))("%s", (_name, row) => {
+    const said = Object.fromEntries(
+      effectWords(recordOf(row.consequence), row.source as never).map((e) => [
+        e.key === "approve" || e.key === "reject" || e.key === "note" ? e.key : `choose_${e.key}`,
+        e.text,
+      ]),
+    );
+    expect(said).toEqual(row.sentences);
+    for (const text of Object.values(said)) expect(bannedIn(text), text).toEqual([]);
+  });
+});
+
 describe("what each decision will do, beside the buttons", () => {
-  it("says an approve that only records will not merge, and why", () => {
+  it("says an approve that only records will not merge, closes the item, and why", () => {
     const host = decide(
       consequence({ on_approve: "record_only", why_record_only: "gate", on_reject: "fix" }),
     );
     expect(beside(host, "approve")).toBe(
-      "Approving records your decision. It will not merge this attempt, because the physics " +
-        "gate refused the attempt, and a person overrides the reviewer alone.",
+      "Approving records your decision and closes this item for good. It will not merge this " +
+        `attempt, because ${"the physics gate refused the attempt, and a person overrides the reviewer alone"}.`,
     );
-    expect(beside(host, "reject")).toBe(
-      "Rejecting orders one fix by a fresh session, the subtask's last attempt. If it is not " +
-        "accepted, the subtask ends rejected.",
-    );
+    expect(beside(host, "note")).toContain("cannot be edited or undone");
   });
 
-  it("says nothing is merged or changed on an item whose kind only records", () => {
+  it("says a release and the end of a run", () => {
     const host = decide(
       consequence({
         attempt: null,
         attempt_commit: null,
-        on_approve: "record_only",
-        on_reject: "record_only",
-        why_record_only: "source",
+        on_approve: "release",
+        on_reject: "end_run",
       }),
+      { source: "plan_review" },
     );
     expect(beside(host, "approve")).toBe(
-      "Approving records your decision. It will not merge or change anything, because for an " +
-        "item of this kind a decision is recorded and changes nothing in the run.",
+      "Approving releases the hold, and the plan runs as it stands.",
     );
-    expect(beside(host, "reject")).toBe(
-      "Rejecting records your decision. It will not change anything in the run, because for an " +
-        "item of this kind a decision is recorded and changes nothing in the run.",
-    );
-  });
-
-  it("names a confirmed indicator as the reason", () => {
-    const host = decide(
-      consequence({
-        on_approve: "record_only",
-        why_record_only: "indicator_in_history",
-        confirmed_indicators: [{ attempt: 2, kind: "disabled_checks" }],
-      }),
-    );
-    expect(beside(host, "approve")).toBe(
-      "Approving records your decision. It will not merge this attempt, because the review of " +
-        "attempt 2 (disabled_checks) confirmed a reward-hacking indicator.",
-    );
-  });
-
-  it("says what an approve that acts does", () => {
-    const host = decide(consequence({ attempt: 3 }));
-    expect(beside(host, "approve")).toBe(
-      `Approving puts attempt 3 (commit ${COMMIT.slice(0, 12)}) into the run, merged exactly as shown.`,
-    );
-    expect(beside(host, "reject")).toBe(
-      "Rejecting spends this attempt, and the next attempt starts from your note.",
-    );
+    expect(beside(host, "reject")).toBe("Rejecting ends the run with no module dispatched.");
   });
 
   it("says what each choice of a choice item does", () => {
@@ -166,26 +198,40 @@ describe("what each decision will do, beside the buttons", () => {
         why_record_only: "source",
         on_choose: { sizing: "fix", domain: "resize" },
       }),
-      "arbitration",
+      { source: "arbitration" },
     );
-    expect(beside(host, "sizing")).toMatch(
-      /^Choosing sizing's value: one fix is made by a fresh session/,
-    );
-    expect(beside(host, "domain")).toMatch(
-      /^Choosing the domain's value: the subtask waits while sizing's closing pass/,
-    );
+    expect(verbs(host)).toEqual(["approve", "reject", "sizing", "domain", "note"]);
   });
 
   it("says nothing extra when the item states no consequence", () => {
-    const host = decide(null);
-    expect(host.querySelector(".pg-queue-effects")).toBeNull();
+    expect(decide(null).querySelector(".pg-queue-effects")).toBeNull();
   });
 
-  it("holds no banned word in any sentence", () => {
+  it("says only what the run does with a decision on an item a reopen superseded", () => {
     const host = decide(
-      consequence({ on_approve: "record_only", why_record_only: "gate", on_reject: "fix" }),
+      consequence({
+        attempt: null,
+        attempt_commit: null,
+        on_approve: "record_only",
+        on_reject: "record_only",
+        why_record_only: "source",
+        on_choose: { producer: "reopen", consumer: "record_only" },
+      }),
+      { source: "contract", supersededBy: "run-1-contract-1" },
     );
-    for (const verb of ["approve", "reject"])
-      expect(bannedIn(beside(host, verb)), verb).toEqual([]);
+    expect(verbs(host)).toEqual(["superseded"]);
+    expect(beside(host, "superseded")).toBe(supersededOutcome("run-1-contract-1"));
+    expect(host.textContent).not.toContain("is reopened for one more attempt");
+  });
+
+  it("says nothing beside buttons that cannot be pressed", () => {
+    expect(
+      decide(consequence(), { holdsToken: false }).querySelector(".pg-queue-effects"),
+    ).toBeNull();
+  });
+
+  it("leaves out the decisions that need a seal that does not hold", () => {
+    const host = decide(consequence(), { unsealed: true });
+    expect(verbs(host)).toEqual(["reject", "note"]);
   });
 });

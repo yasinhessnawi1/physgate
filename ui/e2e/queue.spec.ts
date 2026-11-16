@@ -369,8 +369,8 @@ test("an item in a run that acts on decisions says what each verb will do", asyn
   // Beside the buttons, before a person decides, the same is said in plain words.
   const beside = page.locator(".pg-queue-effects");
   await expect(beside.locator('[data-verb="approve"]')).toHaveText(
-    "Approving records your decision. It will not merge this attempt, because the physics gate " +
-      "refused the attempt, and a person overrides the reviewer alone.",
+    "Approving records your decision and closes this item for good. It will not merge this " +
+      "attempt, because the physics gate refused the attempt, and a person overrides the reviewer alone.",
   );
   await expect(beside.locator('[data-verb="reject"]')).toHaveText(
     "Rejecting ends the subtask as rejected. Nothing of it is merged.",

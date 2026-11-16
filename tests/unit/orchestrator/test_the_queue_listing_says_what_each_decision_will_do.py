@@ -3,32 +3,36 @@
 The sentences are made from the item's own consequence record and from nothing else: an item
 whose approve only records says so, with the reason the record gives, before a person decides;
 an item that states no consequence is listed exactly as before. The record is never changed.
+The same sentences are read by the operator UI's own rows from one fixture, so a change to
+either copy that the other does not follow fails a row.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
+from parts_rig import RUN_ID, body, decide, item, item_id, listed
+from test_a_reopen_supersedes_the_other_items_on_its_module import OTHER, reopened
 
 from physgate.cli import main
 from physgate.orchestrator.queue import (
     QUEUE_NAME,
     ApprovalQueue,
-    ItemConsequence,
     QueueItem,
+    queue_listing,
+    read_queue,
 )
+from physgate.orchestrator.queue_words import decision_sentences
 
-COMMIT = "c" * 40
 SAYS = "what_each_decision_does"
+FIXTURE = Path(__file__).parents[2] / "fixtures" / "queue_sentences.json"
+ROWS: list[dict[str, Any]] = json.loads(FIXTURE.read_text())
 
 
-def _item(
-    consequence: ItemConsequence | None,
-    *,
-    source: str = "review_unavailable",
-) -> QueueItem:
+def _item(consequence: dict[str, Any] | None, source: str = "review_unavailable") -> QueueItem:
     return QueueItem.model_validate_json(
         json.dumps(
             {
@@ -42,141 +46,92 @@ def _item(
                 "triggering_finding": "no verdict",
                 "quantities": [],
                 "trajectories": ["sessions/s-1/stdout.jsonl"],
-                "consequence": None if consequence is None else consequence.model_dump(mode="json"),
+                "consequence": consequence,
             }
         )
     )
 
 
-def _consequence(**over: object) -> ItemConsequence:
-    fields: dict[str, object] = {
-        "attempt": 1,
-        "attempt_commit": COMMIT,
-        "on_approve": "merge_attempt",
-        "on_reject": "retry",
-        "why_record_only": None,
-        "confirmed_indicators": (),
-        "scan_hits": (),
-    }
-    fields.update(over)
-    return ItemConsequence.model_validate_json(json.dumps(fields))
-
-
-def _listed(
-    tmp_path: Path, item: QueueItem, capsys: pytest.CaptureFixture[str]
-) -> dict[str, object]:
-    run = tmp_path / "run"
-    run.mkdir()
-    ApprovalQueue(run / QUEUE_NAME).add(item)
+def _printed(run: Path, capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
     capsys.readouterr()
     assert main(["queue", "list", "--run-dir", str(run)]) == 0
-    open_items = json.loads(capsys.readouterr().out)["open"]
-    assert len(open_items) == 1
-    return dict(open_items[0])
+    printed: dict[str, Any] = json.loads(capsys.readouterr().out)
+    return printed
 
 
-def test_an_approve_that_only_records_says_so_and_why(
+def _run_with(tmp_path: Path, *items: QueueItem) -> Path:
+    run = tmp_path / "run"
+    run.mkdir()
+    queue = ApprovalQueue(run / QUEUE_NAME)
+    for one in items:
+        queue.add(one)
+    return run
+
+
+@pytest.mark.parametrize("row", ROWS, ids=[r["name"] for r in ROWS])
+def test_every_sentence_is_the_one_the_shared_fixture_holds(row: dict[str, Any]) -> None:
+    said = decision_sentences(_item(row["consequence"], row["source"]))
+    assert said == row["sentences"]
+
+
+@pytest.mark.parametrize("row", ROWS[:3] + ROWS[10:12], ids=lambda r: r["name"])
+def test_the_listing_prints_those_sentences_and_changes_nothing_else(
+    row: dict[str, Any], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = _run_with(tmp_path, _item(row["consequence"], row["source"]))
+    printed = _printed(run, capsys)
+    (entry,) = printed["open"]
+    assert entry.get(SAYS) == row["sentences"]
+    # The served listing is the same lines: the sentences are all the command adds.
+    served = queue_listing(run)
+    plain = {k: v for k, v in entry.items() if k != SAYS}
+    assert {**printed, "open": [plain]} == served
+
+
+def test_an_item_that_states_no_consequence_is_listed_exactly_as_before(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    listed = _listed(
-        tmp_path,
-        _item(_consequence(on_approve="record_only", why_record_only="gate", on_reject="fix")),
-        capsys,
-    )
-    assert listed.get(SAYS) == {
-        "approve": (
-            "Approving records your decision. It will not merge this attempt, because the "
-            "physics gate refused the attempt, and a person overrides the reviewer alone."
-        ),
-        "reject": (
-            "Rejecting orders one fix by a fresh session, the subtask's last attempt. If it is "
-            "not accepted, the subtask ends rejected."
-        ),
-    }
+    run = _run_with(tmp_path, _item(None))
+    printed = _printed(run, capsys)
+    assert printed == queue_listing(run)
+    (entry,) = printed["open"]
+    assert "consequence" not in entry
+    assert SAYS not in entry
 
 
-def test_an_approve_that_records_for_an_item_of_its_kind_says_nothing_is_merged_or_changed(
+def test_the_record_is_not_changed_by_listing_it(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    said = _listed(
-        tmp_path,
-        _item(
-            _consequence(
-                attempt=None,
-                attempt_commit=None,
-                on_approve="record_only",
-                on_reject="record_only",
-                why_record_only="source",
-            ),
-        ),
-        capsys,
-    ).get(SAYS)
-    assert said == {
-        "approve": (
-            "Approving records your decision. It will not merge or change anything, because "
-            "for an item of this kind a decision is recorded and changes nothing in the run."
-        ),
-        "reject": (
-            "Rejecting records your decision. It will not change anything in the run, because "
-            "for an item of this kind a decision is recorded and changes nothing in the run."
-        ),
-    }
+    run = _run_with(tmp_path, _item(ROWS[1]["consequence"], ROWS[1]["source"]))
+    before = (run / QUEUE_NAME).read_bytes()
+    _printed(run, capsys)
+    assert (run / QUEUE_NAME).read_bytes() == before
 
 
-def test_a_confirmed_indicator_is_named_as_the_reason(
+def test_a_superseded_contract_item_says_nothing_of_what_a_choice_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rig = reopened(tmp_path, monkeypatch)
+    stored = next(i for i in read_queue(rig.run_dir).items if i.item_id == OTHER)
+    # The line still says the producer's choice reopens a module; the run will not do that.
+    assert stored.consequence is not None and stored.consequence.on_choose is not None
+    assert stored.consequence.on_choose["producer"] == "reopen"
+    entries = {e["item_id"]: e for e in _printed(rig.run_dir, capsys)["open"]}
+    assert OTHER in entries
+    assert SAYS not in entries[OTHER]
+
+
+def test_a_choice_the_item_refuses_is_not_described(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    consequence = _consequence(
-        on_approve="record_only",
-        why_record_only="indicator_in_history",
-        confirmed_indicators=({"attempt": 2, "kind": "disabled_checks"},),
+    run = listed(tmp_path / "run", item())
+    again = item().model_copy(update={"item_id": item_id(1, 2)})
+    assert not isinstance(decide(run, item_id(1), "have", body({"mass": (1, "kg")})), Exception), (
+        "the first round is decided"
     )
-    said = _listed(tmp_path, _item(consequence), capsys).get(SAYS)
-    assert isinstance(said, dict)
-    assert said.get("approve") == (
-        "Approving records your decision. It will not merge this attempt, because the review "
-        "of attempt 2 (disabled_checks) confirmed a reward-hacking indicator."
-    )
-
-
-def test_an_approve_that_merges_says_what_it_merges(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    said = _listed(tmp_path, _item(_consequence(attempt=3)), capsys).get(SAYS)
-    assert isinstance(said, dict)
-    assert said.get("approve") == (
-        f"Approving puts attempt 3 (commit {COMMIT[:12]}) into the run, merged exactly as shown."
-    )
-    assert said.get("reject") == (
-        "Rejecting spends this attempt, and the next attempt starts from your note."
-    )
-
-
-def test_each_choice_of_a_choice_item_says_what_it_does(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    consequence = _consequence(
-        attempt=None,
-        attempt_commit=None,
-        on_approve="record_only",
-        on_reject="record_only",
-        why_record_only="source",
-        on_choose={"sizing": "fix", "domain": "resize"},
-    )
-    said = _listed(tmp_path, _item(consequence, source="arbitration"), capsys).get(SAYS)
-    assert isinstance(said, dict)
-    assert said.get("choose_sizing", "").startswith(
-        "Choosing sizing's value: one fix is made by a fresh session"
-    )
-    assert said.get("choose_domain", "").startswith(
-        "Choosing the domain's value: the subtask waits while sizing's closing pass"
-    )
-
-
-def test_an_item_that_states_no_consequence_says_nothing_extra(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    listed = _listed(tmp_path, _item(None), capsys)
-    assert "consequence" not in listed
-    assert SAYS not in listed
-    assert listed["item_id"] == "run-1-s1"
+    ApprovalQueue(run / QUEUE_NAME).add(again)
+    (entry,) = [e for e in _printed(run, capsys)["open"] if e["item_id"] == item_id(1, 2)]
+    said = entry[SAYS]
+    assert RUN_ID in entry["run_id"]
+    assert "choose_have" in said and "choose_make" in said
+    assert "choose_find" not in said

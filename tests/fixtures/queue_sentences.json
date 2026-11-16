@@ -1,0 +1,341 @@
+[
+ {
+  "name": "merge, then a retry",
+  "source": "review_unavailable",
+  "consequence": {
+   "attempt": 3,
+   "attempt_commit": "cccccccccccccccccccccccccccccccccccccccc",
+   "on_approve": "merge_attempt",
+   "on_reject": "retry",
+   "why_record_only": null,
+   "confirmed_indicators": [],
+   "scan_hits": []
+  },
+  "sentences": {
+   "approve": "Approving puts attempt 3 (commit cccccccccccc) into the run, merged exactly as shown, unless the merge conflicts or is refused, when an incident is recorded and nothing is merged.",
+   "reject": "Rejecting spends this attempt, and the next attempt starts from your note, unless your note makes the order too long to review, when the subtask ends rejected instead.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "gate refusal, then one fix",
+  "source": "review_blocked",
+  "consequence": {
+   "attempt": 1,
+   "attempt_commit": "cccccccccccccccccccccccccccccccccccccccc",
+   "on_approve": "record_only",
+   "on_reject": "fix",
+   "why_record_only": "gate",
+   "confirmed_indicators": [],
+   "scan_hits": []
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge this attempt, because the physics gate refused the attempt, and a person overrides the reviewer alone.",
+   "reject": "Rejecting orders one fix by a fresh session, the subtask's last attempt, unless your note makes the order too long to review, when the subtask ends rejected instead. If the fix is not accepted, the subtask ends rejected.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "change check refusal",
+  "source": "gate_escalation",
+  "consequence": {
+   "attempt": 1,
+   "attempt_commit": "cccccccccccccccccccccccccccccccccccccccc",
+   "on_approve": "record_only",
+   "on_reject": "end_subtask",
+   "why_record_only": "change_check",
+   "confirmed_indicators": [],
+   "scan_hits": []
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge this attempt, because the change check refused the attempt, and a person overrides the reviewer alone.",
+   "reject": "Rejecting ends the subtask as rejected. Nothing of it is merged.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "required reading not done",
+  "source": "gate_escalation",
+  "consequence": {
+   "attempt": 1,
+   "attempt_commit": "cccccccccccccccccccccccccccccccccccccccc",
+   "on_approve": "record_only",
+   "on_reject": "retry",
+   "why_record_only": "reading",
+   "confirmed_indicators": [],
+   "scan_hits": []
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge this attempt, because the attempt's required reading was not completed, and a person overrides the reviewer alone.",
+   "reject": "Rejecting spends this attempt, and the next attempt starts from your note, unless your note makes the order too long to review, when the subtask ends rejected instead.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "one confirmed indicator",
+  "source": "gate_escalation",
+  "consequence": {
+   "attempt": 1,
+   "attempt_commit": "cccccccccccccccccccccccccccccccccccccccc",
+   "on_approve": "record_only",
+   "on_reject": "retry",
+   "why_record_only": "indicator_in_history",
+   "confirmed_indicators": [
+    {
+     "attempt": 2,
+     "kind": "disabled_checks"
+    }
+   ],
+   "scan_hits": []
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge this attempt, because the review of attempt 2 (disabled_checks) confirmed a reward-hacking indicator.",
+   "reject": "Rejecting spends this attempt, and the next attempt starts from your note, unless your note makes the order too long to review, when the subtask ends rejected instead.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "two confirmed indicators",
+  "source": "gate_escalation",
+  "consequence": {
+   "attempt": 1,
+   "attempt_commit": "cccccccccccccccccccccccccccccccccccccccc",
+   "on_approve": "record_only",
+   "on_reject": "retry",
+   "why_record_only": "indicator_in_history",
+   "confirmed_indicators": [
+    {
+     "attempt": 1,
+     "kind": "disabled_checks"
+    },
+    {
+     "attempt": 2,
+     "kind": "hard_coded_values"
+    }
+   ],
+   "scan_hits": []
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge this attempt, because reviews of this subtask confirmed reward-hacking indicators: attempt 1 (disabled_checks), attempt 2 (hard_coded_values).",
+   "reject": "Rejecting spends this attempt, and the next attempt starts from your note, unless your note makes the order too long to review, when the subtask ends rejected instead.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "an indicator named but none listed",
+  "source": "gate_escalation",
+  "consequence": {
+   "attempt": 1,
+   "attempt_commit": "cccccccccccccccccccccccccccccccccccccccc",
+   "on_approve": "record_only",
+   "on_reject": "retry",
+   "why_record_only": "indicator_in_history",
+   "confirmed_indicators": [],
+   "scan_hits": []
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge this attempt, because a review of this subtask confirmed a reward-hacking indicator.",
+   "reject": "Rejecting spends this attempt, and the next attempt starts from your note, unless your note makes the order too long to review, when the subtask ends rejected instead.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "scan hit no review judged",
+  "source": "gate_escalation",
+  "consequence": {
+   "attempt": 1,
+   "attempt_commit": "cccccccccccccccccccccccccccccccccccccccc",
+   "on_approve": "record_only",
+   "on_reject": "retry",
+   "why_record_only": "scan_hit",
+   "confirmed_indicators": [],
+   "scan_hits": []
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge this attempt, because the scan before review found a reward-hacking indicator that no review judged.",
+   "reject": "Rejecting spends this attempt, and the next attempt starts from your note, unless your note makes the order too long to review, when the subtask ends rejected instead.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "listed before items said what a decision does",
+  "source": "gate_escalation",
+  "consequence": {
+   "attempt": 1,
+   "attempt_commit": "cccccccccccccccccccccccccccccccccccccccc",
+   "on_approve": "record_only",
+   "on_reject": "retry",
+   "why_record_only": "legacy",
+   "confirmed_indicators": [],
+   "scan_hits": []
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge this attempt, because the item was listed before items said what a decision does.",
+   "reject": "Rejecting spends this attempt, and the next attempt starts from your note, unless your note makes the order too long to review, when the subtask ends rejected instead.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "an item of a kind that only records",
+  "source": "escalation_decision",
+  "consequence": {
+   "attempt": null,
+   "attempt_commit": null,
+   "on_approve": "record_only",
+   "on_reject": "record_only",
+   "why_record_only": "source",
+   "confirmed_indicators": [],
+   "scan_hits": []
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge or change anything, because for an item of this kind a decision is recorded and changes nothing in the run.",
+   "reject": "Rejecting records your decision and closes this item for good. It will not change anything in the run, because for an item of this kind a decision is recorded and changes nothing in the run.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "a held plan",
+  "source": "plan_review",
+  "consequence": {
+   "attempt": null,
+   "attempt_commit": null,
+   "on_approve": "release",
+   "on_reject": "end_run",
+   "why_record_only": null,
+   "confirmed_indicators": [],
+   "scan_hits": []
+  },
+  "sentences": {
+   "approve": "Approving releases the hold, and the plan runs as it stands.",
+   "reject": "Rejecting ends the run with no module dispatched.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "an arbitration item",
+  "source": "arbitration",
+  "consequence": {
+   "attempt": null,
+   "attempt_commit": null,
+   "on_approve": "record_only",
+   "on_reject": "record_only",
+   "why_record_only": "source",
+   "confirmed_indicators": [],
+   "scan_hits": [],
+   "on_choose": {
+    "sizing": "fix",
+    "domain": "resize"
+   }
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge or change anything, because for an item of this kind a decision is recorded and changes nothing in the run.",
+   "reject": "Rejecting records your decision and closes this item for good. It will not change anything in the run, because for an item of this kind a decision is recorded and changes nothing in the run.",
+   "choose_sizing": "Choosing sizing's value: one fix is made by a fresh session in the subtask's working copy, told sizing's value as the graph holds it and your note if you write one. It is the subtask's last attempt; if it is not accepted, the subtask ends rejected. If your note makes the order too long to review, the subtask ends rejected instead.",
+   "choose_domain": "Choosing the domain's value: the subtask waits while sizing's closing pass is ordered to write the domain's value into the graph; once that pass is merged, this attempt is judged again from its finished session, with no new session. If the pass writes another value, the dispute is ruled again.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "an arbitration item that retries",
+  "source": "arbitration",
+  "consequence": {
+   "attempt": null,
+   "attempt_commit": null,
+   "on_approve": "record_only",
+   "on_reject": "record_only",
+   "why_record_only": "source",
+   "confirmed_indicators": [],
+   "scan_hits": [],
+   "on_choose": {
+    "sizing": "retry",
+    "domain": "end_subtask"
+   }
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge or change anything, because for an item of this kind a decision is recorded and changes nothing in the run.",
+   "reject": "Rejecting records your decision and closes this item for good. It will not change anything in the run, because for an item of this kind a decision is recorded and changes nothing in the run.",
+   "choose_sizing": "Choosing sizing's value: this attempt is spent, and the next one is told sizing's value as the graph holds it, and your note if you write one. Its reviewer is told what it was told. If your note makes the order too long to review, the subtask ends rejected instead.",
+   "choose_domain": "Choosing the domain's value: the subtask ends rejected, and nothing of it is merged.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "a failed contract",
+  "source": "contract",
+  "consequence": {
+   "attempt": null,
+   "attempt_commit": null,
+   "on_approve": "record_only",
+   "on_reject": "record_only",
+   "why_record_only": "source",
+   "confirmed_indicators": [],
+   "scan_hits": [],
+   "on_choose": {
+    "producer": "reopen",
+    "consumer": "record_only"
+   }
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge or change anything, because for an item of this kind a decision is recorded and changes nothing in the run.",
+   "reject": "Rejecting records your decision and closes this item for good. It will not change anything in the run, because for an item of this kind a decision is recorded and changes nothing in the run.",
+   "choose_producer": "Choosing the producer's work: the other module is reopened for one more attempt, its next or its one fix, told the interface's values it does not hold. Its earlier merge stays on the record, and the contract is tested again once it is merged.",
+   "choose_consumer": "Choosing the consumer's work: the decision is recorded, and nothing in the run acts on it.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "a failed contract with a confirmed indicator",
+  "source": "contract",
+  "consequence": {
+   "attempt": null,
+   "attempt_commit": null,
+   "on_approve": "record_only",
+   "on_reject": "record_only",
+   "why_record_only": "source",
+   "confirmed_indicators": [
+    {
+     "attempt": 1,
+     "kind": "feature_isolation"
+    }
+   ],
+   "scan_hits": [],
+   "on_choose": {
+    "producer": "reopen",
+    "consumer": "record_only"
+   }
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge or change anything, because for an item of this kind a decision is recorded and changes nothing in the run.",
+   "reject": "Rejecting records your decision and closes this item for good. It will not change anything in the run, because for an item of this kind a decision is recorded and changes nothing in the run.",
+   "choose_producer": "Choosing the producer's work: the other module is reopened for one more attempt, its next or its one fix, told the interface's values it does not hold. Its earlier merge stays on the record, and the contract is tested again once it is merged. A review of the module it reopens confirmed a reward-hacking indicator: attempt 1 (feature_isolation).",
+   "choose_consumer": "Choosing the consumer's work: the decision is recorded, and nothing in the run acts on it.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ },
+ {
+  "name": "a part",
+  "source": "parts",
+  "consequence": {
+   "attempt": null,
+   "attempt_commit": null,
+   "on_approve": "record_only",
+   "on_reject": "record_only",
+   "why_record_only": "source",
+   "confirmed_indicators": [],
+   "scan_hits": [],
+   "on_choose": {
+    "have": "declare",
+    "make": "declare",
+    "find": "find"
+   }
+  },
+  "sentences": {
+   "approve": "Approving records your decision and closes this item for good. It will not merge or change anything, because for an item of this kind a decision is recorded and changes nothing in the run.",
+   "reject": "Rejecting records your decision and closes this item for good. It will not change anything in the run, because for an item of this kind a decision is recorded and changes nothing in the run.",
+   "choose_have": "Choosing have: the part is one you have, and what you stated of it is fixed.",
+   "choose_make": "Choosing make: the part is one you make, and what you stated of it is fixed.",
+   "choose_find": "Choosing find: the part is sourced and sized as before.",
+   "note": "A decision cannot be edited or undone, and the item closes. The run may hold it until an operator confirms it."
+  }
+ }
+]
