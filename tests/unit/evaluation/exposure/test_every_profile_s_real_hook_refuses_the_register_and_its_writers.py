@@ -1,4 +1,4 @@
-"""Through the real hook, for every kind of session: the register, its roots and its writers are refused.
+"""Through the real hook, for every kind of session: the register, its roots, its writers refused.
 
 Each kind of session is installed by the real generator with the store's protected places among
 its held-out roots, as every run on the role names them, and its generated ``PreToolUse`` command
@@ -71,7 +71,9 @@ def _install(base: Path, profile: str, made: StandInStore) -> tuple[list[str], P
     return [argv[3], "-I", "-m", "physgate.hooks", *argv[7:]], worktree
 
 
-def _decision(command: list[str], worktree: Path, tool: str, tool_input: dict[str, str]) -> Any:  # noqa: ANN401
+def _decision(
+    command: list[str], worktree: Path, tool: str, tool_input: dict[str, str]
+) -> dict[str, Any]:
     event = {
         "session_id": SESSION,
         "cwd": str(worktree),
@@ -83,7 +85,8 @@ def _decision(command: list[str], worktree: Path, tool: str, tool_input: dict[st
         command, input=json.dumps(event), capture_output=True, text=True, check=False
     )
     try:
-        return json.loads(done.stdout)["hookSpecificOutput"]
+        said: dict[str, Any] = json.loads(done.stdout)["hookSpecificOutput"]
+        return said
     except (ValueError, KeyError):
         return {"permissionDecision": "none", "stdout": done.stdout, "stderr": done.stderr[-400:]}
 

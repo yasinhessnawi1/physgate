@@ -345,4 +345,5 @@ def test_a_run_root_the_scan_could_not_read_whole_is_refused_and_nothing_is_appe
     assert refused.value.context.get("refused_because") == reason
     assert api(f"{EXPOSURE}.run_roots")(made.store, "control") == []
     withheld = withheld_root(made.store, "control")
-    assert not (withheld / "run-roots.jsonl").exists()
+    # The log the version was written with holds nothing.
+    assert (withheld / "run-roots.jsonl").read_bytes() == b""

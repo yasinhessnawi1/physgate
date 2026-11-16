@@ -91,7 +91,10 @@ def test_a_split_writes_one_version_whole_under_its_id_and_its_manifest_names_no
     assert sorted(p.name for p in (store / "control").iterdir()) == sorted(
         [manifest.version, "withheld", "work"]
     )
-    assert list((store / "control" / "withheld").iterdir()) == []
+    # Nothing is left beneath the withheld root but the two exposure logs, which a version is
+    # written with.
+    left = (store / "control" / "withheld").iterdir()
+    assert [p.name for p in left if not p.name.startswith(("register.", "run-roots."))] == []
     assert [manifest.tier(t).count for t in ("visible", "validation", "held_out")] == [8, 8, 8]
     assert manifest.visible.canaries_sha256 is None
     assert (
@@ -263,7 +266,10 @@ def test_the_pool_is_marked_spent_before_the_rename_and_gone_after_it(
     assert sorted(p.name for p in (store / "control").iterdir()) == sorted(
         [manifest.version, "withheld", "work"]
     )
-    assert list((store / "control" / "withheld").iterdir()) == []
+    # Nothing is left beneath the withheld root but the two exposure logs, which a version is
+    # written with.
+    left = (store / "control" / "withheld").iterdir()
+    assert [p.name for p in left if not p.name.startswith(("register.", "run-roots."))] == []
 
 
 def test_a_split_that_fails_leaves_no_version_and_the_pool_whole(

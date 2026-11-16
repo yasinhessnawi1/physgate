@@ -82,7 +82,8 @@ def _tiers(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, dict[st
 
 
 def _mark(made: StandInStore, reason: str = "opened the tier by hand") -> None:
-    api(f"{EXPOSURE}.mark_exposed")(made.store, "control", made.version, by="a person", reason=reason)
+    mark = api(f"{EXPOSURE}.mark_exposed")
+    mark(made.store, "control", made.version, by="a person", reason=reason)
 
 
 # ------------------------------------------------------------------------------------ removed
@@ -306,7 +307,7 @@ def _raw_record(made: StandInStore, tier: str) -> None:
     task = made.tasks[tier][0]
     trial = withheld_root(made.store, "control") / "baseline" / "0123456789abcdef" / "t0"
     (trial / "harness").mkdir(parents=True)
-    record = {
+    record: dict[str, Any] = {
         "session_id": "raw-1",
         "end": "ended",
         "held_out_seen": None,
@@ -347,9 +348,7 @@ def test_a_scan_given_roots_reads_them_when_the_run_roots_log_is_broken(
     incident_in(harness_run(runs, made.tasks["visible"][1], made, ended=False))
     withheld = withheld_root(made.store, "control")
     (withheld / "run-roots.head").unlink()
-    code, said = _tiers(
-        capsys, "scan-exposures", "--withheld", str(withheld), "--roots", str(runs)
-    )
+    code, said = _tiers(capsys, "scan-exposures", "--withheld", str(withheld), "--roots", str(runs))
     assert code == 0 and said.get("added") == 1, said
     lines = api(f"{EXPOSURE}.register_lines")(made.store, "control")
     assert [line.source for line in lines if line.kind == "exposure"] == ["incident"]

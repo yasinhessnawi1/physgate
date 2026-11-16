@@ -16,6 +16,7 @@ to it. Each refusal says a digest's prefix at most, never a task.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from collections.abc import Callable
@@ -108,6 +109,11 @@ def test_a_raw_record_that_saw_a_canary_marks_the_version_and_one_that_did_not_d
     record = {"held_out_seen": seen, "held_out_sha256": list(run.held_out_sha256)}
     if seen == "unrecorded":
         record.pop("held_out_seen")
+    if seen is None:
+        # Nobody looked: nothing on a visible task, which has no canary to show (an unchecked
+        # protected task is an exposure of unknown extent, held by its own row).
+        brief = made.tasks["visible"][0].brief.encode()
+        record["pins"] = {"brief_sha256": hashlib.sha256(brief).hexdigest()}
     (trial / "raw.json").write_text(json.dumps(record))
     why = refusal(run, runs / "r1")
     if seen is False or seen is None:

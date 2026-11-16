@@ -52,9 +52,9 @@ import fcntl
 import hashlib
 import json
 import os
-import secrets
 import stat
 import tempfile
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -231,7 +231,7 @@ def _read_at(dir_fd: int, name: str, most: int) -> bytes | None:
 
 
 def _has_version(role_root_dir: Path) -> bool:
-    """Whether the role's root holds a version; one that cannot be listed is taken as holding one."""
+    """Whether the role's root holds a version; one that cannot be listed is taken as one."""
     try:
         return any(VERSION_NAME.fullmatch(n) for n in os.listdir(role_root_dir))
     except FileNotFoundError:
@@ -367,9 +367,11 @@ def _refuse_inside_a_session() -> None:
 
 
 def _write_head(dir_fd: int, name: str, total: int, last: str) -> None:
-    """Replace the head of the log ``name`` whole: ``total`` lines, the last digesting to ``last``."""
+    """Replace the head of the log ``name`` whole: ``total`` lines, the last's digest ``last``."""
     head = canonical_json({"format": 1, "lines": total, "last": last})
-    partial = f".{name}{HEAD_SUFFIX}.{secrets.token_hex(8)}"
+    # Named without drawing from ``secrets``, which a version's writing draws from in order:
+    # the head is written under the log's lock, and the name is made new below.
+    partial = f".{name}{HEAD_SUFFIX}.{os.getpid()}.{time.monotonic_ns()}"
     out = os.open(
         partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd
     )
@@ -679,7 +681,7 @@ def _unchecked(
     known: Mapping[str, TierSet],
     briefs: Callable[[], Mapping[str, frozenset[str]]],
 ) -> frozenset[str]:
-    """The versions a raw record that looked for no canary may have exposed; none for a visible task.
+    """The versions a raw record that looked for no canary may have exposed; none if visible.
 
     Only a validation or held-out task has a canary, so only a session on one can show one. The
     task is found by the brief digest the record pins; a record pinning none could be on any.
