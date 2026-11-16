@@ -4,7 +4,6 @@
  * this app makes. Every figure is read from the run's queue and event log through the server; the
  * decision is sent with what this page showed, and recorded by the queue's own function.
  */
-import { decisionClosedWords } from "../../words/standing";
 import { useEffect, useState } from "react";
 
 import { actToken, getJson, pageOperator, postAction, type Result } from "../../api/client";
@@ -247,7 +246,7 @@ export default function Queue({ setHeader, query }: ViewProps) {
             source={runSource(config.value)}
             subtaskName={names.get(item.item.subtaskId) ?? "The whole design"}
             supersededBy={supersededBy}
-            closed={phase === undefined ? null : decisionClosedWords(phase)}
+            phase={phase}
           >
             <Decide
               key={`${item.item.itemId}#${String(version)}`}

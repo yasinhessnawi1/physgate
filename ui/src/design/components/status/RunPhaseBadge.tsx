@@ -5,7 +5,7 @@ import { InProgressBadge } from "./InProgressBadge";
 /** Each phase but going: its icon and its word. Neutral: none is a verdict on the run's work. */
 export const PHASE_BADGES: Readonly<Record<Exclude<Phase, "going">, readonly [IconName, string]>> =
   {
-    stopped: ["pause", "Stopped · no end recorded"],
+    stopped: ["pause", "Appears stopped · no end recorded"],
     "waiting-person": ["clock", "Waiting for you"],
     "waiting-limit": ["clock", "Waiting for the usage limit"],
     halted: ["octagon-x", "Halted"],

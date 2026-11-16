@@ -9,6 +9,7 @@
  * stands, which names each subtask that waits for sizing's closing pass. Nothing is inferred past them. A stage the latest attempt has not recorded reads "not
  * run" only when the attempt is over; while the run is on that attempt it reads "not yet".
  */
+import { dayAndMinute } from "../../words/runs";
 import { phaseOf } from "../../words/standing";
 import type { RunEvent } from "../../api/events";
 import type { QueueListing } from "../../api/queue";
@@ -49,8 +50,11 @@ export type SubtaskState =
   | { readonly kind: "repairing"; readonly rejected: number; readonly attempt: number }
   /** The run's next step is this subtask, with no rejection before it. */
   | { readonly kind: "in-progress"; readonly attempt: number }
-  /** The run's next step is this subtask, but nothing runs: the run stopped with no end recorded. */
-  | { readonly kind: "stopped"; readonly attempt: number }
+  /**
+   * The run's next step is this subtask, but its log has been silent longer than a living run is
+   * after its last line, written at ``since``: the run appears to have stopped, no end recorded.
+   */
+  | { readonly kind: "stopped"; readonly attempt: number; readonly since: string | null }
   /** The latest attempt was rejected and the run is not on this subtask. */
   | { readonly kind: "rejected"; readonly attempt: number }
   | { readonly kind: "not-started" }
@@ -89,8 +93,6 @@ export interface FoldContext {
   /** The approval queue's listing, or ``null`` when it was not read. */
   readonly queue: QueueListing | null;
   readonly budget: number | null;
-  /** The time the run's standing is judged at, in ms since the epoch: now, unless a test says. */
-  readonly now?: number;
 }
 
 /** The subtask ids in plan order: as planned, then any the ledger names that the log did not. */
@@ -111,7 +113,7 @@ function rejectedAt(events: readonly RunEvent[], id: string, attempt: number): b
 function stateOf(
   id: string,
   latest: LedgerLine,
-  { events, status, queue, now }: FoldContext,
+  { events, status, queue }: FoldContext,
 ): SubtaskState {
   if (latest.mergeCommit !== null) return { kind: "merged", commit: latest.mergeCommit };
   if (status?.waiting.includes(id) === true) return { kind: "closing-pass" };
@@ -127,8 +129,8 @@ function stateOf(
   }
   const k = latest.attempts;
   const current = status !== null && status.halted === null && status.subtask === id;
-  if (current && phaseOf(status, now) === "stopped")
-    return { kind: "stopped", attempt: Math.max(k, 1) };
+  if (current && phaseOf(status) === "stopped")
+    return { kind: "stopped", attempt: Math.max(k, 1), since: status.lastLineAt ?? null };
   if (current && status.kind === "attempt") {
     if (k > 0 && rejectedAt(events, id, k))
       return { kind: "repairing", rejected: k, attempt: k + 1 };
@@ -251,7 +253,9 @@ export function stateWords(state: SubtaskState): string {
     case "in-progress":
       return `In progress: attempt ${String(state.attempt)}`;
     case "stopped":
-      return `Stopped at attempt ${String(state.attempt)}; nothing is running`;
+      return state.since === null
+        ? `No activity at attempt ${String(state.attempt)}; the run appears to have stopped`
+        : `No activity at attempt ${String(state.attempt)} since ${dayAndMinute(state.since)}; the run appears to have stopped`;
     case "rejected":
       return `Rejected at attempt ${String(state.attempt)}. Not merged.`;
     case "not-started":

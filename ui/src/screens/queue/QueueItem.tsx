@@ -29,9 +29,10 @@ import {
   takenWords,
 } from "../../words/queue";
 import { clockTime, utc } from "../../words/runs";
-import type { Phase } from "../../words/standing";
+import { decisionPendingWords, type Phase } from "../../words/standing";
 import { ActorTag } from "../common/ActorTag";
 import { SEAL_TAG, sealLine } from "./model";
+import { RunPhaseContext } from "./runPhase";
 
 export function QueueItem({
   view,
@@ -39,8 +40,7 @@ export function QueueItem({
   source,
   subtaskName,
   supersededBy,
-  closed = null,
-  phase: _phase,
+  phase,
   children,
 }: {
   readonly view: ItemView;
@@ -49,15 +49,17 @@ export function QueueItem({
   readonly subtaskName: string;
   /** The item whose choice reopened a module this one is about, when a reopen superseded it. */
   readonly supersededBy?: string | undefined;
-  /** Why the run offers no decision on this item (``decisionClosedWords``), or ``null``. */
-  readonly closed?: string | null;
-  /** Red stub: where the run stands. */
+  /**
+   * Where the item's run stands, once read: on a run that is not going, one line beside the
+   * decision says a decision is recorded now and taken up when the run is resumed.
+   */
   readonly phase?: Phase | undefined;
   readonly children?: ReactNode;
 }) {
   const { item } = view;
   const { consequence } = item;
   const words = SOURCE_WORDS[item.source];
+  const pending = phase === undefined ? null : decisionPendingWords(phase);
   return (
     <section
       className="pg-queue-item"
@@ -122,13 +124,12 @@ export function QueueItem({
               {supersededWords(supersededBy)}
             </p>
           )}
-          {closed === null ? (
-            children
-          ) : (
-            <p className="pg-queue-closed" role="note">
-              {closed}
+          {pending !== null && (
+            <p className="pg-queue-pending" role="note">
+              {pending}
             </p>
           )}
+          <RunPhaseContext.Provider value={phase}>{children}</RunPhaseContext.Provider>
         </>
       )}
       <section className="pg-card pg-panel" aria-label="What you are deciding on">

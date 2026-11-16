@@ -182,11 +182,13 @@ export interface RunStatus {
   readonly superseded: Readonly<Record<string, string>>;
   /** When the log's last line was written, or ``null`` when it holds none. */
   readonly lastLineAt?: string | null;
-  /** The longest a living run goes without writing a line, in seconds, as the server bounds it. */
-  readonly longestStepS?: number | null;
-  /** Red stub. */
+  /** How long ago the last line was written, in seconds by the server's clock; ``null`` if none. */
   readonly silentS?: number | null;
-  /** Red stub. */
+  /**
+   * The longest a living run goes without a line after its last one, in seconds: the session wall
+   * clock after a session's spawn, a retry's delay after its schedule. ``null`` after any other
+   * line, where a stage with no bound of its own (the physics gate) may be running.
+   */
   readonly silenceBoundS?: number | null;
 }
 
@@ -205,6 +207,11 @@ function moduleCompletion(value: unknown): ModuleCompletion {
       return { name: text(o.name, "a precondition"), reason: text(o.reason, "a reason") };
     }),
   };
+}
+
+/** A count of seconds the server sent, or ``null`` where it sent none. */
+function secondsSent(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export function runStatus(value: unknown): RunStatus {
@@ -242,10 +249,8 @@ export function runStatus(value: unknown): RunStatus {
       s.last_line_at === undefined || s.last_line_at === null
         ? null
         : text(s.last_line_at, "a time"),
-    longestStepS:
-      typeof s.longest_step_s === "number" && Number.isFinite(s.longest_step_s)
-        ? s.longest_step_s
-        : null,
+    silentS: secondsSent(s.silent_s),
+    silenceBoundS: secondsSent(s.silence_bound_s),
   };
 }
 

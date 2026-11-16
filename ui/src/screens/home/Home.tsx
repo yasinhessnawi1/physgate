@@ -116,11 +116,11 @@ function RunName({
   );
 }
 
-export function statusWords(read: RunRead | undefined, now: number = Date.now()) {
+export function statusWords(read: RunRead | undefined) {
   if (read === undefined) return <span className="pg-muted">Reading…</span>;
   if (!read.status.ok) return <span className="pg-muted">Where it stands was not read</span>;
   const status = read.status.value;
-  const phase = phaseOf(status, now);
+  const phase = phaseOf(status);
   if (phase === "going") return <InProgressBadge />;
   let end: RunEnd | null = null;
   if (phase === "done") {
@@ -129,7 +129,7 @@ export function statusWords(read: RunRead | undefined, now: number = Date.now())
     const open = waitingFor(read.queue.ok ? read.queue.value.open : null, status.superseded);
     end = runEnd(read.events.value, open, status.completion);
   }
-  const standing = standingOf(status, end, now);
+  const standing = standingOf(status, end);
   return (
     <div className="pg-run-standing">
       <RunPhaseBadge
@@ -191,7 +191,7 @@ export function Runs({
                 <td>
                   <OsLayerBadge layer={run.osLayer} />
                 </td>
-                <td>
+                <td className="pg-runs-brief">
                   {read.config.ok && (
                     <span title="The digest of the brief the run read: runs of one brief share it">
                       <Id value={read.config.value.briefSha256.slice(0, 8)} copy={false} />

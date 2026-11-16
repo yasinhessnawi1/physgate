@@ -31,7 +31,9 @@ import {
   supersededOutcome,
   UNSEALED_WORDS,
 } from "../../words/queue";
+import { decisionPendingWords } from "../../words/standing";
 import { lineToWrite, whyNot } from "./model";
+import { useRunPhase } from "./runPhase";
 
 export function Decide({
   view,
@@ -56,6 +58,9 @@ export function Decide({
   // The buttons and the command palette open the same confirmation, under the same rules.
   const [opened, setOpened] = useState<Verb | Position | null>(null);
   const why = whyNot(operator, holdsToken);
+  // On a run that is not going, the confirmation names its state: the decision waits for a resume.
+  const phase = useRunPhase();
+  const pending = phase === undefined ? null : decisionPendingWords(phase);
   // The server refuses approve and the domain's value on a transcript that does not hold its seal.
   const unsealed =
     view.trajectories.length === 0 || view.trajectories.some((t) => t.status !== "holds");
@@ -126,12 +131,15 @@ export function Decide({
       confirmLabel: verb === "approve" ? "Approve" : verb === "reject" ? "Reject" : "Choose",
       ...(verb === "reject" ? { needsReason: true } : { takesNote: true }),
       children: (
-        <p className="pg-dialog-note">
-          One line appended to queue_decisions.jsonl in run {runId}. This cannot be edited or
-          undone; the item closes. The time is stamped when it is written, beside the time this
-          server showed you the item if it still holds it, so the record says how long the decision
-          took.
-        </p>
+        <>
+          {pending !== null && <p className="pg-dialog-note pg-dialog-run-state">{pending}</p>}
+          <p className="pg-dialog-note">
+            One line appended to queue_decisions.jsonl in run {runId}. This cannot be edited or
+            undone; the item closes. The time is stamped when it is written, beside the time this
+            server showed you the item if it still holds it, so the record says how long the
+            decision took.
+          </p>
+        </>
       ),
       onConfirm: (note) => {
         setAnswer(null);

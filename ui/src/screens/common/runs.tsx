@@ -17,7 +17,7 @@ import { orderRuns, type RunLabel, runLabels } from "../../words/runs";
 import { queueListing } from "../../api/queue";
 import { type Phase, phaseOf, type Standing, standingOf } from "../../words/standing";
 import { runEnd, waitingFor } from "../home/runEnd";
-import { useJson, useLines } from "./read";
+import { useJson, useLines, useLiveJson } from "./read";
 import { useResult } from "./useResult";
 
 /** How many runs' logs a screen reads for their labels before the person asks for all. */
@@ -66,8 +66,8 @@ export function haltedWords(status: RunStatus): string | null {
  * Whether the run is still going: its next step is work, neither done, a halt taken or owed, nor
  * a person's decision, and its log is not silent longer than a living run is (``phaseOf``).
  */
-export function inProgress(status: RunStatus, now: number = Date.now()): boolean {
-  return phaseOf(status, now) === "going";
+export function inProgress(status: RunStatus): boolean {
+  return phaseOf(status) === "going";
 }
 
 /** Where the run a screen shows stands, or ``undefined`` until its status is read. */
@@ -135,7 +135,8 @@ export function useChosenRun(query: URLSearchParams): ChosenRun {
   const chosen = readable.find((run) => runKey(run) === wanted) ?? readable[0];
   const base = chosen === undefined ? null : runBase(chosen);
   const config = useJson(base === null ? null : `${base}/config`, runConfig);
-  const status = useJson(base === null ? null : `${base}/status`, runStatus);
+  // Read again while the page is open, so a run that stops, or goes on, is seen without a reload.
+  const status = useLiveJson(base === null ? null : `${base}/status`, runStatus);
   // An ended run's words need its log and queue: read only for a run that has ended.
   const ended = status.result?.ok === true && status.result.value.kind === "done";
   const endEvents = useLines(ended && base !== null ? `${base}/events` : null, runEvent);

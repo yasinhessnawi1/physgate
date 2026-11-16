@@ -1,18 +1,22 @@
 /**
- * Where a run stands, as a person needs it said: going, stopped with no end recorded, waiting for
- * a person or for the usage limit, halted, or ended. Read from the status route, never guessed.
+ * Where a run stands, as a person needs it said: going, appearing stopped with no end recorded,
+ * waiting for a person or for the usage limit, halted, or ended. Read from the status route.
  *
- * "Stopped" is said of a run whose next step is work (an attempt, a gate, a review) while its log
- * has been silent longer than a living run ever is. While the harness runs, it writes a line at
- * least once in each of its own steps: a session it spawned is stopped at the run's session wall
- * clock and its end written, and a retry waits its recorded delay. The server sends the time of
- * the log's last line and the longest of those bounds; a log silent for longer than that, with
- * ``QUIET_MARGIN_S`` more for the work around a session's end, was left by a process that is no
- * longer running. Where either is missing, nothing is claimed and the run reads as going.
+ * "Appears stopped" is an inference, said as one: the run's next step is work, and its log has
+ * been silent longer than a living run is after the line it last wrote. The server sends that
+ * line's time, its age by the server's own clock (the browser's clock is never read, so a skew
+ * between the two changes nothing), and the bound after it: after a session's spawn, the run's
+ * session wall clock, where the session is stopped and its end written; after a retry's schedule,
+ * its delay. After any other line a stage with no bound of its own may be running (the physics
+ * gate, the OS layer's start), so no bound is sent and nothing is claimed. A run with short bounds
+ * reads as appearing stopped only past its own bound and ``QUIET_MARGIN_S``. The session clock does
+ * not run while the machine sleeps, so after a laptop wakes a session may go on for up to its wall
+ * clock: the page may say the run appears stopped until the session's end is written, and says it
+ * is going again at its next read of the status.
  */
 import type { RunStatus } from "../api/run";
 import { type RunEnd, runEndWords } from "../screens/home/runEnd";
-import { instant } from "./runs";
+import { dayAndMinute } from "./runs";
 
 /**
  * The time past the longest step before a silent log is read as stopped: the stop of a session at
@@ -24,7 +28,7 @@ export const QUIET_MARGIN_S = 30 * 60;
 export type Phase =
   /** The next step is work and the log is not silent past the run's own bound. */
   | "going"
-  /** The next step is work, but the log has been silent longer than a living run is: nothing runs. */
+  /** The next step is work, but the log has been silent longer than a living run is after its last line. */
   | "stopped"
   /** The run stopped to wait for a person's decision. */
   | "waiting-person"
@@ -35,27 +39,32 @@ export type Phase =
   | "halt-owed"
   | "done";
 
-/** What a stopped run is said to be, in full. */
-export const STOPPED_WORDS = "Stopped. The run ended without recording why; nothing is running.";
+/** What a run that appears stopped is said to be, with the time of its last record. */
+export function stoppedWords(lastLineAt: string): string {
+  return (
+    `No activity since ${dayAndMinute(lastLineAt)}. ` +
+    "The run appears to have stopped; nothing has been recorded since."
+  );
+}
 /** What a run waiting on a person's decision is said to be. */
 export const WAITING_WORDS = "Waiting for a person's decision; nothing runs until then.";
 
-/** Whether the log has been silent longer than a living run is, at ``now`` (ms since the epoch). */
-export function silentTooLong(status: RunStatus, now: number): boolean {
-  const silence = silenceS(status, now);
-  const longest = status.longestStepS ?? null;
-  return silence !== null && longest !== null && silence > longest + QUIET_MARGIN_S;
+/** Whether the log has been silent longer than a living run is after its last line. */
+export function silentTooLong(status: RunStatus): boolean {
+  const silence = status.silentS ?? null;
+  const bound = status.silenceBoundS ?? null;
+  return silence !== null && bound !== null && silence > bound + QUIET_MARGIN_S;
 }
 
-/** Where the run stands, at ``now``. */
-export function phaseOf(status: RunStatus, now: number = Date.now()): Phase {
+/** Where the run stands, as its status says it. */
+export function phaseOf(status: RunStatus): Phase {
   if (status.owedHalt !== null) return "halt-owed";
   if (status.halted !== null || status.kind === "halted")
     return status.halted?.reason === "usage_limit" ? "waiting-limit" : "halted";
   if (status.kind === "done") return "done";
   // The loop returns at these steps: nothing runs until a person decides and the run is resumed.
   if (status.kind === "wait" || status.kind === "escalated") return "waiting-person";
-  if (silentTooLong(status, now)) return "stopped";
+  if (silentTooLong(status)) return "stopped";
   return "going";
 }
 
@@ -66,13 +75,6 @@ export function durationWords(seconds: number): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 48) return `${String(hours)} h ${String(minutes % 60)} min`;
   return `${String(Math.floor(hours / 24))} days`;
-}
-
-/** How long ago the log last wrote, in seconds, or ``null`` when the status names no line. */
-export function silenceS(status: RunStatus, now: number): number | null {
-  if (status.lastLineAt === undefined || status.lastLineAt === null) return null;
-  const at = instant(status.lastLineAt);
-  return Number.isNaN(at) ? null : (now - at) / 1000;
 }
 
 /** What a person reads of where a run stands: a badge, one short sentence, and the full record. */
@@ -130,25 +132,26 @@ export function endSentence(end: RunEnd): string {
  * Where ``status``'s run stands, in words; ``end`` is how an ended run ended, read from its log and
  * queue (``runEnd``), or ``null`` when they were not read.
  */
-export function standingOf(
-  status: RunStatus,
-  end: RunEnd | null,
-  now: number = Date.now(),
-): Standing {
-  const phase = phaseOf(status, now);
+export function standingOf(status: RunStatus, end: RunEnd | null): Standing {
+  const phase = phaseOf(status);
   switch (phase) {
     case "going":
       return { phase, word: null, sentence: null, detail: null };
     case "stopped": {
-      const silence = silenceS(status, now) ?? 0;
-      const longest = status.longestStepS ?? 0;
+      const silence = status.silentS ?? 0;
+      const bound = status.silenceBoundS ?? 0;
       return {
         phase,
         word: null,
-        sentence: STOPPED_WORDS,
+        sentence:
+          status.lastLineAt == null
+            ? "The run appears to have stopped; nothing has been recorded for a long while."
+            : stoppedWords(status.lastLineAt),
         detail:
-          `Its last record was written ${durationWords(silence)} ago. While a run is going it ` +
-          `writes one at least every ${durationWords(longest)}, so no process of it is running.`,
+          `The last record was written ${durationWords(silence)} ago, by the server's clock. ` +
+          `After a record of that kind, a run that is still going writes its next within ` +
+          `${durationWords(bound)}, and half an hour more for the harness's own work; this one ` +
+          "has not. This is read from the records alone: no process is looked at.",
       };
     }
     case "waiting-person":
@@ -182,29 +185,27 @@ export function standingOf(
   }
 }
 
-/** Red stub: replaced by the fix. */
-export function decisionPendingWords(_phase: Phase): string | null {
-  return null;
-}
+/** What happens to a decision on a run that is not going, after the run's state. */
+export const DECISION_RESUMED =
+  "The decision is recorded now and taken up when the run is resumed.";
 
 /**
- * Why a queue item on this run offers no decision, in one line, or ``null`` when it does: while
- * the run is going or waits on a person. On a run that has ended, stopped or halted, nothing is
- * running to take a decision up, so none is offered: a click would only write into a closed run.
+ * Where the run stands, said beside an open item's decision, or ``null`` while the run is going.
+ * A decision is offered in every state: the loop takes a queued decision up at its next boundary,
+ * and the end of a run is one, so on a run that is not going a decision is recorded now and taken
+ * up when the run is resumed.
  */
-export function decisionClosedWords(phase: Phase): string | null {
-  const why = "so no decision is offered here: nothing is running to take it up.";
-  switch (phase) {
-    case "going":
-    case "waiting-person":
-      return null;
-    case "done":
-      return `This run has ended, ${why}`;
-    case "stopped":
-      return `This run stopped with no end recorded, ${why}`;
-    case "halted":
-    case "halt-owed":
-    case "waiting-limit":
-      return `This run is halted, ${why}`;
-  }
+export function decisionPendingWords(phase: Phase): string | null {
+  const state = RUN_STATE_WORDS[phase];
+  return state === null ? null : `${state} ${DECISION_RESUMED}`;
 }
+
+const RUN_STATE_WORDS: Readonly<Record<Phase, string | null>> = {
+  going: null,
+  stopped: "This run appears to have stopped.",
+  "waiting-person": "This run is waiting for a person's decision.",
+  "waiting-limit": "This run is halted until the usage limit resets.",
+  halted: "This run is halted.",
+  "halt-owed": "This run is halted.",
+  done: "This run has ended.",
+};
