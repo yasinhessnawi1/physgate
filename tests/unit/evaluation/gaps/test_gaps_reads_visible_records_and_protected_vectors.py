@@ -163,3 +163,14 @@ def test_a_vector_of_other_task_counts_than_the_design_is_refused(
     body = design(made, visible, validation_tasks=None, held_out_tasks=3)
     code, said = _gaps(capsys, tmp_path, body, visible, held, None)
     assert code == 1 and said.get("refused_because") == "not_the_design", said
+
+
+def test_visible_runs_that_are_not_the_design_s_tasks_times_trials_are_refused(
+    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    visible = measured(made, "visible", tmp_path / "v")
+    held = _vector(made, "held_out", measured(made, "held_out", tmp_path / "h"))
+    for changes in ({"trials": 3}, {"visible": [visible.tasks[0].id]}):
+        body = design(made, visible, validation_tasks=None) | changes
+        code, said = _gaps(capsys, tmp_path, body, visible, held, None)
+        assert code == 1 and said.get("refused_because") == "not_the_design", (changes, said)
