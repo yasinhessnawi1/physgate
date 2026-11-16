@@ -1,0 +1,106 @@
+[
+ {
+  "name": "r01-newlines-only",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "    return data.count(b\"\\n\") + 1\n",
+  "new": "    return data.count(b\"\\n\")\n",
+  "tests": [
+   "tests/unit/hooks/test_the_note_s_range_is_a_read_in_full_of_the_rubric_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_where_its_material_is_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "r02-final-newline-not-counted",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "    return data.count(b\"\\n\") + 1\n",
+  "new": "    return data.count(b\"\\n\") + (0 if data.endswith(b\"\\n\") else 1)\n",
+  "tests": [
+   "tests/unit/hooks/test_the_note_s_range_is_a_read_in_full_of_the_rubric_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_where_its_material_is_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "r03-note-told-one-more",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "COMPACTION_NOTE.format(read=read, lines=lines, hits=told)",
+  "new": "COMPACTION_NOTE.format(read=read, lines=lines + 1, hits=told)",
+  "tests": [
+   "tests/unit/hooks/test_the_note_s_range_is_a_read_in_full_of_the_rubric_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_where_its_material_is_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "r04-installer-constant",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "lines=read_tool_lines((read / RUBRIC_NAME).read_bytes())",
+  "new": "lines=read_tool_lines(b\"\")",
+  "tests": [
+   "tests/unit/hooks/test_the_note_s_range_is_a_read_in_full_of_the_rubric_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_where_its_material_is_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "r05-installer-strips-final-newline",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "lines=read_tool_lines((read / RUBRIC_NAME).read_bytes())",
+  "new": "lines=read_tool_lines((read / RUBRIC_NAME).read_bytes().rstrip(b\"\\n\"))",
+  "tests": [
+   "tests/unit/hooks/test_the_note_s_range_is_a_read_in_full_of_the_rubric_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_where_its_material_is_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "r06-note-without-the-tool",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "\"read {read}/rubric.md again in full with the Read tool, from offset 1 with limit {lines}; \"",
+  "new": "\"read {read}/rubric.md again in full, from offset 1 with limit {lines}; \"",
+  "tests": [
+   "tests/unit/hooks/test_the_note_s_range_is_a_read_in_full_of_the_rubric_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_where_its_material_is_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "r07-note-offset-zero",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "\"read {read}/rubric.md again in full with the Read tool, from offset 1 with limit {lines}; \"",
+  "new": "\"read {read}/rubric.md again in full with the Read tool, from offset 0 with limit {lines}; \"",
+  "tests": [
+   "tests/unit/hooks/test_the_note_s_range_is_a_read_in_full_of_the_rubric_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_is_told_where_its_material_is_after_a_compaction.py",
+   "tests/unit/reviewers/test_a_reviewer_s_compaction_follows_the_run_s_parameter.py"
+  ]
+ },
+ {
+  "name": "r08-release-without-322",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "COMPACTION_MEASURED_PINS: frozenset[str] = frozenset({\"2.1.301\", \"2.1.322\"})",
+  "new": "COMPACTION_MEASURED_PINS: frozenset[str] = frozenset({\"2.1.301\"})",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "r09-release-without-301",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "COMPACTION_MEASURED_PINS: frozenset[str] = frozenset({\"2.1.301\", \"2.1.322\"})",
+  "new": "COMPACTION_MEASURED_PINS: frozenset[str] = frozenset({\"2.1.322\"})",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ },
+ {
+  "name": "r10-release-of-an-unmeasured-pin",
+  "file": "src/physgate/reviewers/claude.py",
+  "old": "COMPACTION_MEASURED_PINS: frozenset[str] = frozenset({\"2.1.301\", \"2.1.322\"})",
+  "new": "COMPACTION_MEASURED_PINS: frozenset[str] = frozenset({\"2.1.301\", \"2.1.322\", \"2.1.272\"})",
+  "tests": [
+   "tests/unit/reviewers/test_a_reviewer_that_compacts_carries_on_to_a_verdict.py"
+  ]
+ }
+]
