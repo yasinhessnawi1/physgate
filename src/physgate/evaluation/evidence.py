@@ -314,7 +314,8 @@ def _spend(run: _Run, line: CostLine) -> dict[str, object]:
     role_of = {e.subtask_id: e.assigned_role for e in run.log if isinstance(e, SubtaskPlanned)}
     ended = {e.session_id: e for e in run.log if isinstance(e, SessionEnded)}
     roles: dict[str, list[tuple[CallCost, SessionEnded]]] = {}
-    apart: dict[str, list[CallCost]] = {group: [] for group in (*APART.values(), LEFT_OVER, UNPLANNED)}
+    groups = (*APART.values(), LEFT_OVER, UNPLANNED)
+    apart: dict[str, list[CallCost]] = {group: [] for group in groups}
     for call in line.calls:
         kind, who = call.attribution.split(":", 1)
         end = ended.get(who) if kind == "session" else None
