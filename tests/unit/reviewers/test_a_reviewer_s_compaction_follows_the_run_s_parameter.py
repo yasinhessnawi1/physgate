@@ -133,6 +133,9 @@ def _installer_argv(tmp_path: Path, compaction: str, monkeypatch: Any) -> list[s
         rubric=Rubric(role="electrical", text="r", sha256="0" * 64),
     )
     read = tmp_path / "read"
+    read.mkdir()
+    # Two lines and a final newline: three lines as the Read tool counts them.
+    (read / "rubric.md").write_text("item a\nitem b\n")
     hit = ScanHit(kind="disabled_checks", evidence="toolu_01", what="a check switched off")
     packet = cast(
         Packet,
@@ -164,7 +167,9 @@ def test_under_on_the_installer_is_given_the_rubric_and_the_note(
     assert argv[after + 1] == str(read / "rubric.md")
     note = argv[argv.index("--compaction-note") + 1]
     hit = ScanHit(kind="disabled_checks", evidence="toolu_01", what="a check switched off")
-    assert note == claude.compaction_note(read, (hit,))
+    # The note names the rubric's range as the Read tool counts its lines.
+    assert "from offset 1 with limit 3;" in note, "the note does not name the rubric's range"
+    assert note == claude.compaction_note(read, (hit,), lines=3)
 
 
 def test_under_off_the_installer_is_asked_for_what_it_always_was(

@@ -9,6 +9,7 @@ prompt is, to none of the words that would tell a reader it is being evaluated.
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import physgate.reviewers.claude as claude
@@ -22,8 +23,8 @@ TOLD = (
     "files.\n"
     "Every file under /runs/r/reviews/abc/read/ can still be read again with the Read tool. "
     "Before you give your verdict,\n"
-    "read /runs/r/reviews/abc/read/rubric.md again in full; your verdict is refused until you "
-    "have. Judge every item of\n"
+    "read /runs/r/reviews/abc/read/rubric.md again in full with the Read tool, from offset 1 "
+    "with limit 19; your verdict is refused until you have. Judge every item of\n"
     "the rubric from the material, and read again any part your summary does not hold in enough "
     "detail\n"
     "to judge it. "
@@ -38,7 +39,8 @@ HITS = (
 def _note(hits: tuple[ScanHit, ...]) -> str:
     note = getattr(claude, "compaction_note", None)
     assert note is not None, "a reviewer is told nothing after a compaction"
-    return str(note(READ, hits))
+    assert "lines" in inspect.signature(note).parameters, "the note is not given the rubric's lines"
+    return str(note(READ, hits, lines=19))
 
 
 def test_a_review_with_no_markers_is_told_the_note_alone() -> None:
