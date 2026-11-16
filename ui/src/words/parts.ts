@@ -52,6 +52,7 @@ export const PARTS_COPY = {
     "values, and the physics gate checks each value's unit and range before any agent starts. " +
     "No agent may change them. A value the gate stops comes back to you as this part again.",
   find: "The part is sourced and sized as before.",
+  refused: "The server refused this choice, and nothing was written:",
   written:
     "This cannot be edited or undone; the item closes. The time is stamped when it is written.",
 } as const;

@@ -413,6 +413,10 @@ export function takenWords(t: Taken): string {
       "interface's values.",
     release: "The run took it: the hold was released, and the plan runs as it stands.",
     end_run: "The run took it: the run ended with no module dispatched.",
+    declare:
+      "The run took it: what was stated of the part is written onto its node as fixed values " +
+      "once every part is decided.",
+    find: "The run took it: the part is sourced and sized as before.",
     none: "The run took it; it changed nothing.",
   };
   const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;

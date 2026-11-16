@@ -147,8 +147,9 @@
   color: var(--color-text-2);
 }
 
-/* A part the release's gate stopped: the finding, whole, before the choices. */
-.pg-parts-raised {
+/* A part the release's gate stopped, and a choice the server refused: the words, whole. */
+.pg-parts-raised,
+.pg-parts-refused {
   display: grid;
   gap: var(--space-2);
   padding: var(--space-3);
@@ -158,15 +159,18 @@
   color: var(--color-text);
 }
 
-.pg-parts-raised p {
+.pg-parts-raised p,
+.pg-parts-refused p {
   margin: 0;
 }
 
-.pg-parts-raised-title {
+.pg-parts-raised-title,
+.pg-parts-refused-title {
   font-weight: 600;
 }
 
-.pg-parts-raised-finding {
+.pg-parts-raised-finding,
+.pg-parts-refused-reason {
   overflow-wrap: anywhere;
 }
 

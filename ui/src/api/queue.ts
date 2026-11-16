@@ -249,6 +249,8 @@ export const EFFECTS = [
   "reopen",
   "release",
   "end_run",
+  "declare",
+  "find",
   "none",
 ] as const;
 export type Effect = (typeof EFFECTS)[number];

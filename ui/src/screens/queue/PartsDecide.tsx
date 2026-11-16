@@ -22,7 +22,6 @@ import {
 } from "../../api/queue";
 import { Button, type Confirmation } from "../../design/components/actions/Button";
 import { Id } from "../../design/components/data/Id";
-import { ErrorState } from "../../design/components/status/States";
 import { quantityLabel, word } from "../../words/humanise";
 import { beforeWords, CHOICE_WORDS, CONFIRM_TITLE, PARTS_COPY } from "../../words/parts";
 import { DECISION_COPY } from "../../words/queue";
@@ -344,7 +343,16 @@ export function PartsDecide({
             <span className="mono">{answer.value.ts}</span>
           </p>
         ) : (
-          <ErrorState title="The decision was refused" {...answer.refusal} />
+          // Said whole, never folded: the server's words are what the person corrects by.
+          <div className="pg-parts-refused" role="alert">
+            <p className="pg-parts-refused-title">{PARTS_COPY.refused}</p>
+            <p>{answer.refusal.error}</p>
+            {Object.entries(answer.refusal.context).map(([key, said]) => (
+              <p key={key} className="pg-parts-refused-reason">
+                {said}
+              </p>
+            ))}
+          </div>
         ))}
     </section>
   );

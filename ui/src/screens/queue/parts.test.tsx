@@ -305,6 +305,10 @@ describe("the Queue screen with a part open", () => {
     expect(facts).toContain("Electrical");
     expect(facts).toContain("Control");
     expect(facts).toContain("Part 1 of 6");
+    expect(facts).toContain("Mass, Stall current");
+    // The fields for its values are shown once a choice states values.
+    expect(field(host, "Mass: value")).toBeNull();
+    choose(host, "I have it");
     expect(field(host, "Mass: value")).not.toBeNull();
     expect(field(host, "Stall current: unit")).not.toBeNull();
   });
@@ -435,12 +439,13 @@ describe("what the page refuses before sending, and what the server refuses", ()
   it("the server's refusal is shown word for word, and nothing is said to be recorded", async () => {
     answer = () =>
       new Response(
+        // The route's own answer to this body, as the server gave it.
         JSON.stringify({
           error: "the request is not a decision",
-          context: {
-            reason:
-              "'stall_current' is not written in a unit of its kind: Cannot convert from 'volt' to 'ampere'",
-          },
+          reason:
+            "parts: Value error, 'stall_current' is not written in a unit of its kind: pint " +
+            "cannot convert 'volt' ([mass] * [length]**2 * [time]**-3 * [current]**-1) to " +
+            "'ampere' ([current])",
         }),
         { status: 400 },
       );
@@ -449,7 +454,10 @@ describe("what the page refuses before sending, and what the server refuses", ()
     type(host, "Stall current: value", "240");
     type(host, "Stall current: unit", "V");
     await record(host);
-    expect(host.textContent).toContain("'stall_current' is not written in a unit of its kind");
+    // Shown in the open, not folded away: the server's words are what the person corrects by.
+    expect(host.querySelector(".pg-parts-refused")?.textContent).toContain(
+      "'stall_current' is not written in a unit of its kind",
+    );
     expect(host.querySelector(".pg-queue-recorded")).toBeNull();
   });
 });
