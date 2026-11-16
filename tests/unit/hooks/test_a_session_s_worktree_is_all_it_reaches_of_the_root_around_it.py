@@ -262,6 +262,44 @@ def test_the_interpreter_s_directory_is_the_one_other_thing_it_reads_there(
     assert paths.protection(str(bin_dir / "x"), wt, config, writing=True) is not None
 
 
+def test_no_place_in_its_home_or_outside_its_place_is_excepted_from_the_root(rig: Path) -> None:
+    """Not its home, where its commands write and could make a link, nor a place outside.
+
+    Outside the place the root has nothing to except.
+    """
+    home_bin = rig / "work" / "trial" / "place" / "session" / "home" / "bin"
+    elsewhere = rig / "elsewhere" / "bin"
+    for made in (home_bin, elsewhere):
+        made.mkdir(parents=True)
+    config = _config(rig, os_layer_readable=(str(home_bin), str(elsewhere)))
+    (root,) = [r for r in config.protected_roots if r.path == str(rig / "work")]
+    assert root.read_exceptions == (str(_worktree(rig)),), root
+
+
+def test_the_worktree_is_excepted_as_the_place_is_spelt_whatever_spelling_names_it(
+    rig: Path,
+) -> None:
+    """Given through a link above the root, the worktree is excepted where the place is.
+
+    And read and written there; through the link it is not, as no allowance is (held exactly).
+    """
+    alias = rig.parent / f"{rig.name}-alias"
+    alias.symlink_to(rig)
+    try:
+        linked = alias / "work" / "trial" / "place" / "worktree"
+        config = _config(rig, worktree=str(linked))
+        wt = _worktree(rig)
+        (root,) = [r for r in config.protected_roots if r.path == str(rig / "work")]
+        assert root.read_exceptions == (str(wt),), root
+        assert str(wt) in root.exceptions and str(linked) not in root.exceptions, root
+        for writing in (False, True):
+            found = paths.protection(str(wt / "README.md"), str(wt), config, writing=writing)
+            assert found is None, (writing, found)
+        assert paths.protection(str(linked / "README.md"), str(wt), config, writing=False)
+    finally:
+        alias.unlink()
+
+
 @pytest.mark.parametrize("platform", ["darwin", "linux"])
 def test_the_os_layer_denies_the_root_and_opens_the_worktree_alone(
     rig: Path, platform: str
