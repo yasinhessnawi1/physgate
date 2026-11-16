@@ -117,6 +117,9 @@ class Attempt:
     mark: str = ""
     #: Whether a shell attempt reads the worktree's own file in the same command (a control).
     shell: bool = False
+    #: For an attempt that makes or moves a file (no mark to read): the directory it would land
+    #: in, which the test proves is there itself, so "no such file" there is a denial.
+    parent: str | None = None
     #: The test's own read of the mark at ``path``, before the attempts and after the last one.
     before: bool | None = None
     after: bool | None = None
@@ -359,6 +362,7 @@ def _attempts(
                 _shell(cwd, f"echo NEW > {_hidden(new)} 2>&1"),
                 None,
                 shell=True,
+                parent=str(new.parent),
                 extra={"made": str(new)},
             ),
             Attempt(
@@ -388,6 +392,7 @@ def _attempts(
                 ),
                 None,
                 shell=True,
+                parent=str(Path(new_name).parent),
                 extra={"moved_to": new_name},
             )
         )
@@ -398,6 +403,7 @@ def _attempts(
             _shell(cwd, f'mv "{cwd}" "{place}/moved-seen" 2>&1; echo "@@mv=$?"'),
             None,
             shell=True,
+            parent=str(place),
             extra={"moved_to": f"{place}/moved-seen"},
         )
     )
@@ -492,6 +498,8 @@ def _round(root: Path, install_bin: Path) -> Round:
                 planned.extend(_attempts(cwd, places, marks, state["case_ignored"]))
                 for attempt in planned:
                     attempt.before = _test_reads(attempt.path, attempt.mark)
+                    if attempt.parent is not None:
+                        attempt.extra["parent_there"] = os.path.isdir(attempt.parent)
                 state["steps"] = [
                     _shell(cwd, f'echo {own} > "{cwd}/{OWN}" && cat "{cwd}/{OWN}"'),
                     *(a.step for a in planned),
@@ -638,6 +646,13 @@ def _held(trial: Round, group: str, record_property: Callable[[str, object], Non
     )
     for a in found:
         assert a.result, f"{group}/{a.label}: the session did not make the attempt"
+        if a.path is not None:
+            # Every attempt with a file to read has a mark there: an empty one proves nothing.
+            assert a.mark, f"{group}/{a.label}: no mark to read at {a.path}"
+        if a.parent is not None:
+            assert a.extra.get("parent_there"), (
+                f"{group}/{a.label}: the test cannot find {a.parent} itself"
+            )
         if a.path is not None and a.mark:
             assert a.before, f"{group}/{a.label}: the test cannot read the mark at {a.path} itself"
             if a.after is not None:
