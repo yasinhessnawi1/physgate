@@ -11,6 +11,7 @@
  * longer running. Where either is missing, nothing is claimed and the run reads as going.
  */
 import type { RunStatus } from "../api/run";
+import type { RunEnd } from "../screens/home/runEnd";
 import { instant } from "./runs";
 
 /**
@@ -72,4 +73,32 @@ export function silenceS(status: RunStatus, now: number): number | null {
   if (status.lastLineAt === undefined || status.lastLineAt === null) return null;
   const at = instant(status.lastLineAt);
   return Number.isNaN(at) ? null : (now - at) / 1000;
+}
+
+/** What a person reads of where a run stands: a badge, one short sentence, and the full record. */
+export interface Standing {
+  readonly phase: Phase;
+  /** The badge's word where it is finer than the phase's ("Complete"); ``null`` for the phase's. */
+  readonly word: string | null;
+  /** One short plain sentence; ``null`` while the run is going. */
+  readonly sentence: string | null;
+  /** The record's own words in full, shown on demand; ``null`` when the sentence says it all. */
+  readonly detail: string | null;
+}
+
+/**
+ * Where ``status``'s run stands, in words; ``end`` is how an ended run ended, read from its log and
+ * queue (``runEnd``), or ``null`` when they were not read.
+ */
+export function standingOf(
+  status: RunStatus,
+  end: RunEnd | null,
+  now: number = Date.now(),
+): Standing {
+  return {
+    phase: phaseOf(status, now),
+    word: null,
+    sentence: null,
+    detail: end === null ? null : null,
+  };
 }

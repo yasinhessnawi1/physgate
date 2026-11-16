@@ -372,6 +372,6 @@ describe("a run halted on the account's usage limit", () => {
   it("says it waits for the limit to reset, in plain words; any other halt by its reason", () => {
     expect(said(halted("usage_limit"))).toContain("Waiting for the usage limit to reset");
     expect(said(halted("usage_limit"))).not.toContain("usage_limit");
-    expect(said(halted("infrastructure_exhausted"))).toContain("Halted · infrastructure_exhausted");
+    expect(said(halted("infrastructure_exhausted"))).toContain("every retry was used");
   });
 });
