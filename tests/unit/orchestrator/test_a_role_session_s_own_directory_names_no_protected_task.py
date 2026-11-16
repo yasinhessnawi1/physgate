@@ -330,7 +330,10 @@ def test_a_place_apart_changed_before_a_resume_refuses_its_check(
             loop._stop_leftovers()
     finally:
         loop.close()
-    assert "place apart" in raised.value.context.get("check", ""), raised.value.context
+    # Refused as a check that failed; what failed, the place apart, is in the hook log.
+    assert raised.value.context.get("check") == "the check recorded 'error'", raised.value.context
+    logged = "".join(p.read_text() for p in (run.session_dir() / "state").rglob("hooks.log.jsonl"))
+    assert "place apart" in logged, logged[-600:]
 
 
 assert base.SESSION  # the rig's stand-in, extended above

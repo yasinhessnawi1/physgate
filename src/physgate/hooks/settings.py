@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import stat
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -64,6 +65,7 @@ from physgate.hooks.reasons import SESSIONS_REASON as SESSIONS_REASON
 from physgate.hooks.reasons import SHELL_STARTUP_REASON as SHELL_STARTUP_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.reasons import WITHHELD_REASON as WITHHELD_REASON
+from physgate.hooks.reasons import WITHHELD_WHOLE_REASON as WITHHELD_WHOLE_REASON
 from physgate.hooks.reasons import series_outbox_reason
 from physgate.hooks.runtime import EVENTS, HookSpec
 from physgate.oslayer import reaper_install
@@ -164,6 +166,16 @@ class InstallRequest(BaseModel):
     #: writes it while the session runs, so it is never put back. ``None``: the record is kept
     #: whole in the session's hook state, as a session installed before the place existed has.
     sentinel_apart: AbsolutePath | None = None
+    #: Roots withheld from the session whole, by rule rather than by a list taken now, but for
+    #: ``own_place`` in each: a protected trial's session in the store's work root, a blind
+    #: check's in the store. Whatever is made in them later, by anything, is refused to every
+    #: read and write on every layer; the session's own place is not. Given with
+    #: ``own_place`` only, and both or neither.
+    withheld_whole: tuple[AbsolutePath, ...] = ()
+    #: The session's own place inside every ``withheld_whole`` root: a real directory, reached
+    #: through no link, holding the worktree. Its tools read and write there exactly as spelt
+    #: (no link, no file with a second name); the OS layer opens the worktree alone in it.
+    own_place: AbsolutePath | None = None
     #: The source checkout the orchestrator runs from, when it runs from one: the
     #: gate's source, the curated library and the frozen experiments the run is
     #: judged by. A session in any other worktree may write none of it.
@@ -297,6 +309,43 @@ def _inside(path: str, root: str) -> bool:
 #: the human-run promotion command.
 KNOWLEDGE_DIR_NAME = "knowledge"
 KNOWLEDGE_STAGING_NAME = "staging"
+
+
+def _beneath(path: str, root: str) -> bool:
+    """Whether ``path`` lies strictly beneath ``root``, both as spelt (normalised, not resolved)."""
+    inner, outer = PurePosixPath(os.path.normpath(path)), PurePosixPath(os.path.normpath(root))
+    return inner != outer and inner.is_relative_to(outer)
+
+
+def _whole_roots_refusal(request: InstallRequest) -> str | None:
+    """Why the request's roots withheld whole and its own place may not be installed, or ``None``.
+
+    Both or neither; the place a real directory, not a link and reached through none from any
+    root, lying strictly inside every root as spelt and as the system resolves it; the worktree
+    inside the place.
+    """
+    roots, place = request.withheld_whole, request.own_place
+    if not roots and place is None:
+        return None
+    if not roots or place is None:
+        return "a root withheld whole and the session's own place in it are given together"
+    try:
+        st = os.lstat(place)
+    except OSError as exc:
+        return f"the session's own place {place} is not there ({exc.strerror})"
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+        return f"the session's own place {place} is not a directory (a link is not one)"
+    real = os.path.realpath(place)
+    for root in roots:
+        resolved = os.path.realpath(root)
+        if not (_beneath(place, root) and _beneath(real, resolved)):
+            return f"the session's own place {place} does not lie inside the root {root}"
+        # Every step from the root down to the place is a directory, never a link.
+        if real != os.path.join(resolved, os.path.relpath(place, root)):
+            return f"the session's own place {place} is reached through a link inside {root}"
+    if not _beneath(os.path.realpath(request.worktree), real):
+        return f"the worktree {request.worktree} does not lie in the session's own place {place}"
+    return None
 
 
 def _knowledge_root(worktree: Path) -> str:
@@ -678,6 +727,20 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     for path in request.held_out:
         protected.setdefault(path, (HELD_OUT_REASON, "revert"))
         reads[path] = "denied"
+    refusal = _whole_roots_refusal(request)
+    if refusal is not None:
+        raise ValueError(refusal)
+    for path in request.withheld_whole:
+        # Assigned, not defaulted: refused to every read and write but the session's own place,
+        # whatever is made there later. Put back as it was if it was already (a blind check's
+        # store, written by none of its tools), and otherwise never: it is not snapshotted, so
+        # an entry made there by another process is refused, not removed.
+        place = str(request.own_place)  # given together (checked above)
+        watch = protected[path][1] if path in protected else "none"
+        protected[path] = (WITHHELD_WHOLE_REASON, watch)
+        reads[path] = "denied"
+        read_exceptions[path] = (place,)
+        root_exceptions[path] = tuple(dict.fromkeys((*root_exceptions.get(path, ()), place)))
     answer_keys = sorted({str(worktree / "corpora"), *request.answer_keys})
     for path in answer_keys:
         protected.setdefault(path, (ANSWER_KEY_REASON, "revert"))

@@ -76,7 +76,6 @@ from __future__ import annotations
 
 import contextlib
 import errno
-import fcntl
 import hashlib
 import json
 import os
@@ -126,6 +125,8 @@ from physgate.evaluation.tiers.heldout import tier_digest
 from physgate.evaluation.tiers.manifest import TierSet, read_version
 from physgate.evaluation.tiers.store import (
     WORKING,
+    WorkRootHeld,
+    holding_work_root,
     leftover_refusal,
     make_role_root,
     protected_tier_refusal,
@@ -517,40 +518,32 @@ def _working(root: Path, name: str, work: Path) -> Path:
     return record
 
 
-_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-
-
 @contextlib.contextmanager
 def trial_place(store: Path, role: Role, round_id: str, name: str) -> Iterator[tuple[Path, Path]]:
     """A new trial's directory in the role's work root and its record of work, held while it lives.
 
-    A trial's session is withheld the work root's entries beside its own place as they stand
-    when it is installed, a list: an entry made there later is on no session's list. So the work
-    root is held, by a lock on its directory, from the trial's creation until the body ends,
-    which the runner leaves only once the trial's session has ended and the trial has been moved
-    out; while it is held, another trial's creation is refused before anything is made.
+    The work root is held (:func:`.tiers.store.holding_work_root`) from the trial's creation
+    until the body ends, which the runner leaves only once the trial's session has ended and the
+    trial has been moved out: while a trial's or a blind check's place there is held, another
+    trial's creation is refused before anything is made. A second measure beside the rule that
+    withholds the work root whole from the session but for its own place.
 
     Raises:
-        BaselineError: ``session_lives``: another trial in the work root is held; nothing made.
+        BaselineError: ``session_lives``: another place in the work root is held; nothing made.
     """
     root = role_root(store, role)
-    make_role_root(root)
-    fd = os.open(work_root(store, role), _DIRECTORY)
     try:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            msg = (
-                "another trial's session lives in the role's work root: no trial is made beside "
-                "it, since that session's withheld list would not name it"
-            )
-            raise BaselineError(msg, refused_because="session_lives") from None
-        trial_dir = work_root(store, role) / f"{BASELINE_DIR}-{round_id}-{name}"
-        working = _working(root, f"{BASELINE_DIR}-{name}", trial_dir)
-        trial_dir.mkdir(mode=0o700, parents=True)
-        yield trial_dir, working
-    finally:
-        os.close(fd)
+        with holding_work_root(store, role):
+            trial_dir = work_root(store, role) / f"{BASELINE_DIR}-{round_id}-{name}"
+            working = _working(root, f"{BASELINE_DIR}-{name}", trial_dir)
+            trial_dir.mkdir(mode=0o700, parents=True)
+            yield trial_dir, working
+    except WorkRootHeld:
+        msg = (
+            "another session's place in the role's work root is held (a trial's or a blind "
+            "check's): no trial is made beside it while that session lives"
+        )
+        raise BaselineError(msg, refused_because="session_lives") from None
 
 
 def _secure(work: Path, place: Path) -> None:

@@ -72,6 +72,7 @@ that is missing, or a record that holds it whole where a place apart is named, r
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -288,6 +289,31 @@ APART_FIELDS = ("hidden", "sealed", "withheld")
 KEPT_APART = "kept_apart"
 
 
+def held_apart(place: str) -> None:
+    """Refuse a place apart that is not the run's own: a real directory, no link, mode 0700.
+
+    The dispatcher makes it so before the install, and every check reads it again (a resume's
+    end check among them), so a place swapped for a link, opened to others or removed is never
+    written through or made again here.
+
+    Raises:
+        ValueError: it is not there, is a link or not a directory, is another user's, or its
+            mode is not 0700.
+    """
+    try:
+        st = os.lstat(place)
+    except OSError as exc:
+        msg = f"the place apart {place} is not there ({exc.strerror}); it is not made again here"
+        raise ValueError(msg) from None
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+        msg = f"the place apart {place} is not a directory of its own (a link is not one)"
+        raise ValueError(msg)
+    if st.st_uid != os.geteuid() or stat.S_IMODE(st.st_mode) != 0o700:
+        mode = stat.S_IMODE(st.st_mode)
+        msg = f"the place apart {place} is not private to this user (mode {mode:o})"
+        raise ValueError(msg)
+
+
 def _entry_json(entry: Entry) -> list[Any]:
     return [list(entry.signature), entry.digest, entry.link]
 
@@ -315,6 +341,8 @@ class _State:
             OSError: the record says its part is kept apart, and it cannot be read there.
             ValueError: the record and the configuration disagree on whether a part is apart.
         """
+        if self.apart is not None:
+            held_apart(self.apart)
         if not os.path.exists(self.path):
             return None
         with open(self.path) as handle:
@@ -338,9 +366,10 @@ class _State:
         return loaded
 
     def save(self, base: dict[str, Any]) -> None:
-        if self.apart_path is None:
+        if self.apart_path is None or self.apart is None:
             self.loaded_text = self._write(self.path, json.dumps(base, sort_keys=True))
             return
+        held_apart(self.apart)
         hidden = set(base["hidden"])
         own = {k: v for k, v in base.items() if k not in APART_FIELDS}
         own["revert"] = {p: e for p, e in base["revert"].items() if p not in hidden}
@@ -358,10 +387,18 @@ class _State:
             # would change nothing, on the call that is most common.
             return text
         directory, name = os.path.split(path)
-        os.makedirs(directory, mode=0o700, exist_ok=True)
         tmp = os.path.join(directory, f".{name}.tmp")
-        with open(tmp, "w") as handle:
-            handle.write(text)
+        if directory == self.apart:
+            # The place apart is never made here (:func:`held_apart`), nor a link followed in it.
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "w") as handle:
+                handle.write(text)
+        else:
+            os.makedirs(directory, mode=0o700, exist_ok=True)
+            with open(tmp, "w") as handle:
+                handle.write(text)
         os.replace(tmp, path)
         return text
 

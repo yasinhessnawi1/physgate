@@ -68,11 +68,13 @@ its own role's pool, which its session withholds (:func:`leftovers`).
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import os
 import secrets
 import shutil
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, get_args
@@ -166,6 +168,38 @@ def make_role_root(root: Path) -> Path:
     for name in (WITHHELD, WORK):
         (root / name).mkdir(mode=0o700, exist_ok=True)
     return root
+
+
+class WorkRootHeld(Exception):  # noqa: N818 - a state, not a fault
+    """Another session's place in the role's work root is held: nothing may be made beside it."""
+
+
+_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+@contextlib.contextmanager
+def holding_work_root(store: Path, role: Role) -> Iterator[None]:
+    """The role's work root, held for one session's place in it while the body runs.
+
+    A baseline trial and a blind check each make a place of their own in the work root, with a
+    copy of protected tasks, while a session works there; one made while the other's session
+    lives is an entry that session's install never saw. Each makes its place only while it holds
+    the root and holds it until its place is out: a lock on the root's directory, released on
+    every way out of the body and by the kernel when the process ends, so it cannot go stale.
+
+    Raises:
+        WorkRootHeld: the work root is held already; nothing is made.
+    """
+    make_role_root(role_root(store, role))
+    fd = os.open(work_root(store, role), _DIRECTORY)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise WorkRootHeld from None
+        yield
+    finally:
+        os.close(fd)
 
 
 def check_roots(store: Path, role: Role, work: Path) -> list[Path]:

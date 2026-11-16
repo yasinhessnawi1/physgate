@@ -90,6 +90,14 @@ SENTINEL_APART_REASON = (
     "with, which names what no session reads; no session reads or writes it"
 )
 
+#: Given for any tool's read or write of a root withheld whole from the session but for its own
+#: place there (the store's work root around a protected trial's place, the store around a blind
+#: check's work): whatever lies there, made before the session's install or after it.
+WITHHELD_WHOLE_REASON = (
+    "it lies in a root withheld from this session whole, but for the session's own place there; "
+    "nothing else in it is this session's to read or write, whenever it was made"
+)
+
 #: Given for a role, baseline or reviewer session's read or write of the temporary directory every
 #: Claude Code session of the user on the machine shares, which holds the other sessions' task
 #: outputs. The session's own binary is pointed at a directory of its own, so none of it is there.

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -86,6 +87,19 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         help="the run's place, outside every place of the session's own, where the sentinel "
         "keeps the part of its record that names the protected entries: refused to every read "
         "and write on every layer, never put back",
+    )
+    p.add_argument(
+        "--withheld-whole",
+        action="append",
+        default=[],
+        help="a root withheld from the session whole, by rule, but for its own place there "
+        "(--own-place): refused to every read and write on every layer, whatever is made in it "
+        "later; repeatable; given with --own-place only",
+    )
+    p.add_argument(
+        "--own-place",
+        help="the session's own place inside every --withheld-whole root: a real directory, "
+        "reached through no link, holding the worktree; given with --withheld-whole only",
     )
     p.add_argument(
         "--harness",
@@ -253,6 +267,9 @@ def _install(args: argparse.Namespace) -> int:
         extra_protected_record=tuple(_abs(p) for p in args.protect_record),
         withheld=tuple(_abs(p) for p in args.withheld),
         sentinel_apart=_abs(args.sentinel_apart) if args.sentinel_apart else None,
+        withheld_whole=tuple(_abs(p) for p in args.withheld_whole),
+        # Not resolved: the installer refuses a place that is a link or reached through one.
+        own_place=os.path.abspath(os.path.expanduser(args.own_place)) if args.own_place else None,
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,
         harness_root=_abs(args.harness) if args.harness else None,
         harness_site_packages=tuple(_abs(p) for p in args.harness_site_packages),
