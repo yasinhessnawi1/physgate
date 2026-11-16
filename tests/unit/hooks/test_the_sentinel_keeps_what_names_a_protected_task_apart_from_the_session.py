@@ -42,7 +42,9 @@ def root(tmp_path: Path) -> Path:
     (task / FILE_NAME).write_bytes(BYTES)
     (tmp_path / "worktree").mkdir()
     (tmp_path / "worktree" / "README.md").write_text("readme\n")
-    (tmp_path / "apart").mkdir()
+    # As the dispatcher makes it: a directory of the run's own, private.
+    (tmp_path / "apart").mkdir(mode=0o700)
+    (tmp_path / "apart").chmod(0o700)
     return tmp_path
 
 
@@ -234,3 +236,54 @@ def test_no_file_tool_of_the_session_reaches_the_place_apart(root: Path, tool: s
     decision = paths.pre_tool_use(hook_input, _config(root))
     assert not decision.allow
     assert "protected paths" in decision.reason or "no session reads" in decision.reason
+
+
+def _replaced_by_a_link(root: Path) -> None:
+    """The place apart moved aside, a link to it left at its name."""
+    os.rename(root / "apart", root / "apart-moved")
+    os.symlink(root / "apart-moved", root / "apart")
+
+
+def _refusal(root: Path, name: str) -> str:
+    """What the sentinel raised, which the hook runtime makes a refusal; empty if nothing."""
+    try:
+        _check(root, name)
+    except Exception as exc:  # noqa: BLE001 - the row holds what was raised
+        return str(exc)
+    return ""
+
+
+@pytest.mark.parametrize("name", ["SessionStart", "PostToolUse", "SessionEnd"])
+def test_a_place_apart_that_is_a_link_at_the_install_refuses(root: Path, name: str) -> None:
+    _replaced_by_a_link(root)
+    assert "place apart" in _refusal(root, name)
+    assert list((root / "apart-moved").iterdir()) == [], "a part was written through the link"
+
+
+@pytest.mark.parametrize("mode", [0o755, 0o750, 0o701])
+def test_a_place_apart_open_to_others_refuses(root: Path, mode: int) -> None:
+    (root / "apart").chmod(mode)
+    assert "place apart" in _refusal(root, "SessionStart")
+
+
+def test_a_place_apart_that_is_not_a_directory_refuses(root: Path) -> None:
+    (root / "apart").rmdir()
+    (root / "apart").write_text("not a directory\n")
+    assert "place apart" in _refusal(root, "SessionStart")
+
+
+def test_a_place_apart_that_is_gone_is_not_made_again_and_refuses(root: Path) -> None:
+    (root / "apart").rmdir()
+    assert "place apart" in _refusal(root, "SessionStart")
+    assert not (root / "apart").exists(), "the sentinel made the place apart itself"
+
+
+@pytest.mark.parametrize("change", ["link", "mode"])
+def test_a_place_apart_changed_before_a_later_check_refuses_it(root: Path, change: str) -> None:
+    """As the resume's end check meets it: the record was taken, then the place was changed."""
+    assert _check(root, "SessionStart") == "allow"
+    if change == "link":
+        _replaced_by_a_link(root)
+    else:
+        (root / "apart").chmod(0o755)
+    assert "place apart" in _refusal(root, "SessionEnd")

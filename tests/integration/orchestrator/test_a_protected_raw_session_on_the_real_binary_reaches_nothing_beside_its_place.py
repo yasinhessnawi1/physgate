@@ -6,13 +6,14 @@ machine's OS layer, in its own directory in the store's withheld work root. Its 
 the run's, with its own place taken out of the work root: the entries beside the way down to it,
 as they were when the session was installed, are withheld in the work root's stead.
 
-While the session runs, two marked files are made by the test (not by the session): one in the
-harness's directory beside the session's place, which was there at the install, and one in a
-second trial's place in the work root, which the runner is asked to make while the session lives
-and refuses, so nothing is made there. The session tries each: by the Read tool, by a shell the
-hooks read, by a shell whose path they cannot read off the command, through ``..`` from its own
-place, through a link it makes, and, where the volume ignores case, by another case of the path.
-The rows hold what reached the session and record what each attempt met (``record_property``).
+While the session runs, two marked files are made by the test (not by the session, not through
+the runner): one in the harness's directory beside the session's place, which was there at the
+install, and one in a new entry the test makes in the work root itself, which no list taken at the
+install names. The session tries each: by the Read tool, by a shell the hooks read, by a shell
+whose path they cannot read off the command, through ``..`` from its own place, through a link it
+makes, and, where the volume ignores case, by another case of the path. The runner is also asked
+for a second trial's place while the session lives, and refuses it. The rows hold what reached the
+session and record what each attempt met (``record_property``).
 
 Real binary only, on each platform: the carve is otherwise shown at configuration level alone.
 """
@@ -65,7 +66,7 @@ pytestmark = pytest.mark.integration
 NO_CACHE_WRITES = {"cache_creation_input_tokens": 0}
 MARKED = "marked.txt"
 #: How many attempts reach for the harness's directory beside the place, then for the new entry.
-BESIDE, LATE = 6, 3
+BESIDE, LATE = 6, 8
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,8 @@ class Attempts:
     late_refused: str
     late_made: bool
     case_ignored: bool
+    #: The new entry's marked file as the test read it after the round: there all along.
+    late_there: str
 
 
 @pytest.fixture(scope="module")
@@ -113,6 +116,9 @@ def _steps(cwd: str, beside: Path, late: Path) -> list[dict[str, Any]]:
     """The session's attempts, once its working directory (``<trial>/place/worktree``) is known."""
     dotted = f"{cwd}/../../{HARNESS}/{MARKED}"
     other_case = beside.parent.parent / HARNESS.upper() / MARKED
+    # The new entry lies in the work root, three levels above the worktree.
+    late_dotted = f"{cwd}/../../../{late.parent.name}/{MARKED}"
+    late_case = late.parent.parent / late.parent.name.upper() / MARKED
     return [
         {**step, "usage": NO_CACHE_WRITES}
         for step in (
@@ -134,7 +140,7 @@ def _steps(cwd: str, beside: Path, late: Path) -> list[dict[str, Any]]:
                 description="x",
             ),
             tool("Read", file_path=str(other_case)),
-            # In the work root, made after the install.
+            # In the work root, made by the test after the install: on no list.
             tool("Read", file_path=str(late)),
             tool("Bash", command=f'cat "{late}"; echo LATE $?', description="x"),
             tool(
@@ -142,6 +148,25 @@ def _steps(cwd: str, beside: Path, late: Path) -> list[dict[str, Any]]:
                 command=f'cat {_hidden(late)} > "{cwd}/late.txt" 2>&1; echo LATE-HIDDEN $?',
                 description="x",
             ),
+            tool("Read", file_path=late_dotted),
+            tool(
+                "Bash",
+                command=(
+                    f'cd "{cwd}" && cat ../../../{late.parent.name}/{MARKED} '
+                    f'> "{cwd}/late-dotted.txt" 2>&1; echo LATE-DOTTED $?'
+                ),
+                description="x",
+            ),
+            tool(
+                "Bash",
+                command=(
+                    f'ln -s {_hidden(late.parent)} "{cwd}/l"; '
+                    f'cat "{cwd}/l/{MARKED}" > "{cwd}/late-linked.txt" 2>&1; echo LATE-LINKED $?'
+                ),
+                description="x",
+            ),
+            tool("Read", file_path=f"{cwd}/l/{MARKED}"),
+            tool("Read", file_path=str(late_case)),
             text("done"),
         )
     ]
@@ -156,7 +181,8 @@ def _round(root: Path, install_bin: Path) -> Attempts:
     beside_text = f"BESIDE-{secrets.token_hex(8)}"
     late_text = f"LATE-{secrets.token_hex(8)}"
     late_round, late_name = "late", "0009-1"
-    late_dir = work_root(made.store, "control") / f"{BASELINE_DIR}-{late_round}-{late_name}"
+    asked = work_root(made.store, "control") / f"{BASELINE_DIR}-{late_round}-{late_name}"
+    late_dir = work_root(made.store, "control") / f"late-{secrets.token_hex(4)}"
     late: dict[str, str] = {}
     planned: list[dict[str, Any]] = []
     seen: dict[str, Path] = {}
@@ -165,22 +191,18 @@ def _round(root: Path, install_bin: Path) -> Attempts:
         def attempts(_thread: str, cwd: str, done: int) -> dict[str, Any] | None:
             if not planned:
                 # The session is installed and running: mark the harness's directory beside its
-                # place, and ask for a second trial's place in the work root, marked if made.
+                # place, make a new entry in the work root itself (by the test, not through the
+                # runner), and ask the runner for a second trial's place there, refused.
                 trial = Path(cwd).parent.parent
                 beside = trial / HARNESS / MARKED
                 beside.write_text(beside_text)
-                create = getattr(runner, "trial_place", None)
-                if create is None:
-                    late["refused"] = ""
-                    late_dir.mkdir()
-                    (late_dir / MARKED).write_text(late_text)
-                else:
-                    try:
-                        with create(made.store, "control", late_round, late_name):
-                            late["refused"] = ""
-                            (late_dir / MARKED).write_text(late_text)
-                    except BaselineError as exc:
-                        late["refused"] = str(exc.context.get("refused_because"))
+                late_dir.mkdir()
+                (late_dir / MARKED).write_text(late_text)
+                try:
+                    with runner.trial_place(made.store, "control", late_round, late_name):
+                        late["refused"] = ""
+                except BaselineError as exc:
+                    late["refused"] = str(exc.context.get("refused_because"))
                 seen.update(trial=trial, beside=beside)
                 planned.extend(_steps(cwd, beside, late_dir / MARKED))
             return planned[done] if done < len(planned) else text("done")
@@ -229,7 +251,7 @@ def _round(root: Path, install_bin: Path) -> Attempts:
     worktree = next((p / "worktree" for p in places if (p / "worktree").is_dir()), None)
     wrote = {}
     if worktree is not None:
-        for name in ("hidden.txt", "linked.txt", "late.txt"):
+        for name in ("hidden.txt", "linked.txt", "late.txt", "late-dotted.txt", "late-linked.txt"):
             made_file = worktree / name
             wrote[name] = made_file.read_text(errors="replace") if made_file.is_file() else ""
     return Attempts(
@@ -238,8 +260,9 @@ def _round(root: Path, install_bin: Path) -> Attempts:
         beside=beside_text,
         late=late_text,
         late_refused=late.get("refused", ""),
-        late_made=late_dir.exists(),
+        late_made=asked.exists(),
         case_ignored=(late_dir.parent / late_dir.name.upper()).exists(),
+        late_there=(late_dir / MARKED).read_text() if (late_dir / MARKED).is_file() else "",
     )
 
 
@@ -263,14 +286,25 @@ def test_a_protected_session_reaches_nothing_beside_its_place_however_it_names_i
 def test_no_second_trial_is_made_in_the_work_root_while_the_session_lives(
     attempts: Attempts, record_property: Callable[[str, object], None]
 ) -> None:
-    """A session's withheld list is the work root as it stood at the install: nothing is added."""
-    for n, result in enumerate(attempts.results[BESIDE:]):
-        record_property(f"late_attempt_{n + 1}", result[-400:])
     record_property("late_refused", attempts.late_refused)
     assert attempts.late_refused == "session_lives", "a second trial was made beside the session"
     assert not attempts.late_made, "the refused creation made something in the work root"
+
+
+def test_an_entry_made_in_the_work_root_after_the_install_is_reached_by_no_route(
+    attempts: Attempts, record_property: Callable[[str, object], None]
+) -> None:
+    """Withheld by rule, not by a list taken at install: Read, shells, ``..``, a link, a case."""
+    for n, result in enumerate(attempts.results[BESIDE:]):
+        record_property(f"late_attempt_{n + 1}", result[-400:])
+    record_property("case_ignored", attempts.case_ignored)
+    # Not vacuous: the entry was there, with its mark, for the whole round.
+    assert attempts.late_there == attempts.late, "the test's late entry was not there to reach"
     assert len(attempts.results) == BESIDE + LATE, "the session did not make every attempt"
-    assert "LATE-HIDDEN" in attempts.results[-1]
+    for marker, at in (("LATE-HIDDEN", 2), ("LATE-DOTTED", 4), ("LATE-LINKED", 5)):
+        assert marker in attempts.results[BESIDE + at], (marker, attempts.results[BESIDE + at])
     for result in attempts.results[BESIDE:]:
         assert attempts.late not in result, "the session read an entry made after its install"
-    assert attempts.late not in attempts.wrote.get("late.txt", "")
+    for name in ("late.txt", "late-dotted.txt", "late-linked.txt"):
+        assert name in attempts.wrote, attempts.wrote
+        assert attempts.late not in attempts.wrote[name], name

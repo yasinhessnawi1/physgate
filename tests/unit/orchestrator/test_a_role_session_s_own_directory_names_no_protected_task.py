@@ -273,4 +273,64 @@ def test_the_place_apart_is_the_run_s_own_and_no_session_s(
     assert stat.S_IMODE(Path(place["path"]).stat().st_mode) == 0o700
 
 
+def _apart(run: HeldOutRun) -> Path:
+    return run.run.run_dir / dispatch.SENTINEL_APART_DIR
+
+
+def _made_wrong(run: HeldOutRun, how: str) -> None:
+    """The run's place apart there before the install, as something else than the run's own."""
+    apart, elsewhere = _apart(run), run.run.run_dir.parent / "apart-elsewhere"
+    apart.parent.mkdir(parents=True, exist_ok=True)
+    if how == "a link":
+        elsewhere.mkdir(mode=0o700)
+        apart.symlink_to(elsewhere)
+    elif how == "open to others":
+        apart.mkdir(mode=0o700)
+        apart.chmod(0o755)
+    else:
+        apart.write_text("not a directory\n")
+
+
+@pytest.mark.parametrize("how", ["a link", "open to others", "a file"])
+def test_a_place_apart_that_is_not_the_run_s_own_directory_refuses_the_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    run = HeldOutRun(tmp_path, "writes-module")
+    _made_wrong(run, how)
+    loop = Rig(run.run.run_dir).open()
+    raised: Exception | None = None
+    try:
+        run.dispatcher(monkeypatch).run(run.request(), loop._spawned)
+    except Exception as exc:  # noqa: BLE001 - the row holds what was raised
+        raised = exc
+    finally:
+        loop.close()
+    assert raised is not None, f"a session was installed with a place apart that is {how}"
+    assert "place apart" in str(raised), raised
+    assert not (run.flags / "session-end-ran").exists(), "the session ran"
+
+
+@pytest.mark.parametrize("how", ["a link", "open to others"])
+def test_a_place_apart_changed_before_a_resume_refuses_its_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int], how: str
+) -> None:
+    run = HeldOutRun(tmp_path, "gone")
+    _left(run, monkeypatch, leftovers)
+    assert _settle(lambda: started_at(leftovers[-1]) is None, 20.0)
+    apart = _apart(run)
+    if how == "a link":
+        moved = apart.parent / "apart-moved"
+        apart.rename(moved)
+        apart.symlink_to(moved)
+    else:
+        apart.chmod(0o755)
+    loop = _resume(run, monkeypatch)
+    try:
+        with pytest.raises(InvocationError) as raised:
+            loop._stop_leftovers()
+    finally:
+        loop.close()
+    assert "place apart" in raised.value.context.get("check", ""), raised.value.context
+
+
 assert base.SESSION  # the rig's stand-in, extended above

@@ -68,12 +68,6 @@ def _round(store: StandInStore, base: Path, arm: Any, *tiers: str) -> BaselineRe
     )
 
 
-def _creation() -> Any:  # noqa: ANN401
-    create = getattr(runner, "trial_place", None)
-    assert create is not None, "the runner has no creation of a trial's place of its own"
-    return create
-
-
 def _records(store: StandInStore) -> list[str]:
     return sorted(n for n in os.listdir(role_root(store.store, "control")) if n.endswith(WORKING))
 
@@ -92,19 +86,14 @@ def test_a_trial_s_creation_while_a_session_of_the_round_lives_is_refused_and_ma
     def second(_place: Path, _harness: Path) -> None:
         # The session lives: its place is in the work root, and the arm has not returned.
         met["work"], met["records"] = _work(store), _records(store)
-        create = getattr(runner, "trial_place", None)
-        if create is None:
-            met["outcome"] = None
-            return
         try:
-            with create(store.store, "control", *SECOND):
+            with runner.trial_place(store.store, "control", *SECOND):
                 met["outcome"] = "made"
         except BaselineError as exc:
             met["outcome"] = exc
         met["work after"], met["records after"] = _work(store), _records(store)
 
     _round(store, tmp_path, StandInArm(left=second), tier)
-    _creation()
     outcome = met["outcome"]
     assert isinstance(outcome, BaselineError), f"a second trial was not refused: {outcome!r}"
     assert outcome.context.get("refused_because") == "session_lives", outcome.context
@@ -119,7 +108,7 @@ def test_the_round_s_own_creation_is_refused_while_another_trial_s_session_lives
 ) -> None:
     """Another trial is made in the work root after this round was planned; its session lives."""
     store = copied(made, tmp_path / "store")
-    create = _creation()
+    create = runner.trial_place
     arm = StandInArm()
     held: list[tuple[Path, Path]] = []
     real = runner.plan
@@ -144,7 +133,7 @@ def test_a_trial_is_made_as_before_once_the_earlier_session_has_ended(
     tmp_path: Path, made: StandInStore
 ) -> None:
     store = copied(made, tmp_path / "store")
-    create = _creation()
+    create = runner.trial_place
     arm = StandInArm()
     record = _round(store, tmp_path, arm, "visible", "held_out", "visible")
     assert len(arm.calls) == 3, "each trial is made once the session before it has ended"
