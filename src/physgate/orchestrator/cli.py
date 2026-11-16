@@ -103,6 +103,7 @@ from physgate.orchestrator.queue import (
     record_decision,
     statuses_now,
 )
+from physgate.orchestrator.queue_words import decision_sentences
 from physgate.orchestrator.record import ReviewInstall
 from physgate.orchestrator.replay import recorded_ledger
 from physgate.orchestrator.requirements import RunFacts, refusals
@@ -1096,8 +1097,32 @@ def _queue_list(args: argparse.Namespace) -> int:
         listing = queue_listing(args.run_dir.resolve())
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
-    _print(listing)
+    _print(_with_what_each_decision_does(listing, args.run_dir.resolve()))
     return 0
+
+
+def _with_what_each_decision_does(listing: dict[str, object], run_dir: Path) -> dict[str, object]:
+    """``listing``, each open item that states a consequence saying what each decision will do.
+
+    The sentences are made from the item's own record and added to what is printed only; the
+    queue's lines and the listing the operator UI serves are as they were.
+    """
+    said = {
+        item.item_id: sentences
+        for item in read_queue(run_dir).open_items()
+        if (sentences := decision_sentences(item)) is not None
+    }
+    open_items = listing["open"]
+    assert isinstance(open_items, list)  # noqa: S101 - queue_listing's own shape
+    return {
+        **listing,
+        "open": [
+            {**entry, "what_each_decision_does": said[entry["item_id"]]}
+            if entry["item_id"] in said
+            else entry
+            for entry in open_items
+        ],
+    }
 
 
 _WHOLE_NUMBER = re.compile(r"[+-]?[0-9]+")

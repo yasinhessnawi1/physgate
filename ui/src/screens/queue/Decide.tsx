@@ -25,6 +25,7 @@ import {
   APPROVE_RECORDS_ONLY,
   chooseWords,
   consequenceWords,
+  effectWords,
   DECISION_COPY,
   decisionSummary,
   POSITION_WORDS,
@@ -186,6 +187,15 @@ export function Decide({
           />
         ))}
       </div>
+      {view.item.consequence !== null && (
+        <ul className="pg-queue-effects">
+          {effectWords(view.item.consequence, view.item.source).map((effect) => (
+            <li key={effect.key} data-verb={effect.key}>
+              {effect.text}
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="pg-panel-note">
         {DECISION_COPY.reasonRule} {DECISION_COPY.setAside}
       </p>

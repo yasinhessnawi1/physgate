@@ -20,6 +20,7 @@ import type {
   Taken,
   WhyRecordOnly,
 } from "../api/queue";
+import { offeredPositions } from "../api/queue";
 import { causeWords, triesWords } from "./review";
 
 export interface SourceWords {
@@ -310,6 +311,63 @@ function judgedEarlierWords(c: Consequence): string {
         `${String(j.judgedBy)} judged what the scan found in it.`,
     )
     .join("");
+}
+
+/** The reason an approve records only, in a clause: from the item's own record, never guessed. */
+function reasonWords(c: Consequence): string {
+  return c.whyRecordOnly === "indicator_in_history" && c.confirmedIndicators.length > 0
+    ? indicatorWords(c)
+    : WHY_RECORD_ONLY_WORDS[c.whyRecordOnly ?? "source"];
+}
+
+const REJECT_BESIDE: Readonly<Record<Exclude<Consequence["onReject"], "record_only">, string>> = {
+  retry: "Rejecting spends this attempt, and the next attempt starts from your note.",
+  fix:
+    "Rejecting orders one fix by a fresh session, the subtask's last attempt. If it is not " +
+    "accepted, the subtask ends rejected.",
+  end_subtask: "Rejecting ends the subtask as rejected. Nothing of it is merged.",
+  end_run: "Rejecting ends the run with no module dispatched.",
+};
+
+/** One decision's effect, in plain words, with the verb or position it belongs to. */
+export interface Effect {
+  readonly key: string;
+  readonly text: string;
+}
+
+/**
+ * What each decision an item offers will do, in plain words and before a person decides, from the
+ * item's own consequence alone. An approve or a reject that only records says so, with the reason
+ * the record gives.
+ */
+export function effectWords(c: Consequence, source: QueueSource): readonly Effect[] {
+  let approve: string;
+  if (c.onApprove === "release")
+    approve = "Approving releases the hold, and the plan runs as it stands.";
+  else if (c.onApprove === "merge_attempt") {
+    const commit = c.attemptCommit === null ? "" : ` (commit ${c.attemptCommit.slice(0, 12)})`;
+    approve = `Approving puts attempt ${String(c.attempt ?? "")}${commit} into the run, merged exactly as shown.`;
+  } else {
+    const what = c.attempt === null ? "merge or change anything" : "merge this attempt";
+    approve = `Approving records your decision. It will not ${what}, because ${reasonWords(c)}.`;
+  }
+  const reject =
+    c.onReject === "record_only"
+      ? "Rejecting records your decision. It will not change anything in the run" +
+        (c.whyRecordOnly === null ? "." : `, because ${reasonWords(c)}.`)
+      : REJECT_BESIDE[c.onReject];
+  const chosen = offeredPositions(source).flatMap((position) => {
+    const effect = c.onChoose?.[position];
+    return effect === undefined
+      ? []
+      : [
+          {
+            key: position,
+            text: `Choosing ${POSITION_WORDS[position].toLowerCase()}: ${chooseWords(c, effect).replace(/^Choose: /, "")}`,
+          },
+        ];
+  });
+  return [{ key: "approve", text: approve }, { key: "reject", text: reject }, ...chosen];
 }
 
 /** What approve and reject will do to an item, made from the consequence the run listed. */
