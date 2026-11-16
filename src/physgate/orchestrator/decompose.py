@@ -733,6 +733,24 @@ UNIT_SPELLING_SENTENCE = (
     "`V/(rad/s)` is refused, and is written `V*s/rad`."
 )
 
+#: What a plan fixes and what it leaves to the modules, as every decomposition prompt states it.
+#: The decomposition reads nothing but its prompt, so the rule is here or nowhere: a plan that
+#: writes a solution's law into a specification, or its tuned coefficients onto an interface
+#: node, takes from the module that designs the solution the freedom to meet its criteria, and no
+#: session may write an interface node to undo it. Where one module implements what another
+#: designs, the implementer is held to the designer's merged node, so what runs is what was
+#: analysed.
+SOLUTION_SENTENCE = (
+    "A specification states its module's interfaces and acceptance criteria, never the internal "
+    "law, structure or coefficients of a solution the brief does not itself fix; a reference "
+    "implementation the brief cites is a source of numbers only, and an interface node holds "
+    "signals, units, rates and limits, never a solution's tuned parameters. Where the brief "
+    "requires one module to implement what another designs, such as firmware running the "
+    "control law that was analysed, the designing module comes first in the plan and writes its "
+    "design on a node of its own, and the implementing module's acceptance criteria compare its "
+    "implementation with that node as merged."
+)
+
 
 def _one_module_sentence(role: str) -> str:
     """The one sentence the prompt gains for the role that owns the cross nodes."""
@@ -786,10 +804,11 @@ def parts_sentence(roles: Sequence[str]) -> str:
 def prompt_for(brief: str, roles: Sequence[str], *, parts: bool = False) -> str:
     """The decomposition prompt: a fixed template around the brief.
 
-    Every prompt says how an interface's unit is spelt (:data:`UNIT_SPELLING_SENTENCE`), and
-    where the gate has a bound and what forms each relation, generated from what the gate
-    loads. A cross-cutting role of the run adds its sentences: sizing's,
-    that it has one module at most, and that it keeps a node joined to each interface it
+    Every prompt says how an interface's unit is spelt (:data:`UNIT_SPELLING_SENTENCE`), that
+    a plan fixes interfaces and criteria and never a solution's law or coefficients
+    (:data:`SOLUTION_SENTENCE`), and where the gate has a bound and what forms each relation,
+    generated from what the gate loads. A cross-cutting role of the run adds its sentences:
+    sizing's, that it has one module at most, and that it keeps a node joined to each interface it
     produces, which the interface follows; integration's, which ask for the system
     requirements, by the brief's number where it numbers its criteria, and for module criteria
     numbered as they are read. Integration is
@@ -822,6 +841,7 @@ def prompt_for(brief: str, roles: Sequence[str], *, parts: bool = False) -> str:
         "unit, a source and the role that wrote it. "
         f"{UNIT_SPELLING_SENTENCE} "
         f"{NODE_ID_SENTENCE}\n\n"
+        f"{SOLUTION_SENTENCE}\n\n"
         f"{catalogue_sentence()}\n\n"
         f"{bounds_sentence()}\n\n"
         f"{relations_sentence()}\n\n"
