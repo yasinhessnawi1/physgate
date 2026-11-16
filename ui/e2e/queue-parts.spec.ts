@@ -71,7 +71,8 @@ async function record(page: Page, decision: string) {
   const dialog = page.locator("dialog[open]");
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Record", exact: true }).click();
-  await expect(page.locator(".pg-queue-recorded")).toContainText(decision);
+  // The listing is read again, and the item shows the queue's own line in place of the choices.
+  await expect(page.locator(".pg-queue-decided-text")).toHaveText(decision);
 }
 
 for (const theme of THEMES) {

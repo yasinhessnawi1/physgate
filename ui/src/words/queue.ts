@@ -188,6 +188,9 @@ export const POSITION_WORDS: Readonly<Record<Position, string>> = {
   domain: "The domain's value",
   producer: "The producer's work",
   consumer: "The consumer's work",
+  have: "Have it",
+  make: "Make it",
+  find: "Find it",
 };
 
 /** What choosing a position does, from what the item says it does. */
@@ -209,6 +212,10 @@ export const CHOOSE_WORDS: Readonly<Record<OnChoose, string>> = {
     "interface's values it does not hold. Its earlier merge stays on the record, and the contract " +
     "is tested again once it is merged.",
   record_only: "Choose: the decision is recorded, and nothing in the run acts on it.",
+  declare:
+    "Choose: once every part is decided, what you stated of the part is written onto its node as " +
+    "fixed values, and the physics gate checks each value's unit and range before any agent starts.",
+  find: "Choose: the part is sourced and sized as before, and you state nothing of it.",
 };
 
 /**

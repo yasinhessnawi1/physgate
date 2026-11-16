@@ -12,9 +12,12 @@ import {
   decisionRequest,
   type ItemView,
   itemView,
+  type PartsPosition,
+  partsRequest,
   type Position,
   queueListing,
   resolved,
+  type StatedPart,
   type Verb,
 } from "../../api/queue";
 import { Segmented } from "../../design/components/actions/Segmented";
@@ -23,6 +26,7 @@ import { EmptyState, ErrorState, LoadingState } from "../../design/components/st
 import { StatusTag } from "../../design/components/status/StatusTag";
 import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
+import { releasedWords } from "../../words/parts";
 import { SOURCE_WORDS } from "../../words/queue";
 import { allItems } from "../common/queueItems";
 import { useLines } from "../common/read";
@@ -32,6 +36,8 @@ import { inProgress, runSource, useChosenRun } from "../common/runs";
 import { useResult } from "../common/useResult";
 import { Decide } from "./Decide";
 import { chosenItem } from "./model";
+import { componentOf, earlierDecision, planComponents, releasedChoices } from "./parts";
+import { PartsDecide } from "./PartsDecide";
 import { QueueItem } from "./QueueItem";
 
 const AREA = "collaboration";
@@ -205,6 +211,9 @@ export default function Queue({ setHeader, query }: ViewProps) {
     );
   const names =
     events.result?.ok === true ? subtaskNames(events.result.value) : new Map<string, string>();
+  // A run that asks which parts a person has: the plan's parts, and the release once all are decided.
+  const components = events.result?.ok === true ? planComponents(events.result.value) : null;
+  const released = events.result?.ok === true ? releasedChoices(events.result.value) : null;
   const listed = chosenItem(views.value, query.get("item"));
   const item =
     fresh?.ok === true && fresh.value.item.itemId === listed?.item.itemId ? fresh.value : listed;
@@ -227,9 +236,21 @@ export default function Queue({ setHeader, query }: ViewProps) {
           decisionRequest(item, verb, note, position),
           resolved,
         );
+  const sendPart = (position: PartsPosition, stated: StatedPart | null) =>
+    item === undefined
+      ? Promise.resolve<Result<never>>({
+          ok: false,
+          refusal: { status: 0, error: "no item is chosen", context: {} },
+        })
+      : postAction(`${base}/queue/decisions`, partsRequest(item, position, stated), resolved);
   return (
     <div className="pg-screen">
       {switcher}
+      {released !== null && (
+        <p className="pg-parts-released" role="status">
+          {releasedWords(released)}
+        </p>
+      )}
       <div className="pg-queue-layout">
         <ItemList views={views.value} chosen={item} query={query} names={names} />
         {item === undefined ? (
@@ -244,18 +265,35 @@ export default function Queue({ setHeader, query }: ViewProps) {
             subtaskName={names.get(item.item.subtaskId) ?? "The whole design"}
             supersededBy={supersededBy}
           >
-            <Decide
-              key={`${item.item.itemId}#${String(version)}`}
-              view={item}
-              runId={config.value.runId}
-              operator={operator}
-              holdsToken={actToken() !== null}
-              send={send}
-              onDecided={() => {
-                setVersion((v) => v + 1);
-              }}
-              supersededBy={supersededBy}
-            />
+            {item.item.source === "parts" ? (
+              <PartsDecide
+                key={`${item.item.itemId}#${String(version)}`}
+                view={item}
+                component={componentOf(item.item.itemId, item.item.decisionRequired, components)}
+                total={components === null ? null : components.length}
+                earlier={earlierDecision(item.item.itemId, listing.value.decided)}
+                runId={config.value.runId}
+                operator={operator}
+                holdsToken={actToken() !== null}
+                send={sendPart}
+                onDecided={() => {
+                  setVersion((v) => v + 1);
+                }}
+              />
+            ) : (
+              <Decide
+                key={`${item.item.itemId}#${String(version)}`}
+                view={item}
+                runId={config.value.runId}
+                operator={operator}
+                holdsToken={actToken() !== null}
+                send={send}
+                onDecided={() => {
+                  setVersion((v) => v + 1);
+                }}
+                supersededBy={supersededBy}
+              />
+            )}
           </QueueItem>
         )}
       </div>

@@ -1,0 +1,179 @@
+/* A part of the plan, as a person decides it: the part, three choices, its values and texts. */
+.pg-parts-decide {
+  gap: var(--space-3);
+}
+
+.pg-parts-component dd {
+  overflow-wrap: anywhere;
+}
+
+.pg-parts-of {
+  color: var(--color-text-2);
+}
+
+/* The choices: one group, each a full-width option a finger can hit, the chosen one marked. */
+.pg-parts-choice {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.pg-parts-choice legend {
+  margin-bottom: var(--space-2);
+  padding: 0;
+}
+
+.pg-parts-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-height: var(--size-touch-min);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.pg-parts-option[data-checked="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-bg);
+}
+
+.pg-parts-option:focus-within {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.pg-parts-option input {
+  margin: var(--space-1) 0 0;
+  accent-color: var(--color-accent);
+}
+
+.pg-parts-option-text {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.pg-parts-option-label {
+  font-weight: 600;
+}
+
+.pg-parts-option-said {
+  color: var(--color-text-2);
+}
+
+/* Each value: its name, then the number and the unit side by side; they wrap on a narrow screen. */
+.pg-parts-values,
+.pg-parts-texts {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+
+.pg-parts-values > .pg-panel-note,
+.pg-parts-texts > .pg-panel-note,
+.pg-parts-texts > .pg-field {
+  justify-self: stretch;
+}
+
+.pg-parts-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.pg-parts-row-label {
+  flex: 1 1 100%;
+  overflow-wrap: anywhere;
+}
+
+.pg-parts-name {
+  flex: 1 1 100%;
+}
+
+.pg-parts-number {
+  flex: 2 1 8rem;
+  min-width: 0;
+}
+
+.pg-parts-unit {
+  flex: 1 1 5rem;
+  min-width: 0;
+}
+
+.pg-parts-number input,
+.pg-parts-unit input,
+.pg-parts-name input {
+  min-width: 0;
+  width: 100%;
+}
+
+.pg-parts-before {
+  flex: 1 1 100%;
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+}
+
+.pg-parts-texts textarea {
+  resize: vertical;
+}
+
+/* What stops the choice from being recorded, said beside it, in the warning colours. */
+.pg-parts-problems {
+  margin: 0;
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-6);
+  border: 1px solid var(--color-warn-border);
+  border-radius: var(--radius-control);
+  background: var(--color-warn-bg);
+  color: var(--color-text);
+}
+
+.pg-parts-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.pg-parts-actions .pg-act-reason {
+  color: var(--color-text-2);
+}
+
+/* A part the release's gate stopped: the finding, whole, before the choices. */
+.pg-parts-raised {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-fail-border);
+  border-radius: var(--radius-control);
+  background: var(--color-fail-bg);
+  color: var(--color-text);
+}
+
+.pg-parts-raised p {
+  margin: 0;
+}
+
+.pg-parts-raised-title {
+  font-weight: 600;
+}
+
+.pg-parts-raised-finding {
+  overflow-wrap: anywhere;
+}
+
+.pg-parts-released {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-pass-border);
+  border-radius: var(--radius-control);
+  background: var(--color-pass-bg);
+  color: var(--color-text);
+}

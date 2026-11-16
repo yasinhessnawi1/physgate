@@ -28,6 +28,7 @@ import {
   supersededWords,
   takenWords,
 } from "../../words/queue";
+import { statedWords } from "../../words/parts";
 import { clockTime, utc } from "../../words/runs";
 import { ActorTag } from "../common/ActorTag";
 import { SEAL_TAG, sealLine } from "./model";
@@ -49,7 +50,8 @@ export function QueueItem({
   readonly children?: ReactNode;
 }) {
   const { item } = view;
-  const { consequence } = item;
+  // A part's item says what each choice does beside its choices; approve and reject decide no part.
+  const consequence = item.source === "parts" ? null : item.consequence;
   const words = SOURCE_WORDS[item.source];
   return (
     <section
@@ -97,6 +99,12 @@ export function QueueItem({
               <>
                 <dt>What the run did</dt>
                 <dd className="pg-queue-taken">{takenWords(decided.taken)}</dd>
+              </>
+            )}
+            {decided.parts !== undefined && decided.parts !== null && (
+              <>
+                <dt>What was stated</dt>
+                <dd className="pg-queue-stated">{statedWords(decided.parts)}</dd>
               </>
             )}
             <dt>Time to decide</dt>
