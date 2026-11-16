@@ -51,6 +51,9 @@ pytestmark = [
 ]
 
 SIX = {"units", "magnitude", "equilibrium", "power", "conservation", "thermal"}
+#: Every check an attempt's gate call runs: the six, and the closed-form laws check, which runs
+#: at module scope and, with the tracked law table holding no law, records that it judged nothing.
+AT_AN_ATTEMPT = SIX | {"laws"}
 
 
 @pytest.fixture(scope="module")
@@ -136,7 +139,7 @@ def test_observe_every_check_runs_every_line_says_observe_and_nothing_is_refused
     )
     (gated,) = [e for e in events if isinstance(e, GateRan)]
     assert (gated.result.verdict, gated.result.mode) == ("fail", "observe")
-    assert {r.name for r in gated.result.checks} == SIX
+    assert {r.name for r in gated.result.checks} == AT_AN_ATTEMPT
     outcomes = {(r.name, r.outcome) for r in gated.result.checks}
     assert ("power", "fail") in outcomes and ("thermal", "warn") in outcomes
     assert len([e for e in events if isinstance(e, ReviewRan)]) == 1 and reviewer.calls == 1

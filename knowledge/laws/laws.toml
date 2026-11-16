@@ -1,0 +1,218 @@
+# The law table: closed-form laws the physics gate judges as its eighth check.
+#
+# Each law is one [[law]] row, promoted into this file by a person, never written by hand:
+# drafted from the literature, reviewed adversarially, and approved, with a promotion line in
+# knowledge/promotions.jsonl. Every law enters at status "warn"; it moves to "block" only by a
+# person, after an audit over clean designs, with its clearance recorded on the row. The gate
+# refuses to build on a row that does not load. The promotion command writes this file whole,
+# rows in id order.
+
+[meta]
+format = 1
+
+[[law]]
+id = "electrical_power"
+statement = "the power a node draws from a DC supply is its supply voltage times the current it draws"
+expression = "P == V * I"
+pattern = "node"
+anchor = "P"
+tolerance = "rounding"
+overlaps = "none"
+idealisation = "all three values are taken at one operating point, on one rail (the node's own input terminals) and as one statistic (typical with typical, maximum with maximum), with the rail voltage constant while the current flows: a voltage that sags or ripples with the draw, values from different rails, or a typical power beside a maximum current is not this law"
+literals = []
+requires = []
+unless = [
+  { name = "power_supply", place = "self", reason = "a node that declares power_supply is a source or converter: its supply_voltage is the voltage it supplies at its output, while its power_draw is what it draws at its input and its current_draw may be at either terminal, so the product of the two is not its draw (a 12 V to 3.3 V buck drawing 0.4 A at its input writes 4.8 W, not 3.3 V x 0.4 A)" },
+]
+symbols = { P = { name = "power_draw", place = "self" }, V = { name = "supply_voltage", place = "self" }, I = { name = "current_draw", place = "self" } }
+source = { kind = "textbook", title = "University Physics Volume 2 (S. J. Ling, J. Sanny, W. Moebs; OpenStax)", edition = "OpenStax, 2016, web edition", section = "9.5 Electrical Energy and Power, Electric Power, equation 9.12", read = 2026-11-05, reading = "in full" }
+example = [
+  { outcome = "pass", source = "TI ADS1115 data sheet, SBAS444E (revised December 2024), §5.5 Electrical Characteristics, at VDD = 3.3 V, data rate 8 SPS, TA = 25 °C: supply current IVDD operating, typical 150 µA; power dissipation PD at VDD = 3.3 V, typical 0.5 mW (typical with typical)", values = { P = { value = 0.5, unit = "mW" }, V = { value = 3.3, unit = "V" }, I = { value = 0.15, unit = "mA" } } },
+  { outcome = "fail", source = "the same table, with the typical power dissipation of its VDD = 5.0 V row, 0.9 mW, written beside the 3.3 V supply and the typical 150 µA specified at 3.3 V", values = { P = { value = 0.9, unit = "mW" }, V = { value = 3.3, unit = "V" }, I = { value = 0.15, unit = "mA" } } },
+]
+status = "warn"
+approved = { candidate_id = "4f68d63663854eaf851142627e52b09e", date = 2026-11-06 }
+
+[[law]]
+id = "no_load_below_stall"
+statement = "a DC motor's no-load current is no greater than its stall current, both as its data sheet states them at its rated voltage"
+expression = "I0 <= Ir"
+pattern = "node"
+anchor = "I0"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "both figures are the same motor's data-sheet figures at one voltage, its rated voltage: at stall the back-EMF is zero and the winding carries the whole voltage over its resistance, the most current it draws at that voltage, while with nothing on the shaft it turns until the back-EMF nearly equals the supply and draws only what overcomes friction; a no_load_current stated at another voltage than rated_stall_current is two conditions, and a motor whose friction current exceeds its stall current cannot start and has no no-load point"
+literals = []
+requires = []
+unless = []
+symbols = { I0 = { name = "no_load_current", place = "self" }, Ir = { name = "rated_stall_current", place = "self" } }
+source = { kind = "textbook", title = "College Physics 2e (P. P. Urone, R. Hinrichs; OpenStax)", edition = "OpenStax, 2022, web edition", section = "23.6 Back Emf: the maximum current when on but not turning, and the no-load motor that uses only enough energy to overcome friction", read = 2026-11-07, reading = "in full" }
+example = [
+  { outcome = "pass", source = "Pololu 50:1 Micro Metal Gearmotor HPCB 6V with Extended Motor Shaft (item #3073), key specifications at 6 V: no-load performance 650 RPM, 150 mA; stall extrapolation 0.74 kg.cm, 1.5 A", values = { I0 = { value = 150, unit = "mA" }, Ir = { value = 1.5, unit = "A" } } },
+  { outcome = "fail", source = "the same sheet, with the no-load figure's number 150 written in amperes instead of milliamperes beside the 1.5 A stall", values = { I0 = { value = 150, unit = "A" }, Ir = { value = 1.5, unit = "A" } } },
+]
+status = "warn"
+approved = { candidate_id = "c910034318894f3facaa68dff0d58293", date = 2026-11-12 }
+
+[[law]]
+id = "overall_gear_ratio_product"
+statement = "a drive's overall gear ratio, from the motor shaft to its last output, is the ratio of the gearmotor's built-in gearbox times the ratio of the external stage after it"
+expression = "N == G * E"
+pattern = "node"
+anchor = "N"
+tolerance = "rounding"
+overlaps = "none"
+idealisation = "one drive train on one node: a gearmotor whose built-in gearbox ratio is gear_ratio, followed by exactly one added stage (or one added train written as one figure) whose ratio is external_gear_ratio, and overall_gear_ratio from the armature to the last output of that same train; each ratio is input speed over output speed, above 1 for a reduction; a gear_ratio that already means the whole train, or a second added stage written under another name, is not this law"
+literals = []
+requires = []
+unless = []
+symbols = { N = { name = "overall_gear_ratio", place = "self" }, G = { name = "gear_ratio", place = "self" }, E = { name = "external_gear_ratio", place = "self" } }
+source = { kind = "textbook", title = "Introduction to Mechanisms (Y. Zhang, S. Finger, S. Behrens; Carnegie Mellon University, course 39-245)", edition = "web edition, www.cs.cmu.edu/~rapidproto/mechanisms", section = "Chapter 7 Gears, 7.6 Ordinary Gear Trains, 7.6.1 Velocity Ratio, equations 7-14 to 7-16", read = 2026-11-07, reading = "in full" }
+example = [
+  { outcome = "pass", source = "Pololu, Balboa 32U4 Balancing Robot User's Guide (pololu.com/docs/0J70), encoders: '50:1 motors (which have gear ratios more accurately specified as 51.45:1) are used along with the plastic gears that give an additional 2.88:1 reduction'; the guide's instruction is to calculate the total gear ratio 'by multiplying their individual gear ratios': 51.45 x 2.88 = 148.176, written 148.2", values = { N = { value = 148.2, unit = "1" }, G = { value = 51.45, unit = "1" }, E = { value = 2.88, unit = "1" } } },
+  { outcome = "fail", source = "the same gearmotor and stage, with the overall ratio taken from the gearmotor's nominal name, 50:1, times 2.88: 144, written beside the exact 51.45:1 (Pololu #3073 product page: 'Exact gear ratio: (32x33x35x38) / (15x14x13x10) ~~ 51.45:1')", values = { N = { value = 144, unit = "1" }, G = { value = 51.45, unit = "1" }, E = { value = 2.88, unit = "1" } } },
+]
+status = "warn"
+approved = { candidate_id = "d0bb972ef5ac445cb9b131255f7e35aa", date = 2026-11-12 }
+
+[[law]]
+id = "rate_throughput_output_data_rate"
+statement = "a consumer updated once per delivered sample updates no faster than the output data rate of the sensor its edge names"
+expression = "U <= R"
+pattern = "edge"
+anchor = "U"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "a single-rate consumer that takes exactly one new sample from the named sensor per update (read, compute, output, once per period); a multi-rate loop that updates on predictions between samples, interpolates, or reuses a held sample is a correct design this law refuses"
+literals = []
+requires = []
+unless = []
+symbols = { U = { name = "update_rate", place = "self" }, R = { name = "output_data_rate", place = "target" } }
+source = { kind = "textbook", title = "Advanced PID Control (K. J. Åström, T. Hägglund)", edition = "ISA, 2006", section = "13.3 Computer Implementations, Sampling, p. 413", read = 2026-11-05, reading = "in full" }
+example = [
+  { outcome = "pass", source = "ST LSM6DS33 data sheet, DocID027423 Rev 4 (October 2015), Table 44 Accelerometer ODR register setting: ODR 104 Hz; the consumer loop runs at 52 Hz, the table's next lower ODR step", values = { U = { value = 52, unit = "Hz" }, R = { value = 104, unit = "Hz" } } },
+  { outcome = "fail", source = "the same Table 44, ODR 104 Hz; the consumer loop runs at 208 Hz, the table's next higher ODR step, while the sensor is still set to 104 Hz", values = { U = { value = 208, unit = "Hz" }, R = { value = 104, unit = "Hz" } } },
+]
+status = "warn"
+approved = { candidate_id = "6fe34da0df4a4e128ef32070fbe1d916", date = 2026-11-06 }
+
+[[law]]
+id = "rate_throughput_sample_rate"
+statement = "a consumer updated once per delivered sample updates no faster than the sample rate of the producer its edge names"
+expression = "U <= F"
+pattern = "edge"
+anchor = "U"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "a single-rate consumer that takes exactly one new sample from the named producer per update (read, compute, output, once per period); a multi-rate loop that updates on predictions between samples, interpolates, or reuses a held sample is a correct design this law refuses"
+literals = []
+requires = []
+unless = []
+symbols = { U = { name = "update_rate", place = "self" }, F = { name = "sample_rate", place = "target" } }
+source = { kind = "textbook", title = "Advanced PID Control (K. J. Åström, T. Hägglund)", edition = "ISA, 2006", section = "13.3 Computer Implementations, Sampling, p. 413", read = 2026-11-05, reading = "in full" }
+example = [
+  { outcome = "pass", source = "TI ADS1115 data sheet, SBAS444E (revised December 2024), Table 8-3 Config Register Field Descriptions, DR[2:0]: 128 SPS (the default); the consumer loop runs at 64 Hz, the table's next lower data-rate step (1 SPS = 1 Hz)", values = { U = { value = 64, unit = "Hz" }, F = { value = 128, unit = "Hz" } } },
+  { outcome = "fail", source = "the same Table 8-3, DR = 128 SPS; the consumer loop runs at 250 Hz, the table's next higher data-rate step, while the converter is left at 128 SPS", values = { U = { value = 250, unit = "Hz" }, F = { value = 128, unit = "Hz" } } },
+]
+status = "warn"
+approved = { candidate_id = "135946d6189f4d01a208ba83a2b5fdd2", date = 2026-11-06 }
+
+[[law]]
+id = "reaction_moment_sum"
+statement = "a carrier reacts the sum of the reaction moments of the torque units that constrain it"
+expression = "M == T"
+pattern = "members"
+anchor = "M"
+tolerance = "rounding"
+overlaps = "torque_unit"
+idealisation = "statics of the carrier alone: every unit's torque acts about parallel axes in the same sense and is written as a size under one sign convention; nothing else puts a moment on the carrier (its own weight off its support, a load force, an inertia term while it accelerates); two units turning against each other, as in a spin turn, do not add"
+literals = []
+requires = [
+  { name = "torque_peak", place = "each", reason = "a member is a torque unit, as check 3 reads one, only where it declares both torque_peak and reaction_moment; a member with a reaction_moment and no torque_peak is not a unit whose torque the carrier reacts, so the instance is left unjudged" },
+]
+unless = [
+  { name = "torque_peak", place = "subject", reason = "a subject that declares torque_peak is itself a torque unit: check 3 reads its reaction_moment against its own torque and gear ratio (whole unit, gearbox housing, output mount), so its reaction is not the sum of what it carries" },
+  { name = "support_position", place = "subject", reason = "a subject that declares a support_position is a support in check 3's mount balance: its reaction_moment is the moment it reacts at that mount, held to that mount's loads, not the sum of the units it carries" },
+  { name = "support_position", place = "each", reason = "a member that declares a support_position is a support of this node in check 3's mount balance: its reaction_moment balances the node's loads and is not a torque the node carries" },
+  { name = "load_force", place = "subject", reason = "a subject that declares a load_force has a force on it whose moment about its support is part of what it reacts, so its reaction_moment is not the sum of the units' moments alone" },
+  { name = "mount_position", place = "each", reason = "a member that declares a mount_position is a load placed at an arm on the carrier, as check 3's mount balance reads it: the moment of its weight or force about the carrier's support is part of what the carrier reacts, so the sum of the units' moments alone misses it" },
+  { name = "load_force", place = "each", reason = "a member that declares a load_force pushes on the carrier with a force whose moment about the carrier's support is part of what the carrier reacts, so the sum of the units' moments alone misses it" },
+]
+symbols = { M = { name = "reaction_moment", place = "subject" }, T = { name = "reaction_moment", place = "each" } }
+source = { kind = "textbook", title = "University Physics Volume 1 (S. J. Ling, J. Sanny, W. Moebs; OpenStax)", edition = "OpenStax, 2016, web edition", section = "12.1 Conditions for Static Equilibrium, Second Equilibrium Condition, equation 12.5", read = 2026-11-05, reading = "in full" }
+example = [
+  { outcome = "pass", source = "Pololu 10:1 Micro Metal Gearmotor HPCB 6V (item #3061), product specifications: stall torque 0.17 kg·cm at 6 V = 0.0167 N·m (0.17 x 9.80665 x 0.01 = 0.016671). Two such units constrain one carrier, which declares their sum, 0.0333 N·m", values = { M = { value = 0.0333, unit = "N*m" }, T = [{ value = 0.0167, unit = "N*m" }, { value = 0.0167, unit = "N*m" }] } },
+  { outcome = "fail", source = "the same two Pololu #3061 units, 0.0167 N·m each; the carrier declares one unit's moment, 0.0167 N·m, as if it carried one motor", values = { M = { value = 0.0167, unit = "N*m" }, T = [{ value = 0.0167, unit = "N*m" }, { value = 0.0167, unit = "N*m" }] } },
+]
+status = "warn"
+approved = { candidate_id = "2d86d44200e74427bafbb9fa89a198d9", date = 2026-11-06 }
+
+[[law]]
+id = "stall_current_within_peak_stall"
+statement = "a DC motor's stall current at the duty limit is no greater than its stall current at full duty, both at the supply's highest voltage"
+expression = "I <= P"
+pattern = "node"
+anchor = "P"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "both stalls are of one motor, at the same top supply voltage and the same winding resistance and temperature: peak_stall_current at full duty (that voltage over the winding resistance) and stall_current at the duty limit (the duty times that voltage, over the same resistance); a stalled winding has no back-EMF, so its current rises with the average voltage across it, and a duty is at most 1. Two different resistances for the two figures (the data sheet's ratio for one, a terminal resistance for the other) can put a correct pair the wrong way round where no duty limit is fixed"
+literals = []
+requires = []
+unless = []
+symbols = { I = { name = "stall_current", place = "self" }, P = { name = "peak_stall_current", place = "self" } }
+source = { kind = "textbook", title = "College Physics 2e (P. P. Urone, R. Hinrichs; OpenStax)", edition = "OpenStax, 2022, web edition", section = "23.6 Back Emf, Figure 23.24 and the worked current I = V/R = (48.0 V)/(0.400 ohm) = 120 A", read = 2026-11-07, reading = "in full" }
+example = [
+  { outcome = "pass", source = "Pololu #3073 (50:1 Micro Metal Gearmotor HPCB 6V with Extended Motor Shaft), stall extrapolation at 6 V: 1.5 A, so a winding resistance of 6 V / 1.5 A = 4 ohm; six Energizer NH15 cells in series (nominal 1.2 V each), taken at 7.2 V as the example's top: peak_stall_current = 7.2 V / 4 ohm = 1.8 A; a duty limit of 0.75 (300 of 400 counts, the Balboa library limit sizing standards section 6 cites): stall_current = 0.75 x 1.8 A = 1.35 A", values = { I = { value = 1.35, unit = "A" }, P = { value = 1.8, unit = "A" } } },
+  { outcome = "fail", source = "the same motor, pack and duty limit, with the two figures written one for the other: stall_current 1.8 A (the full-duty stall) and peak_stall_current 1.35 A (the duty-limited one)", values = { I = { value = 1.8, unit = "A" }, P = { value = 1.35, unit = "A" } } },
+]
+status = "warn"
+approved = { candidate_id = "2656f8e3afac48ee8e70ad30bacc6ee7", date = 2026-11-12 }
+
+[[law]]
+id = "within_rating_current"
+statement = "a node's steady operating output current is within its own maximum rated output current"
+expression = "I <= L"
+pattern = "node"
+anchor = "L"
+tolerance = "inequality"
+overlaps = "current_limit"
+idealisation = "current_draw is the steady current the node delivers at its output in operation (a load's continuous or rms draw, not a stall or inrush peak) and current_limit the maximum output current its data sheet rates, both on the same node and the same terminals; a current the node chops or regulates below what is written, a derated limit, and transients above the steady current are not judged"
+literals = []
+requires = []
+unless = [
+  { name = "power_supply", place = "self", reason = "a node that declares power_supply is a source or converter: its current_limit rates its output while a current_draw written on it may be at its input (a boost stage from a 3.7 V cell to 5 V with a 1 A output limit draws about 1.5 A from the cell), so the two are not one terminal's current" },
+]
+symbols = { I = { name = "current_draw", place = "self" }, L = { name = "current_limit", place = "self" } }
+source = { kind = "standard", title = "ECSS-Q-ST-30-11C Rev.2, Space product assurance: Derating - EEE components", edition = "Rev.2, 23 June 2021", section = "3.2.8 rating (with its note); 5.1 Overview and 5.2 Principles of derating", read = 2026-11-05, reading = "in full" }
+example = [
+  { outcome = "pass", source = "TI DRV8830 data sheet, SLVSAB2G (revised December 2015), §6.3 Recommended Operating Conditions: IOUT continuous or peak H-bridge output current, max 1 A; the driver runs a Pololu 25D Metal Gearmotor LP 6V, 4.4:1 (items #1581 and #4821), whose current at maximum efficiency is 0.32 A (Pololu 25D Metal Gearmotors data sheet, Rev 2.0, performance summary table, p. 3)", values = { I = { value = 0.32, unit = "A" }, L = { value = 1, unit = "A" } } },
+  { outcome = "fail", source = "the same DRV8830 limit, 1 A, with the driver running Pololu item #4801, 4.4:1 Metal Gearmotor 25Dx63L mm HP 6V with 48 CPR Encoder, whose current at maximum efficiency is 1.4 A (same Pololu data sheet, Rev 2.0, performance summary table, p. 3, row HP 6V 4.4:1, items 1570 and 4801)", values = { I = { value = 1.4, unit = "A" }, L = { value = 1, unit = "A" } } },
+]
+status = "warn"
+approved = { candidate_id = "576dabf321a64d60998c40322092ab72", date = 2026-11-06 }
+
+[[law]]
+id = "within_rating_voltage"
+statement = "the nominal voltage of the rail a part is connected to is within the part's absolute maximum voltage rating for that terminal"
+expression = "V <= M"
+pattern = "node"
+anchor = "M"
+tolerance = "inequality"
+overlaps = "none"
+idealisation = "supply_voltage is the nominal voltage at the part's power input and absolute_maximum_voltage the absolute maximum its data sheet rates for that same terminal; a part with several supply terminals (a driver's logic and motor supplies) is two terminals, and a rating copied from the other terminal is not this law. The nominal voltage is not the top of the rail's range: a rail whose top exceeds the rating while its nominal does not passes, so the law misses it rather than refusing a correct design"
+literals = []
+requires = []
+unless = [
+  { name = "stall_voltage", place = "self", reason = "a node that declares stall_voltage is a motor behind a driver: its supply_voltage is the driver's rail, the voltage the bridge switches, while a motor's maximum is at its winding, which sees on average only the duty times that rail; a 6 V motor on a 7.2 V rail at duty 0.75 is a correct design the comparison would refuse" },
+  { name = "rated_voltage", place = "self", reason = "rated_voltage is a motor's data-sheet voltage, so a node that declares it is a motor, and a motor behind a driver has the driver's rail as its supply_voltage while its maximum is at its winding, which sees on average only the duty times that rail; this covers the motor nodes that write no stall_voltage (the practice motor node writes rated_voltage and no stall_voltage)" },
+  { name = "power_supply", place = "self", reason = "a node that declares power_supply supplies others, and its supply_voltage is the voltage at its output, while a converter's absolute maximum rating is for its input (a boost stage from a 3.7 V cell with a 6 V input maximum and a 12 V output), so the two are not one terminal's" },
+  { name = "rated_output_power", place = "self", reason = "a node that declares rated_output_power supplies others (the supply_voltage definition lists it with power_supply), so its supply_voltage is the voltage at its output, while a converter's or bench supply's absolute maximum rating is for its input; the two are not one terminal's" },
+]
+symbols = { V = { name = "supply_voltage", place = "self" }, M = { name = "absolute_maximum_voltage", place = "self" } }
+source = { kind = "standard", title = "ECSS-Q-ST-30-11C Rev.2, Space product assurance: Derating - EEE components", edition = "Rev.2, 23 June 2021", section = "3.2 Terms specific to the present standard, 3.2.8 rating (with its note), p. 13", read = 2026-11-07, reading = "in full" }
+example = [
+  { outcome = "pass", source = "TI DRV8837/DRV8838 data sheet, SLVSBA4F (revised April 2021), section 6.1 Absolute Maximum Ratings: motor power-supply voltage VM, -0.3 to 12 V; the driver's VM rail is six Energizer NH15 NiMH cells in series (NH15 data sheet: nominal voltage 1.2 volts), 7.2 V", values = { V = { value = 7.2, unit = "V" }, M = { value = 12, unit = "V" } } },
+  { outcome = "fail", source = "the same DRV8838 VM maximum, 12 V, with the VM rail made of two such six-cell packs in series, 14.4 V nominal", values = { V = { value = 14.4, unit = "V" }, M = { value = 12, unit = "V" } } },
+]
+status = "warn"
+approved = { candidate_id = "713d93a3bb8b4370b333458ffcbe75b3", date = 2026-11-12 }

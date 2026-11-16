@@ -35,6 +35,10 @@ from physgate.orchestrator.decompose import (
     relations_sentence,
 )
 
+#: The bytes pinned here are the prompt with no law in the table: a promoted law adds its
+#: own paragraph, which the law prompt's tests pin against the table in this checkout.
+pytestmark = pytest.mark.usefixtures("no_law_table")
+
 BRIEF = "Build a robot."
 
 #: The schema every run was sent before the two roles were planned for.
@@ -54,15 +58,23 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: before that sentence: ca0317a59ce7..., 8abeae4b5f23... and 44175ad46745...; before the
 #: widening, since 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
 #: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
+#: Since the law library's rows (07.11.2026), the catalogue sentence also holds their twelve names
+#: and two kind labels (charge capacity, duration), and every other byte is as above
+#: (test_the_law_library_s_names_reach_the_prompt_and_nothing_else). Before those rows:
+#: c14dba963d6c..., ad94ba0d6bbe... and d713661a9904..., in this order. Since check 4 gained the
+#: peak headroom (07.11.2026), the relations sentence holds its statement too. With the rows and the
+#: peak headroom, before the sentence on how a unit is spelt: 56526c8ddda3..., f93071084230... and
+#: f8040260bc86..., in this order; with the rows alone: 48f1f778de09..., 777b1e121b63... and
+#: 44c5f7c626eb..., in this order.
 PROMPT_SHA256 = {
-    ("control", "firmware"): "cd9d3713e8dd9f7417686af3897cafbcc4eaa7c0b5554f2967174fb54165211c",
-    ("electrical",): "66e80cd16451939cf8ab9fefe9e0d683ede5c3b8ac3e9251c7078db6d9c93d8a",
+    ("control", "firmware"): "9e215ce9d86e89f78f1629d5ab75c483d1b91d1def95c44fbd6a1f4dfa88cff3",
+    ("electrical",): "c55157063c415fa00cd4eda9b452e8591e08132059e8b60c16520dd56b56b6e3",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "6fd51bcf6f3a5b8fe9c1983c48148122206053d0d92fe7a139aa1a07460bd4db",
+    ): "a3a311ee147b95a9cdad1a4578369b72b8fbb8d406dec257929c9e016c2c4544",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.

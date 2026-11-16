@@ -57,6 +57,7 @@ from physgate.orchestrator.events import (
     read_events,
 )
 from physgate.orchestrator.protocols import (
+    LAST_CHECK,
     CheckDetails,
     CheckName,
     CheckRecord,
@@ -90,7 +91,7 @@ class GateEvent(BaseModel):
     #: The subtask, or ``integration`` for the integration call.
     subtask_id: NonEmptyStr
     attempt: Annotated[int, Field(ge=1)] | None
-    check: Annotated[int, Field(ge=1, le=7)]
+    check: Annotated[int, Field(ge=1, le=LAST_CHECK)]
     name: CheckName
     scope: Scope
     outcome: Outcome

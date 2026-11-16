@@ -112,6 +112,19 @@ def test_a_file_directly_under_knowledge_is_protected_too(tmp_path: Path) -> Non
     assert reason == KNOWLEDGE_REASON
 
 
+def test_the_law_table_is_protected_with_the_rest_of_the_curated_tree(tmp_path: Path) -> None:
+    # The law table sits outside every domain directory; the gate reads its laws from it, so
+    # a session that could write it could approve its own laws.
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    config = build_config(_request(tmp_path), current_installation())
+    for path in ("knowledge/laws/laws.toml", "knowledge/laws/another.toml"):
+        reason = protection(str(worktree / path), str(worktree), config, writing=True)
+        assert reason == KNOWLEDGE_REASON, path
+    staged = worktree / "knowledge" / "staging" / "laws" / "card.toml"
+    assert protection(str(staged), str(worktree), config, writing=True) is None
+
+
 def test_staging_is_never_protected(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     worktree.mkdir()

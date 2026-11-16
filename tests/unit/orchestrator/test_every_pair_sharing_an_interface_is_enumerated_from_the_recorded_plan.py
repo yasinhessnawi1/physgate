@@ -52,6 +52,10 @@ from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.replay import RunState
 from physgate.orchestrator.run_config import ModelStrings
 
+#: The bytes pinned here are the prompt with no law in the table: a promoted law adds its
+#: own paragraph, which the law prompt's tests pin against the table in this checkout.
+pytestmark = pytest.mark.usefixtures("no_law_table")
+
 BOTH = ("control", "firmware", "integration", "sizing")
 DOMAINS = ("control", "firmware")
 SEED = 7
@@ -71,11 +75,17 @@ BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n"
 #: and eefbf4fe50d6...; before the widening: 08a7e77a7464... and b26536a34818...; before
 #: those two sentences: f56406956965... and 1a3802deb6f1..., in this order.
 INTEGRATED_SCHEMA_SHA256 = "6f531bcd22eb1d69b563acd763ca4f73d80ecccd3ccf973c32962ba410882e08"
+#: Since the law library's rows (07.11.2026), the catalogue sentence also holds their twelve names
+#: and two kind labels. Before those rows: f42a779e91ee... and 4faaf7ada5eb..., in this order.
+#: Since check 4 gained the peak headroom (07.11.2026), the relations sentence holds its statement
+#: too; with the rows and the peak headroom, before the sentence on how a unit is spelt:
+#: 58ac53907fa6... and 1545282914c0..., in this order;
+#: with the rows alone: 144a71155f84... and 6808f856328d..., in this order.
 INTEGRATED_PROMPT_SHA256 = {
     ("control", "firmware", "integration"): (
-        "48c74090ae0226c1c23bcd88c8ca922aed0f82baf150d4a1dedc9c76e850ba8a"
+        "8ee1fd6a05c3024fbfd218f6b5c22c5ca4071d5a0c78d7e5f4b206776c9d25f2"
     ),
-    BOTH: "967efb517e3ff223c6df31bd6ae07a87cf6f77ac37db01530d89be915196c501",
+    BOTH: "165ceded3341dcc182233ee0a5143f39e0d1149be6a8655d40523998bce1f908",
 }
 
 

@@ -365,7 +365,7 @@ def test_an_interface_node_naming_a_quantity_that_shadows_a_relation_s_is_a_prob
         found = plan_problems(plan(modules, [_naming(name, "A")]), ["electrical"], BRIEF)
         assert any(f"'{name}'" in p and f"shadows '{shadowed}'" in p for p in found), found
     # Every other uncatalogued name is written, and the gate records it as unchecked.
-    for name in ("motor_current", "no_load_current", "idle_current", "max", "dry_mass", "zeta"):
+    for name in ("motor_current", "standby_current", "idle_current", "max", "dry_mass", "zeta"):
         assert plan_problems(plan(modules, [_naming(name, "A")]), ["electrical"], BRIEF) == [], name
 
 

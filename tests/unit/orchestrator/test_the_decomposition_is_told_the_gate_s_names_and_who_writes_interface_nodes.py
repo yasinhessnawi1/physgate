@@ -74,7 +74,7 @@ def test_decorated_names_of_a_relation_s_quantity_are_left_to_the_prompt() -> No
     assert (
         _problems(
             {
-                "overall_gear_ratio": (110.24, "1"),
+                "total_gear_ratio": (110.24, "1"),
                 "stall_current_at_max_voltage": (1.3, "A"),
                 "chassis_thermal_resistance": (2.0, "K/W"),
                 "peak_power_draw": (12.0, "W"),

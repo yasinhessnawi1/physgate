@@ -54,7 +54,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from physgate.gate.bounds_table import BOUNDS_NAME, Bounds, Envelope, Range, load_table
-from physgate.gate.catalogue import STORE_CLASSES, catalogue_digest, kind_of
+from physgate.gate.catalogue import STORE_CLASSES, catalogue_alone_digest, kind_of
 from physgate.gate.exceptions import GateError
 from physgate.knowledge.exceptions import KnowledgeError, RoleNameError
 from physgate.knowledge.loader import always_loaded
@@ -685,5 +685,7 @@ def ratings(context: Context, params: Mapping[str, str]) -> dict[str, Any]:
             }
             for store in STORE_CLASSES
         ],
-        "catalogue_digest": catalogue_digest(),
+        # The law table is a file outside the roots a request may read, so this digest is the
+        # catalogue's alone, which is a gate result's digest while no law is in the table.
+        "catalogue_digest": catalogue_alone_digest(),
     }

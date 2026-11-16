@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from physgate.orchestrator.protocols import CheckDetails, NumericOutput, QuantityRef
 
@@ -41,9 +41,32 @@ class Observation(_Frozen):
     quantities: tuple[QuantityRef, ...] = ()
 
 
+class LawCount(_Frozen):
+    """How many instances of one law the laws check evaluated at one scope."""
+
+    law_id: _Text
+    evaluated: Annotated[int, Field(ge=0)]
+
+
 class CheckRun(_Frozen):
-    """What one check reported at one scope."""
+    """What one check reported at one scope.
+
+    The laws check also reports each law's own count, every law it holds listed once, so the
+    runner can state each law's reach even where another law failed. Their sum is its count.
+    """
 
     tool: _Text
     evaluated: Annotated[int, Field(ge=0)]
     observations: tuple[Observation, ...]
+    law_evaluated: tuple[LawCount, ...] = ()
+
+    @model_validator(mode="after")
+    def _the_laws_add_up(self) -> CheckRun:
+        ids = [c.law_id for c in self.law_evaluated]
+        if len(set(ids)) != len(ids):
+            msg = "a law is counted twice"
+            raise ValueError(msg)
+        if self.law_evaluated and sum(c.evaluated for c in self.law_evaluated) != self.evaluated:
+            msg = "the laws' counts do not add up to the check's"
+            raise ValueError(msg)
+        return self
