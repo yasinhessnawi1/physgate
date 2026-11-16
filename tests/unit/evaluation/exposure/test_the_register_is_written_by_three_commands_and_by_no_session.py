@@ -132,8 +132,9 @@ def test_a_writer_given_anything_but_a_role_s_withheld_root_is_refused(
     extra = ["--path", str(runs)] if writer == "add-run-root" else []
     code, said = _tiers(capsys, writer, "--withheld", str(made.store / "control" / "work"), *extra)
     assert code != 0 and said.get("refused_because") == "not_a_withheld_root"
-    withheld = withheld_root(made.store, "control")
-    assert not [p for p in withheld.iterdir() if p.name.startswith(("register", "run-roots"))]
+    # The logs a version is written with hold no line.
+    assert api(f"{EXPOSURE}.register_lines")(made.store, "control") == []
+    assert api(f"{EXPOSURE}.run_roots")(made.store, "control") == []
 
 
 def test_a_run_root_in_the_store_or_holding_it_is_refused(
@@ -282,8 +283,9 @@ def test_each_writer_refuses_inside_a_harness_session_and_appends_nothing(
     with pytest.raises(error) as refused:
         _three_writers(made, runs)[writer]()
     assert refused.value.context.get("refused_because") == "inside_a_session"
-    withheld = withheld_root(made.store, "control")
-    assert not [p for p in withheld.iterdir() if p.name.startswith(("register", "run-roots"))]
+    # The logs a version is written with hold no line.
+    assert api(f"{EXPOSURE}.register_lines")(made.store, "control") == []
+    assert api(f"{EXPOSURE}.run_roots")(made.store, "control") == []
 
 
 def _bad_root(tmp_path: Path, how: str, monkeypatch: pytest.MonkeyPatch) -> Path:
