@@ -210,27 +210,37 @@ def test_a_key_counted_as_another_kind_of_measurement_is_not_a_vector_s(
     assert code == 1 and said.get("refused_because") == "vector_unmeasured", said
 
 
-def test_the_interval_does_not_depend_on_the_vector_s_order(
-    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
-) -> None:
-    # Four held-out tasks passing 0, 1, 2 and 3 of three trials: each write shuffles them, and
-    # the same counts in another order give the same interval.
-    visible = measured(made, "visible", tmp_path / "v", trials=3)
-    held = measured(made, "held_out", tmp_path / "h", tasks=4, trials=3, outcome=lambda i, t: t < i)
-    body = design(made, visible, trials=3, held_out_tasks=4, validation_tasks=None)
+def _orders(made: StandInStore, tier: str, m: Measured) -> list[Path]:
+    """Five vectors of one run set, each in an order of its own."""
     orders: dict[tuple[int, ...], Path] = {}
     for _ in range(60):
-        path = _vector(made, "held_out", held)
+        path = _vector(made, tier, m)
         orders.setdefault(tuple(t["passes"] for t in json.loads(path.read_text())["tasks"]), path)
         if len(orders) == 5:
             break
     assert len(orders) == 5, orders
-    intervals = set()
-    for path in orders.values():
-        code, said = _gaps(capsys, tmp_path, body, visible, path, None)
+    return list(orders.values())
+
+
+def test_the_interval_does_not_depend_on_the_vector_s_order(
+    tmp_path: Path, made: StandInStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Four tasks of each protected tier passing 0, 1, 2 and 3 of three trials: each write
+    # shuffles them, and the same counts in another order give the same intervals.
+    visible = measured(made, "visible", tmp_path / "v", trials=3)
+    counts: dict[str, Any] = {"tasks": 4, "trials": 3, "outcome": lambda i, t: t < i}
+    held = _orders(made, "held_out", measured(made, "held_out", tmp_path / "h", **counts))
+    valid = _orders(made, "validation", measured(made, "validation", tmp_path / "w", **counts))
+    body = design(made, visible, trials=3, held_out_tasks=4, validation_tasks=4)
+    intervals: dict[str, set[tuple[float, float]]] = {"reward_hacking": set()}
+    intervals["optimiser_overfit"] = set()
+    for h, w in zip(held, valid, strict=True):
+        code, said = _gaps(capsys, tmp_path, body, visible, h, w)
         assert code == 0, said
-        intervals.add(tuple(said["reward_hacking"]["interval"]))
-    assert len(intervals) == 1, f"one count in five orders gave {len(intervals)} intervals"
+        for gap, seen in intervals.items():
+            seen.add(tuple(said[gap]["interval"]))
+    for gap, seen in intervals.items():
+        assert len(seen) == 1, f"one count in five orders gave {len(seen)} {gap} intervals"
 
 
 def test_runs_made_either_side_of_a_vector_write_are_refused_as_drift(

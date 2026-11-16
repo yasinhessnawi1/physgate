@@ -174,6 +174,7 @@ def test_the_register_read_is_the_caller_s_store_never_one_a_line_names(
     with pytest.raises(Exception) as caught:
         _read(trend, elsewhere)
     assert _reason(caught.value) == "trend_broken", caught.value
+    assert "no head" in str(caught.value), caught.value
     assert "store" not in json.loads(trend.read_text()), "a line names a store"
 
 
