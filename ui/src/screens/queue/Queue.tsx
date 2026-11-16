@@ -267,7 +267,8 @@ export default function Queue({ setHeader, query }: ViewProps) {
           >
             {item.item.source === "parts" ? (
               <PartsDecide
-                key={`${item.item.itemId}#${String(version)}`}
+                // Started again once the plan's line is read: its rows are the part's names.
+                key={`${item.item.itemId}#${String(version)}#${String(components !== null)}`}
                 view={item}
                 component={componentOf(item.item.itemId, item.item.decisionRequired, components)}
                 total={components === null ? null : components.length}
