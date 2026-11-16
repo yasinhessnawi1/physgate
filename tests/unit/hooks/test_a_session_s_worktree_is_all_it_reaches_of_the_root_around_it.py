@@ -262,6 +262,46 @@ def test_the_interpreter_s_directory_is_the_one_other_thing_it_reads_there(
     assert paths.protection(str(bin_dir / "x"), wt, config, writing=True) is not None
 
 
+def test_a_sibling_whose_name_starts_as_the_worktree_s_is_refused(rig: Path) -> None:
+    """``worktree:x``, ``worktree2``, ``worktree.bak`` beside the worktree: none is the worktree.
+
+    The search-path form (a directory then ``:``) belongs to the interpreter's directory alone.
+    """
+    place = rig / "work" / "trial" / "place"
+    names = ("worktree:x", "worktree2", "worktree.bak")
+    for name in names:
+        (place / name).mkdir()
+        (place / name / MARKED).write_text("beside, with a name like the worktree's\n")
+    config = _config(rig)
+    wt = str(_worktree(rig))
+    for name in names:
+        marked = place / name / MARKED
+        assert marked.read_text()  # not vacuous: it is there to read
+        assert paths.protection(str(marked), wt, config, writing=False) is not None, name
+        assert paths.protection(str(marked), wt, config, writing=True) is not None, name
+        assert shell_paths.check(parse(f"cat '{marked}'")[0], wt, config) is not None, name
+
+
+def test_a_sibling_whose_name_starts_as_the_interpreter_s_directory_s_is_refused(
+    rig: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Its search-path form names the path list its commands run with, never another entry."""
+    sdir = rig / "work" / "trial" / "place" / "session"
+    bin_dir = sdir / "bin"
+    names = ("bin:x", "bin2", "bin.bak")
+    for made in (bin_dir, *(sdir / n for n in names)):
+        made.mkdir()
+    for name in names:
+        (sdir / name / MARKED).write_text("beside the interpreter's directory\n")
+    config = _config(rig, os_layer_readable=(str(bin_dir),))
+    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
+    wt = str(_worktree(rig))
+    for name in names:
+        marked = sdir / name / MARKED
+        assert paths.protection(str(marked), wt, config, writing=False) is not None, name
+    assert shell_paths.check(parse("echo $PATH")[0], wt, config) is None
+
+
 def test_no_place_in_its_home_or_outside_its_place_is_excepted_from_the_root(rig: Path) -> None:
     """Not its home, where its commands write and could make a link, nor a place outside.
 

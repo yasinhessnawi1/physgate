@@ -205,16 +205,137 @@ def test_a_session_that_has_ended_refuses_nothing(left_trial: tuple[StandInStore
     assert _new_trial(store) == "made", "an ended session's facts refused a new trial"
 
 
+#: How ``ps`` prints a start time under the C locale.
+LSTART = "%a %b %d %H:%M:%S %Y"
+#: A start time no process here has.
+LONG_AGO = "Mon Jan  1 00:00:00 2001"
+
+
+def _shifted(started: str, seconds: float) -> str:
+    """``started`` as ``ps`` would print it ``seconds`` later."""
+    return time.strftime(
+        LSTART, time.localtime(time.mktime(time.strptime(started, LSTART)) + seconds)
+    )
+
+
+def _rewrite(facts_file: Path, **changes: object) -> None:
+    facts = json.loads(facts_file.read_text())
+    facts.update(changes)
+    facts_file.write_text(json.dumps(facts))
+
+
+def _refused_as_living(outcome: object) -> None:
+    assert isinstance(outcome, BaselineError), f"made beside a living session: {outcome!r}"
+    assert outcome.context.get("refused_because") == "session_lives", outcome.context
+    assert "still runs" in str(outcome), outcome
+
+
 def test_facts_whose_pid_was_reused_by_a_later_process_refuse_nothing(
     left_trial: tuple[StandInStore, Left],
 ) -> None:
-    """The pid runs now, but with another start time: not that session, nor its group."""
+    """The pid runs now, with another start time and no session id of the facts on its line.
+
+    Not that session, and no other process is in its group or its session.
+    """
     store, left = left_trial
     facts_file = left.entry / PLACE / "session" / "process.json"
-    facts = json.loads(facts_file.read_text())
-    facts["started"] = "Mon Jan  1 00:00:00 2001"
-    facts_file.write_text(json.dumps(facts))
+    _rewrite(facts_file, started=LONG_AGO, session_id=str(uuid.uuid4()))
     assert _new_trial(store) == "made", "a reused pid was taken for the session"
+
+
+def test_a_leader_whose_start_reads_a_few_seconds_off_still_refuses(
+    left_trial: tuple[StandInStore, Left],
+) -> None:
+    """A clock adjusted by a few seconds: the same leader, though its start string changed.
+
+    Its command line is not what tells it here (the facts' session id is another).
+    """
+    store, left = left_trial
+    facts_file = left.entry / PLACE / "session" / "process.json"
+    started = json.loads(facts_file.read_text())["started"]
+    _rewrite(facts_file, started=_shifted(started, 3), session_id=str(uuid.uuid4()))
+    _refused_as_living(_new_trial(store))
+
+
+def test_a_leader_whose_start_reads_otherwise_but_whose_line_names_the_session_still_refuses(
+    left_trial: tuple[StandInStore, Left],
+) -> None:
+    """A clock stepped, or another time zone: the start string moved by more than seconds.
+
+    The process at the pid carries the session's id on its command line: it is the session.
+    """
+    store, left = left_trial
+    _rewrite(left.entry / PLACE / "session" / "process.json", started=LONG_AGO)
+    _refused_as_living(_new_trial(store))
+
+
+def _leader_with_a_child(
+    tmp_path: Path, sid: str, group: str
+) -> tuple[subprocess.Popen[bytes], int, str]:
+    """A stand-in session leading its own session, with one child in ``group``, both running."""
+    pids = tmp_path / f"child-{group}"
+    leader = subprocess.Popen(  # noqa: S603 - this interpreter, fixed arguments
+        [sys.executable, "-c", WITH_A_CHILD, str(pids), group, "--session-id", sid],
+        start_new_session=True,
+    )
+    started = None
+    for _ in range(400):
+        started = started or started_at(leader.pid)
+        if started and pids.is_file() and pids.read_text().strip():
+            return leader, int(pids.read_text()), started
+        time.sleep(0.05)
+    leader.kill()
+    leader.wait()
+    msg = "the stand-in session did not start its child"
+    raise AssertionError(msg)
+
+
+def test_a_reused_pid_with_a_surviving_member_of_the_session_still_refuses(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    """The pid's process is not the session, but a process of the session still runs.
+
+    The process at the pid has another start and no session id of the facts on its line; a
+    child in a group of its own is still in the POSIX session that pid leads.
+    """
+    store = copied(made, tmp_path / "store")
+    leader, child, _started = _leader_with_a_child(tmp_path, str(uuid.uuid4()), "own")
+    try:
+        entry = work_root(store.store, "control") / f"{BASELINE_DIR}-dead-0001-1"
+        _leave(entry, entry / PLACE / "session", leader, LONG_AGO, str(uuid.uuid4()))
+        assert started_at(child) is not None, "the child does not run"
+        outcome = _new_trial(store)
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(child, signal.SIGKILL)
+        leader.kill()
+        leader.wait()
+    _refused_as_living(outcome)
+
+
+def test_a_member_whose_start_reads_before_the_recorded_one_still_refuses(
+    tmp_path: Path, made: StandInStore
+) -> None:
+    """A clock stepped back after the spawn: every start now reads earlier than recorded.
+
+    The leader has ended; its child, in its group, still runs, though it reads as older.
+    """
+    store = copied(made, tmp_path / "store")
+    sid = str(uuid.uuid4())
+    leader, child, started = _leader_with_a_child(tmp_path, sid, "the session's")
+    try:
+        entry = work_root(store.store, "control") / f"{BASELINE_DIR}-dead-0001-1"
+        _leave(entry, entry / PLACE / "session", leader, _shifted(started, 3600), sid)
+        leader.kill()
+        leader.wait()
+        assert started_at(child) is not None, "the child did not outlive its leader"
+        outcome = _new_trial(store)
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(child, signal.SIGKILL)
+        leader.kill()
+        leader.wait()
+    _refused_as_living(outcome)
 
 
 #: A stand-in session that starts one child, in the session's group or in a group of its own
