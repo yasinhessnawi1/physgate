@@ -22,6 +22,12 @@ outbox is taken out of the worktree:
   change check holds the attempt commit to every one of them, so the code is code the attempt
   commits with exactly those bytes (ignored or never-added code refuses the record there).
 
+A record whose module code changed after it was written, and that nothing else refuses, is
+**discarded**, not refused: the session went on working after the run and records again under
+a new id, and it cannot take the earlier record out of the outbox. It is never sealed, so a
+quantity that names it still refuses the attempt; the record alone does not. A changed writer
+is refused.
+
 What this cannot prove is that the script produced the curve: a script that writes a curve
 it did not compute names itself honestly. Re-running the script is that proof, and it is not
 made here.
@@ -101,6 +107,16 @@ def series_library() -> dict[Path, bytes]:
 
 class _RefusedError(Exception):
     """A file is not sealed; the message is the reason the session's end records."""
+
+
+class _SupersededError(Exception):
+    """A record whose module code changed after it was written: discarded, not refused.
+
+    The session kept working after the run, so the curve no longer has its code. It is never
+    sealed, and a quantity that names it finds no sealed record and refuses the attempt; but
+    the record alone does not, since the session cannot take it out of the outbox and its
+    later run is recorded under a new id.
+    """
 
 
 def _printable(name: str) -> str:
@@ -545,11 +561,14 @@ def _provenance(
     (the writer excepted) and unchanged since the record was written. Their blobs are what the
     change check holds the attempt commit to: code the attempt does not commit with these
     bytes cannot stand behind the curve. A file outside the worktree is admitted only as the
-    interpreter's own (:func:`_environment_code`), and is recorded.
+    interpreter's own (:func:`_environment_code`), and is recorded. Every file is checked for
+    a refusal before a changed module file is reported, so a record that is both changed and
+    refused is refused.
 
     Raises:
         _RefusedError: a file lies outside the module and is not admissible as the interpreter's
-            own, cannot be read, or changed since the record was written.
+            own, cannot be read, or is the writer and changed since the record was written.
+        _SupersededError: a file of the module changed since the record was written.
     """
     script = _in_the_module(record.producer.script.path, module)
     if script == WRITER_PATH:
@@ -558,6 +577,7 @@ def _provenance(
     script_bytes = b""
     loaded: dict[str, CodeBlob] = {}
     environment: dict[str, CodeDigest] = {}
+    changed: PurePosixPath | None = None
     for named in (record.producer.script, *record.producer.loaded):
         if named is not record.producer.script and PurePosixPath(named.path).is_absolute():
             environment[named.path] = _environment_code(named, roots)
@@ -565,12 +585,21 @@ def _provenance(
         relative = _in_the_module(named.path, module)
         data = _code_bytes(base, relative)
         if hashlib.sha256(data).hexdigest() != named.sha256:
-            msg = f"{relative} changed after the record was written; run the script again"
-            raise _RefusedError(msg)
+            if relative == WRITER_PATH:
+                msg = f"{relative} changed after the record was written; run the script again"
+                raise _RefusedError(msg)
+            changed = changed or relative
+            continue
         if relative == script:
             script_bytes = data
         else:
             loaded[str(relative)] = CodeBlob(path=str(relative), blob=blob_id(data, object_format))
+    if changed is not None:
+        msg = (
+            f"{changed} changed after the record was written, so it is not sealed and a "
+            "quantity that names it refuses the attempt; a later run is recorded under a new id"
+        )
+        raise _SupersededError(msg)
     return _Provenance(
         script=script_bytes,
         loaded=tuple(loaded[path] for path in sorted(loaded)),
@@ -702,6 +731,10 @@ def collect(
             except _RefusedError as exc:
                 _move_aside(fd, name, refused_at)
                 refused.add(name, str(exc))
+                continue
+            except _SupersededError as exc:
+                _move_aside(fd, name, discarded_at)
+                discarded.add(name, str(exc))
                 continue
             _write_sealed(sealed_at, name, data)
             os.unlink(name, dir_fd=fd)
