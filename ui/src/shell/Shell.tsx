@@ -1,3 +1,4 @@
+import { navStartsCollapsed, windowIsNarrow } from "./prefs";
 import {
   type ComponentType,
   type CSSProperties,
@@ -108,7 +109,7 @@ export function Shell({
   /** The content region, which the skip link focuses. */
   const contentRef = useRef<HTMLElement>(null);
   const registry = usePaletteRegistry();
-  const [navCollapsed, setNavCollapsed] = useState(false);
+  const [navCollapsed, setNavCollapsed] = useState(() => navStartsCollapsed(windowIsNarrow()));
   const [dockOpen, setDockOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [noticesOpen, setNoticesOpen] = useState(false);

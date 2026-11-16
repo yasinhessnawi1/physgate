@@ -522,6 +522,24 @@
     border-left: 0;
     border-top: 1px solid var(--color-border);
   }
+
+  /* Collapsed, the menu is its top row alone: the first screen is the page, not the menu. */
+  .pg-shell[data-nav="collapsed"] .pg-nav > :not(.pg-brand) {
+    display: none;
+  }
+
+  .pg-shell[data-nav="collapsed"] .pg-brand {
+    flex-direction: row;
+  }
+
+  .pg-shell[data-nav="collapsed"] .pg-brand-words {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    flex: 1;
+  }
 }
 
 /* The run's label leads the chip; its time in UTC and its id are its title and its name. */

@@ -991,3 +991,11 @@
 .pg-library .pg-table td {
   height: var(--size-touch-min);
 }
+
+/* -- below 760 px: a row's value wraps rather than pushing the page sideways ----------------- */
+@media (max-width: 760px) {
+  .pg-row-value,
+  .pg-quantity {
+    white-space: normal;
+  }
+}

@@ -79,6 +79,15 @@ export const NARROW_MAX_PX = 760;
  * Whether the navigation starts collapsed: in a narrow window, so the first screen is the page and
  * not the menu; the menu opens from its button. ``narrow`` is the window's media query answer.
  */
-export function navStartsCollapsed(_narrow: boolean): boolean {
-  return false;
+export function navStartsCollapsed(narrow: boolean): boolean {
+  return narrow;
+}
+
+/** Whether this window is narrow, by the same width the stylesheet stacks the navigation at. */
+export function windowIsNarrow(): boolean {
+  try {
+    return window.matchMedia(`(max-width: ${String(NARROW_MAX_PX)}px)`).matches;
+  } catch {
+    return false;
+  }
 }

@@ -1886,3 +1886,34 @@ kbd,
   margin: var(--space-1) 0 0;
   overflow-wrap: anywhere;
 }
+
+/* -- below 760 px: a timeline row stacks as a card ------------------------------------------- */
+@media (max-width: 760px) {
+  .pg-trow {
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .pg-trow-main,
+  .pg-trow-end {
+    grid-column: 1 / -1;
+  }
+
+  /* A row that opens its attempt holds its sentence in a button: that button is the cell. */
+  .pg-trow-open {
+    grid-column: 1 / -1;
+  }
+
+  .pg-trow-depth-1,
+  .pg-trow-depth-2 {
+    padding-left: calc(var(--space-4) + 12px);
+  }
+
+  /* A long finding's rest, folded under its row, lines up with the stacked sentence. */
+  .pg-trow-more,
+  .pg-trow-more-1,
+  .pg-trow-more-2 {
+    padding-left: var(--space-4);
+  }
+}
