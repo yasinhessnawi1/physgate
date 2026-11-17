@@ -53,6 +53,17 @@ export const PARTS_COPY = {
     "No agent may change them. A value the gate stops comes back to you as this part again.",
   find: "The part is sourced and sized as before.",
   refused: "The server refused this choice, and nothing was written:",
+  refusedReread:
+    "The queue is read again: if the part changed or was decided meanwhile, the page now shows " +
+    "it as it is.",
+  unchecked:
+    "The physics gate's catalogue does not name this quantity, so its value is recorded as " +
+    "unchecked: written onto the part, but held to no unit or range.",
+  next:
+    "Every part is decided. The run takes up your decisions when it goes on, or when it is " +
+    "resumed if it is not going now: it writes what you stated onto each part's node, and the " +
+    "physics gate checks each value's unit and range. The run then continues, or brings the " +
+    "part back here with the gate's finding.",
   written:
     "This cannot be edited or undone; the item closes. The time is stamped when it is written.",
 } as const;

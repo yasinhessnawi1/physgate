@@ -9,11 +9,13 @@
  * is of its quantity's kind is the gate's catalogue's to say, which only the server holds; the
  * server checks everything again and its refusal is shown as it gives it.
  */
+import catalogueNames from "../../api/catalogue-names.json";
 import type { PlanComponent, RunEvent } from "../../api/events";
 import {
   type Decided,
   type DeclaredValue,
   isBlank,
+  type ItemView,
   type PartsPosition,
   type StatedPart,
 } from "../../api/queue";
@@ -55,6 +57,36 @@ export function partRound(itemId: string): PartRound | null {
 export function planComponents(events: readonly RunEvent[]): readonly PlanComponent[] | null {
   const line = events.find((e) => e.kind === "decomposed");
   return line?.kind === "decomposed" ? (line.components ?? null) : null;
+}
+
+/**
+ * The quantity names the physics gate's catalogue knows, as the page carries them (no route
+ * serves the catalogue; a row holds this list equal to it). A value under any other name is
+ * written onto the part and recorded by the gate as unchecked.
+ */
+const CATALOGUE: ReadonlySet<string> = new Set(catalogueNames);
+
+/** Whether ``name``, a quantity's name as typed, is one the gate's catalogue does not know. */
+export function uncatalogued(name: string): boolean {
+  const said = name.trim();
+  return QUANTITY_NAME.test(said) && !CATALOGUE.has(said);
+}
+
+/**
+ * The open part to show once ``from`` is decided: the next open part after it in the queue's
+ * order, else the first still open; ``undefined`` when no part is open.
+ */
+export function nextOpenPart(views: readonly ItemView[], from: ItemView): ItemView | undefined {
+  const open = views
+    .filter((v) => v.open && v.item.source === "parts")
+    .sort((a, b) => a.position - b.position);
+  return open.find((v) => v.position > from.position) ?? open[0];
+}
+
+/** Whether every part of a run that asks about its parts is decided, and none is open. */
+export function everyPartDecided(views: readonly ItemView[]): boolean {
+  const parts = views.filter((v) => v.item.source === "parts");
+  return parts.length > 0 && parts.every((v) => !v.open);
 }
 
 /** The choices the release recorded, once the run was released; ``null`` before. */

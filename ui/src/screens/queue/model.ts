@@ -70,9 +70,19 @@ export function lineToWrite(
 }
 
 /** Why a verb cannot be chosen now, or ``null`` when it can. */
-export function whyNot(operator: string | null, holdsToken = true): string | null {
+export function whyNot(
+  operator: string | null,
+  holdsToken = true,
+  lostOnReload = false,
+): string | null {
   if (operator === null)
     return "This server was started without naming an operator, so no decision can be taken here.";
+  if (!holdsToken && lostOnReload)
+    return (
+      "This page was reloaded, and a reload forgets the operator's token, which the page keeps " +
+      "in memory only, so it can only read now. To decide again, open the operator address " +
+      "from the run's ui.out once more (the newest one, ending in #act=…)."
+    );
   if (!holdsToken)
     return (
       "This page was opened without the operator's address, so it can only read. To decide, " +

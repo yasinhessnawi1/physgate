@@ -122,6 +122,13 @@
   font-size: var(--type-label-size);
 }
 
+/* A name the gate's catalogue lacks: said beside it, in the text's own colour, as a note. */
+.pg-parts-unchecked {
+  flex: 1 1 100%;
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+}
+
 .pg-parts-texts textarea {
   resize: vertical;
 }
@@ -181,4 +188,16 @@
   border-radius: var(--radius-control);
   background: var(--color-pass-bg);
   color: var(--color-text);
+}
+
+/* The part just recorded, and what the run does once every part is decided. */
+.pg-parts-screen-recorded,
+.pg-parts-next {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
 }

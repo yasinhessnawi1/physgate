@@ -9,9 +9,9 @@
  * server checks everything again, and a refusal is shown in its own words with nothing written.
  * The choice goes through the one confirmation every decision does, naming the line it writes.
  */
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
-import type { Result } from "../../api/client";
+import { type Result, tokenLostOnReload } from "../../api/client";
 import type { PlanComponent } from "../../api/events";
 import {
   type ItemView,
@@ -33,6 +33,7 @@ import {
   MAX_TEXTS,
   partRound,
   startingRows,
+  uncatalogued,
   type ValueRow,
 } from "./parts";
 import "./parts.css";
@@ -53,6 +54,8 @@ export function PartsDecide({
   holdsToken,
   send,
   onDecided,
+  onRefused,
+  focusOnStart = false,
 }: {
   readonly view: ItemView;
   /** The plan's entry for this part, or ``null`` where the plan's line could not be read. */
@@ -66,7 +69,12 @@ export function PartsDecide({
   /** Whether this page holds the action token; without it, it can only read. */
   readonly holdsToken: boolean;
   readonly send: (position: PartsPosition, stated: StatedPart | null) => Promise<Result<Resolved>>;
-  readonly onDecided: () => void;
+  /** The queue wrote the decision: the screen reads the queue again and moves to the next part. */
+  readonly onDecided: (resolved: Resolved) => void;
+  /** The server refused it: the screen reads the queue again, and this panel keeps what it holds. */
+  readonly onRefused: () => void;
+  /** Whether the keyboard's focus starts on this part's choice, as after the part before it. */
+  readonly focusOnStart?: boolean;
 }) {
   const id = useId();
   const round = partRound(view.item.itemId);
@@ -80,8 +88,14 @@ export function PartsDecide({
   );
   const [added, setAdded] = useState(0);
   const [texts, setTexts] = useState<string[]>([""]);
-  const [answer, setAnswer] = useState<Result<Resolved> | null>(null);
-  const why = whyNot(operator, holdsToken);
+  const [refusal, setRefusal] = useState<Result<Resolved> | null>(null);
+  const why = whyNot(operator, holdsToken, tokenLostOnReload());
+  const choices = useRef<HTMLFieldSetElement>(null);
+  useEffect(() => {
+    if (focusOnStart) choices.current?.querySelector<HTMLInputElement>("input:checked")?.focus();
+    // Once, when the part is first shown: a later read of the queue moves no focus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const checked = checkParts(choice, rows, texts, again ? (earlier?.parts ?? null) : null);
   const blocked = why ?? (checked.problems.length > 0 ? PARTS_COPY.fixProblems : null);
   const who = operator ?? "no one";
@@ -133,10 +147,14 @@ export function PartsDecide({
       </p>
     ),
     onConfirm: () => {
-      setAnswer(null);
+      setRefusal(null);
       void send(choice, checked.stated).then((result) => {
-        setAnswer(result);
-        if (result.ok) onDecided();
+        if (result.ok) {
+          onDecided(result.value);
+          return;
+        }
+        setRefusal(result);
+        onRefused();
       });
     },
   };
@@ -179,7 +197,7 @@ export function PartsDecide({
           </dd>
         </dl>
       )}
-      <fieldset className="pg-parts-choice">
+      <fieldset className="pg-parts-choice" ref={choices}>
         <legend className="pg-section-label">{PARTS_COPY.legend}</legend>
         {offered.map((position) => (
           <label key={position} className="pg-parts-option" data-checked={choice === position}>
@@ -257,6 +275,9 @@ export function PartsDecide({
                   }}
                 />
               </span>
+              {uncatalogued(row.name) && (
+                <span className="pg-parts-unchecked">{PARTS_COPY.unchecked}</span>
+              )}
               {row.before !== null && (
                 <span className="pg-parts-before">
                   {beforeWords(row.before.value, row.before.unit)}
@@ -354,25 +375,19 @@ export function PartsDecide({
         />
       </div>
       <p className="pg-panel-note pg-parts-find-all">{PARTS_COPY.findAll}</p>
-      {answer !== null &&
-        (answer.ok ? (
-          <p className="pg-queue-recorded" role="status">
-            Recorded: <span className="mono">{answer.value.decision}</span> by{" "}
-            <span className="mono">{answer.value.resolvedBy}</span> at{" "}
-            <span className="mono">{answer.value.ts}</span>
-          </p>
-        ) : (
-          // Said whole, never folded: the server's words are what the person corrects by.
-          <div className="pg-parts-refused" role="alert">
-            <p className="pg-parts-refused-title">{PARTS_COPY.refused}</p>
-            <p>{answer.refusal.error}</p>
-            {Object.entries(answer.refusal.context).map(([key, said]) => (
-              <p key={key} className="pg-parts-refused-reason">
-                {said}
-              </p>
-            ))}
-          </div>
-        ))}
+      {refusal !== null && !refusal.ok && (
+        // Said whole, never folded: the server's words are what the person corrects by.
+        <div className="pg-parts-refused" role="alert">
+          <p className="pg-parts-refused-title">{PARTS_COPY.refused}</p>
+          <p>{refusal.refusal.error}</p>
+          {Object.entries(refusal.refusal.context).map(([key, said]) => (
+            <p key={key} className="pg-parts-refused-reason">
+              {said}
+            </p>
+          ))}
+          <p className="pg-panel-note">{PARTS_COPY.refusedReread}</p>
+        </div>
+      )}
     </section>
   );
 }

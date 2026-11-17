@@ -78,6 +78,16 @@ export async function getLines<T>(
  */
 let held: string | null = null;
 
+/** Whether this page was reloaded without a token: a reload forgets the one held in memory. */
+let lostOnReload = false;
+
+/** How the browser came to this page: "reload" when a person reloaded it. */
+function navigationType(win: Window): string | null {
+  const entry = win.performance.getEntriesByType("navigation")[0] as
+    { readonly type?: string } | undefined;
+  return entry?.type ?? null;
+}
+
 /** The fragment the operator's address carries the token in. */
 export const ACT_FRAGMENT = "#act=";
 
@@ -87,7 +97,12 @@ export const ACT_FRAGMENT = "#act=";
  */
 export function takeTokenFromAddress(win: Window = window): void {
   const { hash, pathname, search } = win.location;
-  if (!hash.startsWith(ACT_FRAGMENT)) return;
+  if (!hash.startsWith(ACT_FRAGMENT)) {
+    // Never stored anywhere: a reload starts with no token, and the page says why.
+    lostOnReload = held === null && navigationType(win) === "reload";
+    return;
+  }
+  lostOnReload = false;
   const token = decodeURIComponent(hash.slice(ACT_FRAGMENT.length));
   held = token === "" ? null : token;
   win.history.replaceState(null, "", `${pathname}${search}`);
@@ -98,9 +113,15 @@ export function actToken(): string | null {
   return held;
 }
 
+/** Whether this page holds no token because it was reloaded, which forgets the one it held. */
+export function tokenLostOnReload(): boolean {
+  return lostOnReload;
+}
+
 /** Forget the token: for tests, which share one module between cases. */
 export function forgetToken(): void {
   held = null;
+  lostOnReload = false;
 }
 
 /** The name of the ``<meta>`` element naming the operator decisions are recorded under. */

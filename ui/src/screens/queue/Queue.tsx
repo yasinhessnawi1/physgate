@@ -4,9 +4,16 @@
  * this app makes. Every figure is read from the run's queue and event log through the server; the
  * decision is sent with what this page showed, and recorded by the queue's own function.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { actToken, getJson, pageOperator, postAction, type Result } from "../../api/client";
+import {
+  actToken,
+  getJson,
+  getLines,
+  pageOperator,
+  postAction,
+  type Result,
+} from "../../api/client";
 import { runEvent } from "../../api/events";
 import {
   decisionRequest,
@@ -16,6 +23,7 @@ import {
   partsRequest,
   type Position,
   queueListing,
+  type Resolved,
   resolved,
   type StatedPart,
   type Verb,
@@ -26,22 +34,54 @@ import { EmptyState, ErrorState, LoadingState } from "../../design/components/st
 import { StatusTag } from "../../design/components/status/StatusTag";
 import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
-import { releasedWords } from "../../words/parts";
+import { PARTS_COPY, releasedWords } from "../../words/parts";
 import { SOURCE_WORDS } from "../../words/queue";
 import { allItems } from "../common/queueItems";
-import { useLines } from "../common/read";
 import { subtaskNames } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
 import { inProgress, runSource, useChosenRun } from "../common/runs";
-import { useResult } from "../common/useResult";
+import { useHeldResult, useResult } from "../common/useResult";
 import { Decide } from "./Decide";
 import { chosenItem } from "./model";
-import { componentOf, earlierDecision, planComponents, releasedChoices } from "./parts";
+import {
+  componentOf,
+  earlierDecision,
+  everyPartDecided,
+  nextOpenPart,
+  planComponents,
+  releasedChoices,
+} from "./parts";
 import { PartsDecide } from "./PartsDecide";
 import { QueueItem } from "./QueueItem";
 
 const AREA = "collaboration";
 const SLUG = "approval-queue";
+
+/**
+ * How often the page reads the run's queue again while it is open, so an item the run adds (a
+ * part the gate raised again) and the run's release appear without opening the page again.
+ */
+const READ_AGAIN_MS = 5_000;
+
+/** A count that goes up every ``ms`` while the page is shown, and never while it is hidden. */
+function useEvery(ms: number): number {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "hidden") setN((v) => v + 1);
+    }, ms);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [ms]);
+  return n;
+}
+
+/** The part a person just recorded, said on the screen once its panel has moved on. */
+interface JustRecorded {
+  readonly label: string;
+  readonly resolved: Resolved;
+}
 
 function ItemList({
   views,
@@ -59,6 +99,13 @@ function ItemList({
   );
   const waiting = views.filter((v) => v.open);
   const done = views.filter((v) => !v.open);
+  // An item that starts waiting while the page is open (a part the gate raised again) is shown.
+  const ids = waiting.map((v) => v.item.itemId).join(",");
+  const [seen, setSeen] = useState(ids);
+  if (ids !== seen) {
+    setSeen(ids);
+    if (waiting.some((v) => !seen.split(",").includes(v.item.itemId))) setShow("waiting");
+  }
   const listed = show === "waiting" ? waiting : done;
   return (
     <section className="pg-card pg-panel pg-queue-list" aria-label="Queue items">
@@ -118,27 +165,101 @@ function ItemList({
 export default function Queue({ setHeader, query }: ViewProps) {
   const chosen = useChosenRun(query);
   const { runs, config, status, base, label } = chosen;
+  // ``version`` goes up when a decision is written or refused, and everything is read again;
+  // ``tick`` goes up while the page is open, and the listing is read again, held while it is.
   const [version, setVersion] = useState(0);
-  const listing = useResult(
+  const tick = useEvery(READ_AGAIN_MS);
+  const scope = String(base);
+  const listing = useHeldResult(
     base === null ? null : () => getJson(`${base}/queue`, queueListing),
-    `${String(base)}/queue#${String(version)}`,
+    scope,
+    `${String(version)}#${String(tick)}`,
   );
   const total =
     listing?.ok === true ? listing.value.open.length + listing.value.decided.length : null;
-  const views = useResult(
+  // The items are read again only when the listing's items change, never on every tick.
+  const signature =
+    listing?.ok === true
+      ? [
+          ...listing.value.open.map((o) => o.itemId),
+          "|",
+          ...listing.value.decided.map((d) => d.itemId),
+        ].join(",")
+      : null;
+  const views = useHeldResult(
     base === null || total === null ? null : () => allItems(base, total),
-    `${String(base)}/items/${String(total)}#${String(version)}`,
+    scope,
+    `${String(signature)}#${String(version)}`,
   );
+  // A list click or a new address names the item; after a decision the page moves on by itself.
+  const asked = query.get("item");
+  const [moved, setMoved] = useState<{ readonly asked: string | null; readonly to: string } | null>(
+    null,
+  );
+  const wanted = moved !== null && moved.asked === asked ? moved.to : asked;
+  const [advanceFrom, setAdvanceFrom] = useState<string | null>(null);
+  const [focus, setFocus] = useState<"part" | "next" | null>(null);
+  const [just, setJust] = useState<JustRecorded | null>(null);
   // The chosen item's view is read again when it is chosen: the server stamps when it showed it,
-  // and a decision's review time runs from that stamp, not from when the list was read.
-  const picked = views?.ok === true ? chosenItem(views.value, query.get("item")) : undefined;
+  // and a decision's review time runs from that stamp, not from when the list was read. It is
+  // never read again on a tick, so the stamp stands while the person decides.
+  const picked = views?.ok === true ? chosenItem(views.value, wanted) : undefined;
   const fresh = useResult(
     base === null || picked === undefined || !picked.open
       ? null
       : () => getJson(`${base}/queue/items/${String(picked.position)}`, itemView),
     `${String(base)}/items/${String(picked?.position)}/shown#${String(version)}`,
   );
-  const events = useLines(base === null ? null : `${base}/events`, runEvent);
+  // The run's log, read again on a tick only while a run that asked about its parts waits for
+  // its release, so the release appears; otherwise when a decision is written or refused.
+  const [awaitingRelease, setAwaitingRelease] = useState(false);
+  const eventsRead = useHeldResult(
+    base === null ? null : () => getLines(`${base}/events`, runEvent),
+    scope,
+    awaitingRelease ? `${String(version)}#${String(tick)}` : String(version),
+  );
+  const events = { result: eventsRead };
+  const awaiting =
+    eventsRead?.ok === true &&
+    planComponents(eventsRead.value) !== null &&
+    releasedChoices(eventsRead.value) === null;
+  // Adjusted while rendering, as React asks of state that follows what was read.
+  if (awaiting !== awaitingRelease) setAwaitingRelease(awaiting);
+  // Once the decided part reads as decided, show the next open part, or stay and say what the
+  // run does next.
+  if (advanceFrom !== null && views?.ok === true) {
+    const from = views.value.find((v) => v.item.itemId === advanceFrom);
+    if (from !== undefined && !from.open) {
+      setAdvanceFrom(null);
+      const next = nextOpenPart(views.value, from);
+      if (next === undefined) setFocus("next");
+      else {
+        setMoved({ asked, to: next.item.itemId });
+        setFocus("part");
+      }
+    }
+  }
+  // A part brought back after every part was decided on this page is shown, as the page said.
+  if (focus === "next" && advanceFrom === null && views?.ok === true) {
+    const back = views.value.find((v) => v.open && v.item.source === "parts");
+    if (back !== undefined) {
+      setMoved({ asked, to: back.item.itemId });
+      setFocus("part");
+    }
+  }
+  // The address is kept in step with the part shown, so a reload or a copy of it lands there.
+  useEffect(() => {
+    if (moved === null) return;
+    const address = new URLSearchParams(query);
+    address.set("item", moved.to);
+    window.history.replaceState(null, "", hrefFor(AREA, SLUG, address));
+    // Only when the page moves on by itself; the query it started from is in ``moved``.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moved]);
+  const nextLine = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (focus === "next") nextLine.current?.focus();
+  }, [focus]);
   const operator = pageOperator();
   const configValue = config?.ok === true ? config.value : undefined;
   const going = status?.ok === true && inProgress(status.value);
@@ -214,7 +335,7 @@ export default function Queue({ setHeader, query }: ViewProps) {
   // A run that asks which parts a person has: the plan's parts, and the release once all are decided.
   const components = events.result?.ok === true ? planComponents(events.result.value) : null;
   const released = events.result?.ok === true ? releasedChoices(events.result.value) : null;
-  const listed = chosenItem(views.value, query.get("item"));
+  const listed = chosenItem(views.value, wanted);
   const item =
     fresh?.ok === true && fresh.value.item.itemId === listed?.item.itemId ? fresh.value : listed;
   const decided =
@@ -251,6 +372,19 @@ export default function Queue({ setHeader, query }: ViewProps) {
           {releasedWords(released)}
         </p>
       )}
+      {just !== null && (
+        <p className="pg-queue-recorded pg-parts-screen-recorded" role="status">
+          Recorded for the part "{just.label}":{" "}
+          <span className="mono">{just.resolved.decision}</span> by{" "}
+          <span className="mono">{just.resolved.resolvedBy}</span> at{" "}
+          <span className="mono">{just.resolved.ts}</span>
+        </p>
+      )}
+      {released === null && components !== null && everyPartDecided(views.value) && (
+        <p className="pg-parts-next" role="status" tabIndex={-1} ref={nextLine}>
+          {PARTS_COPY.next}
+        </p>
+      )}
       <div className="pg-queue-layout">
         <ItemList views={views.value} chosen={item} query={query} names={names} />
         {item === undefined ? (
@@ -267,8 +401,9 @@ export default function Queue({ setHeader, query }: ViewProps) {
           >
             {item.item.source === "parts" ? (
               <PartsDecide
-                // Started again once the plan's line is read: its rows are the part's names.
-                key={`${item.item.itemId}#${String(version)}#${String(components !== null)}`}
+                // Started again once the plan's line is read: its rows are the part's names. A
+                // read of the queue again keeps it, and what the person typed in it.
+                key={`${item.item.itemId}#${String(components !== null)}`}
                 view={item}
                 component={componentOf(item.item.itemId, item.item.decisionRequired, components)}
                 total={components === null ? null : components.length}
@@ -277,7 +412,18 @@ export default function Queue({ setHeader, query }: ViewProps) {
                 operator={operator}
                 holdsToken={actToken() !== null}
                 send={sendPart}
-                onDecided={() => {
+                focusOnStart={focus === "part"}
+                onDecided={(written) => {
+                  const component = componentOf(
+                    item.item.itemId,
+                    item.item.decisionRequired,
+                    components,
+                  );
+                  setJust({ label: component?.label ?? item.item.itemId, resolved: written });
+                  setAdvanceFrom(item.item.itemId);
+                  setVersion((v) => v + 1);
+                }}
+                onRefused={() => {
                   setVersion((v) => v + 1);
                 }}
               />
