@@ -40,7 +40,7 @@ import { allItems } from "../common/queueItems";
 import { subtaskNames } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
 import { inProgress, runSource, useChosenRun } from "../common/runs";
-import { useHeldResult, useResult } from "../common/useResult";
+import { useResult } from "../common/useResult";
 import { Decide } from "./Decide";
 import { chosenItem } from "./model";
 import {
@@ -53,6 +53,7 @@ import {
 } from "./parts";
 import { PartsDecide } from "./PartsDecide";
 import { QueueItem } from "./QueueItem";
+import { useHeldResult } from "./useHeld";
 
 const AREA = "collaboration";
 const SLUG = "approval-queue";

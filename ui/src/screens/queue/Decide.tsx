@@ -10,7 +10,7 @@
  */
 import { useMemo, useState } from "react";
 
-import { type Result, tokenLostOnReload } from "../../api/client";
+import type { Result } from "../../api/client";
 import {
   type ItemView,
   offeredPositions,
@@ -56,7 +56,7 @@ export function Decide({
   const [answer, setAnswer] = useState<Result<Resolved> | null>(null);
   // The buttons and the command palette open the same confirmation, under the same rules.
   const [opened, setOpened] = useState<Verb | Position | null>(null);
-  const why = whyNot(operator, holdsToken, tokenLostOnReload());
+  const why = whyNot(operator, holdsToken);
   // The server refuses approve and the domain's value on a transcript that does not hold its seal.
   const unsealed =
     view.trajectories.length === 0 || view.trajectories.some((t) => t.status !== "holds");

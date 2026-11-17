@@ -3,6 +3,7 @@
  * is chosen, the seal status in words, and the exact line a decision writes, which the
  * confirmation shows before anything is sent.
  */
+import { tokenLostOnReload } from "../../api/client";
 import type { ItemView, Position, TrajectoryStatus, Verb } from "../../api/queue";
 import { decisionText, isBlank } from "../../api/queue";
 import type { StatusKind } from "../../design/components/status/StatusTag";
@@ -73,7 +74,7 @@ export function lineToWrite(
 export function whyNot(
   operator: string | null,
   holdsToken = true,
-  lostOnReload = false,
+  lostOnReload = tokenLostOnReload(),
 ): string | null {
   if (operator === null)
     return "This server was started without naming an operator, so no decision can be taken here.";

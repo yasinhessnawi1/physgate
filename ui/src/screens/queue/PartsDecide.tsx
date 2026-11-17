@@ -11,7 +11,7 @@
  */
 import { useEffect, useId, useRef, useState } from "react";
 
-import { type Result, tokenLostOnReload } from "../../api/client";
+import type { Result } from "../../api/client";
 import type { PlanComponent } from "../../api/events";
 import {
   type ItemView,
@@ -89,7 +89,7 @@ export function PartsDecide({
   const [added, setAdded] = useState(0);
   const [texts, setTexts] = useState<string[]>([""]);
   const [refusal, setRefusal] = useState<Result<Resolved> | null>(null);
-  const why = whyNot(operator, holdsToken, tokenLostOnReload());
+  const why = whyNot(operator, holdsToken);
   const choices = useRef<HTMLFieldSetElement>(null);
   useEffect(() => {
     if (focusOnStart) choices.current?.querySelector<HTMLInputElement>("input:checked")?.focus();
