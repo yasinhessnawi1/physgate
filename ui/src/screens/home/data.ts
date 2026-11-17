@@ -95,13 +95,20 @@ export async function pooled(
   await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, lane));
 }
 
-/** The phases Home lists first, in this order: a run going, then one waiting on a person. */
-export const ATTENTION_FIRST: readonly Phase[] = ["going", "waiting-person"];
+/**
+ * The groups Home lists first, in this order: a run going; one waiting on a person's decision;
+ * one halted, owing a halt, or that appears to have stopped, which a person should look at.
+ */
+export const ATTENTION_FIRST: readonly (readonly Phase[])[] = [
+  ["going"],
+  ["waiting-person"],
+  ["halted", "halt-owed", "stopped"],
+];
 
 /**
- * Home's order: runs going, then runs waiting on a person's decision, newest start first within
- * each; then every other run newest start first (``orderRuns``). A run whose status was not read,
- * or was refused, is among the rest.
+ * Home's order: runs going, then runs waiting on a person's decision, then runs halted or that
+ * appear stopped, newest start first within each; then every other run newest start first
+ * (``orderRuns``). A run whose status was not read, or was refused, is among the rest.
  */
 export function homeOrder<T extends RunListing>(
   runs: readonly T[],
@@ -109,7 +116,8 @@ export function homeOrder<T extends RunListing>(
 ): readonly T[] {
   const rank = (run: T) => {
     const phase = phases.get(runKey(run));
-    const at = phase === undefined ? -1 : ATTENTION_FIRST.indexOf(phase);
+    const at =
+      phase === undefined ? -1 : ATTENTION_FIRST.findIndex((group) => group.includes(phase));
     return at < 0 ? ATTENTION_FIRST.length : at;
   };
   // The sort is stable, so each group keeps the newest-first order.

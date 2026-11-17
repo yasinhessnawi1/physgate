@@ -153,8 +153,9 @@ export function statusWords(read: RunRead | undefined) {
 }
 
 /** Home's order of the runs, in the panel's words and as its table is named. */
-const ORDER_NOTE = "View: going, then waiting on a person, then newest first";
-const ORDER_LABEL = "Runs, going and waiting on a person first, then newest first";
+const ORDER_NOTE =
+  "View: going, then waiting on a person, then halted or stopped, then newest first";
+const ORDER_LABEL = "Runs, going, waiting on a person, halted or stopped first, then newest first";
 
 /** No run read in full yet. */
 const NO_TARGETS: readonly RunListing[] = [];
@@ -168,8 +169,8 @@ export function Runs({
   readonly reads: ReadonlyMap<string, RunRead>;
   readonly labels: ReadonlyMap<string, RunLabel>;
 }) {
-  // One list in Home's order (``homeOrder``): runs going, then runs waiting on a person, then the
-  // rest, newest start first within each. Grouped by brief, dates would jump.
+  // One list in Home's order (``homeOrder``): runs going, then runs waiting on a person, then runs
+  // halted or stopped, then the rest, newest start first within each. Grouped by brief, dates would jump.
   // A run whose records are still read is listed at once, its standing "Reading…".
   const listed: { run: RunListing; read: RunRead | undefined }[] = [];
   const unread: RunListing[] = [];
