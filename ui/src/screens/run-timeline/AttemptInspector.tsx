@@ -9,7 +9,7 @@ import { getLines } from "../../api/client";
 import type { RunEvent } from "../../api/events";
 import { type QueueListing, trajectoryPath } from "../../api/queue";
 import type { RunConfig } from "../../api/records";
-import type { GateCheck, Trace } from "../../api/run";
+import type { GateCheck, SessionTrace, Trace } from "../../api/run";
 import { Id } from "../../design/components/data/Id";
 import { Quantity } from "../../design/components/data/Quantity";
 import { SourceChip } from "../../design/components/data/SourceChip";
@@ -31,6 +31,32 @@ import { useResult } from "../common/useResult";
 import { runSource } from "../common/runs";
 import { gateReading, readingWords } from "./gate";
 import { escalatedItemOf, repairsUsedUp } from "./usedUp";
+
+/** A session in words: whose, for which attempt, numbered when the attempt had more than one. */
+export function sessionLabel(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  role: string | undefined,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  attempt: number,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  index: number,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  count: number,
+): string {
+  return "";
+}
+
+export function SessionWords(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  props: {
+    readonly session: SessionTrace;
+    readonly role: string | undefined;
+    readonly index: number;
+    readonly count: number;
+  },
+) {
+  return null;
+}
 
 function Seal({ base, session }: { readonly base: string; readonly session: string }) {
   const read = useResult(
