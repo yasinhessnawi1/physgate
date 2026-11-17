@@ -6,11 +6,15 @@ module that designs the controller no way to meet a margin the law cannot meet: 
 specification forbids another law, and no session may write an interface node (ARCH-011). So the
 rule is stated in every prompt, in one paragraph after the words that ask for the modules and
 interfaces: a specification states interfaces and acceptance criteria, never a solution's
-internal law, structure or coefficients the brief does not fix; a reference the brief cites is a
-source of numbers only; an interface node holds signals, units, rates and limits, never tuned
-parameters; and where one module implements what another designs, the designer comes first and
-writes its design on a node of its own, and the implementer's criteria compare it with that node
-as merged. A re-plan is sent the same prompt, so it is told the rule too.
+internal law, structure or coefficients unless the brief fixes them; the brief fixes a method only
+where one of its requirements says, in its own words, that the design shall use, run or contain
+it, and a program it cites for a number, a part or a condition is a source of those only; an
+interface node holds what both sides must agree on, the physical properties one side gives the
+other among them, never tuned parameters; and where one module implements what another designs,
+whether or not a criterion says so, the designer comes before the implementer, writes its design
+on a node of its own that both specifications name, and the implementer's criteria compare it
+with that node as merged; an implementer that starts before the node is merged reports it and
+implements no design of its own. A re-plan is sent the same prompt, so it is told the rule too.
 
 No check in code tells a tuned coefficient on an interface node from a limit or a rate: a
 quantity's name and unit say neither, so a plan that puts a law's coefficients on an interface
@@ -41,15 +45,37 @@ RUN_ROLES = [
 #: What the paragraph must say, each in words the plan's reader cannot read another way.
 SAID = (
     "interfaces and acceptance criteria",
-    "never the internal law, structure or coefficients of a solution",
-    "the brief does not itself fix",
-    "a reference implementation the brief cites is a source of numbers only",
-    "an interface node holds signals, units, rates and limits",
+    "never the internal law, structure or coefficients of a solution, unless the brief fixes them",
+    # What "fixes" means: a requirement's own words, not a citation.
+    "The brief fixes a method only where one of its requirements, in its own words, says the "
+    "design shall use, run or contain it",
+    "a program or document the brief cites as the source of a number, a part or a condition is a "
+    "source of those only",
+    # What an interface node holds, physical properties included.
+    "An interface node holds what both sides must agree on before either works",
+    "the signals that cross, with their units and rates",
+    "the limits both sides hold to",
+    "the physical properties one side gives the other, such as a mass or a motor constant",
     "never a solution's tuned parameters",
-    "one module to implement what another designs",
-    "the designing module comes first in the plan",
-    "writes its design on a node of its own",
+    # The designer's node: wherever one module implements another's design.
+    "Where one module implements what another designs",
+    "the designing module comes before the implementing module in the plan",
+    "writes its design on a node of its own, named in both specifications",
     "acceptance criteria compare its implementation with that node as merged",
+    "where the node is not merged when it starts, it reports that and implements no design of its "
+    "own",
+)
+
+#: Words the paragraph must not hold: each can be read more narrowly than the rule means.
+NOT_SAID = (
+    # A closed list that leaves out a mass or a motor constant.
+    "signals, units, rates and limits",
+    # A route conditioned on a criterion that requires it.
+    "Where the brief requires",
+    # An order that reads as ahead of every module.
+    "comes first in the plan",
+    # A citation that is a source of numbers whatever the brief requires.
+    "a reference implementation the brief cites is a source of numbers only",
 )
 
 
@@ -79,6 +105,8 @@ def test_every_prompt_states_the_rule_once_in_one_paragraph(
     paragraph = _rule(prompt)
     for words in SAID:
         assert words in paragraph, (words, paragraph)
+    for words in NOT_SAID:
+        assert words not in paragraph, (words, paragraph)
     assert "\n" not in paragraph
 
 

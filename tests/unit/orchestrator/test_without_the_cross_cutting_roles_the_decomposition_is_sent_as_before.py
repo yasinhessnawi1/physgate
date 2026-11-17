@@ -53,21 +53,25 @@ SCHEMA_SHA256 = "fae5d012d4633b0f2650310ffbe62ad712a16bf7764dc7757e54aa72b21f335
 #: (test_the_decomposition_prompt_states_how_a_unit_is_spelt); and, since 16.11.2026, the
 #: paragraph after the words that ask for the modules and interfaces, saying a specification
 #: states interfaces and criteria and never a solution's law or coefficients
-#: (test_the_plan_states_interfaces_and_criteria_never_a_solution_s_law). Before that paragraph:
-#: cd9d3713e8dd..., 66e80cd16451... and 6fd51bcf6f3a.... Before the unit sentence:
+#: (test_the_plan_states_interfaces_and_criteria_never_a_solution_s_law), reworded on
+#: 17.11.2026 (a test for what the brief fixes, physical properties on an interface, the
+#: designer's node wherever one module implements another's design, named in both
+#: specifications). Before the rewording: 7394c68115d3..., 044c69c7b621... and 0e879c749f64....
+#: Before that paragraph: cd9d3713e8dd..., 66e80cd16451... and 6fd51bcf6f3a.... Before the unit
+#: sentence:
 #: c14dba963d6c..., ad94ba0d6bbe... and d713661a9904.... At 470b3f34,
 #: before that sentence: ca0317a59ce7..., 8abeae4b5f23... and 44175ad46745...; before the
 #: widening, since 03.11.2026: dd56ee830053..., eefd8ba42c14... and a0d391892072..., in this order;
 #: before 03.11.2026: 748902966f06..., 95fe568607b0... and 2f9c1d0dbb40....
 PROMPT_SHA256 = {
-    ("control", "firmware"): "7394c68115d39dfda9e067ea080cc4bcf5e21a8c1409e108f0c2fd9bef8202eb",
-    ("electrical",): "044c69c7b62193e66a8fb0900838dad7544d45fdaab28a4f28d16446d6c182c4",
+    ("control", "firmware"): "38485dfa3eaedd6dbb36a087d301118b449efe5e8bae49f576a3cd9af8faacb5",
+    ("electrical",): "c6bbc8f4ddd18e0c8b269df067a67a736edd2f18384f01e1cc69671d496b486b",
     (
         "control",
         "electrical",
         "firmware",
         "mechanical",
-    ): "0e879c749f64bbfeaca98ed2d81ba5f435697157014995e42db8ef8484e0ffd0",
+    ): "06b330e281cc930a0cf6936d863a9d97bc3b8f5e0ce74536b298f6254968075a",
 }
 
 #: The prompt for ``BRIEF`` and the control and firmware roles, as it was sent before.
@@ -86,13 +90,18 @@ PROMPT = (
     "letters, digits and underscores only, the first beginning with a letter, such as "
     '"pump.flow_rate".\n\n'
     "A specification states its module's interfaces and acceptance criteria, never the internal "
-    "law, structure or coefficients of a solution the brief does not itself fix; a reference "
-    "implementation the brief cites is a source of numbers only, and an interface node holds "
-    "signals, units, rates and limits, never a solution's tuned parameters. Where the brief "
-    "requires one module to implement what another designs, such as firmware running the "
-    "control law that was analysed, the designing module comes first in the plan and writes its "
-    "design on a node of its own, and the implementing module's acceptance criteria compare its "
-    "implementation with that node as merged.\n\n"
+    "law, structure or coefficients of a solution, unless the brief fixes them. The brief fixes "
+    "a method only where one of its requirements, in its own words, says the design shall use, "
+    "run or contain it; a program or document the brief cites as the source of a number, a part "
+    "or a condition is a source of those only. An interface node holds what both sides must "
+    "agree on before either works (the signals that cross, with their units and rates; the "
+    "limits both sides hold to; and the physical properties one side gives the other, such as a "
+    "mass or a motor constant), never a solution's tuned parameters. Where one module implements "
+    "what another designs, such as firmware running the control law that was analysed, the "
+    "designing module comes before the implementing module in the plan and writes its design on "
+    "a node of its own, named in both specifications; the implementing module's acceptance "
+    "criteria compare its implementation with that node as merged, and where the node is not "
+    "merged when it starts, it reports that and implements no design of its own.\n\n"
     # The catalogue's names, from the catalogue: a copy here would hold the test to a list the
     # catalogue no longer keeps. The digests above hold the bytes.
     f"{catalogue_sentence()}\n\n"
