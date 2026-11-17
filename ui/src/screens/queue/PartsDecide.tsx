@@ -26,6 +26,7 @@ import { quantityLabel, word } from "../../words/humanise";
 import { beforeWords, CHOICE_WORDS, CONFIRM_TITLE, PARTS_COPY } from "../../words/parts";
 import { DECISION_COPY, effectWords } from "../../words/queue";
 import { whyNot } from "./model";
+import { RunStateNote } from "./RunStateNote";
 import {
   addedLabel,
   checkParts,
@@ -142,9 +143,12 @@ export function PartsDecide({
     recordedAs: operator === null ? "no operator: this page names none" : `${operator} (human)`,
     confirmLabel: "Record",
     children: (
-      <p className="pg-dialog-note">
-        One line appended to queue_decisions.jsonl in run {runId}. {PARTS_COPY.written}
-      </p>
+      <>
+        <RunStateNote />
+        <p className="pg-dialog-note">
+          One line appended to queue_decisions.jsonl in run {runId}. {PARTS_COPY.written}
+        </p>
+      </>
     ),
     onConfirm: () => {
       setRefusal(null);
