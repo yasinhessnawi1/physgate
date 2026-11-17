@@ -268,7 +268,13 @@ from physgate.reviewers.scan import (
 )
 from physgate.roles import dispatchable, owners_of, require_registered
 from physgate.series.reader import attempt_records
-from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
+from physgate.series.seal import (
+    OVERFLOW_NAME,
+    AttemptDiscard,
+    AttemptRecord,
+    AttemptSeries,
+    SeriesCheck,
+)
 from physgate.state.exceptions import DesignStateError, StoreStaleError
 from physgate.state.held_file import HeldFile
 from physgate.state.protocol import REJECT_CROSS_ROLE
@@ -3896,14 +3902,22 @@ class Loop:
     def _attempt_series(
         self, subtask_id: str, attempt: int, checks: tuple[SeriesCheck, ...]
     ) -> AttemptSeries | None:
-        """The records the attempt's sessions sealed and its quantities' checks, if any.
+        """The records the attempt's sessions sealed or discarded, and its quantities' checks.
 
         Read from the attempt's own session-end lines, a later session's record superseding
-        an earlier one's of the same id, as the change check read them.
+        an earlier one's of the same id, as the change check read them. A discarded record is
+        one the collector sealed the bytes of; a list cut at its bound is carried with it, so
+        the review is told it was cut. ``None`` for an attempt with none of these.
         """
         ended = self.state.subtasks[subtask_id].attempts[-1].ended
         entries = attempt_records(ended, subtask_id, attempt)
-        if not entries and not checks:
+        discarded = tuple(
+            AttemptDiscard(session_id=session.session_id, entry=entry)
+            for session in ended
+            for entry in session.series.discarded
+            if entry.sha256 is not None or entry.name == OVERFLOW_NAME
+        )
+        if not entries and not checks and not discarded:
             return None
         return AttemptSeries(
             run_dir=str(self.run_dir),
@@ -3911,6 +3925,7 @@ class Loop:
             attempt=attempt,
             records=tuple(AttemptRecord(session_id=e.session_id, record=e.record) for e in entries),
             checks=checks,
+            discarded=discarded,
         )
 
     def _sealed_hold(self, sessions: list[SessionEnded]) -> bool:
