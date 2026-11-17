@@ -110,6 +110,15 @@ recommendation for brushed DC motor operation is 25% or less of the stall curren
 Micro Metal Gearmotor HPCB 6V with Extended Motor Shaft, item #3073, retrieved 31.10.2026] (*rule
 of thumb*; a sourced analysis may override it).
 
+A motor's rotor inertia `J_m` (kg·m², at the motor shaft) is a motor constant, written beside `R`,
+`K_t` and `K_e`. Where the maker gives none, it is a TBR estimate (§2): a nominal, a low and a high
+value, each with its basis (published inertias of motors of comparable size, construction named; a
+solid-cylinder bound `J = π·ρ·L·D⁴/32`, *derived*, from the can's dimensions, each assumption
+stated), cross-checked by `τ_m = R·J_m/(K_t·K_e)` (*derived*, no load), with the measurement that
+resolves it named (a voltage step on a spare motor, encoder logged). Through a gearing `N` it adds
+`N²·J_m` on the wheel's speed relative to the motor's housing (*derived*); where the housing moves
+(a balancing robot's body), that is the wheel's speed relative to the body.
+
 **Enforced:** in part: the gate holds a `stall_current` against a `current_limit` on its own node,
 and against the `current_limit` of each supply its own `constrains` edges name (gate check 4); a
 limit further along the path is not read, and a `stall_current` that no limit bounds, on its node or
@@ -130,7 +139,9 @@ Balboa to move faster but could decrease the lifetime of the motors") [Pololu Ba
 library, version 1.1.2, `Balboa32U4Motors.cpp` (`ICR1 = 400`, `maxSpeed = 300`) and
 `Balboa32U4Motors.h` (`allowTurbo`), retrieved 31.10.2026]: a duty of 0.75, which is 5.4 V at the
 nominal 7.2 V, 6.3 V on a fresh charge and 4.05 V at the cut-off (§4). A voltage limit is written
-with the duty and the supply voltage it assumes, and a count limit with its full scale.
+with the duty and the supply voltage it assumes, and a count limit with its full scale. Whether it
+leaves a plant that falls by itself the headroom to recover from a disturbance is sizing's to
+compute (§12).
 
 **Judgement-only** — nothing reads the conversion of a count or duty into a voltage.
 
@@ -239,3 +250,60 @@ it follows edges from the changed node only, so a domain change reaches a sizing
 the domain's own edge. When the disputing domain's left-in-place dispute is ruled again, the harness
 holds the value sizing wrote to the one the person chose. Whether a rewrite agrees with the domain's
 work is judgement.
+
+## 12. A command limit leaves a plant that falls by itself the headroom to recover from a disturbance
+
+Applies where a criterion of sizing's specification, or of a domain module's specification that
+reads the command limit, asks a plant that falls by itself (a balancing robot) to recover from a
+disturbance (a push). Sizing computes the largest disturbance **any** controller could recover with
+the limit's headroom, while it can still change the limit.
+
+**The bound** (*derived*).
+- To hold the criterion's speed the motors already need `V_hold = K_e·ω + I_noload·R`, `K_e` and
+  `ω` at the same shaft (§5). The headroom is `ΔV = D·V_supply − V_hold` (§6).
+- Linearised there, `x' = A·x + B·v`, with `v` the voltage above `V_hold` and `v ≤ ΔV` on the side
+  that rights the plant (the other side has `D·V_supply + V_hold`). `A` has one real unstable
+  eigenvalue `λ`; with `w` its left eigenvector (`wᵀA = λ·wᵀ`), `z = wᵀx` obeys exactly
+  `z' = λ·z + (wᵀB)·v`. Once `|z| ≥ |wᵀB|·ΔV / λ`, no admissible `v` brings `z` back: the
+  plant falls under every controller.
+- A disturbance `d` moves the state by `d·e` and `z` by `d·(wᵀe)`, so the largest any controller
+  recovers is `d_max = |wᵀB|·ΔV / (λ·|wᵀe|)`. A loop that first acts a dead time `T` after the
+  disturbance leaves `z` to grow unopposed for `T`, which multiplies `d_max` by `e^(−λT)`.
+
+**The inputs**, each fixed, since a free one could pass a failing limit.
+- Inputs sizing writes are used as written. The others (centre-of-mass height, pitch, wheel and
+  rotor inertia) carry how each was found, or are TBR with a range (§2, §8).
+- The rotor inertia is §5's estimate; its low and high values are the range the spread below uses.
+- Where the brief states the falling behaviour with a tolerance, the centre-of-mass height is
+  solved so that the motors-off pole (terminals braked, the driver's state with its enable low: the
+  same `A`) is that value. Of two such heights, the one inside the body's stated geometry is taken;
+  if both are, the one giving the smaller `d_max`.
+- A push is a horizontal impulse at the body's centre of mass, scaled to raise the tilt rate by
+  `d`; `e` is the state change it gives per unit `d`, wheel rate included, unless the criterion's
+  specification names another point of application (*model*).
+- `T` is one sample period plus the computation and lateness bounds plus the sensor's age, from the
+  nodes the criterion's specification names; 0 only where none states them, and said so.
+- The condition is the criterion's own: the supply voltage it or the brief pins (§4), else the
+  nominal; its speed at the lowest admissible value; the disturbance at the top of its band. The
+  headroom at the supply range's ends is stated beside it.
+
+**The spread.** `d_max` is computed with the rotor inertia across §5's range (×0.5 to ×2 of a
+maker's single figure), each with the fall time across its tolerance, ends and points between:
+`d_max` need not be monotonic in either. It is also stated, not judged, at `K_e`, `I_noload` and
+`R`'s sourced tolerances: `ΔV` is a small difference of two large voltages.
+
+**The threshold.** `d_max·e^(−λT) ÷ d`, with the smallest `d_max` of the spread, is at least 1
+(*derived*: below it no controller recovers the disturbance in the model, and the spread is the
+model's uncertainty). No margin above 1 is added: none is sourced (§9). The bound is necessary
+only: a ratio of 1 or more does not show that a given controller recovers.
+
+**Recorded**, from a script that reads the node's values and prints them: `V_hold`, `D·V_supply`,
+`ΔV`, `λ`, `w` (tilt-rate component 1), `B`, `e`, `wᵀB`, `wᵀe`, `|wᵀA − λ·wᵀ|`, `T`, `d_max` at
+the nominal and the deciding point, `d`, both ratios and the condition (§9).
+
+**Below 1.** If a larger limit the brief allows (stall current within its rating at the brief's
+judging voltage, duty below 1) reaches 1, sizing writes the smallest such limit and records a
+rating then exceeded at the top of the supply range as a conflict (§3, §4), the judging voltage
+governing. If none does, it records the conflict with the ratio at the largest (§3).
+
+**Judgement-only** — nothing reads the bound; the reviewer redoes it by reading.

@@ -31,8 +31,46 @@
    §2). This is the single most cited pitfall in LQR/LQG practice and is easy to get right by
    construction: simulate the loop you will actually run, not the one you designed the gains from.
 
+## Procedure: when the reference law cannot meet the margins
+
+1. Read your specification: does it fix the controller's form, or only cite a reference for its
+   numbers? Where it fixes the form, report a shortfall as standards §7's last paragraph says, and
+   stop there.
+2. Build the loop that runs: the plant with every estimated parameter at its nominal value, the
+   law as the firmware will compute it, the hold, the time from sample to command, and each
+   sensor's age (standards §2, §3, §7). Compute and print the margins of the reference law on it.
+3. Where they miss, show it is the form that misses: the coefficients tried and the best margins
+   found, printed.
+4. Add the least structure that meets the margins: a direct term on a measured rate first, then
+   lead, then full state feedback (standards §7). Choose its coefficients by a stated method
+   (§4, §5), never by trial alone.
+5. Compute the margins at the low end, nominal and high end of each estimated parameter's range,
+   one at a time, and at the worst combination; print a sweep across each range. Report the
+   smallest of each margin as the design's (standards §7).
+6. Run the step, disturbance, saturation and recovery simulations again with the new law (skill,
+   "sizing a PID loop", step 3; rubric D33), at the nominal plant and at the worst case of step 5.
+7. Write the law and every coefficient, with units and their integer form, on your own node, with
+   the sample period and command limit restated from the interface or sizing node each comes from;
+   name the node in what you report (standards §7). In an incremental (velocity-form) law, a direct
+   term is added to the command after the accumulator and its clamp, never into it; the sum is then
+   limited to the command limit, and that sum is what the margin script, the simulations and the
+   node hold.
+8. Print what a reviewer needs to redo the margins by reading: the plant's numbers with their
+   sources and ranges, the law and its coefficients, each delay with its source, where the loop is
+   broken, the frequency grid, and, for every parameter case, `ω_gc`, the phase margin, both gain
+   margins and the delay margin, and, at the crossover that sets the reported phase margin, the
+   phase margin of the same loop with its pure delays common to every fed-back output removed
+   (the reported one is lower by `ω_gc·τ`: exactly for a pure delay; the hold's half sample is an
+   approximation, standards §3; rubric D34).
+
 ## Antipatterns
 
+- **A margin from a model without its delays.** Each delay subtracts `ω_gc·τ` of phase at
+  crossover; the delay-free margin is the margin of a loop that never runs (standards §7).
+- **The reference law kept because a brief cites it.** A cited reference supplies numbers; the form
+  is control's unless the specification fixes it (standards §7).
+- **Coefficients only in prose or in code.** Firmware implements what is on control's node; a law
+  that is not there cannot be checked against what runs (standards §7).
 - **Reporting margins measured on the wrong loop.** Continuous-time full-state-feedback LQR
   (diagonal `R`, loop broken at the plant input) carries a provable 60°/6 dB guarantee (standards
   §2); the same gains behind an observer, or run as a sampled controller, do not inherit it. A margin
