@@ -9,7 +9,7 @@ import { getLines } from "../../api/client";
 import type { RunEvent } from "../../api/events";
 import { type QueueListing, trajectoryPath } from "../../api/queue";
 import type { RunConfig } from "../../api/records";
-import type { GateCheck, SessionTrace, Trace } from "../../api/run";
+import type { GateCheck, SessionTrace, StepTiming, Trace } from "../../api/run";
 import { Id } from "../../design/components/data/Id";
 import { Quantity } from "../../design/components/data/Quantity";
 import { SourceChip } from "../../design/components/data/SourceChip";
@@ -43,6 +43,23 @@ export function sessionLabel(
   const whose = role === undefined ? "An agent's session" : `The ${role} agent's session`;
   const which = count > 1 ? ` ${String(index + 1)} of ${String(count)}` : "";
   return `${whose}${which} for attempt ${String(attempt)}`;
+}
+
+/**
+ * The sessions of an attempt the log started and recorded no end of, in words; ``null`` when
+ * every start has its end.
+ */
+export function unendedWords(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  steps: readonly StepTiming[],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  sessions: readonly SessionTrace[],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  subtask: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  attempt: number,
+): string | null {
+  return null;
 }
 
 /**

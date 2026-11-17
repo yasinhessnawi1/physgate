@@ -149,7 +149,7 @@ export function QueueItem({
           </dd>
           <dt>What triggered it</dt>
           <dd className="pg-queue-finding">
-            <Finding text={item.triggeringFinding} />
+            <Finding text={item.triggeringFinding} source={item.source} />
           </dd>
           {consequence !== null && supersededBy === undefined && (
             <>

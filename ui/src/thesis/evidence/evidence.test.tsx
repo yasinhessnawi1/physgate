@@ -597,6 +597,17 @@ describe("the runs read as elsewhere, the settings folded", () => {
     );
   });
 
+  it("says nothing of settings differing in a kind with one run", async () => {
+    serve({
+      "/api/evidence/runs": [200, { runs: [readRow("ev-reportable", "reportable", "4")] }],
+    });
+    const host = await mount();
+    const reportable = section(host, KIND_HEADINGS.reportable);
+    expect(reportable).not.toBeNull();
+    expect(reportable?.querySelector(".evidence-differ")).toBeNull();
+    expect(text(host)).not.toContain("No setting differs");
+  });
+
   it("writes the OS layer as OS, never Os", async () => {
     const row = readRow("ev-reportable", "reportable", "4");
     const flags = { ...row.flags, os_layer: { state: "present", claude_version: "2.1.301" } };

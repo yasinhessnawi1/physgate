@@ -137,7 +137,7 @@ async function settle(ms = 0): Promise<void> {
 }
 
 function Statuses({ runs }: { readonly runs: readonly RunListing[] }) {
-  const found = useStatuses(runs);
+  const { found } = useStatuses(runs);
   return (
     <ul>
       {runs.map((r) => {
@@ -207,7 +207,7 @@ describe("no run's status holds Home up", () => {
 });
 
 function Settled({ runs }: { readonly runs: readonly RunListing[] }) {
-  return <p>{useSettled(runs, useStatuses(runs)) ? "settled" : "waiting"}</p>;
+  return <p>{useSettled(runs, useStatuses(runs).found) ? "settled" : "waiting"}</p>;
 }
 
 describe("Home chooses which runs to read in full once the statuses answer, or after a short wait", () => {

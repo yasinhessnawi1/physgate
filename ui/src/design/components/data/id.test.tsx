@@ -62,3 +62,21 @@ describe("a long hash reads short, whole on demand", () => {
     expect(host.querySelector("button.pg-id-whole")).toBeNull();
   });
 });
+
+describe("each toggle names what it shows whole", () => {
+  it("its accessible name names the id, open and closed", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => {
+      root?.render(<Id value={HASH} short={8} name="manifest id" />);
+    });
+    const toggle = host.querySelector<HTMLButtonElement>("button.pg-id-whole");
+    expect(toggle?.getAttribute("aria-label")).toBe("Show whole manifest id");
+    expect(toggle?.textContent).toBe("Show whole");
+    act(() => {
+      toggle?.click();
+    });
+    expect(toggle?.getAttribute("aria-label")).toBe("Show less of the manifest id");
+  });
+});

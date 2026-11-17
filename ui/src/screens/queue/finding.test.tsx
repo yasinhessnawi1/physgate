@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { itemView } from "../../api/queue";
+import { citedStandards } from "./Finding";
 import { QueueItem } from "./QueueItem";
 
 const LONG =
@@ -21,7 +22,7 @@ const LONG =
 
 const SHORT = "The gate found the motor's stall torque below the load.";
 
-function shown(finding: string): HTMLElement {
+function shown(finding: string, source = "repair_budget_exhausted"): HTMLElement {
   const view = itemView({
     position: 0,
     item_sha256: "a".repeat(64),
@@ -32,7 +33,7 @@ function shown(finding: string): HTMLElement {
       ts: "2026-11-08T12:00:00.000000Z",
       run_id: "run-1",
       subtask_id: "s1",
-      source: "repair_budget_exhausted",
+      source,
       decision_required: "Decide.",
       artefact_diff: "",
       triggering_finding: finding,
@@ -66,7 +67,9 @@ describe("a long reviewer finding reads short first, the whole of it on demand",
     expect(finding).not.toBeNull();
     const text = visible(finding as Element);
     expect(text).toContain("The firmware module satisfies all nine numbered acceptance criteria");
-    expect(text).toContain("It cites 4 standards: DS-21, DS-17, DS-10, AP-7.");
+    expect(text).toContain(
+      "It names 4 items of the reviewer's rubric, met or not: DS-21, DS-17, DS-10, AP-7.",
+    );
     expect(text.length).toBeLessThan(400);
   });
 
@@ -81,7 +84,54 @@ describe("a long reviewer finding reads short first, the whole of it on demand",
 
   it("a short finding is shown whole, with nothing to open", () => {
     const finding = shown(SHORT).querySelector(".pg-queue-finding");
-    expect(finding?.textContent).toBe(SHORT);
+    expect(finding?.querySelector(".pg-queue-finding-text")?.textContent).toBe(SHORT);
     expect(finding?.querySelector("details")).toBeNull();
+  });
+});
+
+describe("a finding's verdict is in view beside its opening, whatever the opening says", () => {
+  it("a rejecting finding that opens with praise reads as rejected before its first word", () => {
+    const finding = shown(LONG).querySelector(".pg-queue-finding");
+    const text = visible(finding as Element);
+    const verdict = "Did not pass: this finding rejected the attempt.";
+    expect(text.startsWith(verdict)).toBe(true);
+    expect(text.indexOf(verdict)).toBeLessThan(text.indexOf("The firmware module satisfies"));
+    expect(finding?.querySelector(".pg-queue-finding-verdict")?.textContent).toBe(verdict);
+  });
+
+  it("a short finding carries its verdict too", () => {
+    const finding = shown(SHORT, "gate_escalation").querySelector(".pg-queue-finding");
+    expect(finding?.querySelector(".pg-queue-finding-verdict")?.textContent).toBe(
+      "Did not pass: the gate failed the finished design.",
+    );
+  });
+
+  it("a blocked review that says every criterion is met still reads as not passed", () => {
+    const praise = `All seven acceptance criteria are met. ${"The evidence is sealed. ".repeat(20)}`;
+    const finding = shown(praise, "review_blocked").querySelector(".pg-queue-finding");
+    expect(visible(finding as Element)).toMatch(
+      /^Did not pass: the review was blocked on a safety-critical check, whatever the finding says is met\. All seven/,
+    );
+  });
+
+  it("a review with no verdict says so, and a parts question claims no verdict at all", () => {
+    expect(
+      shown("the session ended with api_error", "review_unavailable").querySelector(
+        ".pg-queue-finding-verdict",
+      )?.textContent,
+    ).toBe("No verdict: the review neither passed nor rejected the attempt.");
+    expect(
+      shown("Which parts do you have?", "parts").querySelector(".pg-queue-finding-verdict"),
+    ).toBeNull();
+  });
+});
+
+describe("only the rubric's own item ids count as items cited", () => {
+  it("counts a rubric's ids, a control item's unhyphened one too, and no look-alike", () => {
+    const cited = citedStandards(
+      "Checked with SHA-256 and AES-128 over USB-3; DRV8838 on ICR1 with E402 and C1. " +
+        "DS-21 unmet, DS-10c partly, D33 and D21 unmet, SS-6 met, AP-7 met, PS-12 met.",
+    );
+    expect(cited).toEqual(["DS-21", "DS-10c", "D33", "D21", "SS-6", "AP-7", "PS-12"]);
   });
 });

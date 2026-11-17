@@ -4,6 +4,7 @@
  * standards it cites, with the whole finding, word for word, one click away. Nothing is
  * paraphrased: the opening is the finding's own first sentence, the standards its own ids.
  */
+import type { QueueSource } from "../../api/queue";
 import { firstLine } from "../common/rows";
 
 /** A finding longer than this many characters is shown short first. */
@@ -22,7 +23,13 @@ function citeWords(cited: readonly string[]): string {
   return `It cites ${String(n)} standard${n === 1 ? "" : "s"}: ${cited.join(", ")}.`;
 }
 
-export function Finding({ text }: { readonly text: string }) {
+export function Finding({
+  text,
+}: {
+  readonly text: string;
+  /** The item's source, which says what its finding is the verdict of. */
+  readonly source: QueueSource;
+}) {
   const whole = text.trim();
   if (whole.length <= LONG_FINDING) return <>{text}</>;
   const { head } = firstLine(whole);

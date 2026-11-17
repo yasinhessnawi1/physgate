@@ -43,6 +43,7 @@ import {
   phasesOf,
   readTargets,
   type RunRead,
+  type Stale,
   startOfRead,
   useRunReads,
   useSettled,
@@ -126,7 +127,11 @@ function RunName({
   );
 }
 
-export function statusWords(read: RunRead | undefined) {
+export function statusWords(
+  read: RunRead | undefined,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  stale?: Stale,
+) {
   if (read === undefined) return <span className="pg-muted">Reading…</span>;
   if (!read.status.ok) return <span className="pg-muted">Where it stands was not read</span>;
   const status = read.status.value;
@@ -168,6 +173,8 @@ export function Runs({
   readonly runs: readonly RunListing[];
   readonly reads: ReadonlyMap<string, RunRead>;
   readonly labels: ReadonlyMap<string, RunLabel>;
+  /** The runs whose status is kept from an earlier read, by run key. */
+  readonly stale?: ReadonlyMap<string, Stale>;
 }) {
   // One list in Home's order (``homeOrder``): runs going, then runs waiting on a person, then runs
   // halted or stopped, then the rest, newest start first within each. Grouped by brief, dates would jump.
@@ -564,7 +571,7 @@ export default function Home({ setHeader }: ViewProps) {
   const listed = useMemo(() => (runs?.ok === true ? runs.value : []), [runs]);
   const readable = useMemo(() => listed.filter((r) => r.error === null), [listed]);
   // Where every readable run stands, first: Home's order needs it, and it is small.
-  const statuses = useStatuses(readable);
+  const { found: statuses } = useStatuses(readable);
   const phases = useMemo(() => phasesOf(readable, statuses), [readable, statuses]);
   const targets = readTargets(listed, all, phases);
   // The runs are listed at once; their records are read once the statuses have answered, or

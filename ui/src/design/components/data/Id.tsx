@@ -15,6 +15,8 @@ export function Id({
   readonly copy?: boolean;
   /** Show only this many characters, the whole value on demand. */
   readonly short?: number;
+  /** What the id is ("manifest id"), so its toggle's name says what it shows whole. */
+  readonly name?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [whole, setWhole] = useState(false);

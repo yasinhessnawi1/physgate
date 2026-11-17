@@ -157,7 +157,34 @@ export function phasesOf(
  * while Home is shown, so a run that starts going, ends or stops is seen without a reload. At
  * most ``STATUS_POOL`` are asked at once, each given up after ``STATUS_TIMEOUT_MS``.
  */
-export function useStatuses(runs: readonly RunListing[]): ReadonlyMap<string, Result<RunStatus>> {
+/** A status kept from an earlier read because the read after it failed: when it was read, and why the later read failed. */
+export interface Stale {
+  readonly since: string;
+  readonly error: string;
+}
+
+/** What Home knows of where its runs stand. */
+export interface Statuses {
+  /** Each run's latest good answer, or its refusal while none has been good, by run key. */
+  readonly found: ReadonlyMap<string, Result<RunStatus>>;
+  /** The runs whose answer is kept from an earlier read because a later one failed. */
+  readonly stale: ReadonlyMap<string, Stale>;
+  /** How many of the minute's re-reads have ended: Home moves its rows only when this changes. */
+  readonly minutes: number;
+}
+
+/** Home's order's phases: held once settled, and taken again only when a minute's re-read ends. */
+export function useOrderPhases(
+  phases: ReadonlyMap<string, Phase>,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  settled: boolean,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  minutes: number,
+): ReadonlyMap<string, Phase> {
+  return phases;
+}
+
+export function useStatuses(runs: readonly RunListing[]): Statuses {
   const [found, setFound] = useState<ReadonlyMap<string, Result<RunStatus>>>(new Map());
   const key = runs.map(runKey).join(",");
   useEffect(() => {
@@ -194,8 +221,10 @@ export function useStatuses(runs: readonly RunListing[]): ReadonlyMap<string, Re
     // The key names the runs; the list is rebuilt every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  return found;
+  return { found, stale: NO_STALE, minutes: 0 };
 }
+
+const NO_STALE: ReadonlyMap<string, Stale> = new Map();
 
 /**
  * Each target run's records with where it stands, by run key, as they arrive. A target's

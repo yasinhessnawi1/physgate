@@ -528,6 +528,8 @@ export function rowsOf(
   events: readonly RunEvent[],
   models: Models,
   checks?: readonly GateCheck[],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  going?: boolean,
 ): readonly Row[] {
   const names = subtaskNames(events);
   const roles = subtaskRoles(events);
