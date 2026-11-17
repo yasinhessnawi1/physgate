@@ -53,6 +53,15 @@ async function open(page: Page, theme: string, run: string, item: string) {
   await expect(page.locator(".pg-queue-item")).toBeVisible();
 }
 
+/** Move the open page to ``item`` of the run by its address alone, keeping the token it holds. */
+async function goTo(page: Page, run: string, item: string) {
+  await page.evaluate((hash) => {
+    window.location.hash = hash;
+  }, `/collaboration/approval-queue?run=0/${run}&item=${item}`);
+  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.locator(".pg-queue-item")).toBeVisible();
+}
+
 interface Decided {
   readonly item_id: string;
   readonly position?: string;
@@ -141,7 +150,7 @@ test("one part had, one made and the rest found from the page, and the run is re
   await page.getByLabel("Stall current: unit").fill("A");
   await record(page, "choose have");
 
-  await open(page, "light", DECIDE, `${DECIDE}-parts-2`);
+  await goTo(page, DECIDE, `${DECIDE}-parts-2`);
   await page.getByRole("radio", { name: /^I will make it/ }).check();
   await page.getByLabel("Mass: value").fill("0.012");
   await page.getByLabel("Mass: unit").fill("kg");
@@ -149,7 +158,7 @@ test("one part had, one made and the rest found from the page, and the run is re
   await record(page, "choose make");
 
   for (const n of [3, 4, 5, 6]) {
-    await open(page, "light", DECIDE, `${DECIDE}-parts-${String(n)}`);
+    await goTo(page, DECIDE, `${DECIDE}-parts-${String(n)}`);
     await expect(page.getByRole("radio", { name: /^Find it/ })).toBeChecked();
     await record(page, "choose find");
   }
@@ -173,7 +182,9 @@ test("one part had, one made and the rest found from the page, and the run is re
   });
   expect(step.trim().split("\n").at(-1)).toBe("done");
 
-  await open(page, "light", DECIDE, `${DECIDE}-parts-1`);
+  // Read again from the server: the page is loaded afresh, and reading needs no token.
+  await page.reload();
+  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
   await expect(page.locator(".pg-parts-released")).toHaveText(
     "Every part is decided, and the run was released: 1 you have, 1 you will make, 4 to find.",
   );
