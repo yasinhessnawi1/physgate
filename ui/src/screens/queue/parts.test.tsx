@@ -983,7 +983,7 @@ describe("where the parts panel meets the queue item as it is now shown", () => 
     const panel = host.querySelector(".pg-parts-decide");
     hanging.add(`${BASE}/queue`);
     for (let s = 0; s < 30; s += 1) await wait(1_000);
-    expect(mostWaiting).toBeLessThanOrEqual(2);
+    expect(mostWaiting).toBe(1);
     expect(host.querySelector(".pg-queue-refresh-failed")).not.toBeNull();
     expect(host.querySelector(".pg-parts-decide")).toBe(panel);
     expect((field(host, "Mass: value") as HTMLInputElement | null)?.value).toBe("0.0095");
@@ -998,7 +998,7 @@ describe("where the parts panel meets the queue item as it is now shown", () => 
     const panel = host.querySelector(".pg-parts-decide");
     hanging.add(`${BASE}/events`);
     for (let s = 0; s < 30; s += 1) await wait(1_000);
-    expect(mostWaiting).toBeLessThanOrEqual(2);
+    expect(mostWaiting).toBe(1);
     expect(host.querySelector(".pg-queue-refresh-failed")).not.toBeNull();
     expect(host.querySelector(".pg-parts-decide")).toBe(panel);
   });

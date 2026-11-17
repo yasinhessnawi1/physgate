@@ -93,8 +93,9 @@ export async function getJson<T>(
 export async function getLines<T>(
   path: string,
   guard: (value: unknown) => T,
+  options: ReadOptions = {},
 ): Promise<Result<readonly T[]>> {
-  const answer = await request(path);
+  const answer = await request(path, options.timeoutMs);
   if (!answer.ok) return answer;
   const lines = answer.value.split("\n").filter((line) => line !== "");
   return guarded(`[${lines.join(",")}]`, (value) => {

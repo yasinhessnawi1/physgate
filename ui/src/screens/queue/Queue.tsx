@@ -12,6 +12,7 @@ import {
   getLines,
   pageOperator,
   postAction,
+  type ReadOptions,
   type Result,
 } from "../../api/client";
 import { runEvent } from "../../api/events";
@@ -68,6 +69,14 @@ const SLUG = "approval-queue";
  * part the gate raised again) and the run's release appear without opening the page again.
  */
 const READ_AGAIN_MS = 5_000;
+
+/**
+ * A read made on a tick is given up a second before the next tick is due: a server that stops
+ * answering is then said to (the read fails, and the page keeps what it holds; a read the next
+ * tick replaced would be dropped unsaid), and its reads never pile up behind one another, holding
+ * the browser's few connections from the decision a person sends.
+ */
+const ON_TICK: ReadOptions = { timeoutMs: READ_AGAIN_MS - 1_000 };
 
 /** A count that goes up every ``ms`` while the page is shown, and never while it is hidden. */
 function useEvery(ms: number): number {
@@ -189,7 +198,7 @@ export default function Queue({ setHeader, query }: ViewProps) {
   const tick = useEvery(READ_AGAIN_MS);
   const scope = String(base);
   const listingRead = useHeldResult(
-    base === null ? null : () => getJson(`${base}/queue`, queueListing),
+    base === null ? null : () => getJson(`${base}/queue`, queueListing, ON_TICK),
     scope,
     `${String(version)}#${String(tick)}`,
   );
@@ -245,10 +254,11 @@ export default function Queue({ setHeader, query }: ViewProps) {
   // is written or refused.
   const [awaitingRelease, setAwaitingRelease] = useState(false);
   const [eventsFailed, setEventsFailed] = useState(false);
+  const eventsOnTick = awaitingRelease || eventsFailed;
   const eventsHeld = useHeldResult(
-    base === null ? null : () => getLines(`${base}/events`, runEvent),
+    base === null ? null : () => getLines(`${base}/events`, runEvent, eventsOnTick ? ON_TICK : {}),
     scope,
-    awaitingRelease || eventsFailed ? `${String(version)}#${String(tick)}` : String(version),
+    eventsOnTick ? `${String(version)}#${String(tick)}` : String(version),
   );
   const eventsRead = eventsHeld.result;
   const events = { result: eventsRead };

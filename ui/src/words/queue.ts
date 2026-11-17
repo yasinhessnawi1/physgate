@@ -100,6 +100,14 @@ export const FINDING_VERDICT: Readonly<Record<QueueSource, string | null>> = {
   parts: null,
 };
 
+/**
+ * The verdict a part's item carries once it is raised again at the release: the gate blocked the
+ * values stated for it, or an interface contradicts them. A part asked for the first time is a
+ * question and claims none.
+ */
+export const RAISED_PART_VERDICT =
+  "Did not pass: the release could not take the values stated for this part.";
+
 /** Every sentence a screen says about a decision. Nothing else on a screen says it. */
 export const DECISION_COPY = {
   /** The dialog's "Then": the same for approve and reject, for every source. */
@@ -516,11 +524,27 @@ export function reviewTimeWords(d: Decided): string {
       ? `${String(whole)} s`
       : `${String(Math.floor(whole / 60))} min ${String(whole % 60)} s`;
   const said = `${took}, from when this server showed the item to when the decision was written.`;
+  // A part's choice is left out of the one-minute rule (ARCH-130, ARCH-122): the server marks
+  // none, and a line a run wrote before that still carries its mark, which no longer means it.
+  if (d.position === "have" || d.position === "make" || d.position === "find") {
+    if (d.decompositionDefect)
+      return (
+        `${said} The record marks it over one minute, as runs did before a part's choice was ` +
+        `left out of the one-minute rule; ${PART_NOT_COUNTED}.`
+      );
+    return whole > 60
+      ? `${said} A part's choice is not held to the one-minute rule: ${PART_NOT_COUNTED}.`
+      : said;
+  }
   return d.decompositionDefect
     ? `${said} Over one minute: the record marks the item a decomposition defect, a sign the ` +
         "design was split too coarsely to decide in a minute."
     : said;
 }
+
+/** Why a part's choice is not counted under the one-minute rule. */
+const PART_NOT_COUNTED =
+  "stating a part's values is data entry, not a sign that the design was split too coarsely";
 
 /** What the run did with a decision, from its own record of taking it. */
 export function takenWords(t: Taken): string {
