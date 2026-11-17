@@ -127,7 +127,11 @@ from physgate.orchestrator.run_config import (
     require_reportable,
     require_same_account,
 )
-from physgate.orchestrator.stop_signals import on_stop_signals, remove_left_credentials
+from physgate.orchestrator.stop_signals import (
+    driving,
+    on_stop_signals,
+    remove_left_credentials,
+)
 from physgate.orchestrator.waiting import (
     EXIT_WAITING_FOR_LIMIT,
     WAITING_FOR_LIMIT,
@@ -945,10 +949,14 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     """``run`` and ``resume``, under the stop-signal guard (``stop_signals``).
 
     A run killed mid-session left its sessions' credential files: those of the sessions no
-    longer running are removed first, before anything else, a refusal included.
+    longer running, its reviewers' included, are removed first, before anything else, a refusal
+    included, unless another command drives the run.
     """
-    remove_left_credentials(args.run_dir.resolve())
-    with on_stop_signals():
+    run_dir = args.run_dir.resolve()
+    review_root = getattr(args, "review_root", None)
+    remove_left_credentials(run_dir, None if review_root is None else review_root_path(review_root))
+    # Held for as long as this command drives the run: no other command's sweep removes a file.
+    with driving(run_dir), on_stop_signals():
         return _drive_run(args, resume=resume, registrations=registrations)
 
 

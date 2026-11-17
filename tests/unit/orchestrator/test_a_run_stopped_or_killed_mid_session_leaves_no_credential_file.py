@@ -54,6 +54,15 @@ NAMES = frozenset({LOGIN_FILE, KEY_FILE, KEY_HELPER})
 #: The secrets the stand-in run process is never handed.
 CREDENTIAL_VARIABLES = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
 DUMMY = "dummy-not-a-credential"
+#: What the fake starts in its own group as it stops (``writer``): it says its pid, then writes the
+#: login file again and again until it is killed.
+WRITER = """#!/bin/sh
+echo $$ > "$WRITER_PID"
+while :; do
+  printf '%s' '{"dummy": "not-a-credential"}' > "$CLAUDE_CONFIG_DIR/.credentials.json"
+  sleep 0.05
+done
+"""
 FAKE_BINARY = """#!/bin/sh
 "$PY" -c 'import os, sys, time
 os.setpgid(0, 0)
@@ -65,7 +74,7 @@ login() { printf '%s' '{"dummy": "not-a-credential"}' > "$CLAUDE_CONFIG_DIR/.cre
 case "$ON_TERM" in
   ignore) trap '' TERM ;;
   rewrite) trap 'login; exit 143' TERM ;;
-  writer) trap '( while :; do login; sleep 0.05; done ) & exit 143' TERM ;;
+  writer) trap '"$WRITER" & exit 143' TERM ;;
 esac
 login
 : > "$READY"
@@ -105,6 +114,8 @@ class Started:
         fake = tmp_path / "fake-claude"
         fake.write_text(FAKE_BINARY)
         fake.chmod(0o755)
+        (tmp_path / "writer.sh").write_text(WRITER)
+        (tmp_path / "writer.sh").chmod(0o755)
         env = {k: v for k, v in os.environ.items() if k not in CREDENTIAL_VARIABLES}
         self.log = (tmp_path / "child.out").open("wb")
         self.process = subprocess.Popen(
@@ -223,8 +234,10 @@ def test_a_process_the_session_starts_as_it_stops_is_ended_with_its_group(
     started.append(run)
     run.process.send_signal(signal.SIGTERM)
     assert ended(run.process) == -signal.SIGTERM, run.said()
-    # A writer left in the session's group would have written the login file again by now.
-    time.sleep(0.5)
+    # The writer started, and is gone: nothing is left to write the file after the stop.
+    writer = run.sdir / "writer.pid"
+    assert writer.exists(), "the session started no writer as it stopped"
+    assert started_at(int(writer.read_text())) is None, "a process left in the group still runs"
     assert credential_files(run.run_dir) == [], "a process left in the session's group wrote it"
 
 
@@ -234,7 +247,11 @@ def test_a_run_killed_during_its_stop_s_grace_has_already_removed_the_files(
     run = Started(tmp_path, on_term="ignore")
     started.append(run)
     run.process.send_signal(signal.SIGTERM)
-    time.sleep(1.0)
+    # The files go first, well inside the grace the session that ignores SIGTERM is given.
+    deadline = time.monotonic() + stop_signals.GRACE_S / 2
+    while credential_files(run.run_dir) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert credential_files(run.run_dir) == [], "the files waited for the grace"
     assert run.process.poll() is None, "the stop did not wait for the session"
     run.process.kill()
     run.process.wait()
@@ -515,9 +532,10 @@ def test_nothing_removed_after_the_stop_is_written_again_by_a_session_still_dyin
             monkeypatch.setattr(stop_signals, "_group_left", lambda _pgid: writer.still_there())
         # What a stop signal does: remove, end the sessions, remove again.
         remove_held_secrets()
-        assert stop_signals.end_live_sessions(grace_s=0) == 1
+        assert stop_signals.end_live_sessions(grace_s=0).tried == 1
+        # The dying process is gone before the stop's last removal: it writes nothing after.
+        assert writer.done.is_set(), f"the stop did not wait for {dying} to go"
         remove_held_secrets()
-        time.sleep(0.2)
         assert not (config / LOGIN_FILE).exists(), f"{dying}, still dying, wrote it again"
     finally:
         writer.stop()

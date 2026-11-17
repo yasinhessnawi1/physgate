@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import stat
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, suppress
@@ -114,7 +115,7 @@ def remove_held_secrets() -> None:
 
     For a process about to end on a stop signal: nothing is raised, and one directory that
     cannot be reached leaves every other one's files removed. A configuration directory's debug
-    logs go with its login file.
+    logs and the binary's messaging keys go with its login file.
     """
     for directory, names in list(_held.items()):
         with suppress(OSError, InvocationError):
@@ -122,6 +123,8 @@ def remove_held_secrets() -> None:
         if LOGIN_FILE in names:
             with suppress(OSError, InvocationError):
                 remove_debug_logs(directory)
+            with suppress(OSError, InvocationError):
+                remove_messaging_keys(directory)
 
 
 def _write_private(path: Path, data: str, mode: int) -> None:
@@ -222,6 +225,54 @@ def remove_debug_logs(config_dir: Path) -> None:
         os.close(fd)
 
 
+#: Where the binary keeps its per-process messaging keys, in its configuration directory.
+MESSAGING_DIR = "sessions"
+#: A messaging key, as the binary names it: ``<pid>.<sha256 of its socket's path>.key``, which
+#: holds the token a peer process must show it, and the temporary file it is written through,
+#: ``<that name>.tmp.<hex>``. Matched by the name alone, in that one directory.
+MESSAGING_KEY = re.compile(r"^\d+\.[0-9a-f]{64}\.key(?:\.tmp\.[0-9a-f]+)?$")
+
+
+def remove_messaging_keys(config_dir: Path) -> None:
+    """Remove the binary's messaging keys from a session's configuration directory.
+
+    Reached as the credential's files are (:func:`open_in_session`), and the keys' directory
+    without following a link; only names :data:`MESSAGING_KEY` matches are removed, one level
+    down and never recursively, and a link at such a name is itself removed. A directory under
+    such a name is left: no key is written where a directory stands.
+
+    Raises:
+        InvocationError: the keys' directory is a link, or not a directory.
+    """
+    fd = open_in_session(config_dir)
+    if fd is None:
+        return
+    try:
+        try:
+            keys = os.open(MESSAGING_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            msg = "a session's messaging keys' directory is a link or not a directory"
+            raise InvocationError(
+                msg, path=str(config_dir / MESSAGING_DIR), error=repr(exc)
+            ) from exc
+        try:
+            for name in os.listdir(keys):
+                if MESSAGING_KEY.fullmatch(name) is None:
+                    continue
+                try:
+                    if stat.S_ISDIR(os.stat(name, dir_fd=keys, follow_symlinks=False).st_mode):
+                        continue
+                    os.unlink(name, dir_fd=keys)
+                except FileNotFoundError:
+                    continue
+        finally:
+            os.close(keys)
+    finally:
+        os.close(fd)
+
+
 @contextmanager
 def debug_logs_removed_on_failure(config_dir: Path) -> Iterator[None]:
     """On any failure inside, a session's debug logs are removed before it propagates.
@@ -254,8 +305,12 @@ def remove_secrets(state_dir: Path, config_dir: Path) -> None:
         try:
             _unlink_in(config_dir, (LOGIN_FILE,))
         finally:
-            # A session's debug log may hold the credential: it goes with it.
-            remove_debug_logs(config_dir)
+            try:
+                # A session's debug log may hold the credential: it goes with it.
+                remove_debug_logs(config_dir)
+            finally:
+                # So do the binary's messaging keys, each a token a peer must show.
+                remove_messaging_keys(config_dir)
     # Removed: a stop signal has nothing more of this session's to remove.
     _held.pop(state_dir, None)
     _held.pop(config_dir, None)

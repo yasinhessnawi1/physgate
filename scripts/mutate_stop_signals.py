@@ -10,8 +10,11 @@ not. The unmutated tree is run first and last, and both must pass.
 Not mutated: the handler's ``os._exit`` after its own signal (reached only if the signal is not
 delivered); ``_reaped``'s ``ChildProcessError`` branch and ``_running``'s unreadable table
 (reached only when another wait reaped the session between two of its lines, or ``ps`` fails);
-and keeping a session unreaped through the grace, which only keeps its pid from being handed to
-another group before the group's SIGKILL. The wait after SIGKILL for each session and its group
+keeping a session unreaped through the grace, which only keeps its pid from being handed to
+another group before the group's SIGKILL; a survivor counted on ``not reaped`` alone (no row has a
+session unreaped whose group is empty: a session is its group's leader); the messaging keys'
+directory check (unlinking a directory raises, an error and not a kill); and an unreadable run
+record or owner file, which only finds no reviewer session. The wait after SIGKILL for each session and its group
 is mutated against rows whose probe stands in for a process still dying.
 """
 
@@ -86,29 +89,58 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "no-reap-wait",
         "a",
         S,
-        "        while not _reaped(process.pid) and time.monotonic() < gone:\n            time.sleep(_WAIT_S)\n",
+        "        while not reaped and time.monotonic() < gone:\n            time.sleep(_WAIT_S)\n            reaped = _reaped(process.pid)\n",
         "",
     ),
     (
         "no-group-wait",
         "a",
         S,
-        "        while _group_left(process.pid) and time.monotonic() < gone:\n            time.sleep(_WAIT_S)\n",
+        "        while left and time.monotonic() < gone:\n            time.sleep(_WAIT_S)\n            left = _group_left(process.pid)\n",
         "",
     ),
     (
         "reap-unbounded",
         "a",
         S,
-        "        while not _reaped(process.pid) and time.monotonic() < gone:",
-        "        while not _reaped(process.pid):",
+        "        while not reaped and time.monotonic() < gone:",
+        "        while not reaped:",
     ),
     (
         "group-unbounded",
         "a",
         S,
-        "        while _group_left(process.pid) and time.monotonic() < gone:",
-        "        while _group_left(process.pid):",
+        "        while left and time.monotonic() < gone:",
+        "        while left:",
+    ),
+    (
+        "survivor-not-counted",
+        "d",
+        S,
+        "        if not reaped or left:\n            survivors.append(process.pid)",
+        "        if False:\n            survivors.append(process.pid)",
+    ),
+    ("survivor-exit-dropped", "d", S, "    if alive:\n        os._exit(EXIT_SESSIONS_ALIVE)\n", ""),
+    (
+        "survivor-claims-removed",
+        "d",
+        S,
+        "MAY_BE_WRITTEN_AGAIN if alive else REMOVED",
+        "REMOVED",
+    ),
+    (
+        "survivors-unnamed",
+        "d",
+        S,
+        '    if alive:\n        said["survivors"] = list(ended.survivors)\n',
+        "",
+    ),
+    (
+        "gone-counts-tried",
+        "d",
+        S,
+        '"sessions_gone": ended.tried - alive,',
+        '"sessions_gone": ended.tried,',
     ),
     (
         "no-first-removal",
@@ -145,8 +177,8 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "drive-unguarded",
         "a",
         CLI,
-        "    with on_stop_signals():\n        return _drive_run(",
-        "    if True:\n        return _drive_run(",
+        "    with driving(run_dir), on_stop_signals():\n        return _drive_run(",
+        "    with driving(run_dir):\n        return _drive_run(",
     ),
     (
         "decompose-unguarded",
@@ -192,8 +224,20 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "    _held.pop(state_dir, None)\n    _held.pop(config_dir, None)\n",
         "",
     ),
-    ("no-early-sweep", "c", CLI, "    remove_left_credentials(args.run_dir.resolve())\n", ""),
-    ("listing-wrong-flag", "c", P, 'if before == "--session-id")', 'if before != "--session-id")'),
+    (
+        "no-early-sweep",
+        "c",
+        CLI,
+        "    remove_left_credentials(run_dir, None if review_root is None else review_root_path(review_root))\n",
+        "",
+    ),
+    (
+        "listing-wrong-flag",
+        "c",
+        P,
+        "if before in SESSION_ID_FLAGS)",
+        "if before not in SESSION_ID_FLAGS)",
+    ),
     (
         "listing-failure-taken",
         "c",
@@ -208,7 +252,13 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "        running = running_session_ids()",
         "        running: frozenset[str] = frozenset()",
     ),
-    ("running-not-skipped", "c", S, "        if sdir.name in running:\n            continue\n", ""),
+    (
+        "running-not-skipped",
+        "c",
+        S,
+        "        if session_id in running:\n            continue\n",
+        "",
+    ),
     (
         "link-refusal-escapes",
         "c",
@@ -216,7 +266,79 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "        except (OSError, InvocationError):\n            continue",
         "        except OSError:\n            continue",
     ),
-    ("not-reported", "c", S, "        removed.append(sdir.name)", "        pass"),
+    ("not-reported", "c", S, "        removed.append(session_id)", "        pass"),
+    (
+        "sweep-unlocked",
+        "e",
+        S,
+        "            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)",
+        "            pass",
+    ),
+    ("drive-unlocked", "e", S, "        fcntl.flock(fd, fcntl.LOCK_SH)", "        pass"),
+    (
+        "cli-not-driving",
+        "e",
+        CLI,
+        "    with driving(run_dir), on_stop_signals():",
+        "    with on_stop_signals():",
+    ),
+    (
+        "reviews-not-swept",
+        "f",
+        S,
+        "        sessions += _review_sessions(run_dir, review_root)",
+        "        pass",
+    ),
+    (
+        "other-run-swept",
+        "f",
+        S,
+        '            if json.loads(owner.read_text()).get("run_id") == run_id:',
+        "            if True:",
+    ),
+    (
+        "cli-no-review-root",
+        "f",
+        CLI,
+        "remove_left_credentials(run_dir, None if review_root is None else review_root_path(review_root))",
+        "remove_left_credentials(run_dir, None)",
+    ),
+    (
+        "resume-not-listed",
+        "f",
+        P,
+        'SESSION_ID_FLAGS = ("--session-id", "--resume")',
+        'SESSION_ID_FLAGS = ("--session-id",)',
+    ),
+    (
+        "keys-left-at-end",
+        "g",
+        C,
+        "                remove_messaging_keys(config_dir)",
+        "                pass",
+    ),
+    (
+        "keys-left-at-stop",
+        "g",
+        C,
+        "            with suppress(OSError, InvocationError):\n                remove_messaging_keys(directory)\n",
+        "",
+    ),
+    (
+        "key-pattern-loose",
+        "g",
+        C,
+        'MESSAGING_KEY = re.compile(r"^\\d+\\.[0-9a-f]{64}\\.key',
+        'MESSAGING_KEY = re.compile(r"^.*\\.key',
+    ),
+    ("no-tmp-keys", "g", C, r'\.key(?:\.tmp\.[0-9a-f]+)?$")', r'\.key$")'),
+    (
+        "keys-link-followed",
+        "g",
+        C,
+        "os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)",
+        "os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)",
+    ),
 )
 
 

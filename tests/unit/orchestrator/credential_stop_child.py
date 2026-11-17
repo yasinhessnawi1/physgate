@@ -41,6 +41,8 @@ def session_env(sdir: Path, *, on_term: str) -> dict[str, str]:
         "READY": str(sdir / "ready"),
         "ON_TERM": on_term,
         "TOOL_PID": str(sdir / "tool.pid"),
+        "WRITER_PID": str(sdir / "writer.pid"),
+        "WRITER": str(sdir.parents[2] / "writer.sh"),
         "PY": sys.executable,
     }
 

@@ -156,8 +156,12 @@ def _signal(proc: Proc, sig: int) -> None:
             return
 
 
+#: The flags a session's command line names its id after: a first spawn's, and a resumed one's.
+SESSION_ID_FLAGS = ("--session-id", "--resume")
+
+
 def running_session_ids() -> frozenset[str]:
-    """The session id every running process names on its command line (``--session-id <id>``).
+    """The session id every running process names on its command line (:data:`SESSION_ID_FLAGS`).
 
     A session's own command line carries its id, from its held start on. Any process may name
     an id, so this says only which sessions may be running, never that one is.
@@ -185,7 +189,7 @@ def running_session_ids() -> frozenset[str]:
             continue
         pids.add(words[0])
         pairs = zip(words, words[1:], strict=False)
-        ids.update(after for before, after in pairs if before == "--session-id")
+        ids.update(after for before, after in pairs if before in SESSION_ID_FLAGS)
     if done.returncode != 0 or str(os.getpid()) not in pids:
         msg = f"ps exited {done.returncode} and did not list this process"
         raise ProcessTableError(msg)
