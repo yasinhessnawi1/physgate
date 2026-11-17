@@ -92,6 +92,15 @@ export const DECISION_COPY = {
   reasonRule: "Approving needs no reason; a rejection must say why.",
 } as const;
 
+/**
+ * The line under a decision's buttons: the item was set aside, and, only on a run going, that the
+ * run goes on with the other subtasks. On any other run, or one whose state is not read, the run
+ * is not said to go on: the line above the buttons says where it stands.
+ */
+export function setAsideLine(going: boolean): string {
+  return going ? DECISION_COPY.setAside : "Set aside for a person to decide.";
+}
+
 /** The timeline's row for a subtask set aside, naming the queue item it became. */
 export function setAsideWith(itemId: string): string {
   return `Set aside for a person to decide (${itemId}). The run goes on with the other subtasks.`;
