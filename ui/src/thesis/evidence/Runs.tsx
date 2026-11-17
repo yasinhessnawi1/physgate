@@ -11,9 +11,15 @@ import { SourceChip } from "../../design/components/data/SourceChip";
 import { sourceAttribute } from "../../design/components/data/source";
 import { Icon } from "../../design/components/icons/Icon";
 import { KINDS, type Kind, placeKey, type ReadRun, type RunRow, type UnreadRun } from "./api";
-import { useRunName } from "./names";
 import { KindTag, readSource, ShortId, UnreadList } from "./parts";
-import { EVIDENCE_COPY, KIND_HEADINGS, rootWords, settingLabel, valueWords } from "./words";
+import {
+  EVIDENCE_COPY,
+  KIND_HEADINGS,
+  rootWords,
+  runName,
+  settingLabel,
+  valueWords,
+} from "./words";
 
 /** A setting map flattened to its leaves: a nested map's keys are joined by dots. */
 export function leaves(
@@ -49,7 +55,7 @@ export function differing(
 
 /** A run's column head: its name as every screen gives it, its root, and its source. */
 function RunHead({ run }: { readonly run: ReadRun }) {
-  const name = useRunName(run);
+  const name = runName(run);
   return (
     <th scope="col" data-source={sourceAttribute(readSource(run))} data-run={placeKey(run)}>
       <span className="evidence-run-name" title={`folder ${run.name}`}>

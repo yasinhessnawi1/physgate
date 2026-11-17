@@ -253,3 +253,11 @@ export function valueWords(value: unknown): string {
   if (typeof value === "string") return value;
   return JSON.stringify(value);
 }
+
+/**
+ * A run's name as every screen leads it: "Run" and the run's id. The Evidence screen reads only its
+ * own routes, which carry no start time, so the day and time other screens add are not shown here.
+ */
+export function runName(run: { readonly runId: string }): string {
+  return `Run ${run.runId}`;
+}

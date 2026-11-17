@@ -30,21 +30,6 @@ const DRIFTED_ROUTE = "/api/evidence/compare/0/ev-development/0/ev-drifted";
 
 type Answer = readonly [number, unknown];
 
-/** The run list, as Home reads it: what every screen names a run by. */
-const LISTED = {
-  runs: [
-    {
-      root: 0,
-      name: "ev-development",
-      run_id: "ev-development",
-      manifest_id: "m",
-      gate_mode: "on",
-      os_layer: null,
-      started: "2026-11-16T19:52:00Z",
-    },
-  ],
-};
-
 let answers: Record<string, Answer> = {};
 let asked: { path: string; init: RequestInit | undefined }[] = [];
 let held: string | null = null;
@@ -57,7 +42,6 @@ function serve(over: Record<string, Answer> = {}) {
     [MATCHED]: [200, COMPARED],
     [DRIFTED_ROUTE]: [422, DRIFTED],
     "/api/evidence/catches": [200, CATCHES],
-    "/api/runs": [200, LISTED],
     ...over,
   };
 }
@@ -199,7 +183,7 @@ describe("the screen", () => {
     await mount("tab=catches");
     expect(asked.length).toBeGreaterThan(0);
     for (const { path, init } of asked) {
-      expect(path).toMatch(/^\/api\/(evidence\/(runs|spend|compare|catches)(\/|$)|prices$|runs$)/);
+      expect(path).toMatch(/^\/api\/(evidence\/(runs|spend|compare|catches)(\/|$)|prices$)/);
       expect(init?.method ?? "GET").toBe("GET");
       expect(init?.body ?? null).toBeNull();
     }
@@ -303,8 +287,8 @@ describe("the runs, side by side", () => {
     const heads = [...host.querySelectorAll("th[data-run]")];
     expect(heads.map((h) => h.getAttribute("data-run"))).toEqual(["0/run-01", "1/run-01"]);
     expect(heads.map((h) => text(h.querySelector(".evidence-run-name")))).toEqual([
-      "run-01",
-      "run-01",
+      "Run r-run-01",
+      "Run r-run-01",
     ]);
     expect(text(heads[0])).toContain("Root 0");
     expect(text(heads[1])).toContain("Root 1");
@@ -580,11 +564,12 @@ describe("held-out strings", () => {
 });
 
 describe("the runs read as elsewhere, the settings folded", () => {
-  it("names each run as Home does, the folder only as its detail", async () => {
+  it("names each run as every screen leads it, by its run id, the folder only as its detail", async () => {
     const host = await mount();
     const head = host.querySelector('th[data-run="0/ev-development"]');
-    expect(text(head?.querySelector(".evidence-run-name"))).toMatch(
-      /^Run ev-development · 16 Nov, \d\d:52$/,
+    expect(text(head?.querySelector(".evidence-run-name"))).toBe("Run r-ev-development");
+    expect(head?.querySelector(".evidence-run-name")?.getAttribute("title")).toBe(
+      "folder ev-development",
     );
   });
 
