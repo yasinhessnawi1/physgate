@@ -16,6 +16,7 @@ stopped. Every credential is a dummy, and no file's content is read: only its na
 from __future__ import annotations
 
 import contextlib
+import errno
 import fcntl
 import inspect
 import json
@@ -27,6 +28,7 @@ import threading
 import time
 import uuid
 from collections.abc import Iterator
+from typing import Any
 from pathlib import Path
 
 import pytest
@@ -625,8 +627,19 @@ class LockHolder:
         self.process = subprocess.Popen(
             [sys.executable, "-c", code, str(run_dir)], stdout=subprocess.PIPE, text=True
         )
-        assert self.process.stdout is not None
-        assert self.process.stdout.readline().strip() == "held"
+        stdout = self.process.stdout
+        assert stdout is not None
+        # Read on a thread and joined with a timeout: a child that never says it holds the lock
+        # fails the row on an assertion and does not hang the run.
+        said: list[str] = []
+        reader = threading.Thread(
+            target=lambda: said.append(stdout.readline().strip()), daemon=True
+        )
+        reader.start()
+        reader.join(timeout=30)
+        if said != ["held"]:
+            self.close()
+            raise AssertionError(f"the lock holder never said it held the lock: {said!r}")
 
     def close(self) -> None:
         self.process.kill()
@@ -762,3 +775,100 @@ def test_a_resume_removes_this_run_s_reviewer_credentials_and_no_other_s(
     finally:
         alive.kill()
         alive.wait()
+
+
+def _refuse_locks(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise OSError(errno.ENOLCK, "no locks available")
+
+    monkeypatch.setattr(fcntl, "flock", refuse)
+
+
+def test_a_filesystem_that_refuses_the_lock_does_not_stop_a_run_and_is_said_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    monkeypatch.setattr(stop_signals, "_said_unlocked", False, raising=False)
+    _refuse_locks(monkeypatch)
+    refused: list[OSError] = []
+    ran = 0
+    for _ in range(2):
+        try:
+            with stop_signals.driving(run_dir):
+                ran += 1
+        except OSError as exc:
+            refused.append(exc)
+    assert refused == [], "a lock the filesystem refuses stopped the run"
+    assert ran == 2
+    said = [line for line in capfd.readouterr().err.splitlines() if "lock" in line]
+    assert len(said) == 1, said
+
+
+def test_the_sweep_removes_nothing_when_the_lock_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(credentials, "_held", {})
+    run_dir = tmp_path / "run"
+    _state, config = _session_dirs(run_dir / "sessions" / str(uuid.uuid4()))
+    write_login(config, DUMMY)
+    _refuse_locks(monkeypatch)
+    assert stop_signals.remove_left_credentials(run_dir) == ()
+    assert credential_files(run_dir) == [str(config / LOGIN_FILE)]
+
+
+def test_a_key_file_named_with_other_digits_is_left_alone(tmp_path: Path) -> None:
+    state, config = _session_dirs(tmp_path / "sessions" / "a")
+    keys = config / "sessions"
+    keys.mkdir()
+    # Arabic-indic digits: a digit to the str pattern's \d, and not one the binary writes.
+    odd = f"\u0661\u0662.{DIGEST}.key"
+    (keys / odd).write_text("{}")
+    (keys / f"12.{DIGEST}.key").write_text("{}")
+    remove_secrets(state, config)
+    assert sorted(p.name for p in keys.iterdir()) == [odd]
+
+
+def test_one_key_file_that_will_not_go_does_not_stop_the_others(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _state, config = _session_dirs(tmp_path / "sessions" / "a")
+    keys = config / "sessions"
+    keys.mkdir()
+    for pid in (1, 2, 3):
+        (keys / f"{pid}.{DIGEST}.key").write_text("{}")
+    real = os.unlink
+    refused: list[str] = []
+
+    def unlink(name: str, **kwargs: Any) -> None:
+        if not refused:
+            refused.append(name)
+            raise PermissionError(errno.EPERM, "not permitted")
+        real(name, **kwargs)
+
+    monkeypatch.setattr(os, "unlink", unlink)
+    with contextlib.suppress(Exception):
+        credentials.remove_messaging_keys(config)
+    assert [p.name for p in keys.iterdir()] == refused
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root removes from a directory it may not write")
+def test_a_stop_says_which_files_it_could_not_remove_and_prints_none_of_them(
+    tmp_path: Path, started: list[Started]
+) -> None:
+    run = Started(tmp_path)
+    started.append(run)
+    keys = run.sdir / "config" / "sessions"
+    keys.mkdir()
+    (keys / f"7.{DIGEST}.key").write_text("TOKEN-CONTENT-MARK")
+    keys.chmod(0o500)
+    try:
+        run.process.send_signal(signal.SIGTERM)
+        assert ended(run.process) == -signal.SIGTERM, run.said()
+        said = stop_line(run)
+    finally:
+        keys.chmod(0o700)
+    assert said.get("credentials") != "removed", said
+    assert said.get("removal_failures") == 1, said
+    assert "TOKEN-CONTENT-MARK" not in run.said()
+    assert not (run.sdir / "config" / LOGIN_FILE).exists(), "the login stayed for one key"
