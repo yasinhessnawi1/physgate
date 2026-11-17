@@ -662,6 +662,28 @@ describe("the queue read again while the page is open", () => {
     expect(reads.filter((r) => r === `${BASE}/queue/items/0`).length).toBe(before);
   });
 
+  it("reads the queue every five seconds and the status once a minute, and neither while hidden", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    await mounted();
+    const count = (route: string) => reads.filter((r) => r === `${BASE}${route}`).length;
+    const routes = ["/queue", "/events", "/status", "/config", "/queue/items/0"];
+    const at = (): number[] => routes.map(count);
+    const start = at();
+    // Second by second, so each tick is its own render, as on a real clock.
+    for (let s = 0; s < 60; s += 1) await wait(1_000);
+    // Twelve ticks: the listing each tick, the log each tick while the run awaits its release,
+    // the status once, and nothing else again.
+    expect(at().map((n, i) => n - (start[i] ?? 0))).toEqual([12, 12, 1, 0, 0]);
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    try {
+      const hidden = reads.length;
+      for (let s = 0; s < 120; s += 1) await wait(1_000);
+      expect(reads.length).toBe(hidden);
+    } finally {
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    }
+  });
+
   it("keeps what a person typed while the queue is read again", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     const host = await mounted();
