@@ -51,8 +51,19 @@ function guarded<T>(text: string, guard: (value: unknown) => T): Result<T> {
   }
 }
 
+/** How a read may be bounded. */
+export interface ReadOptions {
+  /** Give the read up, as a refusal, when the server has not answered within this many ms. */
+  readonly timeoutMs?: number;
+}
+
 /** One JSON document, held to ``guard``. */
-export async function getJson<T>(path: string, guard: (value: unknown) => T): Promise<Result<T>> {
+export async function getJson<T>(
+  path: string,
+  guard: (value: unknown) => T,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  options: ReadOptions = {},
+): Promise<Result<T>> {
   const answer = await request(path);
   return answer.ok ? guarded(answer.value, guard) : answer;
 }

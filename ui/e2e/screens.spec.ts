@@ -176,10 +176,12 @@ for (const theme of THEMES) {
       await expect(refused).toContainText("The subtasks could not be read");
       await expect(refused).toContainText("the task ledger disagrees with the run-event log");
       await expect(refused.getByRole("button", { name: "Read again" })).toBeVisible();
-      // The runs, in one list, those going and those waiting on a person first, then newest
-      // first, each with where it stands.
+      // The runs, in one list, those going, waiting on a person, halted or stopped first, then
+      // newest first, each with where it stands.
       const runs = page.locator('section[aria-label="Runs"]');
-      await expect(runs).toContainText("View: going, then waiting on a person, then newest first");
+      await expect(runs).toContainText(
+        "View: going, then waiting on a person, then halted or stopped, then newest first",
+      );
       await expect(runs.locator(".pg-group-row")).toHaveCount(0);
       expect(await idsLeading(page, ".pg-run-name, .pg-need-why, .pg-trow-what")).toEqual([]);
       // The run still going: its chip says partial, and its figures say so far.

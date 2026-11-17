@@ -40,6 +40,25 @@ async function readRecords(run: RunListing): Promise<Records> {
   return { config, events, queue };
 }
 
+/** How many status reads Home has in flight at once. */
+export const STATUS_POOL = 4;
+
+/** How long Home waits for one run's status before it lists that run as not read, in ms. */
+export const STATUS_TIMEOUT_MS = 15_000;
+
+/** How long Home waits for the statuses before it chooses which runs to read in full, in ms. */
+export const STATUS_GRACE_MS = 3_000;
+
+/** Whether Home may choose which runs to read in full. */
+export function useSettled(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  runs: readonly RunListing[],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  statuses: ReadonlyMap<string, Result<RunStatus>>,
+): boolean {
+  return false;
+}
+
 /** The phases Home lists first, in this order: a run going, then one waiting on a person. */
 export const ATTENTION_FIRST: readonly Phase[] = ["going", "waiting-person"];
 
