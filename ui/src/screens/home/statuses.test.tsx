@@ -287,6 +287,19 @@ describe("Home settles its order once, and moves rows only on the minute's re-re
     expect(host.textContent).toBe("1,6,5,4,3,2");
   });
 
+  it("a run list read after the first render is ordered when its own statuses settle", async () => {
+    // Home renders before its run list is read: an empty list is settled at once, and that must
+    // not hold the order of the runs read after it.
+    const host = render(<Ordered runs={[]} />);
+    await settle();
+    act(() => {
+      root?.render(<Ordered runs={days(6)} />);
+    });
+    await settle();
+    await answerAll((name) => (name === "bench-1" ? GOING : DONE));
+    expect(host.textContent).toBe("1,6,5,4,3,2");
+  });
+
   it("an answer read when the page is shown again waits for the minute's re-read to move a row", async () => {
     const host = render(<Ordered runs={days(6)} />);
     await settle();
