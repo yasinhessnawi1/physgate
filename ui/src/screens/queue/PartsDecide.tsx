@@ -24,7 +24,7 @@ import { Button, type Confirmation } from "../../design/components/actions/Butto
 import { Id } from "../../design/components/data/Id";
 import { quantityLabel, word } from "../../words/humanise";
 import { beforeWords, CHOICE_WORDS, CONFIRM_TITLE, PARTS_COPY } from "../../words/parts";
-import { DECISION_COPY } from "../../words/queue";
+import { DECISION_COPY, effectWords } from "../../words/queue";
 import { whyNot } from "./model";
 import {
   addedLabel,
@@ -86,6 +86,16 @@ export function PartsDecide({
   const blocked = why ?? (checked.problems.length > 0 ? PARTS_COPY.fixProblems : null);
   const who = operator ?? "no one";
   const label = component?.label ?? view.item.itemId;
+  // Beside the choices: what each choice offered here will do, from the item's own record, in
+  // the command line's words. Approve and reject decide no part, and a page that cannot record a
+  // choice says nothing of what one would do.
+  const consequence = view.item.consequence;
+  const effects = consequence === null || why !== null ? [] : effectWords(consequence);
+  const said = [
+    ...offered.flatMap((p) => effects.filter((e) => e.key === p)),
+    ...effects.filter((e) => e.key === "note"),
+  ];
+  const shownEffects = said.length > 1 ? said : [];
 
   const setRow = (key: string, change: Partial<ValueRow>) => {
     setRows((now) => now.map((row) => (row.key === key ? { ...row, ...change } : row)));
@@ -189,6 +199,15 @@ export function PartsDecide({
           </label>
         ))}
       </fieldset>
+      {shownEffects.length > 0 && (
+        <ul className="pg-queue-effects">
+          {shownEffects.map((effect) => (
+            <li key={effect.key} data-verb={effect.key}>
+              {effect.text}
+            </li>
+          ))}
+        </ul>
+      )}
       {choice !== "find" && (
         <div className="pg-parts-values" role="group" aria-labelledby={`${id}-values`}>
           <p className="pg-section-label" id={`${id}-values`}>

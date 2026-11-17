@@ -385,7 +385,12 @@ export function effectWords(c: Consequence): readonly Effect[] {
         (c.whyRecordOnly === null ? "." : `, because ${reasonWords(c)}.`)
       : REJECT_BESIDE[c.onReject];
   const chosen = Object.entries(c.onChoose ?? {}).map(([position, effect]) => {
-    const label = (POSITION_WORDS as Readonly<Record<string, string | undefined>>)[position];
+    // A part's choice is named by its position, as the command line names it; its radio button
+    // says it in full beside the sentence.
+    const label =
+      PART_CHOICE[position] === undefined
+        ? (POSITION_WORDS as Readonly<Record<string, string | undefined>>)[position]
+        : position;
     const what =
       PART_CHOICE[position] ??
       chooseWords(c, effect).replace(/^Choose: /, "") +
