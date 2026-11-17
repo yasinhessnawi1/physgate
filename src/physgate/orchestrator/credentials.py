@@ -287,7 +287,7 @@ def remove_messaging_keys(config_dir: Path) -> None:
             os.close(keys)
         if left:
             msg = "a session's messaging keys could not all be removed"
-            raise InvocationError(msg, path=str(config_dir / MESSAGING_DIR), left=left)
+            raise InvocationError(msg, path=str(config_dir / MESSAGING_DIR), left=str(left))
     finally:
         os.close(fd)
 
