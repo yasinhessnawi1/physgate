@@ -148,7 +148,7 @@ export function QueueItem({
           </dd>
           <dt>What triggered it</dt>
           <dd className="pg-queue-finding">{item.triggeringFinding}</dd>
-          {consequence !== null && (
+          {consequence !== null && supersededBy === undefined && (
             <>
               <dt>If you approve</dt>
               <dd className="pg-queue-on-approve">{consequenceWords(consequence).approve}</dd>

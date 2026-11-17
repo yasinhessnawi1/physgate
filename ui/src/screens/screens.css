@@ -817,6 +817,16 @@
   display: none;
 }
 
+/* What each decision will do, in a sentence each, under the buttons that take it. */
+.pg-queue-effects {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-2);
+  color: var(--color-text-2);
+}
+
 .pg-queue-why-not {
   margin: 0;
   color: var(--color-text-2);
