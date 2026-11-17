@@ -9,6 +9,9 @@
  * each value with its unit; refuses before sending what the server would refuse and that the page
  * can know; and shows the server's refusal word for word, writing nothing.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -230,6 +233,24 @@ async function mounted(raised = false): Promise<HTMLElement> {
   return host;
 }
 
+// The one fixture the command line's own rows read too: its part says what each choice does.
+const PART_SENTENCES =
+  (
+    JSON.parse(
+      readFileSync(resolve(process.cwd(), "../tests/fixtures/queue_sentences.json"), "utf8"),
+    ) as { readonly source: string; readonly sentences: Record<string, string> }[]
+  ).find((row) => row.source === "parts")?.sentences ?? {};
+
+/** The sentences said beside a part's choices, by the choice (or ``note``) each belongs to. */
+function beside(host: HTMLElement): Record<string, string> {
+  return Object.fromEntries(
+    [...host.querySelectorAll<HTMLElement>(".pg-parts-decide .pg-queue-effects li")].map((li) => [
+      li.dataset.verb ?? "",
+      li.textContent.trim(),
+    ]),
+  );
+}
+
 function radios(host: HTMLElement): HTMLInputElement[] {
   return [...host.querySelectorAll<HTMLInputElement>('.pg-parts-choice input[type="radio"]')];
 }
@@ -324,6 +345,23 @@ describe("the Queue screen with a part open", () => {
     const words = [...host.querySelectorAll("button")].map((b) => b.textContent);
     expect(words.filter((w) => /approve|reject/i.test(w))).toEqual([]);
     expect(host.textContent).not.toContain("If you approve");
+  });
+
+  it("says what each choice will do, in the command line's words, and nothing of approve or reject", async () => {
+    const host = await mounted();
+    expect(beside(host)).toEqual({
+      have: PART_SENTENCES.choose_have,
+      make: PART_SENTENCES.choose_make,
+      find: PART_SENTENCES.choose_find,
+      note: PART_SENTENCES.note,
+    });
+  });
+
+  it("says nothing of what a choice will do where this page cannot record one", async () => {
+    forgetToken();
+    const host = await mounted();
+    expect(host.querySelector(".pg-parts-decide")).not.toBeNull();
+    expect(beside(host)).toEqual({});
   });
 
   it("says that finding every remaining part at once is not on this page", async () => {
@@ -470,6 +508,14 @@ describe("a part raised again after the release gate", () => {
       "efficiency of mechanical.bumper_cage is 1.5 1, outside 0 to 1 1",
     );
     expect(radios(host).map((r) => r.value)).toEqual(["have", "make"]);
+  });
+
+  it("says what have and make do, and nothing of find, which it does not offer", async () => {
+    const host = await mounted(true);
+    const said = beside(host);
+    expect(Object.keys(said)).toEqual(["have", "make", "note"]);
+    expect(said.have).toBe(PART_SENTENCES.choose_have);
+    expect(said.make).toBe(PART_SENTENCES.choose_make);
   });
 
   it("asks again for every name stated before, with the value stated then", async () => {
