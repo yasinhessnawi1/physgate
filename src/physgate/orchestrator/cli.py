@@ -103,6 +103,7 @@ from physgate.orchestrator.queue import (
     record_decision,
     statuses_now,
 )
+from physgate.orchestrator.queue_words import with_what_each_decision_does
 from physgate.orchestrator.record import ReviewInstall
 from physgate.orchestrator.replay import recorded_ledger
 from physgate.orchestrator.requirements import RunFacts, refusals
@@ -1096,7 +1097,7 @@ def _queue_list(args: argparse.Namespace) -> int:
         listing = queue_listing(args.run_dir.resolve())
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
-    _print(listing)
+    _print(with_what_each_decision_does(listing, args.run_dir.resolve()))
     return 0
 
 
