@@ -246,7 +246,12 @@ describe("overlapping rounds of status reads stay within the cap", () => {
 function Ordered({ runs }: { readonly runs: readonly RunListing[] }) {
   const { found, minutes } = useStatuses(runs);
   const settled = useSettled(runs, found);
-  const phases = useOrderPhases(phasesOf(runs, found), settled, minutes);
+  const phases = useOrderPhases(
+    phasesOf(runs, found),
+    settled,
+    minutes,
+    runs.map((r) => r.name).join(","),
+  );
   return (
     <p>
       {homeOrder(runs, phases)

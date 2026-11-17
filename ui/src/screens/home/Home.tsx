@@ -603,7 +603,7 @@ export default function Home({ setHeader }: ViewProps) {
   const answered = useMemo(() => phasesOf(readable, statuses), [readable, statuses]);
   // The order is settled once and moved only when a minute's re-read ends, so a row does not
   // move under a person's pointer as the statuses answer.
-  const phases = useOrderPhases(answered, settled, minutes);
+  const phases = useOrderPhases(answered, settled, minutes, readable.map(runKey).join(","));
   const targets = readTargets(listed, all, phases);
   const reads = useRunReads(settled ? targets : NO_TARGETS, statuses);
   const starts = useMemo(

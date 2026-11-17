@@ -168,23 +168,27 @@ const NO_PHASES: ReadonlyMap<string, Phase> = new Map();
  * phases as they stand at that moment, held; then taken again each time a minute's re-read ends
  * (``minutes`` changes), and at no other time. So a row a person aims at does not move under the
  * pointer as statuses answer in the first seconds, or as a re-read on showing the page answers.
+ * The order held is for one set of runs (``runs``, their keys): another set, such as the run list
+ * read after Home's first render with none, waits to settle again.
  */
 export function useOrderPhases(
   phases: ReadonlyMap<string, Phase>,
   settled: boolean,
   minutes: number,
+  runs: string,
 ): ReadonlyMap<string, Phase> {
   const [held, setHeld] = useState<{
     readonly phases: ReadonlyMap<string, Phase>;
     readonly minutes: number;
+    readonly runs: string;
   } | null>(null);
+  const mine = held?.runs === runs ? held : null;
   // Taken while rendering, so the first settled render is already in the settled order.
-  if (settled && (held === null || held.minutes !== minutes)) {
-    const next = { phases, minutes };
-    setHeld(next);
+  if (settled && (mine === null || mine.minutes !== minutes)) {
+    setHeld({ phases, minutes, runs });
     return phases;
   }
-  return held?.phases ?? NO_PHASES;
+  return mine?.phases ?? NO_PHASES;
 }
 
 interface Known {
