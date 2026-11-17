@@ -1058,9 +1058,8 @@
   height: var(--size-touch-min);
 }
 
-/* Home's intro: what this page is, before anything else on it, across the head's whole width. */
+/* Home's intro: what this page is, before anything else on it. */
 .pg-home-intro {
-  flex-basis: 100%;
   max-width: 72ch;
 }
 

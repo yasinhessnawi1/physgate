@@ -608,8 +608,8 @@ export default function Home({ setHeader }: ViewProps) {
   const ordered = homeOrder(listed, phases);
   return (
     <div className="pg-screen pg-home">
+      <HomeIntro />
       <header className="pg-screen-head">
-        <HomeIntro />
         <p className="pg-screen-lead">
           {readable.length === 0
             ? "No run here can be read; each says why below."
