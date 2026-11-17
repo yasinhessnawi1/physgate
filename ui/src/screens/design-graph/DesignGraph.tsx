@@ -357,6 +357,18 @@ function Explorer({
   );
 }
 
+/** The graph's view line: how many nodes and edges are shown, at which revision. */
+export function graphViewWords(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  nodes: number,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  edges: number,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  revision: number,
+): string {
+  return "";
+}
+
 export default function DesignGraph({ setHeader, query }: ViewProps) {
   const chosen = useChosenRun(query);
   const { runs, config, status, base, label } = chosen;
