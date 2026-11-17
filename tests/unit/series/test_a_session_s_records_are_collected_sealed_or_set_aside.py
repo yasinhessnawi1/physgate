@@ -254,11 +254,18 @@ def test_an_entry_set_aside_without_a_seal_is_recorded_exactly_as_before(
     assert all(sorted(e) == ["name", "reason"] for e in dumped)
 
 
+def _refusal(given: dict[str, object]) -> str:
+    try:
+        SetAside.model_validate({"name": "x.json", "reason": "two words", **given})
+    except ValidationError as exc:
+        return str(exc)
+    return "admitted"
+
+
 def test_a_seal_is_a_digest_and_a_length_together() -> None:
-    with pytest.raises(ValidationError, match="a seal is a digest and a length together"):
-        SetAside.model_validate({"name": "x.json", "reason": "two words", "sha256": "c" * 64})
-    with pytest.raises(ValidationError, match="a seal is a digest and a length together"):
-        SetAside.model_validate({"name": "x.json", "reason": "two words", "length": 3})
+    assert "a seal is a digest and a length together" in _refusal({"sha256": "c" * 64})
+    assert "a seal is a digest and a length together" in _refusal({"length": 3})
+    assert _refusal({"sha256": "c" * 64, "length": 3}) == "admitted"
 
 
 @pytest.mark.parametrize("how", ["deleted", "renamed"])
