@@ -312,6 +312,92 @@ function judgedEarlierWords(c: Consequence): string {
     .join("");
 }
 
+/** The reason an approve records only, in a clause: from the item's own record, never guessed. */
+function reasonWords(c: Consequence): string {
+  return c.whyRecordOnly === "indicator_in_history" && c.confirmedIndicators.length > 0
+    ? indicatorWords(c)
+    : WHY_RECORD_ONLY_WORDS[c.whyRecordOnly ?? "source"];
+}
+
+/** What an order that is too long to review does to an order a person's note goes into. */
+const TOO_LONG =
+  "unless your note makes the order too long to review, when the subtask ends rejected instead";
+
+const REJECT_BESIDE: Readonly<Record<Exclude<Consequence["onReject"], "record_only">, string>> = {
+  retry: `Rejecting spends this attempt, and the next attempt starts from your note, ${TOO_LONG}.`,
+  fix:
+    "Rejecting orders one fix by a fresh session, the subtask's last attempt, " +
+    `${TOO_LONG}. If the fix is not accepted, the subtask ends rejected.`,
+  end_subtask: "Rejecting ends the subtask as rejected. Nothing of it is merged.",
+  end_run: "Rejecting ends the run with no module dispatched.",
+};
+
+/** Said once under the sentences: what no decision can be, and what the run may do with it. */
+export const DECISION_FINAL =
+  "A decision cannot be edited or undone, and the item closes. The run may hold it until an " +
+  "operator confirms it.";
+
+/** A part's choices, by position: the item's own record says declare or find, not which. */
+const PART_CHOICE: Readonly<Record<string, string>> = {
+  have: "the part is one you have, and what you stated of it is fixed.",
+  make: "the part is one you make, and what you stated of it is fixed.",
+  find: "the part is sourced and sized as before.",
+};
+
+/** One decision's effect, in plain words, with the verb or position it belongs to. */
+export interface Effect {
+  readonly key: string;
+  readonly text: string;
+}
+
+/**
+ * What each decision an item offers will do, in plain words and before a person decides, from the
+ * item's own consequence alone. An approve or a reject that only records says so, with the reason
+ * the record gives; what the run may decline to do is said in the sentence that promises it.
+ */
+export function effectWords(c: Consequence): readonly Effect[] {
+  let approve: string;
+  if (c.onApprove === "release")
+    approve = "Approving releases the hold, and the plan runs as it stands.";
+  else if (c.onApprove === "merge_attempt") {
+    const commit = c.attemptCommit === null ? "" : ` (commit ${c.attemptCommit.slice(0, 12)})`;
+    approve =
+      `Approving puts attempt ${String(c.attempt ?? "")}${commit} into the run, merged exactly ` +
+      "as shown, unless the merge conflicts or is refused, when an incident is recorded and " +
+      "nothing is merged.";
+  } else {
+    const what = c.attempt === null ? "merge or change anything" : "merge this attempt";
+    approve =
+      "Approving records your decision and closes this item for good. " +
+      `It will not ${what}, because ${reasonWords(c)}.`;
+  }
+  const reject =
+    c.onReject === "record_only"
+      ? "Rejecting records your decision and closes this item for good. " +
+        "It will not change anything in the run" +
+        (c.whyRecordOnly === null ? "." : `, because ${reasonWords(c)}.`)
+      : REJECT_BESIDE[c.onReject];
+  const chosen = Object.entries(c.onChoose ?? {}).map(([position, effect]) => {
+    const label = (POSITION_WORDS as Readonly<Record<string, string | undefined>>)[position];
+    const what =
+      PART_CHOICE[position] ??
+      chooseWords(c, effect).replace(/^Choose: /, "") +
+        (effect === "retry" || effect === "fix" || effect === "resize"
+          ? " If your note makes the order too long to review, the subtask ends rejected instead."
+          : effect === "reopen"
+            ? " If the order to reopen it is too long to review, nothing is reopened and the " +
+              "decision is only recorded."
+            : "");
+    return { key: position, text: `Choosing ${label?.toLowerCase() ?? position}: ${what}` };
+  });
+  return [
+    { key: "approve", text: approve },
+    { key: "reject", text: reject },
+    ...chosen,
+    { key: "note", text: DECISION_FINAL },
+  ];
+}
+
 /** What approve and reject will do to an item, made from the consequence the run listed. */
 export function consequenceWords(c: Consequence): ChoiceWords {
   const reject = REJECT_WORDS[c.onReject];
