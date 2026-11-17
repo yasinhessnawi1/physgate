@@ -219,6 +219,117 @@ def test_a_record_superseded_by_a_later_run_of_changed_code_is_discarded_and_the
     assert not record_path(run_dir, "control-1", 1, "session-1", "step_draft").exists()
 
 
+def test_a_discarded_record_is_listed_with_the_seal_of_the_bytes_collected(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _written(base, name="draft.py", record_id="step_draft")
+    (base / MODULE / "helper.py").write_text("GAIN = 3.0\n")
+    _written(base, record_id="step_nominal")
+    series = _collect(base, run_dir)
+    kept = run_dir / "series" / DISCARDED_DIR / "session-1" / "step_draft.json"
+    data = kept.read_bytes()
+    (entry,) = [e for e in series.discarded if e.name == "step_draft.json"]
+    shown = entry.model_dump()
+    assert (shown.get("sha256"), shown.get("length")) == (
+        hashlib.sha256(data).hexdigest(),
+        len(data),
+    )
+    # Nothing else the collector discards carries a seal: it never read it as a record.
+    for other in series.discarded:
+        if other.name != "step_draft.json":
+            assert sorted(other.model_dump(mode="json")) == ["name", "reason"]
+
+
+def test_an_entry_set_aside_without_a_seal_is_recorded_exactly_as_before(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _outbox(base).mkdir(parents=True)
+    (_outbox(base) / ".step_nominal.json.1.tmp").write_bytes(b"{")
+    series = _collect(base, run_dir)
+    dumped = series.model_dump(mode="json")["discarded"]
+    assert [e["name"] for e in dumped] == [".step_nominal.json.1.tmp"]
+    assert all(sorted(e) == ["name", "reason"] for e in dumped)
+
+
+@pytest.mark.parametrize("how", ["deleted", "renamed"])
+def test_a_record_whose_loaded_module_file_is_gone_is_discarded_not_refused(
+    tmp_path: Path, run_dir: Path, how: str
+) -> None:
+    base = worktree(tmp_path)
+    _written(base, name="draft.py", record_id="step_draft")
+    helper = base / MODULE / "helper.py"
+    if how == "deleted":
+        helper.unlink()
+    else:
+        helper.rename(base / MODULE / "helper_old.py")
+    series = _collect(base, run_dir)
+    assert series.refused == ()
+    assert series.records == ()
+    found = _set_aside(base, series)
+    assert [name for name, _ in found] == ["step_draft.json"]
+    assert (
+        "modules/control/helper.py was deleted or renamed after the record was written"
+        in (found[0][1])
+    )
+    assert (run_dir / "series" / DISCARDED_DIR / "session-1" / "step_draft.json").is_file()
+
+
+def test_a_record_whose_script_is_gone_is_discarded_not_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _written(base, name="draft.py", record_id="step_draft")
+    (base / MODULE / "draft.py").unlink()
+    series = _collect(base, run_dir)
+    assert series.refused == ()
+    found = _set_aside(base, series)
+    assert [name for name, _ in found] == ["step_draft.json"]
+    assert "modules/control/draft.py was deleted or renamed" in found[0][1]
+
+
+def test_a_record_whose_loaded_file_s_directory_was_renamed_is_discarded_not_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    parts = base / MODULE / "parts"
+    parts.mkdir()
+    (parts / "parts_helper.py").write_text("SCALE = 1.0\n")
+    extra = (
+        "sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parts'))\n"
+        "import parts_helper"
+    )
+    _written(base, name="draft.py", record_id="step_draft", extra=extra)
+    parts.rename(base / MODULE / "parts_old")
+    series = _collect(base, run_dir)
+    assert series.refused == ()
+    found = _set_aside(base, series)
+    assert [name for name, _ in found] == ["step_draft.json"]
+    assert "modules/control/parts/parts_helper.py was deleted or renamed" in found[0][1]
+
+
+def test_a_record_whose_writer_is_gone_is_refused(tmp_path: Path, run_dir: Path) -> None:
+    base = worktree(tmp_path)
+    _written(base)
+    (base / ".physgate" / "lib" / "series_writer.py").unlink()
+    reason = _refused_reason(base, run_dir, "step_nominal.json")
+    assert ".physgate/lib/series_writer.py" in reason
+
+
+def test_a_record_with_a_gone_file_that_also_ran_code_from_outside_the_module_is_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    outside = base / "modules" / "power"
+    outside.mkdir(parents=True)
+    (outside / "elsewhere.py").write_text("VALUE = 1\n")
+    _written(base, extra=f"sys.path.insert(0, {str(outside)!r})\nimport elsewhere")
+    (base / MODULE / "helper.py").unlink()
+    reason = _refused_reason(base, run_dir, "step_nominal.json")
+    assert "outside the module ran: modules/power/elsewhere.py" in reason
+
+
 def test_a_changed_record_that_also_ran_code_from_outside_the_module_is_refused(
     tmp_path: Path, run_dir: Path
 ) -> None:

@@ -7,6 +7,12 @@ parts are required reading and its digest is on the packet's record; before a re
 are held to the listing again. The paired and the generalist review are given the same bytes.
 An attempt with no records gets no listing, and its packet and attempt are recorded exactly as
 before.
+
+A record a session discarded, because the module code it names changed or went after it was
+written, is listed too, by its name, its session, the collector's reason and the seal of the
+bytes collected, so a run a later edit superseded is in front of the reviewer, plainly marked as
+no evidence. A session whose end line was cut at its bound is said to be cut. An attempt with
+no discarded record keeps its listing and its packet byte for byte.
 """
 
 from __future__ import annotations
@@ -284,3 +290,126 @@ def test_a_listing_part_rewritten_with_its_digest_to_match_is_still_refused(
     rewritten = packet.model_copy(update={"series_parts": (part, *packet.series_parts[1:])})
     with pytest.raises(PacketError, match="not the listing of the attempt's sealed records"):
         check_parts(rewritten, repo=attempt.worktree, base_commit=attempt.spec_commit)
+
+
+#: The digest of a discarded record's bytes, made up.
+DISCARDED_DIGEST = "c" * 64
+REASON = (
+    "modules/control/plant.py changed after the record was written, so it is not sealed and a "
+    "quantity that names it refuses the attempt; a later run is recorded under a new id"
+)
+PLAIN = "discarded: the module's code changed after this record was written; not evidence"
+
+
+def _discarding(series: AttemptSeries | None, *entries: dict[str, Any]) -> AttemptSeries:
+    """``series`` with ``entries`` as the records its sessions discarded."""
+    assert "discarded" in AttemptSeries.model_fields, "a review is told of no discarded record"
+    base = (
+        series.model_dump(mode="json")
+        if series is not None
+        else {"run_dir": "/nowhere", "subtask_id": "s1", "attempt": 1}
+    )
+    return AttemptSeries.model_validate_json(json.dumps({**base, "discarded": list(entries)}))
+
+
+def _discarded(name: str = "step_draft.json", **entry: Any) -> dict[str, Any]:  # noqa: ANN401
+    held = {"name": name, "reason": REASON, "sha256": DISCARDED_DIGEST, "length": 812, **entry}
+    return {"session_id": "sess-1", "entry": held}
+
+
+def test_a_discarded_record_is_listed_by_its_name_its_reason_and_its_seal(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    attempt = make_attempt(tmp_path, stream())
+    sealed = _series(run_dir, _record("step_nominal"), checks=(CHECK,))
+    series = _discarding(sealed, _discarded())
+    packet, read = _build(tmp_path, artefact_of(attempt, series=series), attempt)
+    text = joined_parts(read, packet.series_parts).decode()
+    assert "Records sealed: 1." in text and "## step_nominal" in text
+    assert "Records discarded: 1." in text
+    assert f'- "step_draft.json": {PLAIN}\n' in text
+    assert f"  - session: sess-1; seal: sha256 {DISCARDED_DIGEST}, 812 bytes\n" in text
+    assert f"  - why: {json.dumps(REASON)}\n" in text
+    # The discarded records stand after the sealed ones and before the quantities' checks.
+    assert (
+        text.index("## step_nominal")
+        < text.index("Records discarded")
+        < text.index("# Quantities read off a record")
+    )
+    assert evaluation_words(text) == []
+    for part in packet.series_parts:
+        assert str(read / part.name) in packet.required_reading
+    check_parts(packet, repo=attempt.worktree, base_commit=attempt.spec_commit)
+
+
+def test_an_attempt_whose_only_record_was_discarded_is_given_the_listing(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    attempt = make_attempt(tmp_path, stream())
+    series = _discarding(None, _discarded()).model_copy(update={"run_dir": str(run_dir)})
+    packet, read = _build(tmp_path, artefact_of(attempt, series=series), attempt)
+    assert packet.series_parts and packet.series_sha256 is not None
+    text = joined_parts(read, packet.series_parts).decode()
+    assert "Records sealed: 0." in text and "Records discarded: 1." in text
+    assert f'- "step_draft.json": {PLAIN}\n' in text
+    assert str(read / packet.series_parts[0].name) in packet.required_reading
+    assert str(read / packet.series_parts[0].name) in review_prompt("control", packet)
+    check_parts(packet, repo=attempt.worktree, base_commit=attempt.spec_commit)
+    dropped = packet.model_copy(update={"series_parts": (), "series_sha256": None})
+    with pytest.raises(PacketError, match="issued no listing of them"):
+        check_parts(dropped, repo=attempt.worktree, base_commit=attempt.spec_commit)
+
+
+def test_a_discarded_listing_cut_at_its_session_s_bound_says_it_was_cut(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    attempt = make_attempt(tmp_path, stream())
+    more = {"session_id": "sess-1", "entry": {"name": "(more)", "reason": "7 more entries"}}
+    series = _discarding(_series(run_dir, _record("step_nominal")), _discarded(), more)
+    packet, read = _build(tmp_path, artefact_of(attempt, series=series), attempt)
+    text = joined_parts(read, packet.series_parts).decode()
+    assert "Records discarded: 1." in text
+    assert (
+        "- cut: session sess-1's end line lists at most 512 entries, and it held more: "
+        '"7 more entries"\n'
+    ) in text
+
+
+def test_a_discarded_part_rewritten_is_refused_before_the_review(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    attempt = make_attempt(tmp_path, stream())
+    series = _discarding(_series(run_dir, _record("step_nominal")), _discarded())
+    packet, read = _build(tmp_path, artefact_of(attempt, series=series), attempt)
+    first = read / packet.series_parts[0].name
+    shown = first.read_bytes()
+    first.write_bytes(shown.replace(b"Records discarded: 1.", b"Records discarded: 0."))
+    with pytest.raises(PacketError, match="series part is missing or is not what was issued"):
+        check_parts(packet, repo=attempt.worktree, base_commit=attempt.spec_commit)
+
+
+def test_an_attempt_with_no_discarded_record_keeps_its_listing_and_packet_bytes(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    packet, read, _ = _with_series(tmp_path, run_dir)
+    text = joined_parts(read, packet.series_parts).decode()
+    assert "discarded" not in text.lower()
+    dumped = json.loads((read.parent / "packet.json").read_text())
+    assert sorted(dumped["artefact"]["series"]) == [
+        "attempt",
+        "checks",
+        "records",
+        "run_dir",
+        "subtask_id",
+    ]
+    attempt = make_attempt(tmp_path / "again", stream())
+    series = _series(
+        run_dir, _record("step_nominal"), _record("edge_01", group="edge_runs"), checks=(CHECK,)
+    )
+    if "discarded" in AttemptSeries.model_fields:
+        series = _discarding(series)
+    again, read_again = _build(
+        tmp_path / "again", artefact_of(attempt, series=series), attempt, name="r9"
+    )
+    assert again.series_sha256 == packet.series_sha256
+    assert joined_parts(read_again, again.series_parts).decode() == text
