@@ -5,7 +5,15 @@ import { useState } from "react";
  * mono and smaller, whole, and copyable. Copying is a convenience; when the page may not write to
  * the clipboard the id is still there to select.
  */
-export function Id({ value, copy = true }: { readonly value: string; readonly copy?: boolean }) {
+export function Id({
+  value,
+  copy = true,
+}: {
+  readonly value: string;
+  readonly copy?: boolean;
+  /** Show only this many characters, the whole value on demand. */
+  readonly short?: number;
+}) {
   const [copied, setCopied] = useState(false);
   if (!copy) return <span className="pg-id">{value}</span>;
   return (
