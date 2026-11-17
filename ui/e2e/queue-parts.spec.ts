@@ -53,15 +53,6 @@ async function open(page: Page, theme: string, run: string, item: string) {
   await expect(page.locator(".pg-queue-item")).toBeVisible();
 }
 
-/** Move the open page to ``item`` of the run by its address alone, keeping the token it holds. */
-async function goTo(page: Page, run: string, item: string) {
-  await page.evaluate((hash) => {
-    window.location.hash = hash;
-  }, `/collaboration/approval-queue?run=0/${run}&item=${item}`);
-  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
-  await expect(page.locator(".pg-queue-item")).toBeVisible();
-}
-
 interface Decided {
   readonly item_id: string;
   readonly position?: string;
@@ -74,14 +65,23 @@ async function decided(page: Page, run: string): Promise<readonly Decided[]> {
   return ((await answer.json()) as { decided: Decided[] }).decided;
 }
 
-/** Record the choice the form holds, through its confirmation, and wait for the queue's line. */
-async function record(page: Page, decision: string) {
+/**
+ * Record the choice the form holds, through its confirmation; the page says it is recorded and
+ * moves by itself to part ``next``, its choice holding the keyboard's focus, or, after the last
+ * part, says what the run does next.
+ */
+async function record(page: Page, decision: string, next: number | null) {
   await page.getByRole("button", { name: "Record this choice…" }).click();
   const dialog = page.locator("dialog[open]");
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Record", exact: true }).click();
-  // The listing is read again, and the item shows the queue's own line in place of the choices.
-  await expect(page.locator(".pg-queue-decided-text")).toHaveText(decision);
+  await expect(page.locator(".pg-queue-recorded")).toContainText(decision);
+  if (next === null) {
+    await expect(page.locator(".pg-parts-next")).toContainText("Every part is decided");
+    return;
+  }
+  await expect(page.locator(".pg-parts-component")).toContainText(`Part ${String(next)} of 6`);
+  await expect(page.locator(".pg-parts-choice input:checked")).toBeFocused();
 }
 
 for (const theme of THEMES) {
@@ -148,19 +148,17 @@ test("one part had, one made and the rest found from the page, and the run is re
   await page.getByLabel("Mass: unit").fill("kg");
   await page.getByLabel("Stall current: value").fill("1.6");
   await page.getByLabel("Stall current: unit").fill("A");
-  await record(page, "choose have");
+  await record(page, "choose have", 2);
 
-  await goTo(page, DECIDE, `${DECIDE}-parts-2`);
   await page.getByRole("radio", { name: /^I will make it/ }).check();
   await page.getByLabel("Mass: value").fill("0.012");
   await page.getByLabel("Mass: unit").fill("kg");
   await page.getByLabel("Text 1").fill("printed in PETG, walls at least 2 mm");
-  await record(page, "choose make");
+  await record(page, "choose make", 3);
 
   for (const n of [3, 4, 5, 6]) {
-    await goTo(page, DECIDE, `${DECIDE}-parts-${String(n)}`);
     await expect(page.getByRole("radio", { name: /^Find it/ })).toBeChecked();
-    await record(page, "choose find");
+    await record(page, "choose find", n === 6 ? null : n + 1);
   }
 
   const lines = await decided(page, DECIDE);
@@ -182,10 +180,9 @@ test("one part had, one made and the rest found from the page, and the run is re
   });
   expect(step.trim().split("\n").at(-1)).toBe("done");
 
-  // Read again from the server: the page is loaded afresh, and reading needs no token.
-  await page.reload();
-  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
+  // The page, left open, reads the run again by itself and shows it released.
   await expect(page.locator(".pg-parts-released")).toHaveText(
     "Every part is decided, and the run was released: 1 you have, 1 you will make, 4 to find.",
+    { timeout: 30_000 },
   );
 });

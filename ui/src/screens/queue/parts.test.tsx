@@ -121,7 +121,7 @@ function config(runId: string): unknown {
  * ``runId`` and open or decided as ``open`` says.
  */
 function viewAt(n: number, runId = "run-parts", open = true): unknown {
-  if (n === 0 && runId === "run-parts") return partsItem;
+  if (n === 0 && runId === "run-parts") return open ? partsItem : { ...partsItem, open: false };
   const listing = partsOpen as { open: Record<string, unknown>[] };
   const item = JSON.parse(JSON.stringify(listing.open[n]).replaceAll("run-parts", runId)) as Record<
     string,
@@ -179,6 +179,11 @@ afterEach(() => {
   root = null;
   posted = [];
   answer = RECORDED;
+  served = {};
+  logged = [decomposed];
+  reads = [];
+  afterPost = null;
+  vi.useRealTimers();
   document.body.innerHTML = "";
   document.head.innerHTML = "";
   forgetToken();
@@ -192,22 +197,57 @@ async function settle(): Promise<void> {
     });
 }
 
+/** What the server stand-in answers each read with; a row may change it while the page is open. */
+let served: Record<string, unknown> = {};
+/** The run's event log, one record per line. */
+let logged: unknown[] = [decomposed];
+/** Every route the page read, in order. */
+let reads: string[] = [];
+/** Run after each post is answered: how a row makes the server's state follow a decision. */
+let afterPost: (() => void) | null = null;
+
+/** The scripted run's listing once its first ``k`` parts are decided, and each part's view. */
+function decidedUpTo(k: number): void {
+  const later = JSON.parse(JSON.stringify(partsRaised).replaceAll("run-raised", "run-parts")) as {
+    decided: unknown[];
+  };
+  served[`${BASE}/queue`] = {
+    decided: later.decided.slice(0, k),
+    open: (partsOpen as { open: unknown[] }).open.slice(k),
+  };
+  for (let n = 0; n < 6; n += 1)
+    served[`${BASE}/queue/items/${String(n)}`] = viewAt(n, "run-parts", n >= k);
+}
+
+/** The line the run writes once every part is decided and it is released. */
+const RELEASED = {
+  kind: "parts_released",
+  run_id: "run-parts",
+  seq: 3,
+  ts: "2026-11-16T22:10:00.000000Z",
+  components: [1, 2, 3, 4, 5, 6].map((n) => ({
+    item_id: `run-parts-parts-${String(n)}`,
+    choice: n === 1 ? "have" : n === 2 ? "make" : "find",
+  })),
+};
+
 /** The Queue screen over the scripted run's answers, ``raised`` for the round after the gate. */
-async function mounted(raised = false): Promise<HTMLElement> {
+async function mounted(raised = false, item?: string): Promise<HTMLElement> {
   const base = raised ? RAISED_BASE : BASE;
   const runId = raised ? "run-raised" : "run-parts";
   const listing = raised ? partsRaised : partsOpen;
   const total = raised ? 7 : 6;
-  const served: Record<string, unknown> = {
+  served = {
     "/api/runs": {
       runs: [{ root: 0, name: runId, run_id: runId, manifest_id: "m", gate_mode: "on" }],
     },
     [`${base}/config`]: config(runId),
     [`${base}/status`]: status,
     [`${base}/queue`]: listing,
+    ...served,
   };
   for (let n = 0; n < total; n += 1)
-    served[`${base}/queue/items/${String(n)}`] = raised
+    served[`${base}/queue/items/${String(n)}`] ??= raised
       ? n === 6
         ? raisedItem
         : viewAt(n, runId, false)
@@ -216,16 +256,19 @@ async function mounted(raised = false): Promise<HTMLElement> {
     const url = typeof input === "string" ? input : (input as Request).url;
     if (init?.method === "POST") {
       posted.push({ url, body: JSON.parse(init.body as string) as Record<string, unknown> });
-      return Promise.resolve(answer());
+      const said = answer();
+      afterPost?.();
+      return Promise.resolve(said);
     }
+    reads.push(url);
     if (url === `${base}/events`)
-      return Promise.resolve(new Response(`${JSON.stringify(decomposed)}\n`));
+      return Promise.resolve(new Response(logged.map((e) => `${JSON.stringify(e)}\n`).join("")));
     return Promise.resolve(new Response(JSON.stringify(served[url]), { status: 200 }));
   });
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  const query = raised ? "item=run-raised-parts-2-r2" : "item=run-parts-parts-1";
+  const query = `item=${item ?? (raised ? "run-raised-parts-2-r2" : "run-parts-parts-1")}`;
   act(() => {
     root?.render(<Queue setHeader={vi.fn()} query={new URLSearchParams(query)} />);
   });
@@ -527,5 +570,177 @@ describe("a part raised again after the release gate", () => {
     expect(host.querySelector(".pg-parts-problems")?.textContent).toContain(
       "state efficiency again",
     );
+  });
+});
+
+/** Let the page's own clock run on by ``ms``, as it would while the page stays open. */
+async function wait(ms: number): Promise<void> {
+  act(() => {
+    vi.advanceTimersByTime(ms);
+  });
+  await settle();
+}
+
+function waitingCount(host: HTMLElement): string {
+  return (
+    [...host.querySelectorAll("button, [role='radio'], label")]
+      .map((e) => e.textContent.trim())
+      .find((t) => t.startsWith("Waiting")) ?? ""
+  );
+}
+
+describe("the queue read again while the page is open", () => {
+  it("shows a part the gate raised again without the page being opened again", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    decidedUpTo(6);
+    const host = await mounted(false, "run-parts-parts-6");
+    expect(waitingCount(host)).toBe("Waiting · 0");
+    const raised = JSON.parse(
+      JSON.stringify(partsRaised).replaceAll("run-raised", "run-parts"),
+    ) as Record<string, unknown>;
+    served[`${BASE}/queue`] = raised;
+    served[`${BASE}/queue/items/6`] = JSON.parse(
+      JSON.stringify(raisedItem).replaceAll("run-raised", "run-parts"),
+    ) as unknown;
+    await wait(60_000);
+    expect(waitingCount(host)).toBe("Waiting · 1");
+    expect(host.querySelector(".pg-queue-list")?.textContent).toContain("run-parts-parts-2-r2");
+  });
+
+  it("shows the run released without the page being opened again", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    decidedUpTo(6);
+    const host = await mounted(false, "run-parts-parts-6");
+    expect(host.querySelector(".pg-parts-released")).toBeNull();
+    logged = [decomposed, RELEASED];
+    await wait(60_000);
+    expect(host.querySelector(".pg-parts-released")?.textContent).toBe(
+      "Every part is decided, and the run was released: 1 you have, 1 you will make, 4 to find.",
+    );
+  });
+
+  it("never reads the open part's view again on its own, so its shown time stands", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const host = await mounted();
+    expect(host.querySelector(".pg-parts-decide")).not.toBeNull();
+    const before = reads.filter((r) => r === `${BASE}/queue/items/0`).length;
+    const listed = reads.filter((r) => r === `${BASE}/queue`).length;
+    await wait(60_000);
+    expect(reads.filter((r) => r === `${BASE}/queue`).length).toBeGreaterThan(listed);
+    expect(reads.filter((r) => r === `${BASE}/queue/items/0`).length).toBe(before);
+  });
+
+  it("keeps what a person typed while the queue is read again", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const host = await mounted();
+    choose(host, "I have it");
+    type(host, "Mass: value", "0.0095");
+    await wait(60_000);
+    expect((field(host, "Mass: value") as HTMLInputElement | null)?.value).toBe("0.0095");
+  });
+
+  it("reads the queue again after a refusal, and keeps the refusal and what was typed", async () => {
+    answer = () =>
+      new Response(
+        JSON.stringify({ error: "the item is no longer as shown", item: "run-parts-parts-1" }),
+        { status: 409 },
+      );
+    const host = await mounted();
+    choose(host, "I have it");
+    type(host, "Mass: value", "0.0095");
+    type(host, "Mass: unit", "kg");
+    const listed = reads.filter((r) => r === `${BASE}/queue`).length;
+    await record(host);
+    expect(reads.filter((r) => r === `${BASE}/queue`).length).toBeGreaterThan(listed);
+    expect(host.querySelector(".pg-parts-refused")?.textContent).toContain(
+      "the item is no longer as shown",
+    );
+    expect((field(host, "Mass: value") as HTMLInputElement | null)?.value).toBe("0.0095");
+  });
+});
+
+describe("a page that lost its token", () => {
+  it("says a reload forgot it, and that the operator address opens it again", async () => {
+    forgetToken();
+    vi.spyOn(performance, "getEntriesByType").mockReturnValue([
+      { type: "reload" } as unknown as PerformanceEntry,
+    ]);
+    window.history.replaceState(null, "", "/");
+    takeTokenFromAddress();
+    const host = await mounted();
+    const why = host.querySelector(".pg-parts-decide .pg-queue-why-not")?.textContent ?? "";
+    expect(why).toContain("reloaded");
+    expect(why).toContain("open the operator address");
+    expect(window.sessionStorage.length).toBe(0);
+    expect(window.localStorage.length).toBe(0);
+  });
+});
+
+describe("after a part is decided", () => {
+  it("moves to the next open part, says Recorded for the one decided, and puts focus on the choice", async () => {
+    // The address names the first part, as a click in the list leaves it.
+    afterPost = () => {
+      decidedUpTo(1);
+    };
+    const host = await mounted(false, "run-parts-parts-1");
+    await record(host);
+    expect(host.querySelector(".pg-parts-component")?.textContent).toContain("Part 2 of 6");
+    const recorded = host.querySelector(".pg-queue-recorded")?.textContent ?? "";
+    expect(recorded).toContain("choose have");
+    expect(recorded).toContain("Drive gearmotors, 50:1 Micro Metal HPCB 6V");
+    const focused = document.activeElement as HTMLInputElement | null;
+    expect(focused?.type).toBe("radio");
+    expect(focused?.checked).toBe(true);
+    expect(focused?.closest(".pg-parts-decide")).not.toBeNull();
+  });
+
+  it("once the last part is decided, says what the run does next", async () => {
+    decidedUpTo(5);
+    afterPost = () => {
+      decidedUpTo(6);
+    };
+    answer = () =>
+      new Response(
+        JSON.stringify({
+          resolved: {
+            item_id: "run-parts-parts-6",
+            ts: "2026-11-16T22:00:00.000000Z",
+            kind: "resolution",
+            decision: "choose find",
+            resolved_by: "parts-operator",
+          },
+        }),
+        { status: 201 },
+      );
+    const host = await mounted(false, "run-parts-parts-6");
+    await record(host);
+    const next = host.querySelector(".pg-parts-next")?.textContent ?? "";
+    expect(next).toContain("Every part is decided");
+    expect(next).toContain("checks");
+    expect(next).toContain("brings the part back here with the gate's finding");
+    expect(next).toContain("resumed");
+    expect(host.querySelector(".pg-queue-recorded")?.textContent).toContain("choose find");
+  });
+});
+
+describe("a quantity the physics gate's catalogue does not name", () => {
+  it("is said, beside its name, to be recorded as unchecked", async () => {
+    const host = await mounted();
+    choose(host, "I have it");
+    const add = [...host.querySelectorAll("button")].find((b) =>
+      b.textContent.includes("Add another quantity"),
+    );
+    act(() => {
+      add?.click();
+    });
+    type(host, "Another quantity 1: name", "bumper_stiffness");
+    const row = field(host, "Another quantity 1: name")?.closest(".pg-parts-row");
+    expect(row?.querySelector(".pg-parts-unchecked")?.textContent).toContain(
+      "recorded as unchecked",
+    );
+    type(host, "Another quantity 1: name", "stall_torque");
+    expect(row?.querySelector(".pg-parts-unchecked")).toBeNull();
+    // The plan's own names are the catalogue's: none of them is marked.
+    expect(host.querySelectorAll(".pg-parts-unchecked")).toHaveLength(0);
   });
 });
