@@ -152,14 +152,17 @@ def _left(discarded: list[dict[str, object]]) -> SessionSeries:
 
 
 #: A record discarded as superseded, with the seal of its bytes; and what else is discarded.
-SUPERSEDED = {
+SUPERSEDED: dict[str, object] = {
     "name": "draft.json",
     "reason": "modules/control/helper.py changed after the record was written",
     "sha256": "4" * 64,
     "length": 99,
 }
-TEMPORARY = {"name": ".step.json.1.tmp", "reason": "a writer's temporary file"}
-CUT = {"name": "(more)", "reason": "3 more entries, set aside like the ones above"}
+TEMPORARY: dict[str, object] = {"name": ".step.json.1.tmp", "reason": "a writer's temporary file"}
+CUT: dict[str, object] = {
+    "name": "(more)",
+    "reason": "3 more entries, set aside like the ones above",
+}
 
 
 def test_the_reviewer_is_handed_the_records_the_attempt_s_sessions_discarded(
