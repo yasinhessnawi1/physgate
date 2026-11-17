@@ -297,6 +297,19 @@ def test_a_record_whose_script_is_gone_is_discarded_not_refused(
     assert "modules/control/draft.py was deleted or renamed" in found[0][1]
 
 
+def test_a_loaded_file_swapped_for_a_link_is_refused_not_discarded(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _written(base)
+    helper = base / MODULE / "helper.py"
+    elsewhere = Path(os.path.realpath(tmp_path)) / "helper_elsewhere.py"
+    helper.rename(elsewhere)
+    helper.symlink_to(elsewhere)
+    reason = _refused_reason(base, run_dir, "step_nominal.json")
+    assert "the code file modules/control/helper.py cannot be read" in reason
+
+
 def test_a_record_whose_loaded_file_s_directory_was_renamed_is_discarded_not_refused(
     tmp_path: Path, run_dir: Path
 ) -> None:

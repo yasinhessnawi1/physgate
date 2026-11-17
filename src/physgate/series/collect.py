@@ -22,11 +22,12 @@ outbox is taken out of the worktree:
   change check holds the attempt commit to every one of them, so the code is code the attempt
   commits with exactly those bytes (ignored or never-added code refuses the record there).
 
-A record whose module code changed after it was written, and that nothing else refuses, is
-**discarded**, not refused: the session went on working after the run and records again under
-a new id, and it cannot take the earlier record out of the outbox. It is never sealed, so a
-quantity that names it still refuses the attempt; the record alone does not. A changed writer
-is refused.
+A record whose module code changed after it was written, or was deleted or renamed since,
+and that nothing else refuses, is **discarded**, not refused: the session went on working
+after the run and records again under a new id, and it cannot take the earlier record out of
+the outbox. It is never sealed, so a quantity that names it still refuses the attempt; the
+record alone does not. It is listed with the seal of the bytes collected, and its review is
+shown it as no evidence. A changed or missing writer is refused.
 
 What this cannot prove is that the script produced the curve: a script that writes a curve
 it did not compute names itself honestly. Re-running the script is that proof, and it is not
@@ -58,7 +59,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 import physgate.series.writer as writer
-from physgate.orchestrator.trajectory import seal
+from physgate.orchestrator.trajectory import Seal, seal
 from physgate.series.exceptions import RecordRefusedError, RecordTamperedError
 from physgate.series.reader import SERIES_DIR, record_path
 from physgate.series.record import (
@@ -72,6 +73,7 @@ from physgate.series.record import (
 from physgate.series.seal import (
     MAX_ENTRIES,
     NAME_PATTERN,
+    OVERFLOW_NAME,
     CodeBlob,
     CodeDigest,
     SealedRecord,
@@ -109,6 +111,10 @@ class _RefusedError(Exception):
     """A file is not sealed; the message is the reason the session's end records."""
 
 
+class _GoneError(_RefusedError):
+    """A file of code is not where the record names it: deleted, or renamed, since."""
+
+
 class _SupersededError(Exception):
     """A record whose module code changed after it was written: discarded, not refused.
 
@@ -131,16 +137,23 @@ class _Listing:
     entries: list[SetAside] = field(default_factory=list)
     overflow: int = 0
 
-    def add(self, name: str, reason: str) -> None:
+    def add(self, name: str, reason: str, held: Seal | None = None) -> None:
         if len(self.entries) < MAX_ENTRIES - 1:
-            self.entries.append(SetAside(name=_printable(name), reason=reason[:500]))
+            self.entries.append(
+                SetAside(
+                    name=_printable(name),
+                    reason=reason[:500],
+                    sha256=None if held is None else held.sha256,
+                    length=None if held is None else held.length,
+                )
+            )
         else:
             self.overflow += 1
 
     def done(self) -> tuple[SetAside, ...]:
         if self.overflow:
             more = f"{self.overflow} more entries, set aside like the ones above"
-            return (*self.entries, SetAside(name="(more)", reason=more))
+            return (*self.entries, SetAside(name=OVERFLOW_NAME, reason=more))
         return tuple(self.entries)
 
 
@@ -347,12 +360,12 @@ def _code_bytes(base: Path, relative: PurePosixPath) -> bytes:
     except OSError as exc:
         reason = "is reached through a link" if exc.errno in _NOT_A_DIRECTORY else "is missing"
         msg = f"the code file {relative} {reason}"
-        raise _RefusedError(msg) from None
+        raise (_GoneError if exc.errno == errno.ENOENT else _RefusedError)(msg) from None
     try:
         fd = os.open(relative.name, _NOFOLLOW_READ, dir_fd=directory)
     except OSError as exc:
         msg = f"the code file {relative} cannot be read ({exc.strerror})"
-        raise _RefusedError(msg) from None
+        raise (_GoneError if exc.errno == errno.ENOENT else _RefusedError)(msg) from None
     finally:
         os.close(directory)
     try:
@@ -562,13 +575,15 @@ def _provenance(
     change check holds the attempt commit to: code the attempt does not commit with these
     bytes cannot stand behind the curve. A file outside the worktree is admitted only as the
     interpreter's own (:func:`_environment_code`), and is recorded. Every file is checked for
-    a refusal before a changed module file is reported, so a record that is both changed and
-    refused is refused.
+    a refusal before a changed or gone module file is reported, so a record that is both
+    changed and refused is refused.
 
     Raises:
         _RefusedError: a file lies outside the module and is not admissible as the interpreter's
-            own, cannot be read, or is the writer and changed since the record was written.
-        _SupersededError: a file of the module changed since the record was written.
+            own, cannot be read, or is the writer and changed or gone since the record was
+            written.
+        _SupersededError: a file of the module changed, or was deleted or renamed, since the
+            record was written.
     """
     script = _in_the_module(record.producer.script.path, module)
     if script == WRITER_PATH:
@@ -577,18 +592,24 @@ def _provenance(
     script_bytes = b""
     loaded: dict[str, CodeBlob] = {}
     environment: dict[str, CodeDigest] = {}
-    changed: PurePosixPath | None = None
+    changed: str | None = None
     for named in (record.producer.script, *record.producer.loaded):
         if named is not record.producer.script and PurePosixPath(named.path).is_absolute():
             environment[named.path] = _environment_code(named, roots)
             continue
         relative = _in_the_module(named.path, module)
-        data = _code_bytes(base, relative)
+        try:
+            data = _code_bytes(base, relative)
+        except _GoneError:
+            if relative == WRITER_PATH:
+                raise
+            changed = changed or f"{relative} was deleted or renamed"
+            continue
         if hashlib.sha256(data).hexdigest() != named.sha256:
             if relative == WRITER_PATH:
                 msg = f"{relative} changed after the record was written; run the script again"
                 raise _RefusedError(msg)
-            changed = changed or relative
+            changed = changed or f"{relative} changed"
             continue
         if relative == script:
             script_bytes = data
@@ -596,7 +617,7 @@ def _provenance(
             loaded[str(relative)] = CodeBlob(path=str(relative), blob=blob_id(data, object_format))
     if changed is not None:
         msg = (
-            f"{changed} changed after the record was written, so it is not sealed and a "
+            f"{changed} after the record was written, so it is not sealed and a "
             "quantity that names it refuses the attempt; a later run is recorded under a new id"
         )
         raise _SupersededError(msg)
@@ -734,7 +755,7 @@ def collect(
                 continue
             except _SupersededError as exc:
                 _move_aside(fd, name, discarded_at)
-                discarded.add(name, str(exc))
+                discarded.add(name, str(exc), seal(data))
                 continue
             _write_sealed(sealed_at, name, data)
             os.unlink(name, dir_fd=fd)
