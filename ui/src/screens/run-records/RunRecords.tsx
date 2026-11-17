@@ -151,14 +151,14 @@ function Records({
             <Term term="manifest">Manifest</Term>
           </dt>
           <dd>
-            <Id value={config.manifestId} />
+            <Id value={config.manifestId} short={8} />
           </dd>
           <dt>Harness commit</dt>
           <dd>
             {config.harnessCommit === null ? (
               <span className="pg-muted">no commit recorded</span>
             ) : (
-              <Id value={config.harnessCommit} />
+              <Id value={config.harnessCommit} short={8} />
             )}
           </dd>
           <dt>Engine · auth</dt>
@@ -181,7 +181,7 @@ function Records({
             Brief <Term term="digest">digest</Term>
           </dt>
           <dd>
-            <Id value={config.briefSha256} />
+            <Id value={config.briefSha256} short={8} />
           </dd>
           <dt>
             <Term term="seed">Seed</Term>
