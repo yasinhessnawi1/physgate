@@ -183,6 +183,7 @@ afterEach(() => {
   logged = [decomposed];
   reads = [];
   afterPost = null;
+  failing = new Set();
   vi.useRealTimers();
   document.body.innerHTML = "";
   document.head.innerHTML = "";
@@ -205,6 +206,8 @@ let logged: unknown[] = [decomposed];
 let reads: string[] = [];
 /** Run after each post is answered: how a row makes the server's state follow a decision. */
 let afterPost: (() => void) | null = null;
+/** Routes the server stand-in answers with a failure, as a restarting server would. */
+let failing = new Set<string>();
 
 /** The scripted run's listing once its first ``k`` parts are decided, and each part's view. */
 function decidedUpTo(k: number): void {
@@ -261,6 +264,10 @@ async function mounted(raised = false, item?: string): Promise<HTMLElement> {
       return Promise.resolve(said);
     }
     reads.push(url);
+    if (failing.has(url))
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: "the server is starting" }), { status: 503 }),
+      );
     if (url === `${base}/events`)
       return Promise.resolve(new Response(logged.map((e) => `${JSON.stringify(e)}\n`).join("")));
     return Promise.resolve(new Response(JSON.stringify(served[url]), { status: 200 }));
@@ -684,6 +691,53 @@ describe("the queue read again while the page is open", () => {
     }
   });
 
+  it("keeps the last good queue on screen when one refresh fails, and says so, with what was typed", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const host = await mounted();
+    choose(host, "I have it");
+    type(host, "Mass: value", "0.0095");
+    type(host, "Mass: unit", "kg");
+    const panel = host.querySelector(".pg-parts-decide");
+    expect(panel).not.toBeNull();
+    failing.add(`${BASE}/queue`);
+    await wait(5_000);
+    expect(host.querySelector(".pg-queue-refresh-failed")?.textContent).toBe(
+      "The latest refresh of this page failed; it tries again in a few seconds. What is shown is from the last refresh that worked.",
+    );
+    expect(host.textContent).not.toContain("The queue could not be read");
+    expect(host.querySelector(".pg-parts-decide")).toBe(panel);
+    expect((field(host, "Mass: value") as HTMLInputElement | null)?.value).toBe("0.0095");
+    expect((field(host, "Mass: unit") as HTMLInputElement | null)?.value).toBe("kg");
+    failing.clear();
+    await wait(5_000);
+    expect(host.querySelector(".pg-queue-refresh-failed")).toBeNull();
+    expect(host.querySelector(".pg-parts-decide")).toBe(panel);
+    expect((field(host, "Mass: value") as HTMLInputElement | null)?.value).toBe("0.0095");
+  });
+
+  it("keeps the part's panel, its name and what was typed when one refresh of the run's log fails", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const host = await mounted();
+    choose(host, "I have it");
+    type(host, "Mass: value", "0.0095");
+    type(host, "Mass: unit", "kg");
+    const panel = host.querySelector(".pg-parts-decide");
+    const named = host.querySelector(".pg-parts-component")?.textContent ?? "";
+    expect(named).toContain("Part 1 of 6");
+    failing.add(`${BASE}/events`);
+    await wait(5_000);
+    expect(host.querySelector(".pg-parts-decide")).toBe(panel);
+    expect(host.querySelector(".pg-parts-component")?.textContent).toBe(named);
+    expect((field(host, "Mass: value") as HTMLInputElement | null)?.value).toBe("0.0095");
+    expect((field(host, "Mass: unit") as HTMLInputElement | null)?.value).toBe("kg");
+    expect(host.querySelector(".pg-queue-refresh-failed")).not.toBeNull();
+    const before = reads.filter((r) => r === `${BASE}/events`).length;
+    failing.clear();
+    await wait(5_000);
+    expect(reads.filter((r) => r === `${BASE}/events`).length).toBeGreaterThan(before);
+    expect(host.querySelector(".pg-queue-refresh-failed")).toBeNull();
+  });
+
   it("keeps what a person typed while the queue is read again", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     const host = await mounted();
@@ -710,6 +764,22 @@ describe("the queue read again while the page is open", () => {
       "the item is no longer as shown",
     );
     expect((field(host, "Mass: value") as HTMLInputElement | null)?.value).toBe("0.0095");
+  });
+  it("keeps the refusal on screen when the part turns out to be decided elsewhere", async () => {
+    answer = () =>
+      new Response(JSON.stringify({ error: "not an open item", item: "run-parts-parts-1" }), {
+        status: 409,
+      });
+    afterPost = () => {
+      decidedUpTo(1);
+    };
+    const host = await mounted(false, "run-parts-parts-1");
+    await record(host);
+    expect(host.querySelector(".pg-parts-decide")).toBeNull();
+    expect(host.querySelector(".pg-queue-entry-on")?.textContent).toContain("run-parts-parts-1");
+    const refused = host.querySelector(".pg-parts-refused")?.textContent ?? "";
+    expect(refused).toContain("The server refused this choice, and nothing was written:");
+    expect(refused).toContain("not an open item");
   });
 });
 
@@ -746,6 +816,39 @@ describe("after a part is decided", () => {
     expect(focused?.type).toBe("radio");
     expect(focused?.checked).toBe(true);
     expect(focused?.closest(".pg-parts-decide")).not.toBeNull();
+  });
+
+  it("opens the part the page was first opened on again when it is clicked after the page moved on", async () => {
+    afterPost = () => {
+      decidedUpTo(1);
+    };
+    const host = await mounted(false, "run-parts-parts-1");
+    await record(host);
+    expect(host.querySelector(".pg-parts-component")?.textContent).toContain("Part 2 of 6");
+    const resolvedTab = [
+      ...host.querySelectorAll<HTMLElement>("button, [role='radio'], label"),
+    ].find((e) => e.textContent.trim().startsWith("Resolved"));
+    act(() => {
+      resolvedTab?.click();
+    });
+    const first = host.querySelector<HTMLAnchorElement>(
+      'a.pg-queue-entry[href*="run-parts-parts-1"]',
+    );
+    expect(first, "no list entry for the first part").not.toBeNull();
+    act(() => {
+      first?.click();
+    });
+    // The address names the first part again, as the page's router passes it on.
+    act(() => {
+      root?.render(
+        <Queue setHeader={vi.fn()} query={new URLSearchParams("item=run-parts-parts-1")} />,
+      );
+    });
+    await settle();
+    expect(host.querySelector(".pg-queue-entry-on")?.textContent ?? "").toContain(
+      "run-parts-parts-1",
+    );
+    expect(host.querySelector(".pg-parts-decide")).toBeNull();
   });
 
   it("once the last part is decided, says what the run does next", async () => {
